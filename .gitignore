@@ -1,0 +1,15 @@
+# build outputs
+bin/
+obj/
+build/
+builds/
+*.user
+
+# generated code output
+gen/
+
+# superpowers sdd workspace
+.superpowers/
+
+# opencode local state
+.opencode/
