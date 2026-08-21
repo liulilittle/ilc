@@ -220,6 +220,18 @@ int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t 
 Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t calendarId) { return nullptr; }
 Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t lcid) { return nullptr; }
 
+// Remaining Environment/Calendar/CultureInfo stubs
+int32_t icall_environment_get_resource_from_default(Il2CppString* name, Il2CppString* value) { return 0; }
+int32_t icall_environment_get_compatibility_flag(Il2CppString* flag) { return 0; }
+int32_t icall_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
+int32_t icall_calendar_data_native_get_calendars(int32_t calendarId, int32_t* calendars) { return 0; }
+int32_t icall_culture_info_native_get_locale_info_ex_int(int32_t lcid) { return 0; }
+void icall_culture_info_native_set_thread_locale(int32_t lcid) {}
+Il2CppObject* icall_encoding_table_native_create_open_file_mapping() { return nullptr; }
+void icall_assert_show_default_assert_dialog() {}
+void icall_log_add_log_switch(Il2CppString* name, int32_t level) {}
+void icall_log_modify_log_switch(Il2CppString* name, int32_t level) {}
+
 // Remaining Thread/Interlocked stubs
 void icall_synchronization_context_wait_helper(int32_t millisecondsTimeout) {}
 int32_t icall_compressed_stack_is_immediate_completion_candidate() { return 0; }
