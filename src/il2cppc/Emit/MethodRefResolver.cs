@@ -717,7 +717,17 @@ public static partial class MethodRefResolver
             case "System.Threading.DomainCompressedStack":
             case "System.Threading.OverlappedData":
             case "System.Security.Cryptography.Utils":
-            case "System.Security.Cryptography.X509Certificates.X509Utils": return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Security.Cryptography.X509Certificates.X509Utils":
+            case "System.DefaultBinder":
+            case "System.AppDomainSetup":
+            case "System.MarshalByRefObject":
+            case "System.MissingMemberException":
+            case "System.WeakReference`1":
+            case "System.CLRConfig":
+            case "System.Security.SecurityContext":
+            case "System.Security.SecurityManager":
+            case "System.Security.SecurityRuntime":
+            case "System.Security.Principal.Win32": return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Delegate": return TryMapDelegate(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Linq.Expressions.Expression":
             case "System.Linq.Expressions.LambdaExpression": return TryMapExprTree(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);

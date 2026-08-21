@@ -158,6 +158,33 @@ public static partial class MethodRefResolver
             case "nativeCompareOrdinalEx": return I("il2cpp::runtime::icall_string_native_compare_ordinal_ex", 6, true, false, false, new[] { "", "", "i", "i", "i", "i" });
             case "nativeCompareOrdinalIgnoreCaseWC": return I("il2cpp::runtime::icall_string_native_compare_ordinal_ignore_case_wc", 2, true, false, false, new[] { "", "" });
             case "InternalMarvin32HashString": return I("il2cpp::runtime::icall_string_internal_marvin32_hash_string", 1, true, false, false, new[] { "" });
+            // Remaining miscellaneous stubs
+            case "MemberwiseClone": return I("il2cpp::runtime::icall_object_memberwise_clone", 0, true, true, false);
+            case "GetDataPtrOffsetInternal": return I("il2cpp::runtime::icall_array_get_data_ptr_offset_internal", 0, true, true, false);
+            case "IsFastSort": return I("il2cpp::runtime::icall_string_is_fast_sort", 0, true, true, false);
+            case "IsAscii": return I("il2cpp::runtime::icall_string_is_ascii", 0, true, false, false);
+            case "InternalEqualTypes": return I("il2cpp::runtime::icall_delegate_internal_equal_types", 2, true, false, false);
+            case "CompareUnmanagedFunctionPtrs": return I("il2cpp::runtime::icall_delegate_compare_unmanaged_function_ptrs", 2, true, false, false);
+            case "InternalBlockCopy": return I("il2cpp::runtime::icall_buffer_internal_block_copy", 5, false, false, false, new[] { "", "i", "", "i", "i" });
+            case "RunParser": return I("il2cpp::runtime::icall_base_config_handler_run_parser", 0, true, true, false);
+            case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 0, true, false, false);
+            case "CanConvertPrimitiveObjectToType": return I("il2cpp::runtime::icall_default_binder_can_convert_primitive_object_to_type", 2, true, false, false, new[] { "", "i" });
+            case "InternalGetUnderlyingType": return I("il2cpp::runtime::icall_enum_internal_get_underlying_type", 1, true, true, false, new[] { "" });
+            case "UpdateContextProperty": return I("il2cpp::runtime::icall_app_domain_setup_update_context_property", 2, true, true, false, new[] { "", "s", "" });
+            case "GetComIUnknown": return I("il2cpp::runtime::icall_marshal_by_ref_object_get_com_i_unknown", 0, true, true, false);
+            case "FormatSignature": return I("il2cpp::runtime::icall_missing_member_exception_format_signature", 1, true, true, false, new[] { "s" });
+            case "op_Inequality": return I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false);
+            case "GetHashCodeOfPtr": return I("il2cpp::runtime::icall_value_type_get_hash_code_of_ptr", 1, true, false, false);
+            case "CheckLegacyManagedDeflateStream": return I("il2cpp::runtime::icall_clr_config_check_legacy_managed_deflate_stream", 0, true, false, false);
+            case "CheckThrowUnobservedTaskExceptions": return I("il2cpp::runtime::icall_clr_config_check_throw_unobserved_task_exceptions", 0, true, false, false);
+            case "GetImpersonationFlowMode": return I("il2cpp::runtime::icall_security_context_get_impersonation_flow_mode", 0, true, false, false);
+            case "IsDefaultThreadSecurityInfo": return I("il2cpp::runtime::icall_security_context_is_default_thread_security_info", 0, true, false, false);
+            case "_SetThreadSecurity": return I("il2cpp::runtime::icall_security_manager_set_thread_security", 1, false, false, false, new[] { "i" });
+            case "GetSecurityObjectForFrame": return I("il2cpp::runtime::icall_security_runtime_get_security_object_for_frame", 0, true, true, false);
+            case "OpenThreadToken": return I("il2cpp::runtime::icall_security_principal_win32_open_thread_token", 0, true, true, false);
+            case "nativeGetTwoDigitYearMax": return I("il2cpp::runtime::icall_globalization_calendar_data_native_get_two_digit_year_max", 1, true, false, false, new[] { "i" });
+            case "nativeGetCalendars": return I("il2cpp::runtime::icall_globalization_calendar_data_native_get_calendars", 1, true, true, false, new[] { "i" });
+            case "nativeGetLocaleInfoEx": return I("il2cpp::runtime::icall_globalization_culture_info_native_get_locale_info_ex", 1, true, true, false, new[] { "i" });
             // Crypto stubs (16 Utils + 14 X509)
             case "_CreateCSP": return I("il2cpp::runtime::icall_crypto_utils_create_csp", 0, true, true, false);
             case "_DecryptData": return I("il2cpp::runtime::icall_crypto_utils_decrypt_data", 1, true, true, false);

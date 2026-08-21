@@ -190,6 +190,36 @@ Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str) { re
 // Remaining Environment FailFast stubs
 void icall_environment_fail_fast(Il2CppObject* message) { std::abort(); }
 
+// Remaining miscellaneous stubs
+Il2CppObject* icall_object_memberwise_clone(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_array_get_data_ptr_offset_internal(Il2CppObject* arr) { return nullptr; }
+Il2CppObject* icall_string_is_fast_sort(Il2CppString* str) { return nullptr; }
+int32_t icall_string_is_ascii(Il2CppString* str) { return 1; }
+void icall_string_set_trail_byte(Il2CppObject* self, uint8_t value) {}
+bool icall_string_try_get_trail_byte(Il2CppObject* self, uint8_t* result) { if (result) *result = 0; return false; }
+int32_t icall_delegate_internal_equal_types(Il2CppObject* d1, Il2CppObject* d2) { return 1; }
+int32_t icall_delegate_compare_unmanaged_function_ptrs(Il2CppObject* d1, Il2CppObject* d2) { return 0; }
+void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+Il2CppObject* icall_base_config_handler_run_parser() { return nullptr; }
+int32_t icall_decimal_fcall_to_int32(Il2CppObject* d) { return 0; }
+int32_t icall_default_binder_can_convert_primitive_object_to_type(Il2CppObject* obj, int32_t targetType) { return 0; }
+Il2CppObject* icall_enum_internal_get_underlying_type(Il2CppClass* enumType) { return nullptr; }
+Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self, Il2CppString* name, Il2CppObject* value) { return nullptr; }
+Il2CppObject* icall_marshal_by_ref_object_get_com_i_unknown(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_missing_member_exception_format_signature(Il2CppString* str) { return nullptr; }
+int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2) { return 0; }
+int32_t icall_value_type_get_hash_code_of_ptr(void* ptr) { return 0; }
+int32_t icall_clr_config_check_legacy_managed_deflate_stream() { return 0; }
+int32_t icall_clr_config_check_throw_unobserved_task_exceptions() { return 0; }
+int32_t icall_security_context_get_impersonation_flow_mode() { return 0; }
+int32_t icall_security_context_is_default_thread_security_info() { return 1; }
+void icall_security_manager_set_thread_security(int32_t flag) {}
+Il2CppObject* icall_security_runtime_get_security_object_for_frame() { return nullptr; }
+Il2CppObject* icall_security_principal_win32_open_thread_token() { return nullptr; }
+int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
+Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t calendarId) { return nullptr; }
+Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t lcid) { return nullptr; }
+
 // AppDomain stubs
 Il2CppObject* icall_appdomain_is_unloading_forced_finalize() { return nullptr; }
 int32_t icall_appdomain_is_finalizing_for_unload() { return 0; }

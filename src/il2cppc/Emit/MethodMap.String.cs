@@ -363,6 +363,12 @@ public static partial class MethodRefResolver
             case "TryGetTrailByte":
                 return I("il2cpp::runtime::icall_string_try_get_trail_byte", 1, true, false, false,
                     new[] { "", "B:u1" });
+            // P6: remaining String internal methods.
+            case "nativeCompareOrdinalEx": return I("il2cpp::runtime::icall_string_native_compare_ordinal_ex", 6, true, false, false, new[] { "", "", "i", "i", "i", "i" });
+            case "nativeCompareOrdinalIgnoreCaseWC": return I("il2cpp::runtime::icall_string_native_compare_ordinal_ignore_case_wc", 2, true, false, false, new[] { "", "" });
+            case "InternalMarvin32HashString": return I("il2cpp::runtime::icall_string_internal_marvin32_hash_string", 1, true, false, false, new[] { "" });
+            case "IsFastSort": return I("il2cpp::runtime::icall_string_is_fast_sort", 0, true, true, false);
+            case "IsAscii": return I("il2cpp::runtime::icall_string_is_ascii", 0, true, false, false);
             default: return null;
         }
     }

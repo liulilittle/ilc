@@ -61,6 +61,12 @@ public static partial class MethodRefResolver
                     // emission -- the runtime fixes en-US/invariant output.
                     return I("il2cpp::runtime::icall_datetime_to_string_format", 2, true, true, true, new[] { "deref:dt", "", "drop" });
                 throw new NotSupportedException($"DateTime.ToString with {ps.Length} arg(s) not wired in M5");
+            // P6: DateTime internal methods (stubs).
+            case "GetSystemTimeAsFileTime": return I("il2cpp::runtime::icall_datetime_get_system_time_as_file_time", 0, true, false, false, null, "l");
+            case "ValidateSystemTime": return I("il2cpp::runtime::icall_datetime_validate_system_time", 1, true, false, false, new[] { "l" });
+            case "GetSystemTimeWithLeapSecondsHandling": return I("il2cpp::runtime::icall_datetime_get_system_time_with_leap_seconds_handling", 0, true, false, false, null, "l");
+            case "SystemFileTimeToSystemTime": return I("il2cpp::runtime::icall_datetime_system_file_time_to_system_time", 1, true, false, false, new[] { "l" }, "l");
+            case "SystemTimeToSystemFileTime": return I("il2cpp::runtime::icall_datetime_system_time_to_system_file_time", 1, true, false, false, new[] { "l" }, "l");
             default: return null;
         }
     }

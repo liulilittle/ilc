@@ -44,6 +44,11 @@ public static partial class MethodRefResolver
             // P6: Environment.CurrentManagedThreadId (net8+): the current
             // thread's managed thread id. Returns int32 (OS thread id).
             case "get_CurrentManagedThreadId": return I("il2cpp::runtime::icall_environment_get_current_managed_thread_id", 0, true, false, false);
+            // P6: Environment internal methods (stubs).
+            case "nativeGetEnvironmentVariable": return I("il2cpp::runtime::icall_environment_get_environment_variable_native", 1, true, true, false, new[] { "s" });
+            case "get_Version": return I("il2cpp::runtime::icall_environment_get_version", 0, true, false, false);
+            case "GetVersionEx": return I("il2cpp::runtime::icall_environment_get_version_ex", 0, true, false, false);
+            // FailFast: already in MethodMap.GC.cs via GC dispatch
             default: return null;
         }
     }
