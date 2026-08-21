@@ -1296,5 +1296,45 @@ int32_t icall_stringbuilder_get_length(Il2CppObject* self)
     return AsBuilder(self)->length;
 }
 
+//------------------------------------------------------------------------------
+// P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal -- net48 internal helpers
+// that replace the entire StringBuilder buffer contents.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, const Il2CppChar* buffer)
+{
+    ThrowIfNullReceiver(self);
+    auto* sb = AsBuilder(self);
+    if (buffer == nullptr)
+    {
+        sb->length = 0;
+        return self;
+    }
+    int32_t len = 0;
+    while (buffer[len] != u'\0') len++;
+    EnsureCapacity(sb, len);
+    for (int32_t i = 0; i < len; i++)
+        sb->buffer[i] = buffer[i];
+    sb->length = len;
+    return self;
+}
+
+Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* self, const int8_t* buffer)
+{
+    ThrowIfNullReceiver(self);
+    auto* sb = AsBuilder(self);
+    if (buffer == nullptr)
+    {
+        sb->length = 0;
+        return self;
+    }
+    int32_t len = 0;
+    while (buffer[len] != 0) len++;
+    EnsureCapacity(sb, len);
+    for (int32_t i = 0; i < len; i++)
+        sb->buffer[i] = static_cast<Il2CppChar>(static_cast<uint8_t>(buffer[i]));
+    sb->length = len;
+    return self;
+}
+
 } // namespace runtime
 } // namespace il2cpp
