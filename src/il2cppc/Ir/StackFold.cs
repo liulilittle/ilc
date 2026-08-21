@@ -22,6 +22,10 @@ public sealed class MethodContext
     // values are dead for a void method and must be discarded, else the
     // generated `return <residual>` fails to compile).
     public bool ReturnsVoid { get; init; }
+    // F2 (decimal-domain): the C++ type of a VALUETYPE return (e.g.
+    // il2cpp::runtime::Il2CppDecimal) -- null for every other return shape.
+    // Consumed by the C4716 trailing-return emission (TrailingReturn).
+    public string? StructReturnCpp { get; init; }
     // Exception regions (passthrough of MethodBodyInfo.ExceptionRegions): the
     // 'leave' fold validation needs to know the try/handler region the leave is
     // in and its natural end offset (audit H2).

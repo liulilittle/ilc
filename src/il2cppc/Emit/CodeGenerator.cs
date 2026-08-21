@@ -659,6 +659,10 @@ public static class CodeGenerator
                 // function would be dead code and its symbol unused).
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
+                // F2: compute BEFORE Fold so StructReturnCpp can seed the context.
+                var managedRetStruct = ManagedReturnStructName(md, m);
+                var returnType = managedRetStruct != null ? TypeCppName(managedRetStruct) : ReturnTypeCpp(bodyInfo.ReturnType);
+                _curStructReturnCpp = managedRetStruct != null ? returnType : null;
                 var stmts = StackFold.Fold(insns, new MethodContext
                 {
                     ArgCount = bodyInfo.ArgCount,
@@ -740,7 +744,8 @@ public static class CodeGenerator
                 }
                 refLocals = refLocals.Concat(paramRoots).ToList();
         var cppMethodName = MethodCppName(t, m);
-        var returnType = ReturnTypeCpp(bodyInfo.ReturnType);
+        // F2: managedRetStruct/returnType computed before Fold (StructReturnCpp
+        // seeding); returnType here reuses that computation for the declaration.
         var paramNames = Enumerable.Range(0, bodyInfo.ArgCount).Select(i => $"arg{i}").ToArray();
         var paramTypes = ParamTypesCpp(m, bodyInfo);
         // Silence unused this/parameter warnings (-Wall -Wextra quality gate): if an instance method
@@ -2179,7 +2184,7 @@ public static class CodeGenerator
         // and methods whose end is provably unreachable (a 'ret' or an
         // unconditional branch terminates the fall-through) need no value.
         if (endReachable && bodyInfo.ReturnType != SignatureTypeCode.Void)
-            w.Line(TrailingReturn(bodyInfo.ReturnType));
+            w.Line(TrailingReturn(bodyInfo.ReturnType, _curStructReturnCpp));
         _curNewArrLengths = new Dictionary<string, long>();
         _curNewArrElemSizes = new Dictionary<string, int>();
         _curStmtIndex = -1;
@@ -2271,6 +2276,12 @@ public static class CodeGenerator
     // scope -- a second method using the same tuple type saw an undefined
     // type (the macro guard only deduped TEXT, not C++ visibility).
     private static readonly SortedSet<string> TupleDefsNeeded = new(StringComparer.Ordinal);
+
+    // F2 (decimal-domain): the CURRENT method's VALUETYPE-return C++ type
+    // (null otherwise) -- set per-method in GenerateCore before body emission,
+    // consumed by the C4716 trailing-return path which runs in a scope that
+    // does not capture the per-method locals. Static = single-threaded tool.
+    private static string? _curStructReturnCpp;
 
     private static void EmitStmt(CppWriter w, Stmt s, MetadataReader md, IReadOnlyList<TypeDef> types, HashSet<string> branchTargets, Dictionary<string, string> locKind)
     {
@@ -6839,12 +6850,40 @@ public static class CodeGenerator
     // widths (int32_t/int64_t/double/intptr_t...), `return nullptr;` for the
     // reference returns (Il2CppObject* -- the same byte-set rule ReturnTypeCpp
     // uses, including GenericTypeInstance).
-    private static string TrailingReturn(SignatureTypeCode ret)
+    private static string TrailingReturn(SignatureTypeCode ret, string? structCpp = null)
     {
+        // F2 (decimal-domain): a VALUETYPE struct return zero-initializes the
+        // struct (`return Il2CppDecimal{};`) -- `return 0;` would not compile.
+        if (structCpp != null) return $"return {structCpp}{{}};";
         var b = (byte)ret;
         return (b is 0x0E or 0x12 or 0x1C or 0x40 || ret == SignatureTypeCode.GenericTypeInstance)
             ? "return nullptr;"
             : "return 0;";
+    }
+
+    // F2 (decimal-domain, net9/10 E2E campaign): decode a method's RETURN
+    // signature blob; when it is a VALUETYPE (0x11) return the full type
+    // name (System.Decimal / user structs) for TypeCppName mapping. Null
+    // for every other return shape. Same blob walk as
+    // PinvokeReturnStructName (:5142) but name-preserving.
+    private static string? ManagedReturnStructName(MetadataReader md, MethodDef m)
+    {
+        var handle = FindMethodHandle(md, m);
+        if (handle == null) return null;
+        var mi = md.GetMethodDefinition(handle.Value);
+        var sig = md.GetBlobReader(mi.Signature);
+        var hdr = sig.ReadSignatureHeader();
+        if (hdr.IsGeneric) sig.ReadCompressedInteger();
+        sig.ReadCompressedInteger(); // param count
+        var retByte = sig.ReadByte();
+        if (retByte != 0x11) return null; // not a VALUETYPE return
+        var owner = sig.ReadTypeHandle();
+        return owner.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)owner),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)owner),
+            _ => null,
+        };
     }
 
     // refl2 S3 (D4): does this type get a TypeInfo table/extern/registration?
