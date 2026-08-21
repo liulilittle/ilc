@@ -1113,5 +1113,61 @@ bool icall_string_contains_char(Il2CppString* self, char16_t value)
     return false;
 }
 
+//------------------------------------------------------------------------------
+// net9/10 E2E campaign: ReplaceLineEndings(replacementText) -- normalizes
+// CRLF / CR / LF sequences to 'replacementText' (net48 contract: CRLF is
+// ONE break, a lone CR or LF is one break). The 0-arg overload passes
+// Environment.NewLine from the caller side is impossible (no injection) --
+// so the no-replacement variant lives in environment.cpp where the newline
+// getter is in scope; THIS entry takes the explicit replacement.
+//------------------------------------------------------------------------------
+Il2CppString* icall_string_replace_line_endings(Il2CppString* self, Il2CppString* replacement)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    if (replacement == nullptr)
+        il2cpp_throw_argument_null_exception("replacementText");
+
+    // Pass 1: count output units.
+    int32_t outLen = 0;
+    for (int32_t i = 0; i < self->length; ++i)
+    {
+        if (self->chars[i] == u'\r')
+        {
+            outLen += replacement->length;
+            if (i + 1 < self->length && self->chars[i + 1] == u'\n') ++i; // CRLF = one break
+        }
+        else if (self->chars[i] == u'\n')
+        {
+            outLen += replacement->length;
+        }
+        else
+        {
+            ++outLen;
+        }
+    }
+
+    // Pass 2: emit.
+    Il2CppString* out = NewStringFromUnits(nullptr, outLen);
+    int32_t w = 0;
+    for (int32_t i = 0; i < self->length; ++i)
+    {
+        if (self->chars[i] == u'\r')
+        {
+            if (i + 1 < self->length && self->chars[i + 1] == u'\n') ++i;
+            for (int32_t k = 0; k < replacement->length; ++k) out->chars[w++] = replacement->chars[k];
+        }
+        else if (self->chars[i] == u'\n')
+        {
+            for (int32_t k = 0; k < replacement->length; ++k) out->chars[w++] = replacement->chars[k];
+        }
+        else
+        {
+            out->chars[w++] = self->chars[i];
+        }
+    }
+    return out;
+}
+
 } // namespace runtime
 } // namespace il2cpp

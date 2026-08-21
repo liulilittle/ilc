@@ -151,6 +151,14 @@ case "CopyTo":
         ? I("il2cpp::runtime::icall_string_copy_to_array", 4, false, false, false,
             new[] { "s", "i", "a", "i", "i" })
         : null;
+// net9/10 E2E campaign: ReplaceLineEndings(string) -- CRLF/CR/LF normalize.
+// The 0-arg overload (Environment.NewLine injection) is not expressible
+// here; it stays LOUD pending a newline-fetching wrapper.
+case "ReplaceLineEndings":
+    return ps.Length == 1 && ps[0] == 0x0E
+        ? I("il2cpp::runtime::icall_string_replace_line_endings", 1, true, true, true,
+            new[] { "s", "s" }, returnTypeName: "System.String")
+        : null;
             case "Trim":
                 // trimset sweep: ParamCount MUST track the IL arity (the
                 // TrimStart lockstep discipline below -- a params char[] call
