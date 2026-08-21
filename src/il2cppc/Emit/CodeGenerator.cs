@@ -3784,7 +3784,15 @@ public static class CodeGenerator
             (_, _, paramTypes, _) = MethodSignatureCoder.Decode(md, mr.Signature);
         }
         if (paramTypes.Length == 0) return Array.Empty<string>();
-        return paramTypes.Split(',').Select(p => p.StartsWith("r:", StringComparison.Ordinal) ? "Il2CppObject*" : "int32_t").ToArray();
+        // F1 secondary (decimal-domain): virtual-dispatch params get the same
+        // V:-aware typing as ParamTypesCpp -- a decimal value param must be
+        // the full struct, not a truncated int32_t slot.
+        return paramTypes.Split(',').Select(p => p switch
+        {
+            var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
+            var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
+            _ => "int32_t",
+        }).ToArray();
     }
 
     // Interface dispatch runtime helper: obj->klass looks up the interface mapping and returns the
@@ -6896,6 +6904,13 @@ public static class CodeGenerator
                     // the model uses for native pointers; the calli site
                     // casts to the target signature).
                     var f when f.StartsWith("F:", StringComparison.Ordinal) => "void*",
+                    // decimal-domain F1 (net9/10 E2E campaign): a VALUETYPE
+                    // value param ("V:<FullName>") is the runtime struct --
+                    // int32_t truncates the slot that "dec"-cast icall sites
+                    // address (&arg0 as const Il2CppDecimal*). TypeCppName
+                    // maps System.Decimal -> il2cpp::runtime::Il2CppDecimal
+                    // (plus DateTime/TimeSpan/Guid/user structs).
+                    var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
                     _ => "int32_t",
                 });
         return types.ToArray();

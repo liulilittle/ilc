@@ -160,15 +160,13 @@ static class Program
         Check("sb.length", sb.Length == 10);
 
         // ---- decimal ----
-        // NOTE: decimal LITERALS (0.1m) hit a constant-fold emitter defect
-        // (int32 slot passed as Il2CppDecimal* -- logged in discover.md), so
-        // values come from Parse here.
-        decimal dm = decimal.Parse("0.1") + decimal.Parse("0.2");
-        Check("decimal.add", dm == decimal.Parse("0.3"));
-        Check("decimal.mulcmp", (decimal.Parse("2") * decimal.Parse("3")) == decimal.Parse("6")
-            && decimal.Compare(decimal.Parse("2"), decimal.Parse("3")) < 0);
-        Check("decimal.parse", decimal.Parse("123.45") == decimal.Parse("123.450")
-            && decimal.Parse("123.45").ToString() == "123.45");
+        // Literals PINNED (TempSlotPass dec-kind fix): Roslyn lowers 6m to
+        // newobj Decimal::.ctor(int32) -- the fold+typing must keep the
+        // 16-byte slot. Parse-based checks retained as cross-validation.
+        decimal dm = 0.1m + 0.2m;
+        Check("decimal.add", dm == 0.3m && dm == decimal.Parse("0.3"));
+        Check("decimal.mulcmp", (2m * 3m) == 6m && decimal.Compare(2m, 3m) < 0);
+        Check("decimal.parse", decimal.Parse("123.45") == 123.45m && 123.45m.ToString() == "123.45");
 
         // ---- BitConverter ----
         byte[] bytes = BitConverter.GetBytes(258);
