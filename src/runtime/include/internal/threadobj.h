@@ -216,4 +216,14 @@ void icall_threadobj_interrupt(Il2CppObject* self);
 // Thread.get_OptimalMaxSpinWaitsPerSpinIteration: returns 1 (default).
 int32_t icall_threadobj_get_optimal_max_spin_waits(Il2CppObject* self);
 
+// P6: Thread legacy stubs (AppDomain/context/abort methods, .NET Framework 4.8 only).
+void icall_threadobj_set_app_domain_stack(Il2CppObject* self, int32_t stackSize);
+void icall_threadobj_restore_app_domain_stack(Il2CppObject* self);
+Il2CppObject* icall_threadobj_internal_get_current_thread();
+Il2CppObject* icall_threadobj_get_context_internal(Il2CppObject* self);
+Il2CppObject* icall_threadobj_internal_cross_context_callback(int32_t contextId, Il2CppObject* callback);
+void icall_threadobj_set_abort_reason(Il2CppObject* self, Il2CppObject* reason);
+Il2CppObject* icall_threadobj_get_abort_reason(Il2CppObject* self);
+void icall_threadobj_clear_abort_reason(Il2CppObject* self);
+
 }} // namespace il2cpp::runtime

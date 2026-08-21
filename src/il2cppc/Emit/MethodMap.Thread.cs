@@ -141,6 +141,15 @@ public static partial class MethodRefResolver
             case "SetApartmentStateNative": return I("il2cpp::runtime::icall_threadobj_set_apartment_state_native", 1, true, false, true, new[] { "", "i" });
             case "Interrupt": return I("il2cpp::runtime::icall_threadobj_interrupt", 0, false, false, true);
             case "get_OptimalMaxSpinWaitsPerSpinIteration": return I("il2cpp::runtime::icall_threadobj_get_optimal_max_spin_waits", 0, true, false, true);
+            // P6: Thread legacy stubs (.NET Framework 4.8 AppDomain/context/abort).
+            case "SetAppDomainStack": return I("il2cpp::runtime::icall_threadobj_set_app_domain_stack", 1, false, false, true, new[] { "", "i" });
+            case "RestoreAppDomainStack": return I("il2cpp::runtime::icall_threadobj_restore_app_domain_stack", 0, false, false, true);
+            case "InternalGetCurrentThread": return I("il2cpp::runtime::icall_threadobj_internal_get_current_thread", 0, true, false, false, returnTypeName: "System.Threading.Thread");
+            case "GetContextInternal": return I("il2cpp::runtime::icall_threadobj_get_context_internal", 0, true, false, true);
+            case "InternalCrossContextCallback": return I("il2cpp::runtime::icall_threadobj_internal_cross_context_callback", 2, true, false, false, new[] { "i", "" });
+            case "SetAbortReason": return I("il2cpp::runtime::icall_threadobj_set_abort_reason", 1, false, false, true);
+            case "GetAbortReason": return I("il2cpp::runtime::icall_threadobj_get_abort_reason", 0, true, false, true);
+            case "ClearAbortReason": return I("il2cpp::runtime::icall_threadobj_clear_abort_reason", 0, false, false, true);
             default: return null;
         }
     }

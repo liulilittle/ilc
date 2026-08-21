@@ -476,6 +476,48 @@ Il2CppObject* icall_threadobj_get_current_thread()
     return reinterpret_cast<Il2CppObject*>(t);
 }
 
+// P6: Thread legacy stubs (.NET Framework 4.8 AppDomain/context/abort methods).
+
+void icall_threadobj_set_app_domain_stack(Il2CppObject* self, int32_t stackSize)
+{
+    // no-op: AppDomain not supported in ILC model
+}
+
+void icall_threadobj_restore_app_domain_stack(Il2CppObject* self)
+{
+    // no-op: AppDomain not supported in ILC model
+}
+
+Il2CppObject* icall_threadobj_internal_get_current_thread()
+{
+    return nullptr; // no current thread in simplified model
+}
+
+Il2CppObject* icall_threadobj_get_context_internal(Il2CppObject* self)
+{
+    return nullptr; // no context in simplified model
+}
+
+Il2CppObject* icall_threadobj_internal_cross_context_callback(int32_t contextId, Il2CppObject* callback)
+{
+    return nullptr; // no cross-context callback in simplified model
+}
+
+void icall_threadobj_set_abort_reason(Il2CppObject* self, Il2CppObject* reason)
+{
+    // no-op: abort not supported in simplified model
+}
+
+Il2CppObject* icall_threadobj_get_abort_reason(Il2CppObject* self)
+{
+    return nullptr; // no abort reason in simplified model
+}
+
+void icall_threadobj_clear_abort_reason(Il2CppObject* self)
+{
+    // no-op: abort not supported in simplified model
+}
+
 // P6: Thread internal helpers -- stubs for simplified model.
 
 void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)
