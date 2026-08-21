@@ -123,6 +123,8 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException($"Type.op_Equality with {ps.Length} arg(s) not wired in M5 -- only the 2-arg (Type, Type) overload maps to string equality");
             // P6: Type.GetTypeFromHandleUnsafe (stub: returns nullptr).
             case "GetTypeFromHandleUnsafe": return I("il2cpp::runtime::icall_type_get_type_from_handle_unsafe", 1, true, true, false, new[] { "i" });
+            // P6: Type.op_Inequality (stub: returns 0).
+            case "op_Inequality": return I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false);
             default: return null;
         }
     }

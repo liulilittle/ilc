@@ -295,6 +295,8 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     throw new NotSupportedException("ToSingle not wired: VarR4FromDec is a separate v1-deferred task (decimal-domain.md 2.4)");
                 return null;
+            // P6: Decimal.FCallToInt32 (stub).
+            case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 0, true, false, false);
             default: return null;
         }
     }

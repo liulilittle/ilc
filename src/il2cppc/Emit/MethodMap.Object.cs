@@ -148,6 +148,8 @@ public static partial class MethodRefResolver
                 // a direct MemberInfo::get_Name on a MethodInfo would fall to
                 // the generated-name path (loud C++ undefined symbol).
                 return null;
+            // P6: Object.MemberwiseClone (stub).
+            case "MemberwiseClone": return I("il2cpp::runtime::icall_object_memberwise_clone", 0, true, true, false);
             default: return null;
         }
     }

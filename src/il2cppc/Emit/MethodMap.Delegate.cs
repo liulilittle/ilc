@@ -87,6 +87,9 @@ public static partial class MethodRefResolver
             case "InternalEqualMethodHandles": return I("il2cpp::runtime::icall_delegate_internal_equal_method_handles", 2, true, false, false);
             case "AdjustTarget": return I("il2cpp::runtime::icall_delegate_adjust_target", 2, true, true, false);
             case "GetCallStub": return I("il2cpp::runtime::icall_delegate_get_call_stub", 0, true, false, false);
+            // P6: Delegate internal methods (stubs).
+            case "InternalEqualTypes": return I("il2cpp::runtime::icall_delegate_internal_equal_types", 2, true, false, false);
+            case "CompareUnmanagedFunctionPtrs": return I("il2cpp::runtime::icall_delegate_compare_unmanaged_function_ptrs", 2, true, false, false);
             default: return null;
         }
     }

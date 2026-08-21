@@ -371,6 +371,8 @@ public static partial class MethodRefResolver
                 // argument is a boxed enum. The result rides the int32 slot.
                 return I("il2cpp::runtime::il2cpp_enum_compare_to", 1, true, false, true,
                     new[] { "enumval", "" });
+            // P6: Enum.InternalGetUnderlyingType (stub).
+            case "InternalGetUnderlyingType": return I("il2cpp::runtime::icall_enum_internal_get_underlying_type", 1, true, true, false, new[] { "" });
             default:
                 return null;
         }

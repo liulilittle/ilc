@@ -45,6 +45,11 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     "raw-pointer form: IL order (source, destination, destinationSizeInBytes, sourceBytesToCopy) cannot map positionally to runtime il2cpp_buffer_memory_copy(dst, src, count)");
             // Known members with no runtime icall on the current surface.
+            case "InternalBlockCopy":
+                // Buffer.InternalBlockCopy(Array src, int srcOffset, Array dst, int dstOffset, int count)
+                // Same as BlockCopy (the internal name).
+                return I("il2cpp::runtime::icall_buffer_internal_block_copy", 5, false, false, false,
+                    new[] { "", "i", "", "i", "i" });
             case "GetByte":
             case "SetByte":
                 throw new NotSupportedException("no runtime icall (runtime surface: block_copy/byte_length/memory_copy only)");
