@@ -147,7 +147,7 @@ public static partial class MethodRefResolver
             case "nativeGetEnvironmentVariable": return I("il2cpp::runtime::icall_environment_get_environment_variable_native", 1, true, true, false, new[] { "s" });
             case "get_Version": return I("il2cpp::runtime::icall_environment_get_version", 0, true, false, false);
             case "GetVersionEx": return I("il2cpp::runtime::icall_environment_get_version_ex", 0, true, false, false);
-            case "FailFast": return I("il2cpp::runtime::icall_environment_fail_fast", 1, false, false, false, new[] { "s" });
+            // FailFast: handled by MethodMap.Environment.cs via TryMapEnvironment
             // Remaining DateTime stubs
             case "GetSystemTimeAsFileTime": return I("il2cpp::runtime::icall_datetime_get_system_time_as_file_time", 0, true, false, false, null, "l");
             case "ValidateSystemTime": return I("il2cpp::runtime::icall_datetime_validate_system_time", 1, true, false, false, new[] { "l" });
@@ -182,6 +182,23 @@ public static partial class MethodRefResolver
             case "_SetThreadSecurity": return I("il2cpp::runtime::icall_security_manager_set_thread_security", 1, false, false, false, new[] { "i" });
             case "GetSecurityObjectForFrame": return I("il2cpp::runtime::icall_security_runtime_get_security_object_for_frame", 0, true, true, false);
             case "OpenThreadToken": return I("il2cpp::runtime::icall_security_principal_win32_open_thread_token", 0, true, true, false);
+            // CompressedStack/DomainCompressedStack GAP methods (dispatched to TryMapGC).
+            case "IsImmediateCompletionCandidate": return I("il2cpp::runtime::icall_compressed_stack_is_immediate_completion_candidate", 0, true, false, false);
+            case "GetDomainCompressedStack": return I("il2cpp::runtime::icall_compressed_stack_get_domain_compressed_stack", 0, true, true, false);
+            case "GetHomogeneousPLS": return I("il2cpp::runtime::icall_compressed_stack_get_homogeneous_pls", 0, true, true, false);
+            case "GetDescCount": return I("il2cpp::runtime::icall_domain_compressed_stack_get_desc_count", 0, true, false, false);
+            case "GetDomainPermissionSets": return I("il2cpp::runtime::icall_domain_compressed_stack_get_domain_permission_sets", 0, true, true, false);
+            case "GetDescriptorInfo": return I("il2cpp::runtime::icall_domain_compressed_stack_get_descriptor_info", 0, true, true, false);
+            case "IgnoreDomain": return I("il2cpp::runtime::icall_domain_compressed_stack_ignore_domain", 1, true, false, false, new[] { "i" });
+            // Remaining GAP methods (Calendar, CultureInfo, Encoding, Diagnostics)
+            case "GetResourceFromDefault": return I("il2cpp::runtime::icall_environment_get_resource_from_default", 2, true, false, false, new[] { "s", "" });
+            case "GetCompatibilityFlag": return I("il2cpp::runtime::icall_environment_get_compatibility_flag", 1, true, false, false, new[] { "s" });
+            case "nativeGetLocaleInfoExInt": return I("il2cpp::runtime::icall_culture_info_native_get_locale_info_ex_int", 1, true, false, false, new[] { "i" });
+            case "nativeSetThreadLocale": return I("il2cpp::runtime::icall_culture_info_native_set_thread_locale", 1, false, false, false, new[] { "i" });
+            case "nativeCreateOpenFileMapping": return I("il2cpp::runtime::icall_encoding_table_native_create_open_file_mapping", 0, true, true, false);
+            case "ShowDefaultAssertDialog": return I("il2cpp::runtime::icall_assert_show_default_assert_dialog", 0, false, false, false);
+            case "AddLogSwitch": return I("il2cpp::runtime::icall_log_add_log_switch", 2, false, false, false, new[] { "s", "i" });
+            case "ModifyLogSwitch": return I("il2cpp::runtime::icall_log_modify_log_switch", 2, false, false, false, new[] { "s", "i" });
             case "nativeGetTwoDigitYearMax": return I("il2cpp::runtime::icall_globalization_calendar_data_native_get_two_digit_year_max", 1, true, false, false, new[] { "i" });
             case "nativeGetCalendars": return I("il2cpp::runtime::icall_globalization_calendar_data_native_get_calendars", 1, true, true, false, new[] { "i" });
             case "nativeGetLocaleInfoEx": return I("il2cpp::runtime::icall_globalization_culture_info_native_get_locale_info_ex", 1, true, true, false, new[] { "i" });
