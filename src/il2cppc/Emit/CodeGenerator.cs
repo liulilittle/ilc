@@ -661,6 +661,13 @@ public static class CodeGenerator
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
                 // F2: compute BEFORE Fold so StructReturnCpp can seed the context.
                 var managedRetStruct = ManagedReturnStructName(md, m);
+                // Guid doctrine (batch 106): Guid VALUES are raw uint8_t[16]
+                // slots written through void icalls / fields -- there is no
+                // by-value Guid RETURN carrier (a C++ function cannot return
+                // an array). Keep the rejection but name the real reason.
+                if (managedRetStruct == "System.Guid")
+                    throw new NotSupportedException(
+                        "method returns System.Guid: the runtime models Guid values as uint8_t[16] slots written through void icalls or fields -- a by-value Guid return has no carrier; restructure to an out-parameter or field write");
                 var returnType = managedRetStruct != null ? TypeCppName(managedRetStruct) : ReturnTypeCpp(bodyInfo.ReturnType);
                 _curStructReturnCpp = managedRetStruct != null ? returnType : null;
                 var stmts = StackFold.Fold(insns, new MethodContext

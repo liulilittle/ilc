@@ -145,34 +145,36 @@ public class MethodMapTestsEnvRandom
     }
 
     [Fact]
-    public void Resolve_Environment_GetCurrentManagedThreadId_ThrowsLoud()
+    public void Resolve_Environment_GetCurrentManagedThreadId_MapsToThreadIdIcall()
     {
-        // net48 public static property with no runtime icall (the thread
-        // model does not exist). Falls through TryMapEnvironment's default to
-        // the Extra gate; without the gate it would silently resolve to a
-        // dangling generated-name symbol.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Environment", "get_CurrentManagedThreadId", Sig(0x08)),
-                "get_CurrentManagedThreadId"));
+        // P6 wiring: Environment.CurrentManagedThreadId resolves to the
+        // runtime thread-id icall (int32 OS thread id -- value-returning,
+        // zero params, no ref return).
+        var resolved = ResolveMember(Synthesize("System", "Environment", "get_CurrentManagedThreadId", Sig(0x08)),
+            "get_CurrentManagedThreadId");
 
-        Assert.Contains("System.Environment::get_CurrentManagedThreadId", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_environment_get_current_managed_thread_id", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
     }
 
     [Fact]
-    public void Resolve_Environment_GetEnvironmentVariable_WithTarget_CountBlindToBaseIcall()
+    public void Resolve_Environment_GetEnvironmentVariable_WithTarget_ThrowsLoud()
     {
-        // KNOWN GAP pin: GetEnvironmentVariable(string, EnvironmentVariableTarget)
-        // (2 explicit args, target enum = 0x08) is count-blind in
-        // MethodMap.Environment.cs -- it matches the base-name case and maps
-        // to the 1-param icall, silently dropping the target argument. The
-        // Extra gate cannot intercept (the ?? fallback only runs when the
-        // base file returns null). This test documents the current behavior;
-        // a count guard in MethodMap.Environment.cs must update it.
-        var resolved = ResolveMember(Synthesize("System", "Environment", "GetEnvironmentVariable", Sig(0x0E, 0x0E, 0x08)),
-            "GetEnvironmentVariable");
+        // Arity-guard pin (2026-08-22 surface sweep): the
+        // EnvironmentVariableTarget overload GetEnvironmentVariable(string,
+        // EnvironmentVariableTarget) (2 explicit args, target enum = 0x08)
+        // has no runtime icall -- MethodMap.Environment.cs returns null for
+        // the uncovered arity and the shape lands in
+        // TryMapEnvironmentExtra's LOUD gate (BclResolve prefixes
+        // "{owner}::{name}") instead of silently dropping the target
+        // argument on the 1-param icall.
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System", "Environment", "GetEnvironmentVariable", Sig(0x0E, 0x0E, 0x08)),
+                "GetEnvironmentVariable"));
 
-        Assert.Equal("il2cpp::runtime::icall_environment_get_environment_variable", resolved.CppName);
-        Assert.Equal(1, resolved.ParamCount);
+        Assert.Contains("System.Environment::GetEnvironmentVariable", ex.Message);
     }
 
     //--------------------------------------------------------------------------

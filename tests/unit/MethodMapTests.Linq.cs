@@ -27,9 +27,6 @@ using Xunit;
 // passthrough (managed ref slot, the single-cast static methodPtr ABI).
 //
 // LOUD (read-only runtime surface gaps, pinned here):
-//   * OrderBy(keySelector) -- linq_sort.h comparator ABI is int32_t(*)(T,T)
-//     but Enumerable.OrderBy passes a KEY SELECTOR Func<TSource,TKey>
-//     (int32_t(*)(T)); wiring directly is UB, no comparator synthesis pass.
 //   * ToList with a reference-element generic argument -- List<int32> only.
 public class MethodMapTestsLinq
 {
@@ -212,7 +209,8 @@ public class MethodMapTestsLinq
     public void Resolve_Where_Predicate_MapsToWhereI4Icall()
     {
         var resolved = ResolveMethodSpec(SynthesizeGeneric("Where",
-            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x15,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
             genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
@@ -415,7 +413,8 @@ public class MethodMapTestsLinq
     public void Resolve_OrderBy_KeySelector_MapsToOrderByKeyIcall()
     {
         var resolved = ResolveMethodSpec(SynthesizeGeneric("OrderBy",
-            memberRefSignature: new byte[] { 0x10, 0x02, 0x02, 0x15,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x08 }));
@@ -437,7 +436,8 @@ public class MethodMapTestsLinq
     public void Resolve_OrderBy_StringKey_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("OrderBy",
-            memberRefSignature: new byte[] { 0x10, 0x02, 0x02, 0x15,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0E })));

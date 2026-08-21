@@ -18,7 +18,8 @@ using Xunit;
 //   Round(x, digits) (float,int)     -> icall_mathf_round_digits_f
 //   ScaleB(x, n) (float,int)         -> icall_mathf_scalb_f
 //   Sign(float)/ILogB(float) -> int  -> icall_mathf_sign_i / ilogb_i
-//   ModF/SinCos                      -> LOUD (pointer out-params)
+//   ModF(float, out float)           -> icall_mathf_modf_f ("addr:d" out cast)
+//   SinCos(float) -> (float, float)  -> icall_mathf_sincos_f (TupleReturnFields)
 public class MethodMapMathFTests
 {
     [Theory]
@@ -142,24 +143,46 @@ public class MethodMapMathFTests
         Assert.Null(m.ResultKind);
     }
 
+    //--------------------------------------------------------------------------
+    // ModF -- P5: float ModF(float x, out float intPart) RESOLVES now: normal
+    // call emission, the BYREF out param decodes to its element byte
+    // (0x10 + 0x0C -> ps[1] == 0x0C) and the "addr:d" cast passes the ldloca
+    // intPart slot as a typed pointer (float-in-double model); NOT a
+    // ValueTuple return (TupleReturnFields null).
+    //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_MathF_ModF_ThrowsLoudPointerOutParams()
+    public void Resolve_MathF_ModF_MapsToModFIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "MathF", "ModF", Sig(0x0C, 0x0C, 0x11, 0x05)), "ModF"));
+        var m = ResolveMember(Synthesize("System", "MathF", "ModF", Sig(0x0C, 0x0C, 0x10, 0x0C)), "ModF");
 
-        Assert.Contains("System.MathF::ModF", ex.Message);
-        Assert.Contains("pointer out-params", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_mathf_modf_f", m.CppName);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.IsInstance);
+        Assert.Equal(2, m.ParamCount);
+        Assert.Equal(new[] { "d", "addr:d" }, m.ParamTypeNames);
+        Assert.Equal("d", m.ResultKind);
+        Assert.Null(m.TupleReturnFields);
     }
 
+    //--------------------------------------------------------------------------
+    // SinCos -- P5: the netcore public API returns ValueTuple<float,float>
+    // (GENERICINST 0x15 return: marker + VALUETYPE token + arity 2 + two R4
+    // elements). Resolves to icall_mathf_sincos_f with TupleReturnFields
+    // ["d","d"] (float-in-double slot model) -- the CodeGenerator AssignStmt
+    // handler emits fn(arg, &t.Item1, &t.Item2).
+    //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_MathF_SinCos_ThrowsLoudPointerOutParams()
+    public void Resolve_MathF_SinCos_MapsToSincosTupleIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "MathF", "SinCos", Sig(0x01, 0x0C, 0x11, 0x05, 0x11, 0x05)), "SinCos"));
+        var m = ResolveMember(Synthesize("System", "MathF", "SinCos",
+            new byte[] { 0x00, 0x01, 0x15, 0x11, 0x05, 0x02, 0x0C, 0x0C, 0x0C }), "SinCos");
 
-        Assert.Contains("System.MathF::SinCos", ex.Message);
-        Assert.Contains("pointer out-params", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_mathf_sincos_f", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.NotNull(m.TupleReturnFields);
+        Assert.Equal(2, m.TupleReturnFields!.Length);
+        Assert.Equal(new[] { "d", "d" }, m.TupleReturnFields);
     }
 
     //--------------------------------------------------------------------------

@@ -76,10 +76,9 @@ public class GuidSlotWiringTests
         // DEC-GAP (batch 106): the OptimizeTemps rule-3 inlining now SKIPS
         // value-slot icalls (dec/guid/ip4 ResultKinds), so the call no
         // longer reaches the expression position. The generated method is
-        // still rejected -- but at the M3 RETURN-TYPE gate instead: a
-        // VALUETYPE (0x11) return is unsupported (guid values flow through
-        // void writes / fields, not function returns). The rejection is the
-        // contract; the gate just moved earlier.
+        // still rejected -- at the F2 RETURN-TYPE gate: a by-value Guid
+        // RETURN has no carrier (Guid values are uint8_t[16] slots written
+        // through void icalls / fields). The rejection is the contract.
         var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_guid_" + Guid.NewGuid().ToString("N") + ".dll");
         File.WriteAllBytes(tmp, Synthesize(new byte[] { 0x00, 0x00, 0x11, 0x05 }, returnCall: true).ToArray());
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
@@ -87,7 +86,8 @@ public class GuidSlotWiringTests
         {
             var types = MetadataLoader.LoadAssembly(tmp);
             var ex = Assert.Throws<NotSupportedException>(() => CodeGenerator.Generate(types, dir, tmp));
-            Assert.Contains("not supported", ex.Message);
+            Assert.Contains("System.Guid", ex.Message);
+            Assert.Contains("no carrier", ex.Message);
         }
         finally
         {

@@ -9,10 +9,12 @@ using Xunit;
 // (MethodMap.Base64.cs -> TryMapBase64) routes the two runtime icalls
 // (il2cpp_convertbase64.h), rejects the char[]-array variants and the
 // offset/options overloads LOUDLY, and lets unknown members fall through to
-// the generated-name path. Also covers the ConvertExtra gap surface
-// (MethodMap.ConvertExtra.cs -> TryMapConvertExtra): the CHECKED narrowing
-// conversions with no runtime icall are rejected LOUD -- never silently
-// mapped to a wrong-range helper.
+// the generated-name path. Also covers the ConvertExtra surface
+// (MethodMap.ConvertExtra.cs -> TryMapConvertExtra): integer-source CHECKED
+// narrowings wire to the conv.ovf family (batch 152e/154b) -- while the
+// float/double sources (net48 rounds half-to-even; existing helpers
+// truncate) and ToDecimal (no decimal-target icall at all) stay LOUD --
+// never silently mapped to a wrong-semantics helper.
 //
 // Same synthesis approach as MethodMapTests.Buffer: a real ECMA-335 PE
 // holding exactly one MemberReference (System.Convert::<member>) with a
@@ -98,37 +100,90 @@ public class MethodMapBase64Tests
     }
 
     //--------------------------------------------------------------------------
-    // ConvertExtra: ToByte(int) -- a CHECKED narrowing (0..255) with no icall.
-    // Must fail LOUD, never route to a wrong-range helper (e.g. the char
-    // icall, which accepts 0..0xFFFF).
+    // ConvertExtra: ToByte(int) -- the CHECKED narrowing (0..255) wires to
+    // the conv.ovf narrow family (il2cpp_conv.h batch 152e/154b): the int32
+    // slot sign-extends ("l") into the checked int64 range test -- exact
+    // net48 semantics (a value negative under extension is precisely the
+    // OverflowException net48 throws).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Convert_ToByte_ThrowsLoud()
+    public void Resolve_Convert_ToByte_IntSource_MapsToCheckedNarrowIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveConvert("ToByte", new byte[] { 0x00, 0x01, 0x05, 0x08 }));
+        var resolved = ResolveConvert("ToByte", new byte[] { 0x00, 0x01, 0x05, 0x08 });
 
-        Assert.Contains("System.Convert::ToByte", ex.Message);
-        Assert.Contains("no runtime icall", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_conv_ovf_u1_i8", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "l" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { false }, resolved.ParamIsRef);
+        Assert.Null(resolved.ResultKind); // int32-carried result
     }
 
     //--------------------------------------------------------------------------
-    // The rest of the checked-narrowing family: same gap, same LOUD contract.
+    // The rest of the checked-narrowing family with an int source: all WIRE
+    // to the checked conv family now. u4/u8 targets take the int32 slot
+    // directly ("i"); ToUInt64's result rides an int64 slot ("l"), ToSingle's
+    // a double slot ("d" -- the MathF float-return precedent).
     //--------------------------------------------------------------------------
     [Theory]
+    [InlineData("ToSByte", "icall_conv_ovf_i1_i8", "l", null)]
+    [InlineData("ToInt16", "icall_conv_ovf_i2_i8", "l", null)]
+    [InlineData("ToUInt16", "icall_conv_ovf_u2_i8", "l", null)]
+    [InlineData("ToUInt32", "icall_conv_ovf_u4_i4", "i", null)]
+    [InlineData("ToUInt64", "icall_conv_ovf_u8_i4", "i", "l")]
+    [InlineData("ToSingle", "icall_conv_r4_i4", "i", "d")]
+    public void Resolve_Convert_NarrowingFamily_IntSource_Wires(
+        string member, string icall, string cast, string resultKind)
+    {
+        var resolved = ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, 0x08 });
+
+        Assert.Equal($"il2cpp::runtime::{icall}", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { cast }, resolved.ParamTypeNames);
+        Assert.Equal(resultKind, resolved.ResultKind);
+    }
+
+    //--------------------------------------------------------------------------
+    // Float/double SOURCES of the integer narrowings stay LOUD: net48 rounds
+    // half-to-even BEFORE the range check; the existing ovf_*_d helpers
+    // truncate first (Convert.ToByte(3.5) == 4 vs 3) -- silently different,
+    // so never mapped (rounding-aware icalls are on the edit_convert.md
+    // needs-new list).
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("ToByte")]
     [InlineData("ToSByte")]
     [InlineData("ToInt16")]
     [InlineData("ToUInt16")]
     [InlineData("ToUInt32")]
     [InlineData("ToUInt64")]
-    [InlineData("ToSingle")]
-    [InlineData("ToDecimal")]
-    public void Resolve_Convert_NarrowingFamily_ThrowsLoud(string member)
+    public void Resolve_Convert_NarrowingFamily_FloatDoubleSource_ThrowsLoud(string member)
+    {
+        var floatEx = Assert.Throws<NotSupportedException>(() =>
+            ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, 0x0C }));
+        Assert.Contains($"System.Convert::{member}", floatEx.Message);
+
+        var doubleEx = Assert.Throws<NotSupportedException>(() =>
+            ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, 0x0D }));
+        Assert.Contains($"System.Convert::{member}", doubleEx.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // ToDecimal: STILL LOUD -- no decimal-target runtime icall exists at all
+    // (ctor-based paths need the dec-result-slot protocol; see edit_convert.md).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Convert_ToDecimal_IntSource_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, 0x08 }));
+            ResolveConvert("ToDecimal", new byte[] { 0x00, 0x01, 0x05, 0x08 }));
 
-        Assert.Contains($"System.Convert::{member}", ex.Message);
+        Assert.Contains("System.Convert::ToDecimal", ex.Message);
+        Assert.Contains("no decimal-target runtime icalls", ex.Message);
     }
 
     //--------------------------------------------------------------------------

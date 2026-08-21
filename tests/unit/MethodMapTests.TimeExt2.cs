@@ -11,9 +11,10 @@ using Xunit;
 // TimeExt2 -> DateTimeExtra chain does NOT shadow the existing
 // MethodMap.DateTime.cs wiring (ToString(format) still lands on the
 // canonical formatter; get_Ticks maps through the PRIMARY DateTime domain
-// to icall_datetime_get_ticks -- wired in batch 151b -- so it is no longer
-// a loud-rejection gap), and that the remaining unwired DateTime surface is
-// rejected LOUDLY (the "{owner}::{name}" prefix -- see BclResolve's wrap).
+// to icall_datetime_get_ticks -- wired in batch 151b -- and DaysInMonth to
+// icall_datetime_days_in_month -- wired in the net9/10 campaign -- so neither
+// is a loud-rejection gap anymore), and that the remaining unwired DateTime
+// surface is rejected LOUDLY (the "{owner}::{name}" prefix -- see BclResolve's wrap).
 //
 // PEs are synthesized with System.Reflection.Metadata's own writer, exactly
 // like MethodRefResolverDispatchTests.cs. Signature bytes: 0x0A = i8 /
@@ -193,12 +194,23 @@ public class MethodMapTestsTimeExt2
     }
 
     [Fact]
-    public void Resolve_DateTime_DaysInMonth_ThrowsLoud()
+    public void Resolve_DateTime_DaysInMonth_MapsToDaysInMonthIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "DateTime", "DaysInMonth", Sig(0x08, 0x08, 0x08)), "DaysInMonth"));
+        // DaysInMonth was originally a loud-rejection gap, but the net9/10
+        // campaign wired it in the PRIMARY DateTime domain (MethodMap.DateTime.cs
+        // -> icall_datetime_days_in_month, time.cpp proleptic Gregorian). Like
+        // get_Ticks above, the wired mapping is the correct end state -- a loud
+        // "not wired" throw would be wrong for a core calendar accessor the
+        // runtime implements -- hence this test pins the mapping (static,
+        // 2 x int32 "i" casts, int32 result).
+        var resolved = ResolveMember(Synthesize("System", "DateTime", "DaysInMonth", Sig(0x08, 0x08, 0x08)), "DaysInMonth");
 
-        Assert.Contains("System.DateTime::DaysInMonth", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_datetime_days_in_month", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Null(resolved.ResultKind);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "i", "i" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

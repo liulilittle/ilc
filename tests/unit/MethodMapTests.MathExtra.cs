@@ -20,8 +20,10 @@ using Xunit;
 //   * Acosh/Asinh/Atanh/Cbrt/FusedMultiplyAdd/Log2 -- the .NET Core
 //               gMathFuncs super-functions (net48 member scan: MISSING all
 //               eight, so DORMANT mappings): single/3-arg double icalls.
-//   * SinCos/ModF -- dual-out / tuple-return / pointer-arg shapes with no
-//               transpiler emission: LOUD-rejected (icalls exist result-first).
+//   * SinCos -- P5: the netcore (double,double) ValueTuple shape RESOLVES to
+//               icall_math_sincos via TupleReturnFields (tuple-return wiring).
+//   * ModF -- STILL LOUD: the ValueTuple/out-param public shape has no Math
+//               mapping (rejected by name in TryMapMathExtra).
 //   * BigMul -- the only net48 System.Math member MethodMap.Math.cs does not
 //               map at all; no runtime icall exists in either header:
 //               LOUD-rejected.
@@ -137,40 +139,40 @@ public class MethodMapTestsMathExtra
     }
 
     //--------------------------------------------------------------------------
-    // SinCos -- netcore public shape returns a (double,double) ValueTuple and
-    // the FCall takes two double* outs; the transpiler has no tuple-return or
-    // dual-out-slot emission -> LOUD (icall_math_sincos exists result-first).
+    // SinCos -- P5: the netcore public API returns a (double,double)
+    // ValueTuple (GENERICINST 0x15 return) and RESOLVES now:
+    // icall_math_sincos with TupleReturnFields ["d","d"] -- the CodeGenerator
+    // AssignStmt handler emits fn(arg, &t.Item1, &t.Item2).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Math_SinCos_ThrowsLoud()
+    public void Resolve_Math_SinCos_MapsToSincosTupleIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Math", "SinCos", Sig(0x0D, 0x0D)), "SinCos"));
+        var resolved = ResolveMember(Synthesize("System", "Math", "SinCos",
+            new byte[] { 0x00, 0x01, 0x15, 0x11, 0x05, 0x02, 0x0D, 0x0D, 0x0D }), "SinCos");
 
-        Assert.Contains("System.Math::SinCos", ex.Message);
-        Assert.Contains("not wired", ex.Message);
-        Assert.Contains("icall_math_sincos", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_math_sincos", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "d" }, resolved.ParamTypeNames);
+        Assert.NotNull(resolved.TupleReturnFields);
+        Assert.Equal(2, resolved.TupleReturnFields!.Length);
+        Assert.Equal(new[] { "d", "d" }, resolved.TupleReturnFields);
     }
 
     //--------------------------------------------------------------------------
-    // ModF -- pointer-typed argument, no transpiler emission -> LOUD
-    // (icall_math_modf_d exists result-first).
+    // ModF -- STILL LOUD: the netcore public API returns a ValueTuple (double
+    // frac, out double intPart) and TryMapMathExtra rejects it by NAME
+    // regardless of ps (no Math.ModF mapping exists anywhere).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Math_ModF_ThrowsLoud()
     {
-        // The C# ModF shape is unsafe double ModF(double, double*) -- a pointer
-        // arg the transpiler cannot decode (MethodSignatureCoder rejects the
-        // 0x0F ELEMENT_TYPE_PTR byte), so the LOUD reject is exercised with a
-        // decodeable double(double) signature (the mapping throws on the NAME
-        // regardless of ps -- the icall needs a double* argument emission that
-        // does not exist).
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System", "Math", "ModF", Sig(0x0D, 0x0D)), "ModF"));
 
         Assert.Contains("System.Math::ModF", ex.Message);
         Assert.Contains("not wired", ex.Message);
-        Assert.Contains("icall_math_modf_d", ex.Message);
+        Assert.Contains("ValueTuple", ex.Message);
     }
 
     //--------------------------------------------------------------------------

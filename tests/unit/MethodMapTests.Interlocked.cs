@@ -187,31 +187,44 @@ public class MethodMapTestsInterlocked
     // Unmapped members fall through to the generated-name path (null)
     //--------------------------------------------------------------------------
     //--------------------------------------------------------------------------
-    // net48 audit §3 (2026-08-07): the floating-point atomics have no runtime
-    // icall -- LOUD, self-identifying (they must never fall through to the
-    // generated-name undefined symbol). SpeculationBarrier, by contrast, is
-    // WIRED (ICALL-C): the runtime ships the empty
+    // net48 audit §3 follow-up (P6 float-in-double model): the floating-point
+    // atomics wire to il2cpp_interlocked_exchange_double /
+    // il2cpp_interlocked_compare_exchange_double -- the runtime stores the
+    // bits in a double slot, so the result kind is "d" and the value params
+    // cast "d" (the byref location passes through uncast, "" convention).
+    // SpeculationBarrier stays WIRED (ICALL-C): the runtime ships the empty
     // il2cpp_interlocked_speculation_barrier (a hardware speculation fence --
     // semantically faithful because every ILC atomic is seq_cst).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Exchange_RefDouble_ThrowsLoud()
+    public void Resolve_Exchange_RefDouble_MapsToDoubleIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("Exchange", Sig(2, 0x08, 0x10, 0x0D, 0x0D)), "Exchange"));
+        // Exchange(ref double, double): real net48 blob 00 02 0D 10 0D 0D --
+        // ReadParamByte consumes the BYREF marker so ps = [0x0D, 0x0D].
+        var resolved = ResolveMember(Synthesize("Exchange", Sig(2, 0x0D, 0x10, 0x0D, 0x0D)), "Exchange");
 
-        Assert.Contains("System.Threading.Interlocked::Exchange", ex.Message);
-        Assert.Contains("floating-point", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_interlocked_exchange_double", resolved.CppName);
+        Assert.Equal("d", resolved.ResultKind);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "d" }, resolved.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_CompareExchange_RefDouble_ThrowsLoud()
+    public void Resolve_CompareExchange_RefDouble_MapsToDoubleIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("CompareExchange", Sig(3, 0x08, 0x10, 0x0D, 0x0D, 0x0D)), "CompareExchange"));
+        // CompareExchange(ref double, double, double): ps = [0x0D, 0x0D, 0x0D].
+        var resolved = ResolveMember(Synthesize("CompareExchange", Sig(3, 0x0D, 0x10, 0x0D, 0x0D, 0x0D)), "CompareExchange");
 
-        Assert.Contains("System.Threading.Interlocked::CompareExchange", ex.Message);
-        Assert.Contains("floating-point", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", resolved.CppName);
+        Assert.Equal("d", resolved.ResultKind);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "d", "d" }, resolved.ParamTypeNames);
     }
 
     [Fact]
