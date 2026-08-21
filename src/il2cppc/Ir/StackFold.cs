@@ -3129,6 +3129,13 @@ public static class StackFold
         // header; field access uses '.').
         static bool IsValueTypeOwner(string ownerFullName, IReadOnlyList<TypeDef> types)
         {
+            // D6 (valuetuple-local design): BCL System.ValueTuple`N instances
+            // have no TypeDef in the transpiled set, but their locals are the
+            // raw tuple STRUCT (D3 declaration) -- field reads must use
+            // `(&loc)->ItemK` / `.ItemK`, NOT the null-check + object-cast
+            // roundtrip (a struct does not convert to Il2CppObject*).
+            if (ownerFullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
+                return true;
             var t = types.FirstOrDefault(x => x.FullName == ownerFullName);
             return t != null && t.IsValueType;
         }

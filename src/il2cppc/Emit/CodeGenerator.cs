@@ -853,6 +853,15 @@ public static class CodeGenerator
         // assembly with no resources writes NO file).
         if (ResourceCount(assemblyPath) > 0)
             generatedHeader.Line("#include \"resource-pool.h\"");
+        // D5 (valuetuple-local design): flush every tuple struct used by any
+        // method body as a FILE-SCOPE definition -- generated.h is included
+        // by every .cpp, so declaration arms (D3) and P5 locals in ANY
+        // function see one shared type.
+        foreach (var def in TupleDefsNeeded)
+        {
+            var bar = def.IndexOf('|');
+            generatedHeader.Line($"struct {def[..bar]} {{ {def[(bar + 1)..]}; }};");
+        }
         File.WriteAllText(Path.Combine(outDir, "include", "internal", "generated.h"), generatedHeader.ToString());
 
         EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath));
@@ -1322,6 +1331,17 @@ public static class CodeGenerator
             // declares as the generated struct type (`MSG msg;`). The
             // P/Invoke GetMessageW(out MSG) writes through &msg -- an
             // int32_t slot would overrun.
+            // D3 (valuetuple-local design): a GENERICINST System.ValueTuple`N
+            // with flat primitive args arrives as "tuple:<codes>" (D2) and
+            // declares as the canonical tuple struct. The struct DEFINITION
+            // is emitted file-scope in generated.h (D5) so every function
+            // sees one type.
+            if (ilKind != null && ilKind.StartsWith("tuple:", StringComparison.Ordinal))
+            {
+                var codes = ilKind["tuple:".Length..].Split(',');
+                w.Line($"{TupleStructCppName(codes)} {d} {{ }};");
+                continue;
+            }
             if (ilKind != null && ilKind.StartsWith("v:", StringComparison.Ordinal))
             {
                 // guidcase (M7R2): a System.Guid IL-declared local is the
@@ -2077,13 +2097,12 @@ public static class CodeGenerator
                 // the definition is idempotent via a TU-wide macro guard.
                 var tupleTypeFields = string.Join("; ", trfTuple.Select((ft, ti) =>
                     $"{ExprTypeCpp(ft)} Item{ti + 1}"));
-                var tupleTypeName = $"System_ValueTuple_{trfTuple.Length}_{string.Join("_", trfTuple.Select(ft => ExprTypeCpp(ft)))}";
+                var tupleTypeName = TupleStructCppName(trfTuple);
                 var tupleLocal = $"__tuple_{asTuple.Target}";
-                w.LineAligned($"#ifndef IL2CPP_TUPLEDEF_{tupleTypeName}",
-                    $"IL {At(asTuple.SourceOpName, asTuple.SourceOffset)} -- P5: define ValueTuple struct ({trfTuple.Length} fields)");
-                w.LineAligned($"#define IL2CPP_TUPLEDEF_{tupleTypeName}");
-                w.LineAligned($"struct {tupleTypeName} {{ {tupleTypeFields}; }};");
-                w.LineAligned("#endif");
+                // D5: record for FILE-SCOPE emission into generated.h (the old
+                // inline #ifndef block was function-local -- a second method
+                // using the same tuple type saw an undefined type).
+                TupleDefsNeeded.Add($"{tupleTypeName}|{tupleTypeFields}");
                 w.LineAligned($"{tupleTypeName} {tupleLocal} {{ }};",
                     $"IL {At(asTuple.SourceOpName, asTuple.SourceOffset)} -- P5: allocate ValueTuple local");
                 // 2. Generate the call args + out-pointer args.
@@ -2237,6 +2256,21 @@ public static class CodeGenerator
         "i" => "int32_t",
         _ => throw new NotSupportedException($"Unknown ValueTuple field type code '{code}'")
     };
+
+    // D1 (valuetuple-local design): the CANONICAL C++ struct name for a
+    // ValueTuple with the given field type codes. Single source of truth --
+    // the P5 emission site, the local-declaration arm, and the read-back
+    // paths must all derive the SAME name or the emitted struct and its
+    // users diverge (the defect that kept Math.SinCos uncompilable).
+    internal static string TupleStructCppName(IReadOnlyList<string> fieldCodes)
+        => $"System_ValueTuple_{fieldCodes.Count}_{string.Join("_", fieldCodes.Select(ExprTypeCpp))}";
+
+    // D5 (valuetuple-local design): tuple struct DEFINITIONS collected during
+    // body emission and flushed FILE-SCOPE into generated.h before it is
+    // written. The old inline-in-function definition was function-local
+    // scope -- a second method using the same tuple type saw an undefined
+    // type (the macro guard only deduped TEXT, not C++ visibility).
+    private static readonly SortedSet<string> TupleDefsNeeded = new(StringComparer.Ordinal);
 
     private static void EmitStmt(CppWriter w, Stmt s, MetadataReader md, IReadOnlyList<TypeDef> types, HashSet<string> branchTargets, Dictionary<string, string> locKind)
     {

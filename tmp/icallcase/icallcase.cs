@@ -28,9 +28,11 @@ static class Program
         int drRem;
         Check("math.divrem", Math.DivRem(17, 5, out drRem) == 3 && drRem == 2);
         Check("math.clamp", Math.Clamp(15, 0, 10) == 10 && Math.Clamp(-1.0, 0.0, 10.0) == 0.0);
-        // NOTE: Math.SinCos/MathF.SinCos (ValueTuple return) excluded -- the P5
-        // tuple LOCAL-STORAGE path emits `int32_t locN` for the tuple target
-        // (defect logged in discover.md; needs local-typed-as-tuple support).
+        // D1-D6 valuetuple-local implementation: the IL local's GENERICINST
+        // signature types it as the tuple struct; reads are direct field
+        // accesses (no object-cast roundtrip).
+        var sc = Math.SinCos(0.0);
+        Check("math.sincos", sc.Item1 == 0.0 && sc.Item2 == 1.0);
 
         // ---- MathF ----
         Check("mathf.sqrt", MathF.Sqrt(16.0f) == 4.0f);

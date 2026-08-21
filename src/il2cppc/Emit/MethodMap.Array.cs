@@ -133,7 +133,25 @@ public static partial class MethodRefResolver
             case "Clear":
                 return I("il2cpp::runtime::icall_array_clear_int32", 3, false, false, false);
             case "Reverse":
-                if (count == 1) return I("il2cpp::runtime::icall_array_reverse", 1, false, false, false);
+                if (count == 1)
+                {
+                    // Generic Array.Reverse<T>(T[]) carries the element kind in
+                    // genArgs -- route string/object arrays to the reference-slot
+                    // reversers (arrayextra.h) instead of the int32-only
+                    // icall_array_reverse (e2e_arrsort finding). The non-generic
+                    // Reverse(Array) form keeps the historical int32 contract.
+                    if (genArgs != null)
+                    {
+                        return genArgs[0] switch
+                        {
+                            0x08 => I("il2cpp::runtime::icall_array_reverse", 1, false, false, false),
+                            0x0E => I("il2cpp::il2cpp_array_reverse_string", 1, false, false, false, new[] { "a" }),
+                            0x1C or 0x12 => I("il2cpp::il2cpp_array_reverse_object", 1, false, false, false, new[] { "a" }),
+                            _ => throw new NotSupportedException($"Array.Reverse<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
+                        };
+                    }
+                    return I("il2cpp::runtime::icall_array_reverse", 1, false, false, false);
+                }
                 return I("il2cpp::runtime::icall_array_reverse_range", 3, false, false, false);
             case "Copy":
                 // icall_array_copy(src, srcIndex, dst, dstIndex, length) -- the

@@ -271,6 +271,35 @@ public static class MethodBodyReader
                 HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th15),
                 _ => null,
             };
+            // D2 (valuetuple-local design): a GENERICINST System.ValueTuple`N
+            // with FLAT PRIMITIVE args decodes to the canonical "tuple:<codes>"
+            // kind -- CodeGenerator's declaration arm turns it into the
+            // matching System_ValueTuple_N_<types> struct (instead of the old
+            // int32_t truncation that broke Math.SinCos locals). Non-primitive
+            // or non-ValueTuple instantiations keep consuming + "v".
+            if (defName != null && defName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
+            {
+                var argcVt = sig.ReadCompressedInteger();
+                var codes = new List<string>();
+                var flat = true;
+                for (var i = 0; i < argcVt; i++)
+                {
+                    var ab = sig.ReadByte();
+                    switch (ab)
+                    {
+                        case 0x0A: codes.Add("l"); break;   // I8
+                        case 0x0C: codes.Add("d"); break;   // R4 (float-in-double slot)
+                        case 0x0D: codes.Add("d"); break;   // R8
+                        case 0x11 or 0x12: _ = sig.ReadTypeHandle(); flat = false; break;
+                        case 0x1D or 0x1F: _ = sig.ReadByte(); flat = false; break;
+                        case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); flat = false; break;
+                        case 0x15: flat = false; break;     // nested GenericInst: not decoded here
+                        default: codes.Add("i"); break;     // I4/U4/I2/U2/I1/U1/Bool/Char...
+                    }
+                }
+                if (flat)
+                    return "tuple:" + string.Join(",", codes);
+            }
             var argc = sig.ReadCompressedInteger();
             for (var i = 0; i < argc; i++)
             {
