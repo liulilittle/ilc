@@ -1300,7 +1300,7 @@ int32_t icall_stringbuilder_get_length(Il2CppObject* self)
 // P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal -- net48 internal helpers
 // that replace the entire StringBuilder buffer contents.
 //------------------------------------------------------------------------------
-Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, const Il2CppChar* buffer)
+Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, const char16_t* buffer)
 {
     ThrowIfNullReceiver(self);
     auto* sb = AsBuilder(self);
@@ -1311,9 +1311,16 @@ Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, co
     }
     int32_t len = 0;
     while (buffer[len] != u'\0') len++;
-    EnsureCapacity(sb, len);
+    // Ensure capacity: if too small, grow via the existing GrowBuffer path.
+    if (len > sb->capacity)
+    {
+        Il2CppObject* selfObj = self;
+        GrowBuffer(&selfObj, len);
+        sb = AsBuilder(selfObj);
+    }
+    auto* dst = reinterpret_cast<char16_t*>(sb->chars->data);
     for (int32_t i = 0; i < len; i++)
-        sb->buffer[i] = buffer[i];
+        dst[i] = buffer[i];
     sb->length = len;
     return self;
 }
@@ -1329,9 +1336,15 @@ Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* sel
     }
     int32_t len = 0;
     while (buffer[len] != 0) len++;
-    EnsureCapacity(sb, len);
+    if (len > sb->capacity)
+    {
+        Il2CppObject* selfObj = self;
+        GrowBuffer(&selfObj, len);
+        sb = AsBuilder(selfObj);
+    }
+    auto* dst = reinterpret_cast<char16_t*>(sb->chars->data);
     for (int32_t i = 0; i < len; i++)
-        sb->buffer[i] = static_cast<Il2CppChar>(static_cast<uint8_t>(buffer[i]));
+        dst[i] = static_cast<char16_t>(static_cast<uint8_t>(buffer[i]));
     sb->length = len;
     return self;
 }

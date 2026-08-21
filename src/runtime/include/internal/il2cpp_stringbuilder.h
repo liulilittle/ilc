@@ -318,7 +318,7 @@ int32_t icall_stringbuilder_get_length(Il2CppObject* self);
 // P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal — net48 internal helpers.
 // ReplaceBufferInternal(char* buffer): replaces the entire buffer contents
 // with the given char buffer. Returns the SAME builder.
-Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, const Il2CppChar* buffer);
+Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, const char16_t* buffer);
 // ReplaceBufferAnsiInternal(sbyte* buffer): replaces the entire buffer contents
 // with the given ANSI byte buffer (each byte → char). Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* self, const int8_t* buffer);
