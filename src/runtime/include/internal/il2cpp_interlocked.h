@@ -91,4 +91,14 @@ void* il2cpp_interlocked_compare_exchange_pointer(void** location, void* value, 
 // barrier to close.
 void il2cpp_interlocked_speculation_barrier();
 
+// P6: Interlocked float/double atomics via bit-reinterpretation.
+// IEEE 754 float/double have the same size as int32/int64 respectively,
+// so the underlying int32/int64 atomic is safe for bitwise exchange/compare.
+float il2cpp_interlocked_exchange_float(float* location, float value);
+double il2cpp_interlocked_exchange_double(double* location, double value);
+float il2cpp_interlocked_compare_exchange_float(float* location, float value, float comparand);
+double il2cpp_interlocked_compare_exchange_double(double* location, double value, double comparand);
+float il2cpp_interlocked_add_float(float* location, float value);
+double il2cpp_interlocked_add_double(double* location, double value);
+
 }} // namespace il2cpp::runtime

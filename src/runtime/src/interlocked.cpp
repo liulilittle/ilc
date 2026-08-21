@@ -172,4 +172,70 @@ void il2cpp_interlocked_speculation_barrier()
 {
 }
 
+//------------------------------------------------------------------------------
+// P6: Interlocked float/double atomics via bit-reinterpretation.
+// IEEE 754 float == 4 bytes == int32; double == 8 bytes == int64.
+// The underlying int32/int64 atomic is safe for bitwise exchange/compare
+// because the bit pattern is preserved (no arithmetic conversion).
+//------------------------------------------------------------------------------
+float il2cpp_interlocked_exchange_float(float* location, float value)
+{
+    int32_t old = il2cpp_interlocked_exchange(
+        reinterpret_cast<int32_t*>(location),
+        *reinterpret_cast<int32_t*>(&value));
+    return *reinterpret_cast<float*>(&old);
+}
+
+double il2cpp_interlocked_exchange_double(double* location, double value)
+{
+    int64_t old = il2cpp_interlocked_exchange64(
+        reinterpret_cast<int64_t*>(location),
+        *reinterpret_cast<int64_t*>(&value));
+    return *reinterpret_cast<double*>(&old);
+}
+
+float il2cpp_interlocked_compare_exchange_float(float* location, float value, float comparand)
+{
+    int32_t old = il2cpp_interlocked_compare_exchange(
+        reinterpret_cast<int32_t*>(location),
+        *reinterpret_cast<int32_t*>(&value),
+        *reinterpret_cast<int32_t*>(&comparand));
+    return *reinterpret_cast<float*>(&old);
+}
+
+double il2cpp_interlocked_compare_exchange_double(double* location, double value, double comparand)
+{
+    int64_t old = il2cpp_interlocked_compare_exchange64(
+        reinterpret_cast<int64_t*>(location),
+        *reinterpret_cast<int64_t*>(&value),
+        *reinterpret_cast<int64_t*>(&comparand));
+    return *reinterpret_cast<double*>(&old);
+}
+
+float il2cpp_interlocked_add_float(float* location, float value)
+{
+    // ExchangeAdd for float: atomic add using CAS loop.
+    for (;;)
+    {
+        float old_val = *location;
+        float new_val = old_val + value;
+        float prev = il2cpp_interlocked_compare_exchange_float(location, new_val, old_val);
+        if (*reinterpret_cast<int32_t*>(&prev) == *reinterpret_cast<int32_t*>(&old_val))
+            return new_val;
+    }
+}
+
+double il2cpp_interlocked_add_double(double* location, double value)
+{
+    // ExchangeAdd for double: atomic add using CAS loop.
+    for (;;)
+    {
+        double old_val = *location;
+        double new_val = old_val + value;
+        double prev = il2cpp_interlocked_compare_exchange_double(location, new_val, old_val);
+        if (*reinterpret_cast<int64_t*>(&prev) == *reinterpret_cast<int64_t*>(&old_val))
+            return new_val;
+    }
+}
+
 }} // namespace il2cpp::runtime

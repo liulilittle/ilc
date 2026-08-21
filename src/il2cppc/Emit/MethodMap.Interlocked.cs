@@ -54,6 +54,7 @@ public static partial class MethodRefResolver
                 return null;
             }
             case "Add":
+            case "ExchangeAdd":
                 return ps.Length == 2 && ps[0] == 0x0A && ps[1] == 0x0A
                     ? I("il2cpp::runtime::il2cpp_interlocked_add64", 2, true, false, false, new[] { "", "l" }, "l")
                     : ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08
@@ -67,15 +68,12 @@ public static partial class MethodRefResolver
                     : ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false,
                         new[] { "pobj", "" })
-                    // net48 audit §3 (2026-08-07): the floating-point
-                    // Exchange(ref float/double, ...) overloads (audit rows
-                    // 534/535) have no runtime icall -- il2cpp_interlocked.h
-                    // ships only the int32/int64/pointer atomics, and a
-                    // double atomic is not even guaranteed on every target.
-                    // LOUD, self-identifying.
-                    : ps.Length == 2 && ps[0] is 0x0C or 0x0D
-                    ? throw new NotSupportedException(
-                        "Exchange(ref float/double, ...) not wired: il2cpp_interlocked.h ships no floating-point atomic (only int32/int64/pointer Exchange); a double atomic is not portable across the supported targets")
+                    // P6: Interlocked Exchange(ref float/double, float/double):
+                    // bit-reinterpret float→int32, double→int64 and use the
+                    // underlying int32/int64 atomic. IEEE 754 guarantees same size.
+                    // Accept any combination of 0x0C(R4)/0x0D(R8) for the two params.
+                    : ps.Length == 2 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D
+                    ? I("il2cpp::runtime::il2cpp_interlocked_exchange_double", 2, true, false, false, new[] { "", "d" }, "d")
                     : null;
             case "CompareExchange":
                 return ps.Length == 3 && ps[0] == 0x0A && ps[1] == 0x0A && ps[2] == 0x0A
@@ -85,12 +83,9 @@ public static partial class MethodRefResolver
                     : ps.Length == 3 && ps[0] == 0x1C && ps[1] == 0x1C && ps[2] == 0x1C
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false,
                         new[] { "pobj", "", "" })
-                    // net48 audit §3 (2026-08-07): the floating-point
-                    // CompareExchange overloads (audit rows 536/537) have no
-                    // runtime icall -- same portability wall as Exchange.
-                    : ps.Length == 3 && ps[0] is 0x0C or 0x0D
-                    ? throw new NotSupportedException(
-                        "CompareExchange(ref float/double, ...) not wired: il2cpp_interlocked.h ships no floating-point atomic (only int32/int64/pointer CompareExchange); a double atomic is not portable across the supported targets")
+                    // P6: Interlocked CompareExchange(ref float/double, float/double, float/double):
+                    : ps.Length == 3 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D && ps[2] is 0x0C or 0x0D
+                    ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d")
                     : null;
             case "SpeculationBarrier":
                 // ICALL-C (2026-08-07): the runtime ships the empty
