@@ -74,6 +74,28 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x0D && ps[1] == 0x0D && ps[2] == 0x0D)
                     return I("il2cpp::runtime::icall_math_fma_d", 3, true, false, false, null, "d");
                 return null;
+            // net9/10 E2E campaign (math sweep): the DOUBLE IEEE-754-2019
+            // family (mathext.cpp mirrors of the mathf float impls).
+            case "MaxMagnitude":
+                return ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_max_magnitude_d", 2, true, false, false, null, "d")
+                    : null;
+            case "MinMagnitude":
+                return ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_min_magnitude_d", 2, true, false, false, null, "d")
+                    : null;
+            case "ILogB":
+                return ps.Length == 1 && ps[0] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_ilogb_d", 1, true, false, false, new[] { "d" })
+                    : null;
+            case "ScaleB":
+                return ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x08
+                    ? I("il2cpp::runtime::icall_math_scaleb_d", 2, true, false, false, new[] { "d", "i" }, "d")
+                    : null;
+            case "CopySign":
+                return ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_copy_sign_d", 2, true, false, false, null, "d")
+                    : null;
             // --- DivRem: net48 PUBLIC (reachable) -- the corert Math.DivModInt
             // family exposed result-first. The BYREF out param decodes to its
             // element byte (ReadParamByte, 0x10 recursion), so both forms match

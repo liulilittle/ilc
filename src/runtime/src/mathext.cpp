@@ -505,4 +505,43 @@ double icall_math_round_digits_mode_d(double value, int32_t digits, int32_t mode
     return value;
 }
 
+
+// net9/10 E2E campaign (math sweep): the DOUBLE IEEE-754-2019 family --
+// mirrors of the mathf.cpp float implementations (MaxMagnitude/MinMagnitude
+// semantics: NaN propagates, +0 beats -0 on ties; ILogB: FP_ILOGB0/FP_ILOGBNAN
+// pass through; ScaleB: scalbn; CopySign: signbit transfer).
+double icall_math_max_magnitude_d(double x, double y)
+{
+    const double ax = std::fabs(x);
+    const double ay = std::fabs(y);
+    if (ax > ay || std::isnan(ax)) return x;
+    if (ax == ay) return std::signbit(x) ? y : x;
+    return y;
+}
+
+double icall_math_min_magnitude_d(double x, double y)
+{
+    const double ax = std::fabs(x);
+    const double ay = std::fabs(y);
+    if (ax < ay || std::isnan(ax)) return x;
+    if (ax == ay) return std::signbit(x) ? x : y;
+    return y;
+}
+
+int32_t icall_math_ilogb_d(double value)
+{
+    return std::ilogb(value);
+}
+
+double icall_math_scaleb_d(double x, int32_t n)
+{
+    return std::scalbn(x, n);
+}
+
+double icall_math_copy_sign_d(double x, double y)
+{
+    return std::copysign(x, y);
+}
+
 }} // namespace il2cpp::runtime
+

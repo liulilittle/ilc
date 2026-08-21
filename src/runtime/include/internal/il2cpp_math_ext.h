@@ -146,6 +146,19 @@ double icall_math_cbrt_d(double value);
 // correctly-rounded fma. NaN/Inf propagate per IEEE-754.
 double icall_math_fma_d(double x, double y, double z);
 
+// net9/10 E2E campaign (math sweep): the DOUBLE IEEE-754-2019 family --
+// mirrors of the mathf.cpp float implementations (mathext.cpp).
+// MaxMagnitude/MinMagnitude: NaN propagates; +0 beats -0 on magnitude ties.
+double icall_math_max_magnitude_d(double x, double y);
+double icall_math_min_magnitude_d(double x, double y);
+// ILogB(double): std::ilogb -- base-2 exponent as int32 (FP_ILOGB0/FP_ILOGBNAN
+// pass through per the target libc).
+int32_t icall_math_ilogb_d(double value);
+// ScaleB(double x, int n): std::scalbn -- x * 2^n.
+double icall_math_scaleb_d(double x, int32_t n);
+// CopySign(double x, double y): |x| with y's sign bit (std::copysign).
+double icall_math_copy_sign_d(double x, double y);
+
 // Math.Log2(double): std::log2 -- base-2 logarithm, C99. Log2(1) == 0,
 // Log2(2) == 1, Log2(0) == -inf, Log2(x < 0) -> NaN (netcore: no exception).
 double icall_math_log2_d(double value);
