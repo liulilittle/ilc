@@ -46,6 +46,9 @@ public static partial class MethodRefResolver
                 // Exception.ToString() on the carrier cannot render; fall
                 // through to the vtable path (loud downstream failure).
                 return null;
+            // P6: Exception internal helpers (stubs).
+            case "SaveStackTracesFromDeepCopy": return I("il2cpp::runtime::icall_exception_save_stack_traces_from_deep_copy", 0, false, false, true);
+            case "GetExceptionCount": return I("il2cpp::runtime::icall_exception_get_exception_count", 0, true, false, false);
             default:
                 return null;
         }

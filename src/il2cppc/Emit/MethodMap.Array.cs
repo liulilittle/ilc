@@ -260,6 +260,9 @@ public static partial class MethodRefResolver
                 // void Initialize(): non-reference arrays zero their element
                 // storage (memset) -- the observable net48 contract.
                 return I("il2cpp::runtime::icall_array_initialize", 0, false, false, true);
+            // P6: Array.GetCorElementTypeOfElementType -- returns the CorElementType
+            // of the array's element type (stub: returns 4 = ELEMENT_TYPE_I4).
+            case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);
             default: return null;
         }
     }
