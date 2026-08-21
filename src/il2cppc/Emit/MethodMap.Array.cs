@@ -6,6 +6,13 @@ namespace Il2Cpp.Transpiler.Emit;
 // LastIndexOf<T> dispatch on the generic argument type bytes).
 // Owners: System.Array
 //
+// Domains: the icall layer (il2cpp_array_ext.h / _ext2.h), the ArraySort
+// direct-call domain (arraysort.h, see MethodMap.ArraySort.cs) and -- since
+// ARRAYEXTRA (2026-08-22) -- the arrayextra.h direct-call domain for the
+// boxed element accessors (GetValue/SetValue; runtime element-kind dispatch)
+// plus the ConstrainedCopy alias of icall_array_copy (validation fully
+// precedes mutation there, which IS the constrained contract).
+//
 // Dispatch: the generic Sort/IndexOf/BinarySearch instantiations whose
 // element type has NO icall-layer entry YIELD here (return null) to the
 // ArraySort direct-call domain (MethodMap.ArraySort.cs, arraysort.h): uint32/
@@ -133,6 +140,16 @@ public static partial class MethodRefResolver
                 // (Array, Array, int) overload would need two injected zeros.
                 if (count == 5) return I("il2cpp::runtime::icall_array_copy", 5, false, false, false);
                 throw new NotSupportedException($"Array.Copy with {count} arg(s) not wired: the runtime icall needs (src, srcIndex, dst, dstIndex, length)");
+            case "ConstrainedCopy":
+                // CONSTRAINED (2026-08-22): Array.ConstrainedCopy(Array, int,
+                // Array, int, int) -- net48 has ONLY this 5-arg form. The
+                // constrained contract (every failure precedes ANY mutation)
+                // is exactly what icall_array_copy already implements
+                // (arrayext.cpp:188-211: null -> indices -> ranges ->
+                // element-kind ArrayTypeMismatch all throw BEFORE the
+                // memmove), so the entry is the SAME icall as Copy above.
+                if (count == 5) return I("il2cpp::runtime::icall_array_copy", 5, false, false, false);
+                throw new NotSupportedException($"Array.ConstrainedCopy with {count} arg(s) not wired: only the (Array, int, Array, int, int) shape exists in net48");
             case "FindIndex":
                 // arrayext2 (2026-08-09, rtfind-b23): the DELEGATE form is
                 // now wired -- icall_array_find_index (il2cpp_array_ext2.h:145)
@@ -213,6 +230,12 @@ public static partial class MethodRefResolver
                     && genArgs[0] == 0x08 && genArgs[1] == 0x08)   // ConvertAll<int,int>
                     return I("il2cpp::runtime::icall_array_convert_all_i4_i4", 2, true, true, false,
                         new[] { "a", "" });
+                // net9/10 E2E icallcase: ConvertAll<string,int>(string[], int.Parse)
+                // -- the string source variant (arrayext2 str_i4 icall).
+                if (genArgs != null && genArgs.Length == 2
+                    && genArgs[0] == 0x0E && genArgs[1] == 0x08)   // ConvertAll<string,int>
+                    return I("il2cpp::runtime::icall_array_convert_all_str_i4", 2, true, true, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
                     $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{(genArgs?[0] ?? 0):X2},0x{(genArgs is { Length: 2 } g ? g[1] : 0):X2} not wired: only (int32,int32) (0x08,0x08) has the converter icall icall_array_convert_all_i4_i4 (il2cpp_array_ext2.h:181)");
             case "Resize":
@@ -260,6 +283,37 @@ public static partial class MethodRefResolver
                 // void Initialize(): non-reference arrays zero their element
                 // storage (memset) -- the observable net48 contract.
                 return I("il2cpp::runtime::icall_array_initialize", 0, false, false, true);
+            // ARRAYEXTRA (2026-08-22): the GetValue/SetValue boxed element
+            // accessors (arrayextra.h -- the transpiler-facing direct-call
+            // domain built for exactly this wiring). Both dispatch on the
+            // array's element kind AT RUNTIME (isRefElem/elemSize), so one
+            // mapping covers every supported kind: reference arrays move the
+            // slot itself, byte/int32/int64 value arrays box/unbox through the
+            // shared boxing.cpp layout.
+            case "GetValue":
+                // object GetValue(int index): reference arrays return the slot
+                // (may be null); byte/int32/int64 box as System.Byte/Int32/
+                // Int64; any other stride throws NotSupportedException. The
+                // 1-D scope wires ONLY the (int index) overload -- ps[0] must
+                // be I4 (0x08); the long-index / MD / params-int[] overloads
+                // stay LOUD (no int64-index entry exists in any runtime
+                // domain, and a blind static_cast<int32_t> would truncate).
+                if (count == 1 && ps is { Length: >= 1 } && ps[0] == 0x08)
+                    return I("il2cpp::il2cpp_array_get_value", 1, true, true, true, new[] { "a", "i" });
+                throw new NotSupportedException(
+                    $"Array.GetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 1 } gp ? gp[0] : 0):X2} not wired: only the 1-D GetValue(int) shape (arrayextra.h il2cpp_array_get_value)");
+            case "SetValue":
+                // void SetValue(object value, int index): reference arrays
+                // store the reference (null legal, write barrier always run);
+                // byte/int32/int64 unbox through the array's primitive type
+                // (wrong boxed type -> InvalidCastException, null on a value
+                // array -> ArgumentNullException). The index must be I4
+                // (ps[1] == 0x08) -- the long-index overload stays LOUD for
+                // the same truncation reason as GetValue above.
+                if (count == 2 && ps is { Length: >= 2 } && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_array_set_value", 2, false, false, true, new[] { "a", "", "i" });
+                throw new NotSupportedException(
+                    $"Array.SetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 2 } sp ? sp[1] : 0):X2} not wired: only the 1-D SetValue(object, int) shape (arrayextra.h il2cpp_array_set_value)");
             // P6: Array.GetCorElementTypeOfElementType -- returns the CorElementType
             // of the array's element type (stub: returns 4 = ELEMENT_TYPE_I4).
             case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);

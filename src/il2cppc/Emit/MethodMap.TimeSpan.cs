@@ -48,6 +48,9 @@ public static partial class MethodRefResolver
                     : I("il2cpp::runtime::icall_timespan_negate", 1, true, false, false, new[] { "" }, "ts");
             case "CompareTo":
                 return I("il2cpp::runtime::icall_timespan_compare_to", 1, true, false, true, new[] { "deref:ts", "" });
+            // net9/10 E2E icallcase: the static From* factories (time.cpp).
+            case "FromMinutes":
+                return I("il2cpp::runtime::icall_timespan_from_minutes", 1, true, false, false, new[] { "d" }, "ts");
             case "ToString":
                 throw new NotSupportedException("TimeSpan.ToString not wired: the runtime has no timespan formatter icall");
             default: return null;

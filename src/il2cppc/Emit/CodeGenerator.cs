@@ -80,6 +80,13 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"il2cpp_console.h\"");
         generatedHeader.Line("#include \"il2cpp_math.h\"");
         generatedHeader.Line("#include \"il2cpp_math_ext.h\"");
+        // net9/10 E2E icallcase: MathF domain header -- MethodMap.MathF.cs maps
+        // MathF.Sqrt/Pow/... to icall_mathf_*_f whose declarations live here;
+        // without the include the generated code fails to compile.
+        generatedHeader.Line("#include \"il2cpp_mathf.h\"");
+        // net9/10 E2E icallcase: the internal-helper stub declarations
+        // (icall_threadobj_spin_wait, icall_thread_pool_*, icall_log_* ...).
+        generatedHeader.Line("#include \"stubs.h\"");
         generatedHeader.Line("#include \"il2cpp_io.h\"");
         generatedHeader.Line("#include \"il2cpp_time.h\"");
         generatedHeader.Line("#include \"guid.h\""); // System.Guid value slots (uint8_t[16])
@@ -1122,6 +1129,22 @@ public static class CodeGenerator
                 }
             }
         }
+        // net9/10 E2E icallcase (decimal Parse defect): an AssignStmt whose
+        // value is a decimal icall (ResultKind "dec") writes its 16-byte
+        // Il2CppDecimal through the TARGET slot -- `icall_decimal_parse((&t10), s)`.
+        // The fold temp t10 defaulted to int32_t -> 4-byte slot for a
+        // 16-byte write. Type every such target as the decimal struct.
+        // STANDALONE pass: the ctor/initobj scan above early-continues on
+        // non-CallStmt, so AssignStmt targets never reach it.
+        for (var i = 0; i < stmts.Count; i++)
+        {
+            if (!reachable[i]) continue;
+            if (stmts[i] is AssignStmt aDec
+                && aDec.Value is CallExpr cDec && cDec.Resolved?.ResultKind == "dec")
+            {
+                locKind[aDec.Target] = "il2cpp::Il2CppDecimal";
+            }
+        }
         // fnptr domain b23: a `delegate*` parameter is a raw function pointer
         // (void* slot). Seed the local-kind analysis so a copy into a local
         // (`delegate* p = arg;`) keeps the pointer width -- the calli null
@@ -2046,12 +2069,21 @@ public static class CodeGenerator
                 && asTuple.Value is StackFold.DiscardedValueExpr)
             {
                 // 1. Declare a stack-allocated tuple local.
-                var tupleTypeFields = string.Join(", ", trfTuple.Select((ft, ti) =>
+                // net9/10 E2E icallcase fix: (a) member separator must be ';'
+                // (`double Item1, double Item2;` repeats the TYPE -- a syntax
+                // error); (b) the same method can hit this path twice (Math.SinCos
+                // + MathF.SinCos both map TupleReturnFields ["d","d"]) -- a second
+                // plain struct definition would be a duplicate-symbol error, so
+                // the definition is idempotent via a TU-wide macro guard.
+                var tupleTypeFields = string.Join("; ", trfTuple.Select((ft, ti) =>
                     $"{ExprTypeCpp(ft)} Item{ti + 1}"));
                 var tupleTypeName = $"System_ValueTuple_{trfTuple.Length}_{string.Join("_", trfTuple.Select(ft => ExprTypeCpp(ft)))}";
                 var tupleLocal = $"__tuple_{asTuple.Target}";
-                w.LineAligned($"struct {tupleTypeName} {{ {tupleTypeFields}; }};",
+                w.LineAligned($"#ifndef IL2CPP_TUPLEDEF_{tupleTypeName}",
                     $"IL {At(asTuple.SourceOpName, asTuple.SourceOffset)} -- P5: define ValueTuple struct ({trfTuple.Length} fields)");
+                w.LineAligned($"#define IL2CPP_TUPLEDEF_{tupleTypeName}");
+                w.LineAligned($"struct {tupleTypeName} {{ {tupleTypeFields}; }};");
+                w.LineAligned("#endif");
                 w.LineAligned($"{tupleTypeName} {tupleLocal} {{ }};",
                     $"IL {At(asTuple.SourceOpName, asTuple.SourceOffset)} -- P5: allocate ValueTuple local");
                 // 2. Generate the call args + out-pointer args.
@@ -3500,6 +3532,14 @@ public static class CodeGenerator
         "System.Comparison`1_string" => "nullptr",
         "System.Comparison`1_object" => "nullptr",
         "System.Comparison`1_class" => "nullptr",
+        // net9/10 E2E icallcase (CG8 matrix report): Converter`2 — the ctor
+        // interception already covers every instantiation ("System_Converter_"
+        // prefix); only the BclAllocExpr placeholder keys were missing for
+        // NON-int,int instantiations, so Array.ConvertAll<string,int>(arr,
+        // int.Parse) hit the generated-name path. Same nullptr placeholder:
+        // the delegate lands in the runtime icall_array_convert_all_* slot.
+        "System.Converter`2_string_int" => "nullptr",
+        "System.Converter`2_string_string" => "nullptr",
         _ => null,
     };
 

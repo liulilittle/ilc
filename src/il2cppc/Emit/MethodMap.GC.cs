@@ -37,7 +37,7 @@ public static partial class MethodRefResolver
             // P6: GC.GetTotalAllocatedBytes(bool precise): approximate total
             // allocated bytes. The 'precise' arg is dropped (the runtime's
             // counter is always approximate; no generational sub-allocator).
-            case "GetTotalAllocatedBytes": return I("il2cpp::runtime::icall_gc_get_total_allocated_bytes_approximate", 1, true, false, false, new[] { "drop" }, "l");
+            case "GetTotalAllocatedBytes": return I("il2cpp::il2cpp_gc_get_total_allocated_bytes_approximate", 1, true, false, false, new[] { "drop" }, "l");
             // M7 gcext wiring (2026-08-08): GC.WaitForPendingFinalizers() -> the
             // direct finalizer trigger (il2cpp_gc_ext.h -- icall_gc_finalize_trigger
             // runs any due/pending finalizers synchronously, the gcext two-
@@ -64,12 +64,18 @@ public static partial class MethodRefResolver
             case "UnregisterForGCReporting": return I("il2cpp::runtime::icall_gc_unregister_for_gc_reporting", 0, false, false, false);
             // P6 batch: GC stats methods -- all runtime functions already exist
             // in il2cpp_gc.h / gc.cpp; just need MethodMap wiring.
-            case "GetSegmentSize": return I("il2cpp::runtime::il2cpp_gc_get_segment_size", 0, true, false, false, null, "l");
-            case "GetLastGCPercentTimeInGC": return I("il2cpp::runtime::il2cpp_gc_get_last_gc_percent_time_in_gc", 0, true, false, false);
-            case "GetGenerationSize": return I("il2cpp::runtime::il2cpp_gc_get_generation_size", 1, true, false, false, new[] { "i" }, "l");
-            case "GetMaxGeneration": return I("il2cpp::runtime::il2cpp_gc_get_max_generation", 0, true, false, false);
-            case "GetAllocatedBytesForCurrentThread": return I("il2cpp::runtime::il2cpp_gc_get_allocated_bytes_for_current_thread", 0, true, false, false, null, "l");
-            case "GetFragmentedBytes": return I("il2cpp::runtime::il2cpp_gc_get_fragmented_bytes", 0, true, false, false, null, "l");
+            case "GetSegmentSize": return I("il2cpp::il2cpp_gc_get_segment_size", 0, true, false, false, null, "l");
+            case "GetLastGCPercentTimeInGC": return I("il2cpp::il2cpp_gc_get_last_gc_percent_time_in_gc", 0, true, false, false);
+            case "GetGenerationSize": return I("il2cpp::il2cpp_gc_get_generation_size", 1, true, false, false, new[] { "i" }, "l");
+            // net9/10 E2E icallcase namespace fix: these two live in
+            // il2cpp_gc.h = namespace il2cpp (the GC API layer), NOT
+            // il2cpp::runtime -- the wrong prefix failed to compile.
+            // get_MaxGeneration: the netcore public PROPERTY getter name
+            // (net48's GetMaxGeneration method kept as alias).
+            case "get_MaxGeneration":
+            case "GetMaxGeneration": return I("il2cpp::il2cpp_gc_get_max_generation", 0, true, false, false);
+            case "GetAllocatedBytesForCurrentThread": return I("il2cpp::il2cpp_gc_get_allocated_bytes_for_current_thread", 0, true, false, false, null, "l");
+            case "GetFragmentedBytes": return I("il2cpp::il2cpp_gc_get_fragmented_bytes", 0, true, false, false, null, "l");
             // P6 batch: remaining internal CLR helper stubs.
             case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);
             case "AllocateNewArray": return I("il2cpp::runtime::icall_gc_allocate_new_array", 2, true, true, false, new[] { "i", "i" });

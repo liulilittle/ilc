@@ -84,6 +84,12 @@ typedef int32_t (*ConvertAllI4Fn)(int32_t);
 // target arrives in the `this` slot (linq_map.cpp SelI4I4ThisFn).
 typedef int32_t (*ConvertAllI4ThisFn)(Il2CppObject*, int32_t);
 
+// Converter<string, int32> callback signatures (net9/10 E2E icallcase:
+// Array.ConvertAll<string,int>(string[], int.Parse) -- the same single-cast
+// static delegate ABI; the element rides a managed-ref slot).
+typedef int32_t (*ConvertAllStrI4Fn)(Il2CppString*);
+typedef int32_t (*ConvertAllStrI4ThisFn)(Il2CppObject*, Il2CppString*);
+
 //------------------------------------------------------------------------------
 // RequireArrayExt2 -- validate a static-method array argument.
 //   null                -> ArgumentNullException
@@ -420,6 +426,13 @@ int32_t InvokeConvertAllI4(Il2CppDelegate* d, int32_t v)
     return d->target != nullptr
         ? reinterpret_cast<ConvertAllI4ThisFn>(d->methodPtr)(d->target, v)
         : reinterpret_cast<ConvertAllI4Fn>(d->methodPtr)(v);
+}
+
+int32_t InvokeConvertAllStrI4(Il2CppDelegate* d, Il2CppString* v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<ConvertAllStrI4ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<ConvertAllStrI4Fn>(d->methodPtr)(v);
 }
 
 //------------------------------------------------------------------------------
@@ -808,6 +821,42 @@ Il2CppArray* icall_array_convert_all_i4_i4(Il2CppArray* arr, Il2CppObject* conve
         const int32_t v = *reinterpret_cast<const int32_t*>(
             il2cpp_array_get_elem_ptr(a, i));
         const int32_t r = InvokeConvertAllI4(d, v);
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// icall_array_convert_all_str_i4 -- Array.ConvertAll<string,int>(string[],
+// Converter<string,int>) (net9/10 E2E icallcase: int.Parse as the converter).
+// A NEW int32[] of the same length whose element i is converter(array[i]);
+// the source is never modified. net48 validation order: array null, then
+// converter null (both ArgumentNullException). The source is a REFERENCE
+// array (string elements ride managed-ref slots); the result is int32[].
+// Same GC rooting discipline as the i4_i4 variant.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_array_convert_all_str_i4(Il2CppArray* arr, Il2CppObject* converter)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    RequireRefArrayExt2(a);
+    Il2CppDelegate* d = RequireArrayCallback(converter, "converter");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(int32_t), false, a->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        // The callback runs FIRST; the result slot is computed afterwards
+        // through the rooted 'out' (a collection can move the array -- a slot
+        // address cached across the call would be stale). No allocation
+        // separates the address computation from the store.
+        Il2CppString* v = *reinterpret_cast<Il2CppString* const*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        const int32_t r = InvokeConvertAllStrI4(d, v);
         *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
     }
     return out;

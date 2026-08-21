@@ -11,10 +11,11 @@ namespace Il2Cpp.Transpiler.Emit;
 // Coverage reconciliation (il2cpp_math.h + il2cpp_math_ext.h icalls vs
 // MethodMap.Math.cs): every icall in both headers is already mapped in
 // MethodMap.Math.cs EXCEPT icall_math_clamp_i (il2cpp_math.h) -- that mapping
-// lives here. net48 members with no runtime support are LOUD-rejected
+// lives here. Members with no runtime support are LOUD-rejected
 // (NotSupportedException) instead of silently falling into the generated-name
-// path: BigMul (the ONLY net48 System.Math member absent from
-// MethodMap.Math.cs; no runtime icall exists in either header).
+// path: ModF/SplitFractionDouble, and the net7 wide BigMul(long, long,
+// out long)/BigMul(ulong, ulong, out ulong) overloads (math-sweep 2026-08-22;
+// only long BigMul(int, int) has an icall -- mapped in MethodMap.Math.cs).
 //
 // .NET CORE gMathFuncs additions (Math 超函数 + DivModInt, icall-inventory-
 // core.md §8.1): net48 has NO public Acosh/Asinh/Atanh/Cbrt/FusedMultiplyAdd/
@@ -107,7 +108,17 @@ public static partial class MethodRefResolver
             case "BigMul":
                 // long BigMul(int, int) -- batch 150: the exact 64-bit product
                 // (int32 widening; the "l" result rides the int64 slot).
-                return I("il2cpp::runtime::icall_math_bigmul", 2, true, false, false, null, "l");
+                if (ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_math_bigmul", 2, true, false, false, null, "l");
+                // math-sweep (2026-08-22): the net7 wide forms BigMul(long,
+                // long, out long) / BigMul(ulong, ulong, out ulong) have NO
+                // runtime icall (only the int32-pair icall_math_bigmul exists,
+                // il2cpp_math.h). The old unconditional mapping captured ANY
+                // arity as a 2-arg bigmul call -- a 3-arg IL pop emitted as a
+                // 2-arg call drops the out-param slot (silent stack imbalance).
+                throw new NotSupportedException(
+                    $"Math.{name} overload (arity {ps.Length}) not wired: only long BigMul(int, int) has a runtime icall " +
+                    "(icall_math_bigmul, il2cpp_math.h) -- the net7 wide forms BigMul(long, long, out long)/BigMul(ulong, ulong, out ulong) need a new icall");
             default:
                 return null;
         }

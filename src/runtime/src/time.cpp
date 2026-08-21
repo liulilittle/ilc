@@ -445,6 +445,21 @@ Il2CppTimeSpan icall_timespan_from_hms(int32_t hours, int32_t minutes, int32_t s
 }
 
 //------------------------------------------------------------------------------
+// net9/10 E2E icallcase: TimeSpan.FromMinutes(double) -- ticks = minutes *
+// TicksPerMinute, rounded (net48: Milliseconds rounding of the double product).
+//------------------------------------------------------------------------------
+Il2CppTimeSpan icall_timespan_from_minutes(double minutes)
+{
+    const double ticks = minutes * 600000000.0; // TicksPerMinute
+    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
+        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
+    {
+        ThrowArgOutOfRange();
+    }
+    return Il2CppTimeSpan(static_cast<int64_t>(ticks >= 0 ? ticks + 0.5 : ticks - 0.5));
+}
+
+//------------------------------------------------------------------------------
 // icall_timespan_from_dhms -- TimeSpan(days, hours, minutes, seconds)
 // (batch 152): the net48 TimeToTicks composition.
 //------------------------------------------------------------------------------

@@ -229,7 +229,6 @@ int32_t UnicodeCategoryCount(const RegexRange* table)
 bool ParseUnicodeProperty(ParseState* st, std::vector<RegexRange>* ranges,
                           bool complement)
 {
-    const char16_t p = st->pattern[st->pos + 1]; // 'p' or 'P'
     if (st->pos + 2 >= st->length || st->pattern[st->pos + 2] != u'{')
     {
         st->error = RegexParseError::UnrecognizedEscape; // \p / \pX

@@ -191,6 +191,14 @@ int32_t icall_array_true_for_all_i4(Il2CppArray* arr, Il2CppObject* match);
 // arrays only.
 Il2CppArray* icall_array_convert_all_i4_i4(Il2CppArray* arr, Il2CppObject* converter);
 
+// Array.ConvertAll<string,int>(string[], Converter<string,int>): the string
+// source variant (net9/10 E2E icallcase: int.Parse as the converter). A NEW
+// int32[] of the same length whose element i is converter(array[i]); the
+// source is never modified. Same validation order and per-binding delegate
+// ABI as the i4_i4 variant; the source is a REFERENCE array (string elements
+// ride managed-ref slots). GC-rooted across the callback loop.
+Il2CppArray* icall_array_convert_all_str_i4(Il2CppArray* arr, Il2CppObject* converter);
+
 // Array.FindAll<int>(int32[], Predicate<int>): a NEW int32[] holding EVERY
 // element for which the predicate returns true, in source order (an empty
 // result is a zero-length array); the source is never modified. net48

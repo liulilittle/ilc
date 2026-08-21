@@ -374,6 +374,13 @@ int32_t icall_convert_to_int32_char(int32_t utf16)
     return utf16 & 0xFFFF;
 }
 
+int32_t icall_convert_to_int32_bool(int32_t value)
+{
+    // Convert.ToInt32(bool): true -> 1, false -> 0 (net48 contract; never
+    // throws). The bool rides the int32 carrier (M2 slot model).
+    return value != 0 ? 1 : 0;
+}
+
 //------------------------------------------------------------------------------
 // ToString family: delegate to the format.cpp formatting icalls.
 //------------------------------------------------------------------------------

@@ -4,6 +4,13 @@ namespace Il2Cpp.Transpiler.Emit;
 // MethodMap.Environment -- System.Environment icall mappings
 // (il2cpp_environment.h).
 // Owners: System.Environment
+//
+// 2026-08-22 surface sweep: every mapping below is arity-guarded where the
+// BCL has overloads the runtime does not cover (GetEnvironmentVariable /
+// SetEnvironmentVariable / GetFolderPath / FailFast) -- wrong-arity shapes
+// return null and hit TryMapEnvironmentExtra's LOUD gate. get_CommandLine
+// added (the net48 property-getter name); get_Version unwired (int32 stub vs
+// Version-object member -- needs-new-icall, see the case comment).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -13,8 +20,12 @@ public static partial class MethodRefResolver
         switch (name)
         {
             case "get_NewLine": return I("il2cpp::runtime::icall_environment_get_newline", 0, true, true, false);
-            case "GetEnvironmentVariable": return I("il2cpp::runtime::icall_environment_get_environment_variable", 1, true, true, false);
-            case "SetEnvironmentVariable": return I("il2cpp::runtime::icall_environment_set_environment_variable", 2, false, false, false);
+            // 2026-08-22 sweep: ARITY GUARDS -- only the plain overloads have
+            // runtime icalls. The EnvironmentVariableTarget overloads fall
+            // through (null) to TryMapEnvironmentExtra's LOUD gate instead of
+            // silently dropping the extra argument (the documented KNOWN GAP).
+            case "GetEnvironmentVariable": return count == 1 ? I("il2cpp::runtime::icall_environment_get_environment_variable", 1, true, true, false) : null;
+            case "SetEnvironmentVariable": return count == 2 ? I("il2cpp::runtime::icall_environment_set_environment_variable", 2, false, false, false) : null;
             case "get_CurrentDirectory":
             case "GetCurrentDirectory": return I("il2cpp::runtime::icall_environment_get_current_directory", 0, true, true, false);
             case "SetCurrentDirectory": return I("il2cpp::runtime::icall_environment_set_current_directory", 1, false, false, false);
@@ -26,7 +37,15 @@ public static partial class MethodRefResolver
             case "get_UserName": return I("il2cpp::runtime::icall_environment_get_user_name", 0, true, true, false);
             case "get_MachineName": return I("il2cpp::runtime::icall_environment_get_machine_name", 0, true, true, false);
             case "get_OSVersion": return I("il2cpp::runtime::icall_environment_get_os_version", 0, true, true, false);
-            case "GetFolderPath": return I("il2cpp::runtime::icall_environment_get_special_folder", 1, true, true, false, new[] { "i" });
+            // 2026-08-22 sweep: arity guard -- only the 1-param overload has an
+            // icall (il2cpp_environment.h:123); the (SpecialFolder,
+            // SpecialFolderOption) overload falls through to the LOUD gate.
+            case "GetFolderPath": return count == 1 ? I("il2cpp::runtime::icall_environment_get_special_folder", 1, true, true, false, new[] { "i" }) : null;
+            // 2026-08-22 sweep: net48's CommandLine PROPERTY getter is
+            // get_CommandLine ("GetCommandLine" is the forward-looking .NET
+            // Core alias -- envdeep.cs header note). Both hit the same
+            // existing icall (il2cpp_environment.h:133).
+            case "get_CommandLine":
             case "GetCommandLine": return I("il2cpp::runtime::icall_environment_get_command_line", 0, true, true, false);
             // M7 env (2026-08-08): ExitCode get/set -- the env audit added
             // icall_environment_get_exit_code / icall_environment_set_exit_code
@@ -39,16 +58,24 @@ public static partial class MethodRefResolver
             // immediately. Prints the message to stderr (if non-null), flushes,
             // and calls std::abort(). The managed message is Il2CppString* (UTF-16),
             // converted to UTF-8 via il2cpp_pinvoke_string_to_utf8_alloc.
-            case "FailFast": return I("il2cpp::runtime::icall_environment_fail_fast", 1, false, false, false,
-                new[] { "s" });
+            // 2026-08-22 sweep: arity guard -- net48's FailFast(string, string)
+            // overload has no icall; it falls through to the LOUD gate.
+            case "FailFast": return count == 1 ? I("il2cpp::runtime::icall_environment_fail_fast", 1, false, false, false,
+                new[] { "s" }) : null;
             // P6: Environment.CurrentManagedThreadId (net8+): the current
             // thread's managed thread id. Returns int32 (OS thread id).
             case "get_CurrentManagedThreadId": return I("il2cpp::runtime::icall_environment_get_current_managed_thread_id", 0, true, false, false);
             // P6: Environment internal methods (stubs).
             case "nativeGetEnvironmentVariable": return I("il2cpp::runtime::icall_environment_get_environment_variable_native", 1, true, true, false, new[] { "s" });
-            case "get_Version":
-            case "GetVersion": return I("il2cpp::runtime::icall_environment_get_version", 0, true, false, false);
-            case "GetVersionEx": return I("il2cpp::runtime::icall_environment_get_version_ex", 0, true, false, false);
+            // 2026-08-22 sweep: get_Version/GetVersion REMOVED from the wired
+            // set. net48's Environment.Version is a System.Version OBJECT, but
+            // the only runtime symbol (stubs.h icall_environment_get_version)
+            // returns int32_t -- wiring it emitted an int32-typed result slot
+            // for a reference-typed member (silent shape corruption). The name
+            // now falls through to TryMapEnvironmentExtra's LOUD gate;
+            // a Version-object-returning icall is NEEDS-NEW-ICALL.
+            // GetVersionEx stays: unreachable from the net48/net9/net10 public
+            // surface (mono-internal alias), wired to its existing stub.
             case "GetResourceFromDefault": return I("il2cpp::runtime::icall_environment_get_resource_from_default", 2, true, false, false, new[] { "s", "" });
             case "GetCompatibilityFlag": return I("il2cpp::runtime::icall_environment_get_compatibility_flag", 1, true, false, false, new[] { "s" });
             default: return null;

@@ -974,5 +974,47 @@ Il2CppArray* icall_string_split_options(Il2CppString* self, Il2CppArray* separat
     return result;
 }
 
+//------------------------------------------------------------------------------
+// net9/10 E2E icallcase: String.Insert / String.Remove -- pure string
+// surgery on the UTF-16 unit array (net48 contract: Insert index must be
+// within [0, Length]; Remove startIndex within [0, Length], count >= 0 and
+// startIndex+count <= Length; out-of-range -> ArgumentOutOfRangeException).
+//------------------------------------------------------------------------------
+Il2CppString* icall_string_insert(Il2CppString* self, int32_t index, Il2CppString* value)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    if (value == nullptr)
+        il2cpp_throw_argument_null_exception("value");
+    if (index < 0 || index > self->length)
+        il2cpp_throw_argument_out_of_range_exception("index", "Index must be within the string bounds.");
+    const int32_t outLen = self->length + value->length;
+    Il2CppString* out = NewStringFromUnits(nullptr, outLen);
+    for (int32_t i = 0; i < index; ++i)
+        out->chars[i] = self->chars[i];
+    for (int32_t i = 0; i < value->length; ++i)
+        out->chars[index + i] = value->chars[i];
+    for (int32_t i = index; i < self->length; ++i)
+        out->chars[value->length + i] = self->chars[i];
+    return out;
+}
+
+Il2CppString* icall_string_remove(Il2CppString* self, int32_t startIndex, int32_t count)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    if (startIndex < 0 || startIndex > self->length)
+        il2cpp_throw_argument_out_of_range_exception("startIndex", "StartIndex must be within the string bounds.");
+    if (count < 0 || count > self->length - startIndex)
+        il2cpp_throw_argument_out_of_range_exception("count", "Count must be within the remaining length.");
+    const int32_t outLen = self->length - count;
+    Il2CppString* out = NewStringFromUnits(nullptr, outLen);
+    for (int32_t i = 0; i < startIndex; ++i)
+        out->chars[i] = self->chars[i];
+    for (int32_t i = startIndex; i < outLen; ++i)
+        out->chars[i] = self->chars[i + count];
+    return out;
+}
+
 } // namespace runtime
 } // namespace il2cpp

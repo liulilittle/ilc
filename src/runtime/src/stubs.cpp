@@ -5,6 +5,7 @@
 #include "../include/il2cpp_api.h"
 #include "il2cpp_object.h"
 #include "il2cpp_string.h"
+#include "il2cpp_exception_ext.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -188,16 +189,29 @@ int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject*
 int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString* str, Il2CppString* value) { return 0; }
 Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str) { return nullptr; }
 
-// Remaining Environment FailFast stubs
-void icall_environment_fail_fast(Il2CppObject* message) { std::abort(); }
+// NOTE: icall_environment_fail_fast lives in environment.cpp:402 and
+// icall_string_set_trail_byte / icall_string_try_get_trail_byte in
+// stringext3.cpp -- do NOT define them here (ld.lld duplicate-symbol when
+// the generated exe links every runtime TU; net9/10 E2E icallcase).
+
+// net9/10 E2E icallcase: Thread.SpinWait(iterations) -- a busy-wait primitive.
+// The simplified runtime has no preemptive scheduler to yield to, so the
+// faithful implementation is the pause loop itself (O(iterations), no side
+// effects; net48 contract: never throws, returns void).
+void icall_threadobj_spin_wait(int32_t iterations)
+{
+    for (volatile int32_t i = 0; i < iterations; ++i)
+    {
+        // Compiler-opaque busy iteration (the volatile target defeats DCE).
+    }
+}
 
 // Remaining miscellaneous stubs
 Il2CppObject* icall_object_memberwise_clone(Il2CppObject* self) { return nullptr; }
 Il2CppObject* icall_array_get_data_ptr_offset_internal(Il2CppObject* arr) { return nullptr; }
 Il2CppObject* icall_string_is_fast_sort(Il2CppString* str) { return nullptr; }
 int32_t icall_string_is_ascii(Il2CppString* str) { return 1; }
-void icall_string_set_trail_byte(Il2CppObject* self, uint8_t value) {}
-bool icall_string_try_get_trail_byte(Il2CppObject* self, uint8_t* result) { if (result) *result = 0; return false; }
+// set/try_get_trail_byte: real impls in stringext3.cpp (see NOTE above).
 int32_t icall_delegate_internal_equal_types(Il2CppObject* d1, Il2CppObject* d2) { return 1; }
 int32_t icall_delegate_compare_unmanaged_function_ptrs(Il2CppObject* d1, Il2CppObject* d2) { return 0; }
 void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}

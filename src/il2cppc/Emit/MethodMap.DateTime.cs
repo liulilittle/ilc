@@ -50,6 +50,12 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_datetime_subtract", 2, true, false, false, new[] { "", "" }, "ts");
             case "CompareTo":
                 return I("il2cpp::runtime::icall_datetime_compare_to", 1, true, false, true, new[] { "deref:dt", "" });
+            // net9/10 E2E icallcase: DateTime.IsLeapYear / DaysInMonth --
+            // pure calendar functions (stubs.cpp, proleptic Gregorian).
+            case "IsLeapYear":
+                return I("il2cpp::runtime::icall_datetime_is_leap_year", 1, true, false, false, new[] { "i" });
+            case "DaysInMonth":
+                return I("il2cpp::runtime::icall_datetime_days_in_month", 2, true, false, false, new[] { "i", "i" });
             case "ToString":
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_datetime_to_string", 0, true, true, true, new[] { "deref:dt" });

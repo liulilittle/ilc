@@ -1209,6 +1209,13 @@ public static partial class MethodRefResolver
             for (var i = 0; i < n; i++) _ = ReadParamByte(md, ref sig);
         }
         else if (ret is 0x11 or 0x12 or 0x40) _ = sig.ReadTypeHandle();
+        // e2e_ilgen: a GENERIC method's ret can be the method's own type
+        // parameter -- Interlocked.Exchange<T>/CompareExchange<T> return T
+        // (VAR 0x13 / MVAR 0x1E + compressed index). Not consuming the index
+        // leaked it into ps[0] ([0x00,0x13] instead of [0x13,0x13]) and the
+        // generic Interlocked gate (ps[0]==0x13) never matched. Same
+        // consumption ReadParamByte applies to VAR/MVAR params.
+        else if (ret is 0x13 or 0x1E) _ = sig.ReadCompressedInteger();
         // G2 (bitconvcase): an SZARRAY return (0x1D/0x1F, e.g. BitConverter.GetBytes
         // → byte[]) is followed by its element byte -- not consuming it leaks the
         // element byte into ps[0] and every GetBytes overload resolves to the same

@@ -114,6 +114,13 @@ Il2CppObject* icall_string_to_lower(Il2CppObject* this_);
 // All-whitespace input yields ""; nothing to trim returns the same instance.
 Il2CppObject* icall_string_trim(Il2CppObject* this_);
 
+// net9/10 E2E icallcase: Insert(int index, string value) / Remove(int
+// startIndex, int count) -- pure UTF-16 unit surgery (stringext.cpp). Both
+// return a NEW string; the source is never modified. Range violations throw
+// ArgumentOutOfRangeException (net48 contract).
+Il2CppString* icall_string_insert(Il2CppString* self, int32_t index, Il2CppString* value);
+Il2CppString* icall_string_remove(Il2CppString* self, int32_t startIndex, int32_t count);
+
 // TrimStart(): leading whitespace only (contract as Trim).
 Il2CppObject* icall_string_trim_start(Il2CppObject* this_);
 

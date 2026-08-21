@@ -71,14 +71,23 @@ public static partial class MethodRefResolver
                     // P6: Interlocked Exchange(ref float/double, float/double):
                     : ps.Length == 2 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_double", 2, true, false, false, new[] { "", "d" }, "d")
-                    // P6: Generic Exchange<T> — ps carries 0x13 (VAR), genArgs has the concrete type.
-                    : ps.Length == 2 && ps[0] == 0x13 && genArgs is { Length: 1 }
+                    // P6: Generic Exchange<T> — the T-bearing params arrive as
+                    // 0x1E (MVAR -- Exchange<T> is a generic METHOD on a
+                    // non-generic type, e2e_il evidenced) or 0x13 (VAR -- the
+                    // generic-TYPE convention); genArgs has the concrete type.
+                    : ps.Length == 2 && ps[0] is 0x13 or 0x1E && genArgs is { Length: 1 }
                     ? (genArgs[0] switch
                     {
                         0x08 => I("il2cpp::runtime::il2cpp_interlocked_exchange", 2, true, false, false, new[] { "", "i" }),
                         0x0A => I("il2cpp::runtime::il2cpp_interlocked_exchange64", 2, true, false, false, new[] { "", "l" }, "l"),
                         0x0C or 0x0D => I("il2cpp::runtime::il2cpp_interlocked_exchange_double", 2, true, false, false, new[] { "", "d" }, "d"),
-                        0x12 or 0x1C => I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false, new[] { "pobj", "" }),
+                        // EVERY reference-type encoding (uniform Il2CppObject*
+                        // slot -> raw pointer swap): 0x0E string (the documented
+                        // genArgs byte -- ArraySort precedent), 0x12 class/
+                        // interface/delegate, 0x15 GenericInst, 0x1C object,
+                        // 0x1D/0x1F sz/mvar arrays (ReadParamByte returns each
+                        // marker byte after consuming the element).
+                        0x0E or 0x12 or 0x15 or 0x1C or 0x1D or 0x1F => I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false, new[] { "pobj", "" }),
                         _ => null,
                     })
                     : null;
@@ -93,14 +102,16 @@ public static partial class MethodRefResolver
                     // P6: Interlocked CompareExchange(ref float/double, ...):
                     : ps.Length == 3 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D && ps[2] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d")
-                    // P6: Generic CompareExchange<T> — ps carries 0x13 (VAR), genArgs has the concrete type.
-                    : ps.Length == 3 && ps[0] == 0x13 && genArgs is { Length: 1 }
+                    // P6: Generic CompareExchange<T> — same MVAR/VAR dual
+                    // encoding as Exchange<T> above.
+                    : ps.Length == 3 && ps[0] is 0x13 or 0x1E && genArgs is { Length: 1 }
                     ? (genArgs[0] switch
                     {
                         0x08 => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange", 3, true, false, false, new[] { "", "i", "i" }),
                         0x0A => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange64", 3, true, false, false, new[] { "", "l", "l" }, "l"),
                         0x0C or 0x0D => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d"),
-                        0x12 or 0x1C => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false, new[] { "pobj", "", "" }),
+                        // Same reference-type encoding set as Exchange<T> above.
+                        0x0E or 0x12 or 0x15 or 0x1C or 0x1D or 0x1F => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false, new[] { "pobj", "", "" }),
                         _ => null,
                     })
                     : null;

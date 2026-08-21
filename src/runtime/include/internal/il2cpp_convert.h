@@ -114,5 +114,6 @@ int32_t icall_convert_to_char_i4(int32_t value);
 
 // Convert.ToInt32(char): zero-extends the UTF-16 unit to int32, never throws.
 int32_t icall_convert_to_int32_char(int32_t utf16);
+int32_t icall_convert_to_int32_bool(int32_t value);
 
 }} // namespace il2cpp::runtime

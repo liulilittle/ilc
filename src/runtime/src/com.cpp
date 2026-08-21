@@ -77,6 +77,60 @@ namespace {
     #define IL2CPP_COM_CALL
 #endif
 
+// WINAPI is referenced by the Ole32Api function-pointer typedefs, which are
+// compiled on EVERY platform (the every-platform COM code references
+// GetOle32()). On non-Windows it is a no-op calling convention.
+#if !defined(_WIN32)
+    #define WINAPI
+#endif
+
+// Ole32Api + GetOle32() are referenced by every-platform COM code (the
+// IDispatch VARIANT BSTR path, the CCW BSTR ownership, OLE drag-drop
+// registration). On non-Windows there is no ole32/oleaut32 to resolve, so
+// GetOle32() returns a null-api and the callers throw NotSupportedException /
+// return null / E_NOTIMPL as designed (user iron rule #17: other platforms
+// compile + explicit error, no crash). This block is mutually exclusive with
+// the #if defined(_WIN32) Ole32Api definition later in this file.
+#if !defined(_WIN32)
+typedef int32_t (WINAPI* CoCreateInstanceFn)(const void* rclsid, void* pUnkOuter,
+                                             uint32_t dwClsContext, const void* riid,
+                                             void** ppv);
+typedef int32_t (WINAPI* CLSIDFromProgIDFn)(const wchar_t* lpszProgID, void* lpclsid);
+typedef int32_t (WINAPI* GetActiveObjectFn)(const void* rclsid, void* pvReserved,
+                                            void** ppunk);
+typedef int32_t (WINAPI* CoInitializeExFn)(const void* pvReserved, uint32_t dwCoInit);
+typedef void* (WINAPI* SysAllocStringLenFn)(const void* psz, uint32_t len);
+typedef void  (WINAPI* SysFreeStringFn)(void* bstr);
+typedef int32_t (WINAPI* CreateStreamOnHGlobalFn)(void* hGlobal, int32_t fDeleteOnRelease,
+                                                  void** ppstm);
+typedef int32_t (WINAPI* GetHGlobalFromStreamFn)(void* pstm, void** phglobal);
+typedef int32_t (WINAPI* RegisterDragDropFn)(void* hwnd, void* pDropTarget);
+typedef int32_t (WINAPI* RevokeDragDropFn)(void* hwnd);
+
+struct Ole32Api
+{
+    bool                  ok;
+    CoCreateInstanceFn    coCreateInstance;
+    CLSIDFromProgIDFn     clsidFromProgID;
+    GetActiveObjectFn     getActiveObject;
+    CoInitializeExFn      coInitializeEx;
+    SysAllocStringLenFn   sysAllocStringLen;
+    SysFreeStringFn       sysFreeString;
+    CreateStreamOnHGlobalFn createStreamOnHGlobal;
+    GetHGlobalFromStreamFn   getHGlobalFromStream;
+    RegisterDragDropFn    registerDragDrop;
+    RevokeDragDropFn      revokeDragDrop;
+};
+
+const Ole32Api& GetOle32()
+{
+    static const Ole32Api api = { false, nullptr, nullptr, nullptr, nullptr,
+                                  nullptr, nullptr, nullptr, nullptr, nullptr,
+                                  nullptr };
+    return api;
+}
+#endif // !defined(_WIN32)
+
 // The RCW payload: managed object header + the wrapped native IUnknown* +
 // the wrapper reference count (net48 __ComObject shape). The native pointer
 // is NOT a GC reference (refFieldBitmap 0 -- the GC must never scan it).
@@ -3185,7 +3239,7 @@ uint32_t IL2CPP_COM_CALL CcwInPlaceActiveObjectRelease(void* self)
 
 int32_t IL2CPP_COM_CALL CcwInPlaceActiveObjectGetWindow(void* self, void** phwnd)
 {
-    auto* ccw = CcwFromInPlaceActiveObjectView(self);
+    (void)self;
     if (phwnd == nullptr)
         return kComHrInvalidArg;
     *phwnd = nullptr; // no window (headless)
@@ -6741,6 +6795,8 @@ uint32_t IL2CPP_COM_CALL CcwDataObjectRelease(void* self)
 int32_t CcwDataObjectDispatch(Il2CppComCcw* ccw, int32_t slot,
                               intptr_t a0, intptr_t a1, intptr_t a2, intptr_t a3)
 {
+    (void)a2;
+    (void)a3;
     const int32_t index = slot - kComDataObjectSlotGetData; // 0..8
     if (index < 0 || index >= 9 || ccw->dataObjectIface == nullptr)
     {

@@ -1,7 +1,9 @@
 #pragma once
 // stubs.h -- Internal CLR helper stub declarations (see stubs.cpp).
+// Self-contained: pulls the API types via a header-relative path (resolves
+// from ANY including TU -- generated code lives outside src/runtime).
 
-#include "il2cpp_api.h"
+#include "../il2cpp_api.h"
 
 #include <cstdint>
 
@@ -167,7 +169,7 @@ Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self,
 Il2CppObject* icall_marshal_by_ref_object_get_com_i_unknown(Il2CppObject* self);
 Il2CppObject* icall_missing_member_exception_format_signature(Il2CppString* str);
 int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2);
-int32_t icall_value_type_get_hash_code_of_ptr(Il2CppVoid* ptr);
+int32_t icall_value_type_get_hash_code_of_ptr(void* ptr);
 int32_t icall_clr_config_check_legacy_managed_deflate_stream();
 int32_t icall_clr_config_check_throw_unobserved_task_exceptions();
 int32_t icall_security_context_get_impersonation_flow_mode();
@@ -198,6 +200,7 @@ void icall_thread_pool_report_thread_status(int32_t status);
 void icall_thread_pool_notify_work_item_progress_native();
 int32_t icall_thread_pool_is_thread_pool_hosted();
 void icall_thread_pool_clear_notify();
+void icall_threadobj_spin_wait(int32_t iterations);
 
 // Remaining Environment/Calendar/CultureInfo/EncodingTable/Diagnostics stubs
 int32_t icall_environment_get_resource_from_default(Il2CppString* name, Il2CppString* value);
@@ -211,5 +214,5 @@ void icall_assert_show_default_assert_dialog();
 void icall_log_add_log_switch(Il2CppString* name, int32_t level);
 void icall_log_modify_log_switch(Il2CppString* name, int32_t level);
 
-}} // namespace runtime
+} // namespace runtime
 } // namespace il2cpp

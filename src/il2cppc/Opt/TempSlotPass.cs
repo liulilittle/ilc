@@ -238,7 +238,12 @@ public static class TempSlotPass
         Int64ConstExpr => "l",
         DoubleConstExpr => "d",
         BinaryExpr b when b.Kind is "l" or "d" => b.Kind,
-        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "ptr" => c.ResultKind,
+            // net9/10 E2E icallcase fix: "dec"/"ip4"/"bi"/"dto" were missing
+            // here (CodeGenerator.cs ExprKind lists them) -- a decimal temp
+            // classified "val" shared an int32 slot and the 16-byte
+            // icall_decimal_* write overran it.
+            CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "ptr"
+                or "dec" or "ip4" or "bi" or "dto" => c.ResultKind,
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
         DelegateInvokeExpr d when d.ReturnsRef => "ref",

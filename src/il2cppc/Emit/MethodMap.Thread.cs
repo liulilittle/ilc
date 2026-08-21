@@ -48,6 +48,9 @@ public static partial class MethodRefResolver
                 // Sleep(0) goes through the same icall (its runtime path
                 // yields the time slice -- identical to sleep_zero).
                 return I("il2cpp::runtime::icall_thread_sleep", 1, false, false, false);
+            // net9/10 E2E icallcase: Thread.SpinWait (stubs.cpp busy loop).
+            case "SpinWait":
+                return I("il2cpp::runtime::icall_threadobj_spin_wait", 1, false, false, false, new[] { "i" });
             case "Yield":
                 return I("il2cpp::runtime::icall_thread_yield", 0, false, false, false);
             case "BeginCriticalRegion":

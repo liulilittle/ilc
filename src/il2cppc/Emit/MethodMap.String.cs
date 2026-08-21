@@ -106,9 +106,32 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_string_replace_s_s", 2, true, true, true,
                         new[] { "s", "s", "s" }, returnTypeName: "System.String");
                 throw new NotSupportedException($"String.Replace with {ps.Length} arg(s) not wired in M5 (the runtime icall_string_replace takes (char, char); the string/string overload needs a runtime icall_string_replace_s_s)");
-            case "ToUpper": return I("il2cpp::runtime::icall_string_to_upper", 0, true, true, true);
-            case "ToLower": return I("il2cpp::runtime::icall_string_to_lower", 0, true, true, true);
-            case "Trim": return I("il2cpp::runtime::icall_string_trim", 0, true, true, true);
+case "ToUpper": return I("il2cpp::runtime::icall_string_to_upper", 0, true, true, true);
+case "ToLower": return I("il2cpp::runtime::icall_string_to_lower", 0, true, true, true);
+// net9/10 E2E icallcase: the Invariant variants share the ordinal runtime
+// icalls (this runtime's upper/lower are already culture-insensitive).
+case "ToUpperInvariant": return I("il2cpp::runtime::icall_string_to_upper", 0, true, true, true);
+case "ToLowerInvariant": return I("il2cpp::runtime::icall_string_to_lower", 0, true, true, true);
+// net9/10 E2E icallcase: Insert/Remove (stringext.cpp, new icalls).
+case "Insert": return I("il2cpp::runtime::icall_string_insert", 2, true, true, true,
+    new[] { "s", "i", "s" }, returnTypeName: "System.String");
+case "Remove":
+    return ps.Length == 2
+        ? I("il2cpp::runtime::icall_string_remove", 2, true, true, true,
+            new[] { "s", "i", "i" }, returnTypeName: "System.String")
+        : null;
+            case "Trim":
+                // trimset sweep: ParamCount MUST track the IL arity (the
+                // TrimStart lockstep discipline below -- a params char[] call
+                // pushes this + array; popping only the receiver desyncs the
+                // fold's shadow stack). The 1-arg shapes (params char[] 0x1D
+                // and the net9 single-char 0x03) DROP the trim-set argument:
+                // the runtime trim is whitespace-only, so a non-empty set
+                // would be ignored anyway (the SAME documented deviation as
+                // TrimStart/TrimEnd).
+                return ps.Length == 1
+                    ? I("il2cpp::runtime::icall_string_trim", 1, true, true, true, new[] { "", "drop" })
+                    : I("il2cpp::runtime::icall_string_trim", 0, true, true, true);
             case "TrimStart":
                 // net48 has NO 0-arg TrimStart -- the only overload is
                 // TrimStart(params char[]); Roslyn (optimize) lowers a
@@ -147,8 +170,23 @@ public static partial class MethodRefResolver
                         2, true, true, true, new[] { "", "i", "c" }, null, false, false, false, "System.String");
                 throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5 (the runtime pad icalls take (string, int32[, char16_t]))");
             case "CompareTo": return I("il2cpp::runtime::icall_string_compare_to", 1, true, false, true);
-            case "Contains": return I("il2cpp::runtime::icall_string_contains", 1, true, false, true);
-            case "GetHashCode": return I("il2cpp::runtime::icall_string_get_hash_code", 0, true, false, true);
+            case "Contains":
+                // The wired icall takes the VALUE as Il2CppObject* (a string).
+                // Contains(char) (.NET Core 2.1+/net9, ps[0] == 0x03) has NO
+                // runtime icall -- a raw char unit crossing the object slot
+                // would be reinterpreted as a pointer (garbage deref), so the
+                // shape fails LOUD instead (the IndexOf dispatch convention).
+                return ps.Length == 1 && ps[0] == 0x0E
+                    ? I("il2cpp::runtime::icall_string_contains", 1, true, false, true)
+                    : throw new NotSupportedException($"String.Contains with {ps.Length} arg(s) not wired (the runtime icall takes (string); the char overload needs a new runtime icall)");
+            case "GetHashCode":
+                // GetHashCode(StringComparison) (.NET Core 2.0+/net9) has NO
+                // mode-aware hash icall -- and mapping it onto the 0-param
+                // primitive would pop one value short of the IL arity (the
+                // TrimStart lockstep discipline). Loud until an icall exists.
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_string_get_hash_code", 0, true, false, true);
+                throw new NotSupportedException($"String.GetHashCode with {ps.Length} arg(s) not wired (needs a comparison-mode-aware runtime hash icall)");
             case "ToString":
                 // String.ToString() is the identity (net48 semantics) -- the
                 // fold pushes the receiver.
@@ -164,10 +202,19 @@ public static partial class MethodRefResolver
                 // Compare(a, b, StringComparison) -> the comparison arg is
                 // dropped at emission (the runtime is ordinal-only). NOTE:
                 // ParamCount = the IL arity -- the FOLD pops that many args.
-                return ps.Length is 2 or 3
-                    ? I("il2cpp::runtime::icall_string_compare_static", ps.Length, true, false, false,
-                        ps.Length == 3 ? new[] { "", "", "drop" } : null)
-                    : throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5");
+                // strcomp3 sweep: Compare(a, b, bool ignoreCase) (ps[2] ==
+                // 0x02) is NOT wireable by dropping -- ignoreCase=true must
+                // FOLD case and no mode-aware static compare icall exists
+                // (dropping silently returns the case-SENSITIVE ordinal
+                // result). Loud until one exists.
+                if (ps.Length == 2)
+                    return I("il2cpp::runtime::icall_string_compare_static", 2, true, false, false);
+                if (ps.Length == 3 && ps[2] == 0x11)
+                    return I("il2cpp::runtime::icall_string_compare_static", 3, true, false, false,
+                        new[] { "", "", "drop" });
+                if (ps.Length == 3 && ps[2] == 0x02)
+                    throw new NotSupportedException($"String.{name}(string, string, bool ignoreCase) not wired (no mode-aware static compare icall; dropping the flag would silently ignore ignoreCase=true)");
+                throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5");
             case "Equals":
                 // Static Equals(a, b) and instance Equals(obj/string) both
                 // reduce to the ordinal static comparator (null-aware).
@@ -334,7 +381,22 @@ public static partial class MethodRefResolver
                 // semantics live in the runtime.
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] is 0x1D or 0x15)
                     return I("il2cpp::runtime::icall_string_join", 2, true, true, false, null, null, false, false, false, "System.String");
-                throw new NotSupportedException($"String.Join with {ps.Length} arg(s) not wired in M5 (the runtime join takes (string, string[]))");
+                // joinchar sweep: Join(char separator, string[]/object[]
+                // values) (.NET Core 2.0+/net9, ps = (0x03, 0x1D)) ->
+                // il2cpp_string_builder_join (il2cpp_concat.h): the same
+                // ConcatFromArray pipeline as concat_array/join -- string
+                // elements join directly, NON-string elements convert via
+                // icall_object_to_string (the object[] semantics), null
+                // elements count as empty. All SZARRAY shapes surface as
+                // ps[1] == 0x1D and cross as reference arrays here. The
+                // GENERIC IEnumerable<T> shape (ps[1] == 0x15) stays UNWIRED:
+                // a value-typed array argument (byte[] etc.) is not a
+                // reference array and ConcatFromArray would return ""
+                // defensively instead of joining.
+                if (ps.Length == 2 && ps[0] == 0x03 && ps[1] == 0x1D)
+                    return I("il2cpp::runtime::il2cpp_string_builder_join", 2, true, true, false,
+                        new[] { "c", "" }, null, false, false, false, "System.String");
+                throw new NotSupportedException($"String.Join with {ps.Length} arg(s) not wired (the runtime joins take (string, string[]) and (char, string[]); the start/count forms need a count-aware runtime icall)");
             case "IsNullOrEmpty":
                 return I("il2cpp::runtime::icall_string_is_null_or_empty", 1, true, false, false);
             case "IsNullOrWhiteSpace":
