@@ -449,7 +449,7 @@ Il2CppTimeSpan icall_timespan_from_hms(int32_t hours, int32_t minutes, int32_t s
 // TicksPerMinute, rounded (net48: Milliseconds rounding of the double product).
 // FromHours/FromDays/FromSeconds share the same double-product shape.
 //------------------------------------------------------------------------------
-static Il2CppTimeSpan TimeSpanFromDoubleUnits(double units, double unitsPerTickInverse, double tickScale)
+static Il2CppTimeSpan TimeSpanFromDoubleUnits(double units, double tickScale)
 {
     // units * TicksPerUnit, half-away-from-zero rounded into int64 ticks.
     const double ticks = units * tickScale;
@@ -464,7 +464,7 @@ Il2CppTimeSpan icall_timespan_from_minutes(double minutes)
     {
         ThrowArgOutOfRange();
     }
-    return TimeSpanFromDoubleUnits(minutes, 0, 600000000.0);
+    return TimeSpanFromDoubleUnits(minutes, 600000000.0);
 }
 
 Il2CppTimeSpan icall_timespan_from_hours(double hours)
@@ -475,7 +475,7 @@ Il2CppTimeSpan icall_timespan_from_hours(double hours)
     {
         ThrowArgOutOfRange();
     }
-    return TimeSpanFromDoubleUnits(hours, 0, 36000000000.0);
+    return TimeSpanFromDoubleUnits(hours, 36000000000.0);
 }
 
 Il2CppTimeSpan icall_timespan_from_days(double days)
@@ -486,7 +486,7 @@ Il2CppTimeSpan icall_timespan_from_days(double days)
     {
         ThrowArgOutOfRange();
     }
-    return TimeSpanFromDoubleUnits(days, 0, 864000000000.0);
+    return TimeSpanFromDoubleUnits(days, 864000000000.0);
 }
 
 Il2CppTimeSpan icall_timespan_from_seconds(double seconds)
@@ -497,7 +497,7 @@ Il2CppTimeSpan icall_timespan_from_seconds(double seconds)
     {
         ThrowArgOutOfRange();
     }
-    return TimeSpanFromDoubleUnits(seconds, 0, static_cast<double>(kTicksPerSecond));
+    return TimeSpanFromDoubleUnits(seconds, static_cast<double>(kTicksPerSecond));
 }
 
 //------------------------------------------------------------------------------
