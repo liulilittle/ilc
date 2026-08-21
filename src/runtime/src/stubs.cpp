@@ -7,6 +7,7 @@
 #include "il2cpp_string.h"
 
 #include <cstdint>
+#include <cstdlib>
 
 namespace il2cpp {
 namespace runtime {
