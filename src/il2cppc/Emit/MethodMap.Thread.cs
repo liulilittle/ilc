@@ -150,6 +150,23 @@ public static partial class MethodRefResolver
             case "SetAbortReason": return I("il2cpp::runtime::icall_threadobj_set_abort_reason", 1, false, false, true);
             case "GetAbortReason": return I("il2cpp::runtime::icall_threadobj_get_abort_reason", 0, true, false, true);
             case "ClearAbortReason": return I("il2cpp::runtime::icall_threadobj_clear_abort_reason", 0, false, false, true);
+            // P6: remaining Thread internal methods.
+            case "WaitHelper": return I("il2cpp::runtime::icall_synchronization_context_wait_helper", 1, false, false, false, new[] { "i" });
+            case "IsImmediateCompletionCandidate": return I("il2cpp::runtime::icall_compressed_stack_is_immediate_completion_candidate", 0, true, false, false);
+            case "GetDomainCompressedStack": return I("il2cpp::runtime::icall_compressed_stack_get_domain_compressed_stack", 0, true, true, false);
+            case "GetHomogeneousPLS": return I("il2cpp::runtime::icall_compressed_stack_get_homogeneous_pls", 0, true, true, false);
+            case "GetDescCount": return I("il2cpp::runtime::icall_domain_compressed_stack_get_desc_count", 0, true, false, false);
+            case "GetDomainPermissionSets": return I("il2cpp::runtime::icall_domain_compressed_stack_get_domain_permission_sets", 0, true, true, false);
+            case "GetDescriptorInfo": return I("il2cpp::runtime::icall_domain_compressed_stack_get_descriptor_info", 0, true, true, false);
+            case "IgnoreDomain": return I("il2cpp::runtime::icall_domain_compressed_stack_ignore_domain", 1, true, false, false, new[] { "i" });
+            case "ReleaseHostSecurityContext": return I("il2cpp::runtime::icall_host_execution_context_manager_release_host_security_context", 0, false, false, false);
+            case "CloneHostSecurityContext": return I("il2cpp::runtime::icall_host_execution_context_manager_clone_host_security_context", 0, true, true, false);
+            case "FreeNativeOverlapped": return I("il2cpp::runtime::icall_overlapped_data_free_native_overlapped", 0, true, true, false);
+            case "GetOverlappedFromNative": return I("il2cpp::runtime::icall_overlapped_data_get_overlapped_from_native", 0, true, true, false);
+            case "CheckVMForIOPacket": return I("il2cpp::runtime::icall_overlapped_data_check_vm_for_io_packet", 0, true, false, false);
+            case "NotifyWorkItemComplete": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_complete", 0, false, false, false);
+            case "ReportThreadStatus": return I("il2cpp::runtime::icall_thread_pool_report_thread_status", 1, false, false, false, new[] { "i" });
+            case "ThreadPoolNotify": return I("il2cpp::runtime::icall_thread_pool_clear_notify", 0, false, false, false);
             default: return null;
         }
     }

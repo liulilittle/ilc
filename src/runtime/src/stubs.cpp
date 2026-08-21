@@ -220,6 +220,24 @@ int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t 
 Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t calendarId) { return nullptr; }
 Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t lcid) { return nullptr; }
 
+// Remaining Thread/Interlocked stubs
+void icall_synchronization_context_wait_helper(int32_t millisecondsTimeout) {}
+int32_t icall_compressed_stack_is_immediate_completion_candidate() { return 0; }
+Il2CppObject* icall_compressed_stack_get_domain_compressed_stack() { return nullptr; }
+Il2CppObject* icall_compressed_stack_get_homogeneous_pls() { return nullptr; }
+int32_t icall_domain_compressed_stack_get_desc_count() { return 0; }
+Il2CppObject* icall_domain_compressed_stack_get_domain_permission_sets() { return nullptr; }
+Il2CppObject* icall_domain_compressed_stack_get_descriptor_info() { return nullptr; }
+int32_t icall_domain_compressed_stack_ignore_domain(int32_t id) { return 0; }
+void icall_host_execution_context_manager_release_host_security_context() {}
+Il2CppObject* icall_host_execution_context_manager_clone_host_security_context() { return nullptr; }
+Il2CppObject* icall_overlapped_data_free_native_overlapped() { return nullptr; }
+Il2CppObject* icall_overlapped_data_get_overlapped_from_native() { return nullptr; }
+int32_t icall_overlapped_data_check_vm_for_io_packet() { return 0; }
+void icall_thread_pool_notify_work_item_complete() {}
+void icall_thread_pool_report_thread_status(int32_t status) {}
+void icall_thread_pool_clear_notify() {}
+
 // AppDomain stubs
 Il2CppObject* icall_appdomain_is_unloading_forced_finalize() { return nullptr; }
 int32_t icall_appdomain_is_finalizing_for_unload() { return 0; }
