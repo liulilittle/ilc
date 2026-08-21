@@ -70,6 +70,91 @@ public static partial class MethodRefResolver
             case "GetMaxGeneration": return I("il2cpp::runtime::il2cpp_gc_get_max_generation", 0, true, false, false);
             case "GetAllocatedBytesForCurrentThread": return I("il2cpp::runtime::il2cpp_gc_get_allocated_bytes_for_current_thread", 0, true, false, false, null, "l");
             case "GetFragmentedBytes": return I("il2cpp::runtime::il2cpp_gc_get_fragmented_bytes", 0, true, false, false, null, "l");
+            // P6 batch: remaining internal CLR helper stubs.
+            case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);
+            case "AllocateNewArray": return I("il2cpp::runtime::icall_gc_allocate_new_array", 2, true, true, false, new[] { "i", "i" });
+            case "HasInteropInfo": return I("il2cpp::runtime::icall_com_aware_weak_reference_has_interop_info", 0, true, false, true);
+            case "SaveStackTracesFromDeepCopy": return I("il2cpp::runtime::icall_exception_save_stack_traces_from_deep_copy", 0, false, false, true);
+            case "GetExceptionCount": return I("il2cpp::runtime::icall_exception_get_exception_count", 0, true, false, false);
+            case "GetTypeFromHandleUnsafe": return I("il2cpp::runtime::icall_type_get_type_from_handle_unsafe", 1, true, true, false, new[] { "i" });
+            case "GetCompiledILBytes": return I("il2cpp::runtime::icall_jit_info_get_compiled_il_bytes", 0, true, false, false, null, "l");
+            case "GetCompiledMethodCount": return I("il2cpp::runtime::icall_jit_info_get_compiled_method_count", 0, true, false, false, null, "l");
+            case "GetLoadedAssemblies": return I("il2cpp::runtime::icall_assembly_load_context_get_loaded_assemblies", 0, true, true, false);
+            case "IsTracingEnabled": return I("il2cpp::runtime::icall_assembly_load_context_is_tracing_enabled", 0, true, false, false);
+            case "GetStackFramesInternal": return I("il2cpp::runtime::icall_stack_trace_get_stack_frames_internal", 2, true, true, false, new[] { "", "i", "i" });
+            // Number formatting stubs
+            case "FormatDecimal": return I("il2cpp::runtime::icall_number_format_decimal", 2, true, true, false, new[] { "", "i" });
+            case "FormatDouble": return I("il2cpp::runtime::icall_number_format_double", 3, true, true, false, new[] { "d", "s", "" });
+            case "FormatInt32": return I("il2cpp::runtime::icall_number_format_int32", 3, true, true, false, new[] { "i", "s", "" });
+            case "FormatUInt32": return I("il2cpp::runtime::icall_number_format_uint32", 3, true, true, false, new[] { "i", "s", "" });
+            case "FormatInt64": return I("il2cpp::runtime::icall_number_format_int64", 3, true, true, false, new[] { "l", "s", "" });
+            case "FormatUInt64": return I("il2cpp::runtime::icall_number_format_uint64", 3, true, true, false, new[] { "l", "s", "" });
+            case "FormatSingle": return I("il2cpp::runtime::icall_number_format_single", 3, true, true, false, new[] { "d", "s", "" });
+            case "NumberBufferToDecimal": return I("il2cpp::runtime::icall_number_number_buffer_to_decimal", 2, false, false, false, new[] { "", "" });
+            case "NumberBufferToDouble": return I("il2cpp::runtime::icall_number_number_buffer_to_double", 1, true, false, false, null, "d");
+            case "FormatNumberBuffer": return I("il2cpp::runtime::icall_number_format_number_buffer", 2, true, true, false, new[] { "i", "i" });
+            // ParseNumbers stubs
+            case "StringToLong": return I("il2cpp::runtime::icall_parse_numbers_string_to_long", 3, true, false, false, new[] { "s", "i", "i" }, "l");
+            case "StringToInt": return I("il2cpp::runtime::icall_parse_numbers_string_to_int", 3, true, false, false, new[] { "s", "i", "i" });
+            case "IntToString": return I("il2cpp::runtime::icall_parse_numbers_int_to_string", 3, true, true, false, new[] { "i", "i", "i" });
+            case "LongToString": return I("il2cpp::runtime::icall_parse_numbers_long_to_string", 3, true, true, false, new[] { "l", "i", "i" });
+            // CurrentSystemTimeZone stubs
+            case "nativeGetTimeZoneMinuteOffset": return I("il2cpp::runtime::icall_current_system_timezone_native_get_time_zone_minute_offset", 0, true, false, false);
+            case "nativeGetDaylightName": return I("il2cpp::runtime::icall_current_system_timezone_native_get_daylight_name", 0, true, true, false);
+            case "nativeGetStandardName": return I("il2cpp::runtime::icall_current_system_timezone_native_get_standard_name", 0, true, true, false);
+            case "nativeGetDaylightChanges": return I("il2cpp::runtime::icall_current_system_timezone_native_get_daylight_changes", 1, true, true, false, new[] { "i" });
+            // CultureData stubs
+            case "LCIDToLocaleName": return I("il2cpp::runtime::icall_culture_data_lcid_to_locale_name", 1, true, false, false, new[] { "i" });
+            case "LocaleNameToLCID": return I("il2cpp::runtime::icall_culture_data_locale_name_to_lcid", 1, true, false, false, new[] { "s" });
+            case "nativeInitCultureData": return I("il2cpp::runtime::icall_culture_data_native_init_culture_data", 0, false, false, false);
+            case "nativeGetNumberFormatInfoValues": return I("il2cpp::runtime::icall_culture_data_native_get_number_format_info_values", 0, true, true, false);
+            // CodeAccessSecurityEngine stubs
+            case "SpecialDemand": return I("il2cpp::runtime::icall_code_access_security_engine_special_demand", 1, false, false, false, new[] { "i" });
+            case "QuickCheckForAllDemands": return I("il2cpp::runtime::icall_code_access_security_engine_quick_check_for_all_demands", 0, true, false, false);
+            case "AllDomainsHomogeneousWithNoStackModifiers": return I("il2cpp::runtime::icall_code_access_security_engine_all_domains_homogeneous_with_no_stack_modifiers", 0, true, false, false);
+            case "CheckNReturnSO": return I("il2cpp::runtime::icall_code_access_security_engine_check_n_return_so", 1, true, false, false, new[] { "i" });
+            // CompressedStack stubs
+            case "GetDelayedCompressedStack": return I("il2cpp::runtime::icall_compressed_stack_get_delayed_compressed_stack", 0, true, true, false);
+            case "DestroyDelayedCompressedStack": return I("il2cpp::runtime::icall_compressed_stack_destroy_delayed_compressed_stack", 0, false, false, false);
+            case "DestroyDCSList": return I("il2cpp::runtime::icall_compressed_stack_destroy_dcs_list", 0, false, false, false);
+            case "GetDCSCount": return I("il2cpp::runtime::icall_compressed_stack_get_dcs_count", 0, true, false, false);
+            // DomainCompressedStack stubs
+            case "CreateDomainCompressedStack": return I("il2cpp::runtime::icall_domain_compressed_stack_create_domain_compressed_stack", 0, true, false, false);
+            case "GetDomainCompressedStackSize": return I("il2cpp::runtime::icall_domain_compressed_stack_get_domain_compressed_stack_size", 0, true, false, false);
+            case "GetDomainCompressedStackFlags": return I("il2cpp::runtime::icall_domain_compressed_stack_get_domain_compressed_stack_flags", 0, true, false, false);
+            case "GetDomainCompressedStackStackBlobs": return I("il2cpp::runtime::icall_domain_compressed_stack_get_domain_compressed_stack_stack_blobs", 0, true, true, false);
+            // ThreadPool stubs
+            case "get_ThreadCount": return I("il2cpp::runtime::icall_thread_pool_get_thread_count", 0, true, false, false);
+            case "get_MinThreads": return I("il2cpp::runtime::icall_thread_pool_get_min_threads", 0, true, false, false);
+            case "get_MaxThreads": return I("il2cpp::runtime::icall_thread_pool_get_max_threads", 0, true, false, false);
+            case "GetAvailableThreads": return I("il2cpp::runtime::icall_thread_pool_get_available_threads", 0, true, false, false);
+            // OverlappedData stubs
+            case "get_PendingCount": return I("il2cpp::runtime::icall_overlapped_data_get_pending_count", 0, true, false, false);
+            case "get_WaitHandle": return I("il2cpp::runtime::icall_overlapped_data_get_wait_handle", 0, true, false, false);
+            case "get_ErrorCode": return I("il2cpp::runtime::icall_overlapped_data_get_error_code", 0, true, false, false);
+            // Crypto stubs (16 Utils + 14 X509)
+            case "_CreateCSP": return I("il2cpp::runtime::icall_crypto_utils_create_csp", 0, true, true, false);
+            case "_DecryptData": return I("il2cpp::runtime::icall_crypto_utils_decrypt_data", 1, true, true, false);
+            case "_EncryptData": return I("il2cpp::runtime::icall_crypto_utils_encrypt_data", 1, true, true, false);
+            case "_ExportKey": return I("il2cpp::runtime::icall_crypto_utils_export_key", 1, true, true, false);
+            case "_GenerateKey": return I("il2cpp::runtime::icall_crypto_utils_generate_key", 1, true, false, false, new[] { "i" });
+            case "_GetEnforceFipsPolicySetting": return I("il2cpp::runtime::icall_crypto_utils_get_enforce_fips_policy_setting", 0, true, false, false);
+            case "_GetKeyParameter": return I("il2cpp::runtime::icall_crypto_utils_get_key_parameter", 1, true, true, false, new[] { "", "s" });
+            case "_GetKeySetSecurityInfo": return I("il2cpp::runtime::icall_crypto_utils_get_key_set_security_info", 0, true, true, false);
+            case "_GetProviderParameter": return I("il2cpp::runtime::icall_crypto_utils_get_provider_parameter", 1, true, true, false, new[] { "", "s" });
+            case "_GetUserKey": return I("il2cpp::runtime::icall_crypto_utils_get_user_key", 0, true, true, false);
+            case "_ImportBulkKey": return I("il2cpp::runtime::icall_crypto_utils_import_bulk_key", 1, true, true, false);
+            case "_ImportCspBlob": return I("il2cpp::runtime::icall_crypto_utils_import_csp_blob", 1, true, true, false);
+            case "_ImportKey": return I("il2cpp::runtime::icall_crypto_utils_import_key", 1, true, true, false);
+            case "_ProduceLegacyHmacValues": return I("il2cpp::runtime::icall_crypto_utils_produce_legacy_hmac_values", 0, true, false, false);
+            case "_OpenCSP": return I("il2cpp::runtime::icall_crypto_utils_open_csp", 1, true, true, false, new[] { "i" });
+            case "_AcquireCSP": return I("il2cpp::runtime::icall_crypto_utils_acquire_csp", 0, true, true, false);
+            // X509 stubs
+            case "_AddCertificateToStore": return I("il2cpp::runtime::icall_x509_utils_add_certificate_to_store", 1, true, true, false);
+            case "_ExportCertificatesToBlob": return I("il2cpp::runtime::icall_x509_utils_export_certificates_to_blob", 1, true, true, false);
+            case "_GetCertRawData": return I("il2cpp::runtime::icall_x509_utils_get_cert_raw_data", 0, true, true, false);
+            case "_GetDateNotAfter": return I("il2cpp::runtime::icall_x509_utils_get_date_not_after", 0, true, true, false);
+            // AppDomain: handled by TryMapLegacy (LOUD -- no runtime AppDomain object)
             default: return null;
         }
     }

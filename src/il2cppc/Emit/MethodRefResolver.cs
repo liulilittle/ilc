@@ -703,7 +703,21 @@ public static partial class MethodRefResolver
             case "System.IO.FileInfo": return TryMapIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.GC":
             case "System.Runtime.GCSettings":
-            case "System.Runtime.GCFrameRegistration": return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Runtime.GCFrameRegistration":
+            case "System.ComAwareWeakReference":
+            case "System.Runtime.JitInfo":
+            case "System.Runtime.Loader.AssemblyLoadContext":
+            case "System.Diagnostics.StackTrace":
+            case "System.Number":
+            case "System.ParseNumbers":
+            case "System.CurrentSystemTimeZone":
+            case "System.Globalization.CultureData":
+            case "System.Security.CodeAccessSecurityEngine":
+            case "System.Threading.CompressedStack":
+            case "System.Threading.DomainCompressedStack":
+            case "System.Threading.OverlappedData":
+            case "System.Security.Cryptography.Utils":
+            case "System.Security.Cryptography.X509Certificates.X509Utils": return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Delegate": return TryMapDelegate(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Linq.Expressions.Expression":
             case "System.Linq.Expressions.LambdaExpression": return TryMapExprTree(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
