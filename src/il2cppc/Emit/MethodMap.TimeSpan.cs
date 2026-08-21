@@ -51,6 +51,12 @@ public static partial class MethodRefResolver
             // net9/10 E2E icallcase: the static From* factories (time.cpp).
             case "FromMinutes":
                 return I("il2cpp::runtime::icall_timespan_from_minutes", 1, true, false, false, new[] { "d" }, "ts");
+            case "FromHours":
+                return I("il2cpp::runtime::icall_timespan_from_hours", 1, true, false, false, new[] { "d" }, "ts");
+            case "FromDays":
+                return I("il2cpp::runtime::icall_timespan_from_days", 1, true, false, false, new[] { "d" }, "ts");
+            case "FromSeconds":
+                return I("il2cpp::runtime::icall_timespan_from_seconds", 1, true, false, false, new[] { "d" }, "ts");
             case "ToString":
                 throw new NotSupportedException("TimeSpan.ToString not wired: the runtime has no timespan formatter icall");
             default: return null;

@@ -447,7 +447,15 @@ Il2CppTimeSpan icall_timespan_from_hms(int32_t hours, int32_t minutes, int32_t s
 //------------------------------------------------------------------------------
 // net9/10 E2E icallcase: TimeSpan.FromMinutes(double) -- ticks = minutes *
 // TicksPerMinute, rounded (net48: Milliseconds rounding of the double product).
+// FromHours/FromDays/FromSeconds share the same double-product shape.
 //------------------------------------------------------------------------------
+static Il2CppTimeSpan TimeSpanFromDoubleUnits(double units, double unitsPerTickInverse, double tickScale)
+{
+    // units * TicksPerUnit, half-away-from-zero rounded into int64 ticks.
+    const double ticks = units * tickScale;
+    return Il2CppTimeSpan(static_cast<int64_t>(ticks >= 0 ? ticks + 0.5 : ticks - 0.5));
+}
+
 Il2CppTimeSpan icall_timespan_from_minutes(double minutes)
 {
     const double ticks = minutes * 600000000.0; // TicksPerMinute
@@ -456,7 +464,40 @@ Il2CppTimeSpan icall_timespan_from_minutes(double minutes)
     {
         ThrowArgOutOfRange();
     }
-    return Il2CppTimeSpan(static_cast<int64_t>(ticks >= 0 ? ticks + 0.5 : ticks - 0.5));
+    return TimeSpanFromDoubleUnits(minutes, 0, 600000000.0);
+}
+
+Il2CppTimeSpan icall_timespan_from_hours(double hours)
+{
+    const double ticks = hours * 36000000000.0; // TicksPerHour
+    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
+        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
+    {
+        ThrowArgOutOfRange();
+    }
+    return TimeSpanFromDoubleUnits(hours, 0, 36000000000.0);
+}
+
+Il2CppTimeSpan icall_timespan_from_days(double days)
+{
+    const double ticks = days * 864000000000.0; // TicksPerDay
+    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
+        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
+    {
+        ThrowArgOutOfRange();
+    }
+    return TimeSpanFromDoubleUnits(days, 0, 864000000000.0);
+}
+
+Il2CppTimeSpan icall_timespan_from_seconds(double seconds)
+{
+    const double ticks = seconds * kTicksPerSecond;
+    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
+        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
+    {
+        ThrowArgOutOfRange();
+    }
+    return TimeSpanFromDoubleUnits(seconds, 0, static_cast<double>(kTicksPerSecond));
 }
 
 //------------------------------------------------------------------------------

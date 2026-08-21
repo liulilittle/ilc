@@ -148,6 +148,9 @@ Il2CppTimeSpan icall_timespan_from_ticks(int64_t ticks);
 // range (ArgumentOutOfRangeException on overflow, .NET TimeToTicks rules).
 Il2CppTimeSpan icall_timespan_from_hms(int32_t hours, int32_t minutes, int32_t seconds);
 Il2CppTimeSpan icall_timespan_from_minutes(double minutes);
+Il2CppTimeSpan icall_timespan_from_hours(double hours);
+Il2CppTimeSpan icall_timespan_from_days(double days);
+Il2CppTimeSpan icall_timespan_from_seconds(double seconds);
 
 //------------------------------------------------------------------------------
 // TimeSpan(int days, int hours, int minutes, int seconds) -- batch 152: the

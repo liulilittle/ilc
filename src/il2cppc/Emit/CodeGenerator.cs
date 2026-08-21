@@ -4420,8 +4420,9 @@ public static class CodeGenerator
                 break;
             case BinaryExpr b when (b.Op == BinaryOp.Add || b.Op == BinaryOp.Sub):
             {
-                // leaf [+-] const, or const + leaf (the swap normalizes both
-                // to leaf + const).
+                // leaf [+-] const, or const + leaf (Add only -- Sub is NOT
+                // commutative: `99 - i` is not `i + 99`, so a const-left Sub
+                // must fall back to the checked helper path).
                 Expr leaf;
                 long off;
                 if (b.Op == BinaryOp.Sub && IsIntConst(b.Right))
@@ -4429,7 +4430,7 @@ public static class CodeGenerator
                     leaf = b.Left;
                     off = -IntConstValue(b.Right);
                 }
-                else if (IsIntConst(b.Left))
+                else if (b.Op == BinaryOp.Add && IsIntConst(b.Left))
                 {
                     leaf = b.Right;
                     off = IntConstValue(b.Left);
