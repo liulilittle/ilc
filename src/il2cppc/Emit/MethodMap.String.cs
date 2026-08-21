@@ -203,13 +203,14 @@ case "CopyTo":
             case "CompareTo": return I("il2cpp::runtime::icall_string_compare_to", 1, true, false, true);
             case "Contains":
                 // The wired icall takes the VALUE as Il2CppObject* (a string).
-                // Contains(char) (.NET Core 2.1+/net9, ps[0] == 0x03) has NO
-                // runtime icall -- a raw char unit crossing the object slot
-                // would be reinterpreted as a pointer (garbage deref), so the
-                // shape fails LOUD instead (the IndexOf dispatch convention).
-                return ps.Length == 1 && ps[0] == 0x0E
-                    ? I("il2cpp::runtime::icall_string_contains", 1, true, false, true)
-                    : throw new NotSupportedException($"String.Contains with {ps.Length} arg(s) not wired (the runtime icall takes (string); the char overload needs a new runtime icall)");
+                // net9/10 E2E campaign: Contains(char) (ps[0] == 0x03) now has
+                // the dedicated icall_string_contains_char ordinal scan.
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_string_contains", 1, true, false, true);
+                if (ps.Length == 1 && ps[0] == 0x03)
+                    return I("il2cpp::runtime::icall_string_contains_char", 1, true, false, true,
+                        new[] { "s", "c" });
+                throw new NotSupportedException($"String.Contains with {ps.Length} arg(s) not wired");
             case "GetHashCode":
                 // GetHashCode(StringComparison) (.NET Core 2.0+/net9) has NO
                 // mode-aware hash icall -- and mapping it onto the 0-param

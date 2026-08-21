@@ -135,6 +135,10 @@ int32_t icall_string_index_of_any_start(Il2CppObject* self, Il2CppObject* anyOf,
 int32_t icall_string_last_index_of_any(Il2CppObject* self, Il2CppObject* anyOf);
 int32_t icall_string_last_index_of_any_start(Il2CppObject* self, Il2CppObject* anyOf, int32_t startIndex);
 
+// net9/10 E2E campaign: Contains(char) -- ordinal single-unit scan
+// (stringext.cpp); the net9 char overload.
+bool icall_string_contains_char(Il2CppString* self, char16_t value);
+
 // net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy of
 // the UTF-16 units (stringext.cpp). Null self -> ArgumentNullException.
 Il2CppArray* icall_string_to_char_array(Il2CppString* self);

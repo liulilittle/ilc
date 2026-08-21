@@ -1096,5 +1096,22 @@ int32_t icall_string_last_index_of_any_start(Il2CppObject* self, Il2CppObject* a
     return icall_string_last_index_of_any_range(self, anyOf, startIndex, startIndex + 1);
 }
 
+//------------------------------------------------------------------------------
+// net9/10 E2E campaign: Contains(char) -- ordinal scan for one UTF-16 unit
+// (the net9 char overload; the string overload already routes to
+// icall_string_contains).
+//------------------------------------------------------------------------------
+bool icall_string_contains_char(Il2CppString* self, char16_t value)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    for (int32_t i = 0; i < self->length; ++i)
+    {
+        if (self->chars[i] == value)
+            return true;
+    }
+    return false;
+}
+
 } // namespace runtime
 } // namespace il2cpp
