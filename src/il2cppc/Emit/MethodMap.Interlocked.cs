@@ -69,11 +69,18 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false,
                         new[] { "pobj", "" })
                     // P6: Interlocked Exchange(ref float/double, float/double):
-                    // bit-reinterpret float→int32, double→int64 and use the
-                    // underlying int32/int64 atomic. IEEE 754 guarantees same size.
-                    // Accept any combination of 0x0C(R4)/0x0D(R8) for the two params.
                     : ps.Length == 2 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_double", 2, true, false, false, new[] { "", "d" }, "d")
+                    // P6: Generic Exchange<T> — ps carries 0x13 (VAR), genArgs has the concrete type.
+                    : ps.Length == 2 && ps[0] == 0x13 && genArgs is { Length: 1 }
+                    ? (genArgs[0] switch
+                    {
+                        0x08 => I("il2cpp::runtime::il2cpp_interlocked_exchange", 2, true, false, false, new[] { "", "i" }),
+                        0x0A => I("il2cpp::runtime::il2cpp_interlocked_exchange64", 2, true, false, false, new[] { "", "l" }, "l"),
+                        0x0C or 0x0D => I("il2cpp::runtime::il2cpp_interlocked_exchange_double", 2, true, false, false, new[] { "", "d" }, "d"),
+                        0x12 or 0x1C => I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false, new[] { "pobj", "" }),
+                        _ => null,
+                    })
                     : null;
             case "CompareExchange":
                 return ps.Length == 3 && ps[0] == 0x0A && ps[1] == 0x0A && ps[2] == 0x0A
@@ -83,9 +90,19 @@ public static partial class MethodRefResolver
                     : ps.Length == 3 && ps[0] == 0x1C && ps[1] == 0x1C && ps[2] == 0x1C
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false,
                         new[] { "pobj", "", "" })
-                    // P6: Interlocked CompareExchange(ref float/double, float/double, float/double):
+                    // P6: Interlocked CompareExchange(ref float/double, ...):
                     : ps.Length == 3 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D && ps[2] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d")
+                    // P6: Generic CompareExchange<T> — ps carries 0x13 (VAR), genArgs has the concrete type.
+                    : ps.Length == 3 && ps[0] == 0x13 && genArgs is { Length: 1 }
+                    ? (genArgs[0] switch
+                    {
+                        0x08 => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange", 3, true, false, false, new[] { "", "i", "i" }),
+                        0x0A => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange64", 3, true, false, false, new[] { "", "l", "l" }, "l"),
+                        0x0C or 0x0D => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d"),
+                        0x12 or 0x1C => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false, new[] { "pobj", "", "" }),
+                        _ => null,
+                    })
                     : null;
             case "SpeculationBarrier":
                 // ICALL-C (2026-08-07): the runtime ships the empty
