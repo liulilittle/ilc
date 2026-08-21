@@ -59,6 +59,9 @@ public static partial class MethodRefResolver
             case "SetLOHCompactionMode": return I("il2cpp::runtime::icall_gc_set_loh_compaction_mode", 1, false, false, false);
             case "IsServerGC":
             case "get_IsServerGC": return I("il2cpp::runtime::icall_gc_is_server_gc", 0, true, false, false);
+            // P6: GCFrameRegistration stubs (no-op in simplified model).
+            case "RegisterForGCReporting": return I("il2cpp::runtime::icall_gc_register_for_gc_reporting", 0, false, false, false);
+            case "UnregisterForGCReporting": return I("il2cpp::runtime::icall_gc_unregister_for_gc_reporting", 0, false, false, false);
             // P6 batch: GC stats methods -- all runtime functions already exist
             // in il2cpp_gc.h / gc.cpp; just need MethodMap wiring.
             case "GetSegmentSize": return I("il2cpp::runtime::il2cpp_gc_get_segment_size", 0, true, false, false, null, "l");

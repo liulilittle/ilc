@@ -90,4 +90,31 @@ void icall_gc_re_register_for_finalize(Il2CppObject* obj);
 // per-thread and process-wide counters coincide).
 int64_t icall_gc_get_allocated_bytes();
 
+// GC.GetGCLatencyMode(): the current latency-mode setting. The collector is a
+// single-threaded mark-sweep with no generational tuning, so the mode is a
+// stored preference (default GCLatencyMode.Interactive = 1) that is reported
+// back verbatim -- net48 returns the last value set via SetGCLatencyMode.
+int32_t icall_gc_get_latency_mode();
+
+// GC.SetGCLatencyMode(mode): stores the preference (no collector effect in
+// this single-threaded model). Any int32 value is accepted and echoed by
+// GetGCLatencyMode (net48 validates the enum range; callers pass valid
+// GCLatencyMode values).
+void icall_gc_set_latency_mode(int32_t mode);
+
+// GC.GetLOHCompactionMode(): the current large-object-heap compaction setting
+// (default GCLargeObjectHeapCompactionMode.Default = 0). Stored preference.
+int32_t icall_gc_get_loh_compaction_mode();
+
+// GC.SetLOHCompactionMode(mode): stores the preference (no collector effect).
+void icall_gc_set_loh_compaction_mode(int32_t mode);
+
+// GC.IsServerGC(): false -- this runtime uses the workstation collector model
+// (a single shared heap, no per-CPU heaps).
+int32_t icall_gc_is_server_gc();
+
+// P6: GCFrameRegistration internal helpers (stubs).
+void icall_gc_register_for_gc_reporting();
+void icall_gc_unregister_for_gc_reporting();
+
 }} // namespace il2cpp::runtime

@@ -118,4 +118,54 @@ int64_t icall_gc_get_allocated_bytes()
     return il2cpp::il2cpp_gc_get_allocated_bytes_for_current_thread();
 }
 
+//------------------------------------------------------------------------------
+// GC latency-mode / LOH-compaction-mode preferences.
+//
+// The collector is a single-threaded mark-sweep with no generational tuning, so
+// these settings have no behavioural effect -- they are stored preferences
+// echoed back by the getters (net48 returns the last value set via
+// SetGCLatencyMode / SetLOHCompactionMode). Default latency mode is
+// GCLatencyMode.Interactive (1); default LOH compaction is
+// GCLargeObjectHeapCompactionMode.Default (0).
+//------------------------------------------------------------------------------
+static int32_t g_gcLatencyMode = 1;        // GCLatencyMode.Interactive
+static int32_t g_gcLohCompactionMode = 0;  // GCLargeObjectHeapCompactionMode.Default
+
+int32_t icall_gc_get_latency_mode()
+{
+    return g_gcLatencyMode;
+}
+
+void icall_gc_set_latency_mode(int32_t mode)
+{
+    g_gcLatencyMode = mode;
+}
+
+int32_t icall_gc_get_loh_compaction_mode()
+{
+    return g_gcLohCompactionMode;
+}
+
+void icall_gc_set_loh_compaction_mode(int32_t mode)
+{
+    g_gcLohCompactionMode = mode;
+}
+
+int32_t icall_gc_is_server_gc()
+{
+    return 0; // workstation collector model
+}
+
+// P6: GCFrameRegistration internal helpers (stubs).
+
+void icall_gc_register_for_gc_reporting()
+{
+    // no-op: GC frame registration not needed in simplified model
+}
+
+void icall_gc_unregister_for_gc_reporting()
+{
+    // no-op: GC frame registration not needed in simplified model
+}
+
 }} // namespace il2cpp::runtime
