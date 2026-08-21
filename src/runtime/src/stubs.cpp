@@ -249,6 +249,8 @@ Il2CppObject* icall_overlapped_data_get_overlapped_from_native() { return nullpt
 int32_t icall_overlapped_data_check_vm_for_io_packet() { return 0; }
 void icall_thread_pool_notify_work_item_complete() {}
 void icall_thread_pool_report_thread_status(int32_t status) {}
+void icall_thread_pool_notify_work_item_progress_native() {}
+int32_t icall_thread_pool_is_thread_pool_hosted() { return 0; }
 void icall_thread_pool_clear_notify() {}
 
 // AppDomain stubs
