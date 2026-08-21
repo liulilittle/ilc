@@ -48,6 +48,11 @@ public static partial class MethodRefResolver
                     new[] { "i", "drop" });
             case "GetMaxThreads":
                 throw new NotSupportedException("System.Threading.ThreadPool::GetMaxThreads not wired: the out-param write-back (workerThreads/completionPortThreads) is not expressible in the emitter; the runtime icall il2cpp_threadpool_get_max_threads returns int32 with no out slots");
+            // P6: ThreadPool internal helpers (stubs).
+            case "NotifyWorkItemComplete": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_complete", 0, false, false, false);
+            case "ReportThreadStatus": return I("il2cpp::runtime::icall_thread_pool_report_thread_status", 1, false, false, false, new[] { "i" });
+            case "NotifyWorkItemProgressNative": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_progress_native", 0, false, false, false);
+            case "IsThreadPoolHosted": return I("il2cpp::runtime::icall_thread_pool_is_thread_pool_hosted", 0, true, false, false);
             default: return null;
         }
     }

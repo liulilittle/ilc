@@ -263,6 +263,7 @@ public static partial class MethodRefResolver
             // P6: Array.GetCorElementTypeOfElementType -- returns the CorElementType
             // of the array's element type (stub: returns 4 = ELEMENT_TYPE_I4).
             case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);
+            case "GetDataPtrOffsetInternal": return I("il2cpp::runtime::icall_array_get_data_ptr_offset_internal", 0, true, true, false);
             default: return null;
         }
     }

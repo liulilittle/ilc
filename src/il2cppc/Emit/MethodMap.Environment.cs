@@ -46,7 +46,8 @@ public static partial class MethodRefResolver
             case "get_CurrentManagedThreadId": return I("il2cpp::runtime::icall_environment_get_current_managed_thread_id", 0, true, false, false);
             // P6: Environment internal methods (stubs).
             case "nativeGetEnvironmentVariable": return I("il2cpp::runtime::icall_environment_get_environment_variable_native", 1, true, true, false, new[] { "s" });
-            case "get_Version": return I("il2cpp::runtime::icall_environment_get_version", 0, true, false, false);
+            case "get_Version":
+            case "GetVersion": return I("il2cpp::runtime::icall_environment_get_version", 0, true, false, false);
             case "GetVersionEx": return I("il2cpp::runtime::icall_environment_get_version_ex", 0, true, false, false);
             case "GetResourceFromDefault": return I("il2cpp::runtime::icall_environment_get_resource_from_default", 2, true, false, false, new[] { "s", "" });
             case "GetCompatibilityFlag": return I("il2cpp::runtime::icall_environment_get_compatibility_flag", 1, true, false, false, new[] { "s" });

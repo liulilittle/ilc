@@ -35,6 +35,7 @@ public static partial class MethodRefResolver
                     ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true)
                     : null;
             // P6: CultureInfo internal methods (stubs).
+            case "nativeGetLocaleInfoEx": return I("il2cpp::runtime::icall_culture_info_native_get_locale_info_ex_int", 1, true, true, false, new[] { "i" });
             case "nativeGetLocaleInfoExInt": return I("il2cpp::runtime::icall_culture_info_native_get_locale_info_ex_int", 1, true, false, false, new[] { "i" });
             case "nativeSetThreadLocale": return I("il2cpp::runtime::icall_culture_info_native_set_thread_locale", 1, false, false, false, new[] { "i" });
             default: return null;

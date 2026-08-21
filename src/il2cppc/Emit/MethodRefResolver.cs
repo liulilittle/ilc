@@ -712,6 +712,8 @@ public static partial class MethodRefResolver
             case "System.ParseNumbers":
             case "System.CurrentSystemTimeZone":
             case "System.Globalization.CultureData":
+            case "System.Globalization.CalendarData":
+            case "System.Globalization.EncodingTable":
             case "System.Security.CodeAccessSecurityEngine":
             case "System.Threading.CompressedStack":
             case "System.Threading.DomainCompressedStack":
@@ -724,6 +726,9 @@ public static partial class MethodRefResolver
             case "System.MissingMemberException":
             case "System.WeakReference`1":
             case "System.CLRConfig":
+            case "System.Diagnostics.Assert":
+            case "System.Diagnostics.Log":
+            case "System.BaseConfigHandler":
             case "System.Security.SecurityContext":
             case "System.Security.SecurityManager":
             case "System.Security.SecurityRuntime":

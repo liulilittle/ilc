@@ -128,10 +128,20 @@ public static partial class MethodRefResolver
             case "get_MinThreads": return I("il2cpp::runtime::icall_thread_pool_get_min_threads", 0, true, false, false);
             case "get_MaxThreads": return I("il2cpp::runtime::icall_thread_pool_get_max_threads", 0, true, false, false);
             case "GetAvailableThreads": return I("il2cpp::runtime::icall_thread_pool_get_available_threads", 0, true, false, false);
+            case "NotifyWorkItemComplete": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_complete", 0, false, false, false);
+            case "ReportThreadStatus": return I("il2cpp::runtime::icall_thread_pool_report_thread_status", 1, false, false, false, new[] { "i" });
+            case "NotifyWorkItemProgressNative": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_progress_native", 0, false, false, false);
+            case "IsThreadPoolHosted": return I("il2cpp::runtime::icall_thread_pool_is_thread_pool_hosted", 0, true, false, false);
+            // WeakReference`1.Finalize — the generic weak reference's implicit
+            // finalizer (base Object.Finalize). Same no-op as Object::Finalize.
+            case "Finalize": return I("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, true);
             // OverlappedData stubs
             case "get_PendingCount": return I("il2cpp::runtime::icall_overlapped_data_get_pending_count", 0, true, false, false);
             case "get_WaitHandle": return I("il2cpp::runtime::icall_overlapped_data_get_wait_handle", 0, true, false, false);
             case "get_ErrorCode": return I("il2cpp::runtime::icall_overlapped_data_get_error_code", 0, true, false, false);
+            case "FreeNativeOverlapped": return I("il2cpp::runtime::icall_overlapped_data_free_native_overlapped", 0, true, true, false);
+            case "GetOverlappedFromNative": return I("il2cpp::runtime::icall_overlapped_data_get_overlapped_from_native", 0, true, true, false);
+            case "CheckVMForIOPacket": return I("il2cpp::runtime::icall_overlapped_data_check_vm_for_io_packet", 0, true, false, false);
             // Remaining X509 stubs
             case "_GetDateNotBefore": return I("il2cpp::runtime::icall_x509_utils_get_date_not_before", 0, true, true, false);
             case "_GetIssuerName": return I("il2cpp::runtime::icall_x509_utils_get_issuer_name", 0, true, true, false);
@@ -159,8 +169,6 @@ public static partial class MethodRefResolver
             case "nativeCompareOrdinalIgnoreCaseWC": return I("il2cpp::runtime::icall_string_native_compare_ordinal_ignore_case_wc", 2, true, false, false, new[] { "", "" });
             case "InternalMarvin32HashString": return I("il2cpp::runtime::icall_string_internal_marvin32_hash_string", 1, true, false, false, new[] { "" });
             // Remaining miscellaneous stubs
-            case "MemberwiseClone": return I("il2cpp::runtime::icall_object_memberwise_clone", 0, true, true, false);
-            case "GetDataPtrOffsetInternal": return I("il2cpp::runtime::icall_array_get_data_ptr_offset_internal", 0, true, true, false);
             case "IsFastSort": return I("il2cpp::runtime::icall_string_is_fast_sort", 0, true, true, false);
             case "IsAscii": return I("il2cpp::runtime::icall_string_is_ascii", 0, true, false, false);
             case "InternalEqualTypes": return I("il2cpp::runtime::icall_delegate_internal_equal_types", 2, true, false, false);

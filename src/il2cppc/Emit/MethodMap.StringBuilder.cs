@@ -85,6 +85,10 @@ public static partial class MethodRefResolver
             case "get_Capacity":
                 // No capacity icall: read the runtime struct field directly.
                 return I("il2cpp::runtime::il2cpp_stringbuilder_capacity", 0, true, false, true, new[] { "fcap" });
+            // P6: StringBuilder.ReplaceBufferInternal/ReplaceBufferAnsiInternal
+            // (net48 internal helpers for char*/byte* buffer replacement).
+            case "ReplaceBufferInternal": return I("il2cpp::runtime::icall_stringbuilder_replace_buffer_internal", 1, true, true, true, new[] { "c" });
+            case "ReplaceBufferAnsiInternal": return I("il2cpp::runtime::icall_stringbuilder_replace_buffer_ansi_internal", 1, true, true, true, new[] { "" });
             default: return null;
         }
     }

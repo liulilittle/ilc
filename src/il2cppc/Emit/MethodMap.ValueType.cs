@@ -218,6 +218,11 @@ public static partial class MethodRefResolver
         byte[] ps, int count, byte[]? genArgs, string? receiverType, bool receiverIsAddress,
         string? arg0Type, string? arg1Type)
     {
+        // P6: ValueType.GetHashCodeOfPtr — internal helper that hashes a value
+        // type by pointer (the GC.cs entry is dead code because System.ValueType
+        // dispatches here, not to TryMapGC).
+        if (owner == "System.ValueType" && name == "GetHashCodeOfPtr")
+            return I("il2cpp::runtime::icall_value_type_get_hash_code_of_ptr", 1, true, false, false);
         if (owner != "System.ValueType" || name != "GetHashCode" || ps.Length != 0)
             return null;
         // The FOLD resolves the callvirt TWICE: the first pass (StackFold.cs
