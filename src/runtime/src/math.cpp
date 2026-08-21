@@ -82,6 +82,15 @@ int32_t icall_math_sign_l(int64_t value)
     return (value < 0) ? -1 : (value > 0) ? 1 : 0;
 }
 
+// net9/10 E2E campaign (math sweep): Math.Sign(double/float) -- the old
+// mapping routed R4/R8 to sign_l, TRUNCATING the fraction before the sign
+// test (Sign(-0.5) wrongly returned 0). IEEE NaN -> 0 is unreachable here
+// (NaN comparisons are false both ways -> 0), matching .NET's Sign(NaN)==0.
+int32_t icall_math_sign_d(double value)
+{
+    return (value < 0.0) ? -1 : (value > 0.0) ? 1 : 0;
+}
+
 //------------------------------------------------------------------------------
 // Math.Clamp(int32,int32,int32).
 //

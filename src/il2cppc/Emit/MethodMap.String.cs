@@ -120,6 +120,12 @@ case "Remove":
         ? I("il2cpp::runtime::icall_string_remove", 2, true, true, true,
             new[] { "s", "i", "i" }, returnTypeName: "System.String")
         : null;
+// net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy.
+case "ToCharArray":
+    return ps.Length == 0
+        ? I("il2cpp::runtime::icall_string_to_char_array", 0, true, true, true,
+            new[] { "s" }, returnTypeName: "System.Char[]")
+        : null;
             case "Trim":
                 // trimset sweep: ParamCount MUST track the IL arity (the
                 // TrimStart lockstep discipline below -- a params char[] call

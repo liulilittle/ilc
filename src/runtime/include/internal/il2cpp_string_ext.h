@@ -121,6 +121,10 @@ Il2CppObject* icall_string_trim(Il2CppObject* this_);
 Il2CppString* icall_string_insert(Il2CppString* self, int32_t index, Il2CppString* value);
 Il2CppString* icall_string_remove(Il2CppString* self, int32_t startIndex, int32_t count);
 
+// net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy of
+// the UTF-16 units (stringext.cpp). Null self -> ArgumentNullException.
+Il2CppArray* icall_string_to_char_array(Il2CppString* self);
+
 // TrimStart(): leading whitespace only (contract as Trim).
 Il2CppObject* icall_string_trim_start(Il2CppObject* this_);
 

@@ -51,6 +51,10 @@ int64_t icall_math_min_l(int64_t a, int64_t b);
 // included). The .NET return type is int32 for both overloads.
 int32_t icall_math_sign_i(int32_t value);
 int32_t icall_math_sign_l(int64_t value);
+// Math.Sign(double/float): sign of the FRACTIONAL value (the old route via
+// sign_l truncated first -- Sign(-0.5) wrongly 0). NaN -> 0 (comparisons
+// false both ways), matching .NET.
+int32_t icall_math_sign_d(double value);
 
 // Math.BigMul(int32 a, int32 b): the exact int64 product (int64_t)a * b --
 // D-ME2-1 (2026-08-12). net48's long BigMul(int, int) returns the WIDE product

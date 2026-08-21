@@ -34,6 +34,12 @@ public static partial class MethodRefResolver
             case "Sign":
                 return ps[0] == 0x08
                     ? I("il2cpp::runtime::icall_math_sign_i", 1, true, false, false)
+                    // net9/10 E2E campaign (math sweep): R4/R8 must test the
+                    // FRACTION's sign -- sign_l truncated first (Sign(-0.5)
+                    // wrongly 0). icall_math_sign_d takes the double slot
+                    // (float-in-double model) and returns int32.
+                    : (ps[0] == 0x0D || ps[0] == 0x0C)
+                    ? I("il2cpp::runtime::icall_math_sign_d", 1, true, false, false, new[] { "d" })
                     : I("il2cpp::runtime::icall_math_sign_l", 1, true, false, false, null, "l");
             case "Sqrt": return I("il2cpp::runtime::icall_math_sqrt_d", 1, true, false, false, null, "d");
             case "Pow": return I("il2cpp::runtime::icall_math_pow_d", 2, true, false, false, null, "d");

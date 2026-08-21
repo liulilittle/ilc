@@ -1016,5 +1016,22 @@ Il2CppString* icall_string_remove(Il2CppString* self, int32_t startIndex, int32_
     return out;
 }
 
+//------------------------------------------------------------------------------
+// net9/10 E2E campaign (string sweep): String.ToCharArray() -- a NEW char[]
+// holding a copy of the UTF-16 units (the caller may mutate it freely; the
+// source string is never affected). Empty string -> zero-length array.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_string_to_char_array(Il2CppString* self)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    const int32_t len = self->length;
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(char16_t), false, len);
+    auto* dst = reinterpret_cast<char16_t*>(il2cpp_array_get_elem_ptr(out, 0));
+    for (int32_t i = 0; i < len; ++i)
+        dst[i] = self->chars[i];
+    return out;
+}
+
 } // namespace runtime
 } // namespace il2cpp
