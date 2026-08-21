@@ -117,5 +117,37 @@ Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString* str);
 void icall_appdomain_n_unload(int32_t id);
 int32_t icall_appdomain_get_id();
 
+// Remaining X509 stubs
+Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject* self);
+Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject* self);
+Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject* self);
+Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject* self);
+Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject* self);
+Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject* self);
+Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject* self);
+Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject* self);
+int32_t icall_x509_utils_query_cert_blob_type(Il2CppObject* self);
+int32_t icall_x509_utils_query_cert_file_type(Il2CppString* path);
+
+// Remaining Environment stubs
+Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString* name);
+int32_t icall_environment_get_version();
+int32_t icall_environment_get_version_ex();
+
+// Remaining DateTime stubs
+int64_t icall_datetime_get_system_time_as_file_time();
+int32_t icall_datetime_validate_system_time(int64_t ticks);
+int64_t icall_datetime_get_system_time_with_leap_seconds_handling();
+int64_t icall_datetime_system_file_time_to_system_time(int64_t ticks);
+int64_t icall_datetime_system_time_to_system_file_time(int64_t ticks);
+
+// Remaining String stubs
+int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2);
+int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString* str, Il2CppString* value);
+Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str);
+
+// Remaining Environment stubs
+int32_t icall_environment_fail_fast(Il2CppObject* message);
+
 }} // namespace runtime
 } // namespace il2cpp

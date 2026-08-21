@@ -132,6 +132,32 @@ public static partial class MethodRefResolver
             case "get_PendingCount": return I("il2cpp::runtime::icall_overlapped_data_get_pending_count", 0, true, false, false);
             case "get_WaitHandle": return I("il2cpp::runtime::icall_overlapped_data_get_wait_handle", 0, true, false, false);
             case "get_ErrorCode": return I("il2cpp::runtime::icall_overlapped_data_get_error_code", 0, true, false, false);
+            // Remaining X509 stubs
+            case "_GetDateNotBefore": return I("il2cpp::runtime::icall_x509_utils_get_date_not_before", 0, true, true, false);
+            case "_GetIssuerName": return I("il2cpp::runtime::icall_x509_utils_get_issuer_name", 0, true, true, false);
+            case "_GetPublicKeyOid": return I("il2cpp::runtime::icall_x509_utils_get_public_key_oid", 0, true, true, false);
+            case "_GetPublicKeyParameters": return I("il2cpp::runtime::icall_x509_utils_get_public_key_parameters", 0, true, true, false);
+            case "_GetPublicKeyValue": return I("il2cpp::runtime::icall_x509_utils_get_public_key_value", 0, true, true, false);
+            case "_GetSubjectInfo": return I("il2cpp::runtime::icall_x509_utils_get_subject_info", 0, true, true, false);
+            case "_GetSerialNumber": return I("il2cpp::runtime::icall_x509_utils_get_serial_number", 0, true, true, false);
+            case "_GetThumbprint": return I("il2cpp::runtime::icall_x509_utils_get_thumbprint", 0, true, true, false);
+            case "_QueryCertBlobType": return I("il2cpp::runtime::icall_x509_utils_query_cert_blob_type", 0, true, false, false);
+            case "_QueryCertFileType": return I("il2cpp::runtime::icall_x509_utils_query_cert_file_type", 1, true, false, false, new[] { "s" });
+            // Remaining Environment stubs
+            case "nativeGetEnvironmentVariable": return I("il2cpp::runtime::icall_environment_get_environment_variable_native", 1, true, true, false, new[] { "s" });
+            case "get_Version": return I("il2cpp::runtime::icall_environment_get_version", 0, true, false, false);
+            case "GetVersionEx": return I("il2cpp::runtime::icall_environment_get_version_ex", 0, true, false, false);
+            case "FailFast": return I("il2cpp::runtime::icall_environment_fail_fast", 1, false, false, false, new[] { "s" });
+            // Remaining DateTime stubs
+            case "GetSystemTimeAsFileTime": return I("il2cpp::runtime::icall_datetime_get_system_time_as_file_time", 0, true, false, false, null, "l");
+            case "ValidateSystemTime": return I("il2cpp::runtime::icall_datetime_validate_system_time", 1, true, false, false, new[] { "l" });
+            case "GetSystemTimeWithLeapSecondsHandling": return I("il2cpp::runtime::icall_datetime_get_system_time_with_leap_seconds_handling", 0, true, false, false, null, "l");
+            case "SystemFileTimeToSystemTime": return I("il2cpp::runtime::icall_datetime_system_file_time_to_system_time", 1, true, false, false, new[] { "l" }, "l");
+            case "SystemTimeToSystemFileTime": return I("il2cpp::runtime::icall_datetime_system_time_to_system_file_time", 1, true, false, false, new[] { "l" }, "l");
+            // Remaining String stubs
+            case "nativeCompareOrdinalEx": return I("il2cpp::runtime::icall_string_native_compare_ordinal_ex", 6, true, false, false, new[] { "", "", "i", "i", "i", "i" });
+            case "nativeCompareOrdinalIgnoreCaseWC": return I("il2cpp::runtime::icall_string_native_compare_ordinal_ignore_case_wc", 2, true, false, false, new[] { "", "" });
+            case "InternalMarvin32HashString": return I("il2cpp::runtime::icall_string_internal_marvin32_hash_string", 1, true, false, false, new[] { "" });
             // Crypto stubs (16 Utils + 14 X509)
             case "_CreateCSP": return I("il2cpp::runtime::icall_crypto_utils_create_csp", 0, true, true, false);
             case "_DecryptData": return I("il2cpp::runtime::icall_crypto_utils_decrypt_data", 1, true, true, false);

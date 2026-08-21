@@ -158,6 +158,38 @@ Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject* self, I
 Il2CppObject* icall_x509_utils_get_cert_raw_data(Il2CppObject* self) { return nullptr; }
 Il2CppObject* icall_x509_utils_get_date_not_after(Il2CppObject* self) { return nullptr; }
 
+// Remaining X509 stubs
+Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject* self) { return nullptr; }
+int32_t icall_x509_utils_query_cert_blob_type(Il2CppObject* self) { return 0; }
+int32_t icall_x509_utils_query_cert_file_type(Il2CppString* path) { return 0; }
+
+// Remaining Environment stubs
+Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString* name) { return nullptr; }
+int32_t icall_environment_get_version() { return 4; }
+int32_t icall_environment_get_version_ex() { return 0; }
+
+// Remaining DateTime stubs
+int64_t icall_datetime_get_system_time_as_file_time() { return 0; }
+int32_t icall_datetime_validate_system_time(int64_t ticks) { return 1; }
+int64_t icall_datetime_get_system_time_with_leap_seconds_handling() { return 0; }
+int64_t icall_datetime_system_file_time_to_system_time(int64_t ticks) { return ticks; }
+int64_t icall_datetime_system_time_to_system_file_time(int64_t ticks) { return ticks; }
+
+// Remaining String stubs
+int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString* str, Il2CppString* value) { return 0; }
+Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str) { return nullptr; }
+
+// Remaining Environment FailFast stubs
+void icall_environment_fail_fast(Il2CppObject* message) { std::abort(); }
+
 // AppDomain stubs
 Il2CppObject* icall_appdomain_is_unloading_forced_finalize() { return nullptr; }
 int32_t icall_appdomain_is_finalizing_for_unload() { return 0; }
