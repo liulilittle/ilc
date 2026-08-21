@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace il2cpp { namespace runtime {
 
@@ -541,6 +542,19 @@ double icall_math_scaleb_d(double x, int32_t n)
 double icall_math_copy_sign_d(double x, double y)
 {
     return std::copysign(x, y);
+}
+
+// net9/10 E2E campaign: Math.BitDecrement/BitIncrement -- the next
+// representable value toward -inf / +inf (std::nextafter). NaN stays NaN;
+// +/-inf stay put (nextafter(inf, x) == inf for finite x).
+double icall_math_bit_decrement_d(double x)
+{
+    return std::nextafter(x, -std::numeric_limits<double>::infinity());
+}
+
+double icall_math_bit_increment_d(double x)
+{
+    return std::nextafter(x, std::numeric_limits<double>::infinity());
 }
 
 }} // namespace il2cpp::runtime

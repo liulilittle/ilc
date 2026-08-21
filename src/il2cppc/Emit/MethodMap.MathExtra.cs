@@ -96,6 +96,16 @@ public static partial class MethodRefResolver
                 return ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x0D
                     ? I("il2cpp::runtime::icall_math_copy_sign_d", 2, true, false, false, null, "d")
                     : null;
+            // net9/10 E2E campaign: BitDecrement/BitIncrement -- nextafter
+            // toward -inf / +inf (mathext.cpp).
+            case "BitDecrement":
+                return ps.Length == 1 && ps[0] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_bit_decrement_d", 1, true, false, false, null, "d")
+                    : null;
+            case "BitIncrement":
+                return ps.Length == 1 && ps[0] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_bit_increment_d", 1, true, false, false, null, "d")
+                    : null;
             // --- DivRem: net48 PUBLIC (reachable) -- the corert Math.DivModInt
             // family exposed result-first. The BYREF out param decodes to its
             // element byte (ReadParamByte, 0x10 recursion), so both forms match

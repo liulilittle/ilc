@@ -158,6 +158,10 @@ int32_t icall_math_ilogb_d(double value);
 double icall_math_scaleb_d(double x, int32_t n);
 // CopySign(double x, double y): |x| with y's sign bit (std::copysign).
 double icall_math_copy_sign_d(double x, double y);
+// BitDecrement/BitIncrement(double): the next representable value toward
+// -inf / +inf (std::nextafter). NaN stays NaN; +/-inf stay put.
+double icall_math_bit_decrement_d(double x);
+double icall_math_bit_increment_d(double x);
 
 // Math.Log2(double): std::log2 -- base-2 logarithm, C99. Log2(1) == 0,
 // Log2(2) == 1, Log2(0) == -inf, Log2(x < 0) -> NaN (netcore: no exception).
