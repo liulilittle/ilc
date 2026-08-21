@@ -1,0 +1,9 @@
+isbackground set: True
+workerA ran: True
+workerB ran: True
+combined count: True
+worker ids nonzero: True
+worker ids differ: True
+child id != main id: True
+current thread id matches: True
+isalive after join: True

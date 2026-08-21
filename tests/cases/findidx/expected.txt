@@ -1,0 +1,17 @@
+hit=1
+hit_odd=2
+miss=-1
+alltrue=0
+empty=-1
+win_start=3
+win_start_miss=-1
+win_start_odd=2
+win_sc=3
+win_sc_miss=-1
+win_zero_at_len=-1
+aoo_start_neg=True
+aoo_start_hi=True
+aoo_count_neg=True
+aoo_count_hi=True
+ane_arr=True
+ane_match=True

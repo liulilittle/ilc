@@ -1,0 +1,21 @@
+39
+True
+False
+True
+True
+True
+True
+True
+Name: Bob
+Age: 30
+Score: 95 / 100
+Tries: 0 -17 2147483647 -2147483648
+id=42, score=95.7
+17
+id=42, score=95.7 | tag:A
+[id=42, score=95.7 | tag:A]
+id=42, score=95.7 | tag:A
+id=99, score=9.9 | tag:A
+True
+0123456789abcdefghijABCDEFGHIJ
+True

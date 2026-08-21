@@ -1,0 +1,61 @@
+1 a+a len: 2
+2 same-method len: 2
+3 ab+ab len: 4
+4 ab+ab newobj: True
+5 aba len: 3
+6 aba-a len: 2
+7 aba-a[0] is a: True
+8 aba-a[1] is b: True
+9 [a,b]-a len: 1
+10 [a,b]-a[0] is b: True
+11 [b]-b null: True
+12 all len: 4
+13 removals: 2
+14 left len: 2
+15 left[0] is a: True
+16 left[1] is a: True
+17 [a,a]-a-a null: True
+18 nested len: 4
+19 nested[0] is a: True
+A:1
+B:2
+C:3
+D:4
+20 nested last: 101
+21 nested order: 4
+22 deepR len: 4
+A:1
+B:2
+C:3
+D:4
+23 deepR order: 4
+A:1
+B:2
+A:3
+B:4
+24 abab order: 4
+25 nested-b len: 3
+26 nested-b[1] is c: True
+27 nested-cd len: 2
+28 nested-cd[0] is a: True
+29 nested-cd[1] is b: True
+A:1
+30 ex type: Exception
+31 mid-throw order: 1
+32 first throws
+33 first-throw order: 0
+A:1
+B:2
+34 last throws
+35 last-throw order: 2
+36 chain intact: True
+A:1
+37 once threw
+38 once order: 1
+A:2
+B:3
+39 once last: 10
+40 once order2: 3
+A:1
+41 nested throws
+42 nested-throw order: 1

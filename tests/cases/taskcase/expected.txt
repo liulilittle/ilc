@@ -1,0 +1,4 @@
+42
+True
+True
+False

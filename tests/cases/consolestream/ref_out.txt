@@ -1,0 +1,15 @@
+A1aA1b
+A2_line
+
+
+A5_no_nl
+C1_before
+C4_restored
+C5_restored
+B1_err
+B2_err_no_nl
+B3_err
+D1_before_err
+D3_restored_err
+E_out_ane=True
+E_err_ane=True

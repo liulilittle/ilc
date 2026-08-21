@@ -1,0 +1,141 @@
+//------------------------------------------------------------------------------
+// exception.cpp -- managed exception transport (see il2cpp_exception.h).
+//
+// M3 scope: typed exceptions with exact-or-base matching; the managed
+// Exception OBJECT (GC) and StackTrace arrive with the exception-object task
+// (Task 10); this carrier's contract is stable.
+//
+// Type matching: M3 carries a BASE-CHAIN STRING on the exception. The
+// transpiler emits the chain for each exception type it throws
+// ("System.DivideByZeroException,System.Exception"); a catch matches when the
+// caught type equals the thrown type or appears in the thrown type's chain.
+// The runtime does NOT walk the metadata type graph at runtime -- the chain
+// is compile-time knowledge, baked into the throw site (zero reflection).
+//------------------------------------------------------------------------------
+
+#include "il2cpp_exception_ext.h"
+
+#include "il2cpp_frame.h"
+
+#include <cstdio>
+#include <cstring>
+
+namespace il2cpp {
+
+//------------------------------------------------------------------------------
+// il2cpp_throw_new -- throw a typed managed exception (see header).
+//------------------------------------------------------------------------------
+void il2cpp_throw_new(const char* typeName, const char* message)
+{
+    throw DotNetException(typeName, message);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_exception_matches -- catch-clause type conformance (see header).
+//------------------------------------------------------------------------------
+bool il2cpp_exception_matches(const char* caught, const char* thrown)
+{
+    if (caught == nullptr || thrown == nullptr)
+    {
+        return false;
+    }
+    if (std::strcmp(caught, thrown) == 0)
+    {
+        return true;
+    }
+    // Base-chain walk: the thrown type's chain is the portion after the
+    // first comma (the chain lists the type's base classes). A catch of a
+    // base type matches when the base appears in the chain.
+    // M3 chain format: "{Type},{Base1},{Base2},...".
+    const char* chain = std::strchr(thrown, ',');
+    if (chain == nullptr)
+    {
+        return false;
+    }
+    const char* p = chain + 1;
+    while (*p != '\0')
+    {
+        const char* comma = std::strchr(p, ',');
+        const size_t len = (comma != nullptr) ? static_cast<size_t>(comma - p) : std::strlen(p);
+        if (len == std::strlen(caught) && std::strncmp(p, caught, len) == 0)
+        {
+            return true;
+        }
+        if (comma == nullptr)
+        {
+            break;
+        }
+        p = comma + 1;
+    }
+    return false;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_report_unhandled_exception -- top-level guard (see header).
+// M3 Task 10: the report includes the managed frame stack (method names) --
+// the StackTrace foundation. Frames may be partially unwound (the throwing
+// method's frame was popped by its RAII destructor), so the report lists the
+// frames that survived to the top-level catch.
+//------------------------------------------------------------------------------
+int il2cpp_report_unhandled_exception(const char* message)
+{
+    std::fprintf(stderr, "Unhandled managed exception: %s\n",
+                 message != nullptr ? message : "(no message)");
+    std::fprintf(stderr, "Managed call stack (innermost first):\n");
+    int depth = 0;
+    for (Il2CppFrame* frame = il2cpp_frame_top(); frame != nullptr && depth < 64; frame = frame->prev, ++depth)
+    {
+        std::fprintf(stderr, "  at %s\n",
+                     frame->methodName != nullptr ? frame->methodName : "(unknown frame)");
+    }
+    if (depth == 0)
+    {
+        std::fprintf(stderr, "  (no managed frames on the stack)\n");
+    }
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_checked_div / il2cpp_checked_rem -- checked integer division.
+// .NET: x / 0 (int) throws DivideByZeroException; C++ division by zero is
+// UB. Audit H9: INT_MIN / -1 is also UB in C++ (the quotient 2^31 is not
+// representable in int32; x86 idiv raises #DE -> SIGFPE). .NET throws
+// OverflowException for it, so the helper checks and throws the managed
+// carrier before the division executes.
+//------------------------------------------------------------------------------
+int32_t il2cpp_checked_div(int32_t a, int32_t b)
+{
+    if (b == 0)
+    {
+        // Canonical factory (il2cpp_exception_ext.h): the chain repeats the
+        // exact type so a catch of the thrown type itself matches, then lists
+        // the .NET base classes (ArithmeticException, SystemException,
+        // Exception) -- the exceptionext chain convention.
+        il2cpp_throw_divide_by_zero_exception("Attempted to divide by zero.");
+    }
+    if (a == INT32_MIN && b == -1)
+    {
+        // net48 message text for the JIT's INT_MIN / -1 overflow check.
+        il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+    }
+    return a / b;
+}
+
+int32_t il2cpp_checked_rem(int32_t a, int32_t b)
+{
+    if (b == 0)
+    {
+        il2cpp_throw_divide_by_zero_exception("Attempted to divide by zero.");
+    }
+    if (a == INT32_MIN && b == -1)
+    {
+        il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+    }
+    return a % b;
+}
+
+} // namespace il2cpp
+
+
+
+

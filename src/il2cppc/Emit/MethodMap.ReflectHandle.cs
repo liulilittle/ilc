@@ -1,0 +1,83 @@
+namespace Il2Cpp.Transpiler.Emit;
+
+//------------------------------------------------------------------------------
+// MethodMap.ReflectHandle -- reflection handle value-semantics mappings
+// (src/runtime/include/internal/reflecthandle.h -- the b23refh domain:
+// RuntimeTypeHandle / RuntimeMethodHandle / RuntimeFieldHandle value ops).
+// Owners: System.RuntimeTypeHandle / System.RuntimeMethodHandle /
+// System.RuntimeFieldHandle
+//
+// VALUE MODEL (refh-b23 §2.1): each handle value type wraps a raw runtime
+// pointer -- RuntimeTypeHandle = Il2CppClass*, RuntimeMethodHandle = const
+// Il2CppMethodInfo*, RuntimeFieldHandle = const Il2CppFieldInfo*. These ride
+// in the M-stage pointer carrier (an intptr_t slot, the IntPtr precedent).
+// Instance receivers are therefore:
+//   * ldloca receiver (receiverIsAddress) -> "deref:l" (read the intptr slot)
+//   * plain VALUE receiver -> "" pass-through
+// DEPENDENCY (read-only CodeGenerator domain, reported): the emitter must
+// (a) add `#include "reflecthandle.h"` to generated.h (refh P1), and
+// (b) give the handle value types an intptr_t slot via TypeCppName, and
+// (c) for the ADDRESS receiver form emit the pointer deref to Il2CppClass*.
+// Until then the mappings are resolver-complete but generated C++ that
+// exercises them needs those CodeGenerator patches (CG-3).
+//
+// SURFACE (all functions VERIFIED in the runtime, namespace il2cpp):
+//   get_Value        -> il2cpp_rthandle_get_value (Il2CppClass* -> intptr_t)
+//   Equals           -> il2cpp_rthandle_equals (Il2CppClass*, Il2CppClass*)
+//   GetHashCode      -> il2cpp_rthandle_get_hash_code
+//   GetRuntimeType   -> il2cpp_rthandle_get_runtime_type (-> Type, ref)
+//   + the method/field handle twins (il2cpp_rmethodhandle_* /
+//     il2cpp_rfieldhandle_*) -- value + equals + hash only.
+//
+// All defensive: null/default handles return 0/nullptr, never throw (net48
+// probe). Unknown members -> LOUD with the covered surface.
+//------------------------------------------------------------------------------
+public static partial class MethodRefResolver
+{
+    private static ResolvedMethod? TryMapReflectHandle(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        var prefix = owner switch
+        {
+            "System.RuntimeTypeHandle" => "rthandle",
+            "System.RuntimeMethodHandle" => "rmethodhandle",
+            "System.RuntimeFieldHandle" => "rfieldhandle",
+            _ => throw new NotSupportedException($"{owner} is not a reflection-handle owner wired by MethodMap.ReflectHandle.cs"),
+        };
+        switch (name)
+        {
+            case "get_Value":
+                // instance intptr get_Value(): the raw handle pointer. The
+                // runtime returns intptr_t (the "ptr" carrier).
+                if (count != 0) return null;
+                return I($"il2cpp::il2cpp_{prefix}_get_value", 0, true, false, true,
+                    new[] { receiverIsAddress ? "deref:l" : "" }, "ptr");
+            case "Equals":
+                // instance bool Equals(handle): identity (pointer equality,
+                // name-equality for the type handle via icall_type_equals).
+                if (count != 1) return null;
+                return I($"il2cpp::il2cpp_{prefix}_equals", 1, true, false, true,
+                    new[] { receiverIsAddress ? "deref:l" : "", receiverIsAddress ? "deref:l" : "" });
+            case "GetHashCode":
+                // instance int32 GetHashCode(): deterministic hash over the
+                // handle identity (null/default -> 0, never throws).
+                if (count != 0) return null;
+                return I($"il2cpp::il2cpp_{prefix}_get_hash_code", 0, true, false, true,
+                    new[] { receiverIsAddress ? "deref:l" : "" });
+            case "GetRuntimeType":
+                // instance Type GetRuntimeType(): handle -> Type (the full-name
+                // string model); only the TYPE handle has this member -- the
+                // method/field handles have no runtime helper (LOUD).
+                if (count != 0) return null;
+                if (prefix != "rthandle")
+                    throw new NotSupportedException(
+                        $"{owner}.GetRuntimeType not wired: only RuntimeTypeHandle has GetRuntimeType in the reflect-handle surface (reflecthandle.h)");
+                return I("il2cpp::il2cpp_rthandle_get_runtime_type", 0, true, true, true,
+                    new[] { receiverIsAddress ? "deref:l" : "" }, returnTypeName: "System.Type");
+            default:
+                throw new NotSupportedException(
+                    $"{owner}::{name} not wired: the reflect-handle surface covers get_Value / Equals / " +
+                    "GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h");
+        }
+    }
+}

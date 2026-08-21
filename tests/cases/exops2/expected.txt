@@ -1,0 +1,12 @@
+e1=CxEx2|True
+e2=CxEx3|True
+e9=CxEx3|True
+e3_inner=CxEx|True
+e3_finally
+e3_outer=CxEx|True
+e8_first=True
+e8_second=True
+e4=ArgumentNullException|True
+e5=ArgumentOutOfRangeException|True
+e6=custom arg msg
+e7=DivideByZeroException|True

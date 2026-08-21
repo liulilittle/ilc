@@ -1,0 +1,11 @@
+hit=True
+hitval=Hello Resource
+miss=True
+missval=null
+inv=True
+enus=True
+enusmiss=True
+frfr=True
+frfrmiss=True
+app=True
+empty=True

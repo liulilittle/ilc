@@ -1,0 +1,17 @@
+lit_same=True
+first_miss_returns_input=True
+second_build_fresh=True
+pool_dedup=True
+idempotent=True
+distinct_content=True
+empty_once=True
+pref_distinct=True
+pref_roundtrip=True
+grow_distinct=True
+grow_dedup_after_rehash=True
+grow_reintern_first=True
+grow_reintern_last=True
+gc_interned_alive=True
+gc_reintern_same=True
+gc_uninterned_dead=True
+done

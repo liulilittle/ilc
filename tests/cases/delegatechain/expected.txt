@@ -1,0 +1,74 @@
+abc len: True
+A:1
+B:2
+C:3
+abc last: True
+abc order: True
+ac len: True
+A:1
+C:2
+ac last: True
+ac order: True
+ac[0] is a: True
+ac[1] is c: True
+bc len: True
+B:1
+C:2
+bc last: True
+ab len: True
+A:1
+B:2
+ab last: True
+nested len: True
+nb len: True
+A:1
+C:2
+D:3
+nb order: True
+nb[1] is c: True
+absent identity: True
+absent len: True
+whole null: True
+remove-all null: True
+pair-b left: True
+combine null-l: True
+combine null-r: True
+remove null: True
+inst bind: True
+inst state: True
+A:1
+mix last: True
+mix order: True
+A:1
+B:2
+C:3
+raise 3 last: True
+raise 3 order: True
+A:1
+C:2
+raise 2 last: True
+raise 2 order: True
+raise=none
+raise none: True
+B:1
+raise resub: True
+A:1
+mid threw
+mid order: True
+first threw
+first order: True
+A:1
+B:2
+last threw
+last order: True
+chain intact: True
+A:1
+once threw
+once order: True
+A:2
+B:3
+once last: True
+once order2: True
+A:1
+evt threw
+evt order: True

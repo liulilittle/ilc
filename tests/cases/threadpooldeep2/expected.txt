@@ -1,0 +1,16 @@
+queued: True
+ranBasic: True
+basicCount: True
+depthRan: True
+depthExactly: True
+slotsRan: True
+slotsOk: True
+peakRan: True
+peakGE2: True
+distRan: True
+allPoolThreads: True
+workersGE2: True
+nestedRan: True
+outerCount: 4
+innerCount: 4
+aliveAfterSetMax: True

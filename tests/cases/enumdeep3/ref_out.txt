@@ -1,0 +1,12 @@
+ts_a=True
+ts_b=True
+ts_flags=True
+ug_int=True
+ug_flags=True
+ug_neq_long=False
+eq_same=True
+eq_diffval=False
+eq_cross=False
+eq_cross_sameval=False
+eq_null=0
+eq_flags_cross=False

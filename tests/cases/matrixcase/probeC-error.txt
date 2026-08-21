@@ -1,0 +1,8 @@
+il2cppc error: TypeSpec signature byte 0x14 not GenericInst(0x15) in M3
+   at Il2Cpp.Transpiler.Ir.StackFold.<Fold>g__GenericInstantiationName|0_30(MetadataReader md, TypeSpecificationHandle handle) in E:\il2cpp\src\il2cppc\Ir\StackFold.cs:line 2170
+   at Il2Cpp.Transpiler.Ir.StackFold.<Fold>g__CtorTypeFullName|0_29(MetadataReader md, Int32 token) in E:\il2cpp\src\il2cppc\Ir\StackFold.cs:line 2157
+   at Il2Cpp.Transpiler.Ir.StackFold.<Fold>g__EnsureCctorForNewObj|0_34(List`1 stmts, MethodContext ctx, MetadataReader md, IlInstruction ins, IReadOnlyList`1 types) in E:\il2cpp\src\il2cppc\Ir\StackFold.cs:line 2237
+   at Il2Cpp.Transpiler.Ir.StackFold.Fold(List`1 il, MethodContext ctx, MetadataReader md, IReadOnlyList`1 types, IReadOnlyDictionary`2 accessors, PEReader pe) in E:\il2cpp\src\il2cppc\Ir\StackFold.cs:line 398
+   at Il2Cpp.Transpiler.Emit.CodeGenerator.GenerateCore(List`1 types, String outDir, String assemblyPath) in E:\il2cpp\src\il2cppc\Emit\CodeGenerator.cs:line 348
+   at Il2Cpp.Transpiler.Emit.CodeGenerator.Generate(List`1 types, String outDir, String assemblyPath) in E:\il2cpp\src\il2cppc\Emit\CodeGenerator.cs:line 36
+   at Il2Cpp.Transpiler.Program.RunMain(String[] args) in E:\il2cpp\src\il2cppc\Program.cs:line 36

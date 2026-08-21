@@ -1,0 +1,1496 @@
+//------------------------------------------------------------------------------
+// formatext.cpp -- ToString(format) custom-format icalls (il2cpp_format_ext.h).
+//
+// Implementation notes:
+//   * Integer D/X/N/C/E/G/F/P paths use the manual digit-loop style of
+//     format.cpp (deterministic, locale-independent, GCC 7.5 compatible;
+//     format.cpp's helpers are file-local so the loop is re-implemented
+//     here -- reuse of the idea, not the symbols).
+//   * Double F/N/E/P/G/custom paths: the digits come from snprintf("%.14e")
+//     -- the CRT's 15-significant-digit correctly-rounded decimal
+//     conversion, the SAME base .NET Framework 4.8 produces (msvcrt-class
+//     converters). .NET's round-half-AWAY-FROM-ZERO rule is then applied on
+//     those 15 digits and exactly <precision> fraction digits are
+//     re-emitted. The 15-digit base reproduces the net48 oracle on near-tie
+//     values (2.675 F2 -> "2.68", 1.23499999 F2 -> "1.23", 0.15 F1 -> "0.2")
+//     -- see docs/audit/number-conformance.md.
+//   * Grouping (N/C/P) and the currency/percent decorations are applied on
+//     the already-rounded digit string -- no further floating point. P
+//     still scales the VALUE by 100.0 first (net48's double P path
+//     multiplies in double, so the double rounding of the product is part
+//     of the observable output -- probe4: P1 of 1.23456789012345678e17 ->
+//     "12,345,678,901,234,600,000.0%").
+//   * int32/int64 E uses the EXACT decimal digits of the integer (no double
+//     round-trip: int64 exceeds double's 2^53 exact-integer range).
+//   * "G" for double reuses the existing G15 icall (il2cpp_format.h) --
+//     single formatting source for the default path; G with an explicit
+//     precision is implemented here (net48: fixed vs scientific switch at
+//     scale > precision or scale - 1 < -4, exponent min 2 digits).
+//   * SPECIALS (net48-verified, probe4): zh-CN renders NaN as "NaN" and
+//     +-Infinity as the culture symbol U+221E '∞' for EVERY format
+//     (F/N/E/G/P/C/custom) -- the symbol is returned before any format
+//     work. (format.cpp's G15 path emits ASCII "Infinity" -- an out-of-
+//     domain divergence, documented there.)
+//------------------------------------------------------------------------------
+
+#include "il2cpp_format_ext.h"
+#include "il2cpp_format.h"        // icall_double_to_string (G path reuse)
+#include "il2cpp_exception_ext.h" // il2cpp_throw_format_exception
+#include "il2cpp_metadata.h"      // Il2CppClass (boxed-klass dispatch)
+#include "il2cpp_value_semantics.h" // icall_object_to_string (composite fallback)
+#include "decimal_format.h"        // icall_decimal_to_string_custom (boxed decimal)
+
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+
+namespace il2cpp { namespace runtime {
+
+namespace {
+
+// Largest formatted value: fixed-point double with 99 fraction digits plus
+// guard digits (309 integer digits + '.' + 103 + NUL); the currency paths
+// compose a 2-byte UTF-8 symbol in front (buffer + 8).
+const int kMaxBuffer = 512;
+
+// net48's double conversion base: 15 significant digits, correctly rounded
+// (msvcrt-class CRT converters; snprintf("%.14e") is exact at this
+// precision). All double rounding happens on these digits -- see the file
+// header and docs/audit/number-conformance.md.
+const int kBaseDigits = 15;
+
+// The fixed currency symbol: U+00A5 '¥' -- the verification host's net48
+// default culture (zh-CN). See the header's CULTURE FIXING divergence note.
+const char16_t kCurrencySymbol = u'\u00A5';
+
+// The zh-CN positive-infinity symbol: U+221E '∞' (net48 probe4: EVERY
+// format renders +-Infinity as the culture symbol).
+const char16_t kInfinitySymbol = u'\u221E';
+
+// The 15-digit base of a finite double (value == d[0].d[1].. x 10^exp10).
+struct DoubleDigits
+{
+    char d[kBaseDigits]; // correctly rounded significant digits
+    int  exp10;          // decimal exponent of d[0]
+    bool neg;
+};
+
+void GetDoubleDigits(double value, DoubleDigits& out)
+{
+    char tmp[32];
+    std::snprintf(tmp, sizeof tmp, "%.14e", value);
+    out.neg = (tmp[0] == '-');
+    const char* p = tmp + (out.neg ? 1 : 0);
+    out.d[0] = *p++;
+    ++p; // skip '.'
+    for (int i = 1; i < kBaseDigits; ++i)
+    {
+        out.d[i] = *p++;
+    }
+    out.exp10 = std::atoi(p + 1); // "e+XX"/"e-XX"
+}
+
+bool IsSpecial(double value)
+{
+    return std::isnan(value) || std::isinf(value);
+}
+
+// zh-CN special spelling (net48-verified): "NaN", "∞", "-∞".
+Il2CppObject* MakeSpecialString(double value)
+{
+    if (std::isnan(value))
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("NaN"));
+    }
+    char16_t units[4];
+    int o = 0;
+    if (value < 0)
+    {
+        units[o++] = u'-';
+    }
+    units[o++] = kInfinitySymbol;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(units, o));
+}
+
+// Decimal digits of 'value' (no sign for non-negative) into 'out' (24 chars).
+// Returns the character count; NOT NUL-terminated. INT64_MIN is negated in
+// unsigned arithmetic (no UB) -- same contract as format.cpp's helper.
+int FormatInt64Decimal(char* out, int64_t value)
+{
+    if (value == 0)
+    {
+        out[0] = '0';
+        return 1;
+    }
+    const bool negative = value < 0;
+    uint64_t magnitude = negative
+        ? (static_cast<uint64_t>(-(value + 1)) + 1ULL)
+        : static_cast<uint64_t>(value);
+    char tmp[21];
+    int n = 0;
+    do
+    {
+        tmp[n++] = static_cast<char>('0' + static_cast<int>(magnitude % 10ULL));
+        magnitude /= 10ULL;
+    } while (magnitude != 0ULL);
+    int len = 0;
+    if (negative)
+    {
+        out[len++] = '-';
+    }
+    while (n > 0)
+    {
+        out[len++] = tmp[--n];
+    }
+    return len;
+}
+
+// Parse a standard-format specifier: one ASCII letter + up to 2 precision
+// digits. 'letter' keeps the ORIGINAL case ('x'/'e'/'g' render lowercase
+// digits/markers on net48); 'precision' is -1 when no digits were present
+// (the caller applies the per-format default). Returns false when the
+// string is not a fully-consumed standard specifier (unknown letter,
+// trailing junk after the digits, precision > 99, or a custom/junk first
+// character) -- the caller decides between the custom path (double, first
+// char '0'/'.') and FormatException. Lowercase letters are accepted (.NET
+// accepts both cases).
+bool TryParseStandard(const char16_t* chars, int32_t len, char& letter, int& precision)
+{
+    if (len == 0)
+    {
+        letter = 'G';
+        precision = 0;
+        return true;
+    }
+    const char16_t c0 = chars[0];
+    const bool isLetter = (c0 >= u'A' && c0 <= u'Z') || (c0 >= u'a' && c0 <= u'z');
+    if (!isLetter)
+    {
+        return false;
+    }
+    letter = static_cast<char>(c0);
+    precision = -1;
+    int i = 1;
+    while (i < len && chars[i] >= u'0' && chars[i] <= u'9')
+    {
+        const int digit = static_cast<int>(chars[i] - u'0');
+        precision = (precision < 0) ? digit : precision * 10 + digit;
+        if (precision > 99)
+        {
+            return false; // net48: precision 0-99 only
+        }
+        ++i;
+    }
+    // Trailing junk: net48 falls back to custom formatting with literals
+    // ("D100" -> "D112345"); our custom subset is '0'/'.' only -> reject.
+    return i == len;
+}
+
+bool IsAllZero(const char* s, int n)
+{
+    for (int i = 0; i < n; ++i)
+    {
+        if (s[i] != '0')
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// .NET formatting rounds half AWAY FROM ZERO. 'frac' holds
+// (fractionDigits + kGuardDigits) digits; rounds it to exactly 'keep' digits
+// (NUL-terminated at 'keep'). Returns true when the carry propagated out of
+// the fraction (the integer part must then be incremented).
+// Note: a first dropped digit of '5' ALWAYS rounds up -- a tie rounds away
+// from zero, and a nonzero tail means the value is above the tie.
+bool RoundFraction(char* frac, int keep)
+{
+    if (frac[keep] < '5')
+    {
+        frac[keep] = '\0';
+        return false;
+    }
+    int i = keep - 1;
+    while (i >= 0 && frac[i] == '9')
+    {
+        frac[i] = '0';
+        --i;
+    }
+    frac[keep] = '\0';
+    if (i < 0)
+    {
+        return true;
+    }
+    ++frac[i];
+    return false;
+}
+
+// Increment an in-place decimal digit string ("123" -> "124", "999" -> "1000").
+// Returns the new length.
+int IncrementDigits(char* d, int len)
+{
+    int i = len - 1;
+    while (i >= 0 && d[i] == '9')
+    {
+        d[i] = '0';
+        --i;
+    }
+    if (i < 0)
+    {
+        std::memmove(d + 1, d, static_cast<size_t>(len));
+        d[0] = '1';
+        return len + 1;
+    }
+    ++d[i];
+    return len;
+}
+
+// Format a finite double in fixed-point with exactly 'fracDigits' decimals.
+// Writes into 'out' (kMaxBuffer); returns the length; NOT NUL-terminated.
+// The sign is omitted when the rounded magnitude is zero (-0.0 -> "0.00",
+// net48-verified); the '.' is omitted when fracDigits == 0 (N0/F0 layout).
+// Rounding is half AWAY FROM ZERO on the 15-digit base (see the file header).
+int FormatFixed(double value, int fracDigits, char* out)
+{
+    DoubleDigits dg;
+    GetDoubleDigits(value, dg);
+
+    // Integer part: d[k] sits at 10^(exp10 - k); the digits with
+    // exp10 - k >= 0 are d[0..exp10], in order ("1234..."). A negative
+    // exp10 means no integer digits ("0").
+    const int intLen = dg.exp10 + 1;
+    char intBuf[kMaxBuffer];
+    int intN = 0;
+    if (intLen > 0)
+    {
+        for (int i = 0; i < intLen; ++i)
+        {
+            intBuf[intN++] = (i < kBaseDigits) ? dg.d[i] : '0';
+        }
+    }
+
+    // Fraction digits: the 1-based fraction position j holds digit
+    // d[exp10 + j] (out of [0, 14] -> zero: leading zeros or beyond the
+    // base -- the base-limited digits match net48's own base).
+    char frac[kMaxBuffer];
+    int f = 0;
+    for (int i = 0; i <= fracDigits; ++i) // entry fracDigits = the dropped digit
+    {
+        const int k = dg.exp10 + i + 1;
+        frac[f++] = (k >= 0 && k < kBaseDigits) ? dg.d[k] : '0';
+    }
+    frac[f] = '\0';
+
+    const bool carry = RoundFraction(frac, fracDigits);
+    if (carry)
+    {
+        if (intN == 0)
+        {
+            intBuf[intN++] = '1';
+        }
+        else
+        {
+            intN = IncrementDigits(intBuf, intN);
+        }
+    }
+    const bool allZero = IsAllZero(intBuf, intN) && IsAllZero(frac, fracDigits);
+    int o = 0;
+    if (dg.neg && !allZero)
+    {
+        out[o++] = '-';
+    }
+    if (intN == 0)
+    {
+        out[o++] = '0'; // value < 1: "0.xxx"
+    }
+    else
+    {
+        std::memcpy(out + o, intBuf, static_cast<size_t>(intN));
+        o += intN;
+    }
+    if (fracDigits > 0)
+    {
+        out[o++] = '.';
+        std::memcpy(out + o, frac, static_cast<size_t>(fracDigits));
+        o += fracDigits;
+    }
+    return o;
+}
+
+// FormatFixed on a finite value (the caller handled the specials).
+int FormatFinite(double value, int fracDigits, char* out)
+{
+    return FormatFixed(value, fracDigits, out);
+}
+
+// FormatFinite with ',' inserted every 3 digits in the integer part (N/P).
+int FormatGroupedFinite(double value, int fracDigits, char* out)
+{
+    char tmp[kMaxBuffer];
+    const int n = FormatFinite(value, fracDigits, tmp);
+    int o = 0;
+    int i = 0;
+    if (tmp[0] == '-')
+    {
+        out[o++] = '-';
+        ++i;
+    }
+    // 'tmp' is a length-bounded buffer that is NOT NUL-terminated (FormatFixed
+    // writes exactly 'n' bytes -- the same gap b57650b fixed in numberformat's
+    // GroupDigits), so a strchr scan reads past the valid data into stale stack
+    // memory and a stray '.' there can make 'tail' negative (memcpy SEGFAULT).
+    // memchr bounds the search to the 'n' bytes we actually own.
+    const char* dot = static_cast<const char*>(
+        std::memchr(tmp + i, '.', static_cast<size_t>(n - i)));
+    const int digitsLen = (dot != nullptr)
+        ? static_cast<int>(dot - (tmp + i))
+        : (n - i);
+    for (int k = 0; k < digitsLen; ++k)
+    {
+        if (k != 0 && (digitsLen - k) % 3 == 0)
+        {
+            out[o++] = ',';
+        }
+        out[o++] = tmp[i + k];
+    }
+    if (dot != nullptr)
+    {
+        const int tail = n - static_cast<int>(dot - tmp);
+        std::memcpy(out + o, dot, static_cast<size_t>(tail));
+        o += tail;
+    }
+    return o;
+}
+
+// Emit "[-]<lead>[.<frac digits>]E<sign><3-digit exponent>". The sign is
+// omitted when the rounded mantissa is zero (-0.0 -> "0.00E+000").
+int EmitSci(char* out, bool neg, char lead, const char* frac, int fracDigits, int exp, char expChar)
+{
+    const bool allZero = (lead == '0') && IsAllZero(frac, fracDigits);
+    int o = 0;
+    if (neg && !allZero)
+    {
+        out[o++] = '-';
+    }
+    out[o++] = lead;
+    if (fracDigits > 0)
+    {
+        out[o++] = '.';
+        std::memcpy(out + o, frac, static_cast<size_t>(fracDigits));
+        o += fracDigits;
+    }
+    out[o++] = expChar;
+    out[o++] = (exp < 0) ? '-' : '+';
+    if (exp < 0)
+    {
+        exp = -exp;
+    }
+    out[o++] = static_cast<char>('0' + (exp / 100));
+    out[o++] = static_cast<char>('0' + ((exp / 10) % 10));
+    out[o++] = static_cast<char>('0' + (exp % 10));
+    return o;
+}
+
+// Format a finite double in scientific notation (E format). 'exp' is capped
+// at 3 digits by the double range (|exp| <= 324). Rounding is half AWAY
+// FROM ZERO on the 15-digit base.
+int FormatSciFinite(double value, int fracDigits, char* out, char expChar)
+{
+    DoubleDigits dg;
+    GetDoubleDigits(value, dg);
+
+    // Mantissa fraction: d[1..fracDigits]; entry fracDigits holds the
+    // dropped digit (mantissa position fracDigits + 1), zero beyond the
+    // base -- the same base-limited rounding net48 applies.
+    char frac[kMaxBuffer];
+    int f = 0;
+    for (int i = 1; i <= fracDigits + 1 && f < kMaxBuffer; ++i)
+    {
+        frac[f++] = (i < kBaseDigits) ? dg.d[i] : '0';
+    }
+    while (f <= fracDigits)
+    {
+        frac[f++] = '0';
+    }
+    frac[f] = '\0';
+
+    int exp = dg.exp10;
+    char lead = dg.d[0];
+    if (RoundFraction(frac, fracDigits))
+    {
+        if (lead == '9')
+        {
+            // "9.99..." -> "1.00...": renormalize, exponent + 1. On the
+            // carry-out RoundFraction already zeroed every fraction digit.
+            ++exp;
+            lead = '1';
+        }
+        else
+        {
+            ++lead;
+        }
+    }
+    return EmitSci(out, dg.neg, lead, frac, fracDigits, exp, expChar);
+}
+
+// int64 -> scientific (E format) from the EXACT decimal digits (no double
+// round-trip; int64 exceeds double's 2^53 exact-integer range).
+int FormatSciInt(char* out, int64_t value, int fracDigits, char expChar)
+{
+    char digits[24];
+    int n = FormatInt64Decimal(digits, value);
+    const bool neg = (digits[0] == '-');
+    if (neg)
+    {
+        std::memmove(digits, digits + 1, static_cast<size_t>(n - 1));
+        --n;
+    }
+    // mantissa: digits[0] + '.' + fracDigits more digits (zero-padded),
+    // rounded half away from zero at digit 1 + fracDigits
+    char mant[kMaxBuffer];
+    int m = 0;
+    mant[m++] = digits[0];
+    const int copyCount = (n - 1 < fracDigits) ? (n - 1) : fracDigits;
+    std::memcpy(mant + m, digits + 1, static_cast<size_t>(copyCount));
+    m += copyCount;
+    while (m < 1 + fracDigits)
+    {
+        mant[m++] = '0';
+    }
+    int exp = n - 1;
+    if (n > 1 + fracDigits && digits[1 + fracDigits] >= '5')
+    {
+        int i = m - 1;
+        while (i >= 0 && mant[i] == '9')
+        {
+            mant[i] = '0';
+            --i;
+        }
+        if (i < 0)
+        {
+            mant[0] = '1';
+            std::memset(mant + 1, '0', static_cast<size_t>(fracDigits));
+            m = 1 + fracDigits;
+            ++exp;
+        }
+        else
+        {
+            ++mant[i];
+        }
+    }
+    return EmitSci(out, neg, mant[0], mant + 1, fracDigits, exp, expChar);
+}
+
+// D: decimal, zero-padded to 'precision' digits after the sign.
+int FormatDecimalPadded(char* out, int64_t value, int precision)
+{
+    char digits[24];
+    const int n = FormatInt64Decimal(digits, value);
+    if (precision <= 0)
+    {
+        std::memcpy(out, digits, static_cast<size_t>(n));
+        return n;
+    }
+    int o = 0;
+    int d = 0;
+    if (digits[0] == '-')
+    {
+        out[o++] = '-';
+        d = 1;
+    }
+    const int digitsLen = n - d;
+    while (digitsLen < precision)
+    {
+        out[o++] = '0';
+        --precision;
+    }
+    std::memcpy(out + o, digits + d, static_cast<size_t>(digitsLen));
+    o += digitsLen;
+    return o;
+}
+
+// X/x: hex of a 32/64-bit two's-complement value, zero-padded to
+// 'precision' digits (32-bit negatives give 8 digits, 64-bit 16 digits).
+// 'hexBase' is 'A' (uppercase X) or 'a' (lowercase x) -- net48 renders the
+// digit case from the specifier case.
+int FormatHex(char* out, uint64_t value, int precision, char hexBase)
+{
+    char tmp[17];
+    int n = 0;
+    do
+    {
+        const uint32_t digit = static_cast<uint32_t>(value & 0x0F);
+        tmp[n++] = static_cast<char>(digit < 10 ? ('0' + digit) : (hexBase + digit - 10));
+        value >>= 4;
+    } while (value != 0);
+    int o = 0;
+    while (n < precision)
+    {
+        out[o++] = '0';
+        --precision;
+    }
+    while (n > 0)
+    {
+        out[o++] = tmp[--n];
+    }
+    return o;
+}
+
+// F on an integer: the exact decimal digits + '.' + 'precision' zeros (no
+// rounding -- an integer never has fraction digits to drop).
+int FormatFixedInt(char* out, int64_t value, int precision)
+{
+    char digits[24];
+    const int n = FormatInt64Decimal(digits, value);
+    int o = 0;
+    int d = 0;
+    if (digits[0] == '-')
+    {
+        out[o++] = '-';
+        d = 1;
+    }
+    std::memcpy(out + o, digits + d, static_cast<size_t>(n - d));
+    o += n - d;
+    if (precision > 0)
+    {
+        out[o++] = '.';
+        for (int k = 0; k < precision; ++k)
+        {
+            out[o++] = '0';
+        }
+    }
+    return o;
+}
+
+// P on an integer: value*100 via an EXACT decimal digit shift (two zero
+// digits appended -- no overflow, no double rounding), then the N grouping
+// and the zh-CN "n%" percent layout (the caller appends '%'). Zero keeps a
+// single "0" integer part (net48: P0 of 0 -> "0%", not "000%").
+int FormatPercentInt(char* out, int64_t value, int precision)
+{
+    char digits[24];
+    int n = FormatInt64Decimal(digits, value);
+    int o = 0;
+    int d = 0;
+    if (digits[0] == '-')
+    {
+        out[o++] = '-';
+        d = 1;
+    }
+    if (value == 0)
+    {
+        out[o++] = '0';
+        if (precision > 0)
+        {
+            out[o++] = '.';
+            for (int k = 0; k < precision; ++k)
+            {
+                out[o++] = '0';
+            }
+        }
+        return o;
+    }
+    // digits + "00" (the scale += 2 shift of .NET's NumberBuffer)
+    char scaled[26];
+    int s = 0;
+    for (int k = d; k < n; ++k)
+    {
+        scaled[s++] = digits[k];
+    }
+    scaled[s++] = '0';
+    scaled[s++] = '0';
+    const int digitsLen = s;
+    for (int k = 0; k < digitsLen; ++k)
+    {
+        if (k != 0 && (digitsLen - k) % 3 == 0)
+        {
+            out[o++] = ',';
+        }
+        out[o++] = scaled[k];
+    }
+    if (precision > 0)
+    {
+        out[o++] = '.';
+        for (int k = 0; k < precision; ++k)
+        {
+            out[o++] = '0';
+        }
+    }
+    return o;
+}
+
+// .NET G on an integer: round to 'sigDigits' significant digits (half away
+// from zero on the EXACT decimal digits), strip trailing zeros, then emit
+// fixed (scale <= sigDigits) or scientific (scale > sigDigits) with the
+// min-2-digit exponent (net48: (12345).ToString("G2") -> "1.2E+04",
+// long.MaxValue G15 -> "9.22337203685478E+18").
+int FormatGeneralInt(char* out, int64_t value, int sigDigits, char expChar)
+{
+    char digits[24];
+    int n = FormatInt64Decimal(digits, value);
+    const bool neg = (digits[0] == '-');
+    const int d0 = neg ? 1 : 0;
+    int scale = n - d0;
+    int count = scale;
+    if (sigDigits > 0 && sigDigits < scale)
+    {
+        if (digits[d0 + sigDigits] >= '5')
+        {
+            int i = d0 + sigDigits - 1;
+            while (i >= d0 && digits[i] == '9')
+            {
+                digits[i] = '0';
+                --i;
+            }
+            if (i < d0)
+            {
+                digits[d0] = '1';
+                ++scale;
+            }
+            else
+            {
+                ++digits[i];
+            }
+        }
+        count = sigDigits;
+    }
+    while (count > 1 && digits[d0 + count - 1] == '0')
+    {
+        --count;
+    }
+    int o = 0;
+    if (neg)
+    {
+        out[o++] = '-';
+    }
+    if (scale > sigDigits)
+    {
+        // scientific: d[0][.rest]E[+-]ee
+        out[o++] = digits[d0];
+        if (count > 1)
+        {
+            out[o++] = '.';
+            std::memcpy(out + o, digits + d0 + 1, static_cast<size_t>(count - 1));
+            o += count - 1;
+        }
+        int e = scale - 1;
+        out[o++] = expChar;
+        out[o++] = (e < 0) ? '-' : '+';
+        if (e < 0)
+        {
+            e = -e;
+        }
+        if (e < 10)
+        {
+            out[o++] = '0';
+            out[o++] = static_cast<char>('0' + e);
+        }
+        else if (e < 100)
+        {
+            out[o++] = static_cast<char>('0' + (e / 10));
+            out[o++] = static_cast<char>('0' + (e % 10));
+        }
+        else
+        {
+            out[o++] = static_cast<char>('0' + (e / 100));
+            out[o++] = static_cast<char>('0' + ((e / 10) % 10));
+            out[o++] = static_cast<char>('0' + (e % 10));
+        }
+        return o;
+    }
+    // fixed
+    for (int i = 0; i < count; ++i)
+    {
+        out[o++] = digits[d0 + i];
+    }
+    return o;
+}
+
+// Emit "E[+-]dd.." with the exponent zero-padded to 'minDigits' digits.
+int EmitExponent(char* out, int e, char expChar, int minDigits)
+{
+    int o = 0;
+    out[o++] = expChar;
+    out[o++] = (e < 0) ? '-' : '+';
+    if (e < 0)
+    {
+        e = -e;
+    }
+    char tmp[8];
+    int n = 0;
+    do
+    {
+        tmp[n++] = static_cast<char>('0' + (e % 10));
+        e /= 10;
+    } while (e != 0);
+    while (n < minDigits)
+    {
+        tmp[n++] = '0';
+    }
+    while (n > 0)
+    {
+        out[o++] = tmp[--n];
+    }
+    return o;
+}
+
+// .NET G on a finite double with an explicit precision: round the 15-digit
+// base to 'sigDigits' significant digits (half away from zero), strip
+// trailing zeros, then fixed (scale <= sigDigits and scale >= -3) or
+// scientific (scale > sigDigits or scale - 1 < -4) with the min-2-digit
+// exponent (net48: G2 of 1234567.89 -> "1.2E+06", G7 -> "1234568",
+// G2 of 0.000123 -> "0.00012", G1 of 1e-6 -> "1E-06").
+int FormatGeneralDouble(double value, int sigDigits, char expChar, char* out)
+{
+    DoubleDigits dg;
+    GetDoubleDigits(value, dg);
+    int scale = dg.exp10 + 1;
+    int count = kBaseDigits;
+    if (sigDigits > 0 && sigDigits < kBaseDigits)
+    {
+        if (dg.d[sigDigits] >= '5')
+        {
+            int i = sigDigits - 1;
+            while (i >= 0 && dg.d[i] == '9')
+            {
+                dg.d[i] = '0';
+                --i;
+            }
+            if (i < 0)
+            {
+                dg.d[0] = '1';
+                ++scale;
+            }
+            else
+            {
+                ++dg.d[i];
+            }
+        }
+        count = sigDigits;
+    }
+    while (count > 1 && dg.d[count - 1] == '0')
+    {
+        --count;
+    }
+    const bool allZero = (count == 1 && dg.d[0] == '0');
+    int o = 0;
+    if (dg.neg && !allZero)
+    {
+        out[o++] = '-';
+    }
+    if (scale > sigDigits || scale < -3)
+    {
+        out[o++] = dg.d[0];
+        if (count > 1)
+        {
+            out[o++] = '.';
+            std::memcpy(out + o, dg.d + 1, static_cast<size_t>(count - 1));
+            o += count - 1;
+        }
+        o += EmitExponent(out + o, scale - 1, expChar, 2);
+        return o;
+    }
+    if (scale > 0)
+    {
+        for (int i = 0; i < scale; ++i)
+        {
+            out[o++] = (i < count) ? dg.d[i] : '0';
+        }
+    }
+    else
+    {
+        out[o++] = '0';
+    }
+    if (count > scale)
+    {
+        out[o++] = '.';
+        if (scale < 0)
+        {
+            for (int i = 0; i < -scale; ++i)
+            {
+                out[o++] = '0';
+            }
+        }
+        for (int i = (scale > 0 ? scale : 0); i < count; ++i)
+        {
+            out[o++] = dg.d[i];
+        }
+    }
+    return o;
+}
+
+// N on an integer: grouped integer part + '.' + 'precision' zeros (the same
+// layout is the ASCII tail of the C format -- the symbol is composed by the
+// caller in front of the sign, "¥-12,345.00").
+int FormatNumberInt(char* out, int64_t value, int precision)
+{
+    char digits[24];
+    const int n = FormatInt64Decimal(digits, value);
+    int o = 0;
+    int d = 0;
+    if (digits[0] == '-')
+    {
+        out[o++] = '-';
+        d = 1;
+    }
+    const int digitsLen = n - d;
+    for (int k = 0; k < digitsLen; ++k)
+    {
+        if (k != 0 && (digitsLen - k) % 3 == 0)
+        {
+            out[o++] = ',';
+        }
+        out[o++] = digits[d + k];
+    }
+    if (precision > 0)
+    {
+        out[o++] = '.';
+        for (int k = 0; k < precision; ++k)
+        {
+            out[o++] = '0';
+        }
+    }
+    return o;
+}
+
+//------------------------------------------------------------------------------
+// Custom numeric format engine (net48 oracle-verified 2026-08-09 -- probes in
+// %TEMP%\opencode\cstmprobe\oracle{1..9}.txt on the verification host).
+//
+// SUPPORTED SUBSET (beyond the original '0'/'.' family):
+//   '0'  digit placeholder (zero-padded)
+//   '#'  optional digit placeholder (leading integer / trailing fraction
+//        zeros suppressed)
+//   '.'  decimal separator (any additional '.' ignored)
+//   ','  thousands grouping (between two integer digit placeholders) or
+//        number scaling (÷1000 per trailing comma: "0,," -> ÷1e6)
+//   '%'  percent (×100), U+2030 '‰' per-mille (×1000) -- the symbol is a
+//        literal at its pattern position
+//   '\'  escapes the next character as a literal
+//   '..' / ".." quoted literal strings (unbalanced runs to the pattern end)
+//   all other characters are copied as literals
+//
+// net48 semantics (oracle): the value is rounded to the fraction placeholder
+// count (half away from zero); integer digits beyond the placeholder count are
+// emitted before the first placeholder; the sign precedes every literal and is
+// suppressed when the rounded magnitude is zero; a standard-specifier format
+// with trailing junk falls back to custom formatting ("D100" of 12345 ->
+// "D112345").
+//
+// REMAINING OUT OF SUBSET (FormatException, documented divergence): scientific
+// notation ("0.00E+00"/"0E0"/"0.##e-0") and ';' section separators.
+//------------------------------------------------------------------------------
+struct CustomSpec
+{
+    bool grouping;
+    bool fracMandatory[100]; // whether the k-th fraction placeholder is '0'
+    int scale;               // decimal shift: +2 per '%', +3 per '‰', -3 per scaling comma
+    int intPh;               // integer '0'/'#' placeholder count
+    int fracPh;              // fraction '0'/'#' placeholder count
+};
+
+// Parse + validate a custom pattern (the caller already decided this is NOT a
+// valid standard specifier). Returns false -> the caller throws FormatException.
+bool ParseCustomPattern(const char16_t* p, int32_t len, CustomSpec& spec)
+{
+    spec = CustomSpec{};
+    bool inSingle = false;
+    bool inDouble = false;
+    bool inFrac = false;
+    for (int32_t i = 0; i < len; ++i)
+    {
+        const char16_t c = p[i];
+        if (inSingle)
+        {
+            if (c == u'\'') inSingle = false;
+            continue;
+        }
+        if (inDouble)
+        {
+            if (c == u'"') inDouble = false;
+            continue;
+        }
+        if (c == u'\\') { ++i; continue; }
+        if (c == u'\'') { inSingle = true; continue; }
+        if (c == u'"') { inDouble = true; continue; }
+        if (c == u';') return false; // ';' sections: out of subset
+        if (c == u'.') { inFrac = true; continue; }
+        if (c == u'0' || c == u'#')
+        {
+            if (inFrac)
+            {
+                spec.fracMandatory[spec.fracPh] = (c == u'0');
+                ++spec.fracPh;
+            }
+            else
+            {
+                ++spec.intPh;
+            }
+            continue;
+        }
+        if (c == u',')
+        {
+            bool digitAfter = false;
+            for (int32_t j = i + 1; j < len; ++j)
+            {
+                const char16_t d = p[j];
+                if (d == u'.') break;
+                if (d == u'0' || d == u'#') { digitAfter = true; break; }
+            }
+            if (digitAfter) spec.grouping = true;
+            else spec.scale -= 3; // trailing scaling comma: ÷1000
+            continue;
+        }
+        if (c == u'%') { spec.scale += 2; continue; }
+        if (c == u'\u2030') { spec.scale += 3; continue; }
+        if (c == u'E' || c == u'e')
+        {
+            // scientific notation ("E+0"/"e-0"/"0E0"): out of subset
+            int32_t j = i + 1;
+            if (j < len && (p[j] == u'+' || p[j] == u'-')) ++j;
+            if (j < len && p[j] == u'0') return false;
+            continue; // a plain 'E'/'e' is a literal
+        }
+        // any other character is a literal (copied at emission)
+    }
+    return true;
+}
+
+// Emit the pattern over the rounded digits. 'intDigits' (intLen, no sign),
+// 'fracDigits' (fracLen == spec.fracPh). Returns the output length. The
+// grouping separator schedule follows the integer digit count (every 3 from
+// the right), matching the net48 oracle ("0,0" of 12345 -> "12,345").
+void EmitExtraDigits(const char* intDigits, int D, int P, bool grouping,
+                     bool& intEmitted, char16_t* out, int& o)
+{
+    const int extra = (D > P) ? (D - P) : 0;
+    for (int k = 0; k < extra; ++k)
+    {
+        const char d = intDigits[k];
+        if (d == '0' && !intEmitted) continue;
+        if (grouping && k > 0 && (D - k) % 3 == 0)
+            out[o++] = u',';
+        out[o++] = d;
+        intEmitted = true;
+    }
+}
+
+int EmitCustomFormat(const char* intDigits, int intLen,
+                     const char* fracDigits, int fracLen,
+                     bool neg, const CustomSpec& spec,
+                     const char16_t* pat, int32_t patLen,
+                     char16_t* out)
+{
+    const int D = intLen;
+    const int P = spec.intPh;
+    int o = 0;
+    if (neg) out[o++] = u'-';
+    bool inSingle = false;
+    bool inDouble = false;
+    bool inFrac = false;
+    bool intEmitted = false;
+    bool fracEmitted = false;
+    bool extraEmitted = false;
+    int ph = 0;
+    int fph = 0;
+    for (int32_t i = 0; i < patLen; ++i)
+    {
+        const char16_t c = pat[i];
+        if (inSingle)
+        {
+            if (c == u'\'') inSingle = false;
+            else out[o++] = c;
+            continue;
+        }
+        if (inDouble)
+        {
+            if (c == u'"') inDouble = false;
+            else out[o++] = c;
+            continue;
+        }
+        if (c == u'\\')
+        {
+            if (i + 1 < patLen) out[o++] = pat[++i];
+            continue;
+        }
+        if (c == u'\'') { inSingle = true; continue; }
+        if (c == u'"') { inDouble = true; continue; }
+        if (c == u'.')
+        {
+            if (!extraEmitted)
+            {
+                EmitExtraDigits(intDigits, D, P, spec.grouping, intEmitted, out, o);
+                extraEmitted = true;
+            }
+            inFrac = true;
+            continue;
+        }
+        if (c == u',') continue; // separator comes from the digit schedule
+        if (c == u'0' || c == u'#')
+        {
+            if (!inFrac)
+            {
+                if (!extraEmitted)
+                {
+                    EmitExtraDigits(intDigits, D, P, spec.grouping, intEmitted, out, o);
+                    extraEmitted = true;
+                }
+                const int idx = ph + D - P;
+                if (idx >= 0 && idx < D)
+                {
+                    const char d = intDigits[idx];
+                    if (c == u'0' || d != '0' || intEmitted)
+                    {
+                        if (spec.grouping && idx > 0 && (D - idx) % 3 == 0)
+                            out[o++] = u',';
+                        out[o++] = d;
+                        intEmitted = true;
+                    }
+                }
+                else if (c == u'0')
+                {
+                    out[o++] = u'0';
+                    intEmitted = true;
+                }
+                ++ph;
+            }
+            else
+            {
+                const char d = (fph < fracLen) ? fracDigits[fph] : u'0';
+                bool emit = (c == u'0');
+                if (!emit)
+                {
+                    bool later = (d != u'0');
+                    for (int k = fph + 1; !later && k < fracLen; ++k)
+                    {
+                        later = (fracDigits[k] != u'0');
+                    }
+                    for (int k = fph + 1; !later && k < spec.fracPh; ++k)
+                    {
+                        later = spec.fracMandatory[k];
+                    }
+                    emit = later;
+                }
+                if (emit)
+                {
+                    if (!fracEmitted) { out[o++] = u'.'; fracEmitted = true; }
+                    out[o++] = d;
+                }
+                ++fph;
+            }
+            continue;
+        }
+        out[o++] = c; // literal (%, ‰, letters, digits, symbols, ...)
+    }
+    return o;
+}
+
+// Exact decimal value = digits[0..len) * 10^scale (scale may be negative),
+// rounded to 'fracCount' fraction digits (half away from zero, net48 rule).
+// Outputs the rounded integer part ('intOut', 'intN' chars, no sign) and
+// exactly 'fracCount' fraction digits ('fracOut'). Used by the int custom
+// path: percent/per-mille scale the exact integer digits (no overflow), and
+// scaling commas divide them -- net48 oracle: INT64_MAX "0%" ->
+// "922337203685477580700%", 123456789 "0,," -> "123".
+void ShiftScaleInt64(const char* digits, int len, int scale, int fracCount,
+                     char* intOut, int& intN, char* fracOut)
+{
+    const int intLen = len + scale;
+    char raw[kMaxBuffer];
+    int r = 0;
+    for (int i = 0; i < intLen; ++i)
+    {
+        raw[r++] = (i < len) ? digits[i] : '0';
+    }
+    const int fracStart = r;
+    for (int i = 0; i <= fracCount; ++i)
+    {
+        const int k = intLen + i;
+        raw[r++] = (k >= 0 && k < len) ? digits[k] : '0';
+    }
+    raw[r] = '\0';
+    const bool carry = RoundFraction(raw + fracStart, fracCount);
+    int n = (intLen > 0) ? intLen : 0;
+    if (carry)
+    {
+        if (n == 0)
+        {
+            raw[0] = '1';
+            n = 1;
+        }
+        else
+        {
+            n = IncrementDigits(raw, n);
+        }
+    }
+    intN = n;
+    std::memcpy(intOut, raw, static_cast<size_t>(n));
+    std::memcpy(fracOut, raw + n, static_cast<size_t>(fracCount));
+}
+
+Il2CppObject* MakeString(const char* ascii)
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(ascii));
+}
+
+// Compose the fixed currency string: U+00A5 '¥' followed by the ASCII tail
+// (sign after the symbol: "¥-12,345.00" -- the zh-CN negative pattern
+// observed on net48). The UTF-16 units are built directly because
+// il2cpp_string_new_from_utf8 DROPS multi-byte sequences (string.cpp M3
+// minimal transcoder -- the symbol bytes would never reach the string).
+Il2CppObject* MakeCurrencyString(const char* tail, int tailLen)
+{
+    char16_t units[kMaxBuffer + 8];
+    int o = 0;
+    units[o++] = kCurrencySymbol;
+    for (int i = 0; i < tailLen; ++i)
+    {
+        units[o++] = static_cast<char16_t>(static_cast<unsigned char>(tail[i]));
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(units, o));
+}
+
+//------------------------------------------------------------------------------
+// Shared int dispatcher (int32/int64 differ only in the hex width).
+//------------------------------------------------------------------------------
+Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format)
+{
+    char spec = 'G';
+    int precision = -1;
+    if (format != nullptr)
+    {
+        Il2CppString* fs = reinterpret_cast<Il2CppString*>(format);
+        if (!TryParseStandard(fs->chars, fs->length, spec, precision))
+        {
+            // net48: a non-standard format is a CUSTOM format ("D100" of
+            // 12345 -> "D112345", "abc" -> "abc") -- the full engine below.
+            CustomSpec cs;
+            if (!ParseCustomPattern(fs->chars, fs->length, cs))
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            char digits[24];
+            const int n = FormatInt64Decimal(digits, value);
+            const bool neg = (digits[0] == '-');
+            char intOut[kMaxBuffer];
+            int intN = 0;
+            char fracOut[kMaxBuffer];
+            ShiftScaleInt64(digits + (neg ? 1 : 0), n - (neg ? 1 : 0),
+                            cs.scale, cs.fracPh, intOut, intN, fracOut);
+            const bool allZero = IsAllZero(intOut, intN) && IsAllZero(fracOut, cs.fracPh);
+            char16_t out[kMaxBuffer + 16];
+            const int len = EmitCustomFormat(intOut, intN, fracOut, cs.fracPh,
+                                             neg && !allZero, cs, fs->chars, fs->length, out);
+            return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(out, len));
+        }
+    }
+    const char upper = static_cast<char>(spec & ~0x20);
+    const bool lower = (spec >= 'a' && spec <= 'z');
+    const char expChar = lower ? 'e' : 'E';
+    const char hexBase = lower ? 'a' : 'A';
+    char buf[kMaxBuffer];
+    int len = 0;
+    switch (upper)
+    {
+        case 'D':
+            len = FormatDecimalPadded(buf, value, precision < 0 ? 1 : precision);
+            break;
+        case 'X':
+            len = FormatHex(buf, hexValue, precision < 0 ? 1 : precision, hexBase);
+            break;
+        case 'N':
+            len = FormatNumberInt(buf, value, precision < 0 ? 2 : precision);
+            break;
+        case 'C':
+        {
+            char tail[kMaxBuffer];
+            const int t = FormatNumberInt(tail, value, precision < 0 ? 2 : precision);
+            return MakeCurrencyString(tail, t);
+        }
+        case 'E':
+            len = FormatSciInt(buf, value, precision < 0 ? 6 : precision, expChar);
+            break;
+        case 'F':
+            len = FormatFixedInt(buf, value, precision < 0 ? 2 : precision);
+            break;
+        case 'P':
+        {
+            const int t = FormatPercentInt(buf, value, precision < 0 ? 2 : precision);
+            buf[t] = '%'; // zh-CN "n%" layout (no space)
+            len = t + 1;
+            break;
+        }
+        case 'G':
+            // G without a precision (or G0) is the plain decimal; an explicit
+            // precision rounds to significant digits (net48: G2 of 12345 ->
+            // "1.2E+04", G15 of long.MaxValue -> "9.22337203685478E+18").
+            len = (precision < 1)
+                ? FormatInt64Decimal(buf, value)
+                : FormatGeneralInt(buf, value, precision, expChar);
+            break;
+        default:
+            // full custom formats on integers are out of subset
+            il2cpp_throw_format_exception("Format specifier was invalid.");
+    }
+    buf[len] = '\0';
+    return MakeString(buf);
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// icall_format_int32_custom -- int32 ToString(format).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_int32_custom(int32_t value, Il2CppObject* format)
+{
+    // Hex is 32-bit two's-complement: -123 -> "FFFFFF85" (not 16 digits).
+    return ToStringInt(static_cast<int64_t>(value),
+                       static_cast<uint64_t>(static_cast<uint32_t>(value)),
+                       format);
+}
+
+//------------------------------------------------------------------------------
+// icall_format_int64_custom -- int64 ToString(format).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format)
+{
+    return ToStringInt(value, static_cast<uint64_t>(value), format);
+}
+
+//------------------------------------------------------------------------------
+// icall_format_double_custom -- double ToString(format).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format)
+{
+    // net48: non-finite values return the culture symbol BEFORE any format
+    // work -- even an invalid format specifier (probe9: NaN with "Q" ->
+    // "NaN", +Inf with "Q" -> U+221E).
+    if (IsSpecial(value))
+    {
+        return MakeSpecialString(value);
+    }
+    char buf[kMaxBuffer + 8];
+    char spec = 'G';
+    int precision = -1;
+    if (format != nullptr)
+    {
+        Il2CppString* fs = reinterpret_cast<Il2CppString*>(format);
+        if (fs->length == 0)
+        {
+            spec = 'G';
+            precision = 0;
+        }
+        else if (!TryParseStandard(fs->chars, fs->length, spec, precision))
+        {
+            // net48: a non-standard format is a CUSTOM format -- the full
+            // engine (oracle: "0.00" -> "12.34%", "#.##" -> ".5", "D100" ->
+            // "D112345", "0.00.0" -> "1.500", "abc" -> "abc").
+            CustomSpec cs;
+            if (!ParseCustomPattern(fs->chars, fs->length, cs))
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            double scaled = value;
+            if (cs.scale > 0)
+            {
+                double f = 1.0;
+                for (int k = 0; k < cs.scale; ++k) f *= 10.0;
+                scaled *= f;
+            }
+            else if (cs.scale < 0)
+            {
+                double f = 1.0;
+                for (int k = 0; k < -cs.scale; ++k) f *= 10.0;
+                scaled /= f;
+            }
+            char fixedBuf[kMaxBuffer];
+            const int fn = FormatFixed(scaled, cs.fracPh, fixedBuf);
+            fixedBuf[fn] = '\0'; // FormatFixed does NOT NUL-terminate
+            const bool neg = (fixedBuf[0] == '-');
+            const int start = neg ? 1 : 0;
+            const char* dot = std::strchr(fixedBuf + start, '.');
+            const int intLen = (dot != nullptr)
+                ? static_cast<int>(dot - (fixedBuf + start))
+                : (fn - start);
+            char16_t out[kMaxBuffer + 16];
+            const int len = EmitCustomFormat(fixedBuf + start, intLen,
+                                             (dot != nullptr) ? dot + 1 : nullptr,
+                                             cs.fracPh, neg, cs, fs->chars, fs->length, out);
+            return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(out, len));
+        }
+    }
+    const char upper = static_cast<char>(spec & ~0x20);
+    const bool lower = (spec >= 'a' && spec <= 'z');
+    const char expChar = lower ? 'e' : 'E';
+    int len = 0;
+    switch (upper)
+    {
+        case 'G':
+        {
+            if (IsSpecial(value))
+            {
+                return MakeSpecialString(value);
+            }
+            if (precision < 1)
+            {
+                // net48 default double text (G15) -- single source, format.cpp
+                Il2CppString* s = icall_double_to_string(value);
+                return reinterpret_cast<Il2CppObject*>(s);
+            }
+            len = FormatGeneralDouble(value, precision, expChar, buf);
+            break;
+        }
+        case 'F':
+            if (IsSpecial(value))
+            {
+                return MakeSpecialString(value);
+            }
+            len = FormatFinite(value, precision < 0 ? 2 : precision, buf);
+            break;
+        case 'N':
+            if (IsSpecial(value))
+            {
+                return MakeSpecialString(value);
+            }
+            len = FormatGroupedFinite(value, precision < 0 ? 2 : precision, buf);
+            break;
+        case 'E':
+            if (IsSpecial(value))
+            {
+                return MakeSpecialString(value);
+            }
+            len = FormatSciFinite(value, precision < 0 ? 6 : precision, buf, expChar);
+            break;
+        case 'C':
+        {
+            if (IsSpecial(value))
+            {
+                return MakeSpecialString(value);
+            }
+            char tail[kMaxBuffer];
+            const int t = FormatGroupedFinite(value, precision < 0 ? 2 : precision, tail);
+            return MakeCurrencyString(tail, t);
+        }
+        case 'P':
+        {
+            if (IsSpecial(value))
+            {
+                return MakeSpecialString(value);
+            }
+            // net48's double P scales the VALUE by 100.0 in double (the
+            // double rounding of the product is observable -- probe4).
+            len = FormatGroupedFinite(value * 100.0, precision < 0 ? 2 : precision, buf);
+            buf[len++] = '%'; // zh-CN "n%" layout (no space)
+            break;
+        }
+        default:
+            il2cpp_throw_format_exception("Format specifier was invalid.");
+    }
+    buf[len] = '\0';
+    return MakeString(buf);
+}
+
+//------------------------------------------------------------------------------
+// icall_format_composite_item -- format ONE composite-format argument (the
+// "{N[,width][:fmt]}" item of String.Format / StringBuilder.AppendFormat --
+// see il2cpp_format_ext.h for the full dispatch/alignment semantics).
+//
+// The composite parser (AppendFormatCore, stringbuilder.cpp) extracts the
+// index, alignment and format-string components and calls this engine with
+// the BOXED argument; the box is opened here by klass name (the numeric box
+// payloads sit at byte offset 8 -- the valuesemantics.cpp contract).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* format, int32_t alignment)
+{
+    // net48 composite formatting: null -> the empty string; a string arg
+    // returns its payload unchanged (System.String is not IFormattable, so a
+    // specifier is ignored); boxed numerics honor the specifier; every other
+    // object prints its plain ToString() text (specifier ignored).
+    Il2CppString* text = nullptr;
+    if (boxed == nullptr)
+    {
+        text = il2cpp_string_new(nullptr, 0); // the empty string
+    }
+    else
+    {
+        const char* name = (boxed->klass != nullptr) ? boxed->klass->name : nullptr;
+        if (name != nullptr && std::strcmp(name, "System.String") == 0)
+        {
+            text = reinterpret_cast<Il2CppString*>(boxed); // identity, specifier ignored
+        }
+        else if (name != nullptr && std::strcmp(name, "System.Int32") == 0)
+        {
+            const int32_t v = *reinterpret_cast<const int32_t*>(
+                reinterpret_cast<const char*>(boxed) + 8);
+            text = reinterpret_cast<Il2CppString*>(icall_format_int32_custom(v, format));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.Int64") == 0)
+        {
+            const int64_t v = *reinterpret_cast<const int64_t*>(
+                reinterpret_cast<const char*>(boxed) + 8);
+            text = reinterpret_cast<Il2CppString*>(icall_format_int64_custom(v, format));
+        }
+        else if (name != nullptr && (std::strcmp(name, "System.Double") == 0 ||
+                                     std::strcmp(name, "System.Single") == 0))
+        {
+            // float widens to double in the box (boxingext2.h contract).
+            const double v = *reinterpret_cast<const double*>(
+                reinterpret_cast<const char*>(boxed) + 8);
+            text = reinterpret_cast<Il2CppString*>(icall_format_double_custom(v, format));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.Decimal") == 0)
+        {
+            // 16-byte decimal payload at byte offset 8 (the decimal box).
+            Il2CppDecimal dec;
+            std::memcpy(&dec, reinterpret_cast<const char*>(boxed) + 8, sizeof(dec));
+            text = icall_decimal_to_string_custom(&dec, reinterpret_cast<Il2CppString*>(format));
+        }
+        else
+        {
+            // bool/char/other objects: not IFormattable -> plain ToString.
+            text = icall_object_to_string(boxed);
+        }
+    }
+
+    // Alignment: pad with spaces to the MINIMUM field width (net48: a longer
+    // formatted text is never truncated). Positive width right-aligns (spaces
+    // on the left), negative left-aligns.
+    const int32_t width = (alignment < 0) ? -alignment : alignment;
+    if (width == 0 || text->length >= width)
+    {
+        return reinterpret_cast<Il2CppObject*>(text);
+    }
+    const int32_t pad = width - text->length;
+    const bool rightAlign = (alignment > 0);
+    char16_t* buf = static_cast<char16_t*>(std::malloc(static_cast<size_t>(width) * sizeof(char16_t)));
+    if (buf == nullptr)
+    {
+        il2cpp_throw_new("System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                         "Insufficient memory to continue the execution of the program.");
+    }
+    if (rightAlign)
+    {
+        for (int32_t k = 0; k < pad; ++k)
+        {
+            buf[k] = u' ';
+        }
+        std::memcpy(buf + pad, text->chars, static_cast<size_t>(text->length) * sizeof(char16_t));
+    }
+    else
+    {
+        std::memcpy(buf, text->chars, static_cast<size_t>(text->length) * sizeof(char16_t));
+        for (int32_t k = 0; k < pad; ++k)
+        {
+            buf[text->length + k] = u' ';
+        }
+    }
+    Il2CppObject* result = reinterpret_cast<Il2CppObject*>(il2cpp_string_new(buf, width));
+    std::free(buf);
+    return result;
+}
+
+}} // namespace il2cpp::runtime

@@ -1,0 +1,16 @@
+file_exists_before=0
+file_exists_after_write=1
+roundtrip_equal=1
+read_length=9
+file_exists_after_delete=0
+file_exists_double_delete=0
+name_eq=1
+name_trailing_empty=1
+ext_eq=1
+ext_none_empty=1
+combine_eq=1
+combine_empty_eq=1
+dir_exists_after_create=1
+nested_roundtrip_equal=1
+nested_deleted=0
+dir_exists_final=1

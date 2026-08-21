@@ -1,0 +1,506 @@
+//------------------------------------------------------------------------------
+// threadobj.cpp -- System.Threading.Thread OBJECT icall implementations (see
+// threadobj.h for the contract).
+//
+// The statics (sleep/yield/critical regions) live in thread.cpp; the
+// single-threaded id-based extensions (threadext.h) are a separate model.
+// THIS domain owns the managed Thread object: a real OS thread is spawned
+// through the platform layer (plat_thread_spawn) when Start() runs the
+// ThreadStart callback, and Join() waits for it through plat_thread_join.
+//
+// Cross-thread state: the RUNNING -> FINISHED transition is a std::atomic in
+// the native handle (the child writes it with release, the parent reads it
+// with acquire; the monotonic 1 -> 2 ordering makes every interleaving
+// converge). The managed object's own state/tid fields are written and read
+// ONLY by the creating thread (single-caller model, see the header).
+//
+// net48 deviations are documented in threadobj.h; the notable ones:
+//   * the child drops exceptions escaping its callback (the thread still
+//     terminates, Join still returns);
+//   * a self-join throws ThreadStateException immediately (never blocks);
+//   * priority is pinned to Normal (setter accepted-and-ignored);
+//   * ManagedThreadId is the OS thread id, 0 until Start.
+//------------------------------------------------------------------------------
+
+#include "threadobj.h"
+
+#include "il2cpp_delegate_ext.h" // icall_delegate_get_fn_ptr (validation)
+#include "il2cpp_exception.h"    // il2cpp_throw_new (carrier)
+#include "il2cpp_exception_ext.h"// il2cpp_throw_argument_null_exception
+#include "il2cpp_runtime.h"      // il2cpp_object_new / il2cpp_class_register
+#include "platform.h"            // plat_thread_spawn / join / current_id
+
+#include <atomic>
+#include <cstdint>
+#include <new>
+
+//------------------------------------------------------------------------------
+// System.Threading.Thread runtime descriptor (GLOBAL scope -- the transpiler
+// emits &System_Threading_Thread_class for newobj/isinst/castclass, the same
+// contract as System_Version_class in versionuri.cpp). instanceSize covers
+// header + callback pointer + handle + state + tid + name. There is exactly
+// ONE reference field -- the Thread.Name string at slot 5 (refFieldBitmap
+// bit 5, refFieldCount 1); the callback is a code pointer and the handle is
+// opaque native state, neither ever scanned.
+//------------------------------------------------------------------------------
+il2cpp::Il2CppClass System_Threading_Thread_class = {
+    "System.Threading.Thread",                   // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppThreadObject)), // instanceSize
+    0b100000u,                                   // refFieldBitmap: bit 5 = name
+    1,                                           // refFieldCount: one reference field (name)
+    &System_Object_class,                        // baseClass (a Thread IS-A object)
+    nullptr,                                     // vtable
+    0,                                           // vtableSize
+    nullptr,                                     // interfaces
+    0,                                           // interfaceCount
+};
+
+namespace il2cpp {
+
+namespace {
+
+// Layout pin: the icall accessors read the fields at fixed offsets.
+static_assert(offsetof(Il2CppThreadObject, callbackFn) == 1 * sizeof(void*),
+              "Il2CppThreadObject: callbackFn must sit at slot 1 (offset 8)");
+static_assert(offsetof(Il2CppThreadObject, handle) == 2 * sizeof(void*),
+              "Il2CppThreadObject: handle must sit at slot 2 (offset 16)");
+static_assert(offsetof(Il2CppThreadObject, name) == 5 * sizeof(void*),
+              "Il2CppThreadObject: name must sit at slot 5 (offset 40 -- "
+              "the refFieldBitmap bit 5 GC reference)");
+
+bool g_threadClassRegistered = false;
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// il2cpp_threadobj_class -- the System.Threading.Thread descriptor (lazily
+// registered on first use; idempotent -- il2cpp_class_register dedupes by
+// pointer).
+//------------------------------------------------------------------------------
+Il2CppClass* il2cpp_threadobj_class()
+{
+    if (!g_threadClassRegistered)
+    {
+        il2cpp_class_register(&System_Threading_Thread_class);
+        g_threadClassRegistered = true;
+    }
+    return &System_Threading_Thread_class;
+}
+
+} // namespace il2cpp
+
+namespace il2cpp { namespace runtime {
+
+namespace {
+
+//------------------------------------------------------------------------------
+// Native thread state. Allocated by Start, freed by the first Join after
+// the thread finished. The child writes state (1 -> 2, release) and tid at
+// entry; the parent reads state/tid (acquire) and joins.
+//------------------------------------------------------------------------------
+struct il2cpp_thread_handle
+{
+    std::atomic<int32_t> state; // 1 = RUNNING, 2 = FINISHED (monotonic)
+    plat_thread_t native;       // the spawned platform thread (joined once)
+    int32_t tid;                // OS thread id, set by the child at entry
+    void (*fn)();               // the ThreadStart callback (zero-arg ABI)
+};
+
+// The platform layer spawns void(*)(void*) trampolines. The trampoline
+// records the child's OS id, runs the ThreadStart callback, and marks the
+// handle FINISHED -- even when the callback throws (the exception is
+// dropped per the header contract; the thread must terminate and Join must
+// return, otherwise Join would block forever).
+void ThreadTrampoline(void* arg)
+{
+    il2cpp_thread_handle* h = static_cast<il2cpp_thread_handle*>(arg);
+    h->tid = plat_thread_current_id();
+    try
+    {
+        h->fn();
+    }
+    catch (...)
+    {
+        // Dropped: an exception escaping a thread's callback has no
+        // delivery path in the M-stage model (documented in threadobj.h).
+    }
+    h->state.store(2, std::memory_order_release);
+}
+
+Il2CppThreadObject* AsThread(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppThreadObject*>(self);
+}
+
+// Defensive null-receiver guard: generated code null-checks first; this is
+// the icall's contract (mirrors versionuri.cpp / arraylist.cpp).
+void ThrowIfNullReceiver(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+}
+
+// ThreadStateException carrier (net48 chain: ThreadStateException ->
+// SystemException -> Exception).
+void ThrowThreadState(const char* message)
+{
+    il2cpp_throw_new(
+        "System.Threading.ThreadStateException,"
+        "System.Threading.ThreadStateException,System.SystemException,System.Exception",
+        message);
+}
+
+constexpr const char* kOutOfMemoryChain =
+    "System.OutOfMemoryException,System.OutOfMemoryException,"
+    "System.SystemException,System.Exception";
+
+// Reap a spawned thread's native handle: wait for the child to exit when it
+// is still running (the FINISHED store happens-before the child exits, and
+// plat_thread_join synchronizes with that exit -- so after the join returns
+// the child can never touch h again and the handle is safe to free), then
+// preserve the child's OS id on the object (net48 keeps ManagedThreadId
+// queryable after the thread ends) and release the handle. Called ONLY by
+// the Join family (single-caller model -- t->handle/t->tid are parent-only
+// state, race-free).
+void ReapThread(Il2CppThreadObject* t, il2cpp_thread_handle* h)
+{
+    if (h->state.load(std::memory_order_acquire) != 2)
+    {
+        plat_thread_join(h->native);
+    }
+    t->tid = h->tid;
+    t->handle = nullptr;
+    delete h;
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// icall_threadobj_ctor -- new Thread(ThreadStart): validate the delegate
+// (null -> ArgumentNullException; multicast / instance-bound ->
+// InvalidOperationException through icall_delegate_get_fn_ptr) and extract
+// its code pointer. The thread is NEW until Start.
+//------------------------------------------------------------------------------
+void icall_threadobj_ctor(Il2CppObject* self, Il2CppObject* callback)
+{
+    ThrowIfNullReceiver(self);
+    if (callback == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("start");
+    }
+    void* fn = icall_delegate_get_fn_ptr(callback);
+    il2cpp_threadobj_class(); // register the descriptor (tooling/type probes)
+    Il2CppThreadObject* t = AsThread(self);
+    t->callbackFn = fn;
+    t->handle = nullptr;
+    t->state = 0; // NEW
+    t->tid = 0;
+    t->isBackground = false; // net48: new threads are foreground
+    t->name = nullptr;       // Thread.Name: unset until icall_threadobj_set_name
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_start -- Thread.Start(): spawn a REAL OS thread running
+// the ThreadStart callback (zero-arg ABI). State NEW is required: starting
+// twice (running OR finished) raises ThreadStateException (net48).
+//------------------------------------------------------------------------------
+void icall_threadobj_start(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    if (t->state != 0)
+    {
+        ThrowThreadState("Thread has already been started.");
+    }
+    il2cpp_thread_handle* h = new il2cpp_thread_handle();
+    h->state.store(1, std::memory_order_relaxed);
+    h->tid = 0;
+    h->fn = reinterpret_cast<void (*)()>(t->callbackFn);
+    h->native = plat_thread_spawn(&ThreadTrampoline, h);
+    if (h->native == nullptr)
+    {
+        delete h;
+        il2cpp_throw_new(kOutOfMemoryChain,
+                         "Insufficient memory to create a new thread.");
+    }
+    // The child never touches the managed object -- it only reads its own
+    // handle argument -- so these parent-only writes are race-free (the
+    // child may finish before they land; Join/IsAlive consult the handle).
+    t->handle = h;
+    t->state = 1; // STARTED
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_join -- Thread.Join(): block until the spawned thread
+// exits, then release the native handle (a second Join returns
+// immediately -- net48 Join on a finished thread). Joining a NEW thread
+// or the CURRENT thread raises ThreadStateException (self-join: net48
+// would block forever -- this contract throws instead, see threadobj.h).
+//------------------------------------------------------------------------------
+void icall_threadobj_join(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    if (t->state == 0)
+    {
+        ThrowThreadState("Thread has not been started.");
+    }
+    if (t->state == 2)
+    {
+        ThrowThreadState("A thread cannot join itself.");
+    }
+    il2cpp_thread_handle* h = static_cast<il2cpp_thread_handle*>(t->handle);
+    if (h == nullptr)
+    {
+        return; // already joined (the thread finished)
+    }
+    ReapThread(t, h);
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_join_timeout -- Thread.Join(int32): the net48 Join(int)
+// form. Validation order matches net48 JoinInternal: the timeout argument
+// (< -1 -> ArgumentOutOfRangeException) is checked FIRST, then the
+// thread-state guards (self-join then never-started ThreadStateException --
+// same messages as Join()). Returns:
+//   * true  -- the thread terminated within the timeout (or was already
+//     terminated: a JOINED thread and a NEW-not-yet-reaped finished thread
+//     both read the FINISHED/nulled handle);
+//   * false -- the timeout expired while the thread still runs. The native
+//     handle is NOT released: a later Join / Join(int) still waits.
+// timeoutMs == -1 waits forever (Timeout.Infinite), 0 is a single
+// non-blocking probe (true iff already terminated). Waiting is implemented
+// by POLLING the handle's FINISHED atomic at a small sleep granularity (the
+// same polling pattern as monitor.cpp's wait) -- the wake latency after the
+// child exits is bounded by the poll interval.
+//------------------------------------------------------------------------------
+bool icall_threadobj_join_timeout(Il2CppObject* self, int32_t millisecondsTimeout)
+{
+    ThrowIfNullReceiver(self);
+    if (millisecondsTimeout < -1)
+    {
+        il2cpp_throw_argument_out_of_range_exception("millisecondsTimeout", nullptr);
+    }
+    Il2CppThreadObject* t = AsThread(self);
+    if (t->state == 2)
+    {
+        ThrowThreadState("A thread cannot join itself.");
+    }
+    if (t->state == 0)
+    {
+        ThrowThreadState("Thread has not been started.");
+    }
+    il2cpp_thread_handle* h = static_cast<il2cpp_thread_handle*>(t->handle);
+    if (h == nullptr)
+    {
+        return true; // already joined: the thread is dead (net48 Join returns true)
+    }
+    const int64_t budgetNs = millisecondsTimeout < 0
+        ? -1 // infinite wait (Timeout.Infinite)
+        : static_cast<int64_t>(millisecondsTimeout) * 1000000LL;
+    const int64_t startNs = plat_clock_monotonic_ns();
+    for (;;)
+    {
+        if (h->state.load(std::memory_order_acquire) == 2)
+        {
+            break; // the child finished: reap and report success
+        }
+        if (budgetNs >= 0 && plat_clock_monotonic_ns() - startNs >= budgetNs)
+        {
+            return false; // timed out: the thread still runs, handle stays
+        }
+        plat_thread_sleep(2);
+    }
+    ReapThread(t, h);
+    return true;
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_get_is_alive -- Thread.IsAlive: true exactly while the
+// thread runs (the atomic handle state reads 1 = RUNNING). NEW threads and
+// joined/finished threads report false; the CURRENT object always reports
+// true.
+//------------------------------------------------------------------------------
+bool icall_threadobj_get_is_alive(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    const Il2CppThreadObject* t = AsThread(self);
+    if (t->state == 2)
+    {
+        return true; // the CURRENT thread object is always alive
+    }
+    if (t->state == 0)
+    {
+        return false; // NEW: nothing started yet
+    }
+    const il2cpp_thread_handle* h = static_cast<const il2cpp_thread_handle*>(t->handle);
+    return h != nullptr && h->state.load(std::memory_order_acquire) == 1;
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_get_managed_thread_id -- Thread.ManagedThreadId
+// (SIMPLIFIED): the OS thread id -- 0 until Start for a spawned thread (the
+// child records its id at entry), the current OS id for the CURRENT object.
+//------------------------------------------------------------------------------
+int32_t icall_threadobj_get_managed_thread_id(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    const Il2CppThreadObject* t = AsThread(self);
+    if (t->state == 2)
+    {
+        return t->tid;
+    }
+    const il2cpp_thread_handle* h = static_cast<const il2cpp_thread_handle*>(t->handle);
+    // Join freed the handle but preserved the id on the object (net48 keeps
+    // ManagedThreadId queryable after the thread ends).
+    return h != nullptr ? h->tid : t->tid;
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_get_priority -- Thread.Priority getter: always 2 =
+// ThreadPriority.Normal (the net48 enum value; the model pins priority).
+//------------------------------------------------------------------------------
+int32_t icall_threadobj_get_priority(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return 2; // ThreadPriority.Normal (pinned; net48 enum value)
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_set_priority -- Thread.Priority setter: accepted and
+// IGNORED (mirrors threadext's il2cpp_thread_set_priority; the getter keeps
+// reporting Normal -- no thread ever changes priority in the model).
+//------------------------------------------------------------------------------
+void icall_threadobj_set_priority(Il2CppObject* self, int32_t priority)
+{
+    ThrowIfNullReceiver(self);
+    (void)priority; // pinned to Normal (documented deviation)
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_get_is_background -- Thread.IsBackground getter: the
+// stored flag (default false = foreground).
+//------------------------------------------------------------------------------
+bool icall_threadobj_get_is_background(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return AsThread(self)->isBackground;
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_set_is_background -- Thread.IsBackground setter (net48
+// semantics, verified by the rtaud11 live probe): plain flag storage, with
+// the net48 STOPPED-thread guard -- setting IsBackground on a thread whose
+// callback has FINISHED throws ThreadStateException ("Thread is dead; state
+// cannot be accessed."). A NEW (unstarted) thread, a RUNNING thread, or the
+// CURRENT thread all accept the set (probe: unstarted_set=True /
+// running_set=True / current_set ok; finished_set=THROWS /
+// bg_set_after_join=THROWS). The FINISHED state is read from the handle's
+// atomic (1 = RUNNING, 2 = FINISHED -- the same acquire load the IsAlive
+// probe uses); a null handle means Join already released it (the thread
+// finished). The value stays informational in the M-stage model (no
+// process-lifetime coupling).
+//------------------------------------------------------------------------------
+void icall_threadobj_set_is_background(Il2CppObject* self, bool isBackground)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    if (t->state == 1) // STARTED: running or finished (single-caller model)
+    {
+        const il2cpp_thread_handle* h = static_cast<const il2cpp_thread_handle*>(t->handle);
+        if (h == nullptr || h->state.load(std::memory_order_acquire) == 2)
+        {
+            ThrowThreadState("Thread is dead; state cannot be accessed.");
+        }
+    }
+    t->isBackground = isBackground;
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_get_name -- Thread.Name getter: the stored name string
+// (null when never set). The name is a managed string GC reference kept
+// alive by the object (refFieldBitmap bit 5, see the descriptor).
+//------------------------------------------------------------------------------
+Il2CppString* icall_threadobj_get_name(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return AsThread(self)->name;
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_set_name -- Thread.Name setter (net48 reference semantics,
+// Thread.cs Name setter):
+//   * a null or EMPTY value CLEARS the name (InternalClearName -- m_Name =
+//     null) and never throws, even on an already-named thread (so a thread
+//     can be renamed after a clear);
+//   * a non-null, non-empty value names the thread, but setting one on an
+//     ALREADY-NAMED thread (m_Name != null && m_Name.Length != 0) throws
+//     InvalidOperationException (net48: "A thread's Name may only be set
+//     once." -- InternalSetName). The name is a managed string GC reference
+//     stored on the object (refFieldBitmap bit 5).
+//------------------------------------------------------------------------------
+void icall_threadobj_set_name(Il2CppObject* self, Il2CppString* name)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    if (name == nullptr || name->length == 0)
+    {
+        t->name = nullptr; // clear (net48 InternalClearName -- no exception)
+        return;
+    }
+    if (t->name != nullptr)
+    {
+        il2cpp_throw_invalid_operation_exception("A thread's Name may only be set once.");
+    }
+    t->name = name;
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_get_current_thread -- Thread.CurrentThread (static): a
+// fresh Thread object wrapping the CURRENT thread (state CURRENT,
+// ManagedThreadId = the current OS id, IsAlive true, self-join throws).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_threadobj_get_current_thread()
+{
+    il2cpp_threadobj_class(); // register the descriptor
+    Il2CppThreadObject* t = reinterpret_cast<Il2CppThreadObject*>(
+        il2cpp_object_new(&System_Threading_Thread_class));
+    t->callbackFn = nullptr;
+    t->handle = nullptr;
+    t->state = 2; // CURRENT
+    t->tid = plat_thread_current_id();
+    t->isBackground = false; // net48: threads start foreground
+    t->name = nullptr;       // CurrentThread.Name: unset until set_name
+    return reinterpret_cast<Il2CppObject*>(t);
+}
+
+// P6: Thread internal helpers -- stubs for simplified model.
+
+void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)
+{
+    // no-op: simplified model
+}
+
+int32_t icall_threadobj_get_apartment_state_native(Il2CppObject* self)
+{
+    return 0; // MTA
+}
+
+bool icall_threadobj_set_apartment_state_native(Il2CppObject* self, int32_t state)
+{
+    return true; // always succeeds
+}
+
+void icall_threadobj_interrupt(Il2CppObject* self)
+{
+    // no-op: simplified model, no thread interruption
+}
+
+int32_t icall_threadobj_get_optimal_max_spin_waits(Il2CppObject* self)
+{
+    return 1; // default spin count
+}
+
+}} // namespace il2cpp::runtime

@@ -1,0 +1,15 @@
+c_full=True
+c_off=True
+c_indep=True
+c_rw=True
+a_zero=True
+u16=True
+u16_interop=True
+ansi2=True
+c_exact=True
+stress=True
+c_seqalloc=True
+r_grow=True
+r_shrink=True
+r_roundtrip=True
+r_stress=True

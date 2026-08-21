@@ -1,0 +1,10 @@
+even(6000)=True
+odd(6001)=True
+even(6001)=False
+odd(6000)=False
+tail_sum(6000)=18003000
+nontail_sum(4000)=8002000
+unwound_caught
+after_unwind=ok
+cascade(5000)=12502500
+cascade(1000)=500500

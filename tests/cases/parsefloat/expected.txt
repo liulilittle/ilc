@@ -1,0 +1,125 @@
+r0 0 v:0
+r1 1 v:1
+r2 -1 v:-1
+r3 42 v:42
+r4 +42 v:42
+r5 -42 v:-42
+r6   42.5   v:42.5
+r7 	1.5	 v:1.5
+r8 42.5
+ v:42.5
+r9 42.5 v:42.5
+r10 42.5 v:42.5
+r11 0001.500 v:1.5
+r12 42. v:42
+r13 .5 v:0.5
+r14 +.5 v:0.5
+r15 -.5 v:-0.5
+r16 0.1 v:0.1
+r17 3.14159 v:3.14159
+r18 123456789.123456789 v:123456789.123457
+r19 1e3 v:1000
+r20 1E-05 v:1E-05
+r21 1e20 v:1E+20
+r22 -1.5e2 v:-150
+r23 1e+5 v:100000
+r24 1e-5 v:1E-05
+r25 1.5E-7 v:1.5E-07
+r26 1.7976931348623157e308 v:1.79769313486232E+308
+r27 1e308 v:1E+308
+r28 1e-308 v:1E-308
+r29 1e-320 v:9.99988867182683E-321
+r30 NaN v:NaN
+r31  fmt
+r32   fmt
+r33 abc fmt
+r34 1e fmt
+r35 1.2.3 fmt
+r36 Infinity fmt
+r37 -Infinity fmt
+r38 ++1 fmt
+r39 --1 fmt
+r40 1x fmt
+r41 0x10 fmt
+r42 + fmt
+r43 - fmt
+r44 5-1 fmt
+r45 1e400 ovf
+r46 -1e400 ovf
+r47 1e309 ovf
+r48 1e-400 v:0
+r49 NaN1 fmt
+r50 1.5e fmt
+r51 e5 fmt
+c0 0 p=v:0 t=v:0
+c1 1 p=v:1 t=v:1
+c2 -1 p=v:-1 t=v:-1
+c3 42 p=v:42 t=v:42
+c4 +42 p=v:42 t=v:42
+c5 -42 p=v:-42 t=v:-42
+c6   42.5   p=v:42.5 t=v:42.5
+c7 	1.5	 p=v:1.5 t=v:1.5
+c8 42.5
+ p=v:42.5 t=v:42.5
+c9 42.5 p=v:42.5 t=v:42.5
+c10 42.5 p=v:42.5 t=v:42.5
+c11 0001.500 p=v:1.5 t=v:1.5
+c12 42. p=v:42 t=v:42
+c13 .5 p=v:0.5 t=v:0.5
+c14 +.5 p=v:0.5 t=v:0.5
+c15 -.5 p=v:-0.5 t=v:-0.5
+c16 0.1 p=v:0.1 t=v:0.1
+c17 3.14159 p=v:3.14159 t=v:3.14159
+c18 123456789.123456789 p=v:123456789.123457 t=v:123456789.123457
+c19 1e3 p=v:1000 t=v:1000
+c20 1E-05 p=v:1E-05 t=v:1E-05
+c21 1e20 p=v:1E+20 t=v:1E+20
+c22 -1.5e2 p=v:-150 t=v:-150
+c23 1e+5 p=v:100000 t=v:100000
+c24 1e-5 p=v:1E-05 t=v:1E-05
+c25 1.5E-7 p=v:1.5E-07 t=v:1.5E-07
+c26 1.7976931348623157e308 p=v:1.79769313486232E+308 t=v:1.79769313486232E+308
+c27 1e308 p=v:1E+308 t=v:1E+308
+c28 1e-308 p=v:1E-308 t=v:1E-308
+c29 1e-320 p=v:9.99988867182683E-321 t=v:9.99988867182683E-321
+c30 NaN p=v:NaN t=v:NaN
+c31  p=fmt t=fail
+c32   p=fmt t=fail
+c33 abc p=fmt t=fail
+c34 1e p=fmt t=fail
+c35 1.2.3 p=fmt t=fail
+c36 Infinity p=fmt t=fail
+c37 -Infinity p=fmt t=fail
+c38 ++1 p=fmt t=fail
+c39 --1 p=fmt t=fail
+c40 1x p=fmt t=fail
+c41 0x10 p=fmt t=fail
+c42 + p=fmt t=fail
+c43 - p=fmt t=fail
+c44 5-1 p=fmt t=fail
+c45 1e400 p=ovf t=fail
+c46 -1e400 p=ovf t=fail
+c47 1e309 p=ovf t=fail
+c48 1e-400 p=v:0 t=v:0
+c49 NaN1 p=fmt t=fail
+c50 1.5e p=fmt t=fail
+c51 e5 p=fmt t=fail
+cnull t=fail
+sp_pos=posinf
+sp_neg=neginf
+sp_pad=posinf
+sp_nan=nan
+sp_ascii_pos=fail
+sp_ascii_neg=fail
+sp_plus_sym=fail
+f_fmt_half=0.5
+f_fmt_35=3.5
+f_fmt_neg=-2.25
+f_fmt_100=100
+f_fmt_eighth=0.125
+f_fmt_quarter=0.25
+f_fmt_15=1.5
+f_fmt_negq=-0.75
+f_fmt_two=2
+f_fmt_ten=10
+

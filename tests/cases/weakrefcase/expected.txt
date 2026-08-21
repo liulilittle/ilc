@@ -1,0 +1,9 @@
+alive1=True
+target1=True
+readback1=True
+alive2=False
+target2=True
+alive3=False
+target3=True
+alive4=True
+readback2=True

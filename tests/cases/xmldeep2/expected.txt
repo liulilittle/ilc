@@ -1,0 +1,13 @@
+o_attr=True
+o_multi_attr=True
+ns_def=True
+ns_pre=True
+ns_two=True
+it_flat=True
+it_deep=True
+it_mixed=True
+it_cdata=True
+ent=True
+ent_attr=True
+nest=True
+nest_text=True
