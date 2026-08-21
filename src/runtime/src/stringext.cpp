@@ -27,6 +27,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_string_ext.h"
+#include "il2cpp_string_ext3.h"
 
 #include "il2cpp_exception.h"
 #include "il2cpp_gc.h"
@@ -1064,6 +1065,35 @@ Il2CppArray* icall_string_to_char_array(Il2CppString* self)
     for (int32_t i = 0; i < len; ++i)
         dst[i] = self->chars[i];
     return out;
+}
+
+//------------------------------------------------------------------------------
+// net9/10 E2E campaign: IndexOfAny/LastIndexOfAny 1- and 2-arg forms --
+// thin wrappers over the ext3 range icalls with the default window
+// ([0, Length) / [startIndex, Length)). Validation lives in the range
+// implementations (null anyOf -> ANE; out-of-range -> AOORE).
+//------------------------------------------------------------------------------
+int32_t icall_string_index_of_any(Il2CppObject* self, Il2CppObject* anyOf)
+{
+    auto* s = reinterpret_cast<Il2CppString*>(self);
+    return icall_string_index_of_any_range(self, anyOf, 0, s->length);
+}
+
+int32_t icall_string_index_of_any_start(Il2CppObject* self, Il2CppObject* anyOf, int32_t startIndex)
+{
+    auto* s = reinterpret_cast<Il2CppString*>(self);
+    return icall_string_index_of_any_range(self, anyOf, startIndex, s->length - startIndex);
+}
+
+int32_t icall_string_last_index_of_any(Il2CppObject* self, Il2CppObject* anyOf)
+{
+    auto* s = reinterpret_cast<Il2CppString*>(self);
+    return icall_string_last_index_of_any_range(self, anyOf, s->length - 1, s->length);
+}
+
+int32_t icall_string_last_index_of_any_start(Il2CppObject* self, Il2CppObject* anyOf, int32_t startIndex)
+{
+    return icall_string_last_index_of_any_range(self, anyOf, startIndex, startIndex + 1);
 }
 
 } // namespace runtime

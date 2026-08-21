@@ -128,6 +128,13 @@ Il2CppString* icall_string_remove_to_end(Il2CppString* self, int32_t startIndex)
 void icall_string_copy_to_array(Il2CppString* self, int32_t srcIndex,
                                 Il2CppArray* dest, int32_t destIndex, int32_t count);
 
+// net9/10 E2E campaign: IndexOfAny/LastIndexOfAny 1- and 2-arg forms --
+// wrappers over the ext3 range icalls with default windows (stringext.cpp).
+int32_t icall_string_index_of_any(Il2CppObject* self, Il2CppObject* anyOf);
+int32_t icall_string_index_of_any_start(Il2CppObject* self, Il2CppObject* anyOf, int32_t startIndex);
+int32_t icall_string_last_index_of_any(Il2CppObject* self, Il2CppObject* anyOf);
+int32_t icall_string_last_index_of_any_start(Il2CppObject* self, Il2CppObject* anyOf, int32_t startIndex);
+
 // net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy of
 // the UTF-16 units (stringext.cpp). Null self -> ArgumentNullException.
 Il2CppArray* icall_string_to_char_array(Il2CppString* self);

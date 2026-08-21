@@ -70,6 +70,14 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return I("il2cpp::runtime::icall_string_index_of_any_range", 3, true, false, true,
                         new[] { "", "", "i", "i" });
+                // net9/10 E2E campaign: the 1/2-arg forms -- runtime wrappers
+                // default startIndex=0 / count=Length (stringext.cpp).
+                if (ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::runtime::icall_string_index_of_any", 1, true, false, true,
+                        new[] { "", "" });
+                if (ps.Length == 2 && ps[0] == 0x1D && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_string_index_of_any_start", 2, true, false, true,
+                        new[] { "", "", "i" });
                 throw new NotSupportedException($"String.IndexOfAny with {ps.Length} arg(s) not wired (the runtime icall takes (char[], int32, int32))");
             case "LastIndexOfAny":
                 // System.String.LastIndexOfAny(char[] anyOf, int32 startIndex,
@@ -81,6 +89,13 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return I("il2cpp::runtime::icall_string_last_index_of_any_range", 3, true, false, true,
                         new[] { "", "", "i", "i" });
+                // net9/10 E2E campaign: 1/2-arg wrappers (stringext.cpp).
+                if (ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::runtime::icall_string_last_index_of_any", 1, true, false, true,
+                        new[] { "", "" });
+                if (ps.Length == 2 && ps[0] == 0x1D && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_string_last_index_of_any_start", 2, true, false, true,
+                        new[] { "", "", "i" });
                 throw new NotSupportedException($"String.LastIndexOfAny with {ps.Length} arg(s) not wired (the runtime icall takes (char[], int32, int32))");
             case "LastIndexOf":
                 // The char 1-arg form lives here; the string 1-arg form and
