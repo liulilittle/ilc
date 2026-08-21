@@ -123,6 +123,11 @@ Il2CppString* icall_string_remove(Il2CppString* self, int32_t startIndex, int32_
 // Remove(int startIndex): removes through the END (stringext.cpp).
 Il2CppString* icall_string_remove_to_end(Il2CppString* self, int32_t startIndex);
 
+// net9/10 E2E campaign: CopyTo(srcIndex, dest, destIndex, count) -- copies
+// 'count' UTF-16 units into the caller's char[] (stringext.cpp).
+void icall_string_copy_to_array(Il2CppString* self, int32_t srcIndex,
+                                Il2CppArray* dest, int32_t destIndex, int32_t count);
+
 // net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy of
 // the UTF-16 units (stringext.cpp). Null self -> ArgumentNullException.
 Il2CppArray* icall_string_to_char_array(Il2CppString* self);

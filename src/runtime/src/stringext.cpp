@@ -1028,6 +1028,28 @@ Il2CppString* icall_string_remove_to_end(Il2CppString* self, int32_t startIndex)
 }
 
 //------------------------------------------------------------------------------
+// net9/10 E2E campaign: CopyTo(srcIndex, dest, destIndex, count) -- copies
+// 'count' UTF-16 units from this string into the caller's char[].
+// net48 validation order: source null -> ANE; destination null -> ANE;
+// srcIndex/destIndex/count out of range -> ArgumentOutOfRange.
+//------------------------------------------------------------------------------
+void icall_string_copy_to_array(Il2CppString* self, int32_t srcIndex,
+                                Il2CppArray* dest, int32_t destIndex, int32_t count)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    if (dest == nullptr)
+        il2cpp_throw_argument_null_exception("destination");
+    if (srcIndex < 0 || destIndex < 0 || count < 0)
+        il2cpp_throw_argument_out_of_range_exception("count", "Negative indices or count.");
+    if (srcIndex + count > self->length || destIndex + count > static_cast<int32_t>(dest->length))
+        il2cpp_throw_argument_out_of_range_exception("count", "Ranges exceed the string or array bounds.");
+    auto* dst = reinterpret_cast<char16_t*>(il2cpp_array_get_elem_ptr(dest, 0));
+    for (int32_t i = 0; i < count; ++i)
+        dst[destIndex + i] = self->chars[srcIndex + i];
+}
+
+//------------------------------------------------------------------------------
 // net9/10 E2E campaign (string sweep): String.ToCharArray() -- a NEW char[]
 // holding a copy of the UTF-16 units (the caller may mutate it freely; the
 // source string is never affected). Empty string -> zero-length array.

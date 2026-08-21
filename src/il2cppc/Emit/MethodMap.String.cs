@@ -130,6 +130,12 @@ case "ToCharArray":
         ? I("il2cpp::runtime::icall_string_to_char_array", 0, true, true, true,
             new[] { "s" }, returnTypeName: "System.Char[]")
         : null;
+// net9/10 E2E campaign: CopyTo(srcIndex, dest, destIndex, count).
+case "CopyTo":
+    return ps.Length == 4 && ps[1] == 0x1D
+        ? I("il2cpp::runtime::icall_string_copy_to_array", 4, false, false, false,
+            new[] { "s", "i", "a", "i", "i" })
+        : null;
             case "Trim":
                 // trimset sweep: ParamCount MUST track the IL arity (the
                 // TrimStart lockstep discipline below -- a params char[] call
