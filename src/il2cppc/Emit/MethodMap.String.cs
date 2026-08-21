@@ -119,6 +119,10 @@ case "Remove":
     return ps.Length == 2
         ? I("il2cpp::runtime::icall_string_remove", 2, true, true, true,
             new[] { "s", "i", "i" }, returnTypeName: "System.String")
+        // Remove(int startIndex): removes through the END (remove_to_end).
+        : ps.Length == 1
+        ? I("il2cpp::runtime::icall_string_remove_to_end", 1, true, true, true,
+            new[] { "s", "i" }, returnTypeName: "System.String")
         : null;
 // net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy.
 case "ToCharArray":

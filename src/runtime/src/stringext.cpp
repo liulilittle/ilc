@@ -1016,6 +1016,17 @@ Il2CppString* icall_string_remove(Il2CppString* self, int32_t startIndex, int32_
     return out;
 }
 
+// net9/10 E2E campaign: Remove(int startIndex) -- removes through the END
+// (the emitter cannot compute length-startIndex for the 2-arg form).
+Il2CppString* icall_string_remove_to_end(Il2CppString* self, int32_t startIndex)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    if (startIndex < 0 || startIndex > self->length)
+        il2cpp_throw_argument_out_of_range_exception("startIndex", "StartIndex must be within the string bounds.");
+    return icall_string_remove(self, startIndex, self->length - startIndex);
+}
+
 //------------------------------------------------------------------------------
 // net9/10 E2E campaign (string sweep): String.ToCharArray() -- a NEW char[]
 // holding a copy of the UTF-16 units (the caller may mutate it freely; the

@@ -120,6 +120,8 @@ Il2CppObject* icall_string_trim(Il2CppObject* this_);
 // ArgumentOutOfRangeException (net48 contract).
 Il2CppString* icall_string_insert(Il2CppString* self, int32_t index, Il2CppString* value);
 Il2CppString* icall_string_remove(Il2CppString* self, int32_t startIndex, int32_t count);
+// Remove(int startIndex): removes through the END (stringext.cpp).
+Il2CppString* icall_string_remove_to_end(Il2CppString* self, int32_t startIndex);
 
 // net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy of
 // the UTF-16 units (stringext.cpp). Null self -> ArgumentNullException.
