@@ -113,9 +113,9 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0B)
                     return I("il2cpp::runtime::icall_decimal_ctor_uint64", 1, true, false, false, null, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0C)
-                    throw new NotSupportedException("op_Implicit(float) not wired: VarDecFromR4 is a separate v1-deferred task (decimal-domain.md 2.4)");
+                    return I("il2cpp::runtime::icall_decimal_ctor_float", 1, true, false, false, null, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0D)
-                    throw new NotSupportedException("op_Implicit(double) not wired: VarDecFromR8 is a separate v1-deferred task (decimal-domain.md 2.4)");
+                    return I("il2cpp::runtime::icall_decimal_ctor_double", 1, true, false, false, null, "dec");
                 return null;
             // Ordering comparisons: the emitter formats calls as
             // {CppName}({args}) -- a SUFFIX cannot stack on the compare icall,
@@ -282,18 +282,21 @@ public static partial class MethodRefResolver
                 if (ps.Length == 5)
                     return I("il2cpp::runtime::icall_decimal_ctor_5", 5, false, false, true, null, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0C)
-                    throw new NotSupportedException(".ctor(float) not wired: VarDecFromR4 is a separate v1-deferred task (decimal-domain.md 2.4)");
+                    return I("il2cpp::runtime::icall_decimal_ctor_float", 1, false, false, true, null, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0D)
-                    throw new NotSupportedException(".ctor(double) not wired: VarDecFromR8 is a separate v1-deferred task (decimal-domain.md 2.4)");
+                    return I("il2cpp::runtime::icall_decimal_ctor_double", 1, false, false, true, null, "dec");
                 return null;
-            // float/double conversion ctors -- deferred (VarDecFromR4/R8).
+            // ToDouble/ToSingle -- the VarR4/R8FromDec conversions (the
+            // netcore21+ audit closure; decimal.cpp exact decomposition).
             case "ToDouble":
                 if (ps.Length == 1 && ps[0] == 0x11)
-                    throw new NotSupportedException("ToDouble not wired: VarR8FromDec is a separate v1-deferred task (decimal-domain.md 2.4)");
+                    return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, true, new[] { "dec" }, "d");
                 return null;
             case "ToSingle":
                 if (ps.Length == 1 && ps[0] == 0x11)
-                    throw new NotSupportedException("ToSingle not wired: VarR4FromDec is a separate v1-deferred task (decimal-domain.md 2.4)");
+                    // float rides the double carrier (the M-stage
+                    // float-in-double convention; no separate "f" kind).
+                    return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, true, new[] { "dec" }, "d");
                 return null;
             // P6: Decimal.FCallToInt32 (stub).
             case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 0, true, false, false);

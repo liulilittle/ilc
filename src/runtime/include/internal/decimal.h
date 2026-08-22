@@ -127,5 +127,15 @@ uint64_t icall_decimal_to_uint64(const Il2CppDecimal* d);
 // (Unscale) before hashing so 1.00m and 1m hash alike.
 int32_t icall_decimal_get_hash_code(const Il2CppDecimal* d);
 
+// Floating-point conversions (the netcore21+ audit closure -- VarDecFromR4/R8
+// and VarR4/R8FromDec). ctor_double rounds to 15 significant digits (the
+// documented VarDecFromR8 contract) and throws OverflowException for
+// NaN/Infinity/magnitude overflow; to_double decomposes the 96-bit mantissa
+// exactly and divides by 10^scale (nearest-double within <=1 ulp).
+void icall_decimal_ctor_double(Il2CppDecimal* out, double value);
+void icall_decimal_ctor_float(Il2CppDecimal* out, float value);
+double icall_decimal_to_double(const Il2CppDecimal* d);
+float icall_decimal_to_float(const Il2CppDecimal* d);
+
 } // namespace runtime
 } // namespace il2cpp

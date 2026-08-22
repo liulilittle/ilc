@@ -47,6 +47,12 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_weakref_get_target", 0, true, true, true);
             case "set_Target":
                 return I("il2cpp::runtime::icall_weakref_set_target", 1, false, false, true);
+            // netcore21/31 audit closure: Finalize() -- finalization is driven
+            // by the GC's finalizer machinery (icall_gc_finalize_trigger);
+            // the explicit Finalize icall surface is a validated no-op
+            // (stubs.cpp icall_weak_reference_finalize).
+            case "Finalize":
+                return I("il2cpp::runtime::icall_weak_reference_finalize", 0, false, false, true);
             default:
                 throw new NotSupportedException(
                     "System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target " +

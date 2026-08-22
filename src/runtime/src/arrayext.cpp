@@ -363,6 +363,17 @@ int32_t icall_array_get_element_size(Il2CppObject* arr)
 }
 
 //------------------------------------------------------------------------------
+// icall_array_get_raw_data -- instance Array.GetRawArrayData() (the
+// netcore31 audit gap; raw sig 20-00-10-05 = `ref byte` return): the pointer
+// to the first element byte. The caller owns the ref discipline.
+//------------------------------------------------------------------------------
+uint8_t* icall_array_get_raw_data(Il2CppObject* arr)
+{
+    Il2CppArray* a = RequireInstanceArray(arr);
+    return reinterpret_cast<uint8_t*>(a->data);
+}
+
+//------------------------------------------------------------------------------
 // icall_array_get_lower_bound -- instance Array.GetLowerBound(int dimension):
 // the lowest valid index in 'dimension'. A zero-based one-dimensional array
 // has lower bound 0; validation (dimension != 0 -> IndexOutOfRangeException,

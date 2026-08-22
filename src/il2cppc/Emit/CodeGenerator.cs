@@ -6035,7 +6035,11 @@ public static class CodeGenerator
         // use alloca (<alloca.h>); both are declared in generated.h.
         if (c.Function == "il2cpp::il2cpp_localloc")
         {
-            return $"il2cpp_localloc(static_cast<size_t>({EmitExpr(c.Args[0], md, types)}))";
+            // PTR-SIG: the result feeds pointer locals (stackalloc char* p =
+            // ...): reinterpret to intptr_t so the assignment into the
+            // pointer-slot local compiles (void* -> integer needs an
+            // explicit cast; the slot arithmetic then indexes it directly).
+            return $"reinterpret_cast<intptr_t>(il2cpp_localloc(static_cast<size_t>({EmitExpr(c.Args[0], md, types)})))";
         }
         // ILOP-2 P8: cpblk/initblk passthrough -- folded as CallStmt, handled
         // in the statement emitter (memcpy/memset). A value-position CallExpr
@@ -6450,6 +6454,10 @@ public static class CodeGenerator
                 "addr:i" => $"reinterpret_cast<int32_t*>({code})",
                 "addr:l" => $"reinterpret_cast<int64_t*>({code})",
                 "addr:d" => $"reinterpret_cast<double*>({code})",
+                // netcore21/31 Interlocked.CompareExchange out-bool: the bool
+                // slot is an int32 carrier (the M-stage bool convention) --
+                // the wrapper writes 0/1 through int32_t*.
+                "addr:b" => $"reinterpret_cast<int32_t*>({code})",
                 // wir9-b23 (arrfuncs unlock): "addr:a" -- a BYREF ARRAY slot
                 // (Array.Resize(ref int32[], ...)): the ldloca LocAddrExpr
                 // address points at the caller's Il2CppObject* array local

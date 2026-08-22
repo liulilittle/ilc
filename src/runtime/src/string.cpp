@@ -505,6 +505,32 @@ Il2CppObject* icall_string_ctor_sbyte_ptr_range_encoding(Il2CppObject* this_,
         static_cast<il2cpp_encoding_code_page>(encoding)));
 }
 
+//------------------------------------------------------------------------------
+// icall_string_ctor_char_span -- new string(ReadOnlySpan<char>) (the net5+
+// span ctor; raw sig 20-01-01-15-11-<token>-01-03). The span rides as a
+// caller SLOT with the standard two-field local-storage layout
+// { const char16_t* ptr; int32_t length } (the ValueTuple-style value-slot
+// model). Create-style: the receiver is dropped. null/empty -> the empty
+// string (the .NET default-span contract).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_string_ctor_char_span(Il2CppObject* this_, const void* span)
+{
+    (void)this_;
+    if (span == nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0));
+    }
+    const char16_t* ptr = nullptr;
+    int32_t length = 0;
+    std::memcpy(&ptr, span, sizeof(ptr));
+    std::memcpy(&length, reinterpret_cast<const uint8_t*>(span) + sizeof(void*), sizeof(length));
+    if (ptr == nullptr || length <= 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0));
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(ptr, length));
+}
+
 } // namespace runtime
 } // namespace il2cpp
 

@@ -123,8 +123,8 @@ CMakeFiles/il2cpp_gen.dir/clean:
 # Target rules for target CMakeFiles/il2cpp_gen_exe.dir
 
 # All Build rule for target.
-CMakeFiles/il2cpp_gen_exe.dir/all: runtime/CMakeFiles/il2cpp_runtime.dir/all
 CMakeFiles/il2cpp_gen_exe.dir/all: CMakeFiles/il2cpp_gen.dir/all
+CMakeFiles/il2cpp_gen_exe.dir/all: runtime/CMakeFiles/il2cpp_runtime.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/il2cpp_gen_exe.dir/build.make CMakeFiles/il2cpp_gen_exe.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/il2cpp_gen_exe.dir/build.make CMakeFiles/il2cpp_gen_exe.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/mnt/e/il2cpp/tmp/icallclassic/build_linux_nc21/CMakeFiles --progress-num=4 "Built target il2cpp_gen_exe"

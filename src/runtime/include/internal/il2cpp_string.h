@@ -164,6 +164,12 @@ Il2CppObject* icall_string_ctor_sbyte_ptr_range_encoding(Il2CppObject* this_, co
                                                           int32_t startIndex, int32_t length,
                                                           int32_t encoding);
 
+// System.String..ctor(ReadOnlySpan<char>) (net5+; raw sig 20-01-01-15-...):
+// the span rides as a caller SLOT with the two-field local-storage layout
+// { const char16_t* ptr; int32_t length }. Create-style: receiver dropped;
+// null/empty -> the empty string.
+Il2CppObject* icall_string_ctor_char_span(Il2CppObject* this_, const void* span);
+
 } // namespace runtime
 
 } // namespace il2cpp

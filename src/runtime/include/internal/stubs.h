@@ -121,6 +121,31 @@ Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString* str);
 void icall_appdomain_n_unload(int32_t id);
 int32_t icall_appdomain_get_id();
 
+//------------------------------------------------------------------------------
+// Full-framework audit-gap closure (2026-08-22) -- see stubs.cpp for the
+// per-entry contracts.
+//------------------------------------------------------------------------------
+void icall_gc_get_memory_info_5(uint32_t* highWaterMark, int64_t* totalAvailable,
+                                uint32_t* lastGcTime, uintptr_t* pauseTime0,
+                                uintptr_t* pauseTime1);
+void icall_gc_get_memory_info_6(uint64_t* highWaterMark, uint64_t* totalAvailable,
+                                uint64_t* lastGcTime, uint32_t* pauseTime0,
+                                uintptr_t* pauseTime1, uintptr_t* pauseTime2);
+void icall_number_double_to_number(double value, int32_t decimals, void* buffer);
+double icall_number_number_to_double(void* buffer);
+void icall_rh_bulk_move_with_write_barrier(void* dst, void* src, int64_t size);
+Il2CppObject* icall_thread_get_deserialization_tracker(Il2CppObject* context);
+void icall_tracing_status_changed_ctor(Il2CppObject* self);
+int32_t icall_tracing_status_changed_get_enabled(Il2CppObject* self);
+int32_t icall_tracing_status_changed_get_trace_level(Il2CppObject* self);
+int32_t icall_interlocked_compare_exchange_found(int32_t* location, int32_t value,
+                                                 int32_t comparand, int32_t* found);
+void icall_weak_reference_finalize(Il2CppObject* self);
+Il2CppObject* icall_appdomain_n_create_context();
+void icall_environment_get_version();
+void icall_environment_get_version_ex();
+int32_t icall_reader_writer_lock_any_writers_since(int32_t seqNum);
+
 // Remaining X509 stubs
 Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject* self);
 Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject* self);
@@ -135,8 +160,7 @@ int32_t icall_x509_utils_query_cert_file_type(Il2CppString* path);
 
 // Remaining Environment stubs
 Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString* name);
-int32_t icall_environment_get_version();
-int32_t icall_environment_get_version_ex();
+// (icall_environment_get_version/_ex declared above -- PNSE contract)
 
 // Remaining DateTime stubs
 int64_t icall_datetime_get_system_time_as_file_time();

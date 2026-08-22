@@ -93,6 +93,13 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return I("il2cpp::runtime::icall_thread_get_current_processor_number", 0, true, false, false);
                 return null;
+            // netcore31/net5 audit gap closure: GetThreadDeserializationTracker
+            // (remoting-era surface) -- the runtime entry throws PNSE with the
+            // documented reason (stubs.cpp).
+            case "GetThreadDeserializationTracker":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_thread_get_deserialization_tracker", 1, true, true, false, new[] { "" });
+                return null;
             case ".ctor":
                 // new Thread(ThreadStart): the delegate is validated and its
                 // code pointer extracted; the thread is NEW until Start.

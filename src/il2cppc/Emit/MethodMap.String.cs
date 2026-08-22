@@ -38,7 +38,39 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return I("il2cpp::runtime::icall_string_ctor_char_array_range", 3, true, true, true,
                         new[] { "", "", "i", "i" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"String ctor with {ps.Length} arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)");
+                // PTR-SIG (2026-08-22): the unsafe pointer ctor family -- the
+                // ReadParamByte PTR arm now consumes the pointed-to element
+                // and carries it, so char* arrives as 0x03 and sbyte* as 0x04.
+                // The runtime icalls predate the wiring (string.cpp:360-477).
+                // Casts: char* -> "p16" (const char16_t*), sbyte* -> "p"
+                // (const char*) -- both established EmitIcallCallArgs codes.
+                if (ps.Length == 1 && ps[0] == 0x03)
+                    return I("il2cpp::runtime::icall_string_ctor_char_ptr", 1, true, true, true,
+                        new[] { "", "p16" }, returnTypeName: "System.String");
+                if (ps.Length == 3 && ps[0] == 0x03 && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::runtime::icall_string_ctor_char_ptr_range", 3, true, true, true,
+                        new[] { "", "p16", "i", "i" }, returnTypeName: "System.String");
+                if (ps.Length == 1 && ps[0] == 0x04)
+                    return I("il2cpp::runtime::icall_string_ctor_sbyte_ptr", 1, true, true, true,
+                        new[] { "", "p" }, returnTypeName: "System.String");
+                if (ps.Length == 3 && ps[0] == 0x04 && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::runtime::icall_string_ctor_sbyte_ptr_range", 3, true, true, true,
+                        new[] { "", "p", "i", "i" }, returnTypeName: "System.String");
+                // (sbyte*, int, int, Encoding): the Encoding object crosses as
+                // its code-page number -- the runtime entry decodes via the
+                // registered code page (string.cpp).
+                if (ps.Length == 4 && ps[0] == 0x04 && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x12)
+                    return I("il2cpp::runtime::icall_string_ctor_sbyte_ptr_range_encoding", 4, true, true, true,
+                        new[] { "", "p", "i", "i", "" }, returnTypeName: "System.String");
+                // SPAN-SIG (2026-08-22): new string(ReadOnlySpan<char>) --
+                // net5+ GenericInst valuetype param (raw sig 20-01-01-15-...).
+                // The span rides as a caller SLOT with the two-field
+                // local-storage layout {ptr, length}; the icall reads both
+                // fields through the address passthrough ("").
+                if (ps.Length == 1 && ps[0] == 0x15)
+                    return I("il2cpp::runtime::icall_string_ctor_char_span", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"String ctor with {ps.Length} arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32) and the full char*/sbyte* pointer family)");
             case "get_Length":
                 return I("il2cpp::il2cpp_string_get_length", 0, true, false, true);
             case "Substring":

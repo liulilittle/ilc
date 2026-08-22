@@ -35,10 +35,14 @@
 //------------------------------------------------------------------------------
 
 #include "decimal.h"
-
+#include "decimal_format.h" // icall_decimal_parse (ctor_double digit-string path)
+#include "il2cpp_string.h"  // il2cpp_string_new_from_utf8
 #include "il2cpp_exception_ext.h"
 
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #if defined(_MSC_VER)
@@ -2348,6 +2352,96 @@ int32_t icall_decimal_get_hash_code(const Il2CppDecimal* d)
     DecCalc v;
     Load(v, d);
     return DecGetHashCode(v);
+}
+
+//------------------------------------------------------------------------------
+// Floating-point conversions (the netcore21+ audit closure -- the v1-deferred
+// VarDecFromR4/R8 + VarR4/R8FromDec pair).
+//
+// double -> decimal: the VarDecFromR8 contract rounds to 15 significant
+// decimal digits, then expresses the value as mantissa * 10^-scale with
+// trailing zeros stripped (so (decimal)2.5 has scale 1, not 14). Values whose
+// rounded magnitude exceeds the 96-bit/scale-28 envelope throw
+// OverflowException (the oleaut contract); NaN/Infinity likewise.
+//
+// decimal -> double/float: exact decomposition hi32*2^64 + lo64 (both terms
+// IEEE-exact) divided by 10^scale -- nearest-double within <=1 ulp of the
+// true quotient (the documented VarR8FromDec precision envelope).
+//------------------------------------------------------------------------------
+void icall_decimal_ctor_double(Il2CppDecimal* out, double value)
+{
+    std::memset(out, 0, sizeof(Il2CppDecimal));
+    if (value == 0.0)
+    {
+        if (std::signbit(value)) out->flags = kDecimalSignMask;
+        return;
+    }
+    if (std::isnan(value) || std::isinf(value))
+    {
+        ThrowDecimalOverflow();
+    }
+    const bool neg = std::signbit(value) != 0;
+    const double a = std::fabs(value);
+
+    // Round to 15 significant digits ("%.14E" == one leading digit + 14
+    // fraction digits), then decompose into an integer digit string and a
+    // power-of-ten scale.
+    char buf[48];
+    std::snprintf(buf, sizeof buf, "%.14E", a);
+    char digits[24];
+    digits[0] = buf[0];                       // the leading digit
+    for (int i = 2; i < 16; ++i) digits[i - 1] = buf[i]; // skip the dot at [1]
+    digits[15] = 0;
+    const int e10 = std::atoi(buf + 17);      // after 'E' at index 16
+
+    int32_t scale = 14 - e10;                 // value = DigitsInt * 10^-scale
+    int di = 15;
+    while (scale > 0 && di > 1 && digits[di - 1] == '0') { digits[--di] = 0; --scale; }
+
+    // Build the canonical fixed-point form for the parser.
+    char plain[64];
+    int p = 0;
+    if (neg) plain[p++] = '-';
+    if (scale <= 0)
+    {
+        std::memcpy(plain + p, digits, static_cast<size_t>(di)); p += di;
+        for (int z = 0; z < -scale; ++z) plain[p++] = '0';
+        plain[p] = 0;
+    }
+    else if (di <= scale)
+    {
+        plain[p++] = '0'; plain[p++] = '.';
+        for (int z = 0; z < scale - di; ++z) plain[p++] = '0';
+        std::memcpy(plain + p, digits, static_cast<size_t>(di)); p += di;
+        plain[p] = 0;
+    }
+    else
+    {
+        std::memcpy(plain + p, digits, static_cast<size_t>(di - scale)); p += di - scale;
+        plain[p++] = '.';
+        std::memcpy(plain + p, digits + di - scale, static_cast<size_t>(scale)); p += scale;
+        plain[p] = 0;
+    }
+    icall_decimal_parse(out, il2cpp_string_new_from_utf8(plain));
+}
+
+void icall_decimal_ctor_float(Il2CppDecimal* out, float value)
+{
+    icall_decimal_ctor_double(out, static_cast<double>(value));
+}
+
+double icall_decimal_to_double(const Il2CppDecimal* d)
+{
+    const int32_t scale = (d->flags >> kDecimalScaleShift) & 0xFF;
+    const bool neg = (d->flags & kDecimalSignMask) != 0;
+    double m = std::ldexp(static_cast<double>(d->hi32), 64) + static_cast<double>(d->lo64);
+    if (scale > 0) m /= std::pow(10.0, scale);
+    return neg ? -m : m;
+}
+
+float icall_decimal_to_float(const Il2CppDecimal* d)
+{
+    return static_cast<float>(icall_decimal_to_double(d));
 }
 
 } // namespace runtime

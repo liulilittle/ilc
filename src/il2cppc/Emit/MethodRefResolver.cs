@@ -702,6 +702,12 @@ public static partial class MethodRefResolver
             case "System.IO.Path":
             case "System.IO.FileInfo": return TryMapIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.GC":
+            // netcore21/31 audit surfaces routed into the GC map (the
+            // GetMemoryInfo out-fills, the Number formatting PNSE entries,
+            // RhBulkMoveWithWriteBarrier, the TracingStatusChangedEventArgs
+            // ETW payload -- see MethodMap.GC.cs tail).
+            case "System.Runtime.RuntimeImports":
+            case "Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs":
             case "System.Runtime.GCSettings":
             case "System.Runtime.GCFrameRegistration":
             case "System.ComAwareWeakReference":
@@ -746,6 +752,10 @@ public static partial class MethodRefResolver
                 ?? TryMapTimeExt2(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapDateTimeExtra(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.Thread":
+            // netcore21 audit surface: the Internal.Runtime.Augments
+            // RuntimeThread mirrors the Thread instance icalls 1:1 (the same
+            // threadobj runtime entries serve both owners).
+            case "Internal.Runtime.Augments.RuntimeThread":
             case "System.Threading.SynchronizationContext":
             case "System.Threading.HostExecutionContextManager": return TryMapThread(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.Semaphore":
@@ -1313,6 +1323,13 @@ public static partial class MethodRefResolver
         switch (b)
         {
             case 0x10: return ReadParamByte(md, ref sig); // BYREF: element follows, ps carries it
+            // PTR-SIG (2026-08-22): POINTER types -- the pointed-to element
+            // follows and MUST be consumed, otherwise it leaks into the next
+            // param slot and shifts every following mapping (the String
+            // char*/sbyte* ctor family: (char*,int,int) misread as
+            // [0F,03,08]). Returning the ELEMENT byte discriminates naturally:
+            // char* -> 0x03, sbyte* -> 0x04 (no plain-char ctor shape collides).
+            case 0x0F: return ReadParamByte(md, ref sig);
             case 0x11 or 0x12 or 0x40: _ = sig.ReadTypeHandle(); break;
             case 0x1D or 0x1F: _ = ReadParamByte(md, ref sig); break; // SZARRAY: element follows
             case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); break; // VAR/MVAR: index follows

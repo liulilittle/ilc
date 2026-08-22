@@ -1,16 +1,14 @@
-GAP	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_Enabled
-GAP	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_TraceLevel
+OK	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_Enabled	il2cpp::runtime::icall_tracing_status_changed_get_enabled
+OK	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_TraceLevel	il2cpp::runtime::icall_tracing_status_changed_get_trace_level
 IERR	System.ArgIterator.GetRemainingCount	NotSupportedException:System.ArgIterator::GetRemainingCount: GetRemainingCount is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit §3) with no runtime support: __arglist is not in the M3 model
-ERR	System.Array.Copy	NotSupportedException:System.Array::Copy: Array.Copy with 6 arg(s) not wired: the runtime icall needs (src, srcIndex, dst, dstIndex, length)
+OK	System.Array.Copy	il2cpp::runtime::icall_array_copy
 OK	System.Array.get_Length	il2cpp::il2cpp_array_get_length
 OK	System.Array.get_LongLength	il2cpp::runtime::icall_array_get_long_length
 OK	System.Array.GetLength	il2cpp::runtime::icall_array_get_length
 OK	System.Array.get_Rank	il2cpp::runtime::icall_array_get_rank
 OK	System.Array.GetUpperBound	il2cpp::runtime::icall_array_get_upper_bound
 OK	System.Array.GetLowerBound	il2cpp::runtime::icall_array_get_lower_bound
-DBG	System.Array.GetRawArrayData	count=0	ret=0x10	ps=
-GAP	System.Array.GetRawArrayData
-DBG	System.Array.GetElementSize	count=0	ret=0x08	ps=
+OK	System.Array.GetRawArrayData	il2cpp::runtime::icall_array_get_raw_data
 OK	System.Array.GetElementSize	il2cpp::runtime::icall_array_get_element_size
 OK	System.Array.Initialize	il2cpp::runtime::icall_array_initialize
 OK	System.Buffer.BlockCopy	il2cpp::runtime::il2cpp_buffer_block_copy
@@ -28,13 +26,13 @@ OK	System.Enum.InternalGetUnderlyingType	il2cpp::runtime::icall_enum_internal_ge
 OK	System.Environment.get_ExitCode	il2cpp::runtime::icall_environment_get_exit_code
 OK	System.Environment.set_ExitCode	il2cpp::runtime::icall_environment_set_exit_code
 OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
-OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_get_is_64bit_operating_system
-OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_get_is_64bit_operating_system
+OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
+OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
 OK	System.Environment.get_TickCount	il2cpp::runtime::icall_environment_get_tick_count
 OK	System.Environment.get_TickCount64	il2cpp::runtime::icall_environment_get_tick_count64
 OK	System.Exception.SaveStackTracesFromDeepCopy	il2cpp::runtime::icall_exception_save_stack_traces_from_deep_copy
 OK	System.Exception.GetExceptionCount	il2cpp::runtime::icall_exception_get_exception_count
-GAP	System.GC.GetMemoryInfo
+OK	System.GC.GetMemoryInfo	il2cpp::runtime::icall_gc_get_memory_info_6
 OK	System.GC.AllocateNewArray	il2cpp::runtime::icall_gc_allocate_new_array
 OK	System.GC.GetSegmentSize	il2cpp::il2cpp_gc_get_segment_size
 OK	System.GC.GetLastGCPercentTimeInGC	il2cpp::il2cpp_gc_get_last_gc_percent_time_in_gc
@@ -171,13 +169,13 @@ OK	System.String.SetTrailByte	il2cpp::runtime::icall_string_set_trail_byte
 OK	System.String.TryGetTrailByte	il2cpp::runtime::icall_string_try_get_trail_byte
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array_range
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 4 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_ptr
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_ptr_range
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr_range
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr_range_encoding
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_repeat
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_span
 OK	System.Type.GetTypeFromHandleUnsafe	il2cpp::runtime::icall_type_get_type_from_handle_unsafe
 OK	System.Type.GetTypeFromHandle	il2cpp::runtime::il2cpp_type_get_type_from_handle
 OK	System.Type.op_Equality	il2cpp::runtime::icall_string_equals_static
@@ -189,7 +187,7 @@ OK	System.ValueType.GetHashCodeOfPtr	il2cpp::runtime::icall_value_type_get_hash_
 OK	System.WeakReference.get_IsAlive	il2cpp::runtime::icall_weakref_get_is_alive
 OK	System.WeakReference.get_Target	il2cpp::runtime::icall_weakref_get_target
 OK	System.WeakReference.set_Target	il2cpp::runtime::icall_weakref_set_target
-ERR	System.WeakReference.Finalize	NotSupportedException:System.WeakReference::Finalize: System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target (see il2cpp_gc_ext.h)
+OK	System.WeakReference.Finalize	il2cpp::runtime::icall_weak_reference_finalize
 OK	System.WeakReference`1.Finalize	il2cpp::runtime::il2cpp_object_ctor_nop
 IGAP	System.Variant.SetFieldsObject
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange
@@ -197,14 +195,14 @@ OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exc
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_double
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_double
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_pointer
-GAP	System.Threading.Interlocked.Exchange
+OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_pointer
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange64
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_double
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_double
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer
-GAP	System.Threading.Interlocked.CompareExchange
-GAP	System.Threading.Interlocked.CompareExchange
+OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer
+OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::icall_interlocked_compare_exchange_found
 OK	System.Threading.Interlocked.ExchangeAdd	il2cpp::runtime::il2cpp_interlocked_add
 OK	System.Threading.Interlocked.ExchangeAdd	il2cpp::runtime::il2cpp_interlocked_add64
 OK	System.Threading.Interlocked.MemoryBarrier	il2cpp::runtime::icall_thread_memory_barrier
@@ -214,7 +212,7 @@ OK	System.Threading.OverlappedData.FreeNativeOverlapped	il2cpp::runtime::icall_o
 OK	System.Threading.OverlappedData.GetOverlappedFromNative	il2cpp::runtime::icall_overlapped_data_get_overlapped_from_native
 OK	System.Threading.OverlappedData.CheckVMForIOPacket	il2cpp::runtime::icall_overlapped_data_check_vm_for_io_packet
 OK	System.Threading.Thread.get_ManagedThreadId	il2cpp::runtime::icall_threadobj_get_managed_thread_id
-GAP	System.Threading.Thread.GetThreadDeserializationTracker
+OK	System.Threading.Thread.GetThreadDeserializationTracker	il2cpp::runtime::icall_thread_get_deserialization_tracker
 OK	System.Threading.Thread.get_IsAlive	il2cpp::runtime::icall_threadobj_get_is_alive
 OK	System.Threading.Thread.get_IsThreadPoolThread	il2cpp::runtime::icall_thread_get_is_thread_pool_thread
 OK	System.Threading.Thread.GetApartmentStateNative	il2cpp::runtime::icall_threadobj_get_apartment_state_native
@@ -302,7 +300,7 @@ IGAP	System.StubHelpers.StubHelpers.GetStubContextAddr
 IGAP	System.StubHelpers.StubHelpers.ArrayTypeCheck
 IGAP	System.StubHelpers.StubHelpers.MulticastDebuggerTraceHelper
 OK	System.Runtime.GCSettings.get_IsServerGC	il2cpp::runtime::icall_gc_is_server_gc
-GAP	System.Runtime.RuntimeImports.RhBulkMoveWithWriteBarrier
+OK	System.Runtime.RuntimeImports.RhBulkMoveWithWriteBarrier	il2cpp::runtime::icall_rh_bulk_move_with_write_barrier
 OK	System.Runtime.Loader.AssemblyLoadContext.GetLoadedAssemblies	il2cpp::runtime::icall_assembly_load_context_get_loaded_assemblies
 IERR	System.Runtime.InteropServices.GCHandle.InternalFree	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalFree: System.Runtime.InteropServices.GCHandle::InternalFree not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
 IERR	System.Runtime.InteropServices.GCHandle.InternalCompareExchange	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalCompareExchange: System.Runtime.InteropServices.GCHandle::InternalCompareExchange not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
@@ -367,4 +365,4 @@ OK	System.Diagnostics.Debugger.get_IsAttached	il2cpp::runtime::il2cpp_debugger_i
 OK	System.Diagnostics.Debugger.Log	il2cpp::runtime::il2cpp_debugger_log
 OK	System.Diagnostics.Debugger.IsLogging	il2cpp::runtime::il2cpp_debugger_is_logging
 OK	System.Diagnostics.StackTrace.GetStackFramesInternal	il2cpp::runtime::icall_stack_trace_get_stack_frames_internal
-SUMMARY	total=367	mapped=156	receiverMapped=1	realGap=9	realErr=8	internalGap=111	internalErr=82	E:\il2cpp\tmp\netall\netcore31\shared\Microsoft.NETCore.App\3.1.32\System.Private.CoreLib.dll
+SUMMARY	total=367	mapped=173	receiverMapped=1	mappedGeneric=0	realGap=0	realErr=0	internalGap=111	internalErr=82	E:\il2cpp\tmp\netall\netcore31\shared\Microsoft.NETCore.App\3.1.32\System.Private.CoreLib.dll

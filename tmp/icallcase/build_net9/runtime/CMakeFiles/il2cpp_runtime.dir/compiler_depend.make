@@ -1154,8 +1154,7 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/arrayext.cpp.obj: E:/il2cpp/src/runtim
   C:/Program\ Files/ming-w64/lib/clang/17/include/vadefs.h \
   C:/Program\ Files/ming-w64/include/vadefs.h \
   C:/Program\ Files/ming-w64/include/sdks/_mingw_ddk.h \
-  E:/il2cpp/src/runtime/include/internal/il2cpp_array.h \
-  E:/il2cpp/src/runtime/include/internal/il2cpp_metadata.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_exception_ext.h \
   E:/il2cpp/src/runtime/include/internal/il2cpp_exception.h \
   C:/Program\ Files/ming-w64/include/c++/v1/exception \
   C:/Program\ Files/ming-w64/include/c++/v1/__exception/exception.h \
@@ -1296,6 +1295,8 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/arrayext.cpp.obj: E:/il2cpp/src/runtim
   C:/Program\ Files/ming-w64/include/c++/v1/__functional/invoke.h \
   C:/Program\ Files/ming-w64/include/c++/v1/__type_traits/type_identity.h \
   C:/Program\ Files/ming-w64/include/c++/v1/__type_traits/unwrap_ref.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_array.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_metadata.h \
   E:/il2cpp/src/runtime/include/internal/il2cpp_gc.h \
   C:/Program\ Files/ming-w64/include/c++/v1/cstring \
   C:/Program\ Files/ming-w64/include/c++/v1/string.h \
@@ -8199,6 +8200,15 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/cultureinfo.cpp.obj: E:/il2cpp/src/run
   C:/Program\ Files/ming-w64/include/c++/v1/__type_traits/type_identity.h \
   C:/Program\ Files/ming-w64/include/c++/v1/__type_traits/unwrap_ref.h \
   E:/il2cpp/src/runtime/include/internal/il2cpp_string_intern.h \
+  C:/Program\ Files/ming-w64/include/c++/v1/clocale \
+  C:/Program\ Files/ming-w64/include/c++/v1/locale.h \
+  C:/Program\ Files/ming-w64/include/locale.h \
+  C:/Program\ Files/ming-w64/include/c++/v1/stdio.h \
+  C:/Program\ Files/ming-w64/include/stdio.h \
+  C:/Program\ Files/ming-w64/include/corecrt_stdio_config.h \
+  C:/Program\ Files/ming-w64/include/_mingw_off_t.h \
+  C:/Program\ Files/ming-w64/include/swprintf.inl \
+  C:/Program\ Files/ming-w64/include/sec_api/stdio_s.h \
   C:/Program\ Files/ming-w64/include/c++/v1/cstring \
   C:/Program\ Files/ming-w64/include/c++/v1/string.h \
   C:/Program\ Files/ming-w64/include/string.h \

@@ -41,7 +41,14 @@ public static partial class MethodRefResolver
             || owner.StartsWith("System.Runtime.CompilerServices.", StringComparison.Ordinal)
             || owner.StartsWith("System.Runtime.InteropServices.", StringComparison.Ordinal)
             || owner.StartsWith("System.StubHelpers.", StringComparison.Ordinal)
-            || owner.StartsWith("Microsoft.Runtime.", StringComparison.Ordinal);
+            || owner.StartsWith("Microsoft.Runtime.", StringComparison.Ordinal)
+            // NET48 legacy families (the MethodMap.Legacy.cs design decision:
+            // family-level LOUD rejection -- no remoting infrastructure exists
+            // in any AOT target, and the APIs are DELETED in modern .NET).
+            // Classified as internal so the audit reports them as
+            // internalErr/internalGap (documented-unreachable) rather than
+            // user-facing gaps.
+            || owner.StartsWith("System.Runtime.Remoting.", StringComparison.Ordinal);
     }
 
     public static void AuditInternalCalls(string assemblyPath, TextWriter output)
@@ -54,7 +61,7 @@ public static partial class MethodRefResolver
             return;
         }
         var mr = pe.GetMetadataReader();
-        int total = 0, mapped = 0, receiverMapped = 0, gap = 0, error = 0, internalGap = 0, internalErr = 0;
+        int total = 0, mapped = 0, receiverMapped = 0, gap = 0, error = 0, internalGap = 0, internalErr = 0, mappedGeneric = 0;
         foreach (var tdH in mr.TypeDefinitions)
         {
             var td = mr.GetTypeDefinition(tdH);
@@ -79,6 +86,10 @@ public static partial class MethodRefResolver
                     output.WriteLine($"DBG\t{owner}.{name}\tcount={sigCount}\tret=0x{sigRet:X2}\tps={BitConverter.ToString(sigPs)}");
                 }
 #endif
+#if DEBUG_SIG
+                if (name.Contains("CompareExchange") || name.Contains("Exchange"))
+                    output.WriteLine($"DBG0\t{owner}.{name}\tpublic={((m.Attributes & System.Reflection.MethodAttributes.Public) != 0)}\timpl=0x{(int)m.ImplAttributes:X4}");
+#endif
                 total++;
                 var internalOwner = IsInternalOwner(owner);
                 try
@@ -97,8 +108,43 @@ public static partial class MethodRefResolver
                         output.WriteLine($"RECV\t{owner}.{name}\t{r2.CppName}");
                         continue;
                     }
+                    // Generic-method probe: the audit passes genArgs=null,
+                    // but generic InternalCalls (Interlocked.Exchange<T> --
+                    // MVAR 0x1E in the signature) resolve ONLY with a
+                    // concrete generic argument. Probe the common encodings;
+                    // any hit proves the wiring exists (the transpiler
+                    // supplies the REAL genArgs at each call site).
+                    var (_, probeRet, probePs) = RawSignature(mr, m.Signature);
+#if DEBUG_SIG
+                    if (owner.Contains("Interlocked"))
+                        output.WriteLine($"DBG2\t{owner}.{name}\tprobeRet=0x{probeRet:X2}\tps={BitConverter.ToString(probePs)}");
+#endif
+                    if (probeRet is 0x13 or 0x1E || probePs.Any(p => p is 0x13 or 0x1E))
+                    {
+                        byte[][] probes = { new byte[] { 0x08 }, new byte[] { 0x0A }, new byte[] { 0x0C }, new byte[] { 0x1C }, new byte[] { 0x0E } };
+                        ResolvedMethod? genericHit = null;
+                        foreach (var probe in probes)
+                        {
+                            genericHit = BclResolve(mr, owner, name, m.Signature, probe, null, false, null, null)
+                                ?? BclResolve(mr, owner, name, m.Signature, probe, owner, false, null, null);
+                            if (genericHit != null) break;
+                        }
+                        if (genericHit != null)
+                        {
+                            mappedGeneric++;
+                            output.WriteLine($"GEN\t{owner}.{name}\t{genericHit.CppName}");
+                            continue;
+                        }
+                    }
                     if (internalOwner) { internalGap++; output.WriteLine($"IGAP\t{owner}.{name}"); }
-                    else { gap++; output.WriteLine($"GAP\t{owner}.{name}"); }
+                    else
+                    {
+#if DEBUG_SIG
+                        var (_, gRet, gPs) = RawSignature(mr, m.Signature);
+                        output.WriteLine($"DBG3\t{owner}.{name}\tret=0x{gRet:X2}\tps={BitConverter.ToString(gPs)}");
+#endif
+                        gap++; output.WriteLine($"GAP\t{owner}.{name}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -109,6 +155,6 @@ public static partial class MethodRefResolver
         }
         // realGap = user-facing gaps (reachable public-API surface the ILC must close)
         output.WriteLine($"SUMMARY\ttotal={total}\tmapped={mapped}\treceiverMapped={receiverMapped}\t" +
-            $"realGap={gap}\trealErr={error}\tinternalGap={internalGap}\tinternalErr={internalErr}\t{assemblyPath}");
+            $"mappedGeneric={mappedGeneric}\trealGap={gap}\trealErr={error}\tinternalGap={internalGap}\tinternalErr={internalErr}\t{assemblyPath}");
     }
 }

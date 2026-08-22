@@ -1,14 +1,14 @@
-GAP	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_Enabled
-GAP	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_TraceLevel
-GAP	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs..ctor
-GAP	Internal.Runtime.Augments.RuntimeThread.get_IsAlive
-GAP	Internal.Runtime.Augments.RuntimeThread.get_IsThreadPoolThread
-GAP	Internal.Runtime.Augments.RuntimeThread.GetApartmentStateNative
-GAP	Internal.Runtime.Augments.RuntimeThread.SetApartmentStateNative
-GAP	Internal.Runtime.Augments.RuntimeThread.DisableComObjectEagerCleanup
+OK	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_Enabled	il2cpp::runtime::icall_tracing_status_changed_get_enabled
+OK	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs.get_TraceLevel	il2cpp::runtime::icall_tracing_status_changed_get_trace_level
+OK	Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs..ctor	il2cpp::runtime::icall_tracing_status_changed_ctor
+OK	Internal.Runtime.Augments.RuntimeThread.get_IsAlive	il2cpp::runtime::icall_threadobj_get_is_alive
+OK	Internal.Runtime.Augments.RuntimeThread.get_IsThreadPoolThread	il2cpp::runtime::icall_thread_get_is_thread_pool_thread
+OK	Internal.Runtime.Augments.RuntimeThread.GetApartmentStateNative	il2cpp::runtime::icall_threadobj_get_apartment_state_native
+OK	Internal.Runtime.Augments.RuntimeThread.SetApartmentStateNative	il2cpp::runtime::icall_threadobj_set_apartment_state_native
+OK	Internal.Runtime.Augments.RuntimeThread.DisableComObjectEagerCleanup	il2cpp::runtime::icall_thread_disable_com_object_eager_cleanup
 OK	System.Object.GetType	il2cpp::runtime::icall_object_get_type
 OK	System.Object.MemberwiseClone	il2cpp::runtime::icall_object_memberwise_clone
-ERR	System.Array.Copy	NotSupportedException:System.Array::Copy: Array.Copy with 6 arg(s) not wired: the runtime icall needs (src, srcIndex, dst, dstIndex, length)
+OK	System.Array.Copy	il2cpp::runtime::icall_array_copy
 OK	System.Array.get_Length	il2cpp::il2cpp_array_get_length
 OK	System.Array.get_LongLength	il2cpp::runtime::icall_array_get_long_length
 OK	System.Array.GetLength	il2cpp::runtime::icall_array_get_length
@@ -26,13 +26,13 @@ OK	System.String.SetTrailByte	il2cpp::runtime::icall_string_set_trail_byte
 OK	System.String.TryGetTrailByte	il2cpp::runtime::icall_string_try_get_trail_byte
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array_range
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 4 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_ptr
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_ptr_range
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr_range
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr_range_encoding
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_repeat
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_span
 OK	System.Exception.SaveStackTracesFromDeepCopy	il2cpp::runtime::icall_exception_save_stack_traces_from_deep_copy
 OK	System.DateTime.GetSystemTimeAsFileTime	il2cpp::runtime::icall_datetime_get_system_time_as_file_time
 OK	System.Delegate.InternalAllocLike	il2cpp::runtime::icall_delegate_internal_alloc_like
@@ -44,31 +44,31 @@ OK	System.Delegate.InternalEqualMethodHandles	il2cpp::runtime::icall_delegate_in
 OK	System.Delegate.AdjustTarget	il2cpp::runtime::icall_delegate_adjust_target
 OK	System.Delegate.GetCallStub	il2cpp::runtime::icall_delegate_get_call_stub
 OK	System.Delegate.CompareUnmanagedFunctionPtrs	il2cpp::runtime::icall_delegate_compare_unmanaged_function_ptrs
-ERR	System.AppDomain.IsFinalizingForUnload	NotSupportedException:System.AppDomain::IsFinalizingForUnload: IsFinalizingForUnload is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit §3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here
-ERR	System.AppDomain.PublishAnonymouslyHostedDynamicMethodsAssembly	NotSupportedException:System.AppDomain::PublishAnonymouslyHostedDynamicMethodsAssembly: PublishAnonymouslyHostedDynamicMethodsAssembly is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit §3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here
-ERR	System.AppDomain.nCreateContext	NotSupportedException:System.AppDomain::nCreateContext: nCreateContext is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit §3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here
-ERR	System.AppDomain.IsStringInterned	NotSupportedException:System.AppDomain::IsStringInterned: IsStringInterned is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit §3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here
-ERR	System.AppDomain.GetOrInternString	NotSupportedException:System.AppDomain::GetOrInternString: GetOrInternString is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit §3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here
-ERR	System.AppDomain.GetId	NotSupportedException:System.AppDomain::GetId: GetId is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit §3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here
+OK	System.AppDomain.IsFinalizingForUnload	il2cpp::runtime::icall_appdomain_is_finalizing_for_unload
+OK	System.AppDomain.PublishAnonymouslyHostedDynamicMethodsAssembly	il2cpp::runtime::icall_appdomain_publish_anonymously_hosted_dynamic_methods_assembly
+OK	System.AppDomain.nCreateContext	il2cpp::runtime::icall_appdomain_n_create_context
+OK	System.AppDomain.IsStringInterned	il2cpp::runtime::icall_appdomain_is_string_interned
+OK	System.AppDomain.GetOrInternString	il2cpp::runtime::icall_appdomain_get_or_intern_string
+OK	System.AppDomain.GetId	il2cpp::runtime::icall_appdomain_get_id
 OK	System.Buffer.BlockCopy	il2cpp::runtime::il2cpp_buffer_block_copy
-ERR	System.Decimal..ctor	NotSupportedException:System.Decimal::.ctor: .ctor(float) not wired: VarDecFromR4 is a separate v1-deferred task (decimal-domain.md 2.4)
-ERR	System.Decimal..ctor	NotSupportedException:System.Decimal::.ctor: .ctor(double) not wired: VarDecFromR8 is a separate v1-deferred task (decimal-domain.md 2.4)
+OK	System.Decimal..ctor	il2cpp::runtime::icall_decimal_ctor_float
+OK	System.Decimal..ctor	il2cpp::runtime::icall_decimal_ctor_double
 OK	System.Decimal.GetHashCode	il2cpp::runtime::icall_decimal_get_hash_code
-ERR	System.Decimal.ToDouble	NotSupportedException:System.Decimal::ToDouble: ToDouble not wired: VarR8FromDec is a separate v1-deferred task (decimal-domain.md 2.4)
+OK	System.Decimal.ToDouble	il2cpp::runtime::icall_decimal_to_double
 OK	System.Decimal.FCallToInt32	il2cpp::runtime::icall_decimal_fcall_to_int32
-ERR	System.Decimal.ToSingle	NotSupportedException:System.Decimal::ToSingle: ToSingle not wired: VarR4FromDec is a separate v1-deferred task (decimal-domain.md 2.4)
+OK	System.Decimal.ToSingle	il2cpp::runtime::icall_decimal_to_float
 OK	System.Enum.InternalGetUnderlyingType	il2cpp::runtime::icall_enum_internal_get_underlying_type
 OK	System.Enum.Equals	il2cpp::runtime::il2cpp_enum_equals
 OK	System.Environment.get_TickCount	il2cpp::runtime::icall_environment_get_tick_count
 OK	System.Environment.get_ExitCode	il2cpp::runtime::icall_environment_get_exit_code
 OK	System.Environment.set_ExitCode	il2cpp::runtime::icall_environment_set_exit_code
 OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
-OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_get_is_64bit_operating_system
-OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_get_is_64bit_operating_system
-ERR	System.Environment.get_HasShutdownStarted	NotSupportedException:System.Environment::get_HasShutdownStarted: System.Environment.get_HasShutdownStarted not wired: the runtime has no matching icall in il2cpp_environment.h
+OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
+OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
+OK	System.Environment.get_HasShutdownStarted	il2cpp::runtime::icall_environment_get_has_shutdown_started
 OK	System.GC.GetGCLatencyMode	il2cpp::runtime::icall_gc_get_latency_mode
 OK	System.GC.SetGCLatencyMode	il2cpp::runtime::icall_gc_set_latency_mode
-GAP	System.GC.GetMemoryInfo
+OK	System.GC.GetMemoryInfo	il2cpp::runtime::icall_gc_get_memory_info_5
 OK	System.GC.GetLOHCompactionMode	il2cpp::runtime::icall_gc_get_loh_compaction_mode
 OK	System.GC.SetLOHCompactionMode	il2cpp::runtime::icall_gc_set_loh_compaction_mode
 OK	System.GC.IsServerGC	il2cpp::runtime::icall_gc_is_server_gc
@@ -118,8 +118,8 @@ OK	System.MathF.Sqrt	il2cpp::runtime::icall_mathf_sqrt_f
 OK	System.MathF.Tan	il2cpp::runtime::icall_mathf_tan_f
 OK	System.MathF.Tanh	il2cpp::runtime::icall_mathf_tanh_f
 OK	System.MissingMemberException.FormatSignature	il2cpp::runtime::icall_missing_member_exception_format_signature
-GAP	System.Number.DoubleToNumber
-GAP	System.Number.NumberToDouble
+OK	System.Number.DoubleToNumber	il2cpp::runtime::icall_number_double_to_number
+OK	System.Number.NumberToDouble	il2cpp::runtime::icall_number_number_to_double
 OK	System.Number.NumberBufferToDecimal	il2cpp::runtime::icall_number_number_buffer_to_decimal
 IGAP	System.RuntimeType.GetTypeFromProgIDImpl
 IGAP	System.RuntimeType.GetTypeFromCLSIDImpl
@@ -199,7 +199,7 @@ OK	System.ValueType.GetHashCodeOfPtr	il2cpp::runtime::icall_value_type_get_hash_
 OK	System.WeakReference.get_IsAlive	il2cpp::runtime::icall_weakref_get_is_alive
 OK	System.WeakReference.get_Target	il2cpp::runtime::icall_weakref_get_target
 OK	System.WeakReference.set_Target	il2cpp::runtime::icall_weakref_set_target
-ERR	System.WeakReference.Finalize	NotSupportedException:System.WeakReference::Finalize: System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target (see il2cpp_gc_ext.h)
+OK	System.WeakReference.Finalize	il2cpp::runtime::icall_weak_reference_finalize
 OK	System.WeakReference`1.Finalize	il2cpp::runtime::il2cpp_object_ctor_nop
 IGAP	System.Variant.GetR8FromVar
 IGAP	System.Variant.GetR4FromVar
@@ -215,14 +215,14 @@ OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exc
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_double
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_double
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_pointer
-GAP	System.Threading.Interlocked.Exchange
+OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_pointer
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange64
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_double
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_double
 OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer
-GAP	System.Threading.Interlocked.CompareExchange
-GAP	System.Threading.Interlocked.CompareExchange
+OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer
+OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::icall_interlocked_compare_exchange_found
 OK	System.Threading.Interlocked.ExchangeAdd	il2cpp::runtime::il2cpp_interlocked_add
 OK	System.Threading.Interlocked.ExchangeAdd	il2cpp::runtime::il2cpp_interlocked_add64
 OK	System.Threading.Interlocked.MemoryBarrier	il2cpp::runtime::icall_thread_memory_barrier
@@ -322,7 +322,7 @@ IGAP	System.Reflection.RuntimeAssembly.GetToken
 IGAP	System.Reflection.Emit.ModuleBuilder.nCreateISymWriterForDynamicModule
 OK	System.Text.StringBuilder.ReplaceBufferInternal	il2cpp::runtime::icall_stringbuilder_replace_buffer_internal
 OK	System.Text.StringBuilder.ReplaceBufferAnsiInternal	il2cpp::runtime::icall_stringbuilder_replace_buffer_ansi_internal
-GAP	System.Runtime.RuntimeImports.RhBulkMoveWithWriteBarrier
+OK	System.Runtime.RuntimeImports.RhBulkMoveWithWriteBarrier	il2cpp::runtime::icall_rh_bulk_move_with_write_barrier
 IERR	System.Runtime.InteropServices.GCHandle.InternalAlloc	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalAlloc: System.Runtime.InteropServices.GCHandle::InternalAlloc not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
 IERR	System.Runtime.InteropServices.GCHandle.InternalFree	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalFree: System.Runtime.InteropServices.GCHandle::InternalFree not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
 IERR	System.Runtime.InteropServices.GCHandle.InternalGet	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalGet: System.Runtime.InteropServices.GCHandle::InternalGet not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
@@ -383,4 +383,4 @@ IERR	System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionSta
 IGAP	System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack
 IERR	System.Runtime.CompilerServices.RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup	NotSupportedException:System.Runtime.CompilerServices.RuntimeHelpers::ExecuteCodeWithGuaranteedCleanup: RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup not wired: it takes a TryCode/CleanupCode delegate pair and the runtime has no constrained-execution support
 IGAP	System.Runtime.CompilerServices.JitHelpers.UnsafeSetArrayElement
-SUMMARY	total=385	mapped=148	receiverMapped=1	realGap=15	realErr=19	internalGap=117	internalErr=85	E:\il2cpp\tmp\netall\netcore21\shared\Microsoft.NETCore.App\2.1.30\System.Private.CoreLib.dll
+SUMMARY	total=385	mapped=182	receiverMapped=1	mappedGeneric=0	realGap=0	realErr=0	internalGap=117	internalErr=85	E:\il2cpp\tmp\netall\netcore21\shared\Microsoft.NETCore.App\2.1.30\System.Private.CoreLib.dll

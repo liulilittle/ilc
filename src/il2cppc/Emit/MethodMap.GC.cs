@@ -239,6 +239,54 @@ public static partial class MethodRefResolver
             case "_GetCertRawData": return I("il2cpp::runtime::icall_x509_utils_get_cert_raw_data", 0, true, true, false);
             case "_GetDateNotAfter": return I("il2cpp::runtime::icall_x509_utils_get_date_not_after", 0, true, true, false);
             // AppDomain: handled by TryMapLegacy (LOUD -- no runtime AppDomain object)
+            // ---- Full-framework audit-gap closure (2026-08-22) ----
+            // GC.GetMemoryInfo -- the netcore21 5-out / netcore31 6-out
+            // telemetry fills (raw sigs verified: every param BYREF). The
+            // simplified GC answers zeros in every out slot (stubs.cpp).
+            case "GetMemoryInfo":
+                if (count == 5)
+                    return I("il2cpp::runtime::icall_gc_get_memory_info_5", 5, false, false, false,
+                        new[] { "addr:i", "addr:l", "addr:i", "addr:l", "addr:l" });
+                if (count == 6)
+                    return I("il2cpp::runtime::icall_gc_get_memory_info_6", 6, false, false, false,
+                        new[] { "addr:l", "addr:l", "addr:l", "addr:i", "addr:l", "addr:l" });
+                return null;
+            // System.Number formatting internals: NumberBuffer is internal
+            // (user code cannot construct it) -- the runtime entries throw
+            // PNSE with the documented reason (stubs.cpp).
+            case "DoubleToNumber":
+                if (count == 3)
+                    return I("il2cpp::runtime::icall_number_double_to_number", 3, false, false, false,
+                        new[] { "d", "i", "" });
+                return null;
+            case "NumberToDouble":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_number_number_to_double", 1, true, false, false,
+                        new[] { "" }, "d");
+                return null;
+            // RuntimeImports.RhBulkMoveWithWriteBarrier (owner routed here
+            // from BclResolveCore): memmove + per-slot card marking.
+            case "RhBulkMoveWithWriteBarrier":
+                if (count == 3)
+                    return I("il2cpp::runtime::icall_rh_bulk_move_with_write_barrier", 3, false, false, false,
+                        new[] { "p", "p", "l" });
+                return null;
+            // Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs
+            // (owner routed here): ETW callback payload -- instances are
+            // constructed only by the runtime during ETW callbacks, which
+            // never fire; ctor no-op + tracing-disabled defaults.
+            case ".ctor":
+                if (count == 0 && owner.EndsWith("TracingStatusChangedEventArgs", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_tracing_status_changed_ctor", 0, false, false, true);
+                return null;
+            case "get_Enabled":
+                if (count == 0 && owner.EndsWith("TracingStatusChangedEventArgs", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_tracing_status_changed_get_enabled", 0, true, false, true);
+                return null;
+            case "get_TraceLevel":
+                if (count == 0 && owner.EndsWith("TracingStatusChangedEventArgs", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_tracing_status_changed_get_trace_level", 0, true, false, true);
+                return null;
             default: return null;
         }
     }

@@ -1,5 +1,4 @@
 IERR	System.ArgIterator.GetRemainingCount	NotSupportedException:System.ArgIterator::GetRemainingCount: GetRemainingCount is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit §3) with no runtime support: __arglist is not in the M3 model
-DBG	System.Array.InternalGetValue	count=1	ret=0x1C	ps=18
 OK	System.Array.InternalGetValue	il2cpp::il2cpp_array_get_value
 OK	System.Array.GetCorElementTypeOfElementType	il2cpp::runtime::icall_array_get_cor_element_type_of_element_type
 OK	System.Array.Initialize	il2cpp::runtime::icall_array_initialize
@@ -18,8 +17,8 @@ OK	System.Environment.get_CurrentManagedThreadId	il2cpp::runtime::icall_environm
 OK	System.Environment.get_ExitCode	il2cpp::runtime::icall_environment_get_exit_code
 OK	System.Environment.set_ExitCode	il2cpp::runtime::icall_environment_set_exit_code
 OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
-OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_get_is_64bit_operating_system
-OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_get_is_64bit_operating_system
+OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
+OK	System.Environment.FailFast	il2cpp::runtime::icall_environment_fail_fast
 OK	System.Environment.get_TickCount	il2cpp::runtime::icall_environment_get_tick_count
 OK	System.Environment.get_TickCount64	il2cpp::runtime::icall_environment_get_tick_count64
 OK	System.Exception.SaveStackTracesFromDeepCopy	il2cpp::runtime::icall_exception_save_stack_traces_from_deep_copy
@@ -149,13 +148,13 @@ OK	System.String.SetTrailByte	il2cpp::runtime::icall_string_set_trail_byte
 OK	System.String.TryGetTrailByte	il2cpp::runtime::icall_string_try_get_trail_byte
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array_range
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 4 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_ptr
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_ptr_range
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr_range
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_sbyte_ptr_range_encoding
 OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_repeat
-ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_span
 OK	System.Type.GetTypeFromHandleUnsafe	il2cpp::runtime::icall_type_get_type_from_handle_unsafe
 OK	System.Type.GetTypeFromHandle	il2cpp::runtime::il2cpp_type_get_type_from_handle
 OK	System.Type.op_Equality	il2cpp::runtime::icall_string_equals_static
@@ -166,7 +165,7 @@ OK	System.ValueType.GetHashCodeOfPtr	il2cpp::runtime::icall_value_type_get_hash_
 OK	System.WeakReference.get_IsAlive	il2cpp::runtime::icall_weakref_get_is_alive
 OK	System.WeakReference.get_Target	il2cpp::runtime::icall_weakref_get_target
 OK	System.WeakReference.set_Target	il2cpp::runtime::icall_weakref_set_target
-ERR	System.WeakReference.Finalize	NotSupportedException:System.WeakReference::Finalize: System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target (see il2cpp_gc_ext.h)
+OK	System.WeakReference.Finalize	il2cpp::runtime::icall_weak_reference_finalize
 OK	System.WeakReference`1.Finalize	il2cpp::runtime::il2cpp_object_ctor_nop
 IGAP	System.Variant.SetFieldsObject
 OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange
@@ -300,4 +299,4 @@ IGAP	System.Reflection.RuntimeAssembly.GetToken
 OK	System.Diagnostics.Debugger.get_IsAttached	il2cpp::runtime::il2cpp_debugger_is_attached
 OK	System.Diagnostics.Debugger.IsLogging	il2cpp::runtime::il2cpp_debugger_is_logging
 OK	System.Diagnostics.StackTrace.GetStackFramesInternal	il2cpp::runtime::icall_stack_trace_get_stack_frames_internal
-SUMMARY	total=301	mapped=142	receiverMapped=1	realGap=0	realErr=7	internalGap=78	internalErr=73	E:\il2cpp\tmp\netall\net6\shared\Microsoft.NETCore.App\6.0.36\System.Private.CoreLib.dll
+SUMMARY	total=301	mapped=149	receiverMapped=1	mappedGeneric=0	realGap=0	realErr=0	internalGap=78	internalErr=73	E:\il2cpp\tmp\netall\net6\shared\Microsoft.NETCore.App\6.0.36\System.Private.CoreLib.dll

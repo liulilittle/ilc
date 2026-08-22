@@ -35,8 +35,11 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/stubs.cpp.o: \
  /usr/include/c++/13/typeinfo /usr/include/c++/13/bits/hash_bytes.h \
  /usr/include/c++/13/new /usr/include/c++/13/bits/move.h \
  /usr/include/c++/13/type_traits \
- /usr/include/c++/13/bits/nested_exception.h /usr/include/c++/13/cstdlib \
- /usr/include/stdlib.h /usr/include/x86_64-linux-gnu/bits/waitflags.h \
+ /usr/include/c++/13/bits/nested_exception.h \
+ /mnt/e/il2cpp/src/runtime/include/internal/il2cpp_gc.h \
+ /mnt/e/il2cpp/src/runtime/include/internal/il2cpp_interlocked.h \
+ /usr/include/c++/13/cstdlib /usr/include/stdlib.h \
+ /usr/include/x86_64-linux-gnu/bits/waitflags.h \
  /usr/include/x86_64-linux-gnu/bits/waitstatus.h \
  /usr/include/x86_64-linux-gnu/bits/floatn.h \
  /usr/include/x86_64-linux-gnu/bits/floatn-common.h \
@@ -68,4 +71,7 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/stubs.cpp.o: \
  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
- /usr/include/c++/13/bits/std_abs.h
+ /usr/include/c++/13/bits/std_abs.h /usr/include/c++/13/cstring \
+ /usr/include/string.h /usr/include/strings.h \
+ /usr/include/x86_64-linux-gnu/bits/strings_fortified.h \
+ /usr/include/x86_64-linux-gnu/bits/string_fortified.h

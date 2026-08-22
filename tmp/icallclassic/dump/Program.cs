@@ -9,28 +9,25 @@ class Dump
         using var fs = new System.IO.FileStream(args[0], System.IO.FileMode.Open, System.IO.FileAccess.Read);
         using var pe = new PEReader(fs);
         var md = pe.GetMetadataReader();
-        int target = Convert.ToInt32(args[1].Replace("0x", ""), 16) & 0xFFFFFF;
-        int idx = 0;
-        foreach (var h in md.MemberReferences)
+        string[] want = args[1].Split(',');
+        foreach (var tdH in md.TypeDefinitions)
         {
-            idx++;
-            if (idx == target)
+            var td = md.GetTypeDefinition(tdH);
+            var owner = md.GetString(td.Namespace) + "." + md.GetString(td.Name);
+            foreach (var mh in td.GetMethods())
             {
-                var mr = md.GetMemberReference(h);
-                string pn = "?";
-                if (mr.Parent.Kind == HandleKind.TypeReference)
+                var m = md.GetMethodDefinition(mh);
+                var name = md.GetString(m.Name);
+                foreach (var w in want)
                 {
-                    var tr = md.GetTypeReference((TypeReferenceHandle)mr.Parent);
-                    pn = md.GetString(tr.Namespace) + "." + md.GetString(tr.Name);
+                    if ((owner + "." + name).Contains(w))
+                    {
+                        var reader = md.GetBlobReader(m.Signature);
+                        var bytes = reader.ReadBytes(reader.Length);
+                        Console.WriteLine($"{owner}.{name}: {BitConverter.ToString(bytes)}");
+                    }
                 }
-                else if (mr.Parent.Kind == HandleKind.TypeDefinition)
-                {
-                    var td = md.GetTypeDefinition((TypeDefinitionHandle)mr.Parent);
-                    pn = md.GetString(td.Namespace) + "." + md.GetString(td.Name);
-                }
-                Console.WriteLine($"TARGET #{idx}: {pn}.{md.GetString(mr.Name)}");
             }
         }
-        Console.WriteLine($"total memberrefs={idx}");
     }
 }

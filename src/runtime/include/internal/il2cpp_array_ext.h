@@ -105,6 +105,10 @@ int64_t icall_array_get_long_length(Il2CppObject* arr);
 // argument throws ArgumentNullException.
 int32_t icall_array_get_element_size(Il2CppObject* arr);
 
+// Instance Array.GetRawArrayData() (netcore31 audit gap; `ref byte` return):
+// the pointer to the first element byte.
+uint8_t* icall_array_get_raw_data(Il2CppObject* arr);
+
 // Instance Array.GetLowerBound(int dimension): the lowest valid index in
 // 'dimension'. One-dimensional scope: a zero-based array has lower bound 0;
 // any dimension other than 0 throws IndexOutOfRangeException, a null

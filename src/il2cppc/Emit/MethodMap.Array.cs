@@ -157,9 +157,14 @@ public static partial class MethodRefResolver
                 // icall_array_copy(src, srcIndex, dst, dstIndex, length) --
                 // the 3-arg overload (src, dst, length) forwards through
                 // icall_array_copy_3 (both indices zero; the emitter has no
-                // constant-injection facility).
+                // constant-injection facility). The netcore 6-arg form adds
+                // `bool reliable` -- a memory-model hint the simplified GC
+                // does not need: dropped ("drop" cast), same arity-pop
+                // discipline as GC.Collect(int).
                 if (count == 5) return I("il2cpp::runtime::icall_array_copy", 5, false, false, false);
                 if (count == 3) return I("il2cpp::runtime::icall_array_copy_3", 3, false, false, false);
+                if (count == 6) return I("il2cpp::runtime::icall_array_copy", 6, false, false, false,
+                    new[] { "", "i", "", "i", "i", "drop" });
                 throw new NotSupportedException($"Array.Copy with {count} arg(s) not wired: the runtime icalls need (src, srcIndex, dst, dstIndex, length) or (src, dst, length)");
             case "ConstrainedCopy":
                 // CONSTRAINED (2026-08-22): Array.ConstrainedCopy(Array, int,
@@ -346,6 +351,14 @@ public static partial class MethodRefResolver
             case "GetElementSize":
                 if (count == 0)
                     return I("il2cpp::runtime::icall_array_get_element_size", 0, true, false, true);
+                return null;
+            // netcore31 audit gap closure: GetRawArrayData() -- INSTANCE
+            // `ref byte` return (raw sig verified: 20-00-10-05). The runtime
+            // entry returns the element-data pointer; the "ptr" result kind
+            // carries it in an intptr_t slot (the M4.5 IntPtr carrier).
+            case "GetRawArrayData":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_array_get_raw_data", 0, true, false, true, null, "ptr");
                 return null;
             // InternalGetValue(index) -- metadata-verified shape: 1 arg of
             // NATIVE INT (0x18 -- the net6 internal index carrier), object

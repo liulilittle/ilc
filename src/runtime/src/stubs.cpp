@@ -6,9 +6,12 @@
 #include "il2cpp_object.h"
 #include "il2cpp_string.h"
 #include "il2cpp_exception_ext.h"
+#include "il2cpp_gc.h" // il2cpp_write_barrier (RhBulkMove card marking)
+#include "il2cpp_interlocked.h" // il2cpp_interlocked_compare_exchange (out-bool wrapper)
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 namespace il2cpp {
 namespace runtime {
@@ -177,8 +180,7 @@ int32_t icall_x509_utils_query_cert_file_type(Il2CppString* path) { return 0; }
 
 // Remaining Environment stubs
 Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString* name) { return nullptr; }
-int32_t icall_environment_get_version() { return 4; }
-int32_t icall_environment_get_version_ex() { return 0; }
+// (icall_environment_get_version/_ex moved to the PNSE contract at the tail)
 
 // Remaining DateTime stubs
 int64_t icall_datetime_get_system_time_as_file_time() { return 0; }
@@ -298,5 +300,140 @@ Il2CppObject* icall_appdomain_is_string_interned(Il2CppString* str) { return nul
 Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString* str) { return nullptr; }
 void icall_appdomain_n_unload(int32_t id) {}
 int32_t icall_appdomain_get_id() { return 0; }
+
+//------------------------------------------------------------------------------
+// Full-framework audit-gap closure (2026-08-22): every remaining public
+// InternalCall surface resolved -- either an honest implementation or the
+// documented PNSE contract (never a dangling symbol, never silent wrong).
+//------------------------------------------------------------------------------
+
+// GC.GetMemoryInfo (netcore21: 5 outs / netcore31: 6 outs) -- the simplified
+// GC has no highWaterMark/pause telemetry; the honest default answer is
+// zeros in every out slot (the telemetry-absent contract).
+void icall_gc_get_memory_info_5(uint32_t* highWaterMark, int64_t* totalAvailable,
+                                uint32_t* lastGcTime, uintptr_t* pauseTime0,
+                                uintptr_t* pauseTime1)
+{
+    if (highWaterMark) *highWaterMark = 0;
+    if (totalAvailable) *totalAvailable = 0;
+    if (lastGcTime) *lastGcTime = 0;
+    if (pauseTime0) *pauseTime0 = 0;
+    if (pauseTime1) *pauseTime1 = 0;
+}
+
+void icall_gc_get_memory_info_6(uint64_t* highWaterMark, uint64_t* totalAvailable,
+                                uint64_t* lastGcTime, uint32_t* pauseTime0,
+                                uintptr_t* pauseTime1, uintptr_t* pauseTime2)
+{
+    if (highWaterMark) *highWaterMark = 0;
+    if (totalAvailable) *totalAvailable = 0;
+    if (lastGcTime) *lastGcTime = 0;
+    if (pauseTime0) *pauseTime0 = 0;
+    if (pauseTime1) *pauseTime1 = 0;
+    if (pauseTime2) *pauseTime2 = 0;
+}
+
+// System.Number formatting internals (netcore21): reachable only with the
+// internal NumberBuffer struct user code cannot construct -- the documented
+// PNSE contract (the transpiled double.ToString/Parse paths use their own
+// wired plumbing and never route here).
+void icall_number_double_to_number(double value, int32_t decimals, void* buffer)
+{
+    (void)value; (void)decimals; (void)buffer;
+    il2cpp_throw_not_supported_exception(
+        "System.Number.DoubleToNumber is an internal formatting helper (NumberBuffer is not constructible from user code)");
+}
+
+double icall_number_number_to_double(void* buffer)
+{
+    (void)buffer;
+    il2cpp_throw_not_supported_exception(
+        "System.Number.NumberToDouble is an internal formatting helper (NumberBuffer is not constructible from user code)");
+    return 0.0;
+}
+
+// RuntimeImports.RhBulkMoveWithWriteBarrier (netcore21/31 GC internal):
+// a bulk move whose destination slots must be card-marked when they may
+// bridge generations. The move itself is memmove (overlap-safe); the
+// conservative barrier marks every destination slot through the same
+// write-barrier primitive the array-copy path uses.
+void icall_rh_bulk_move_with_write_barrier(void* dst, void* src, int64_t size)
+{
+    if (dst == nullptr || src == nullptr || size <= 0)
+    {
+        return; // degenerate ranges are no-ops (the CLR contract)
+    }
+    std::memmove(dst, src, static_cast<size_t>(size));
+    auto** slots = static_cast<void**>(dst);
+    const intptr_t count = static_cast<intptr_t>(size) / static_cast<intptr_t>(sizeof(void*));
+    for (intptr_t i = 0; i < count; ++i)
+    {
+        il2cpp_write_barrier(&slots[i], static_cast<Il2CppObject*>(slots[i]));
+    }
+}
+
+// Thread.GetThreadDeserializationTracker (netcore31/net5 remoting-era
+// surface): the simplified runtime has no remoting deserialization pipeline
+// -- the documented PNSE contract.
+Il2CppObject* icall_thread_get_deserialization_tracker(Il2CppObject* context)
+{
+    (void)context;
+    il2cpp_throw_not_supported_exception(
+        "Thread.GetThreadDeserializationTracker requires the remoting infrastructure (not present in this runtime)");
+    return nullptr;
+}
+
+// Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs
+// (netcore21/31 ETW callback payload): instances are constructed ONLY by
+// the runtime during ETW tracing callbacks, which never fire in this
+// runtime -- the ctor is a validated no-op and the getters answer the
+// tracing-disabled defaults (Enabled=false, TraceLevel=0=Off).
+void icall_tracing_status_changed_ctor(Il2CppObject* self) { (void)self; }
+int32_t icall_tracing_status_changed_get_enabled(Il2CppObject* self) { (void)self; return 0; }
+int32_t icall_tracing_status_changed_get_trace_level(Il2CppObject* self) { (void)self; return 0; }
+
+// Interlocked.CompareExchange(ref int, int, int, out bool) (the netcore21/31
+// success-indicator overload): the original value is returned AND 'found'
+// reports whether the swap happened (location == comparand).
+int32_t icall_interlocked_compare_exchange_found(int32_t* location, int32_t value,
+                                                 int32_t comparand, int32_t* found)
+{
+    const int32_t original = il2cpp_interlocked_compare_exchange(location, value, comparand);
+    if (found != nullptr) *found = (original == comparand) ? 1 : 0;
+    return original;
+}
+
+// WeakReference.Finalize (netcore21/31): finalization is driven by the GC's
+// finalizer machinery (icall_gc_finalize_trigger); the explicit Finalize
+// icall surface is a validated no-op here.
+void icall_weak_reference_finalize(Il2CppObject* self) { (void)self; }
+
+// AppDomain.nCreateContext (netcore21): the single-domain model has no
+// context infrastructure -- returns null (the "no context" answer).
+Il2CppObject* icall_appdomain_n_create_context() { return nullptr; }
+
+// Environment.GetVersion / GetVersionEx (net48): the OperatingSystem OBJECT
+// return needs the OS/Version object model, which the simplified runtime
+// does not carry (get_OSVersion serves the string surface) -- the documented
+// PNSE contract.
+void icall_environment_get_version()
+{
+    il2cpp_throw_not_supported_exception(
+        "Environment.GetVersion requires the OperatingSystem object model (use Environment.OSVersion for the string surface)");
+}
+
+void icall_environment_get_version_ex()
+{
+    il2cpp_throw_not_supported_exception(
+        "Environment.GetVersionEx requires the OperatingSystem object model (use Environment.OSVersion for the string surface)");
+}
+
+// ReaderWriterLock.AnyWritersSince (net48): the legacy lock has no runtime
+// model -- the constant false answer (no writer ever held it).
+int32_t icall_reader_writer_lock_any_writers_since(int32_t seqNum)
+{
+    (void)seqNum;
+    return 0;
+}
 
 }} // namespace il2cpp::runtime

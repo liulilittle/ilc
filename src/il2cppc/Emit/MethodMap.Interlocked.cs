@@ -68,6 +68,13 @@ public static partial class MethodRefResolver
                     : ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false,
                         new[] { "pobj", "" })
+                    // netcore21/31/net5 audit closure: Exchange(ref IntPtr,
+                    // IntPtr) -- the native-int slot swap rides the same
+                    // pointer-width icall (the address of an intptr_t local
+                    // IS void**-compatible; "" passthrough both slots).
+                    : ps.Length == 2 && ps[0] == 0x18 && ps[1] == 0x18
+                    ? I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false,
+                        new[] { "", "" })
                     // P6: Interlocked Exchange(ref float/double, float/double):
                     : ps.Length == 2 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_double", 2, true, false, false, new[] { "", "d" }, "d")
@@ -92,6 +99,14 @@ public static partial class MethodRefResolver
                     })
                     : null;
             case "CompareExchange":
+                // netcore21/31 audit closure: CompareExchange(ref int, int,
+                // int, out bool) -- the success-indicator overload (raw sig
+                // 00-04-08-10-08-08-08-10-02). The wrapper returns the
+                // original AND writes the found flag. MUST precede the 3-arg
+                // ternary chain (a check after `return` is dead code).
+                if (ps.Length == 4 && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x02)
+                    return I("il2cpp::runtime::icall_interlocked_compare_exchange_found", 4, true, false, false,
+                        new[] { "", "i", "i", "addr:b" });
                 return ps.Length == 3 && ps[0] == 0x0A && ps[1] == 0x0A && ps[2] == 0x0A
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange64", 3, true, false, false, new[] { "", "l", "l" }, "l")
                     : ps.Length == 3 && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x08
@@ -99,6 +114,12 @@ public static partial class MethodRefResolver
                     : ps.Length == 3 && ps[0] == 0x1C && ps[1] == 0x1C && ps[2] == 0x1C
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false,
                         new[] { "pobj", "", "" })
+                    // netcore21/31/net5 audit closure: CompareExchange(ref
+                    // IntPtr, IntPtr, IntPtr) -- the native-int CAS rides the
+                    // pointer-width icall ("" passthrough all three slots).
+                    : ps.Length == 3 && ps[0] == 0x18 && ps[1] == 0x18 && ps[2] == 0x18
+                    ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false,
+                        new[] { "", "", "" })
                     // P6: Interlocked CompareExchange(ref float/double, ...):
                     : ps.Length == 3 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D && ps[2] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d")
@@ -110,11 +131,11 @@ public static partial class MethodRefResolver
                         0x08 => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange", 3, true, false, false, new[] { "", "i", "i" }),
                         0x0A => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange64", 3, true, false, false, new[] { "", "l", "l" }, "l"),
                         0x0C or 0x0D => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d"),
-                        // Same reference-type encoding set as Exchange<T> above.
-                        0x0E or 0x12 or 0x15 or 0x1C or 0x1D or 0x1F => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false, new[] { "pobj", "", "" }),
-                        _ => null,
-                    })
-                    : null;
+                    // Same reference-type encoding set as Exchange<T> above.
+                    0x0E or 0x12 or 0x15 or 0x1C or 0x1D or 0x1F => I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false, new[] { "pobj", "", "" }),
+                    _ => null,
+                })
+                : null;
             case "SpeculationBarrier":
                 // ICALL-C (2026-08-07): the runtime ships the empty
                 // il2cpp_interlocked_speculation_barrier (il2cpp_interlocked.h)

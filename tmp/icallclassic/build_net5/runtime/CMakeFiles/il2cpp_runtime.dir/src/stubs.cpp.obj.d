@@ -171,4 +171,10 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/stubs.cpp.obj: \
   C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/result_of.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/__functional/invoke.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/type_identity.h \
-  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/unwrap_ref.h
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/unwrap_ref.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_gc.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_interlocked.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/cstring \
+  C:/PROGRA~1/ming-w64/include/c++/v1/string.h \
+  C:/PROGRA~1/ming-w64/include/string.h \
+  C:/PROGRA~1/ming-w64/include/sec_api/string_s.h

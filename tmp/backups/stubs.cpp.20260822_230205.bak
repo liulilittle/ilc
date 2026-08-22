@@ -1,0 +1,302 @@
+// stubs.cpp -- Internal CLR helper stubs for remaining MethodInternalCall gaps.
+// The ILC runtime reimplements BCL natively; these are stubs that return
+// sensible defaults for methods the BCL's internal infrastructure calls.
+
+#include "../include/il2cpp_api.h"
+#include "il2cpp_object.h"
+#include "il2cpp_string.h"
+#include "il2cpp_exception_ext.h"
+
+#include <cstdint>
+#include <cstdlib>
+
+namespace il2cpp {
+namespace runtime {
+
+// System.Array.GetCorElementTypeOfElementType
+int32_t icall_array_get_cor_element_type_of_element_type(Il2CppObject* arr)
+{
+    return 4; // ELEMENT_TYPE_I4 (int32 default)
+}
+
+// System.GC.AllocateNewArray
+Il2CppObject* icall_gc_allocate_new_array(int32_t length, int32_t elementType)
+{
+    return nullptr; // stub
+}
+
+// System.ComAwareWeakReference.HasInteropInfo
+int32_t icall_com_aware_weak_reference_has_interop_info(Il2CppObject* self)
+{
+    return 0; // false
+}
+
+// System.Exception.SaveStackTracesFromDeepCopy
+void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject* self)
+{
+    // no-op
+}
+
+// System.Exception.GetExceptionCount
+int32_t icall_exception_get_exception_count()
+{
+    return 0;
+}
+
+// System.Type.GetTypeFromHandleUnsafe
+Il2CppObject* icall_type_get_type_from_handle_unsafe(intptr_t handle)
+{
+    return nullptr; // stub
+}
+
+// System.Runtime.JitInfo.GetCompiledILBytes
+int64_t icall_jit_info_get_compiled_il_bytes()
+{
+    return 0;
+}
+
+// System.Runtime.JitInfo.GetCompiledMethodCount
+int64_t icall_jit_info_get_compiled_method_count()
+{
+    return 0;
+}
+
+// System.Runtime.Loader.AssemblyLoadContext.GetLoadedAssemblies
+Il2CppObject* icall_assembly_load_context_get_loaded_assemblies()
+{
+    return nullptr; // empty array
+}
+
+// System.Runtime.Loader.AssemblyLoadContext.IsTracingEnabled
+int32_t icall_assembly_load_context_is_tracing_enabled()
+{
+    return 0; // false
+}
+
+// System.Diagnostics.StackTrace.GetStackFramesInternal
+Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject* self, int32_t skipFrames, int32_t fNeedFileInfo)
+{
+    return nullptr; // empty array
+}
+
+// Number formatting stubs
+Il2CppObject* icall_number_format_decimal(Il2CppObject* str, int32_t digits) { return nullptr; }
+Il2CppObject* icall_number_format_double(double value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+Il2CppObject* icall_number_format_int32(int32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+Il2CppObject* icall_number_format_uint32(uint32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+Il2CppObject* icall_number_format_int64(int64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+Il2CppObject* icall_number_format_uint64(uint64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+Il2CppObject* icall_number_format_single(float value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+void icall_number_number_buffer_to_decimal(Il2CppObject* str, Il2CppObject* decimal) {}
+double icall_number_number_buffer_to_double(Il2CppObject* str) { return 0.0; }
+Il2CppObject* icall_number_format_number_buffer(int32_t options, int32_t numBase) { return nullptr; }
+
+// ParseNumbers stubs
+int64_t icall_parse_numbers_string_to_long(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+int32_t icall_parse_numbers_string_to_int(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+Il2CppObject* icall_parse_numbers_int_to_string(int32_t value, int32_t radix, int32_t flags) { return nullptr; }
+Il2CppObject* icall_parse_numbers_long_to_string(int64_t value, int32_t radix, int32_t flags) { return nullptr; }
+
+// CurrentSystemTimeZone stubs
+int32_t icall_current_system_timezone_native_get_time_zone_minute_offset() { return 0; }
+Il2CppObject* icall_current_system_timezone_native_get_daylight_name() { return nullptr; }
+Il2CppObject* icall_current_system_timezone_native_get_standard_name() { return nullptr; }
+Il2CppObject* icall_current_system_timezone_native_get_daylight_changes(int32_t year) { return nullptr; }
+
+// CultureData stubs
+int32_t icall_culture_data_lcid_to_locale_name(int32_t lcid) { return 0; }
+int32_t icall_culture_data_locale_name_to_lcid(Il2CppString* name) { return 0; }
+void icall_culture_data_native_init_culture_data(Il2CppObject* self) {}
+Il2CppObject* icall_culture_data_native_get_number_format_info_values(Il2CppObject* self) { return nullptr; }
+
+// CodeAccessSecurityEngine stubs
+void icall_code_access_security_engine_special_demand(int32_t flag) {}
+int32_t icall_code_access_security_engine_quick_check_for_all_demands() { return 1; }
+int32_t icall_code_access_security_engine_all_domains_homogeneous_with_no_stack_modifiers() { return 1; }
+int32_t icall_code_access_security_engine_check_n_return_so(int32_t flag) { return 0; }
+
+// CompressedStack stubs
+Il2CppObject* icall_compressed_stack_get_delayed_compressed_stack(Il2CppObject* self) { return nullptr; }
+void icall_compressed_stack_destroy_delayed_compressed_stack(Il2CppObject* self) {}
+void icall_compressed_stack_destroy_dcs_list(Il2CppObject* self) {}
+int32_t icall_compressed_stack_get_dcs_count(Il2CppObject* self) { return 0; }
+
+// DomainCompressedStack stubs
+int32_t icall_domain_compressed_stack_create_domain_compressed_stack(Il2CppObject* self) { return 0; }
+int32_t icall_domain_compressed_stack_get_domain_compressed_stack_size(Il2CppObject* self) { return 0; }
+int32_t icall_domain_compressed_stack_get_domain_compressed_stack_flags(Il2CppObject* self) { return 0; }
+Il2CppObject* icall_domain_compressed_stack_get_domain_compressed_stack_stack_blobs(Il2CppObject* self) { return nullptr; }
+
+// ThreadPool stubs
+int32_t icall_thread_pool_get_thread_count() { return 1; }
+int32_t icall_thread_pool_get_min_threads() { return 1; }
+int32_t icall_thread_pool_get_max_threads() { return 1; }
+int32_t icall_thread_pool_get_available_threads() { return 1; }
+// net6/net7: CanSetMin/MaxIOCompletionThreads -- the simplified pool has no
+// IOCP model; the honest constant answer is false on every platform.
+bool icall_thread_pool_can_set_io_threads() { return false; }
+
+// OverlappedData stubs
+int32_t icall_overlapped_data_get_pending_count(Il2CppObject* self) { return 0; }
+int32_t icall_overlapped_data_get_wait_handle(Il2CppObject* self) { return 0; }
+int32_t icall_overlapped_data_get_error_code(Il2CppObject* self) { return 0; }
+
+// Crypto/X509 stubs
+Il2CppObject* icall_crypto_utils_create_csp(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_crypto_utils_decrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+Il2CppObject* icall_crypto_utils_encrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+Il2CppObject* icall_crypto_utils_export_key(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
+Il2CppObject* icall_crypto_utils_generate_key(int32_t keySize) { return nullptr; }
+int32_t icall_crypto_utils_get_enforce_fips_policy_setting() { return 0; }
+Il2CppObject* icall_crypto_utils_get_key_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_key_set_security_info(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_provider_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_user_key(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_crypto_utils_import_bulk_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+Il2CppObject* icall_crypto_utils_import_csp_blob(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+Il2CppObject* icall_crypto_utils_import_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+int32_t icall_crypto_utils_produce_legacy_hmac_values() { return 0; }
+Il2CppObject* icall_crypto_utils_open_csp(Il2CppObject* self, int32_t flags) { return nullptr; }
+Il2CppObject* icall_crypto_utils_acquire_csp(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_add_certificate_to_store(Il2CppObject* self, Il2CppObject* cert) { return nullptr; }
+Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_cert_raw_data(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_date_not_after(Il2CppObject* self) { return nullptr; }
+
+// Remaining X509 stubs
+Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject* self) { return nullptr; }
+int32_t icall_x509_utils_query_cert_blob_type(Il2CppObject* self) { return 0; }
+int32_t icall_x509_utils_query_cert_file_type(Il2CppString* path) { return 0; }
+
+// Remaining Environment stubs
+Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString* name) { return nullptr; }
+int32_t icall_environment_get_version() { return 4; }
+int32_t icall_environment_get_version_ex() { return 0; }
+
+// Remaining DateTime stubs
+int64_t icall_datetime_get_system_time_as_file_time() { return 0; }
+int32_t icall_datetime_validate_system_time(int64_t ticks) { return 1; }
+int64_t icall_datetime_get_system_time_with_leap_seconds_handling() { return 0; }
+int64_t icall_datetime_system_file_time_to_system_time(int64_t ticks) { return ticks; }
+int64_t icall_datetime_system_time_to_system_file_time(int64_t ticks) { return ticks; }
+
+// Remaining String stubs
+int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString* str, Il2CppString* value) { return 0; }
+Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str) { return nullptr; }
+
+// NOTE: icall_environment_fail_fast lives in environment.cpp:402 and
+// icall_string_set_trail_byte / icall_string_try_get_trail_byte in
+// stringext3.cpp -- do NOT define them here (ld.lld duplicate-symbol when
+// the generated exe links every runtime TU; net9/10 E2E icallcase).
+
+
+// net9/10 E2E campaign (environment sweep): 64-bit process/OS probes --
+// pointer width IS the process width; the OS is 64-bit on every supported
+// target (win-x64 / linux-x64 / android-arm64), so both report 1.
+int32_t icall_environment_get_is_64bit_process()
+{
+    return sizeof(void*) == 8 ? 1 : 0;
+}
+
+int32_t icall_environment_get_is_64bit_operating_system()
+{
+    return 1; // all supported targets are 64-bit operating systems
+}
+// net9/10 E2E icallcase: Thread.SpinWait(iterations) -- a busy-wait primitive.
+// The simplified runtime has no preemptive scheduler to yield to, so the
+// faithful implementation is the pause loop itself (O(iterations), no side
+// effects; net48 contract: never throws, returns void).
+void icall_threadobj_spin_wait(int32_t iterations)
+{
+    for (volatile int32_t i = 0; i < iterations; ++i)
+    {
+        // Compiler-opaque busy iteration (the volatile target defeats DCE).
+    }
+}
+
+// Remaining miscellaneous stubs
+Il2CppObject* icall_object_memberwise_clone(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_array_get_data_ptr_offset_internal(Il2CppObject* arr) { return nullptr; }
+Il2CppObject* icall_string_is_fast_sort(Il2CppString* str) { return nullptr; }
+int32_t icall_string_is_ascii(Il2CppString* str) { return 1; }
+// set/try_get_trail_byte: real impls in stringext3.cpp (see NOTE above).
+int32_t icall_delegate_internal_equal_types(Il2CppObject* d1, Il2CppObject* d2) { return 1; }
+int32_t icall_delegate_compare_unmanaged_function_ptrs(Il2CppObject* d1, Il2CppObject* d2) { return 0; }
+void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+Il2CppObject* icall_base_config_handler_run_parser() { return nullptr; }
+int32_t icall_decimal_fcall_to_int32(Il2CppObject* d) { return 0; }
+int32_t icall_default_binder_can_convert_primitive_object_to_type(Il2CppObject* obj, int32_t targetType) { return 0; }
+Il2CppObject* icall_enum_internal_get_underlying_type(Il2CppClass* enumType) { return nullptr; }
+Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self, Il2CppString* name, Il2CppObject* value) { return nullptr; }
+Il2CppObject* icall_marshal_by_ref_object_get_com_i_unknown(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_missing_member_exception_format_signature(Il2CppString* str) { return nullptr; }
+int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2) { return 0; }
+int32_t icall_value_type_get_hash_code_of_ptr(void* ptr) { return 0; }
+int32_t icall_clr_config_check_legacy_managed_deflate_stream() { return 0; }
+int32_t icall_clr_config_check_throw_unobserved_task_exceptions() { return 0; }
+int32_t icall_security_context_get_impersonation_flow_mode() { return 0; }
+int32_t icall_security_context_is_default_thread_security_info() { return 1; }
+void icall_security_manager_set_thread_security(int32_t flag) {}
+Il2CppObject* icall_security_runtime_get_security_object_for_frame() { return nullptr; }
+Il2CppObject* icall_security_principal_win32_open_thread_token() { return nullptr; }
+int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
+Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t calendarId) { return nullptr; }
+Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t lcid) { return nullptr; }
+
+// Remaining Environment/Calendar/CultureInfo stubs
+int32_t icall_environment_get_resource_from_default(Il2CppString* name, Il2CppString* value) { return 0; }
+int32_t icall_environment_get_compatibility_flag(Il2CppString* flag) { return 0; }
+int32_t icall_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
+int32_t icall_calendar_data_native_get_calendars(int32_t calendarId, int32_t* calendars) { return 0; }
+int32_t icall_culture_info_native_get_locale_info_ex_int(int32_t lcid) { return 0; }
+void icall_culture_info_native_set_thread_locale(int32_t lcid) {}
+Il2CppObject* icall_encoding_table_native_create_open_file_mapping() { return nullptr; }
+void icall_assert_show_default_assert_dialog() {}
+void icall_log_add_log_switch(Il2CppString* name, int32_t level) {}
+void icall_log_modify_log_switch(Il2CppString* name, int32_t level) {}
+
+// Remaining Thread/Interlocked stubs
+void icall_synchronization_context_wait_helper(int32_t millisecondsTimeout) {}
+int32_t icall_compressed_stack_is_immediate_completion_candidate() { return 0; }
+Il2CppObject* icall_compressed_stack_get_domain_compressed_stack() { return nullptr; }
+Il2CppObject* icall_compressed_stack_get_homogeneous_pls() { return nullptr; }
+int32_t icall_domain_compressed_stack_get_desc_count() { return 0; }
+Il2CppObject* icall_domain_compressed_stack_get_domain_permission_sets() { return nullptr; }
+Il2CppObject* icall_domain_compressed_stack_get_descriptor_info() { return nullptr; }
+int32_t icall_domain_compressed_stack_ignore_domain(int32_t id) { return 0; }
+void icall_host_execution_context_manager_release_host_security_context() {}
+Il2CppObject* icall_host_execution_context_manager_clone_host_security_context() { return nullptr; }
+Il2CppObject* icall_overlapped_data_free_native_overlapped() { return nullptr; }
+Il2CppObject* icall_overlapped_data_get_overlapped_from_native() { return nullptr; }
+int32_t icall_overlapped_data_check_vm_for_io_packet() { return 0; }
+void icall_thread_pool_notify_work_item_complete() {}
+void icall_thread_pool_report_thread_status(int32_t status) {}
+void icall_thread_pool_notify_work_item_progress_native() {}
+int32_t icall_thread_pool_is_thread_pool_hosted() { return 0; }
+void icall_thread_pool_clear_notify() {}
+
+// AppDomain stubs
+Il2CppObject* icall_appdomain_is_unloading_forced_finalize() { return nullptr; }
+int32_t icall_appdomain_is_finalizing_for_unload() { return 0; }
+Il2CppObject* icall_appdomain_publish_anonymously_hosted_dynamic_methods_assembly() { return nullptr; }
+int32_t icall_appdomain_is_domain_id_valid(int32_t id) { return 0; }
+Il2CppObject* icall_appdomain_get_default_domain() { return nullptr; }
+Il2CppObject* icall_appdomain_get_fusion_context() { return nullptr; }
+Il2CppObject* icall_appdomain_get_security_descriptor() { return nullptr; }
+int32_t icall_appdomain_n_create_domain(Il2CppString* name, Il2CppObject* info, Il2CppObject* evidence) { return 0; }
+Il2CppObject* icall_appdomain_n_create_instance(int32_t id, Il2CppString* typeName) { return nullptr; }
+void icall_appdomain_update_loader_optimization(int32_t optimization) {}
+Il2CppObject* icall_appdomain_is_string_interned(Il2CppString* str) { return nullptr; }
+Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString* str) { return nullptr; }
+void icall_appdomain_n_unload(int32_t id) {}
+int32_t icall_appdomain_get_id() { return 0; }
+
+}} // namespace il2cpp::runtime

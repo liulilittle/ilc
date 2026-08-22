@@ -360,25 +360,27 @@ public class MethodMapDecimalTests
     }
 
     [Fact]
-    public void Resolve_Decimal_CtorFloat_ThrowsLoud()
+    public void Resolve_Decimal_CtorFloat_Wires_VarDecFromR4()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Decimal", ".ctor", Sig(0x01, 0x0C)), ".ctor"));
+        // netcore21+ audit closure (updated from the old LOUD pin): the
+        // float/double conversion ctors wire to the VarDecFromR4/R8
+        // implementations (decimal.cpp -- 15-significant-digit rounding).
+        var resolved = ResolveMember(Synthesize("System", "Decimal", ".ctor", Sig(0x01, 0x0C)), ".ctor");
 
-        Assert.Contains("System.Decimal::.ctor", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_decimal_ctor_float", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
     }
 
     //--------------------------------------------------------------------------
-    // ToDouble -- VarR8FromDec deferred (LOUD)
+    // ToDouble -- VarR8FromDec (wired: the exact 96-bit decomposition)
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Decimal_ToDouble_ThrowsLoud()
+    public void Resolve_Decimal_ToDouble_Wires_VarR8FromDec()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Decimal", "ToDouble",
-                new byte[] { 0x00, 0x01, 0x0D, 0x11, 0x05 }), "ToDouble"));
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "ToDouble",
+            new byte[] { 0x00, 0x01, 0x0D, 0x11, 0x05 }), "ToDouble");
 
-        Assert.Contains("System.Decimal::ToDouble", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_decimal_to_double", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------

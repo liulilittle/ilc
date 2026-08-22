@@ -20,12 +20,9 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/decimal.cpp.obj: \
   C:/PROGRA~1/ming-w64/include/sdks/_mingw_ddk.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/stddef.h \
   C:/PROGRA~1/ming-w64/lib/clang/17/include/stddef.h \
-  E:/il2cpp/src/runtime/include/internal/il2cpp_exception_ext.h \
-  E:/il2cpp/src/runtime/include/internal/il2cpp_exception.h \
-  C:/PROGRA~1/ming-w64/include/c++/v1/exception \
-  C:/PROGRA~1/ming-w64/include/c++/v1/__exception/exception.h \
-  C:/PROGRA~1/ming-w64/include/c++/v1/__exception/exception_ptr.h \
-  C:/PROGRA~1/ming-w64/include/c++/v1/__exception/operations.h \
+  E:/il2cpp/src/runtime/include/internal/decimal_format.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_string.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_object.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/cstddef \
   C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/enable_if.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/integral_constant.h \
@@ -35,6 +32,12 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/decimal.cpp.obj: \
   C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/remove_volatile.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/version \
   C:/PROGRA~1/ming-w64/lib/clang/17/include/__stddef_max_align_t.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_exception_ext.h \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_exception.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/exception \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__exception/exception.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__exception/exception_ptr.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__exception/operations.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/__memory/addressof.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/cstdlib \
   C:/PROGRA~1/ming-w64/include/c++/v1/stdlib.h \
@@ -170,6 +173,19 @@ runtime/CMakeFiles/il2cpp_runtime.dir/src/decimal.cpp.obj: \
   C:/PROGRA~1/ming-w64/include/c++/v1/__functional/invoke.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/type_identity.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/unwrap_ref.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/cmath \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/promote.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/math.h \
+  C:/PROGRA~1/ming-w64/include/math.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/limits \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__undef_macros \
+  C:/PROGRA~1/ming-w64/include/c++/v1/cstdio \
+  C:/PROGRA~1/ming-w64/include/c++/v1/stdio.h \
+  C:/PROGRA~1/ming-w64/include/stdio.h \
+  C:/PROGRA~1/ming-w64/include/corecrt_stdio_config.h \
+  C:/PROGRA~1/ming-w64/include/_mingw_off_t.h \
+  C:/PROGRA~1/ming-w64/include/swprintf.inl \
+  C:/PROGRA~1/ming-w64/include/sec_api/stdio_s.h \
   C:/PROGRA~1/ming-w64/include/c++/v1/cstring \
   C:/PROGRA~1/ming-w64/include/c++/v1/string.h \
   C:/PROGRA~1/ming-w64/include/string.h \

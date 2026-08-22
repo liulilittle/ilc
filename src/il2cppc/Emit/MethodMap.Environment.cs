@@ -62,10 +62,18 @@ public static partial class MethodRefResolver
             // immediately. Prints the message to stderr (if non-null), flushes,
             // and calls std::abort(). The managed message is Il2CppString* (UTF-16),
             // converted to UTF-8 via il2cpp_pinvoke_string_to_utf8_alloc.
-            // 2026-08-22 sweep: arity guard -- net48's FailFast(string, string)
-            // overload has no icall; it falls through to the LOUD gate.
+            // 2026-08-22 sweep: the netcore FailFast(string, string) overload
+            // (the second string is an error-source annotation) rides the SAME
+            // icall -- the annotation is dropped ("drop" cast).
             case "FailFast": return count == 1 ? I("il2cpp::runtime::icall_environment_fail_fast", 1, false, false, false,
-                new[] { "s" }) : null;
+                new[] { "s" })
+                : count == 2 ? I("il2cpp::runtime::icall_environment_fail_fast", 2, false, false, false,
+                new[] { "s", "drop" })
+                // netcore31's FailFast(string, Exception, string): the
+                // exception + error-source annotation are dropped.
+                : count == 3 ? I("il2cpp::runtime::icall_environment_fail_fast", 3, false, false, false,
+                new[] { "s", "drop", "drop" })
+                : null;
             // P6: Environment.CurrentManagedThreadId (net8+): the current
             // thread's managed thread id. Returns int32 (OS thread id).
             case "get_CurrentManagedThreadId": return I("il2cpp::runtime::icall_environment_get_current_managed_thread_id", 0, true, false, false);
@@ -80,6 +88,11 @@ public static partial class MethodRefResolver
             // a Version-object-returning icall is NEEDS-NEW-ICALL.
             // GetVersionEx stays: unreachable from the net48/net9/net10 public
             // surface (mono-internal alias), wired to its existing stub.
+            // NET48-CLOSURE (2026-08-22): GetVersion/GetVersionEx wire to the
+            // PNSE stubs (stubs.cpp) -- the OperatingSystem object model is
+            // not carried; the string surface is get_OSVersion above.
+            case "GetVersion": return I("il2cpp::runtime::icall_environment_get_version", 0, false, false, false);
+            case "GetVersionEx": return I("il2cpp::runtime::icall_environment_get_version_ex", 0, false, false, false);
             case "GetResourceFromDefault": return I("il2cpp::runtime::icall_environment_get_resource_from_default", 2, true, false, false, new[] { "s", "" });
             case "GetCompatibilityFlag": return I("il2cpp::runtime::icall_environment_get_compatibility_flag", 1, true, false, false, new[] { "s" });
             default: return null;
