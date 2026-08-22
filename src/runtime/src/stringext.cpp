@@ -27,7 +27,9 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_string_ext.h"
+#include "il2cpp_string_ext2.h"
 #include "il2cpp_string_ext3.h"
+#include "il2cpp_concat.h"
 
 #include "il2cpp_exception.h"
 #include "il2cpp_gc.h"
@@ -1167,6 +1169,39 @@ Il2CppString* icall_string_replace_line_endings(Il2CppString* self, Il2CppString
         }
     }
     return out;
+}
+
+//------------------------------------------------------------------------------
+// net9/10 E2E campaign: Join separator start/count forms -- slice the
+// values array into a fresh reference sub-array [startIndex,
+// startIndex+count), then delegate to the existing whole-array join icall.
+// net48 validation: null array -> ANE; startIndex/count out of range ->
+// ArgumentOutOfRange.
+//------------------------------------------------------------------------------
+static Il2CppArray* SliceRefArray(Il2CppArray* values, int32_t startIndex, int32_t count)
+{
+    if (values == nullptr)
+        il2cpp_throw_argument_null_exception("value");
+    if (startIndex < 0 || count < 0 || startIndex + count > static_cast<int32_t>(values->length))
+        il2cpp_throw_argument_out_of_range_exception("startIndex", "StartIndex and Count must be within the array bounds.");
+    Il2CppArray* sub = il2cpp_array_new(nullptr, sizeof(Il2CppObject*), true, count);
+    for (int32_t i = 0; i < count; ++i)
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(sub, i)) =
+            *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(values, startIndex + i));
+    return sub;
+}
+
+Il2CppString* icall_string_join_range_s(Il2CppString* separator, Il2CppArray* values, int32_t startIndex, int32_t count)
+{
+    Il2CppArray* sub = SliceRefArray(values, startIndex, count);
+    return reinterpret_cast<Il2CppString*>(icall_string_join(separator, sub));
+}
+
+Il2CppString* icall_string_join_range_c(char16_t separator, Il2CppArray* values, int32_t startIndex, int32_t count)
+{
+    Il2CppArray* sub = SliceRefArray(values, startIndex, count);
+    // The char-separator join lives in the concat domain (il2cpp_concat.h).
+    return il2cpp_string_builder_join(separator, sub);
 }
 
 } // namespace runtime

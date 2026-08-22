@@ -443,6 +443,14 @@ case "ReplaceLineEndings":
                 if (ps.Length == 2 && ps[0] == 0x03 && ps[1] == 0x1D)
                     return I("il2cpp::runtime::il2cpp_string_builder_join", 2, true, true, false,
                         new[] { "c", "" }, null, false, false, false, "System.String");
+                // net9/10 E2E campaign: the start/count forms -- slice then
+                // join (stringext.cpp wrappers).
+                if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x1D && ps[2] == 0x08 && ps[3] == 0x08)
+                    return I("il2cpp::runtime::icall_string_join_range_s", 4, true, true, false,
+                        new[] { "s", "a", "i", "i" }, null, false, false, false, "System.String");
+                if (ps.Length == 4 && ps[0] == 0x03 && ps[1] == 0x1D && ps[2] == 0x08 && ps[3] == 0x08)
+                    return I("il2cpp::runtime::icall_string_join_range_c", 4, true, true, false,
+                        new[] { "c", "a", "i", "i" }, null, false, false, false, "System.String");
                 throw new NotSupportedException($"String.Join with {ps.Length} arg(s) not wired (the runtime joins take (string, string[]) and (char, string[]); the start/count forms need a count-aware runtime icall)");
             case "IsNullOrEmpty":
                 return I("il2cpp::runtime::icall_string_is_null_or_empty", 1, true, false, false);
