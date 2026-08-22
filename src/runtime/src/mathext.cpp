@@ -557,5 +557,20 @@ double icall_math_bit_increment_d(double x)
     return std::nextafter(x, std::numeric_limits<double>::infinity());
 }
 
+// net9/10 E2E campaign: Math.ReciprocalEstimate / ReciprocalSqrtEstimate.
+// .NET spec explicitly permits a PRECISELY-CORRECTED result on targets
+// without the approximate hardware instruction -- so 1/x and 1/sqrt(x)
+// are conforming implementations (IEEE semantics: 1/0 -> +inf,
+// 1/-0 -> -inf, 1/NaN -> NaN, 1/sqrt(-x) -> NaN).
+double icall_math_reciprocal_estimate_d(double x)
+{
+    return 1.0 / x;
+}
+
+double icall_math_reciprocal_sqrt_estimate_d(double x)
+{
+    return 1.0 / std::sqrt(x);
+}
+
 }} // namespace il2cpp::runtime
 

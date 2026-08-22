@@ -162,6 +162,10 @@ double icall_math_copy_sign_d(double x, double y);
 // -inf / +inf (std::nextafter). NaN stays NaN; +/-inf stay put.
 double icall_math_bit_decrement_d(double x);
 double icall_math_bit_increment_d(double x);
+// ReciprocalEstimate/ReciprocalSqrtEstimate: precisely-corrected fallback
+// (spec-permitted) -- 1/x and 1/sqrt(x) with IEEE edge semantics.
+double icall_math_reciprocal_estimate_d(double x);
+double icall_math_reciprocal_sqrt_estimate_d(double x);
 
 // Math.Log2(double): std::log2 -- base-2 logarithm, C99. Log2(1) == 0,
 // Log2(2) == 1, Log2(0) == -inf, Log2(x < 0) -> NaN (netcore: no exception).

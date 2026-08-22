@@ -106,6 +106,16 @@ public static partial class MethodRefResolver
                 return ps.Length == 1 && ps[0] == 0x0D
                     ? I("il2cpp::runtime::icall_math_bit_increment_d", 1, true, false, false, null, "d")
                     : null;
+            // net9/10 E2E campaign: ReciprocalEstimate/ReciprocalSqrtEstimate
+            // -- precisely-corrected fallback (spec-permitted).
+            case "ReciprocalEstimate":
+                return ps.Length == 1 && ps[0] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_reciprocal_estimate_d", 1, true, false, false, null, "d")
+                    : null;
+            case "ReciprocalSqrtEstimate":
+                return ps.Length == 1 && ps[0] == 0x0D
+                    ? I("il2cpp::runtime::icall_math_reciprocal_sqrt_estimate_d", 1, true, false, false, null, "d")
+                    : null;
             // --- DivRem: net48 PUBLIC (reachable) -- the corert Math.DivModInt
             // family exposed result-first. The BYREF out param decodes to its
             // element byte (ReadParamByte, 0x10 recursion), so both forms match
