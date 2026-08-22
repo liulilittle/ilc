@@ -201,6 +201,9 @@ void icall_thread_pool_notify_work_item_progress_native();
 int32_t icall_thread_pool_is_thread_pool_hosted();
 void icall_thread_pool_clear_notify();
 void icall_threadobj_spin_wait(int32_t iterations);
+// net9/10 E2E campaign (environment sweep): 64-bit probes (stubs.cpp).
+int32_t icall_environment_get_is_64bit_process();
+int32_t icall_environment_get_is_64bit_operating_system();
 
 // Remaining Environment/Calendar/CultureInfo/EncodingTable/Diagnostics stubs
 int32_t icall_environment_get_resource_from_default(Il2CppString* name, Il2CppString* value);

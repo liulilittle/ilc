@@ -64,8 +64,12 @@ public static partial class MethodRefResolver
             case "GetLogicalDrives":
             case "GetCommandLineArgs":
             case "SetEnvironmentVariable":
+            // net9/10 E2E campaign: the 64-bit probes now have runtime
+            // icalls (stubs.cpp) -- wired BEFORE the LOUD gate.
             case "get_Is64BitOperatingSystem":
+                return I("il2cpp::runtime::icall_environment_get_is_64bit_operating_system", 0, true, false, false);
             case "get_Is64BitProcess":
+                return I("il2cpp::runtime::icall_environment_get_is_64bit_process", 0, true, false, false);
             case "get_UserDomainName":
             case "get_Version":
             case "get_WorkingSet":

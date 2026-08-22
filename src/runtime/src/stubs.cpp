@@ -194,6 +194,19 @@ Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str) { re
 // stringext3.cpp -- do NOT define them here (ld.lld duplicate-symbol when
 // the generated exe links every runtime TU; net9/10 E2E icallcase).
 
+
+// net9/10 E2E campaign (environment sweep): 64-bit process/OS probes --
+// pointer width IS the process width; the OS is 64-bit on every supported
+// target (win-x64 / linux-x64 / android-arm64), so both report 1.
+int32_t icall_environment_get_is_64bit_process()
+{
+    return sizeof(void*) == 8 ? 1 : 0;
+}
+
+int32_t icall_environment_get_is_64bit_operating_system()
+{
+    return 1; // all supported targets are 64-bit operating systems
+}
 // net9/10 E2E icallcase: Thread.SpinWait(iterations) -- a busy-wait primitive.
 // The simplified runtime has no preemptive scheduler to yield to, so the
 // faithful implementation is the pause loop itself (O(iterations), no side
