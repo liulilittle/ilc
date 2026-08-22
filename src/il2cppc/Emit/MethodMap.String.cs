@@ -233,6 +233,13 @@ case "ReplaceLineEndings":
                 return ps.Length == 0
                     ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true)
                     : null;
+            // net9/10 E2E campaign: String.Clone() -- .NET returns the SAME
+            // instance (strings are immutable), so it folds to the identity
+            // exactly like ToString(). No icall needed.
+            case "Clone":
+                return ps.Length == 0
+                    ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true)
+                    : null;
             // M5 wiring: the stringext2 STATIC domain (il2cpp_string_ext2.h).
             case "Compare":
             case "CompareOrdinal":
