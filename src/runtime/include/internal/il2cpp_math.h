@@ -51,6 +51,10 @@ int64_t icall_math_min_l(int64_t a, int64_t b);
 // included). The .NET return type is int32 for both overloads.
 int32_t icall_math_sign_i(int32_t value);
 int32_t icall_math_sign_l(int64_t value);
+// net9/10 E2E campaign (math sweep): Clamp for int64/double -- same
+// contract as the int32 form (min > max -> ArgumentException).
+int64_t icall_math_clamp_l(int64_t value, int64_t min, int64_t max);
+double icall_math_clamp_d(double value, double min, double max);
 // Math.Sign(double/float): sign of the FRACTIONAL value (the old route via
 // sign_l truncated first -- Sign(-0.5) wrongly 0). NaN -> 0 (comparisons
 // false both ways), matching .NET.

@@ -99,6 +99,31 @@ int32_t icall_math_sign_d(double value)
 // .NET Core 2.0 -- so this follows the .NET Core contract; the net48 e2e
 // case emulates it with a private helper for the reference baseline).
 //------------------------------------------------------------------------------
+
+// net9/10 E2E campaign (math sweep): Clamp for int64/double -- same
+// contract as the int32 form (min > max -> ArgumentException; NaN value
+// returns NaN for the double form per .NET).
+int64_t icall_math_clamp_l(int64_t value, int64_t min, int64_t max)
+{
+    if (min > max)
+    {
+        il2cpp_throw_argument_exception("min cannot be greater than max");
+    }
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+double icall_math_clamp_d(double value, double min, double max)
+{
+    if (min > max)
+    {
+        il2cpp_throw_argument_exception("min cannot be greater than max");
+    }
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
 int32_t icall_math_clamp_i(int32_t value, int32_t min, int32_t max)
 {
     if (min > max)

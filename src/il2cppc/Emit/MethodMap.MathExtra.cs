@@ -46,6 +46,11 @@ public static partial class MethodRefResolver
         switch (name)
         {
             case "Clamp":
+                // net9/10 E2E campaign: int64/double Clamp forms (math.cpp).
+                if (ps.Length == 3 && ps[0] == 0x0A && ps[1] == 0x0A && ps[2] == 0x0A)
+                    return I("il2cpp::runtime::icall_math_clamp_l", 3, true, false, false, null, "l");
+                if (ps.Length == 3 && ps[0] == 0x0D && ps[1] == 0x0D && ps[2] == 0x0D)
+                    return I("il2cpp::runtime::icall_math_clamp_d", 3, true, false, false, null, "d");
                 return I("il2cpp::runtime::icall_math_clamp_i", 3, true, false, false);
             // --- .NET Core gMathFuncs: the 6 single-double super-functions. ---
             // Net48 lacks these members (dormant mapping), semantics = the
