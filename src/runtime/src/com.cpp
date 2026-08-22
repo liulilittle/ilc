@@ -52,6 +52,7 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #if defined(_WIN32)
@@ -5210,6 +5211,29 @@ int32_t DispatchInvokeManaged(Il2CppComCcw* ccw, int32_t memberIdx,
                 if (GetOle32().sysAllocStringLen != nullptr)
                 {
                     bstr = GetOle32().sysAllocStringLen(s->chars, len);
+                }
+                else
+                {
+                    // POSIX: oleaut32 is unavailable -- allocate the EXACT
+                    // BSTR wire format so VT_BSTR returns carry real data on
+                    // every platform (cross-platform consistency contract):
+                    // a 4-byte byte-length prefix, 'len' UTF-16 units, a NUL
+                    // terminator; the returned pointer aims at the first unit
+                    // (the prefix sits at ptr[-4..-1], OLEAUT32's layout).
+                    const uint32_t bytes = len * 2u;
+                    auto* block = static_cast<uint8_t*>(
+                        std::malloc(sizeof(uint32_t) + bytes + sizeof(char16_t)));
+                    if (block != nullptr)
+                    {
+                        std::memcpy(block, &bytes, sizeof(bytes));
+                        if (bytes != 0)
+                        {
+                            std::memcpy(block + sizeof(bytes), s->chars, bytes);
+                        }
+                        const uint16_t nul = 0;
+                        std::memcpy(block + sizeof(bytes) + bytes, &nul, sizeof(nul));
+                        bstr = block + sizeof(bytes);
+                    }
                 }
             }
             std::memcpy(static_cast<char*>(pVarResult) + kVariantVtOffset + 8, &bstr, sizeof(bstr));

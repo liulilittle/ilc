@@ -35,7 +35,7 @@
 #include "il2cpp_mathf.h"
 #include "il2cpp_exception.h"
 
-#include "il2cpp_math_c99.h" // GCC 8.1 libstdc++ C99-math <cmath> shim (std::fabsf)
+#include "il2cpp_math_c99.h" // GCC 8.1 libstdc++ C99-math <cmath> shim (std::fabs)
 
 #include <cmath>
 #include <cstdint>
@@ -60,12 +60,12 @@ void Expect(bool condition, const char* what)
 // 1e-6 relative is ~8 ulps, still tight enough to catch wrong functions.
 void ExpectNearF(float actual, float expected, const char* what)
 {
-    const float scale = (std::fabsf(expected) > 1.0f) ? std::fabsf(expected) : 1.0f;
-    const bool ok = std::fabsf(actual - expected) <= 1e-6f * scale;
+    const float scale = (std::fabs(expected) > 1.0f) ? std::fabs(expected) : 1.0f;
+    const bool ok = std::fabs(actual - expected) <= 1e-6f * scale;
     if (!ok)
     {
         std::printf("FAIL: %s (actual %.9g, expected %.9g, diff %g)\n",
-                    what, actual, expected, std::fabsf(actual - expected));
+                    what, actual, expected, std::fabs(actual - expected));
         ++g_failures;
     }
 }

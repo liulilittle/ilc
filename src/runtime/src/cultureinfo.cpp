@@ -33,6 +33,7 @@
 #include "cultureinfo.h"
 #include "il2cpp_string_intern.h" // il2cpp_string_intern_literal (static returns)
 
+#include <clocale>
 #include <cstring>
 
 #if defined(_WIN32)
@@ -105,8 +106,33 @@ Il2CppString* il2cpp_culture_get_current()
     // GetSystemDefaultLCID would return the same 0x0804 on this host.
     return Intern(CultureNameFromLcid(GetUserDefaultLCID()));
 #else
-    // No Win32 locale API on POSIX; keep the invariant fallback ("").
-    return Intern("");
+    // POSIX: read the current C locale (setlocale(LC_ALL, NULL) -- a pure
+    // query, never mutates state) and map it to the .NET culture-name form:
+    // "zh_CN.UTF-8" -> "zh-CN" (strip the '.' codeset and '@' modifier,
+    // '_' -> '-'), "C"/"POSIX" -> "" (the invariant fallback -- .NET maps
+    // the C locale to the invariant culture, matching the Windows
+    // unmapped-LCID fallback semantics; cross-platform consistency).
+    const char* loc = std::setlocale(LC_ALL, nullptr);
+    if (loc == nullptr)
+    {
+        return Intern("");
+    }
+    char name[32];
+    size_t n = 0;
+    for (const char* p = loc; *p != 0 && n + 1 < sizeof(name); ++p)
+    {
+        if (*p == '.' || *p == '@')
+        {
+            break;
+        }
+        name[n++] = (*p == '_') ? '-' : *p;
+    }
+    name[n] = 0;
+    if (n == 0 || std::strcmp(name, "C") == 0 || std::strcmp(name, "POSIX") == 0)
+    {
+        return Intern(""); // the C/POSIX locale == the invariant fallback
+    }
+    return Intern(name);
 #endif
 }
 

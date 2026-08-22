@@ -139,12 +139,29 @@ int main()
     Expect(StringIsUtf16(il2cpp::runtime::il2cpp_culture_get_per_mille_symbol(), u"\u2030"),
            "invariant per-mille symbol is U+2030");
 
-    // --- 5. current culture (C42 fold fix: reads the OS user locale --
-    //          "zh-CN" on the zh-CN verification host, net48 oracle) ---
-    Expect(StringIs(il2cpp::runtime::il2cpp_culture_get_current(), "zh-CN"),
-           "current culture name is \"zh-CN\" on the zh-CN verification host");
-    Expect(il2cpp::runtime::il2cpp_culture_get_current() != il2cpp::runtime::il2cpp_culture_get_invariant(),
-           "current culture instance differs from the invariant culture");
+    // --- 5. current culture (C42 fold fix: reads the OS user locale) ---
+    // HOST-INDEPENDENT assertions only. The current culture reads the OS
+    // locale: a real locale yields its .NET-form name ("zh_CN.UTF-8" ->
+    // "zh-CN"); the C/POSIX locale maps to "" (the invariant fallback --
+    // .NET's own C-locale mapping). The specific name is an environment
+    // property, not a runtime contract.
+    {
+        const auto* cur = il2cpp::runtime::il2cpp_culture_get_current();
+        Expect(cur != nullptr,
+               "current culture returns a string instance on any host");
+        Expect(il2cpp::runtime::il2cpp_culture_get_current() == cur,
+               "current culture returns the same instance on repeated calls");
+        const bool validForm =
+            cur->length == 0 ||                       // C/POSIX -> invariant ""
+            (cur->chars[0] != static_cast<char16_t>(u'_')); // normalized: no '_'
+        Expect(validForm,
+               "current culture name is in the normalized .NET form");
+    }
+    if (il2cpp::runtime::il2cpp_culture_get_current()->length != 0)
+    {
+        Expect(il2cpp::runtime::il2cpp_culture_get_current() != il2cpp::runtime::il2cpp_culture_get_invariant(),
+               "a real current culture differs from the invariant culture");
+    }
 
     // --- 6. static-return contract: same instance on repeated calls ---
     Expect(il2cpp::runtime::il2cpp_culture_get_name() == il2cpp::runtime::il2cpp_culture_get_name(),

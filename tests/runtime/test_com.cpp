@@ -445,27 +445,8 @@ void* const kTestSinkVtbl[3] = {
     reinterpret_cast<void*>(&TestSinkRelease),
 };
 
-// The stage-76 data-advise test sink (section 81): a minimal native
-// IAdviseSink whose OnDataChange (vtable slot 3) counts calls -- the
-// observable the icall_com_data_object_notify trigger must reach.
-struct TestDataAdviseSink
-{
-    void* const* vtbl;
-    int32_t onDataChangeCalls;
-};
-
-int32_t TEST_COM_CALL TestDataAdviseSinkOnDataChange(void* self, const void*, const void*)
-{
-    auto* sink = static_cast<TestDataAdviseSink*>(self);
-    ++sink->onDataChangeCalls;
-    return 0; // S_OK
-}
-
-void* const kTestDataAdviseSinkVtbl[7] = {
-    nullptr, nullptr, nullptr,
-    reinterpret_cast<void*>(&TestDataAdviseSinkOnDataChange), // slot 3 OnDataChange
-    nullptr, nullptr, nullptr,
-};
+// The stage-76 data-advise test sink (section 81) lives at FILE SCOPE
+// (after the anonymous namespace closes): see the definition above main().
 
 // The stage-16 drop-dispatch test record + callback (section 18). The mutable
 // record is a FUNCTION-LOCAL static (TestDropRec -- no namespace-level global):
@@ -869,6 +850,31 @@ bool BstrEquals(const uint8_t variant[16], il2cpp::Il2CppString* str)
 #endif
 
 } // namespace
+
+// The stage-76 data-advise test sink (section 81): a minimal native
+// IAdviseSink whose OnDataChange (vtable slot 3) counts calls -- the
+// observable the icall_com_data_object_notify trigger must reach.
+// File scope (outside the anonymous namespace): section 81 in main()
+// is the sole user and GCC rejects namespace-scope names from an
+// anonymous namespace that closed 4500 lines earlier.
+struct TestDataAdviseSink
+{
+    void* const* vtbl;
+    int32_t onDataChangeCalls;
+};
+
+int32_t TEST_COM_CALL TestDataAdviseSinkOnDataChange(void* self, const void*, const void*)
+{
+    auto* sink = static_cast<TestDataAdviseSink*>(self);
+    ++sink->onDataChangeCalls;
+    return 0; // S_OK
+}
+
+void* const kTestDataAdviseSinkVtbl[7] = {
+    nullptr, nullptr, nullptr,
+    reinterpret_cast<void*>(&TestDataAdviseSinkOnDataChange), // slot 3 OnDataChange
+    nullptr, nullptr, nullptr,
+};
 
 int main()
 {
@@ -1687,10 +1693,12 @@ int main()
            "Invoke with a VT_R8 argument -> S_OK");
 
     // VT_BSTR argument (a pointer-sized string at offset 8) -> S_OK.
+    // BSTR data is ALWAYS UTF-16 (char16_t) on every platform -- a wchar_t
+    // literal is 4-byte UTF-32 on Linux and would decode as garbage.
     TestDispParams bstrParams = { nullptr, nullptr, 1, 0 };
     uint8_t bstrVariant[16];
     MakeVariant(8, bstrVariant); // VT_BSTR
-    wchar_t bstrArg[] = L"hello";
+    char16_t bstrArg[] = u"hello";
     const void* bstrPtr = bstrArg;
     std::memcpy(bstrVariant + 8, &bstrPtr, sizeof(bstrPtr));
     bstrParams.rgvarg = bstrVariant;
@@ -3386,9 +3394,17 @@ int main()
     Expect(ThrowsDotNet([&] { icall_com_ole_revoke_drag_drop(0); },
                         kArgumentNull),
            "revoke_drag_drop(hwnd 0) -> ArgumentNullException on non-Windows too");
+    // A FRESH CCW for the drop-target QI check: the 4d CCW (posixEvt) was
+    // released to 0 above (destroyed) -- reusing it here was a use-after-free
+    // that ASAN catches and Linux segfaults on (Windows silently read stale
+    // heap). The QI contract under test (IDropTarget not offered on
+    // non-Windows) is identical on a fresh CCW.
+    const intptr_t posixDropCcw = icall_com_ccw_create(MakeManagedTarget());
     intptr_t posixDrop = 0;
-    Expect(icall_com_query_interface(posixEvt, kComIidIDropTarget, &posixDrop) == kComHrNoInterface,
+    Expect(icall_com_query_interface(posixDropCcw, kComIidIDropTarget, &posixDrop) == kComHrNoInterface,
            "QI for IDropTarget on non-Windows -> E_NOINTERFACE (POSIX stub)");
+    Expect(icall_com_release(posixDropCcw) == 0,
+           "the fresh drop-target CCW reference is balanced");
 
     //------------------------------------------------------------------------
     // 4k. IDropTarget dispatch forwarding (non-Windows): the stage-16 register
@@ -4311,7 +4327,7 @@ int main()
         const double factorVal = 2.5;
         std::memcpy(factorVar + kVariantVtOffset + 8, &factorVal, sizeof(factorVal));
         MakeVariant(kVtBstr, labelVar);
-        wchar_t labelBuf[] = L"auto";
+        char16_t labelBuf[] = u"auto"; // BSTR data: UTF-16 on every platform
         void* labelPtr = labelBuf;
         std::memcpy(labelVar + kVariantVtOffset + 8, &labelPtr, sizeof(labelPtr));
         uint8_t scaleArgs24[32];
@@ -4323,10 +4339,10 @@ int main()
         Expect(invoke24(reinterpret_cast<void*>(autoCcw), scaleDisp, nullIid24, 0, 1,
                         &scaleParams24, scaleResult24, nullptr, nullptr) == kComHrOk &&
                autoView->ScaleCount == 1 && autoView->LastFactorInt == 2 &&
-               autoView->LastLabel != nullptr &&
-               reinterpret_cast<il2cpp::Il2CppString*>(autoView->LastLabel)->length == 4 &&
-               std::memcmp(reinterpret_cast<il2cpp::Il2CppString*>(autoView->LastLabel)->chars,
-                           L"auto", 4 * sizeof(wchar_t)) == 0,
+                autoView->LastLabel != nullptr &&
+                reinterpret_cast<il2cpp::Il2CppString*>(autoView->LastLabel)->length == 4 &&
+                std::memcmp(reinterpret_cast<il2cpp::Il2CppString*>(autoView->LastLabel)->chars,
+                            u"auto", 4 * sizeof(char16_t)) == 0,
                "24: Invoke(Scale, VT_R8 2.5, VT_BSTR auto) dispatched (count + factor int + label)");
         uint16_t scaleVt = 0;
         std::memcpy(&scaleVt, scaleResult24, sizeof(scaleVt));
@@ -4460,7 +4476,7 @@ int main()
                lblDisp == 7,
                "28: GetIDsOfNames(GetLabel) -> dispId 7");
         il2cpp::Il2CppObject* lblManaged = il2cpp::il2cpp_pinvoke_string_from_utf16(
-            reinterpret_cast<const char16_t*>(L"auto"));
+            reinterpret_cast<const char16_t*>(u"auto"));
         autoView->LastLabel = lblManaged;
         TestDispParams lblParams28 = { nullptr, nullptr, 0, 0 };
         uint8_t lblResult28[16] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -4471,7 +4487,7 @@ int main()
                "28: Invoke(GetLabel) returns VT_BSTR");
         void* lblBstr = nullptr;
         std::memcpy(&lblBstr, lblResult28 + kVariantVtOffset + 8, sizeof(lblBstr));
-        Expect(lblBstr != nullptr && std::memcmp(lblBstr, L"auto", 4 * sizeof(wchar_t)) == 0,
+        Expect(lblBstr != nullptr && std::memcmp(lblBstr, u"auto", 4 * sizeof(char16_t)) == 0,
                "28: the returned BSTR reads 'auto'");
 
         // ===== Section 29: IDispatch VT_I8 argument (stage 24) =====
@@ -4531,8 +4547,16 @@ int main()
         Expect(invoke24(reinterpret_cast<void*>(autoCcw), propDisp, nullIid24, 0, 4,
                         &putNParams, putNResult, nullptr, nullptr) == kComHrOk &&
                autoView->ScaleCount == 9,
-               "31: Invoke(PROPERTYPUT ScaleCountProp 9, DISPID_PROPERTYPUT named) sets ScaleCount to 9");
+                "31: Invoke(PROPERTYPUT ScaleCountProp 9, DISPID_PROPERTYPUT named) sets ScaleCount to 9");
 
+        // Sections 32-80 drive the Windows-only OLE views (IOleInPlaceObject,
+        // IProvideClassInfo, IOleInPlaceSite, ... IStorage): on POSIX the QI
+        // dispatch returns E_NOINTERFACE for every one of these IIDs (the
+        // CcwQueryInterface OLE-view gate is _WIN32), so the interface
+        // pointers stay null and the vtable reads would SEGV. The whole range
+        // is the WINDOWS contract; POSIX covers it through the 4d/4j stub
+        // assertions (E_NOINTERFACE / E_NOTIMPL) instead.
+#if defined(_WIN32)
         // ===== Section 32: IOleInPlaceObject view (stage 27) =====
         // QI for IID_IOleInPlaceObject hands the 9-slot in-place view;
         // GetWindow writes a null hwnd (headless, S_OK), InPlaceDeactivate /
@@ -5356,6 +5380,7 @@ int main()
                "80: Revert is E_NOTIMPL");
         ReleaseFn storageRelease = reinterpret_cast<ReleaseFn>(ComVtable(storage)[2]);
         storageRelease(storageRaw);
+#endif // defined(_WIN32) -- sections 32-80 (Windows-only OLE views)
 
         // ===== Section 81: IDataObject DAdvise/DUnadvise (stage 76) =====
         // A fresh WfDataObject CCW with the IDataObject view registered;
@@ -5416,7 +5441,9 @@ int main()
                enumDAdviseOut != 0 && enumDAdviseOut != advView,
                "81: EnumDAdvise hands the IEnumSTATDATA view (distinct address)");
 #endif
-        ReleaseFn advViewRelease = reinterpret_cast<ReleaseFn>(ComVtable(advView)[2]);
+        // Local typedef: ReleaseFn lives inside the _WIN32 section range above.
+        typedef uint32_t (TEST_COM_CALL* AdvViewReleaseFn)(void*);
+        AdvViewReleaseFn advViewRelease = reinterpret_cast<AdvViewReleaseFn>(ComVtable(advView)[2]);
         advViewRelease(advViewRaw);
         Expect(icall_com_release(advCcw) == 0,
                "81: releasing the data-advise CCW balances to 0");
