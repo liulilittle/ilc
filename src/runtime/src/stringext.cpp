@@ -1195,7 +1195,8 @@ Il2CppString* icall_string_join_range_s(Il2CppString* separator, Il2CppArray* va
 {
     Il2CppArray* sub = SliceRefArray(values, startIndex, count);
     return reinterpret_cast<Il2CppString*>(
-        icall_string_join(separator, reinterpret_cast<Il2CppObject*>(sub)));
+        icall_string_join(reinterpret_cast<Il2CppObject*>(separator),
+                          reinterpret_cast<Il2CppObject*>(sub)));
 }
 
 Il2CppString* icall_string_join_range_c(char16_t separator, Il2CppArray* values, int32_t startIndex, int32_t count)
