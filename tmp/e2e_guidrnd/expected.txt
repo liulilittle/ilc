@@ -1,0 +1,7 @@
+PASS guid.roundtrip.canonical
+PASS guid.roundtrip.zeros
+PASS guid.roundtrip.maxes
+PASS guid.roundtrip.mixed
+PASS random.seed42.identical
+PASS random.nextbytes.nonzero
+ALL-PASS

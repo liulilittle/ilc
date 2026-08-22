@@ -1,0 +1,6 @@
+regRet=50427
+form=0
+r1=0 r2=0 r3=0
+initial=0,0,0
+click r2...
+afterR2=0,0,0 cmds=0

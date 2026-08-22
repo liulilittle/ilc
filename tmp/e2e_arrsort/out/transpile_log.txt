@@ -1,0 +1,8 @@
+symbols: no Portable PDB found -> no #line C# line directives
+string pool: 44 distinct literal(s) from 54 site(s) across 15 method(s) (0 constant concat(s) folded, 10 duplicate site(s) deduped)
+string pool table: g_strPool[44] -> include/internal/string-pool.h
+resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
+licm: 0 invariant length read(s) hoistable across 15 method(s)
+inline: 2 simple call site(s) inlineable across 15 method(s)
+tempslot: 151 temp slot(s) -> 64 with reuse across 15 method(s)
+generated 1 type(s) -> gen

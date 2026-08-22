@@ -137,6 +137,27 @@ void icall_thread_memory_barrier()
 }
 
 //------------------------------------------------------------------------------
+// icall_thread_get_current_processor_number -- Thread.GetCurrentProcessorNumber()
+// (the net5+ audit gap): the CPU id the CURRENT thread is running on.
+// Win32 GetCurrentProcessorNumber(); Linux glibc sched_getcpu() (a macro/
+// vDSO call, no syscall wrapper needed). Cross-platform consistency: both
+// answer the same contract; the numeric range differs by host topology,
+// which is an environment property, not a runtime divergence.
+//------------------------------------------------------------------------------
+int32_t icall_thread_get_current_processor_number()
+{
+#if defined(_WIN32)
+    return static_cast<int32_t>(::GetCurrentProcessorNumber());
+#elif defined(__linux__)
+    return static_cast<int32_t>(::sched_getcpu());
+#else
+    // Generic POSIX fallback: no portable CPU-id query -- report 0 (the
+    // documented single-processor model) rather than fail.
+    return 0;
+#endif
+}
+
+//------------------------------------------------------------------------------
 // icall_thread_get_is_thread_pool_thread -- Thread.IsThreadPoolThread.
 // Returns whether the CURRENT executing thread is a ThreadPool worker. The
 // `self` receiver is accepted and IGNORED: pool membership is tracked per

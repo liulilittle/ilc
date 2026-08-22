@@ -1,0 +1,6 @@
+atom=0
+form=0 err=87
+r=0,0,0
+initial=0,0,0
+click r2...
+afterR2=0,0,0 cmds=0

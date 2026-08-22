@@ -1,0 +1,229 @@
+
+Microsoft (R) Windows Debugger Version 10.0.22621.2428 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+CommandLine: E:\il2cpp\build\runtime_full\test_com.exe
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*
+Symbol search path is: srv*
+Executable search path is: 
+ModLoad: 00007ff7`2d970000 00007ff7`2e21d000   .exe    
+ModLoad: 00007ff9`3f660000 00007ff9`3f8c6000   ntdll.dll
+ModLoad: 00007ff9`3dbc0000 00007ff9`3dc89000   C:\WINDOWS\System32\KERNEL32.DLL
+ModLoad: 00007ff9`3ca80000 00007ff9`3ce7f000   C:\WINDOWS\System32\KERNELBASE.dll
+ModLoad: 00007ff9`3f4d0000 00007ff9`3f579000   C:\WINDOWS\System32\msvcrt.dll
+ModLoad: 00007ff8`b4e50000 00007ff8`b4e8b000   C:\Program Files\ming-w64\bin\libunwind.dll
+ModLoad: 00007ff8`73700000 00007ff8`7389a000   C:\Program Files\ming-w64\bin\libc++.dll
+(159b00.159b04): Break instruction exception - code 80000003 (first chance)
+ntdll!LdrpDoDebuggerBreak+0x35:
+00007ff9`3f77d78d cc              int     3
+0:000> cdb: Reading initial command 'sxe av; g; .ecxr; k; q'
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+ModLoad: 00007ff9`3ec10000 00007ff9`3eda9000   C:\WINDOWS\System32\ole32.dll
+ModLoad: 00007ff9`3d2b0000 00007ff9`3d353000   C:\WINDOWS\System32\msvcp_win.dll
+ModLoad: 00007ff9`3cfc0000 00007ff9`3d10c000   C:\WINDOWS\System32\ucrtbase.dll
+ModLoad: 00007ff9`3db90000 00007ff9`3dbbb000   C:\WINDOWS\System32\GDI32.dll
+ModLoad: 00007ff9`3d360000 00007ff9`3d387000   C:\WINDOWS\System32\win32u.dll
+ModLoad: 00007ff9`3ce90000 00007ff9`3cfb9000   C:\WINDOWS\System32\gdi32full.dll
+ModLoad: 00007ff9`3ee70000 00007ff9`3f036000   C:\WINDOWS\System32\USER32.dll
+ModLoad: 00007ff9`3dee0000 00007ff9`3e265000   C:\WINDOWS\System32\combase.dll
+ModLoad: 00007ff9`3d390000 00007ff9`3d4a8000   C:\WINDOWS\System32\RPCRT4.dll
+ModLoad: 00007ff9`3ebd0000 00007ff9`3ec02000   C:\WINDOWS\System32\IMM32.DLL
+ModLoad: 00007ff9`3dc90000 00007ff9`3dd69000   C:\WINDOWS\System32\oleaut32.dll
+ModLoad: 00007ff9`3b640000 00007ff9`3b65b000   C:\WINDOWS\SYSTEM32\kernel.appcore.dll
+ModLoad: 00007ff9`3c930000 00007ff9`3c9dc000   C:\WINDOWS\System32\bcryptPrimitives.dll
+ModLoad: 00007ff9`3d7f0000 00007ff9`3d89e000   C:\WINDOWS\System32\clbcatq.dll
+ModLoad: 00007ff9`3d740000 00007ff9`3d7e9000   C:\WINDOWS\System32\sechost.dll
+ModLoad: 00007ff9`388c0000 00007ff9`38968000   C:\WINDOWS\system32\uxtheme.dll
+ModLoad: 00007ff9`3e270000 00007ff9`3e9f8000   C:\WINDOWS\System32\shell32.dll
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+MARK 2 start
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing 4 CPs, each up to 4 sinks
+MARK 10 start
+[reg] ccw=00000225701d62e0 searching iid 77665544
+[reg] registered at slot 0
+[reg] ccw=00000225701d62e0 searching iid 77665544
+[advise] view=00000225701d6300 sink=00000225701d6550 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 00000225701d6550
+[advise] qi fn = 00007ff72d97a600, calling
+[advise] qi hr=-2147467262 iface=0000000000000000
+[dtor] releasing 4 CPs, each up to 4 sinks
+[advise] view=00000225701d6300 sink=000000832871f278 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871f278
+[advise] qi fn = 00007ff72d977e70, calling
+[advise] qi hr=0 iface=000000832871f278
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+MARK sec10 second-advise
+[advise] view=00000225701d6300 sink=000000832871f278 slot scan: 000000832871f278 0000000000000000 0000000000000000 0000000000000000 conn=1
+[advise] reading slot0 of sink 000000832871f278
+[advise] qi fn = 00007ff72d977e70, calling
+[advise] qi hr=0 iface=000000832871f278
+[advise] view=00000225701d6300 sink=000000832871f278 slot scan: 0000000000000000 000000832871f278 0000000000000000 0000000000000000 conn=1
+[advise] reading slot0 of sink 000000832871f278
+[advise] qi fn = 00007ff72d977e70, calling
+[advise] qi hr=0 iface=000000832871f278
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing cp[0] sink[0] 000000832871f278 (cookie 3)
+[dtor] releasing cp[0] sink[1] 000000832871f278 (cookie 2)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+MARK 11 start
+[fire] cp=null
+[reg] ccw=00000225701d62e0 searching iid 77665544
+[reg] registered at slot 0
+[fire] cp=00000225701d6300 conn=0 sinks=0000000000000000,0000000000000000,0000000000000000,0000000000000000
+[advise] view=00000225701d6300 sink=000000832871f1e0 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871f1e0
+[advise] qi fn = 00007ff72d977f60, calling
+[advise] qi hr=0 iface=000000832871f1e0
+[fire] cp=00000225701d6300 conn=1 sinks=000000832871f1e0,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6300 conn=1 sinks=000000832871f1e0,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6300 conn=1 sinks=000000832871f1e0,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6300 conn=1 sinks=000000832871f1e0,0000000000000000,0000000000000000,0000000000000000
+[reg] ccw=00000225701d62e0 searching iid 12345678
+[reg] registered at slot 1
+[advise] view=00000225701d6360 sink=000000832871f158 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871f158
+[advise] qi fn = 00007ff72d977f60, calling
+[advise] qi hr=0 iface=000000832871f158
+[fire] cp=00000225701d6300 conn=1 sinks=000000832871f1e0,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6360 conn=1 sinks=000000832871f158,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6300 conn=0 sinks=0000000000000000,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6360 conn=1 sinks=000000832871f158,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6360 conn=1 sinks=000000832871f158,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d6360 conn=1 sinks=000000832871f158,0000000000000000,0000000000000000,0000000000000000
+[reg] ccw=00000225701d6550 searching iid 77665544
+[reg] registered at slot 0
+[advise] view=00000225701d6570 sink=000000832871f0e8 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871f0e8
+[advise] qi fn = 00007ff72d977f60, calling
+[advise] qi hr=0 iface=000000832871f0e8
+[reg] ccw=00000225701d67c0 searching iid 77665544
+[reg] registered at slot 0
+[advise] view=00000225701d67e0 sink=000000832871f090 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871f090
+[advise] qi fn = 00007ff72d977f60, calling
+[advise] qi hr=0 iface=000000832871f090
+[fire] cp=00000225701d6570 conn=1 sinks=000000832871f0e8,0000000000000000,0000000000000000,0000000000000000
+[fire] cp=00000225701d67e0 conn=1 sinks=000000832871f090,0000000000000000,0000000000000000,0000000000000000
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing cp[0] sink[0] 000000832871f0e8 (cookie 1)
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing cp[0] sink[0] 000000832871f090 (cookie 1)
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing cp[1] sink[0] 000000832871f158 (cookie 1)
+MARK 11b start
+[dsp] cp=null
+[reg] ccw=00000225701d62e0 searching iid 77665544
+[reg] registered at slot 0
+[dsp] cp=00000225701d6300 conn=0 sinks=0000000000000000,0000000000000000,0000000000000000,0000000000000000 cookies=0,0,0,0
+[advise] view=00000225701d6300 sink=000000832871f030 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871f030
+[advise] qi fn = 00007ff72d978180, calling
+[advise] qi hr=0 iface=000000832871f030
+[dsp] cp=00000225701d6300 conn=1 sinks=000000832871f030,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871f030 slot6=00007ff72d978350
+[dsp] cp=00000225701d6300 conn=1 sinks=000000832871f030,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871f030 slot6=00007ff72d978350
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+[dsp] cp=00000225701d6300 conn=1 sinks=000000832871f030,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871f030 slot6=00007ff72d978350
+[dsp] cp=00000225701d6300 conn=1 sinks=000000832871f030,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871f030 slot6=00007ff72d978350
+[dsp] cp=00000225701d6300 conn=1 sinks=000000832871f030,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871f030 slot6=00007ff72d978350
+[dsp] cp=00000225701d6300 conn=1 sinks=000000832871f030,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871f030 slot6=00007ff72d978350
+[reg] ccw=00000225701d62e0 searching iid 12345678
+[reg] registered at slot 1
+[advise] view=00000225701d6360 sink=000000832871ef20 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871ef20
+[advise] qi fn = 00007ff72d978180, calling
+[advise] qi hr=0 iface=000000832871ef20
+[dsp] cp=00000225701d6300 conn=1 sinks=000000832871f030,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871f030 slot6=00007ff72d978350
+[dsp] cp=00000225701d6360 conn=1 sinks=000000832871ef20,0000000000000000,0000000000000000,0000000000000000 cookies=1,0,0,0
+[dsp] calling sink[0] 000000832871ef20 slot6=00007ff72d978350
+[dsp] cp=00000225701d6300 conn=0 sinks=0000000000000000,0000000000000000,0000000000000000,0000000000000000 cookies=0,0,0,0
+MARK 11b-nullargs
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+MARK 11b-nullargs2
+(159b00.159b04): Unknown exception - code 20474343 (first chance)
+MARK 11b-nullargs3
+MARK 11b-teardown
+[dtor] releasing 4 CPs, each up to 4 sinks
+[dtor] releasing cp[1] sink[0] 000000832871ef20 (cookie 1)
+MARK 11c start
+MARK 11c created ccw
+[reg] ccw=00000225701d62e0 searching iid 77665544
+[reg] registered at slot 0
+MARK 11c registered
+MARK 11c cpc ok
+MARK 11c findcp ok
+[advise] view=00000225701d6300 sink=000000832871ee80 slot scan: 0000000000000000 0000000000000000 0000000000000000 0000000000000000 conn=0
+[advise] reading slot0 of sink 000000832871ee80
+[advise] qi fn = 00007ff72d977f60, calling
+[advise] qi hr=0 iface=000000832871ee80
+MARK 11c advise1 ok
+[advise] view=00000225701d6300 sink=000000832871ee48 slot scan: 000000832871ee80 0000000000000000 0000000000000000 0000000000000000 conn=1
+[advise] reading slot0 of sink 000000832871ee48
+[advise] qi fn = 00007ff72d977f60, calling
+[advise] qi hr=0 iface=000000832871ee48
+MARK 11c advise2 ok
+[advise] view=00000225701d6300 sink=000000832871ee10 slot scan: 000000832871ee80 000000832871ee48 0000000000000000 0000000000000000 conn=2
+[advise] reading slot0 of sink 000000832871ee10
+[advise] qi fn = 00007ff72d977f60, calling
+[advise] qi hr=0 iface=000000832871ee10
+(159b00.159b04): Access violation - code c0000005 (first chance)
+First chance exceptions are reported before any exception handling.
+This exception may be expected and handled.
+Unable to get exception context, HRESULT 0x8000FFFF
+*** WARNING: Unable to verify checksum for .exe
+Child-SP          RetAddr               Call Site
+00000083`2871eb98 00007ff7`2d97a584     0x0
+00000083`2871eba0 00007ff7`2d975e22     0xa584
+00000083`2871ecb0 00007ff7`2d971315     0x5e22
+00000083`2871f860 00007ff7`2d971366     0x1315
+00000083`2871f8b0 00007ff9`3dbeccb7     0x1366
+00000083`2871f8e0 00007ff9`3f70ad6c     KERNEL32!BaseThreadInitThunk+0x17
+00000083`2871f910 00000000`00000000     ntdll!RtlUserThreadStart+0x2c
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'

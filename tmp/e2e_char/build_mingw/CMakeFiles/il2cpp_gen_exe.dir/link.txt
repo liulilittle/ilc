@@ -1,0 +1,3 @@
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E rm -f CMakeFiles\il2cpp_gen_exe.dir/objects.a
+C:\PROGRA~1\ming-w64\bin\llvm-ar.exe qc CMakeFiles\il2cpp_gen_exe.dir/objects.a @CMakeFiles\il2cpp_gen_exe.dir\objects1.rsp
+C:\PROGRA~1\ming-w64\bin\G__~1.EXE -Wl,--whole-archive CMakeFiles\il2cpp_gen_exe.dir/objects.a -Wl,--no-whole-archive -o il2cpp_gen_exe.exe -Wl,--out-implib,libil2cpp_gen_exe.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\il2cpp_gen_exe.dir\linklibs.rsp

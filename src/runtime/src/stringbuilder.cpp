@@ -1099,6 +1099,20 @@ Il2CppObject* icall_stringbuilder_remove(Il2CppObject* self, int32_t startIndex,
 }
 
 //------------------------------------------------------------------------------
+// icall_stringbuilder_clear -- Clear() (the netcore21+ audit surface): the
+// used length drops to 0 (the buffer stays allocated -- the .NET contract
+// only requires Length == 0 and the next Append to reuse capacity). Returns
+// self (the fluent StringBuilder).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_clear(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    sb->length = 0;
+    return self;
+}
+
+//------------------------------------------------------------------------------
 // icall_stringbuilder_replace_s_s -- Replace(string, string) (see header).
 // Replaces EVERY non-overlapping occurrence of oldValue (greedy left-to-right
 // scan, like net48) with newValue; a null newValue removes the occurrences.

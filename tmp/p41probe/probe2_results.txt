@@ -1,0 +1,22 @@
+p2_tree_created=True
+p2_c1_ok=True p2_c2_ok=True p2_c3_ok=True
+p2_c1_read4=0 p2_c1_read8=0
+p2_c2_read4=333 p2_c2_read8=333
+p2_c3_read4=0 p2_c3_read8=0
+p2_root_read4=111
+p2_c1_text=C1
+p2_c2_text=C2
+p2_c3_text=C3
+p2_settext_ret=1
+p2_c2_text_after=C2B
+p2_setbold_ret=1
+p2_state_bold=16
+p2_sel_hidden=1
+p2_sel_shown=1
+p2_caret_ok=True
+p2_caret_text=C2B
+p2_caret_is_c2=True
+p2_state_expanded=112
+p2_state_collapsed=82
+p2_tree_destroyed=True
+p2_parent_destroyed=True

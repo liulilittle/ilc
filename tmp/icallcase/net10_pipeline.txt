@@ -1,0 +1,897 @@
+ILC E2E PIPELINE - .NET 10 (net10 CoreLib 10.0.11)
+Date: 2026-08-22
+
+### COMMAND 1: dotnet "C:\Program Files\dotnet\sdk\8.0.205\Roslyn\bincore\csc.dll" -nologo -nostdlib+ -noconfig -target:exe -langversion:latest -out:"E:\il2cpp\tmp\icallcase\icallcase_net10.dll" -r:"E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.CoreLib.dll" -r:"E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Console.dll" -r:"E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.dll" "E:\il2cpp\tmp\icallcase\icallcase.cs"
+=== STEP 1: csc compile against net10 ===
+EXITCODE=0
+
+### COMMAND 2: dotnet E:\il2cpp\src\il2cppc\bin\Release\net8.0\il2cppc.dll "E:\il2cpp\tmp\icallcase\icallcase_net10.dll" "E:\il2cpp\tmp\icallcase\gen_net10"
+=== STEP 2: il2cppc transpile ===
+symbols: no Portable PDB found -> no #line C# line directives
+string pool: 138 distinct literal(s) from 159 site(s) across 8 method(s) (0 constant concat(s) folded, 21 duplicate site(s) deduped)
+string pool table: g_strPool[138] -> include/internal/string-pool.h
+resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
+licm: 0 invariant length read(s) hoistable across 8 method(s)
+inline: 1 simple call site(s) inlineable across 8 method(s)
+tempslot: 298 temp slot(s) -> 219 with reuse across 8 method(s)
+generated 6 type(s) -> E:\il2cpp\tmp\icallcase\gen_net10
+EXITCODE=0
+
+### COMMAND 3a: cmake -S E:\il2cpp\tmp\icallcase\gen_net10 -B E:\il2cpp\tmp\icallcase\build_net10 -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+### COMMAND 3b: cmake --build E:\il2cpp\tmp\icallcase\build_net10
+=== STEP 3a: cmake configure ===
+-- The CXX compiler identification is Clang 17.0.6
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/ming-w64/bin/g++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Looking for C++ include pthread.h
+-- Looking for C++ include pthread.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+-- Looking for pthread_create in pthreads
+-- Looking for pthread_create in pthreads - not found
+-- Looking for pthread_create in pthread
+-- Looking for pthread_create in pthread - found
+-- Found Threads: TRUE  
+-- Configuring done
+-- Generating done
+-- Build files have been written to: E:/il2cpp/tmp/icallcase/build_net10
+EXITCODE=0
+=== STEP 3b: cmake build ===
+[  1%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/aes.cpp.obj
+[  2%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/allocator.cpp.obj
+[  2%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/api.cpp.obj
+[  3%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/array.cpp.obj
+[  4%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/arrayext.cpp.obj
+[  4%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/arrayext2.cpp.obj
+[  5%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/arrayextra.cpp.obj
+[  6%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/arraylist.cpp.obj
+[  7%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/arraysort.cpp.obj
+[  7%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/attribute.cpp.obj
+[  8%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/biginteger.cpp.obj
+[  9%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/binaryio.cpp.obj
+[  9%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/bitconverter.cpp.obj
+[ 10%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/boxing.cpp.obj
+[ 11%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/boxingext.cpp.obj
+[ 11%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/boxingext2.cpp.obj
+[ 12%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/buffer.cpp.obj
+[ 13%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/calendar.cpp.obj
+[ 13%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/char.cpp.obj
+[ 14%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/com.cpp.obj
+[ 15%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/concat.cpp.obj
+[ 15%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/console.cpp.obj
+[ 16%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/conv.cpp.obj
+[ 17%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/convert.cpp.obj
+[ 17%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/convertbase64.cpp.obj
+[ 18%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/crypto_obj.cpp.obj
+[ 19%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/cultureinfo.cpp.obj
+[ 20%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/datatable.cpp.obj
+[ 20%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/debugext.cpp.obj
+[ 21%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/debuggerext.cpp.obj
+[ 22%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/decimal.cpp.obj
+[ 22%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/decimal_format.cpp.obj
+[ 23%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/deflate.cpp.obj
+[ 24%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/delegate.cpp.obj
+[ 24%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/delegateext.cpp.obj
+E:\il2cpp\src\runtime\src\delegateext.cpp:552:63: warning: unused parameter 'd' [-Wunused-parameter]
+  552 | Il2CppObject* icall_delegate_find_method_handle(Il2CppObject* d)
+      |                                                               ^
+E:\il2cpp\src\runtime\src\delegateext.cpp:562:75: warning: unused parameter 'target' [-Wunused-parameter]
+  562 | Il2CppObject* icall_delegate_adjust_target(Il2CppObject* d, Il2CppObject* target)
+      |                                                                           ^
+2 warnings generated.
+[ 25%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/dependhandle.cpp.obj
+[ 26%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/dictsi.cpp.obj
+[ 26%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/dictsi_obj.cpp.obj
+[ 27%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/dtoffset.cpp.obj
+[ 28%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/encoding.cpp.obj
+[ 28%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/enumext.cpp.obj
+[ 29%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/environment.cpp.obj
+[ 30%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/exception.cpp.obj
+[ 30%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/exceptionext.cpp.obj
+[ 31%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/exprtree.cpp.obj
+[ 32%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/format.cpp.obj
+[ 33%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/formatext.cpp.obj
+[ 33%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/framestack.cpp.obj
+[ 34%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/gc.cpp.obj
+[ 35%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/gcapi.cpp.obj
+[ 35%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/gcext.cpp.obj
+[ 36%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/gchandle.cpp.obj
+[ 37%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/guid.cpp.obj
+[ 37%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/hashset.cpp.obj
+[ 38%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/hashtable.cpp.obj
+[ 39%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/hmac.cpp.obj
+[ 39%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/http.cpp.obj
+[ 40%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/icallb.cpp.obj
+[ 41%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/interlocked.cpp.obj
+[ 41%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/intptr.cpp.obj
+[ 42%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/invoker.cpp.obj
+[ 43%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/io.cpp.obj
+[ 44%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/ipaddr.cpp.obj
+[ 44%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/linq.cpp.obj
+[ 45%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/linq_map.cpp.obj
+[ 46%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/linq_sort.cpp.obj
+[ 46%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/listi4.cpp.obj
+[ 47%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/marshalext.cpp.obj
+[ 48%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/marshalext2.cpp.obj
+[ 48%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/marshalext3.cpp.obj
+[ 49%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/marshalext4.cpp.obj
+[ 50%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/marshalext5.cpp.obj
+[ 50%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/math.cpp.obj
+[ 51%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/mathext.cpp.obj
+[ 52%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/mathf.cpp.obj
+[ 52%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/md5.cpp.obj
+[ 53%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/metadata.cpp.obj
+[ 54%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/monitor.cpp.obj
+[ 54%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/numberformat.cpp.obj
+[ 55%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/object.cpp.obj
+[ 56%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/parse.cpp.obj
+[ 57%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/pathproc.cpp.obj
+[ 57%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/pinvoke.cpp.obj
+[ 58%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/pinvokecb.cpp.obj
+[ 59%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/pinvokeext.cpp.obj
+[ 59%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/pinvokestruct.cpp.obj
+[ 60%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/platform_posix.cpp.obj
+[ 61%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/platform_win.cpp.obj
+[ 61%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/random.cpp.obj
+[ 62%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/reflect_base.cpp.obj
+[ 63%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/reflecthandle.cpp.obj
+[ 63%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/regex_api.cpp.obj
+[ 64%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/regex_match.cpp.obj
+[ 65%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/regex_parse.cpp.obj
+[ 65%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/resourcemanager.cpp.obj
+[ 66%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/resources.cpp.obj
+[ 67%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/rng.cpp.obj
+[ 67%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/runtime.cpp.obj
+[ 68%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/safehandle.cpp.obj
+[ 69%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/sha1.cpp.obj
+[ 70%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/sha256.cpp.obj
+[ 70%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/sha512.cpp.obj
+[ 71%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/socket.cpp.obj
+[ 72%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/sortedlist.cpp.obj
+[ 72%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stackqueue.cpp.obj
+[ 73%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stopwatch.cpp.obj
+[ 74%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/streamio.cpp.obj
+[ 74%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/string.cpp.obj
+[ 75%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stringbuilder.cpp.obj
+[ 76%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stringext.cpp.obj
+[ 76%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stringext2.cpp.obj
+[ 77%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stringext3.cpp.obj
+[ 78%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stringintern.cpp.obj
+[ 78%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stringrw.cpp.obj
+[ 79%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/stubs.cpp.obj
+E:\il2cpp\src\runtime\src\stubs.cpp:17:72: warning: unused parameter 'arr' [-Wunused-parameter]
+   17 | int32_t icall_array_get_cor_element_type_of_element_type(Il2CppObject* arr)
+      |                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:23:51: warning: unused parameter 'length' [-Wunused-parameter]
+   23 | Il2CppObject* icall_gc_allocate_new_array(int32_t length, int32_t elementType)
+      |                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:23:67: warning: unused parameter 'elementType' [-Wunused-parameter]
+   23 | Il2CppObject* icall_gc_allocate_new_array(int32_t length, int32_t elementType)
+      |                                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:29:71: warning: unused parameter 'self' [-Wunused-parameter]
+   29 | int32_t icall_com_aware_weak_reference_has_interop_info(Il2CppObject* self)
+      |                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:35:69: warning: unused parameter 'self' [-Wunused-parameter]
+   35 | void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject* self)
+      |                                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:47:63: warning: unused parameter 'handle' [-Wunused-parameter]
+   47 | Il2CppObject* icall_type_get_type_from_handle_unsafe(intptr_t handle)
+      |                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:77:73: warning: unused parameter 'self' [-Wunused-parameter]
+   77 | Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject* self, int32_t skipFrames, int32_t fNeedFileInfo)
+      |                                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:77:87: warning: unused parameter 'skipFrames' [-Wunused-parameter]
+   77 | Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject* self, int32_t skipFrames, int32_t fNeedFileInfo)
+      |                                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:77:107: warning: unused parameter 'fNeedFileInfo' [-Wunused-parameter]
+   77 | Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject* self, int32_t skipFrames, int32_t fNeedFileInfo)
+      |                                                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:83:57: warning: unused parameter 'str' [-Wunused-parameter]
+   83 | Il2CppObject* icall_number_format_decimal(Il2CppObject* str, int32_t digits) { return nullptr; }
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:83:70: warning: unused parameter 'digits' [-Wunused-parameter]
+   83 | Il2CppObject* icall_number_format_decimal(Il2CppObject* str, int32_t digits) { return nullptr; }
+      |                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:84:49: warning: unused parameter 'value' [-Wunused-parameter]
+   84 | Il2CppObject* icall_number_format_double(double value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:84:70: warning: unused parameter 'fmt' [-Wunused-parameter]
+   84 | Il2CppObject* icall_number_format_double(double value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:84:89: warning: unused parameter 'provider' [-Wunused-parameter]
+   84 | Il2CppObject* icall_number_format_double(double value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:85:49: warning: unused parameter 'value' [-Wunused-parameter]
+   85 | Il2CppObject* icall_number_format_int32(int32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:85:70: warning: unused parameter 'fmt' [-Wunused-parameter]
+   85 | Il2CppObject* icall_number_format_int32(int32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:85:89: warning: unused parameter 'provider' [-Wunused-parameter]
+   85 | Il2CppObject* icall_number_format_int32(int32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:86:51: warning: unused parameter 'value' [-Wunused-parameter]
+   86 | Il2CppObject* icall_number_format_uint32(uint32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:86:72: warning: unused parameter 'fmt' [-Wunused-parameter]
+   86 | Il2CppObject* icall_number_format_uint32(uint32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:86:91: warning: unused parameter 'provider' [-Wunused-parameter]
+   86 | Il2CppObject* icall_number_format_uint32(uint32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:87:49: warning: unused parameter 'value' [-Wunused-parameter]
+   87 | Il2CppObject* icall_number_format_int64(int64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:87:70: warning: unused parameter 'fmt' [-Wunused-parameter]
+   87 | Il2CppObject* icall_number_format_int64(int64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:87:89: warning: unused parameter 'provider' [-Wunused-parameter]
+   87 | Il2CppObject* icall_number_format_int64(int64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:88:51: warning: unused parameter 'value' [-Wunused-parameter]
+   88 | Il2CppObject* icall_number_format_uint64(uint64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:88:72: warning: unused parameter 'fmt' [-Wunused-parameter]
+   88 | Il2CppObject* icall_number_format_uint64(uint64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:88:91: warning: unused parameter 'provider' [-Wunused-parameter]
+   88 | Il2CppObject* icall_number_format_uint64(uint64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:89:48: warning: unused parameter 'value' [-Wunused-parameter]
+   89 | Il2CppObject* icall_number_format_single(float value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:89:69: warning: unused parameter 'fmt' [-Wunused-parameter]
+   89 | Il2CppObject* icall_number_format_single(float value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:89:88: warning: unused parameter 'provider' [-Wunused-parameter]
+   89 | Il2CppObject* icall_number_format_single(float value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
+      |                                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:90:58: warning: unused parameter 'str' [-Wunused-parameter]
+   90 | void icall_number_number_buffer_to_decimal(Il2CppObject* str, Il2CppObject* decimal) {}
+      |                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:90:77: warning: unused parameter 'decimal' [-Wunused-parameter]
+   90 | void icall_number_number_buffer_to_decimal(Il2CppObject* str, Il2CppObject* decimal) {}
+      |                                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:91:59: warning: unused parameter 'str' [-Wunused-parameter]
+   91 | double icall_number_number_buffer_to_double(Il2CppObject* str) { return 0.0; }
+      |                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:92:57: warning: unused parameter 'options' [-Wunused-parameter]
+   92 | Il2CppObject* icall_number_format_number_buffer(int32_t options, int32_t numBase) { return nullptr; }
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:92:74: warning: unused parameter 'numBase' [-Wunused-parameter]
+   92 | Il2CppObject* icall_number_format_number_buffer(int32_t options, int32_t numBase) { return nullptr; }
+      |                                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:95:58: warning: unused parameter 'str' [-Wunused-parameter]
+   95 | int64_t icall_parse_numbers_string_to_long(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+      |                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:95:71: warning: unused parameter 'radix' [-Wunused-parameter]
+   95 | int64_t icall_parse_numbers_string_to_long(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+      |                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:95:86: warning: unused parameter 'flags' [-Wunused-parameter]
+   95 | int64_t icall_parse_numbers_string_to_long(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+      |                                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:96:57: warning: unused parameter 'str' [-Wunused-parameter]
+   96 | int32_t icall_parse_numbers_string_to_int(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:96:70: warning: unused parameter 'radix' [-Wunused-parameter]
+   96 | int32_t icall_parse_numbers_string_to_int(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+      |                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:96:85: warning: unused parameter 'flags' [-Wunused-parameter]
+   96 | int32_t icall_parse_numbers_string_to_int(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
+      |                                                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:97:57: warning: unused parameter 'value' [-Wunused-parameter]
+   97 | Il2CppObject* icall_parse_numbers_int_to_string(int32_t value, int32_t radix, int32_t flags) { return nullptr; }
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:97:72: warning: unused parameter 'radix' [-Wunused-parameter]
+   97 | Il2CppObject* icall_parse_numbers_int_to_string(int32_t value, int32_t radix, int32_t flags) { return nullptr; }
+      |                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:97:87: warning: unused parameter 'flags' [-Wunused-parameter]
+   97 | Il2CppObject* icall_parse_numbers_int_to_string(int32_t value, int32_t radix, int32_t flags) { return nullptr; }
+      |                                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:98:58: warning: unused parameter 'value' [-Wunused-parameter]
+   98 | Il2CppObject* icall_parse_numbers_long_to_string(int64_t value, int32_t radix, int32_t flags) { return nullptr; }
+      |                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:98:73: warning: unused parameter 'radix' [-Wunused-parameter]
+   98 | Il2CppObject* icall_parse_numbers_long_to_string(int64_t value, int32_t radix, int32_t flags) { return nullptr; }
+      |                                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:98:88: warning: unused parameter 'flags' [-Wunused-parameter]
+   98 | Il2CppObject* icall_parse_numbers_long_to_string(int64_t value, int32_t radix, int32_t flags) { return nullptr; }
+      |                                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:104:81: warning: unused parameter 'year' [-Wunused-parameter]
+  104 | Il2CppObject* icall_current_system_timezone_native_get_daylight_changes(int32_t year) { return nullptr; }
+      |                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:107:56: warning: unused parameter 'lcid' [-Wunused-parameter]
+  107 | int32_t icall_culture_data_lcid_to_locale_name(int32_t lcid) { return 0; }
+      |                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:108:62: warning: unused parameter 'name' [-Wunused-parameter]
+  108 | int32_t icall_culture_data_locale_name_to_lcid(Il2CppString* name) { return 0; }
+      |                                                              ^
+E:\il2cpp\src\runtime\src\stubs.cpp:109:64: warning: unused parameter 'self' [-Wunused-parameter]
+  109 | void icall_culture_data_native_init_culture_data(Il2CppObject* self) {}
+      |                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:110:85: warning: unused parameter 'self' [-Wunused-parameter]
+  110 | Il2CppObject* icall_culture_data_native_get_number_format_info_values(Il2CppObject* self) { return nullptr; }
+      |                                                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:113:63: warning: unused parameter 'flag' [-Wunused-parameter]
+  113 | void icall_code_access_security_engine_special_demand(int32_t flag) {}
+      |                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:116:69: warning: unused parameter 'flag' [-Wunused-parameter]
+  116 | int32_t icall_code_access_security_engine_check_n_return_so(int32_t flag) { return 0; }
+      |                                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:119:81: warning: unused parameter 'self' [-Wunused-parameter]
+  119 | Il2CppObject* icall_compressed_stack_get_delayed_compressed_stack(Il2CppObject* self) { return nullptr; }
+      |                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:120:76: warning: unused parameter 'self' [-Wunused-parameter]
+  120 | void icall_compressed_stack_destroy_delayed_compressed_stack(Il2CppObject* self) {}
+      |                                                                            ^
+E:\il2cpp\src\runtime\src\stubs.cpp:121:60: warning: unused parameter 'self' [-Wunused-parameter]
+  121 | void icall_compressed_stack_destroy_dcs_list(Il2CppObject* self) {}
+      |                                                            ^
+E:\il2cpp\src\runtime\src\stubs.cpp:122:60: warning: unused parameter 'self' [-Wunused-parameter]
+  122 | int32_t icall_compressed_stack_get_dcs_count(Il2CppObject* self) { return 0; }
+      |                                                            ^
+E:\il2cpp\src\runtime\src\stubs.cpp:125:84: warning: unused parameter 'self' [-Wunused-parameter]
+  125 | int32_t icall_domain_compressed_stack_create_domain_compressed_stack(Il2CppObject* self) { return 0; }
+      |                                                                                    ^
+E:\il2cpp\src\runtime\src\stubs.cpp:126:86: warning: unused parameter 'self' [-Wunused-parameter]
+  126 | int32_t icall_domain_compressed_stack_get_domain_compressed_stack_size(Il2CppObject* self) { return 0; }
+      |                                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:127:87: warning: unused parameter 'self' [-Wunused-parameter]
+  127 | int32_t icall_domain_compressed_stack_get_domain_compressed_stack_flags(Il2CppObject* self) { return 0; }
+      |                                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:128:99: warning: unused parameter 'self' [-Wunused-parameter]
+  128 | Il2CppObject* icall_domain_compressed_stack_get_domain_compressed_stack_stack_blobs(Il2CppObject* self) { return nullptr; }
+      |                                                                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:137:63: warning: unused parameter 'self' [-Wunused-parameter]
+  137 | int32_t icall_overlapped_data_get_pending_count(Il2CppObject* self) { return 0; }
+      |                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:138:61: warning: unused parameter 'self' [-Wunused-parameter]
+  138 | int32_t icall_overlapped_data_get_wait_handle(Il2CppObject* self) { return 0; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:139:60: warning: unused parameter 'self' [-Wunused-parameter]
+  139 | int32_t icall_overlapped_data_get_error_code(Il2CppObject* self) { return 0; }
+      |                                                            ^
+E:\il2cpp\src\runtime\src\stubs.cpp:142:59: warning: unused parameter 'self' [-Wunused-parameter]
+  142 | Il2CppObject* icall_crypto_utils_create_csp(Il2CppObject* self) { return nullptr; }
+      |                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:143:61: warning: unused parameter 'self' [-Wunused-parameter]
+  143 | Il2CppObject* icall_crypto_utils_decrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:143:81: warning: unused parameter 'data' [-Wunused-parameter]
+  143 | Il2CppObject* icall_crypto_utils_decrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:144:61: warning: unused parameter 'self' [-Wunused-parameter]
+  144 | Il2CppObject* icall_crypto_utils_encrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:144:81: warning: unused parameter 'data' [-Wunused-parameter]
+  144 | Il2CppObject* icall_crypto_utils_encrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:145:59: warning: unused parameter 'self' [-Wunused-parameter]
+  145 | Il2CppObject* icall_crypto_utils_export_key(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
+      |                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:145:79: warning: unused parameter 'password' [-Wunused-parameter]
+  145 | Il2CppObject* icall_crypto_utils_export_key(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
+      |                                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:146:55: warning: unused parameter 'keySize' [-Wunused-parameter]
+  146 | Il2CppObject* icall_crypto_utils_generate_key(int32_t keySize) { return nullptr; }
+      |                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:148:66: warning: unused parameter 'self' [-Wunused-parameter]
+  148 | Il2CppObject* icall_crypto_utils_get_key_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:148:86: warning: unused parameter 'name' [-Wunused-parameter]
+  148 | Il2CppObject* icall_crypto_utils_get_key_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
+      |                                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:149:74: warning: unused parameter 'self' [-Wunused-parameter]
+  149 | Il2CppObject* icall_crypto_utils_get_key_set_security_info(Il2CppObject* self) { return nullptr; }
+      |                                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:150:71: warning: unused parameter 'self' [-Wunused-parameter]
+  150 | Il2CppObject* icall_crypto_utils_get_provider_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
+      |                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:150:91: warning: unused parameter 'name' [-Wunused-parameter]
+  150 | Il2CppObject* icall_crypto_utils_get_provider_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
+      |                                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:151:61: warning: unused parameter 'self' [-Wunused-parameter]
+  151 | Il2CppObject* icall_crypto_utils_get_user_key(Il2CppObject* self) { return nullptr; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:152:64: warning: unused parameter 'self' [-Wunused-parameter]
+  152 | Il2CppObject* icall_crypto_utils_import_bulk_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:152:84: warning: unused parameter 'data' [-Wunused-parameter]
+  152 | Il2CppObject* icall_crypto_utils_import_bulk_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                                                    ^
+E:\il2cpp\src\runtime\src\stubs.cpp:153:64: warning: unused parameter 'self' [-Wunused-parameter]
+  153 | Il2CppObject* icall_crypto_utils_import_csp_blob(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:153:84: warning: unused parameter 'data' [-Wunused-parameter]
+  153 | Il2CppObject* icall_crypto_utils_import_csp_blob(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                                                    ^
+E:\il2cpp\src\runtime\src\stubs.cpp:154:59: warning: unused parameter 'self' [-Wunused-parameter]
+  154 | Il2CppObject* icall_crypto_utils_import_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:154:79: warning: unused parameter 'data' [-Wunused-parameter]
+  154 | Il2CppObject* icall_crypto_utils_import_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+      |                                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:156:57: warning: unused parameter 'self' [-Wunused-parameter]
+  156 | Il2CppObject* icall_crypto_utils_open_csp(Il2CppObject* self, int32_t flags) { return nullptr; }
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:156:71: warning: unused parameter 'flags' [-Wunused-parameter]
+  156 | Il2CppObject* icall_crypto_utils_open_csp(Il2CppObject* self, int32_t flags) { return nullptr; }
+      |                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:157:60: warning: unused parameter 'self' [-Wunused-parameter]
+  157 | Il2CppObject* icall_crypto_utils_acquire_csp(Il2CppObject* self) { return nullptr; }
+      |                                                            ^
+E:\il2cpp\src\runtime\src\stubs.cpp:158:71: warning: unused parameter 'self' [-Wunused-parameter]
+  158 | Il2CppObject* icall_x509_utils_add_certificate_to_store(Il2CppObject* self, Il2CppObject* cert) { return nullptr; }
+      |                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:158:91: warning: unused parameter 'cert' [-Wunused-parameter]
+  158 | Il2CppObject* icall_x509_utils_add_certificate_to_store(Il2CppObject* self, Il2CppObject* cert) { return nullptr; }
+      |                                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:159:74: warning: unused parameter 'self' [-Wunused-parameter]
+  159 | Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
+      |                                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:159:94: warning: unused parameter 'password' [-Wunused-parameter]
+  159 | Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
+      |                                                                                              ^
+E:\il2cpp\src\runtime\src\stubs.cpp:160:64: warning: unused parameter 'self' [-Wunused-parameter]
+  160 | Il2CppObject* icall_x509_utils_get_cert_raw_data(Il2CppObject* self) { return nullptr; }
+      |                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:161:65: warning: unused parameter 'self' [-Wunused-parameter]
+  161 | Il2CppObject* icall_x509_utils_get_date_not_after(Il2CppObject* self) { return nullptr; }
+      |                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:164:66: warning: unused parameter 'self' [-Wunused-parameter]
+  164 | Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject* self) { return nullptr; }
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:165:62: warning: unused parameter 'self' [-Wunused-parameter]
+  165 | Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject* self) { return nullptr; }
+      |                                                              ^
+E:\il2cpp\src\runtime\src\stubs.cpp:166:65: warning: unused parameter 'self' [-Wunused-parameter]
+  166 | Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject* self) { return nullptr; }
+      |                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:167:72: warning: unused parameter 'self' [-Wunused-parameter]
+  167 | Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject* self) { return nullptr; }
+      |                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:168:67: warning: unused parameter 'self' [-Wunused-parameter]
+  168 | Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject* self) { return nullptr; }
+      |                                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:169:63: warning: unused parameter 'self' [-Wunused-parameter]
+  169 | Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject* self) { return nullptr; }
+      |                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:170:64: warning: unused parameter 'self' [-Wunused-parameter]
+  170 | Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject* self) { return nullptr; }
+      |                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:171:61: warning: unused parameter 'self' [-Wunused-parameter]
+  171 | Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject* self) { return nullptr; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:172:61: warning: unused parameter 'self' [-Wunused-parameter]
+  172 | int32_t icall_x509_utils_query_cert_blob_type(Il2CppObject* self) { return 0; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:173:61: warning: unused parameter 'path' [-Wunused-parameter]
+  173 | int32_t icall_x509_utils_query_cert_file_type(Il2CppString* path) { return 0; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:176:79: warning: unused parameter 'name' [-Wunused-parameter]
+  176 | Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString* name) { return nullptr; }
+      |                                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:182:53: warning: unused parameter 'ticks' [-Wunused-parameter]
+  182 | int32_t icall_datetime_validate_system_time(int64_t ticks) { return 1; }
+      |                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:188:62: warning: unused parameter 'str1' [-Wunused-parameter]
+  188 | int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+      |                                                              ^
+E:\il2cpp\src\runtime\src\stubs.cpp:188:82: warning: unused parameter 'str2' [-Wunused-parameter]
+  188 | int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+      |                                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:188:96: warning: unused parameter 'offset1' [-Wunused-parameter]
+  188 | int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+      |                                                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:188:113: warning: unused parameter 'count1' [-Wunused-parameter]
+  188 | int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+      |                                                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:188:129: warning: unused parameter 'offset2' [-Wunused-parameter]
+  188 | int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+      |                                                                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:188:146: warning: unused parameter 'count2' [-Wunused-parameter]
+  188 | int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
+      |                                                                                                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:189:74: warning: unused parameter 'str' [-Wunused-parameter]
+  189 | int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString* str, Il2CppString* value) { return 0; }
+      |                                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:189:93: warning: unused parameter 'value' [-Wunused-parameter]
+  189 | int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString* str, Il2CppString* value) { return 0; }
+      |                                                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:190:72: warning: unused parameter 'str' [-Wunused-parameter]
+  190 | Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str) { return nullptr; }
+      |                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:210:59: warning: unused parameter 'self' [-Wunused-parameter]
+  210 | Il2CppObject* icall_object_memberwise_clone(Il2CppObject* self) { return nullptr; }
+      |                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:211:70: warning: unused parameter 'arr' [-Wunused-parameter]
+  211 | Il2CppObject* icall_array_get_data_ptr_offset_internal(Il2CppObject* arr) { return nullptr; }
+      |                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:212:55: warning: unused parameter 'str' [-Wunused-parameter]
+  212 | Il2CppObject* icall_string_is_fast_sort(Il2CppString* str) { return nullptr; }
+      |                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:213:45: warning: unused parameter 'str' [-Wunused-parameter]
+  213 | int32_t icall_string_is_ascii(Il2CppString* str) { return 1; }
+      |                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:215:59: warning: unused parameter 'd1' [-Wunused-parameter]
+  215 | int32_t icall_delegate_internal_equal_types(Il2CppObject* d1, Il2CppObject* d2) { return 1; }
+      |                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:215:77: warning: unused parameter 'd2' [-Wunused-parameter]
+  215 | int32_t icall_delegate_internal_equal_types(Il2CppObject* d1, Il2CppObject* d2) { return 1; }
+      |                                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:216:70: warning: unused parameter 'd1' [-Wunused-parameter]
+  216 | int32_t icall_delegate_compare_unmanaged_function_ptrs(Il2CppObject* d1, Il2CppObject* d2) { return 0; }
+      |                                                                      ^
+E:\il2cpp\src\runtime\src\stubs.cpp:216:88: warning: unused parameter 'd2' [-Wunused-parameter]
+  216 | int32_t icall_delegate_compare_unmanaged_function_ptrs(Il2CppObject* d1, Il2CppObject* d2) { return 0; }
+      |                                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:217:53: warning: unused parameter 'src' [-Wunused-parameter]
+  217 | void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+      |                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:217:66: warning: unused parameter 'srcOffset' [-Wunused-parameter]
+  217 | void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:217:91: warning: unused parameter 'dst' [-Wunused-parameter]
+  217 | void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+      |                                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:217:104: warning: unused parameter 'dstOffset' [-Wunused-parameter]
+  217 | void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+      |                                                                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:217:123: warning: unused parameter 'count' [-Wunused-parameter]
+  217 | void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+      |                                                                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:219:52: warning: unused parameter 'd' [-Wunused-parameter]
+  219 | int32_t icall_decimal_fcall_to_int32(Il2CppObject* d) { return 0; }
+      |                                                    ^
+E:\il2cpp\src\runtime\src\stubs.cpp:220:81: warning: unused parameter 'obj' [-Wunused-parameter]
+  220 | int32_t icall_default_binder_can_convert_primitive_object_to_type(Il2CppObject* obj, int32_t targetType) { return 0; }
+      |                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:220:94: warning: unused parameter 'targetType' [-Wunused-parameter]
+  220 | int32_t icall_default_binder_can_convert_primitive_object_to_type(Il2CppObject* obj, int32_t targetType) { return 0; }
+      |                                                                                              ^
+E:\il2cpp\src\runtime\src\stubs.cpp:221:68: warning: unused parameter 'enumType' [-Wunused-parameter]
+  221 | Il2CppObject* icall_enum_internal_get_underlying_type(Il2CppClass* enumType) { return nullptr; }
+      |                                                                    ^
+E:\il2cpp\src\runtime\src\stubs.cpp:222:76: warning: unused parameter 'self' [-Wunused-parameter]
+  222 | Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self, Il2CppString* name, Il2CppObject* value) { return nullptr; }
+      |                                                                            ^
+E:\il2cpp\src\runtime\src\stubs.cpp:222:96: warning: unused parameter 'name' [-Wunused-parameter]
+  222 | Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self, Il2CppString* name, Il2CppObject* value) { return nullptr; }
+      |                                                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:222:116: warning: unused parameter 'value' [-Wunused-parameter]
+  222 | Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self, Il2CppString* name, Il2CppObject* value) { return nullptr; }
+      |                                                                                                                    ^
+E:\il2cpp\src\runtime\src\stubs.cpp:223:75: warning: unused parameter 'self' [-Wunused-parameter]
+  223 | Il2CppObject* icall_marshal_by_ref_object_get_com_i_unknown(Il2CppObject* self) { return nullptr; }
+      |                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:224:77: warning: unused parameter 'str' [-Wunused-parameter]
+  224 | Il2CppObject* icall_missing_member_exception_format_signature(Il2CppString* str) { return nullptr; }
+      |                                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:225:48: warning: unused parameter 't1' [-Wunused-parameter]
+  225 | int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2) { return 0; }
+      |                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:225:66: warning: unused parameter 't2' [-Wunused-parameter]
+  225 | int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2) { return 0; }
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:226:53: warning: unused parameter 'ptr' [-Wunused-parameter]
+  226 | int32_t icall_value_type_get_hash_code_of_ptr(void* ptr) { return 0; }
+      |                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:231:57: warning: unused parameter 'flag' [-Wunused-parameter]
+  231 | void icall_security_manager_set_thread_security(int32_t flag) {}
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:234:81: warning: unused parameter 'calendarId' [-Wunused-parameter]
+  234 | int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
+      |                                                                                 ^
+E:\il2cpp\src\runtime\src\stubs.cpp:235:78: warning: unused parameter 'calendarId' [-Wunused-parameter]
+  235 | Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t calendarId) { return nullptr; }
+      |                                                                              ^
+E:\il2cpp\src\runtime\src\stubs.cpp:236:82: warning: unused parameter 'lcid' [-Wunused-parameter]
+  236 | Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t lcid) { return nullptr; }
+      |                                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:239:67: warning: unused parameter 'name' [-Wunused-parameter]
+  239 | int32_t icall_environment_get_resource_from_default(Il2CppString* name, Il2CppString* value) { return 0; }
+      |                                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:239:87: warning: unused parameter 'value' [-Wunused-parameter]
+  239 | int32_t icall_environment_get_resource_from_default(Il2CppString* name, Il2CppString* value) { return 0; }
+      |                                                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:240:64: warning: unused parameter 'flag' [-Wunused-parameter]
+  240 | int32_t icall_environment_get_compatibility_flag(Il2CppString* flag) { return 0; }
+      |                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:241:67: warning: unused parameter 'calendarId' [-Wunused-parameter]
+  241 | int32_t icall_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
+      |                                                                   ^
+E:\il2cpp\src\runtime\src\stubs.cpp:242:58: warning: unused parameter 'calendarId' [-Wunused-parameter]
+  242 | int32_t icall_calendar_data_native_get_calendars(int32_t calendarId, int32_t* calendars) { return 0; }
+      |                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:242:79: warning: unused parameter 'calendars' [-Wunused-parameter]
+  242 | int32_t icall_calendar_data_native_get_calendars(int32_t calendarId, int32_t* calendars) { return 0; }
+      |                                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:243:66: warning: unused parameter 'lcid' [-Wunused-parameter]
+  243 | int32_t icall_culture_info_native_get_locale_info_ex_int(int32_t lcid) { return 0; }
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:244:58: warning: unused parameter 'lcid' [-Wunused-parameter]
+  244 | void icall_culture_info_native_set_thread_locale(int32_t lcid) {}
+      |                                                          ^
+E:\il2cpp\src\runtime\src\stubs.cpp:247:45: warning: unused parameter 'name' [-Wunused-parameter]
+  247 | void icall_log_add_log_switch(Il2CppString* name, int32_t level) {}
+      |                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:247:59: warning: unused parameter 'level' [-Wunused-parameter]
+  247 | void icall_log_add_log_switch(Il2CppString* name, int32_t level) {}
+      |                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:248:48: warning: unused parameter 'name' [-Wunused-parameter]
+  248 | void icall_log_modify_log_switch(Il2CppString* name, int32_t level) {}
+      |                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:248:62: warning: unused parameter 'level' [-Wunused-parameter]
+  248 | void icall_log_modify_log_switch(Il2CppString* name, int32_t level) {}
+      |                                                              ^
+E:\il2cpp\src\runtime\src\stubs.cpp:251:56: warning: unused parameter 'millisecondsTimeout' [-Wunused-parameter]
+  251 | void icall_synchronization_context_wait_helper(int32_t millisecondsTimeout) {}
+      |                                                        ^
+E:\il2cpp\src\runtime\src\stubs.cpp:258:61: warning: unused parameter 'id' [-Wunused-parameter]
+  258 | int32_t icall_domain_compressed_stack_ignore_domain(int32_t id) { return 0; }
+      |                                                             ^
+E:\il2cpp\src\runtime\src\stubs.cpp:265:53: warning: unused parameter 'status' [-Wunused-parameter]
+  265 | void icall_thread_pool_report_thread_status(int32_t status) {}
+      |                                                     ^
+E:\il2cpp\src\runtime\src\stubs.cpp:274:52: warning: unused parameter 'id' [-Wunused-parameter]
+  274 | int32_t icall_appdomain_is_domain_id_valid(int32_t id) { return 0; }
+      |                                                    ^
+E:\il2cpp\src\runtime\src\stubs.cpp:278:55: warning: unused parameter 'name' [-Wunused-parameter]
+  278 | int32_t icall_appdomain_n_create_domain(Il2CppString* name, Il2CppObject* info, Il2CppObject* evidence) { return 0; }
+      |                                                       ^
+E:\il2cpp\src\runtime\src\stubs.cpp:278:75: warning: unused parameter 'info' [-Wunused-parameter]
+  278 | int32_t icall_appdomain_n_create_domain(Il2CppString* name, Il2CppObject* info, Il2CppObject* evidence) { return 0; }
+      |                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:278:95: warning: unused parameter 'evidence' [-Wunused-parameter]
+  278 | int32_t icall_appdomain_n_create_domain(Il2CppString* name, Il2CppObject* info, Il2CppObject* evidence) { return 0; }
+      |                                                                                               ^
+E:\il2cpp\src\runtime\src\stubs.cpp:279:57: warning: unused parameter 'id' [-Wunused-parameter]
+  279 | Il2CppObject* icall_appdomain_n_create_instance(int32_t id, Il2CppString* typeName) { return nullptr; }
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:279:75: warning: unused parameter 'typeName' [-Wunused-parameter]
+  279 | Il2CppObject* icall_appdomain_n_create_instance(int32_t id, Il2CppString* typeName) { return nullptr; }
+      |                                                                           ^
+E:\il2cpp\src\runtime\src\stubs.cpp:280:57: warning: unused parameter 'optimization' [-Wunused-parameter]
+  280 | void icall_appdomain_update_loader_optimization(int32_t optimization) {}
+      |                                                         ^
+E:\il2cpp\src\runtime\src\stubs.cpp:281:64: warning: unused parameter 'str' [-Wunused-parameter]
+  281 | Il2CppObject* icall_appdomain_is_string_interned(Il2CppString* str) { return nullptr; }
+      |                                                                ^
+E:\il2cpp\src\runtime\src\stubs.cpp:282:66: warning: unused parameter 'str' [-Wunused-parameter]
+  282 | Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString* str) { return nullptr; }
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\stubs.cpp:283:39: warning: unused parameter 'id' [-Wunused-parameter]
+  283 | void icall_appdomain_n_unload(int32_t id) {}
+      |                                       ^
+168 warnings generated.
+[ 80%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/task.cpp.obj
+[ 80%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/thread.cpp.obj
+[ 81%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/threadext.cpp.obj
+[ 82%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/threadobj.cpp.obj
+E:\il2cpp\src\runtime\src\threadobj.cpp:481:57: warning: unused parameter 'self' [-Wunused-parameter]
+  481 | void icall_threadobj_set_app_domain_stack(Il2CppObject* self, int32_t stackSize)
+      |                                                         ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:481:71: warning: unused parameter 'stackSize' [-Wunused-parameter]
+  481 | void icall_threadobj_set_app_domain_stack(Il2CppObject* self, int32_t stackSize)
+      |                                                                       ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:486:61: warning: unused parameter 'self' [-Wunused-parameter]
+  486 | void icall_threadobj_restore_app_domain_stack(Il2CppObject* self)
+      |                                                             ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:496:66: warning: unused parameter 'self' [-Wunused-parameter]
+  496 | Il2CppObject* icall_threadobj_get_context_internal(Il2CppObject* self)
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:501:71: warning: unused parameter 'contextId' [-Wunused-parameter]
+  501 | Il2CppObject* icall_threadobj_internal_cross_context_callback(int32_t contextId, Il2CppObject* callback)
+      |                                                                       ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:501:96: warning: unused parameter 'callback' [-Wunused-parameter]
+  501 | Il2CppObject* icall_threadobj_internal_cross_context_callback(int32_t contextId, Il2CppObject* callback)
+      |                                                                                                ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:506:53: warning: unused parameter 'self' [-Wunused-parameter]
+  506 | void icall_threadobj_set_abort_reason(Il2CppObject* self, Il2CppObject* reason)
+      |                                                     ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:506:73: warning: unused parameter 'reason' [-Wunused-parameter]
+  506 | void icall_threadobj_set_abort_reason(Il2CppObject* self, Il2CppObject* reason)
+      |                                                                         ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:511:62: warning: unused parameter 'self' [-Wunused-parameter]
+  511 | Il2CppObject* icall_threadobj_get_abort_reason(Il2CppObject* self)
+      |                                                              ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:516:55: warning: unused parameter 'self' [-Wunused-parameter]
+  516 | void icall_threadobj_clear_abort_reason(Il2CppObject* self)
+      |                                                       ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:523:62: warning: unused parameter 'self' [-Wunused-parameter]
+  523 | void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)
+      |                                                              ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:523:73: warning: unused parameter 'value' [-Wunused-parameter]
+  523 | void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)
+      |                                                                         ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:528:66: warning: unused parameter 'self' [-Wunused-parameter]
+  528 | int32_t icall_threadobj_get_apartment_state_native(Il2CppObject* self)
+      |                                                                  ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:533:63: warning: unused parameter 'self' [-Wunused-parameter]
+  533 | bool icall_threadobj_set_apartment_state_native(Il2CppObject* self, int32_t state)
+      |                                                               ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:533:77: warning: unused parameter 'state' [-Wunused-parameter]
+  533 | bool icall_threadobj_set_apartment_state_native(Il2CppObject* self, int32_t state)
+      |                                                                             ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:538:46: warning: unused parameter 'self' [-Wunused-parameter]
+  538 | void icall_threadobj_interrupt(Il2CppObject* self)
+      |                                              ^
+E:\il2cpp\src\runtime\src\threadobj.cpp:543:66: warning: unused parameter 'self' [-Wunused-parameter]
+  543 | int32_t icall_threadobj_get_optimal_max_spin_waits(Il2CppObject* self)
+      |                                                                  ^
+17 warnings generated.
+[ 83%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/threadpool.cpp.obj
+[ 83%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/time.cpp.obj
+[ 84%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/timeext.cpp.obj
+[ 85%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/timeext2.cpp.obj
+[ 85%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/timer.cpp.obj
+[ 86%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/timezone.cpp.obj
+[ 87%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/typecheck.cpp.obj
+[ 87%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/typeext.cpp.obj
+[ 88%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/typeinfo.cpp.obj
+[ 89%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/valuesemantics.cpp.obj
+[ 89%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/versionuri.cpp.obj
+[ 90%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/waithandle.cpp.obj
+[ 91%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/xml_doc.cpp.obj
+[ 91%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/xml_parse.cpp.obj
+[ 92%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/xml_query.cpp.obj
+[ 93%] Building CXX object runtime/CMakeFiles/il2cpp_runtime.dir/src/xml_write.cpp.obj
+[ 94%] Linking CXX static library libil2cpp_runtime.a
+[ 94%] Built target il2cpp_runtime
+[ 94%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:345:8: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  345 |     t3 = t3;                                                                                      // IL bne.un.s @0x0079 -- store evaluated value into t3
+      |     ~~ ^ ~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:409:9: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  409 |     t30 = t30;                                                                                    // IL brtrue.s @0x01C4 -- store evaluated value into t30
+      |     ~~~ ^ ~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:411:45: warning: implicit conversion from 'double' to 'int64_t' (aka 'long long') changes value from 5.5 to 5 [-Wliteral-conversion]
+  411 |     t0 = il2cpp::runtime::icall_math_sign_l(5.5);                                                 // IL call @0x01CF -- store call result into t0
+      |          ~~~~~~                             ^~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:566:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  566 |     t104 = t104;                                                                                  // IL brtrue.s @0x0522 -- store evaluated value into t104
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:847:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  847 |     t211 = t211;                                                                                  // IL call @0x09E4 -- store evaluated value into t211
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:848:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  848 |     t212 = t212;                                                                                  // IL call @0x09E4 -- store evaluated value into t212
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:865:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  865 |     t217 = t217;                                                                                  // IL call @0x0A24 -- store evaluated value into t217
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:866:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  866 |     t218 = t218;                                                                                  // IL call @0x0A24 -- store evaluated value into t218
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:883:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  883 |     t223 = t223;                                                                                  // IL call @0x0A61 -- store evaluated value into t223
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:884:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  884 |     t224 = t224;                                                                                  // IL call @0x0A61 -- store evaluated value into t224
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:903:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  903 |     t229 = t229;                                                                                  // IL call @0x0AA1 -- store evaluated value into t229
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:904:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  904 |     t230 = t230;                                                                                  // IL call @0x0AA1 -- store evaluated value into t230
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:915:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  915 |     t238 = t238;                                                                                  // IL brtrue.s @0x0ADD -- store evaluated value into t238
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:996:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+  996 |     t277 = t277;                                                                                  // IL blt.s @0x0C70 -- store evaluated value into t277
+      |     ~~~~ ^ ~~~~
+E:\il2cpp\tmp\icallcase\gen_net10\src\Program.cpp:1103:10: warning: explicitly assigning value of variable of type 'Il2CppObject *' to itself [-Wself-assign]
+ 1103 |     t331 = t331;                                                                                  // IL brfalse.s @0x0F24 -- store evaluated value into t331
+      |     ~~~~ ^ ~~~~
+15 warnings generated.
+[ 95%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/_PrivateImplementationDetails_.cpp.obj
+[ 96%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/__c.cpp.obj
+[ 96%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_12.cpp.obj
+[ 97%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_16.cpp.obj
+[ 98%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_20.cpp.obj
+[ 98%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/entry.cpp.obj
+[ 99%] Linking CXX static library libil2cpp_gen.a
+[ 99%] Built target il2cpp_gen
+[100%] Building CXX object CMakeFiles/il2cpp_gen_exe.dir/src/host.cpp.obj
+[100%] Linking CXX executable il2cpp_gen_exe.exe
+[100%] Built target il2cpp_gen_exe
+EXITCODE=0
+
+### COMMAND 4: E:\il2cpp\tmp\icallcase\build_net10\il2cpp_gen_exe.exe
+=== STEP 4: run il2cpp_gen_exe.exe ===
+PASS math.sqrt
+PASS math.pow
+PASS math.abs
+PASS math.minmax
+PASS math.floorceil
+PASS math.round
+PASS math.truncate
+PASS math.log
+PASS math.sign
+PASS math.ieeeremainder
+PASS math.divrem
+PASS math.clamp
+PASS mathf.sqrt
+PASS mathf.pow
+PASS mathf.abs
+PASS mathf.minmax
+PASS mathf.floorceil
+PASS mathf.truncround
+PASS string.basic
+PASS string.indexof
+PASS string.replace
+PASS string.case
+PASS string.split
+PASS string.trim
+PASS string.startsends
+PASS string.ordinal
+PASS string.concatjoin
+PASS string.isnullor
+PASS string.pad
+PASS string.insertremove
+PASS string.chars
+PASS il.add32
+PASS il.add64
+PASS il.exch32
+PASS il.exch64
+PASS il.exchf
+PASS il.exchd
+PASS il.excho
+PASS il.cas32.hit
+PASS il.cas32.miss
+PASS il.cas64
+PASS il.casd
+PASS il.generic.exch
+PASS il.incdec
+PASS gc.totalmemory
+FAIL gc.generation
+PASS gc.maxgeneration
+PASS gc.keepalive
+PASS env.cpu
+PASS env.threadid
+PASS env.exitcode
+PASS env.newline
+PASS arr.sort
+PASS arr.binarysearch
+PASS arr.indexof
+PASS arr.reverse
+PASS arr.copy
+PASS arr.clear
+PASS arr.resize
+PASS arr.find
+PASS arr.exists
+PASS arr.trueforall
+PASS arr.findall
+PASS arr.empty
+PASS arr.lengths
+PASS conv.toint32
+PASS conv.bool
+PASS conv.double
+PASS dt.leap
+PASS dt.daysinmonth
+PASS dt.addday
+PASS ts.hours
+PASS guid.parse
+PASS random.seed
+PASS sb.append
+PASS sb.insert
+PASS sb.remove
+PASS sb.replace
+PASS sb.capacity
+PASS sb.length
+PASS decimal.add
+PASS decimal.mulcmp
+PASS decimal.parse
+PASS bitconv.roundtrip
+PASS monitor.lock
+PASS monitor.enterexit
+PASS thread.id
+PASS thread.spin
+PASS char.cls
+PASS char.conv
+FAILURES=1
+EXITCODE=1

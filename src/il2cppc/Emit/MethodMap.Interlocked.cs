@@ -126,6 +126,17 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::il2cpp_interlocked_speculation_barrier", 0, false, false, false);
                 return null;
+            // netcore21->net7 audit gap closure: Interlocked.MemoryBarrier()
+            // and ReadMemoryBarrier() -- full/acquire fences. The existing
+            // icall_thread_memory_barrier is a std::atomic_thread_fence
+            // (seq_cst), which SATISFIES both contracts (seq_cst is the
+            // strongest ordering; an acquire fence never weakens a seq_cst
+            // guarantee). One icall covers both names.
+            case "MemoryBarrier":
+            case "ReadMemoryBarrier":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_thread_memory_barrier", 0, false, false, false);
+                return null;
             default:
                 return null;
         }

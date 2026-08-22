@@ -1,0 +1,13 @@
+delegatecb : PASS
+pinvokeext : PASS
+virtbench : DIFF(8)
+winchain : PASS
+asynccase : PASS
+bgthread : PASS
+binaryiodeep : PASS
+conccases : PASS
+excextdeep : PASS
+generics : PASS
+marshalcase : PASS
+parsecase : PASS
+arraydeep : PASS

@@ -1,0 +1,52 @@
+PASS Length.hello -> 20
+PASS Length.empty -> 0
+PASS Chars.first -> 72
+PASS Chars.mid -> 73
+PASS Chars.last -> 33
+PASS Chars.banana -> 97
+PASS Substring.tail -> [IL2CPP World!]
+PASS Substring.head -> [Hello]
+PASS Substring.mid -> [ana]
+PASS Substring.world -> [World!]
+PASS Substring.emptySrc -> []
+PASS Substring.atEnd -> []
+PASS IndexOf.char -> 1
+PASS IndexOf.str -> 2
+PASS IndexOf.str2 -> 7
+PASS IndexOf.charMiss -> -1
+PASS IndexOf.strFrom -> 3
+PASS IndexOf.charFrom -> 5
+PASS IndexOf.charFrom2 -> 15
+PASS IndexOf.emptySrc -> -1
+PASS LastIndexOf.char -> 5
+PASS LastIndexOf.str -> 3
+PASS LastIndexOf.charMiss -> -1
+PASS LastIndexOf.char2 -> 15
+PASS LastIndexOf.charFrom -> 3
+PASS LastIndexOf.str2 -> 14
+PASS Replace.char -> [bonono]
+PASS Replace.str -> [Hello, I#2CPP World!]
+PASS Replace.multi -> [bxxa]
+PASS Replace.noMatch -> [banana]
+PASS Replace.delete -> [paddedtext]
+PASS Trim.spaces -> [padded text]
+PASS Trim.ws -> [indented]
+PASS TrimStart.spaces -> [padded text  ]
+PASS TrimEnd.spaces -> [  padded text]
+PASS Trim.allWs -> []
+PASS Trim.none -> [Hello, IL2CPP World!]
+PASS StartsWith.true -> 1
+PASS StartsWith.case -> 0
+PASS EndsWith.true -> 1
+PASS EndsWith.case -> 0
+PASS StartsWith.emptyBoth -> 1
+PASS EndsWith.emptyValue -> 1
+PASS StartsWith.ban -> 1
+PASS EndsWith.na -> 1
+PASS CompareOrdinal.eq -> 0
+PASS CompareOrdinal.lt -> -1
+PASS CompareOrdinal.gt -> 1
+PASS CompareOrdinal.case -> -32
+PASS CompareOrdinal.sameRef -> 0
+PASS CompareOrdinal.prefixEven -> -2
+ALL-PASS

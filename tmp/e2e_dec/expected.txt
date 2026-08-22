@@ -1,0 +1,12 @@
+t1_add_01_02_03=PASS
+t1_sum=0.3
+t2_mul_2_3_6=PASS
+t2_prod=6
+t3_compare_ordering=PASS
+t3_cmp_neg_zero=-1
+t3_cmp_zero_tiny=-1
+t3_cmp_one_mid=-1
+t3_cmp_scale_eq=0
+t4_roundtrip_123_45=PASS
+t4_str=123.45
+ALL-PASS

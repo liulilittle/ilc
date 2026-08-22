@@ -1,0 +1,8 @@
+edit_created=True
+cmd_after_settext=0
+cmd_seq_after_settext=
+posted=True
+cmd_after_post=1
+cmd_seq_after_post=id624/n768;
+destroy=True
+destroy_parent=True

@@ -308,6 +308,10 @@ Il2CppObject* icall_stringbuilder_insert_s_count(Il2CppObject* self, int32_t ind
 // startIndex > Length - length (checked in 64-bit). Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_remove(Il2CppObject* self, int32_t startIndex, int32_t length);
 
+// Clear() (netcore21+ audit surface): Length drops to 0 (the buffer stays
+// allocated). Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_clear(Il2CppObject* self);
+
 // ToString(): a managed string snapshot of the current content (a fresh
 // copy -- later mutations never change an earlier result).
 Il2CppObject* icall_stringbuilder_to_string(Il2CppObject* self);

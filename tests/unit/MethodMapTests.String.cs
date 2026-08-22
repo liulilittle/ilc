@@ -592,13 +592,28 @@ public class MethodMapTestsString
     }
 
     [Fact]
+    public void Resolve_IndexOfAny_OneArg_Wires_RuntimeWrapper()
+    {
+        // net9/10 campaign contract (updated from the old LOUD pin): the
+        // 1-arg IndexOfAny(char[]) wires to the runtime wrapper
+        // icall_string_index_of_any (startIndex=0/count=Length defaults,
+        // stringext.cpp) -- proven by icallclassic on every framework
+        // version (net48..net10).
+        var resolved = ResolveMember(Synthesize("System", "String", "IndexOfAny",
+            new byte[] { 0x00, 0x01, 0x08, 0x1D, 0x03 }), "IndexOfAny");
+
+        Assert.Equal("il2cpp::runtime::icall_string_index_of_any", resolved.CppName);
+    }
+
+    [Fact]
     public void Resolve_IndexOfAny_WrongShape_ThrowsLoud()
     {
-        // A single-char[] IndexOfAny (no start/count) is a known net48
-        // overload with a different runtime surface -- LOUD, not silent.
+        // A string-parameter IndexOfAny does not exist in any BCL surface
+        // -- LOUD, not silent. Sig layout: [0x00 header, count=1, ret=I4,
+        // params={0x0E string}].
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System", "String", "IndexOfAny",
-                new byte[] { 0x00, 0x01, 0x08, 0x1D, 0x03 }), "IndexOfAny"));
+                new byte[] { 0x00, 0x01, 0x08, 0x0E }), "IndexOfAny"));
 
         Assert.Contains("String.IndexOfAny with 1 arg(s) not wired", ex.Message);
     }

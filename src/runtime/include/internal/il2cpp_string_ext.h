@@ -193,6 +193,15 @@ bool icall_string_contains(Il2CppObject* this_, Il2CppObject* value);
 // allocations can never reclaim it.
 Il2CppArray* icall_string_split(Il2CppString* self, Il2CppArray* separators);
 
+// Split(char) (netcore21+ single-char overload): the same per-unit split
+// with a 1-element separator array (the wrapper stages before the callee's
+// first managed allocation, so the unrooted temp is GC-safe).
+Il2CppArray* icall_string_split_char(Il2CppString* self, char16_t separator);
+
+// Split(char, StringSplitOptions) (the netcore21 shape csc binds s.Split(' ')
+// to): the options-aware twin of icall_string_split_char.
+Il2CppArray* icall_string_split_char_options(Il2CppString* self, char16_t separator, int32_t options);
+
 // Split(char[] separator, StringSplitOptions options) / Split(string[]
 // separator, StringSplitOptions options) -- the 2-arg options forms (the
 // strcomp2 / RT-SPL2 wiring, 2026-08-09). 'options' is the raw int32

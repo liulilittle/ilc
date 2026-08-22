@@ -132,6 +132,9 @@ int32_t icall_thread_pool_get_thread_count() { return 1; }
 int32_t icall_thread_pool_get_min_threads() { return 1; }
 int32_t icall_thread_pool_get_max_threads() { return 1; }
 int32_t icall_thread_pool_get_available_threads() { return 1; }
+// net6/net7: CanSetMin/MaxIOCompletionThreads -- the simplified pool has no
+// IOCP model; the honest constant answer is false on every platform.
+bool icall_thread_pool_can_set_io_threads() { return false; }
 
 // OverlappedData stubs
 int32_t icall_overlapped_data_get_pending_count(Il2CppObject* self) { return 0; }

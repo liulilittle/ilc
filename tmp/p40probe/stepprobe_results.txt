@@ -1,0 +1,11 @@
+after_setlimit=0
+after_setmodify1=0
+after_setmodify0=0
+after_setsel=0
+after_char=4
+after_undo1=8
+after_undo2=12
+after_empty=12
+cmd_seq=id624/n1024;id624/n768;id624/n1024;id624/n768;id624/n1024;id624/n768;id624/n1024;id624/n768;id624/n1024;id624/n768;id624/n1024;id624/n768;
+destroy=True
+destroy_parent=True

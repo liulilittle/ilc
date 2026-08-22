@@ -72,6 +72,13 @@ public static partial class MethodRefResolver
                 if ((impl & System.Reflection.MethodImplAttributes.InternalCall) == 0)
                     continue;
                 var name = mr.GetString(m.Name);
+#if DEBUG_SIG
+                if (name is "GetElementSize" or "InternalGetValue" or "GetRawArrayData" or "GetThreadDeserializationTracker" or "GetMemoryInfo" or "DoubleToNumber" or "NumberToDouble" or "RhBulkMoveWithWriteBarrier" or ".ctor")
+                {
+                    var (sigCount, sigRet, sigPs) = RawSignature(mr, m.Signature);
+                    output.WriteLine($"DBG\t{owner}.{name}\tcount={sigCount}\tret=0x{sigRet:X2}\tps={BitConverter.ToString(sigPs)}");
+                }
+#endif
                 total++;
                 var internalOwner = IsInternalOwner(owner);
                 try

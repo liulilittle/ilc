@@ -53,6 +53,16 @@ public static partial class MethodRefResolver
             case "ReportThreadStatus": return I("il2cpp::runtime::icall_thread_pool_report_thread_status", 1, false, false, false, new[] { "i" });
             case "NotifyWorkItemProgressNative": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_progress_native", 0, false, false, false);
             case "IsThreadPoolHosted": return I("il2cpp::runtime::icall_thread_pool_is_thread_pool_hosted", 0, true, false, false);
+            // netcore31/net5+ audit gap closure: ThreadPool.ThreadCount --
+            // the pool's live worker count (stubs.cpp fixed-pool model).
+            case "get_ThreadCount":
+                return I("il2cpp::runtime::icall_thread_pool_get_thread_count", 0, true, false, false);
+            // net6/net7: CanSetMin/MaxIOCompletionThreads -- the simplified
+            // pool has no IOCP model; the honest constant answer is false
+            // (SetMin/MaxThreads for completion ports are dropped above).
+            case "CanSetMinIOCompletionThreads":
+            case "CanSetMaxIOCompletionThreads":
+                return I("il2cpp::runtime::icall_thread_pool_can_set_io_threads", 0, true, false, false);
             default: return null;
         }
     }

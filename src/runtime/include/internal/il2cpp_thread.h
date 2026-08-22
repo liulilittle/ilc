@@ -104,6 +104,11 @@ void icall_thread_end_critical_region();
 // reference netcore implementation delegates to Interlocked.MemoryBarrier.
 void icall_thread_memory_barrier();
 
+// Thread.GetCurrentProcessorNumber() (net5+ audit gap): the CPU id the
+// current thread runs on (Win32 GetCurrentProcessorNumber / Linux
+// sched_getcpu; generic-POSIX fallback reports 0).
+int32_t icall_thread_get_current_processor_number();
+
 // Thread.IsThreadPoolThread -> bool. Reports whether the CURRENT executing
 // thread is a ThreadPool worker thread. `self` (the managed Thread object)
 // is accepted and IGNORED -- the model tracks pool membership per OS thread

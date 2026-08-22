@@ -1,0 +1,1 @@
+using System; using System.Text; namespace Cases { public static class ZCheckInsertChar { public static void Main() { StringBuilder sb = new StringBuilder("base"); char[] c = { 'A', 'B', 'C' }; sb.Insert(0, c); Console.WriteLine(sb.ToString()); } }}

@@ -55,6 +55,20 @@ public static partial class MethodRefResolver
             //   * get_Version is now REACHABLE: the base file no longer wires
             //     it to the int32_t stubs.h symbol (Version-object shape
             //     mismatch -- needs-new-icall).
+            // net9/10 E2E campaign: the 64-bit probes now have runtime
+            // icalls (stubs.cpp) -- wired BEFORE the LOUD gate. NOTE: these
+            // two arms MUST precede the fall-through chain -- a return
+            // placed INSIDE the chain would silently wire every label above
+            // it to the probe icall (the regression the EnvRandom unit
+            // tests caught: Exit/GetEnvironmentVariable resolved to
+            // is_64bit_operating_system instead of rejecting LOUD).
+            case "get_Is64BitOperatingSystem":
+                return I("il2cpp::runtime::icall_environment_get_is_64bit_operating_system", 0, true, false, false);
+            case "get_Is64BitProcess":
+                return I("il2cpp::runtime::icall_environment_get_is_64bit_process", 0, true, false, false);
+            // The known-unwireable surface rejects LOUD (the arity-guarded
+            // base-file overloads land here; BclResolve prefixes
+            // "{owner}::{name}").
             case "Exit":
             case "FailFast":
             case "ExpandEnvironmentVariables":
@@ -64,12 +78,6 @@ public static partial class MethodRefResolver
             case "GetLogicalDrives":
             case "GetCommandLineArgs":
             case "SetEnvironmentVariable":
-            // net9/10 E2E campaign: the 64-bit probes now have runtime
-            // icalls (stubs.cpp) -- wired BEFORE the LOUD gate.
-            case "get_Is64BitOperatingSystem":
-                return I("il2cpp::runtime::icall_environment_get_is_64bit_operating_system", 0, true, false, false);
-            case "get_Is64BitProcess":
-                return I("il2cpp::runtime::icall_environment_get_is_64bit_process", 0, true, false, false);
             case "get_UserDomainName":
             case "get_Version":
             case "get_WorkingSet":

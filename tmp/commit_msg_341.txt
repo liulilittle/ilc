@@ -1,0 +1,20 @@
+fix: batch 341 - write barrier on all StringBuilder ctor buffer stores + latent test compile fix
+
+Closes the documented #114 risk point (issue-114-analysis.md): the three
+StringBuilder ctor paths (ctor_default/ctor_capacity/ctor_string) stored the
+fresh char buffer into sb->chars WITHOUT il2cpp_write_barrier, violating the
+GC-safety contract in il2cpp_stringbuilder.h:27-32 (every buffer store goes
+through the barrier so old->young references stay trackable) and the
+ReplaceBuffer pattern (stringbuilder.cpp:150-151). The barrier is a no-op for
+Gen0 stores and marks the card for old-gen stores, so this is a pure
+consistency/robustness fix -- the freshly allocated builder is always Gen0
+and scanned, but the contract is now uniformly honored on all 4 buffer
+stores.
+
+Also fixes a latent compile error in the committed test_concat_gcstress.cpp
+(section 7): 'const char* const* elems' is a const-pointer array whose
+elements cannot be assigned (elems[i] = "ab") -- the earlier build had used
+a stale object file. Changed to 'const char**' (the documented fix).
+
+Verification: full runtime build 0 errors; runtime 144/144 PASS; unit
+1807/1807; e2e sbinsertcase PASS.

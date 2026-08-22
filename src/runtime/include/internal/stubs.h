@@ -74,6 +74,8 @@ Il2CppObject* icall_domain_compressed_stack_get_domain_compressed_stack_stack_bl
 int32_t icall_thread_pool_get_thread_count();
 int32_t icall_thread_pool_get_min_threads();
 int32_t icall_thread_pool_get_max_threads();
+// net6/net7: CanSetMin/MaxIOCompletionThreads -- constant false (no IOCP model).
+bool icall_thread_pool_can_set_io_threads();
 int32_t icall_thread_pool_get_available_threads();
 
 // OverlappedData stubs

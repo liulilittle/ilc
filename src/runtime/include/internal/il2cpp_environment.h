@@ -95,6 +95,10 @@ int32_t icall_environment_get_current_managed_thread_id();
 int32_t icall_environment_get_exit_code();
 int32_t icall_environment_set_exit_code(int32_t code);
 
+// Environment.HasShutdownStarted (netcore21+ audit surface): constant false
+// -- the simplified runtime never initiates shutdown while managed code runs.
+int32_t icall_environment_get_has_shutdown_started();
+
 // Environment.ProcessorCount -> int32. The number of hardware processors
 // (>= 1; the OS-reported count on Windows, hardware_concurrency elsewhere
 // with a fallback of 1 when the platform cannot report it).

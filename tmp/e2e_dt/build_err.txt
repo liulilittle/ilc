@@ -1,0 +1,11 @@
+Consolidate compiler generated dependencies of target il2cpp_runtime
+[ 97%] Built target il2cpp_runtime
+Consolidate compiler generated dependencies of target il2cpp_gen
+[ 97%] Building CXX object CMakeFiles/il2cpp_gen.dir/src/E2eDtProbe_Program.cpp.obj
+E:\il2cpp\tmp\e2e_dt\gen\src\E2eDtProbe_Program.cpp:140:13: error: use of undeclared identifier 'System_TimeSpan_FromHours_b42d4e33b878de9c'
+  140 |     loc10 = System_TimeSpan_FromHours_b42d4e33b878de9c(2LL);                                      // IL stloc.s @0x01CF -- store call result into loc10
+      |             ^
+1 error generated.
+mingw32-make[2]: *** [CMakeFiles\il2cpp_gen.dir\build.make:76: CMakeFiles/il2cpp_gen.dir/src/E2eDtProbe_Program.cpp.obj] Error 1
+mingw32-make[1]: *** [CMakeFiles\Makefile2:101: CMakeFiles/il2cpp_gen.dir/all] Error 2
+mingw32-make: *** [Makefile:90: all] Error 2

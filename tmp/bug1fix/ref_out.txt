@@ -1,0 +1,12 @@
+a0=True
+a1=True
+a2=True
+s0=True
+s1=True
+m0=True
+m1=True
+p0=True
+p1=True
+sg0=True
+i0=True
+i1=True

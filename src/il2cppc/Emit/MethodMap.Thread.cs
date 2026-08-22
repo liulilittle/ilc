@@ -86,6 +86,13 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return I("il2cpp::runtime::icall_thread_end_thread_affinity", 0, false, false, false);
                 return null;
+            // net5/6/7 audit gap closure: GetCurrentProcessorNumber() -- the
+            // CPU id the current thread runs on (Win32
+            // GetCurrentProcessorNumber / Linux sched_getcpu; thread.cpp).
+            case "GetCurrentProcessorNumber":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_thread_get_current_processor_number", 0, true, false, false);
+                return null;
             case ".ctor":
                 // new Thread(ThreadStart): the delegate is validated and its
                 // code pointer extracted; the thread is NEW until Start.

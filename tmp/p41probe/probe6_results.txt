@@ -1,0 +1,12 @@
+p6_exp_field=96
+p6_mask0=96
+p6_maskexp=96
+p6_maskall=96
+p6_swap=0
+p6_col_field=64
+p6_col_mask0=64
+p6_col_maskexp=64
+p6_col_maskall=64
+p6_count=2
+p6_destroyed=True
+p6_parent_destroyed=True

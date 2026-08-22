@@ -1,0 +1,8 @@
+symbols: no Portable PDB found -> no #line C# line directives
+string pool: 99 distinct literal(s) from 120 site(s) across 5 method(s) (0 constant concat(s) folded, 21 duplicate site(s) deduped)
+string pool table: g_strPool[99] -> include/internal/string-pool.h
+resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
+licm: 0 invariant length read(s) hoistable across 5 method(s)
+inline: 12 simple call site(s) inlineable across 5 method(s)
+tempslot: 29 temp slot(s) -> 6 with reuse across 5 method(s)
+generated 1 type(s) -> E:\il2cpp\tmp\e2e_strops\gen

@@ -1,0 +1,37 @@
+================================================================
+ SYMBOL CHECK: transpiler CppNames vs runtime definitions
+ Corpus: src/runtime/src/**/*.cpp + src/runtime/include/**/*.h
+ Match rule: bare name (last :: segment) must appear as a whole
+             identifier token in the runtime corpus.
+================================================================
+
+--- GENUINE MISSING (literal CppName, no match anywhere in runtime) ---
+
+MISSING: icall_gc_get_total_allocated_bytes_approximate
+  referenced at MethodMap.GC.cs:40  (il2cpp::runtime::icall_gc_get_total_allocated_bytes_approximate)
+  NOTE: runtime defines the near-name il2cpp_gc_get_total_allocated_bytes_approximate
+        at src/runtime/src/gc.cpp:1969 and declares it in include/il2cpp_gc.h:304.
+        The transpiler CppName prefix (icall_ vs il2cpp_gc_) does not match -> likely bug.
+
+MISSING: il2cpp_stringbuilder_capacity
+  referenced at MethodMap.StringBuilder.cs:87  (il2cpp::runtime::il2cpp_stringbuilder_capacity)
+  NOTE: no function matching *stringbuilder*capacity* exists in the runtime corpus
+        (only field/comment mentions in include/il2cpp_stringbuilder.h).
+
+--- NOT REAL REFERENCES (extraction artifacts, kept for completeness) ---
+
+ARTIFACT [interpolated-string prefix, composed at runtime]:
+  icall_math_                    MethodMap.Math.cs:29,30,31   ($"...icall_math_{stem}_i")
+  icall_mathf_                   MethodMap.MathF.cs:54,59,71  ($"...icall_mathf_{...}_f")
+  icall_string_concat_           MethodMap.String.cs:292      ($"...icall_string_concat_{ps.Length}")
+  il2cpp_encoding_               MethodMap.Encoding.cs:109,146 ($"...il2cpp_encoding_{...}_get_chars")
+  il2cpp_interlocked_            MethodMap.Interlocked.cs:51,53 ($"...il2cpp_interlocked_{suffix}")
+  il2cpp_marshal_size_of_struct_  MethodMap.Marshal.cs:217    ($"...il2cpp_marshal_size_of_struct_{sfx}")
+  il2cpp_marshal_offset_of_struct_ MethodMap.Marshal.cs:242   ($"...il2cpp_marshal_offset_of_struct_{sfx}")
+
+ARTIFACT [comment mention of a name family, not an emitted CppName]:
+  icall_dict_si_                 MethodMap.Dictionary.cs:12
+  icall_weakref_                 MethodMap.WeakReference.cs:5
+  il2cpp_arraylist_              MethodMap.ArrayList.cs:10
+  il2cpp_queue_                  MethodMap.Queue.cs:9
+  il2cpp_stack_                  MethodMap.Stack.cs:9

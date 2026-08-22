@@ -1,0 +1,273 @@
+ERR	System.ArgIterator.GetRemainingCount	NotSupportedException:System.ArgIterator::GetRemainingCount: GetRemainingCount is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit §3) with no runtime support: __arglist is not in the M3 model
+GAP	System.Array.GetCorElementTypeOfElementType
+GAP	System.ComAwareWeakReference.HasInteropInfo
+GAP	System.Delegate.InternalAllocLike
+GAP	System.Delegate.GetMulticastInvoke
+GAP	System.Delegate.GetInvokeMethod
+GAP	System.Delegate.FindMethodHandle
+GAP	System.Delegate.InternalEqualMethodHandles
+GAP	System.Delegate.AdjustTarget
+GAP	System.Delegate.GetCallStub
+ERR	System.Environment.get_CurrentManagedThreadId	NotSupportedException:System.Environment::get_CurrentManagedThreadId: System.Environment.get_CurrentManagedThreadId not wired: the runtime has no matching icall in il2cpp_environment.h
+OK	System.Environment.get_ExitCode	il2cpp::runtime::icall_environment_get_exit_code
+OK	System.Environment.set_ExitCode	il2cpp::runtime::icall_environment_set_exit_code
+ERR	System.Environment.FailFast	NotSupportedException:System.Environment::FailFast: System.Environment.FailFast not wired: the runtime has no matching icall in il2cpp_environment.h
+ERR	System.Environment.FailFast	NotSupportedException:System.Environment::FailFast: System.Environment.FailFast not wired: the runtime has no matching icall in il2cpp_environment.h
+ERR	System.Environment.FailFast	NotSupportedException:System.Environment::FailFast: System.Environment.FailFast not wired: the runtime has no matching icall in il2cpp_environment.h
+OK	System.Environment.get_TickCount	il2cpp::runtime::icall_environment_get_tick_count
+GAP	System.Environment.get_TickCount64
+GAP	System.Exception.SaveStackTracesFromDeepCopy
+GAP	System.Exception.GetExceptionCount
+GAP	System.GC.AllocateNewArray
+GAP	System.GC.GetSegmentSize
+GAP	System.GC.GetLastGCPercentTimeInGC
+GAP	System.GC.GetGenerationSize
+OK	System.GC.GetGeneration	il2cpp::runtime::icall_gc_get_generation
+GAP	System.GC.GetAllocatedBytesForCurrentThread
+GAP	System.GC.GetTotalAllocatedBytes
+OK	System.Math.Acos	il2cpp::runtime::icall_math_acos_d
+OK	System.Math.Acosh	il2cpp::runtime::icall_math_acosh_d
+OK	System.Math.Asin	il2cpp::runtime::icall_math_asin_d
+OK	System.Math.Asinh	il2cpp::runtime::icall_math_asinh_d
+OK	System.Math.Atan	il2cpp::runtime::icall_math_atan_d
+OK	System.Math.Atanh	il2cpp::runtime::icall_math_atanh_d
+OK	System.Math.Atan2	il2cpp::runtime::icall_math_atan2_d
+OK	System.Math.Cbrt	il2cpp::runtime::icall_math_cbrt_d
+OK	System.Math.Ceiling	il2cpp::runtime::icall_math_ceiling_d
+OK	System.Math.Cos	il2cpp::runtime::icall_math_cos_d
+OK	System.Math.Cosh	il2cpp::runtime::icall_math_cosh_d
+OK	System.Math.Exp	il2cpp::runtime::icall_math_exp_d
+OK	System.Math.Floor	il2cpp::runtime::icall_math_floor_d
+OK	System.Math.FusedMultiplyAdd	il2cpp::runtime::icall_math_fma_d
+OK	System.Math.Log	il2cpp::runtime::icall_math_log_d
+OK	System.Math.Log2	il2cpp::runtime::icall_math_log2_d
+OK	System.Math.Log10	il2cpp::runtime::icall_math_log10_d
+OK	System.Math.Pow	il2cpp::runtime::icall_math_pow_d
+OK	System.Math.Sin	il2cpp::runtime::icall_math_sin_d
+OK	System.Math.Sinh	il2cpp::runtime::icall_math_sinh_d
+OK	System.Math.Sqrt	il2cpp::runtime::icall_math_sqrt_d
+OK	System.Math.Tan	il2cpp::runtime::icall_math_tan_d
+OK	System.Math.Tanh	il2cpp::runtime::icall_math_tanh_d
+OK	System.MathF.Acos	il2cpp::runtime::icall_mathf_acos_f
+OK	System.MathF.Acosh	il2cpp::runtime::icall_mathf_acosh_f
+OK	System.MathF.Asin	il2cpp::runtime::icall_mathf_asin_f
+OK	System.MathF.Asinh	il2cpp::runtime::icall_mathf_asinh_f
+OK	System.MathF.Atan	il2cpp::runtime::icall_mathf_atan_f
+OK	System.MathF.Atanh	il2cpp::runtime::icall_mathf_atanh_f
+OK	System.MathF.Atan2	il2cpp::runtime::icall_mathf_atan2_f
+OK	System.MathF.Cbrt	il2cpp::runtime::icall_mathf_cbrt_f
+OK	System.MathF.Ceiling	il2cpp::runtime::icall_mathf_ceiling_f
+OK	System.MathF.Cos	il2cpp::runtime::icall_mathf_cos_f
+OK	System.MathF.Cosh	il2cpp::runtime::icall_mathf_cosh_f
+OK	System.MathF.Exp	il2cpp::runtime::icall_mathf_exp_f
+OK	System.MathF.Floor	il2cpp::runtime::icall_mathf_floor_f
+OK	System.MathF.FusedMultiplyAdd	il2cpp::runtime::icall_mathf_fma_f
+OK	System.MathF.Log	il2cpp::runtime::icall_mathf_log_f
+OK	System.MathF.Log2	il2cpp::runtime::icall_mathf_log2_f
+OK	System.MathF.Log10	il2cpp::runtime::icall_mathf_log10_f
+OK	System.MathF.Pow	il2cpp::runtime::icall_mathf_pow_f
+OK	System.MathF.Sin	il2cpp::runtime::icall_mathf_sin_f
+OK	System.MathF.Sinh	il2cpp::runtime::icall_mathf_sinh_f
+OK	System.MathF.Sqrt	il2cpp::runtime::icall_mathf_sqrt_f
+OK	System.MathF.Tan	il2cpp::runtime::icall_mathf_tan_f
+OK	System.MathF.Tanh	il2cpp::runtime::icall_mathf_tanh_f
+OK	System.Object.GetType	il2cpp::runtime::icall_object_get_type
+ERR	System.RuntimeTypeHandle.IsInstanceOfType	NotSupportedException:System.RuntimeTypeHandle::IsInstanceOfType: System.RuntimeTypeHandle::IsInstanceOfType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetCorElementType	NotSupportedException:System.RuntimeTypeHandle::GetCorElementType: System.RuntimeTypeHandle::GetCorElementType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetAssembly	NotSupportedException:System.RuntimeTypeHandle::GetAssembly: System.RuntimeTypeHandle::GetAssembly not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetModule	NotSupportedException:System.RuntimeTypeHandle::GetModule: System.RuntimeTypeHandle::GetModule not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetBaseType	NotSupportedException:System.RuntimeTypeHandle::GetBaseType: System.RuntimeTypeHandle::GetBaseType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetAttributes	NotSupportedException:System.RuntimeTypeHandle::GetAttributes: System.RuntimeTypeHandle::GetAttributes not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetElementType	NotSupportedException:System.RuntimeTypeHandle::GetElementType: System.RuntimeTypeHandle::GetElementType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.CompareCanonicalHandles	NotSupportedException:System.RuntimeTypeHandle::CompareCanonicalHandles: System.RuntimeTypeHandle::CompareCanonicalHandles not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetArrayRank	NotSupportedException:System.RuntimeTypeHandle::GetArrayRank: System.RuntimeTypeHandle::GetArrayRank not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetToken	NotSupportedException:System.RuntimeTypeHandle::GetToken: System.RuntimeTypeHandle::GetToken not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetMethodAt	NotSupportedException:System.RuntimeTypeHandle::GetMethodAt: System.RuntimeTypeHandle::GetMethodAt not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetArgumentTypesFromFunctionPointer	NotSupportedException:System.RuntimeTypeHandle::GetArgumentTypesFromFunctionPointer: System.RuntimeTypeHandle::GetArgumentTypesFromFunctionPointer not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.IsUnmanagedFunctionPointer	NotSupportedException:System.RuntimeTypeHandle::IsUnmanagedFunctionPointer: System.RuntimeTypeHandle::IsUnmanagedFunctionPointer not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetFields	NotSupportedException:System.RuntimeTypeHandle::GetFields: System.RuntimeTypeHandle::GetFields not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetInterfaces	NotSupportedException:System.RuntimeTypeHandle::GetInterfaces: System.RuntimeTypeHandle::GetInterfaces not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetNumVirtuals	NotSupportedException:System.RuntimeTypeHandle::GetNumVirtuals: System.RuntimeTypeHandle::GetNumVirtuals not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetNumVirtualsAndStaticVirtuals	NotSupportedException:System.RuntimeTypeHandle::GetNumVirtualsAndStaticVirtuals: System.RuntimeTypeHandle::GetNumVirtualsAndStaticVirtuals not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.IsInterface	NotSupportedException:System.RuntimeTypeHandle::IsInterface: System.RuntimeTypeHandle::IsInterface not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.IsByRefLike	NotSupportedException:System.RuntimeTypeHandle::IsByRefLike: System.RuntimeTypeHandle::IsByRefLike not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.IsValueType	NotSupportedException:System.RuntimeTypeHandle::IsValueType: System.RuntimeTypeHandle::IsValueType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.CanCastTo	NotSupportedException:System.RuntimeTypeHandle::CanCastTo: System.RuntimeTypeHandle::CanCastTo not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetDeclaringType	NotSupportedException:System.RuntimeTypeHandle::GetDeclaringType: System.RuntimeTypeHandle::GetDeclaringType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.GetDeclaringMethod	NotSupportedException:System.RuntimeTypeHandle::GetDeclaringMethod: System.RuntimeTypeHandle::GetDeclaringMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.IsGenericVariable	NotSupportedException:System.RuntimeTypeHandle::IsGenericVariable: System.RuntimeTypeHandle::IsGenericVariable not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.ContainsGenericVariables	NotSupportedException:System.RuntimeTypeHandle::ContainsGenericVariables: System.RuntimeTypeHandle::ContainsGenericVariables not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeTypeHandle.IsEquivalentTo	NotSupportedException:System.RuntimeTypeHandle::IsEquivalentTo: System.RuntimeTypeHandle::IsEquivalentTo not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetAttributes	NotSupportedException:System.RuntimeMethodHandle::GetAttributes: System.RuntimeMethodHandle::GetAttributes not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetImplAttributes	NotSupportedException:System.RuntimeMethodHandle::GetImplAttributes: System.RuntimeMethodHandle::GetImplAttributes not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetDeclaringType	NotSupportedException:System.RuntimeMethodHandle::GetDeclaringType: System.RuntimeMethodHandle::GetDeclaringType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetSlot	NotSupportedException:System.RuntimeMethodHandle::GetSlot: System.RuntimeMethodHandle::GetSlot not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetMethodDef	NotSupportedException:System.RuntimeMethodHandle::GetMethodDef: System.RuntimeMethodHandle::GetMethodDef not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetName	NotSupportedException:System.RuntimeMethodHandle::GetName: System.RuntimeMethodHandle::GetName not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.InvokeMethod	NotSupportedException:System.RuntimeMethodHandle::InvokeMethod: System.RuntimeMethodHandle::InvokeMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.ReboxFromNullable	NotSupportedException:System.RuntimeMethodHandle::ReboxFromNullable: System.RuntimeMethodHandle::ReboxFromNullable not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.ReboxToNullable	NotSupportedException:System.RuntimeMethodHandle::ReboxToNullable: System.RuntimeMethodHandle::ReboxToNullable not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.HasMethodInstantiation	NotSupportedException:System.RuntimeMethodHandle::HasMethodInstantiation: System.RuntimeMethodHandle::HasMethodInstantiation not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetStubIfNeeded	NotSupportedException:System.RuntimeMethodHandle::GetStubIfNeeded: System.RuntimeMethodHandle::GetStubIfNeeded not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetMethodFromCanonical	NotSupportedException:System.RuntimeMethodHandle::GetMethodFromCanonical: System.RuntimeMethodHandle::GetMethodFromCanonical not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.IsGenericMethodDefinition	NotSupportedException:System.RuntimeMethodHandle::IsGenericMethodDefinition: System.RuntimeMethodHandle::IsGenericMethodDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.IsTypicalMethodDefinition	NotSupportedException:System.RuntimeMethodHandle::IsTypicalMethodDefinition: System.RuntimeMethodHandle::IsTypicalMethodDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.IsDynamicMethod	NotSupportedException:System.RuntimeMethodHandle::IsDynamicMethod: System.RuntimeMethodHandle::IsDynamicMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetResolver	NotSupportedException:System.RuntimeMethodHandle::GetResolver: System.RuntimeMethodHandle::GetResolver not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetMethodBody	NotSupportedException:System.RuntimeMethodHandle::GetMethodBody: System.RuntimeMethodHandle::GetMethodBody not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.IsConstructor	NotSupportedException:System.RuntimeMethodHandle::IsConstructor: System.RuntimeMethodHandle::IsConstructor not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeMethodHandle.GetLoaderAllocator	NotSupportedException:System.RuntimeMethodHandle::GetLoaderAllocator: System.RuntimeMethodHandle::GetLoaderAllocator not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetName	NotSupportedException:System.RuntimeFieldHandle::GetName: System.RuntimeFieldHandle::GetName not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetAttributes	NotSupportedException:System.RuntimeFieldHandle::GetAttributes: System.RuntimeFieldHandle::GetAttributes not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetApproxDeclaringType	NotSupportedException:System.RuntimeFieldHandle::GetApproxDeclaringType: System.RuntimeFieldHandle::GetApproxDeclaringType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetToken	NotSupportedException:System.RuntimeFieldHandle::GetToken: System.RuntimeFieldHandle::GetToken not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetValue	NotSupportedException:System.RuntimeFieldHandle::GetValue: System.RuntimeFieldHandle::GetValue not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetValueDirect	NotSupportedException:System.RuntimeFieldHandle::GetValueDirect: System.RuntimeFieldHandle::GetValueDirect not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.SetValue	NotSupportedException:System.RuntimeFieldHandle::SetValue: System.RuntimeFieldHandle::SetValue not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.SetValueDirect	NotSupportedException:System.RuntimeFieldHandle::SetValueDirect: System.RuntimeFieldHandle::SetValueDirect not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetStaticFieldForGenericType	NotSupportedException:System.RuntimeFieldHandle::GetStaticFieldForGenericType: System.RuntimeFieldHandle::GetStaticFieldForGenericType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.AcquiresContextFromThis	NotSupportedException:System.RuntimeFieldHandle::AcquiresContextFromThis: System.RuntimeFieldHandle::AcquiresContextFromThis not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+ERR	System.RuntimeFieldHandle.GetLoaderAllocator	NotSupportedException:System.RuntimeFieldHandle::GetLoaderAllocator: System.RuntimeFieldHandle::GetLoaderAllocator not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type handle) -- see reflecthandle.h
+GAP	System.ModuleHandle.GetDynamicMethod
+GAP	System.ModuleHandle.GetToken
+GAP	System.ModuleHandle.GetMDStreamVersion
+GAP	System.Signature.CompareSig
+GAP	System.Signature.GetParameterOffset
+GAP	System.Signature.GetTypeParameterOffset
+GAP	System.Signature.GetCallingConventionFromFunctionPointerAtOffset
+GAP	System.Signature.GetCustomModifiersAtOffset
+GAP	System.RuntimeType.AllocateValueType
+GAP	System.String.FastAllocateString
+GAP	System.String.SetTrailByte
+GAP	System.String.TryGetTrailByte
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_char_array_range
+ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 3 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 4 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+OK	System.String..ctor	il2cpp::runtime::icall_string_ctor_repeat
+ERR	System.String..ctor	NotSupportedException:System.String::.ctor: String ctor with 1 arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32); the pointer-typed char*/sbyte* ctors need transpiler PTR-signature support)
+GAP	System.Type.GetTypeFromHandleUnsafe
+RECV	System.ValueType.GetHashCode	il2cpp::runtime::icall_value_type_get_hash_code
+GAP	System.Variant.SetFieldsObject
+OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange
+OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange64
+OK	System.Threading.Interlocked.Exchange	il2cpp::runtime::il2cpp_interlocked_exchange_pointer
+OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange
+OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange64
+OK	System.Threading.Interlocked.CompareExchange	il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer
+OK	System.Threading.Monitor.Enter	il2cpp::runtime::il2cpp_monitor_enter
+OK	System.Threading.Monitor.Exit	il2cpp::runtime::il2cpp_monitor_exit
+OK	System.Threading.Thread.get_ManagedThreadId	il2cpp::runtime::icall_threadobj_get_managed_thread_id
+OK	System.Threading.Thread.get_IsAlive	il2cpp::runtime::icall_threadobj_get_is_alive
+OK	System.Threading.Thread.get_IsThreadPoolThread	il2cpp::runtime::icall_thread_get_is_thread_pool_thread
+GAP	System.Threading.Thread.set_IsThreadPoolThread
+GAP	System.Threading.Thread.GetApartmentStateNative
+GAP	System.Threading.Thread.SetApartmentStateNative
+OK	System.Threading.Thread.DisableComObjectEagerCleanup	il2cpp::runtime::icall_thread_disable_com_object_eager_cleanup
+GAP	System.Threading.Thread.Interrupt
+OK	System.Threading.Thread.Join	il2cpp::runtime::icall_threadobj_join_timeout
+GAP	System.Threading.Thread.get_OptimalMaxSpinWaitsPerSpinIteration
+GAP	System.StubHelpers.ObjectMarshaler.ConvertToNative
+GAP	System.StubHelpers.ObjectMarshaler.ConvertToManaged
+GAP	System.StubHelpers.ObjectMarshaler.ClearNative
+GAP	System.StubHelpers.InterfaceMarshaler.ConvertToNative
+GAP	System.StubHelpers.InterfaceMarshaler.ConvertToManaged
+GAP	System.StubHelpers.MngdNativeArrayMarshaler.CreateMarshaler
+GAP	System.StubHelpers.MngdNativeArrayMarshaler.ConvertSpaceToNative
+GAP	System.StubHelpers.MngdNativeArrayMarshaler.ConvertContentsToNative
+GAP	System.StubHelpers.MngdNativeArrayMarshaler.ConvertSpaceToManaged
+GAP	System.StubHelpers.MngdNativeArrayMarshaler.ConvertContentsToManaged
+GAP	System.StubHelpers.MngdNativeArrayMarshaler.ClearNative
+GAP	System.StubHelpers.MngdNativeArrayMarshaler.ClearNativeContents
+GAP	System.StubHelpers.MngdFixedArrayMarshaler.CreateMarshaler
+GAP	System.StubHelpers.MngdFixedArrayMarshaler.ConvertSpaceToNative
+GAP	System.StubHelpers.MngdFixedArrayMarshaler.ConvertContentsToNative
+GAP	System.StubHelpers.MngdFixedArrayMarshaler.ConvertSpaceToManaged
+GAP	System.StubHelpers.MngdFixedArrayMarshaler.ConvertContentsToManaged
+GAP	System.StubHelpers.MngdFixedArrayMarshaler.ClearNativeContents
+GAP	System.StubHelpers.MngdSafeArrayMarshaler.CreateMarshaler
+GAP	System.StubHelpers.MngdSafeArrayMarshaler.ConvertSpaceToNative
+GAP	System.StubHelpers.MngdSafeArrayMarshaler.ConvertContentsToNative
+GAP	System.StubHelpers.MngdSafeArrayMarshaler.ConvertSpaceToManaged
+GAP	System.StubHelpers.MngdSafeArrayMarshaler.ConvertContentsToManaged
+GAP	System.StubHelpers.MngdSafeArrayMarshaler.ClearNative
+GAP	System.StubHelpers.MngdRefCustomMarshaler.CreateMarshaler
+GAP	System.StubHelpers.MngdRefCustomMarshaler.ConvertContentsToNative
+GAP	System.StubHelpers.MngdRefCustomMarshaler.ConvertContentsToManaged
+GAP	System.StubHelpers.MngdRefCustomMarshaler.ClearNative
+GAP	System.StubHelpers.MngdRefCustomMarshaler.ClearManaged
+GAP	System.StubHelpers.StubHelpers.GetDelegateTarget
+GAP	System.StubHelpers.StubHelpers.ClearLastError
+GAP	System.StubHelpers.StubHelpers.SetLastError
+GAP	System.StubHelpers.StubHelpers.ThrowInteropParamException
+GAP	System.StubHelpers.StubHelpers.InternalGetHRExceptionObject
+GAP	System.StubHelpers.StubHelpers.InternalGetCOMHRExceptionObject
+GAP	System.StubHelpers.StubHelpers.CreateCustomMarshalerHelper
+GAP	System.StubHelpers.StubHelpers.GetCOMIPFromRCW
+GAP	System.StubHelpers.StubHelpers.ProfilerBeginTransitionCallback
+GAP	System.StubHelpers.StubHelpers.ProfilerEndTransitionCallback
+GAP	System.StubHelpers.StubHelpers.FmtClassUpdateNativeInternal
+GAP	System.StubHelpers.StubHelpers.FmtClassUpdateCLRInternal
+GAP	System.StubHelpers.StubHelpers.LayoutDestroyNativeInternal
+GAP	System.StubHelpers.StubHelpers.AllocateInternal
+GAP	System.StubHelpers.StubHelpers.MarshalToUnmanagedVaListInternal
+GAP	System.StubHelpers.StubHelpers.MarshalToManagedVaListInternal
+GAP	System.StubHelpers.StubHelpers.CalcVaListSize
+GAP	System.StubHelpers.StubHelpers.ValidateObject
+GAP	System.StubHelpers.StubHelpers.LogPinnedArgument
+GAP	System.StubHelpers.StubHelpers.ValidateByref
+GAP	System.StubHelpers.StubHelpers.GetStubContext
+GAP	System.StubHelpers.StubHelpers.ArrayTypeCheck
+GAP	System.StubHelpers.StubHelpers.MulticastDebuggerTraceHelper
+GAP	System.StubHelpers.StubHelpers.NextCallReturnAddress
+GAP	System.Runtime.GCSettings.get_IsServerGC
+GAP	System.Runtime.JitInfo.GetCompiledILBytes
+GAP	System.Runtime.JitInfo.GetCompiledMethodCount
+GAP	System.Runtime.GCFrameRegistration.RegisterForGCReporting
+GAP	System.Runtime.GCFrameRegistration.UnregisterForGCReporting
+GAP	System.Runtime.Loader.AssemblyLoadContext.GetLoadedAssemblies
+GAP	System.Runtime.Loader.AssemblyLoadContext.IsTracingEnabled
+ERR	System.Runtime.InteropServices.GCHandle.InternalAlloc	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalAlloc: System.Runtime.InteropServices.GCHandle::InternalAlloc not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
+ERR	System.Runtime.InteropServices.GCHandle.InternalFree	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalFree: System.Runtime.InteropServices.GCHandle::InternalFree not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
+ERR	System.Runtime.InteropServices.GCHandle.InternalSet	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalSet: System.Runtime.InteropServices.GCHandle::InternalSet not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
+ERR	System.Runtime.InteropServices.GCHandle.InternalCompareExchange	NotSupportedException:System.Runtime.InteropServices.GCHandle::InternalCompareExchange: System.Runtime.InteropServices.GCHandle::InternalCompareExchange not wired: the runtime surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)
+GAP	System.Runtime.InteropServices.Marshal.SizeOfHelper
+GAP	System.Runtime.InteropServices.Marshal.GetLastPInvokeError
+GAP	System.Runtime.InteropServices.Marshal.SetLastPInvokeError
+OK	System.Runtime.InteropServices.Marshal.GetExceptionPointers	il2cpp::runtime::icall_marshal_get_exception_pointers
+OK	System.Runtime.InteropServices.Marshal.GetExceptionCode	il2cpp::runtime::icall_marshal_get_exception_code
+ERR	System.Runtime.InteropServices.Marshal.StructureToPtr	NotSupportedException:System.Runtime.InteropServices.Marshal::StructureToPtr: StructureToPtr not wired: the byte semantics exist in the runtime (il2cpp_marshal_struct_*_load/store, marshalext3.cpp -- the registered struct family of il2cpp_pinvoke_struct.h), but a PtrToStructure result / ref-T StructureToPtr argument needs a STRUCT-TYPED local or result temp -- CodeGenerator's result-kind whitelist (ExprKind, line 2849) and the value-type local declaration (line 1189-1202) must learn the registered struct C++ types (il2cpp::Il2CppPinvokeRect/Point/Msg). That is the CodeGenerator TypeCppName extension (a read-only file in this batch); the runtime round-trip is unit-tested in test_marshalstruct.cpp
+GAP	System.Runtime.InteropServices.Marshal.DestroyStructure
+GAP	System.Runtime.InteropServices.Marshal.GetExceptionForHRInternal
+OK	System.Runtime.InteropServices.Marshal.GetHRForException	il2cpp::runtime::icall_marshal_get_hr_for_exception
+ERR	System.Runtime.InteropServices.Marshal.GetTypedObjectForIUnknown	NotSupportedException:System.Runtime.InteropServices.Marshal::GetTypedObjectForIUnknown: COM interop is not supported in ILC: GetTypedObjectForIUnknown belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.CleanupUnusedObjectsInCurrentContext	NotSupportedException:System.Runtime.InteropServices.Marshal::CleanupUnusedObjectsInCurrentContext: COM interop is not supported in ILC: CleanupUnusedObjectsInCurrentContext belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.AreComObjectsAvailableForCleanup	NotSupportedException:System.Runtime.InteropServices.Marshal::AreComObjectsAvailableForCleanup: COM interop is not supported in ILC: AreComObjectsAvailableForCleanup belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.InternalReleaseComObject	NotSupportedException:System.Runtime.InteropServices.Marshal::InternalReleaseComObject: COM interop is not supported in ILC: InternalReleaseComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.InternalFinalReleaseComObject	NotSupportedException:System.Runtime.InteropServices.Marshal::InternalFinalReleaseComObject: COM interop is not supported in ILC: InternalFinalReleaseComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.IsTypeVisibleFromCom	NotSupportedException:System.Runtime.InteropServices.Marshal::IsTypeVisibleFromCom: COM interop is not supported in ILC: IsTypeVisibleFromCom belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.GetStartComSlot	NotSupportedException:System.Runtime.InteropServices.Marshal::GetStartComSlot: COM interop is not supported in ILC: GetStartComSlot belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.GetEndComSlot	NotSupportedException:System.Runtime.InteropServices.Marshal::GetEndComSlot: COM interop is not supported in ILC: GetEndComSlot belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+ERR	System.Runtime.InteropServices.Marshal.ChangeWrapperHandleStrength	NotSupportedException:System.Runtime.InteropServices.Marshal::ChangeWrapperHandleStrength: COM interop is not supported in ILC: ChangeWrapperHandleStrength belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime
+GAP	System.Runtime.InteropServices.Marshal.GetDelegateForFunctionPointerInternal
+GAP	System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegateInternal
+ERR	System.Runtime.CompilerServices.RuntimeHelpers.InitializeArray	NotSupportedException:System.Runtime.CompilerServices.RuntimeHelpers::InitializeArray: RuntimeHelpers.InitializeArray not wired as an icall: the runtime constant-array init is a StackFold fold (ldtoken<RVA field> + newarr); the call reached the resolver without the fold pattern
+OK	System.Runtime.CompilerServices.RuntimeHelpers.GetObjectValue	::identity::
+ERR	System.Runtime.CompilerServices.RuntimeHelpers.PrepareDelegate	NotSupportedException:System.Runtime.CompilerServices.RuntimeHelpers::PrepareDelegate: RuntimeHelpers.PrepareDelegate not wired: it is a JIT-prepare hint (netcore body is empty) and this AOT has no JIT to prepare the delegate
+OK	System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode	il2cpp::runtime::icall_object_get_hash_code
+GAP	System.Runtime.CompilerServices.RuntimeHelpers.TryGetHashCode
+OK	System.Runtime.CompilerServices.RuntimeHelpers.Equals	::refeq::
+ERR	System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack	NotSupportedException:System.Runtime.CompilerServices.RuntimeHelpers::EnsureSufficientExecutionStack: RuntimeHelpers.EnsureSufficientExecutionStack not wired: the runtime has no stack-probe primitive (the AOT model runs on the host stack with no managed stack-limit checks)
+GAP	System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack
+GAP	System.Runtime.CompilerServices.RuntimeHelpers.AllocateUninitializedClone
+GAP	System.Runtime.CompilerServices.RuntimeHelpers.Box
+GAP	System.Runtime.CompilerServices.MethodTable.GetNumInstanceFieldBytes
+GAP	System.Reflection.RuntimeAssembly.GetManifestModule
+GAP	System.Reflection.RuntimeAssembly.GetToken
+OK	System.Diagnostics.Debugger.get_IsAttached	il2cpp::runtime::il2cpp_debugger_is_attached
+OK	System.Diagnostics.Debugger.IsLogging	il2cpp::runtime::il2cpp_debugger_is_logging
+GAP	System.Diagnostics.StackTrace.GetStackFramesInternal
+SUMMARY	total=272	mapped=75	receiverMapped=1	gap=112	error=84	C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.5\System.Private.CoreLib.dll

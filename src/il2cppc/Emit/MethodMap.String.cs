@@ -146,9 +146,11 @@ case "ToCharArray":
             new[] { "s" }, returnTypeName: "System.Char[]")
         : null;
 // net9/10 E2E campaign: CopyTo(srcIndex, dest, destIndex, count).
+// INSTANCE method (callvirt call sites -- icallclassic caught the missing
+// IsInstance flag: StackFold rejects callvirt on a non-instance resolution).
 case "CopyTo":
     return ps.Length == 4 && ps[1] == 0x1D
-        ? I("il2cpp::runtime::icall_string_copy_to_array", 4, false, false, false,
+        ? I("il2cpp::runtime::icall_string_copy_to_array", 4, false, false, true,
             new[] { "s", "i", "a", "i", "i" })
         : null;
 // net9/10 E2E campaign: ReplaceLineEndings(string) -- CRLF/CR/LF normalize.
@@ -393,6 +395,17 @@ case "ReplaceLineEndings":
                 if (ps.Length == 1 && ps[0] == 0x1D)
                     return I("il2cpp::runtime::icall_string_split", 1, true, true, true,
                         new[] { "s", "a" }, returnTypeName: "System.String[]");
+                // Split(char) -- the netcore21+ single-char overload (the
+                // runtime wrapper builds the 1-element separator array).
+                if (ps.Length == 1 && ps[0] == 0x03)
+                    return I("il2cpp::runtime::icall_string_split_char", 1, true, true, true,
+                        new[] { "s", "c" }, returnTypeName: "System.String[]");
+                // Split(char, StringSplitOptions) -- netcore21 binds s.Split(' ')
+                // to THIS shape (options defaults at the call site, the IL
+                // carries both args). Same wrapper family as the 1-arg form.
+                if (ps.Length == 2 && ps[0] == 0x03 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_string_split_char_options", 2, true, true, true,
+                        new[] { "s", "c", "" }, returnTypeName: "System.String[]");
                 // 2-arg options overload: Split(char[], StringSplitOptions) /
                 // Split(string[], StringSplitOptions) (the RT-SPL2 / strcomp2
                 // wiring). BOTH SZARRAY shapes (ps[0] == 0x1D; the element

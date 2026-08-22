@@ -1,0 +1,53 @@
+aescase : PASS
+arith : PASS
+arraybounds : PASS
+arraychain : PASS
+arraydeep : PASS
+arraydeep2 : PASS
+arrayext : PASS
+arrayext2 : PASS
+arrayext3 : PASS
+arrayextra2 : PASS
+arrayfuncs2 : PASS
+arrayjoin : PASS
+arraylistdeep : PASS
+arrayops : PASS
+arrayresize2 : PASS
+arrays : PASS
+arrayslice : PASS
+arraysortdeep : PASS
+arrcomp : PASS
+arrdeep : PASS
+arrfuncs : PASS
+arroffset : PASS
+arrresize : PASS
+asynccase : PASS
+attrdeep : PASS
+base64case : PASS
+bgthread : PASS
+binaryiodeep : PASS
+binrw2 : PASS
+bitconvcase : PASS
+bitconverterdeep : PASS
+bitopcase : PASS
+bitops2 : PASS
+boolops : PASS
+boxconv : PASS
+boxconv2 : PASS
+boxdeep : PASS
+boxdeep2 : PASS
+boxext : PASS
+boxext2 : PASS
+boxextra : BUILD FAIL
+boxtypes : BUILD FAIL
+bstrconv : BUILD FAIL
+buffercase : BUILD FAIL
+bytearrayext : BUILD FAIL
+bytein : BUILD FAIL
+castcase : BUILD FAIL
+castdeep : BUILD FAIL
+catchcase : BUILD FAIL
+cbuf : BUILD FAIL
+charconv : PASS
+charutf8 : BUILD FAIL
+checkedcase : BUILD FAIL

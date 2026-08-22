@@ -1,0 +1,24 @@
+PASS add_int_new_value
+PASS add_int_negative
+PASS add_long_new_value
+PASS add_long_negative
+PASS exchange_int_old_value
+PASS exchange_long_old_value
+PASS exchange_float_old_value
+PASS exchange_double_old_value
+PASS exchange_object_old_value
+PASS exchange_object_twice
+PASS cas_int_hit
+PASS cas_int_miss
+PASS cas_long_hit
+PASS cas_long_miss
+PASS cas_double_hit
+PASS cas_double_miss
+PASS exchange_generic_int
+PASS increment_chain_int
+PASS decrement_chain_int
+PASS increment_chain_long
+PASS decrement_chain_long
+PASS increment_loop_chain
+PASS decrement_loop_chain
+ALL-PASS

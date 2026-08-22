@@ -1,0 +1,32 @@
+sizeof_lvcolumn=56
+off_mask=0
+off_fmt=4
+off_cx=8
+off_pszText=16
+off_cchTextMax=24
+off_iSubItem=28
+off_iImage=32
+off_iOrder=36
+icc=True
+parent_class=True
+parent=True
+created=True
+parent_is_form=True
+ext_prev=0
+ext_now=33
+ins0=0 ins1=1 ins2=2
+width0=90 width1=70 width2=70
+getcol_ret=1 fmt=16384 cx=90 sub=0
+getcol_text0=Name
+getcol1_fmt=16386 cx=70 text=Value
+getcol2_fmt=16385 cx=70 text=Kind
+header_nonzero=True
+headercount=3
+width0_after=120
+row0=0 row1=1 row2=2
+count=3
+cell11_set=True cell12_set=True
+cell11=Yes
+cell12=No
+cell00=Alpha
+done

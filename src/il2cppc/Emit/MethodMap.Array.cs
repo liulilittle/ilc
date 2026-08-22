@@ -154,10 +154,13 @@ public static partial class MethodRefResolver
                 }
                 return I("il2cpp::runtime::icall_array_reverse_range", 3, false, false, false);
             case "Copy":
-                // icall_array_copy(src, srcIndex, dst, dstIndex, length) -- the
-                // (Array, Array, int) overload would need two injected zeros.
+                // icall_array_copy(src, srcIndex, dst, dstIndex, length) --
+                // the 3-arg overload (src, dst, length) forwards through
+                // icall_array_copy_3 (both indices zero; the emitter has no
+                // constant-injection facility).
                 if (count == 5) return I("il2cpp::runtime::icall_array_copy", 5, false, false, false);
-                throw new NotSupportedException($"Array.Copy with {count} arg(s) not wired: the runtime icall needs (src, srcIndex, dst, dstIndex, length)");
+                if (count == 3) return I("il2cpp::runtime::icall_array_copy_3", 3, false, false, false);
+                throw new NotSupportedException($"Array.Copy with {count} arg(s) not wired: the runtime icalls need (src, srcIndex, dst, dstIndex, length) or (src, dst, length)");
             case "ConstrainedCopy":
                 // CONSTRAINED (2026-08-22): Array.ConstrainedCopy(Array, int,
                 // Array, int, int) -- net48 has ONLY this 5-arg form. The
@@ -336,6 +339,24 @@ public static partial class MethodRefResolver
             // of the array's element type (stub: returns 4 = ELEMENT_TYPE_I4).
             case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);
             case "GetDataPtrOffsetInternal": return I("il2cpp::runtime::icall_array_get_data_ptr_offset_internal", 0, true, true, false);
+            // netcore31/net6 audit gap closure:
+            // GetElementSize() -- INSTANCE 0-arg form (metadata-verified:
+            // count=0 ret=I4): the receiver's element stride in bytes
+            // (icall_array_get_element_size, arrayext.cpp).
+            case "GetElementSize":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_array_get_element_size", 0, true, false, true);
+                return null;
+            // InternalGetValue(index) -- metadata-verified shape: 1 arg of
+            // NATIVE INT (0x18 -- the net6 internal index carrier), object
+            // return. Same boxed-element read as GetValue(int)
+            // (arrayextra.h runtime kind dispatch); the index rides the
+            // int32 slot ("i" cast) -- exact because the valid index range
+            // of the one-dimensional arrays IS int32.
+            case "InternalGetValue":
+                if (count == 1 && ps is { Length: >= 1 } && ps[0] == 0x18)
+                    return I("il2cpp::il2cpp_array_get_value", 1, true, true, true, new[] { "a", "i" });
+                return null;
             default: return null;
         }
     }

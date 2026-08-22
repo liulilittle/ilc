@@ -874,6 +874,15 @@ public static class CodeGenerator
             var bar = def.IndexOf('|');
             generatedHeader.Line($"struct {def[..bar]} {{ {def[(bar + 1)..]}; }};");
         }
+        // Guid.Empty static-field reads: System.Guid has no TypeDef storage,
+        // so ldsfld emits the shared file-scope all-zero 16-byte slot (the
+        // Guid value representation; "g"-cast receivers take its address).
+        // NOT const: the Guid slot ABI passes mutable uint8_t* (a const
+        // declaration would make reinterpret_cast<uint8_t*> ill-formed).
+        if (_guidEmptyNeeded)
+        {
+            generatedHeader.Line("static uint8_t il2cpp_guid_empty_bytes[16] = { 0 };");
+        }
         File.WriteAllText(Path.Combine(outDir, "include", "internal", "generated.h"), generatedHeader.ToString());
 
         EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath));
@@ -1365,6 +1374,10 @@ public static class CodeGenerator
                 if (ilKind[2..] == "System.Guid")
                 {
                     w.Line($"uint8_t {d}[16];");
+                    // Register the slot kind so the Guid value-copy / Empty
+                    // memcpy paths recognize assignments to this local (the
+                    // declaration alone does not seed locKind).
+                    locKind[d] = "guid";
                     continue;
                 }
                 // batch 156c (asynccase): a VALUETYPE local whose struct has
@@ -2283,6 +2296,9 @@ public static class CodeGenerator
     // scope -- a second method using the same tuple type saw an undefined
     // type (the macro guard only deduped TEXT, not C++ visibility).
     private static readonly SortedSet<string> TupleDefsNeeded = new(StringComparer.Ordinal);
+    // Set when any method body reads System.Guid.Empty (the file-scope
+    // il2cpp_guid_empty_bytes definition is flushed with the tuple defs).
+    private static bool _guidEmptyNeeded;
 
     // F2 (decimal-domain): the CURRENT method's VALUETYPE-return C++ type
     // (null otherwise) -- set per-method in GenerateCore before body emission,
@@ -2380,6 +2396,18 @@ public static class CodeGenerator
                         throw new NotSupportedException("Guid static-field copy not wired: TypeEmitter static storage is int32_t");
                     w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, {srcLoc.Name}, 16);",
                         $"IL {At(a.SourceOpName, a.SourceOffset)} -- copy Guid value (16-byte value slot)");
+                    break;
+                }
+                // Guid.Empty read into a Guid slot: the shared all-zero
+                // constant copied with the same 16-byte memcpy discipline.
+                if (a.Value is StaticFieldExpr gEmpty && gEmpty.FieldName == "System.Guid.Empty"
+                    && locKind.TryGetValue(a.Target, out var gek) && gek == "guid")
+                {
+                    if (a.Target.Contains('.'))
+                        throw new NotSupportedException("Guid.Empty store to a static field not wired: TypeEmitter static storage is int32_t");
+                    _guidEmptyNeeded = true;
+                    w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, il2cpp_guid_empty_bytes, 16);",
+                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- Guid.Empty into {EmitTarget(a.Target)} (16-byte zero copy)");
                     break;
                 }
                 var assignCode = $"{EmitTarget(a.Target)} = {EmitExpr(a.Value, md, types)};";
@@ -2950,10 +2978,25 @@ public static class CodeGenerator
                 // ldloca: address of a local (value-type this / byref).
                 return $"(&{la.Name})";
             case StaticFieldExpr f:
+                // System.Guid.Empty: no TypeDef storage exists -- the read is
+                // the shared all-zero 16-byte slot (the Guid value form).
+                if (f.FieldName == "System.Guid.Empty")
+                {
+                    _guidEmptyNeeded = true;
+                    return "il2cpp_guid_empty_bytes";
+                }
                 return FieldStorageName(f.FieldName);
             case StaticFieldAddrExpr sa:
                 // ldsflda (ECMA 0x7F): address of a static field -- &<storage>.
                 // The deref:* receiver cast then loads the field VALUE.
+                // System.Guid.Empty: no TypeDef storage -- the shared all-zero
+                // 16-byte slot (the array name decays to the uint8_t* the
+                // "g"-cast receivers expect).
+                if (sa.FieldName == "System.Guid.Empty")
+                {
+                    _guidEmptyNeeded = true;
+                    return "il2cpp_guid_empty_bytes";
+                }
                 return $"(&{FieldStorageName(sa.FieldName)})";
             case BinaryExpr b:
                 // M5 wiring: double arithmetic (either side a double literal) --

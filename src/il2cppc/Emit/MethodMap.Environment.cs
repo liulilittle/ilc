@@ -30,6 +30,10 @@ public static partial class MethodRefResolver
             case "GetCurrentDirectory": return I("il2cpp::runtime::icall_environment_get_current_directory", 0, true, true, false);
             case "SetCurrentDirectory": return I("il2cpp::runtime::icall_environment_set_current_directory", 1, false, false, false);
             case "get_TickCount": return I("il2cpp::runtime::icall_environment_get_tick_count", 0, true, false, false);
+            // netcore21+ audit surface: HasShutdownStarted -- constant false
+            // (the simplified runtime never initiates shutdown while managed
+            // code runs; environment.cpp).
+            case "get_HasShutdownStarted": return I("il2cpp::runtime::icall_environment_get_has_shutdown_started", 0, true, false, false);
             // P6: Environment.TickCount64 (net8+): 64-bit monotonic counter.
             // Returns int64 (ResultKind "l") -- the 64-bit millisecond count.
             case "get_TickCount64": return I("il2cpp::runtime::icall_environment_get_tick_count64", 0, true, false, false, resultKind: "l");

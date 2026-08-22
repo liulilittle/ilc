@@ -1,0 +1,47 @@
+icc_p36: (no ICC needed; STATIC is a user32 class)
+
+p36_panel_created=True
+p36_subclass_ok=True
+p36_style_v=True
+p36_style_h=True
+p36_v_pos0=0
+p36_h_pos0=0
+p36_v25_prev=0
+p36_v25=25
+p36_h5_prev=0
+p36_h5=5
+p36_clamp_high=100
+p36_clamp_low=0
+p36_reset_v_prev=0
+p36_reset_h_prev=5
+p36_vscroll_count=5
+p36_hscroll_count=3
+p36_seq=v:linedown40;v:lineup30;v:pagedown70;v:track80;v:thumb65;h:lineright20;h:pageleft0;h:track35;
+p36_hide_ret=True
+p36_pos_v_hidden=65
+p36_pos_h_hidden=35
+p36_show_ret=True
+p36_final_v=65
+p36_final_h=35
+p36_defproc_ret=0
+p36_defproc_pos=0
+p36_destroy_plain=True
+p36_destroyed=True
+p36_destroy_parent=True
+
+KEY FINDINGS (net48 oracle):
+1. STATIC with WS_CHILD|WS_VSCROLL|WS_HSCROLL on a real parent window: created + subclass OK.
+   (A WS_CHILD window with a NULL parent is NOT created -- the test must use the form as parent.)
+2. GWL_STYLE readback: WS_VSCROLL/WS_HSCROLL bits present (style_v/h True).
+3. SetScrollPos returns the PREVIOUS position: v25 prev=0 (from 0), h5 prev=0, reset_v prev=0
+   (was at 0 after clamp_low), reset_h prev=5 (was at 5).
+4. Clamp: SetScrollPos(120)->GetScrollPos 100; SetScrollPos(-5)->0.
+5. Scroll codes: LINEDOWN +10, LINEUP -10, PAGEDOWN +40, PAGELEFT(PAGEUP) -40 (clamped to 0,
+   h range 0..50), THUMBTRACK/POSITION write HIWORD thumb directly.
+6. seq: v:linedown40;v:lineup30;v:pagedown70;v:track80;v:thumb65;h:lineright20;h:pageleft0;h:track35;
+   (5 vertical + 3 horizontal, FIFO).
+7. ShowScrollBar(SB_BOTH,false): ret True, position RETAINED (65/35 readback);
+   ShowScrollBar(SB_BOTH,true): ret True, position still 65/35.
+8. DefWindowProc DOES NOT auto-scroll a window's scrollbar: unsubclassed plain STATIC
+   window receiving WM_VSCROLL(LINEDOWN) -> DefWindowProcW returns 0 and GetScrollPos stays 0.
+   => the PanelWndProcImpl scroll branch MUST handle the messages explicitly (and it does).

@@ -1,0 +1,3287 @@
+// winforms1.cs -- WinForms stage-2: ShowWindow + WM_PAINT/GDI drawing +
+// Button Click event, all through raw user32/gdi32 P/Invoke (the net48
+// reference oracle runs the SAME source against real Windows).
+//
+// Stage 1 (base): RegisterClassExW + WNDPROC delegate + CreateWindowExW
+// form/child controls + GetMessageW pump + PostMessage injection + close.
+// Stage 2 adds (winforms-plan.md stage-1/2 lists):
+//   * ShowWindow (SW_SHOW -> visible; headless acceptance ends HIDDEN)
+//   * WM_PAINT handling in the WNDPROC delegate: BeginPaint/TextOutW/EndPaint
+//     (GDI drawing, gdi32) -- injected via PostMessage with a marker so the
+//     count is deterministic even if the system synthesizes its own paint
+//   * Button Click event: WM_COMMAND -> a managed delegate callback
+//     (ButtonClick) invoked from the WNDPROC handler
+//   * net48 oracle: window title readback (GetWindowTextW into an
+//     AllocHGlobal buffer + PtrToStringUni) + drawn-text output
+// Stage 4 adds (winforms-plan.md stage-4 list, this file's Phase 4 block):
+//   * Managed event system: a WfControl class with field-backed Click/KeyDown
+//     events (custom add/remove accessors -> Delegate.Combine/Remove, the
+//     delechain-proven multicast path). Button.Click += handler-style multicast,
+//     multi-control per-handler dispatch, shared handlers across controls,
+//     unsubscribe (-=), and a trigger-order sequence string.
+//   * WM_COMMAND dispatch by control ID (LOWORD(wParam)) -> the matching
+//     control's Click event; WM_KEYDOWN (VK_F2 marker) -> KeyDown events.
+//   * Headless acceptance: PostMessage WM_COMMAND/WM_KEYDOWN + PeekMessageW
+//     drain, output sequence (p4_seq / p4_seq2) byte-exact across net48 + both
+//     transpiled compilers.
+// Stage 5 adds (this file's Phase 5 block):
+//   * Multi-window: a SECOND Form (child) -- an independent CreateWindowExW
+//     HWND with its OWN registered window class + its OWN WndProc delegate
+//     (RootChildWndProc); a posted message to the child HWND is dispatched by
+//     the child's proc (independent message handling for the two windows).
+//   * Layout: MoveWindow (position/size) + GetWindowRect (geometry query via
+//     an out RECT struct); child sizes are exact, positions print as DELTAS
+//     (deterministic across processes regardless of screen origin).
+//   * Window relationship: WS_CHILD + hwndParent -> GetParent(button/label/
+//     child) == main form; GetParent(top-level form) == NULL (no owner).
+//   * Headless acceptance: PostMessage WF_CHILD_MSG/WM_CLOSE to the child +
+//     PeekMessageW drain, output byte-exact across net48 + both compilers.
+// Stage 6 adds (this file's Phase 6 block):
+//   * MessageBoxW (user32): a BLOCKING message box shown on a WORKER thread;
+//     the main thread finds the dialog (FindWindowW, dialog class "#32770")
+//     and dismisses it (FindWindowExW locates the "Button" child -> a posted
+//     BM_CLICK, the same technique UI-automation frameworks use). Headless
+//     acceptance: MB_OK returns IDOK (no user click needed).
+//   * Modal window: EnableWindow disables the parent Form; a nested BLOCKING
+//     GetMessageW pump (the simplified modal loop) dispatches until the modal
+//     window is destroyed (WM_CLOSE posted); the parent is re-enabled after
+//     the loop exits -- the WinForms ShowDialog modal pattern, simplified.
+//   * net48 oracle: the SAME source runs against real Windows (the message
+//     box + modal sequence is identical), output byte-exact on both sides.
+// Stage 7 adds (this file's Phase 7 block):
+//   * Property-based control access: Text (WM_SETTEXT + GetWindowTextW),
+//     Visible (ShowWindow + IsWindowVisible) and Enabled (EnableWindow +
+//     IsWindowEnabled) exposed as C# PROPERTIES (get/set) on a WfPropControl
+//     wrapper -- the WinForms control-property surface, managed-side.
+//   * Click event + Enabled toggle combination: the WM_COMMAND dispatch
+//     raises Click through RaiseClick which GATES on the Enabled property (a
+//     disabled control receives no click -- the WinForms rule), and the Click
+//     handler toggles the very Enabled it reads.
+//   * net48 oracle: property sequences (Text get/set round-trips, Visible
+//     transitions, Enabled transitions, click-toggle sequence) byte-exact.
+//   * Headless acceptance: PostMessage WM_COMMAND by control id + PeekMessageW
+//     drain (phase-4 pattern).
+// Stage 8 adds (this file's Phase 8 block):
+//   * Dialog controls: a ComboBox (COMBOBOX class, CBS_DROPDOWNLIST) and a
+//     ListBox (LISTBOX class, LBS_NOTIFY) child window of the form -- the
+//     ListControl surface. Items are added via CB_ADDSTRING / LB_ADDSTRING
+//     (each returns the item's zero-based index); the selection is read/set
+//     via CB_GETCURSEL/CB_SETCURSEL / LB_GETCURSEL/LB_SETCURSEL (CB_ERR/LB_ERR
+//     = -1 when nothing is selected); item text is read back via
+//     CB_GETLBTEXT / LB_GETTEXT (IntPtr buffer + PtrToStringUni, the wired
+//     marshal path).
+//   * Interaction: when the USER changes the selection, the native control
+//     sends WM_COMMAND to its parent with HIWORD(wParam) = CBN_SELCHANGE /
+//     LBN_SELCHANGE and LOWORD = the control id. The form's WndProc decodes
+//     the notification code and dispatches it into the matching control's
+//     managed SelectionChanged event (the WinForms SelectedIndexChanged
+//     surface, simplified); the handler re-reads the native selection so the
+//     sequence proves the event observes the selection at fire time.
+//   * net48 oracle: selection sequences (add order / count / sel readback /
+//     item-text round-trips / selchange event sequence) byte-exact.
+//   * Headless acceptance: PostMessage WM_COMMAND (id | (notif << 16)) +
+//     PeekMessageW drain (phase-4 pattern).
+// Stage 9 adds (this file's Phase 9 block):
+//   * Status-strip controls: a StatusBar (comctl32 "msctls_statusbar32"
+//     STATUSCLASSNAME) and a ProgressBar (comctl32 "msctls_progress32"
+//     PROGRESS_CLASS) child window of the form -- the WinForms StatusStrip/
+//     ProgressBar surface. The classes are registered by InitCommonControlsEx
+//     (ICC_BAR_CLASSES | ICC_PROGRESS_CLASS); status text is written/read via
+//     SB_SETTEXT / SB_GETTEXT / SB_GETTEXTLENGTH; progress position is
+//     read/written via PBM_SETRANGE32 (explicit 0..100 range) + PBM_SETPOS /
+//     PBM_GETPOS (PBM_SETPOS returns the PREVIOUS position).
+//   * Interaction: a posted WF_PROGRESS_STEP advances the progress bar
+//     (PBM_SETPOS) and mirrors the new position into the status bar text
+//     (SB_SETTEXT + SB_GETTEXT round-trip) -- "progress drives status", the
+//     WinForms progress-reporting pattern, simplified.
+//   * net48 oracle: status/progress sequences (range / position transitions /
+//     status text round-trips / the step sequence) byte-exact.
+//   * Headless acceptance: PostMessage WF_PROGRESS_STEP + PeekMessageW drain
+//     (phase-4 pattern); both controls are WS_CHILD of the HIDDEN form.
+// Stage 10 adds (this file's Phase 10 block):
+//   * Main menu: a MainMenu is a CreateMenu() menu BAR attached to the form
+//     with SetMenu (GetMenu reads it back); each top-level MenuItem is a
+//     CreatePopupMenu() DROPDOWN appended with AppendMenuW(MF_POPUP);
+//     sub-items are string items with an explicit WM_COMMAND id
+//     (AppendMenuW MF_STRING). Item counts (GetMenuItemCount) and item-text
+//     readback (GetMenuStringW MF_BYPOSITION into an IntPtr buffer) prove
+//     the tree shape.
+//   * Menu events: clicking a sub-item posts WM_COMMAND to the owner with
+//     LOWORD(wParam) = the item id; the form's WndProc decodes the id and
+//     raises the matching MenuItem.Click event (the WinForms MenuItem.Click
+//     surface, WfMenuItem -- the WfControl multicast event shape).
+//   * Status linkage: each Click handler mirrors the clicked item's text into
+//     the status bar (SB_SETTEXT + SB_GETTEXT round-trip, stage-9 channel):
+//     menu drives status, recorded in an event/status sequence.
+//   * Headless acceptance: PostMessage WM_COMMAND by menu item id +
+//     PeekMessageW drain (phase-4 pattern), byte-exact across net48 + both
+//     compilers. The menu is owned by the (HIDDEN) form and is freed when the
+//     form is destroyed (WM_CLOSE) -- no explicit DestroyMenu.
+// Stage 11 adds (this file's Phase 11 block):
+//   * MDI container (simplified): an MDI FRAME (a top-level window created
+//     with WS_CLIPCHILDREN -- the frame never paints over its children, style
+//     read back via GetWindowLongW GWL_STYLE). Its child is the MDI CLIENT --
+//     a single window that is the PARENT of all MDI children ("multiple
+//     children, same parent", the simplified MDICLIENT surface).
+//   * Child windows: three MDI children, each its OWN window parented to the
+//     client (GetParent proves the container tree: child->client->frame).
+//   * Child activation: WM_MDIACTIVATE (0x0222) posted to the CLIENT with
+//     wParam = the child being activated; the client's WndProc records the
+//     activation ORDER -- the net48 oracle activation sequence.
+//   * Multi-child events: each child is a WfMdiChild with its OWN Click event
+//     (per-child event delegates); a posted WF_MDI_CHILD_MSG to a child raises
+//     ONLY that child's handlers (per-child event isolation).
+//   * Headless acceptance: PostMessage WM_MDIACTIVATE / WF_MDI_CHILD_MSG +
+//     PeekMessageW drain (phase-4 pattern), byte-exact across net48 + both
+//     compilers. All MDI windows are hidden (children of a hidden frame).
+// Stage 13 adds (this file's Phase 13 block):
+//   * Cross-thread message marshaling (the WinForms "background work must be
+//     marshaled to the UI thread" rule): a WORKER thread posts WF_WORKER_MSG
+//     (wParam = the step index) to the main form; the MAIN thread's message
+//     pump (PeekMessageW drain) dispatches it into the form's WndProc -- which
+//     runs on the MAIN thread and updates UI state (the Control.BeginInvoke /
+//     PostMessage handoff, simplified).
+//   * Thread-safe UI counter: the WndProc counts each marshaled message with
+//     Interlocked.Increment; the WORKER counts its own posts the same way --
+//     posted count == processed count proves every cross-thread message was
+//     handled 1:1 (the "thread-safe UI state" acceptance).
+//   * UI update: each marshaled message sets the TextBox text (WM_SETTEXT +
+//     GetWindowTextW readback) -- UI state touched ONLY on the UI thread.
+//   * Determinism: the worker finishes posting before the main thread drains
+//     (Thread.Join -- happens-before), so the FIFO dispatch order is the post
+//     order (w0;w1;w2;w3;) byte-exact across net48 + both compilers.
+// Stage 14 adds (this file's Phase 14 block):
+//   * GDI fonts: CreateFontW (gdi32) creates an HFONT (height -16, regular
+//     weight, default face "Arial"); SelectObject selects it into the WM_PAINT
+//     DC (returning the PREVIOUS font -- the restore target); DeleteObject
+//     frees the font after the restore. The create-select-restore-delete cycle
+//     is the "font exists / is selected / is cleaned up" evidence.
+//   * DrawTextW (user32): the text-drawing complement to the stage-2 TextOutW.
+//     The WM_PAINT handler draws "Wf14Draw" with DT_SINGLELINE | DT_NOCLIP
+//     into a RECT; the DrawTextW return (the drawn text height) is a native
+//     oracle value.
+//   * GetTextExtentPoint32W (gdi32): measures the same string's logical extent
+//     (SIZE cx/cy) in the SELECTED font -- the Control.MeasureText surface,
+//     simplified.
+//   * net48 oracle: the full font/drawing sequence (create;select;draw;extent;
+//     restore;delete;) + the draw height + the extent are recorded (p14_seq /
+//     p14_draw_height / p14_ext_cx / p14_ext_cy) and byte-exact across net48 +
+//     both compilers.
+//   * Headless acceptance: the sequence runs inside the WM_PAINT handler driven
+//     by the EXISTING injected PostMessage WM_PAINT (the stage-2 marker paint)
+//     -- no new message, no visible window.
+// Stage 15 adds (this file's Phase 15 block):
+//   * Panel container: the WinForms Panel (a child container that OWNS child
+//     controls) modeled on a STATIC common control created with WS_CHILD --
+//     no custom window class. The STATIC window is SUBCLASSED via
+//     SetWindowLongPtrW (GWLP_WNDPROC) so the container gets its OWN managed
+//     WndProc (the container's event surface) while still being a plain STATIC
+//     child; unhandled messages fall to DefWindowProcW (the same fallback every
+//     WndProc in this file uses).
+//   * Button inside the container: a BUTTON child is created with the PANEL as
+//     its parent (GetParent(button) == panel, NOT the form -- the container
+//     owns its child). The button's WM_COMMAND is sent to ITS parent -- the
+//     PANEL's proc (a container receives its children's events), which raises
+//     the panel's "button clicked" and BUBBLES a custom WF_PANEL_BTN message
+//     to the FORM (the nested event chain button -> panel -> form).
+//   * Nested events: a posted WF_PANEL_MSG routed to the PANEL's own proc
+//     proves the container has an independent event surface; the bubbled
+//     WF_PANEL_BTN is received by the FORM's proc. P15Seq records the dispatch
+//     order (panel:msg;panel:btn;form:notify;) byte-exact.
+//   * Layout: GetWindowRect (exact child sizes) + GetClientRect (client area)
+//     + GetParent (the container tree) -- sizes print as deltas, so the output
+//     is byte-exact regardless of the screen origin.
+//   * Headless acceptance: PostMessage WF_PANEL_MSG / WM_COMMAND to the panel +
+//     PeekMessageW drain (phase-4 pattern); all windows stay hidden.
+// Stage 16 adds (this file's Phase 16 block):
+//   * TabControl (the WinForms TabControl surface, simplified): the comctl32
+//     "SysTabControl32" class (WC_TABCONTROL) created with InitCommonControlsEx
+//     (ICC_TAB_CLASSES). Pages are added via TCM_INSERTITEMW with a TCITEM --
+//     the struct is built field-by-field in a GCHandle-PINNED int[] carrying
+//     the native TCITEMW layout (mask @0, pszText @16, lParam @32; the array
+//     data is 8-aligned like the struct) -- the wired Marshal surface has no
+//     StructureToPtr, so the struct bytes are written directly.
+//   * Page list + selection: TCM_GETITEMCOUNT counts the pages; TCM_GETCURSEL /
+//     TCM_SETCURSEL read/change the selected tab (the native control inserts
+//     each new tab at the FRONT and auto-selects -- a deterministic quirk the
+//     oracle records -- so the selection is ALWAYS driven explicitly with
+//     TCM_SETCURSEL, which is SILENT: no parent notification).
+//   * Page-switch event (TCN_SELCHANGE): a real click sends the parent
+//     WM_NOTIFY (wParam = control id, lParam = an NMHDR* whose code is
+//     TCN_SELCHANGE). Headless acceptance POSTS WM_NOTIFY to the form (the
+//     phase-8 posted-notification pattern); the form's WM_NOTIFY dispatch
+//     raises the tab's SelectedIndexChanged event, which RE-READS the current
+//     selection via TCM_GETCURSEL -- the event observes the real page at fire
+//     time.
+//   * Per-page independent content: tab index k owns its OWN content STATIC
+//     child of the form (Page0Content / Page1Content / Page2Content).
+//     P16ShowPage shows exactly ONE page per selected tab and hides the other
+//     two (ShowWindow + style-bit visibility readback -- the form is hidden,
+//     so IsWindowVisible's ancestor walk always reports FALSE; the probe reads
+//     the window's OWN WS_VISIBLE style bit via GetWindowLongW GWL_STYLE) --
+//     the "one page visible per tab" content-switch rule.
+//   * net48 oracle: page count / selection round-trips / the page-switch
+//     sequence (p16_seq) / per-page visibility -- byte-exact.
+//   * Headless acceptance: PostMessage WM_NOTIFY + PeekMessageW drain
+//     (phase-4 pattern); the tab + pages are WS_CHILD of the HIDDEN form.
+// Stage 17 adds (this file's Phase 17 block):
+//   * ScrollBar (the WinForms ScrollBar surface, simplified): the user32
+//     built-in "ScrollBar" class control (no InitCommonControlsEx needed).
+//     Range: SetScrollRange sets an explicit 0..100 range; position:
+//     SetScrollPos / GetScrollPos write/read the thumb. (The legacy
+//     SBM_SETRANGE / SBM_SETPOS / SBM_GETPOS control MESSAGES are no-ops on
+//     this OS -- probed: the range stays 0..0 and the position stays 0 after
+//     sending them -- so the range/position channel uses the DOCUMENTED
+//     replacement functions, which is exactly the native state WinForms'
+//     VScrollBar drives.) The range is VERIFIED by a CLAMP readback --
+//     SetScrollPos(120) clamps to max 100 and SetScrollPos(-5) clamps to min
+//     0, each read back via GetScrollPos.
+//   * Scroll event (WM_VSCROLL): a real user scroll makes the scrollbar send
+//     WM_VSCROLL to its PARENT (the form) with LOWORD(wParam) = the scroll
+//     code; a thumb code (SB_THUMBTRACK / SB_THUMBPOSITION) carries the new
+//     thumb position in HIWORD(wParam). Headless acceptance POSTS WM_VSCROLL
+//     (the phase-8 posted-notification pattern); the form's WM_VSCROLL dispatch
+//     writes the thumb, re-reads the real position (GetScrollPos -- the event
+//     observes the thumb at fire time) and mirrors it into the status bar text.
+//   * Status linkage: each scroll (the posted WF_VSCROLL_STEP position-channel
+//     message AND the WM_VSCROLL parent-notification channel) mirrors
+//     "Scroll: <pos>" into the stage-9 status bar text (SB_SETTEXT +
+//     SB_GETTEXT round-trip) -- "scroll drives status", the same pattern as
+//     the stage-9 progress bar.
+//   * net48 oracle: range-clamp readbacks / position round-trips / the scroll
+//     sequence (p17_seq) / status linkage -- byte-exact.
+//   * Headless acceptance: PostMessage WF_VSCROLL_STEP / WM_VSCROLL +
+//     PeekMessageW drain (phase-4 pattern); the scrollbar is WS_CHILD of the
+//     HIDDEN form.
+//
+// Headless-safe: NO window is left visible -- ShowWindow exercises the
+// SW_SHOW/SW_HIDE transition returns and the window is hidden again before
+// the pump (non-interactive window stations can still create windows).
+// Bounded pump (200 dispatches) + harness watchdog; exits on WM_QUIT.
+// The MessageBoxW worker is a BACKGROUND thread (IsBackground) -- if the box
+// were ever not dismissed the blocked worker cannot hang process teardown.
+//
+// Determinism: handles print as "!= 0" booleans; WM_PAINT is counted ONLY
+// when wParam == 0x50A1 (the injected marker) -- any system-synthesized
+// WM_PAINT (wParam=0) still gets BeginPaint/EndPaint validation but does not
+// affect the count. Delegate/struct/value-type paths are the same IL on both
+// sides.
+//
+// Reference output shape (net48 oracle):
+//   module_nonzero=True
+//   class_registered=True
+//   form_created=True
+//   button_created=True
+//   label_created=True
+//   show_hide1_prev_visible=False  (SW_HIDE on already-hidden window)
+//   show_prev_visible=False        (SW_SHOW on hidden window -> now visible)
+//   hide2_prev_visible=True        (SW_HIDE on visible window -> hidden again)
+//   visible_after=False
+//   title_len=7
+//   window_title=Wf1Form
+//   wm_create_count=1
+//   wm_command_count=0
+//   inject_command=True
+//   inject_paint=True
+//   wm_command_count_after=1
+//   click_count=1           (ButtonClick delegate invoked from WM_COMMAND)
+//   wm_paint_count=1        (injected marker paint handled)
+//   begin_paint_ok=True
+//   textout_ok=True
+//   painted_text=Wf1Draw
+//   wm_close_count=1
+//   close_destroyed=True
+//   pump_exit_reason=quit
+//   dump_form_nonzero=True
+//   dump_button_nonzero=True
+//   dump_label_nonzero=True
+//   dump_commands=1
+//   dump_clicks=1
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+namespace Cases { public static class Winforms1 {
+    // --- Win32 constants / structs (minimal sequential layouts) ---
+    public const int WM_CREATE = 0x0001;
+    public const int WM_PAINT = 0x000F;
+    public const int WM_CLOSE = 0x0010;
+    public const int WM_COMMAND = 0x0111;
+    public const int WM_QUIT = 0x0012;
+
+    public const int SW_SHOW = 5;
+    public const int SW_HIDE = 0;
+
+    public const int WS_OVERLAPPED = 0x00000000;
+    public const int WS_CHILD = 0x40000000;
+    public const int WS_VISIBLE = 0x10000000;
+    public const int WS_TABSTOP = 0x00010000;
+
+    public const int CS_HREDRAW = 0x0002;
+    public const int CS_VREDRAW = 0x0001;
+
+    public const int CW_USEDEFAULT = unchecked((int)0x80000000);
+
+    // Injected WM_PAINT marker: only paints posted with this wParam are
+    // counted (system-synthesized WM_PAINT arrives with wParam = 0).
+    public const int PAINT_MARKER = 0x50A1;
+
+    // Stage 3: TextBox (EDIT) / CheckBox (BUTTON + BS_AUTOCHECKBOX) /
+    // focus+keyboard messages.
+    public const int WM_SETTEXT = 0x000C;
+    public const int WM_KEYDOWN = 0x0100;
+    public const int BM_GETCHECK = 0x00F0;
+    public const int BM_SETCHECK = 0x00F1;
+    public const int BS_AUTOCHECKBOX = 0x0003;
+    public const int ES_AUTOHSCROLL = 0x0080;
+    public const int PM_REMOVE = 0x0001;
+    public const int VK_F1 = 0x0070;
+    public const int VK_F2 = 0x0071;
+
+    // Custom application message (WM_APP + 1): the WndProc's posted handler
+    // drives the real WM_SETTEXT + GetWindowTextW round-trip on the TextBox.
+    // (WM_SETTEXT itself is a synchronous-only message -- PostMessageW returns
+    // 0 / error 1159 on real Windows -- so the "post a text-set" acceptance
+    // goes through this custom message instead.)
+    public const int WF_SET_TEXT = 0x8001;
+
+    // Phase 5: custom message routed to the CHILD window's own WndProc
+    // (proves the two Forms have independent message handling).
+    public const int WF_CHILD_MSG = 0x8002;
+
+    // Phase 6: MessageBoxW flags / returns. MB_OK = 0 is the simple OK-only
+    // box; IDOK = 1 is what MessageBoxW returns when the OK button is
+    // selected (or when WM_COMMAND IDOK is posted to the dialog).
+    public const int MB_OK = 0x00000000;
+    public const int IDOK = 1;
+
+    // Phase 6: the standard system dialog class used by MessageBoxW
+    // (FindWindowW locates the box by this class + its caption title).
+    public const string DLG_CLASS = "#32770";
+
+    // Phase 6: BM_CLICK -- the button-click message posted to the message
+    // box's OK button (found via FindWindowExW) to dismiss it programmatically.
+    public const int BM_CLICK = 0x00F5;
+
+    // Stage 8: ComboBox messages (user32 COMBOBOX class). CB_ADDSTRING adds an
+    // item (lParam = the string pointer, returns the new item index);
+    // CB_GETCURSEL/CB_SETCURSEL read/change the selection; CB_GETCOUNT counts
+    // items; CB_GETLBTEXT copies item text into a caller buffer.
+    public const int CB_ADDSTRING = 0x0143;
+    public const int CB_GETCOUNT = 0x0146;
+    public const int CB_GETCURSEL = 0x0147;
+    public const int CB_GETLBTEXT = 0x0148;
+    public const int CB_SETCURSEL = 0x014E;
+
+    // Stage 8: ListBox messages (user32 LISTBOX class) -- the same shape as
+    // the ComboBox set (LB_ADDSTRING / LB_GETCURSEL / LB_SETCURSEL /
+    // LB_GETCOUNT / LB_GETTEXT).
+    public const int LB_ADDSTRING = 0x0180;
+    public const int LB_SETCURSEL = 0x0186;
+    public const int LB_GETCURSEL = 0x0188;
+    public const int LB_GETTEXT = 0x0189;
+    public const int LB_GETCOUNT = 0x018B;
+
+    // Stage 8: selection-change notification codes -- the HIWORD of the
+    // WM_COMMAND wParam a ComboBox/ListBox sends its parent when the USER
+    // changes the selection (CBN_SELCHANGE / LBN_SELCHANGE). Both are 1.
+    public const int CBN_SELCHANGE = 1;
+    public const int LBN_SELCHANGE = 1;
+
+    // Stage 8: control styles. CBS_DROPDOWNLIST = a closed combo (the list
+    // drops only when opened -- headless-safe); LBS_NOTIFY = the list box
+    // sends LBN_* notifications to its parent.
+    public const int CBS_DROPDOWNLIST = 0x0003;
+    public const int LBS_NOTIFY = 0x0001;
+
+    // Stage 9: common-control message channels. SB_SETTEXTW writes a status
+    // bar part's text (wParam = part index | flags, lParam = string pointer);
+    // SB_GETTEXTW copies it into a caller buffer (returns the length);
+    // SB_GETTEXTLENGTHW returns the part-text length (LOWORD of the return).
+    // NOTE the A/W split: SB_SETTEXTA/W are WM_USER+1/11, SB_GETTEXTA/W are
+    // WM_USER+2/13, SB_GETTEXTLENGTHA/W are WM_USER+3/12 -- this test uses the
+    // W variants (SendMessageW carries a Unicode string pointer).
+    // PBM_SETRANGE32 sets an explicit 32-bit range (wParam = min, lParam =
+    // max); PBM_SETPOS/PBM_GETPOS read/write the current position (PBM_SETPOS
+    // returns the PREVIOUS position -- deterministic in a sequence).
+    public const int SB_SETTEXT = 0x040B;
+    public const int SB_GETTEXTLENGTH = 0x040C;
+    public const int SB_GETTEXT = 0x040D;
+
+    public const int PBM_SETRANGE32 = 0x0406;
+    public const int PBM_SETPOS = 0x0402;
+    public const int PBM_GETPOS = 0x0408;
+
+    // Stage 9: InitCommonControlsEx registration flags -- the status bar
+    // class (msctls_statusbar32 / STATUSCLASSNAME, ICC_BAR_CLASSES) and the
+    // progress bar class (msctls_progress32 / PROGRESS_CLASS,
+    // ICC_PROGRESS_CLASS) live in comctl32 and must be registered before
+    // CreateWindowExW can instantiate them.
+    public const int ICC_BAR_CLASSES = 0x00000004;
+    public const int ICC_PROGRESS_CLASS = 0x00000020;
+
+    // Stage 9: custom posted message -- the WndProc advances the progress bar
+    // (PBM_SETPOS) and mirrors the new position into the status bar text
+    // (SB_SETTEXT + SB_GETTEXT round-trip): "progress drives status".
+    public const int WF_PROGRESS_STEP = 0x8003;
+
+    // Stage 10: menu constants. MF_STRING (0) is a normal text item (the
+    // default flag); MF_POPUP marks a DROPDOWN submenu (its handle is passed
+    // as the item id); MF_BYPOSITION (0x400) makes GetMenuStringW address
+    // items by position instead of by command id. Menu item ids are explicit
+    // (0x110/0x111/0x120) so the WM_COMMAND dispatch is deterministic.
+    public const int MF_STRING = 0x00000000;
+    public const int MF_POPUP = 0x00000010;
+    public const int MF_BYPOSITION = 0x00000400;
+
+    // Stage 11: MDI constants. WS_CLIPCHILDREN is the MDI FRAME style -- the
+    // frame never paints over its children (DefMDIChildProc requires it); the
+    // MDI CLIENT window is the single parent of all MDI children (simplified
+    // MDICLIENT surface: "multiple children, same parent"). WM_MDIACTIVATE is
+    // the MDI child-activation message (posted to the client, wParam = the
+    // child being activated); GWL_STYLE reads a window's creation style back.
+    public const int WS_CLIPCHILDREN = 0x02000000;
+    public const int WS_CLIPSIBLINGS = 0x04000000;
+    public const int WM_MDIACTIVATE = 0x0222;
+    public const int GWL_STYLE = -16;
+
+    // Stage 11: custom posted message routed to an MDI CHILD's own WndProc --
+    // raises ONLY that child's Click event (per-child event isolation).
+    public const int WF_MDI_CHILD_MSG = 0x8006;
+
+    // Phase 12: clipboard constants. CF_UNICODETEXT (13) is the UTF-16 text
+    // clipboard format -- SetClipboardData stores a StringToHGlobalUni handle
+    // under it, GetClipboardData returns it back. WF_CLIP_SET / WF_CLIP_GET
+    // are the posted messages that drive the copy/paste INSIDE the WndProc
+    // handler (OpenClipboard needs the calling thread's message queue -- the
+    // phase-4 PostMessage + PeekMessageW drain pattern supplies it).
+    public const int CF_UNICODETEXT = 13;
+    public const int WF_CLIP_SET = 0x8007;
+    public const int WF_CLIP_GET = 0x8008;
+
+    // Phase 13: custom posted message -- the WORKER thread's cross-thread
+    // "progress" report to the main form. wParam = the step index (0..n);
+    // the form's WndProc (main thread) marshals it into UI state.
+    public const int WF_WORKER_MSG = 0x8009;
+
+    // Phase 14: GDI font + DrawText constants. CreateFontW (gdi32) builds a
+    // font from 14 scalar params + a face name: a NEGATIVE cHeight (-16) is a
+    // character height in logical units, FW_NORMAL (400) is the regular
+    // weight, DEFAULT_CHARSET (1) is the system charset, and the remaining
+    // precision/quality/pitch/family fields are the zero defaults -- the
+    // minimal "make a text font" call. DrawTextW flags (user32): DT_SINGLELINE
+    // (0x20) disables wrapping, DT_NOCLIP (0x100) disables clipping -- the
+    // headless-safe text-layout flags.
+    public const int FONT_HEIGHT = -16;
+    public const int FW_NORMAL = 400;
+    public const int DEFAULT_CHARSET = 1;
+    public const int OUT_DEFAULT_PRECIS = 0;
+    public const int CLIP_DEFAULT_PRECIS = 0;
+    public const int DEFAULT_QUALITY = 0;
+    public const int DEFAULT_PITCH = 0;
+    public const int DT_SINGLELINE = 0x00000020;
+    public const int DT_NOCLIP = 0x00000100;
+
+    // Phase 15: Panel container constants. GWLP_WNDPROC (-4) is the
+    // SetWindowLongPtrW index that REPLACES a window's class proc with a new
+    // one (the non-zero return value proves the subclass installed); this is
+    // the Win32 subclassing surface a real Panel uses to give the STATIC
+    // window its own event handler. WF_PANEL_MSG is a posted message
+    // routed to the PANEL's own proc; WF_PANEL_BTN is the event the panel
+    // BUBBLES to the form when its child button "clicks"; ID_PANEL_BTN is the
+    // button's control id (the LOWORD the WM_COMMAND carries).
+    public const int GWLP_WNDPROC = -4;
+    public const int WF_PANEL_MSG = 0x800A;
+    public const int WF_PANEL_BTN = 0x800B;
+    public const int ID_PANEL_BTN = 201;
+
+    // Phase 16: TabControl constants. WC_TABCONTROL is the comctl32 tab class
+    // name ("SysTabControl32"); ICC_TAB_CLASSES registers it (InitCommonControlsEx).
+    // The tab messages anchor at TCM_FIRST (0x1300): TCM_INSERTITEMW inserts a
+    // page (lParam = a TCITEM*), TCM_GETITEMCOUNT counts pages, TCM_GETCURSEL /
+    // TCM_SETCURSEL read/change the selection (initial = -1; TCM_SETCURSEL is
+    // SILENT -- the control does NOT notify its parent). TCIF_PARAM marks the
+    // TCITEM.lParam field valid. A user click sends the parent WM_NOTIFY
+    // (wParam = control id, lParam = an NMHDR* whose code is TCN_SELCHANGE).
+    public const string WC_TABCONTROL = "SysTabControl32";
+    public const int ICC_TAB_CLASSES = 0x00000008;
+    public const int WM_NOTIFY = 0x004E;
+    public const int TCM_FIRST = 0x1300;
+    public const int TCM_GETITEMCOUNT = TCM_FIRST + 4;
+    public const int TCM_GETCURSEL = TCM_FIRST + 11;
+    public const int TCM_SETCURSEL = TCM_FIRST + 12;
+    public const int TCM_INSERTITEMW = TCM_FIRST + 62;
+    public const int TCIF_PARAM = 0x0004;
+    public const int TCN_SELCHANGE = -10;
+    public const int ID_TAB16 = 301;
+
+    // Phase 17: ScrollBar constants. The "ScrollBar" class is a USER32
+    // built-in control (no InitCommonControlsEx needed). The legacy SBM_*
+    // scroll-bar CONTROL messages (SBM_SETRANGE / SBM_SETPOS / SBM_GETPOS,
+    // WM_USER + 1/2/4) are NO-OPS on modern Windows -- probed on this OS:
+    // after sending SBM_SETRANGE(0,100) the range stays 0..0 and after
+    // SBM_SETPOS(n) the position stays 0 (GetScrollPos readback), so the
+    // range/position channel uses the DOCUMENTED replacement functions the
+    // SBM_* docs point to ("Applications should not send this message
+    // directly. Instead, they should use the SetScrollRange/SetScrollPos
+    // function"): SetScrollRange / SetScrollPos / GetScrollPos (user32) --
+    // the exact native state WinForms' VScrollBar drives (probed: GetScrollPos
+    // reads 25 after VScrollBar.Value = 25). SetScrollPos CLAMPS to the
+    // range (SetScrollPos(120) -> GetScrollPos 100; SetScrollPos(-5) -> 0 --
+    // the deterministic range proof) and RETURNS the previous position.
+    // WM_VSCROLL (0x115) is the parent notification a VERTICAL scrollbar
+    // sends when the USER scrolls: LOWORD(wParam) = the scroll code
+    // (SB_THUMBTRACK / SB_THUMBPOSITION carry the new thumb position in
+    // HIWORD(wParam)). WF_VSCROLL_STEP is the custom posted message that
+    // drives the position channel (wParam = the target position); SBS_VERT is
+    // the vertical style and SB_CTL addresses a scroll-bar CONTROL.
+    public const string SCROLLBAR_CLASS = "SCROLLBAR";
+    public const int SBS_VERT = 0x0001;
+    public const int SB_CTL = 0x0002;
+    public const int WM_VSCROLL = 0x0115;
+    public const int SB_THUMBPOSITION = 4;
+    public const int SB_THUMBTRACK = 5;
+    public const int WF_VSCROLL_STEP = 0x800C;
+    public const int ID_SCROLL17 = 401;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WNDCLASSEX {
+        public int cbSize;
+        public int style;
+        public IntPtr lpfnWndProc;
+        public int cbClsExtra;
+        public int cbWndExtra;
+        public IntPtr hInstance;
+        public IntPtr hIcon;
+        public IntPtr hCursor;
+        public IntPtr hbrBackground;
+        public IntPtr lpszMenuName;
+        public IntPtr lpszClassName;
+        public IntPtr hIconSm;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MSG {
+        public IntPtr hwnd;
+        public int message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public int time;
+        public int pt_x;
+        public int pt_y;
+    }
+
+    // PAINTSTRUCT (native x64 layout, flattened -- rgbReserved[32] is the
+    // trailing 8 int32 fields). BeginPaint fills the whole structure, so the
+    // managed struct must carry the full 68 bytes.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PAINTSTRUCT {
+        public IntPtr hdc;
+        public int fErase;
+        public int rcLeft;
+        public int rcTop;
+        public int rcRight;
+        public int rcBottom;
+        public int fRestore;
+        public int fIncUpdate;
+        public int r0;
+        public int r1;
+        public int r2;
+        public int r3;
+        public int r4;
+        public int r5;
+        public int r6;
+        public int r7;
+    }
+
+    // RECT (native x64 layout: four int32 fields, 16 bytes) -- GetWindowRect
+    // fills it. Only the WIDTH/HEIGHT and the position DELTAS are printed so
+    // the headless output is deterministic (the screen origin varies by window
+    // station, but both runs make the same native calls on the same OS).
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT {
+        public int left;
+        public int top;
+        public int right;
+        public int bottom;
+    }
+
+    // SIZE (native x64 layout: two int32 fields, 8 bytes) -- the
+    // GetTextExtentPoint32W out-struct: the string's logical width/height in
+    // the DC's current font. Only used as an out parameter (phase 14).
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SIZE {
+        public int cx;
+        public int cy;
+    }
+
+    // Stage 9: INITCOMMONCONTROLSEX -- the comctl32 registration structure
+    // passed to InitCommonControlsEx (dwSize = sizeof, dwICC = the flag mask
+    // OR of the ICC_* classes to register).
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INITCOMMONCONTROLSEX {
+        public int dwSize;
+        public int dwICC;
+    }
+
+    public delegate IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    // Button Click event (stage 2): a managed delegate invoked when the
+    // form's WM_COMMAND handler fires (the "button was clicked" callback).
+    public delegate void ClickHandler();
+    public static ClickHandler ButtonClick;
+
+    // --- P/Invoke surface (winforms-plan 搂3 stage-1/2 lists) ---
+    [DllImport("kernel32", EntryPoint = "GetModuleHandleW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr GetModuleHandleW(string name);
+
+    [DllImport("user32", EntryPoint = "RegisterClassExW", CharSet = CharSet.Unicode)]
+    public static extern ushort RegisterClassExW(ref WNDCLASSEX wc);
+
+    [DllImport("user32", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateWindowExW(int exStyle, string className, string windowName,
+        int style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr instance,
+        IntPtr param);
+
+    [DllImport("user32", EntryPoint = "GetMessageW")]
+    public static extern int GetMessageW(out MSG msg, IntPtr hwnd, int min, int max);
+
+    [DllImport("user32", EntryPoint = "TranslateMessage")]
+    public static extern int TranslateMessage(ref MSG msg);
+
+    [DllImport("user32", EntryPoint = "DispatchMessageW")]
+    public static extern IntPtr DispatchMessageW(ref MSG msg);
+
+    [DllImport("user32", EntryPoint = "DefWindowProcW")]
+    public static extern IntPtr DefWindowProcW(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32", EntryPoint = "PostMessageW")]
+    public static extern int PostMessageW(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32", EntryPoint = "DestroyWindow")]
+    public static extern int DestroyWindow(IntPtr hwnd);
+
+    [DllImport("user32", EntryPoint = "PostQuitMessage")]
+    public static extern void PostQuitMessage(int exitCode);
+
+    // Stage 2: ShowWindow + visibility probe.
+    [DllImport("user32", EntryPoint = "ShowWindow")]
+    public static extern int ShowWindow(IntPtr hwnd, int nCmdShow);
+
+    [DllImport("user32", EntryPoint = "IsWindowVisible")]
+    public static extern int IsWindowVisible(IntPtr hwnd);
+
+    // Stage 2: window title readback (IntPtr buffer -- no char[] marshal gap).
+    [DllImport("user32", EntryPoint = "GetWindowTextW")]
+    public static extern int GetWindowTextW(IntPtr hwnd, IntPtr lpString, int nMaxCount);
+
+    // Stage 3: control messages (WM_SETTEXT / BM_GETCHECK / BM_SETCHECK) go
+    // through SendMessageW -- the synchronous control-message channel.
+    [DllImport("user32", EntryPoint = "SendMessageW")]
+    public static extern IntPtr SendMessageW(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    // Stage 3: keyboard focus -- SetFocus(GetFocus()) round-trip.
+    [DllImport("user32", EntryPoint = "SetFocus")]
+    public static extern IntPtr SetFocus(IntPtr hwnd);
+
+    [DllImport("user32", EntryPoint = "GetFocus")]
+    public static extern IntPtr GetFocus();
+
+    // Stage 3: non-blocking message drain (PM_REMOVE) -- dispatches posted
+    // control messages (BM_SETCHECK / WM_KEYDOWN) without a blocking wait.
+    [DllImport("user32", EntryPoint = "PeekMessageW")]
+    public static extern int PeekMessageW(out MSG msg, IntPtr hwnd, int min, int max, int remove);
+
+    // Stage 5: window relationship (parent chain) + layout (geometry query
+    // via GetWindowRect, position/size via MoveWindow). All scalar/IntPtr
+    // params (no marshal gaps).
+    [DllImport("user32", EntryPoint = "GetParent")]
+    public static extern IntPtr GetParent(IntPtr hwnd);
+
+    [DllImport("user32", EntryPoint = "GetWindowRect")]
+    public static extern int GetWindowRect(IntPtr hwnd, out RECT rect);
+
+    [DllImport("user32", EntryPoint = "MoveWindow")]
+    public static extern int MoveWindow(IntPtr hwnd, int x, int y, int w, int h, bool repaint);
+
+    // Stage 6: MessageBoxW (user32) -- the simple OK-only message box. The
+    // box BLOCKS the calling thread until dismissed; in the headless test the
+    // box runs on a worker thread and is dismissed by FindWindowW + a posted
+    // WM_COMMAND IDOK (never a user click).
+    [DllImport("user32", EntryPoint = "MessageBoxW", CharSet = CharSet.Unicode)]
+    public static extern int MessageBoxW(IntPtr hwnd, string text, string caption, int uType);
+
+    // Stage 6: FindWindowW (user32) -- locate the message-box dialog by its
+    // standard dialog class "#32770" + the caption (window title).
+    [DllImport("user32", EntryPoint = "FindWindowW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowW(string className, string windowName);
+
+    // Stage 6: GetDlgItem (user32) -- the canonical UI-automation way to
+    // dismiss a message box: find the OK button (control id IDOK) and click it
+    // via a posted BM_CLICK, exactly like a UI-automation framework does.
+    [DllImport("user32", EntryPoint = "GetDlgItem")]
+    public static extern IntPtr GetDlgItem(IntPtr hwnd, int id);
+
+    // Stage 6: FindWindowExW -- walk the message box's CHILD windows directly
+    // (thread-safe pure handle walk) to find the OK button by its "Button"
+    // class. More robust cross-thread than GetDlgItem for a dialog created by
+    // another thread.
+    [DllImport("user32", EntryPoint = "FindWindowExW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string className, string windowName);
+
+    // Stage 9: common-controls registration (comctl32). The status/progress
+    // classes are NOT built into user32 -- they are registered by comctl32
+    // when InitCommonControlsEx is called with the ICC_* class flags.
+    [DllImport("comctl32", EntryPoint = "InitCommonControlsEx")]
+    public static extern int InitCommonControlsEx(ref INITCOMMONCONTROLSEX icc);
+
+    // Stage 10: menu functions (user32). CreateMenu makes an empty menu BAR;
+    // CreatePopupMenu makes a DROPDOWN submenu; AppendMenuW appends an item
+    // (MF_POPUP = a submenu whose handle is the item id; otherwise a string
+    // item with an explicit WM_COMMAND id). SetMenu attaches the bar to the
+    // form (the window then owns it), GetMenu reads it back, GetMenuItemCount
+    // counts items, GetMenuStringW copies an item's text (MF_BYPOSITION) into
+    // a caller buffer.
+    [DllImport("user32", EntryPoint = "CreateMenu")]
+    public static extern IntPtr CreateMenu();
+
+    [DllImport("user32", EntryPoint = "CreatePopupMenu")]
+    public static extern IntPtr CreatePopupMenu();
+
+    [DllImport("user32", EntryPoint = "AppendMenuW", CharSet = CharSet.Unicode)]
+    public static extern int AppendMenuW(IntPtr hMenu, int uFlags, IntPtr uIDNewItem, string lpNewItem);
+
+    [DllImport("user32", EntryPoint = "SetMenu")]
+    public static extern int SetMenu(IntPtr hWnd, IntPtr hMenu);
+
+    [DllImport("user32", EntryPoint = "GetMenu")]
+    public static extern IntPtr GetMenu(IntPtr hWnd);
+
+    [DllImport("user32", EntryPoint = "GetMenuItemCount")]
+    public static extern int GetMenuItemCount(IntPtr hMenu);
+
+    [DllImport("user32", EntryPoint = "GetMenuStringW", CharSet = CharSet.Unicode)]
+    public static extern int GetMenuStringW(IntPtr hMenu, int uIDItem, IntPtr lpString, int cchMax, int uFlag);
+
+    // Stage 11: MDI. GetWindowLongW reads a window's creation style (GWL_STYLE)
+    // back -- proves the MDI frame was created with WS_CLIPCHILDREN.
+    // SetActiveWindow / GetActiveWindow are the simplified child-activation
+    // channel: activating an MDI child makes it the active window of the
+    // calling thread (the WM_MDIACTIVATE acceptance uses this channel).
+    [DllImport("user32", EntryPoint = "GetWindowLongW")]
+    public static extern IntPtr GetWindowLongW(IntPtr hwnd, int index);
+
+    [DllImport("user32", EntryPoint = "SetActiveWindow")]
+    public static extern IntPtr SetActiveWindow(IntPtr hwnd);
+
+    [DllImport("user32", EntryPoint = "GetActiveWindow")]
+    public static extern IntPtr GetActiveWindow();
+
+    // Stage 6: modal window -- EnableWindow disables the parent Form (the
+    // modal owner); IsWindowEnabled probes the disabled state.
+    [DllImport("user32", EntryPoint = "EnableWindow")]
+    public static extern int EnableWindow(IntPtr hwnd, int enable);
+
+    [DllImport("user32", EntryPoint = "IsWindowEnabled")]
+    public static extern int IsWindowEnabled(IntPtr hwnd);
+
+    // Stage 2: GDI painting (gdi32).
+    [DllImport("user32", EntryPoint = "BeginPaint")]
+    public static extern IntPtr BeginPaint(IntPtr hwnd, out PAINTSTRUCT ps);
+
+    [DllImport("user32", EntryPoint = "EndPaint")]
+    public static extern int EndPaint(IntPtr hwnd, ref PAINTSTRUCT ps);
+
+    [DllImport("gdi32", EntryPoint = "TextOutW", CharSet = CharSet.Unicode)]
+    public static extern int TextOutW(IntPtr hdc, int x, int y, string text, int c);
+
+    // Phase 14: GDI font + DrawText (gdi32 + user32). CreateFontW (gdi32)
+    // creates an HFONT from 14 scalar params + the face name; SelectObject
+    // (gdi32) selects it into a DC and returns the PREVIOUS object (the
+    // restore target); DeleteObject (gdi32) frees a font that is no longer
+    // selected in any DC. DrawTextW (user32 -- the WinForms "draw a text
+    // string with layout flags into a RECT" surface) is the text-drawing
+    // complement to the stage-2 TextOutW; GetTextExtentPoint32W (gdi32)
+    // measures the string's logical extent (SIZE cx/cy) in the SELECTED font.
+    [DllImport("gdi32", EntryPoint = "CreateFontW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateFontW(int h, int w, int e, int o, int wt,
+        int it, int un, int so, int cs, int op, int cp, int q, int pf, string face);
+
+    [DllImport("gdi32", EntryPoint = "SelectObject")]
+    public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+
+    [DllImport("gdi32", EntryPoint = "DeleteObject")]
+    public static extern int DeleteObject(IntPtr obj);
+
+    [DllImport("user32", EntryPoint = "DrawTextW", CharSet = CharSet.Unicode)]
+    public static extern int DrawTextW(IntPtr hdc, string text, int c, ref RECT rc, int format);
+
+    [DllImport("gdi32", EntryPoint = "GetTextExtentPoint32W", CharSet = CharSet.Unicode)]
+    public static extern int GetTextExtentPoint32W(IntPtr hdc, string text, int c, out SIZE sz);
+
+    // Phase 15: Panel subclassing (user32). SetWindowLongPtrW installs a new
+    // class proc on a STATIC window (GWLP_WNDPROC) so the container gets its
+    // own managed event surface (the proc returns the ORIGINAL proc -- checked
+    // non-zero to prove the subclass installed). Unhandled messages fall to
+    // DefWindowProcW (the same fallback every WndProc in this file uses). The
+    // container hierarchy (GetParent) and layout (GetWindowRect /
+    // GetClientRect, both out RECT) expose the Panel's ownership + size.
+    [DllImport("user32", EntryPoint = "SetWindowLongPtrW")]
+    public static extern IntPtr SetWindowLongPtrW(IntPtr hwnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32", EntryPoint = "GetClientRect")]
+    public static extern int GetClientRect(IntPtr hwnd, out RECT rc);
+
+    // Phase 17: scroll-bar functions (user32) -- the DOCUMENTED channel for a
+    // ScrollBar control. The legacy SBM_SETRANGE/SBM_SETPOS/SBM_GETPOS control
+    // MESSAGES are no-ops on modern Windows (probed: the range stays 0..0 and
+    // the position stays 0 after sending them), so the range/position surface
+    // uses the functions the SBM_* docs point to instead. SetScrollRange sets
+    // the min/max (nonzero on success); SetScrollPos sets the thumb (RETURNS
+    // the previous position -- a deterministic sequence, the same shape as
+    // PBM_SETPOS) and CLAMPS to the range; GetScrollPos reads the position
+    // back. SB_CTL addresses the scroll-bar CONTROL.
+    [DllImport("user32", EntryPoint = "SetScrollRange")]
+    public static extern int SetScrollRange(IntPtr hwnd, int nBar, int nMinPos, int nMaxPos, bool fRedraw);
+
+    [DllImport("user32", EntryPoint = "SetScrollPos")]
+    public static extern int SetScrollPos(IntPtr hwnd, int nBar, int nPos, bool fRedraw);
+
+    [DllImport("user32", EntryPoint = "GetScrollPos")]
+    public static extern int GetScrollPos(IntPtr hwnd, int nBar);
+
+    // Phase 12: clipboard (user32) + global-memory lock (kernel32). The
+    // WinForms Clipboard copy/paste path: OpenClipboard/EmptyClipboard/
+    // SetClipboardData/GetClipboardData/CloseClipboard transfer a
+    // CF_UNICODETEXT global-memory block; GlobalLock/GlobalUnlock (kernel32 --
+    // the kernel32 shim already forwards to the system import library) pin it
+    // for the PtrToStringUni readback.
+    [DllImport("user32", EntryPoint = "OpenClipboard")]
+    public static extern int OpenClipboard(IntPtr hwnd);
+
+    [DllImport("user32", EntryPoint = "EmptyClipboard")]
+    public static extern int EmptyClipboard();
+
+    [DllImport("user32", EntryPoint = "SetClipboardData")]
+    public static extern IntPtr SetClipboardData(int uFormat, IntPtr hMem);
+
+    [DllImport("user32", EntryPoint = "GetClipboardData")]
+    public static extern IntPtr GetClipboardData(int uFormat);
+
+    [DllImport("user32", EntryPoint = "CloseClipboard")]
+    public static extern int CloseClipboard();
+
+    [DllImport("kernel32", EntryPoint = "GlobalLock")]
+    public static extern IntPtr GlobalLock(IntPtr hMem);
+
+    [DllImport("kernel32", EntryPoint = "GlobalUnlock")]
+    public static extern int GlobalUnlock(IntPtr hMem);
+
+    // --- Observable state (the "control state dump" of plan 搂4.3) ---
+    public static int wmCreateCount;
+    public static int wmCommandCount;
+    public static int wmCloseCount;
+    public static int wmPaintCount;
+    public static int clickCount;
+    public static int wmKeydownCount;
+    public static bool closeDestroyed;
+    public static string pumpExitReason = "never";
+    public static bool beginPaintOk;
+    public static bool textOutOk;
+    public static string paintedText = "";
+
+    // Stage 3: posted-text round-trip state (filled by the WF_SET_TEXT
+    // WndProc handler, which drives WM_SETTEXT + GetWindowTextW).
+    public static int postedTextLen;
+    public static string postedText = "";
+    public static IntPtr EditHwnd;
+
+    // Phase 4: managed event-system state. P4A/P4B/P4C are the multi-control
+    // Click targets; P4T exercises a second event (KeyDown). EventSeq records
+    // the handler invocation order (the "trigger order" evidence).
+    public static WfControl P4A;
+    public static WfControl P4B;
+    public static WfControl P4C;
+    public static WfControl P4T;
+    public static string EventSeq = "";
+
+    // The WndProc must stay rooted while the native side may call it.
+    public static WndProc RootWndProc;
+
+    // Phase 5: the second window (child Form) has its OWN WndProc delegate
+    // (RootChildWndProc) + independent observable state.
+    public static WndProc RootChildWndProc;
+    public static IntPtr ChildHwnd;
+    public static int WmChildCreateCount;
+    public static int ChildMsgCount;
+    public static bool ChildCloseDestroyed;
+
+    // Phase 6: MessageBoxW result (written by the worker thread, read after
+    // Join -- the join is the happens-before edge) + the modal window's own
+    // WndProc delegate and state.
+    public static int MsgBoxResult = -1;
+    public static WndProc RootModalWndProc;
+    public static int ModalCreateCount;
+    public static int ModalCloseCount;
+    public static bool ModalDestroyed;
+    public static IntPtr ModalHwnd;
+
+    // Phase 11: the MDI CLIENT's WndProc delegate (rooted for the native
+    // callback) + the MDI CHILD windows' shared WndProc delegate + the MDI
+    // FRAME's WndProc delegate.
+    public static WndProc MdiFrameWndProc;
+    public static WndProc MdiClientWndProc;
+    public static WndProc MdiChildWndProc;
+    public static int MdiFrameCreateCount;
+
+    // Phase 4: per-control / shared handlers. Each appends its tag so the
+    // sequence string exposes exactly which handlers ran, in which order.
+    public static void OnA1() { EventSeq = EventSeq + "A1;"; }
+    public static void OnA2() { EventSeq = EventSeq + "A2;"; }
+    public static void OnB1() { EventSeq = EventSeq + "B1;"; }
+    public static void OnC1() { EventSeq = EventSeq + "C1;"; }
+    public static void OnShared() { EventSeq = EventSeq + "S;"; }
+    public static void OnKey() { EventSeq = EventSeq + "K;"; }
+    public static void OnKey2() { EventSeq = EventSeq + "K2;"; }
+
+    public static void OnButtonClick() { clickCount++; }
+
+    // Phase 7: property-based control model state. P7Btn is the control the
+    // WM_COMMAND dispatch routes clicks into (by id); P7Seq records the Click
+    // + Enabled-toggle handler sequence.
+    public static WfPropControl P7Btn;
+    public static string P7Seq = "";
+
+    // Phase 7: a Click handler that toggles the control's Enabled property.
+    // The dispatch only raises Click while the control is Enabled (a disabled
+    // control receives no click -- the WinForms rule), so each toggle flips
+    // the property AND arms/disarms the next dispatch.
+    public static void OnP7Toggle() { P7Seq = P7Seq + "C;"; P7Btn.Enabled = !P7Btn.Enabled; }
+
+    // Phase 8: dialog-control (ComboBox/ListBox) dispatch targets + the
+    // SelectionChanged sequence. P8Combo/P8List are the controls the form's
+    // WM_COMMAND handler routes CBN_SELCHANGE/LBN_SELCHANGE into; the handlers
+    // record the CURRENT selection each reads back at fire time.
+    public static WfDialogControl P8Combo;
+    public static WfDialogControl P8List;
+    public static string P8Seq = "";
+
+    public static void OnP8ComboChange() { P8Seq = P8Seq + "combo" + P8Combo.SelectedIndex + ";"; }
+    public static void OnP8ListChange() { P8Seq = P8Seq + "list" + P8List.SelectedIndex + ";"; }
+
+    // Stage 10: menu-driven status. SetStatus writes the status bar text via
+    // the stage-9 SB_SETTEXT channel and reads it back (the round-trip proves
+    // the linkage end-to-end); each Click handler records its own tag.
+    public static void SetStatus(string text)
+    {
+        IntPtr st = Marshal.StringToHGlobalUni(text);
+        SendMessageW(P9StatusHwnd, SB_SETTEXT, IntPtr.Zero, st);
+        Marshal.FreeHGlobal(st);
+        IntPtr sb = Marshal.AllocHGlobal(256);
+        SendMessageW(P9StatusHwnd, SB_GETTEXT, IntPtr.Zero, sb);
+        P10Status = Marshal.PtrToStringUni(sb);
+        Marshal.FreeHGlobal(sb);
+    }
+    public static void OnP10New() { P10Seq = P10Seq + "new;"; SetStatus("Menu: New"); }
+    public static void OnP10Open() { P10Seq = P10Seq + "open;"; SetStatus("Menu: Open"); }
+    public static void OnP10About() { P10Seq = P10Seq + "about;"; SetStatus("Menu: About"); }
+
+    // Stage 9: status/progress control handles (needed by the WF_PROGRESS_STEP
+    // WndProc handler) + the observable interaction sequence. P9Seq records
+    // step/position/status at each advance; P9StepCount counts the steps.
+    public static IntPtr P9StatusHwnd;
+    public static IntPtr P9ProgressHwnd;
+    public static string P9Seq = "";
+    public static int P9StepCount;
+
+    // Stage 10: menu dispatch targets. The form's WM_COMMAND handler routes a
+    // menu-id command (LOWORD of wParam) into the matching MenuItem's Click
+    // event; the handlers mirror the item text into the status bar.
+    public static WfMenuItem P10New;
+    public static WfMenuItem P10Open;
+    public static WfMenuItem P10About;
+    public static string P10Seq = "";
+    public static string P10Status = "";
+
+    // Phase 11: MDI state. MdiFrameHwnd / MdiClientHwnd are the container
+    // windows (frame with WS_CLIPCHILDREN, client = the single parent of all
+    // children); MdiChildA/B/C are the per-child managed models (each with its
+    // OWN Click event -- the per-child event delegates). MdiActSeq records the
+    // WM_MDIACTIVATE activation order (the net48 oracle activation sequence);
+    // MdiActiveChild is the last-activated child.
+    public static IntPtr MdiFrameHwnd;
+    public static IntPtr MdiClientHwnd;
+    public static WfMdiChild MdiChildA;
+    public static WfMdiChild MdiChildB;
+    public static WfMdiChild MdiChildC;
+    public static string MdiActSeq = "";
+    public static IntPtr MdiActiveChild;
+    public static string MdiChildSeq = "";
+    public static int MdiChildMsgCount;
+    public static int MdiChildCreateCount;
+
+    // Phase 12: clipboard observable state -- filled by the WF_CLIP_SET /
+    // WF_CLIP_GET WndProc handlers (the copy/paste runs inside the pump).
+    // P12OpenOk..P12CloseOk are the SET sequence results (open/empty/set/close);
+    // P12Open2Ok..P12Close2Ok the GET sequence; P12ClipText/P12ClipLen the
+    // pasted readback (the "clip_set=... / clip_get=..." oracle).
+    public static bool P12OpenOk;
+    public static bool P12EmptyOk;
+    public static bool P12SetOk;
+    public static bool P12CloseOk;
+    public static bool P12Open2Ok;
+    public static bool P12GetOk;
+    public static bool P12Close2Ok;
+    public static string P12ClipText = "";
+    public static int P12ClipLen;
+
+    // Phase 13: cross-thread UI-marshaling state. P13FormHwnd is the form the
+    // WORKER thread posts to (the target queue belongs to the main thread).
+    // P13PostedCount is Interlocked by the WORKER (one increment per post);
+    // P13UiCount is Interlocked by the WndProc (one increment per marshaled
+    // message) -- equal counts = every cross-thread message was processed.
+    // P13Seq is the dispatch-order sequence (built on the main thread only);
+    // P13UiText/P13UiTextLen are the TextBox state the WndProc updates.
+    public static IntPtr P13FormHwnd;
+    public static int P13PostedCount;
+    public static int P13UiCount;
+    public static string P13Seq = "";
+    public static string P13UiText = "";
+    public static int P13UiTextLen;
+
+    // Phase 14: GDI font + DrawText observable state -- filled by the WM_PAINT
+    // handler (the same injected-marker paint that validates TextOutW). Each
+    // field records ONE native call result: the created font handle is a
+    // boolean (non-zero), SelectObject returning the PREVIOUS font proves the
+    // selection, the DrawTextW return is the drawn text height, the extent is
+    // the SIZE the SELECTED font measures, and restore/delete close the
+    // create-select-draw-measure-restore-delete cycle. P14Seq is the step
+    // order (the "font/drawing sequence" oracle).
+    public static bool P14FontCreated;
+    public static bool P14SelectOk;
+    public static bool P14DrawOk;
+    public static int P14DrawHeight;
+    public static bool P14ExtOk;
+    public static int P14ExtCx;
+    public static int P14ExtCy;
+    public static bool P14RestoreOk;
+    public static bool P14DeleteOk;
+    public static string P14Seq = "";
+
+    // Phase 15: Panel container observable state. P15PanelHwnd / P15BtnHwnd
+    // are the STATIC container + its child button. The parent-chain booleans
+    // prove the container owns its child (GetParent(button) == panel, not the
+    // form); the sizes are GetWindowRect/GetClientRect deltas; the counts +
+    // P15Seq are the nested event evidence (panel's own message + the bubbled
+    // button click chain).
+    public static WndProc PanelWndProc;
+    public static IntPtr P15PanelHwnd;
+    public static IntPtr P15BtnHwnd;
+    public static bool P15PanelCreated;
+    public static bool P15BtnCreated;
+    public static bool P15SubclassOk;
+    public static bool P15ParentIsForm;
+    public static bool P15BtnParentIsPanel;
+    public static bool P15RectOk;
+    public static int P15PanelW;
+    public static int P15PanelH;
+    public static int P15BtnW;
+    public static int P15BtnH;
+    public static bool P15ClientOk;
+    public static int P15ClientW;
+    public static int P15ClientH;
+    public static int P15MsgCount;
+    public static int P15ClickCount;
+    public static int P15FormNotify;
+    public static string P15Seq = "";
+    public static bool P15Destroyed;
+
+    // Phase 16: TabControl observable state. TabHwnd is the WC_TABCONTROL
+    // ("SysTabControl32") window; P16Tab is the managed TabControl model (page
+    // list via TCITEM / selection via TCM_GETCURSEL/TCM_SETCURSEL + a
+    // SelectedIndexChanged event raised on TCN_SELCHANGE). P16Page0..2 are the
+    // PER-PAGE content STATIC controls (tab index k owns P16Page k -- the
+    // "per-page independent content" evidence); P16Seq is the page-switch
+    // sequence and P16SelChangeCount / P16NotifyCount the event counts.
+    public static IntPtr TabHwnd;
+    public static IntPtr P16Page0;
+    public static IntPtr P16Page1;
+    public static IntPtr P16Page2;
+    public static WfTabControl P16Tab;
+    public static bool P16TabCreated;
+    public static bool P16Page0Created;
+    public static bool P16Page1Created;
+    public static bool P16Page2Created;
+    public static int P16NotifyCount;
+    public static int P16SelChangeCount;
+    public static string P16Seq = "";
+    public static bool P16Destroyed;
+
+    public static void OnMdiA() { MdiChildSeq = MdiChildSeq + "A;"; }
+    public static void OnMdiB() { MdiChildSeq = MdiChildSeq + "B;"; }
+    public static void OnMdiC() { MdiChildSeq = MdiChildSeq + "C;"; }
+
+    // Phase 16: show ONE page's content and hide the other two (the
+    // per-page-content switch -- the visible page is exactly the selected tab's
+    // page). P16Seq records the switch order (the "page sequence" oracle).
+    public static void P16ShowPage(int idx)
+    {
+        ShowWindow(P16Page0, idx == 0 ? SW_SHOW : SW_HIDE);
+        ShowWindow(P16Page1, idx == 1 ? SW_SHOW : SW_HIDE);
+        ShowWindow(P16Page2, idx == 2 ? SW_SHOW : SW_HIDE);
+        P16Seq = P16Seq + "page" + idx + ";";
+    }
+
+    // Phase 16: style-bit visibility. The form is HIDDEN, so IsWindowVisible
+    // (which walks the ancestor chain) reports FALSE for every child -- the
+    // per-page visibility probe reads the window's OWN WS_VISIBLE style bit
+    // (GetWindowLongW GWL_STYLE), exactly what ShowWindow(SW_SHOW/SW_HIDE) sets.
+    public static bool P16PageVisible(IntPtr hwnd)
+    {
+        return (GetWindowLongW(hwnd, GWL_STYLE).ToInt64() & WS_VISIBLE) != 0;
+    }
+    public static void OnP16TabChanged() { P16SelChangeCount++; }
+
+    // Phase 17: ScrollBar observable state. P17ScrollHwnd is the "ScrollBar"
+    // window (the user32 built-in class); P17ScrollCreated / P17Destroyed the
+    // lifecycle; P17ClampHigh / P17ClampLow the range-clamp readbacks
+    // (SetScrollPos(120) clamps to max 100, SetScrollPos(-5) clamps to min 0,
+    // both read back via GetScrollPos -- the deterministic range proof). The
+    // two event channels are counted separately: P17StepCount (the posted
+    // WF_VSCROLL_STEP driving the position channel) and P17VscrollCount (the
+    // WM_VSCROLL parent notification a real user scroll sends). P17Seq records
+    // the scroll->status linkage ("scroll drives status": each scroll mirrors
+    // its position into the stage-9 status bar text via SB_SETTEXT +
+    // SB_GETTEXT round-trip).
+    public static IntPtr P17ScrollHwnd;
+    public static bool P17ScrollCreated;
+    public static bool P17ClampHigh;
+    public static bool P17ClampLow;
+    public static int P17StepCount;
+    public static int P17VscrollCount;
+    public static string P17Seq = "";
+    public static bool P17Destroyed;
+
+    // Phase 17: mirror a scroll position into the status bar text (SB_SETTEXT
+    // + SB_GETTEXT round-trip -- the stage-9 status channel) and return the
+    // read-back text (the "scroll drives status" linkage evidence).
+    public static string P17MirrorStatus(int pos)
+    {
+        IntPtr st = Marshal.StringToHGlobalUni("Scroll: " + pos);
+        SendMessageW(P9StatusHwnd, SB_SETTEXT, IntPtr.Zero, st);
+        Marshal.FreeHGlobal(st);
+        IntPtr sb = Marshal.AllocHGlobal(256);
+        SendMessageW(P9StatusHwnd, SB_GETTEXT, IntPtr.Zero, sb);
+        string s = Marshal.PtrToStringUni(sb);
+        Marshal.FreeHGlobal(sb);
+        return s;
+    }
+
+    public static IntPtr WndProcImpl(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_CREATE) { wmCreateCount++; return IntPtr.Zero; }
+        if (msg == WM_COMMAND) {
+            wmCommandCount++;
+            if (ButtonClick != null) ButtonClick();
+            // Phase 4: dispatch by control ID (LOWORD of wParam) -> the matching
+            // managed control's Click event. Static-field lookup keeps the
+            // model faithful (a real WinForms form maps id -> control).
+            int cid = (int)(wParam.ToInt64() & 0xFFFFL);
+            // Phase 8: the notification code is the HIWORD of wParam -- a
+            // ComboBox/ListBox sends CBN_SELCHANGE/LBN_SELCHANGE to its parent
+            // when the user changes the selection. Route it into the matching
+            // dialog control's SelectionChanged event.
+            int notif = (int)((wParam.ToInt64() >> 16) & 0xFFFFL);
+            if (P4A != null && cid == P4A.Id) P4A.RaiseClick();
+            else if (P4B != null && cid == P4B.Id) P4B.RaiseClick();
+            else if (P4C != null && cid == P4C.Id) P4C.RaiseClick();
+            else if (P7Btn != null && cid == P7Btn.Id) P7Btn.RaiseClick();
+            else if (P8Combo != null && cid == P8Combo.Id && (notif == CBN_SELCHANGE || notif == LBN_SELCHANGE)) P8Combo.RaiseSelectionChanged();
+            else if (P8List != null && cid == P8List.Id && (notif == CBN_SELCHANGE || notif == LBN_SELCHANGE)) P8List.RaiseSelectionChanged();
+            // Stage 10: a menu-id command (the user clicked a menu item -> the
+            // OS posts WM_COMMAND with LOWORD = the item id) routes into the
+            // matching MenuItem's Click event.
+            else if (P10New != null && cid == P10New.Id) P10New.RaiseClick();
+            else if (P10Open != null && cid == P10Open.Id) P10Open.RaiseClick();
+            else if (P10About != null && cid == P10About.Id) P10About.RaiseClick();
+            return IntPtr.Zero;
+        }
+        if (msg == WM_KEYDOWN) {
+            // Stage 3: keyboard focus -- a posted WM_KEYDOWN (from a simulated
+            // keystroke) reaches the focused window's WndProc. We count the
+            // VK_F1 marker so the accept path is deterministic.
+            wmKeydownCount++;
+            // Phase 4: raise the KeyDown event for the target controls on the
+            // VK_F2 marker (the phase-4 key-injection sentinel).
+            if (wParam.ToInt64() == VK_F2)
+            {
+                if (P4T != null) P4T.RaiseKeyDown();
+                if (P4A != null) P4A.RaiseKeyDown();
+            }
+            return IntPtr.Zero;
+        }
+        if (msg == WF_SET_TEXT) {
+            // Stage 3: "post a text set" acceptance. WM_SETTEXT cannot be
+            // POSTED (sync-only message), so a custom posted message drives
+            // the real WM_SETTEXT + GetWindowTextW round-trip on the TextBox.
+            IntPtr tb = Marshal.StringToHGlobalUni("Wf3Posted");
+            SendMessageW(EditHwnd, WM_SETTEXT, IntPtr.Zero, tb);
+            Marshal.FreeHGlobal(tb);
+            IntPtr pb = Marshal.AllocHGlobal(256);
+            postedTextLen = GetWindowTextW(EditHwnd, pb, 256);
+            postedText = Marshal.PtrToStringUni(pb);
+            Marshal.FreeHGlobal(pb);
+            return IntPtr.Zero;
+        }
+        if (msg == WF_PROGRESS_STEP) {
+            // Stage 9: the headless "user advances progress" interaction. The
+            // posted wParam is the step (1..n); the handler advances the
+            // progress bar to step*25 (PBM_SETPOS), re-reads the position
+            // (PBM_GETPOS -- proves the bar accepted the write), then mirrors
+            // the new position into the status bar text (SB_SETTEXT +
+            // SB_GETTEXT round-trip): progress drives status.
+            int step = (int)wParam.ToInt64();
+            int newPos = step * 25;
+            SendMessageW(P9ProgressHwnd, PBM_SETPOS, new IntPtr(newPos), IntPtr.Zero);
+            int got = (int)SendMessageW(P9ProgressHwnd, PBM_GETPOS, IntPtr.Zero, IntPtr.Zero).ToInt64();
+            IntPtr st = Marshal.StringToHGlobalUni("Progress: " + got + "%");
+            SendMessageW(P9StatusHwnd, SB_SETTEXT, IntPtr.Zero, st);
+            Marshal.FreeHGlobal(st);
+            IntPtr sb = Marshal.AllocHGlobal(256);
+            SendMessageW(P9StatusHwnd, SB_GETTEXT, IntPtr.Zero, sb);
+            string sText = Marshal.PtrToStringUni(sb);
+            Marshal.FreeHGlobal(sb);
+            P9Seq = P9Seq + "step" + step + "/pos" + got + "/status" + sText + ";";
+            P9StepCount++;
+            return IntPtr.Zero;
+        }
+        if (msg == WF_CLIP_SET) {
+            // Phase 12: COPY. OpenClipboard with a bounded retry -- the only
+            // real-world failure is another process holding the clipboard open
+            // (transient session contention); the retry (200 x 2 ms, the phase-6
+            // poll shape) makes both runs deterministic. On success:
+            // EmptyClipboard clears the old content, SetClipboardData stores the
+            // CF_UNICODETEXT handle (StringToHGlobalUni -- on success the SYSTEM
+            // owns the memory, on failure WE free it), CloseClipboard releases
+            // the clipboard.
+            P12OpenOk = false;
+            int clpPolls = 0;
+            while (!P12OpenOk && clpPolls < 200)
+            {
+                P12OpenOk = OpenClipboard(IntPtr.Zero) != 0;
+                if (!P12OpenOk) { Thread.Sleep(2); clpPolls++; }
+            }
+            P12EmptyOk = false; P12SetOk = false; P12CloseOk = false;
+            if (P12OpenOk)
+            {
+                P12EmptyOk = EmptyClipboard() != 0;
+                IntPtr hg = Marshal.StringToHGlobalUni("Wf12Clip");
+                IntPtr sd = SetClipboardData(CF_UNICODETEXT, hg);
+                P12SetOk = sd != IntPtr.Zero;
+                if (!P12SetOk) Marshal.FreeHGlobal(hg);
+                P12CloseOk = CloseClipboard() != 0;
+            }
+            return IntPtr.Zero;
+        }
+        if (msg == WF_CLIP_GET) {
+            // Phase 12: PASTE. OpenClipboard again (the same bounded retry),
+            // GetClipboardData(CF_UNICODETEXT) returns the HGLOBAL, GlobalLock
+            // pins it, PtrToStringUni reads the text back, GlobalUnlock releases
+            // it, CloseClipboard closes. The handle is system-owned (never freed
+            // by us).
+            P12Open2Ok = false;
+            int clgPolls = 0;
+            while (!P12Open2Ok && clgPolls < 200)
+            {
+                P12Open2Ok = OpenClipboard(IntPtr.Zero) != 0;
+                if (!P12Open2Ok) { Thread.Sleep(2); clgPolls++; }
+            }
+            P12GetOk = false; P12Close2Ok = false; P12ClipText = ""; P12ClipLen = 0;
+            if (P12Open2Ok)
+            {
+                IntPtr hg = GetClipboardData(CF_UNICODETEXT);
+                P12GetOk = hg != IntPtr.Zero;
+                if (P12GetOk)
+                {
+                    IntPtr p = GlobalLock(hg);
+                    P12ClipText = Marshal.PtrToStringUni(p);
+                    P12ClipLen = P12ClipText.Length;
+                    GlobalUnlock(hg);
+                }
+                P12Close2Ok = CloseClipboard() != 0;
+            }
+            return IntPtr.Zero;
+        }
+        if (msg == WF_WORKER_MSG) {
+            // Phase 13: cross-thread message. A WORKER thread posted this; the
+            // MAIN thread's pump dispatches it into THIS WndProc (which runs on
+            // the main thread). Each marshaled message increments the
+            // Interlocked UI counter and updates the TextBox text (WM_SETTEXT +
+            // GetWindowTextW readback) -- all UI state is touched on the UI
+            // thread, the WinForms threading rule.
+            int seq = (int)wParam.ToInt64();
+            P13Seq = P13Seq + "w" + seq + ";";
+            Interlocked.Increment(ref P13UiCount);
+            IntPtr st = Marshal.StringToHGlobalUni("step" + seq);
+            SendMessageW(EditHwnd, WM_SETTEXT, IntPtr.Zero, st);
+            Marshal.FreeHGlobal(st);
+            IntPtr pb = Marshal.AllocHGlobal(64);
+            P13UiTextLen = GetWindowTextW(EditHwnd, pb, 64);
+            P13UiText = Marshal.PtrToStringUni(pb);
+            Marshal.FreeHGlobal(pb);
+            return IntPtr.Zero;
+        }
+        if (msg == WM_NOTIFY) {
+            // Phase 16: the tab control notifies its parent on a user tab click
+            // (WM_NOTIFY, wParam = the control id, lParam = an NMHDR* whose code
+            // is TCN_SELCHANGE). Headless acceptance POSTS WM_NOTIFY (the phase-8
+            // posted-notification pattern); the id arrives in wParam and the
+            // notification is routed into the matching WfTabControl's
+            // SelectedIndexChanged -- which re-reads the CURRENT selection
+            // (TCM_GETCURSEL), so the event observes the real page at fire time.
+            P16NotifyCount++;
+            int tid = (int)(wParam.ToInt64() & 0xFFFFL);
+            if (P16Tab != null && tid == P16Tab.Id) P16Tab.RaiseSelectionChanged();
+            return IntPtr.Zero;
+        }
+        if (msg == WM_PAINT) {
+            // Standard paint protocol: BeginPaint validates the update region
+            // and returns a DC; TextOutW draws the text; EndPaint releases.
+            PAINTSTRUCT ps = new PAINTSTRUCT();
+            IntPtr hdc = BeginPaint(hwnd, out ps);
+            beginPaintOk = hdc != IntPtr.Zero;
+            int toRet = TextOutW(hdc, 10, 10, "Wf1Draw", 7);
+            textOutOk = toRet != 0;
+            paintedText = "Wf1Draw";
+
+            // Phase 14: the GDI font + DrawText sequence, in the WM_PAINT DC.
+            // CreateFontW builds the font (height -16, regular weight, default
+            // face "Arial"); SelectObject selects it into the paint DC and
+            // returns the PREVIOUS object (the restore target); DrawTextW draws
+            // the phase text with DT_SINGLELINE into a RECT (the "Control
+            // DrawText" surface); GetTextExtentPoint32W measures the SAME text
+            // in the SELECTED font (SIZE cx/cy); the previous font is restored
+            // and the created font deleted. P14Seq records the step order; the
+            // draw height and extent are native values identical on both sides.
+            P14Seq = "";
+            IntPtr font = CreateFontW(FONT_HEIGHT, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY, DEFAULT_PITCH, "Arial");
+            P14FontCreated = font != IntPtr.Zero;
+            P14Seq = P14Seq + "create;";
+            IntPtr prevFont = SelectObject(hdc, font);
+            P14SelectOk = prevFont != IntPtr.Zero;
+            P14Seq = P14Seq + "select;";
+            RECT drc = new RECT();
+            drc.left = 10; drc.top = 30; drc.right = 300; drc.bottom = 60;
+            int dh = DrawTextW(hdc, "Wf14Draw", 8, ref drc, DT_SINGLELINE | DT_NOCLIP);
+            P14DrawHeight = dh;
+            P14DrawOk = dh != 0;
+            P14Seq = P14Seq + "draw;";
+            SIZE sz = new SIZE();
+            int exRet = GetTextExtentPoint32W(hdc, "Wf14Draw", 8, out sz);
+            P14ExtOk = exRet != 0;
+            P14ExtCx = sz.cx;
+            P14ExtCy = sz.cy;
+            P14Seq = P14Seq + "extent;";
+            IntPtr back = SelectObject(hdc, prevFont);
+            P14RestoreOk = back != IntPtr.Zero;
+            P14Seq = P14Seq + "restore;";
+            P14DeleteOk = DeleteObject(font) != 0;
+            P14Seq = P14Seq + "delete;";
+
+            if (wParam.ToInt64() == PAINT_MARKER) wmPaintCount++;
+            EndPaint(hwnd, ref ps);
+            return IntPtr.Zero;
+        }
+        if (msg == WF_PANEL_BTN) { P15FormNotify++; P15Seq = P15Seq + "form:notify;"; return IntPtr.Zero; }
+        if (msg == WF_VSCROLL_STEP) {
+            // Phase 17: the headless "user scrolls" interaction on the position
+            // channel. wParam = the target position; the handler writes it
+            // (SetScrollPos), re-reads the position (GetScrollPos -- the
+            // readback proves the scrollbar accepted the write), then mirrors
+            // it into the status bar text (SB_SETTEXT + SB_GETTEXT round-trip,
+            // the stage-9 channel): scroll drives status.
+            int target = (int)wParam.ToInt64();
+            SetScrollPos(P17ScrollHwnd, SB_CTL, target, false);
+            int got = GetScrollPos(P17ScrollHwnd, SB_CTL);
+            string s17 = P17MirrorStatus(got);
+            P17Seq = P17Seq + "step" + target + "/pos" + got + "/status" + s17 + ";";
+            P17StepCount++;
+            return IntPtr.Zero;
+        }
+        if (msg == WM_VSCROLL) {
+            // Phase 17: the parent notification a real scrollbar sends when the
+            // USER scrolls (WM_VSCROLL, LOWORD(wParam) = the scroll code).
+            // Headless acceptance POSTS WM_VSCROLL to the form (the phase-8
+            // posted-notification pattern); a thumb code (SB_THUMBTRACK /
+            // SB_THUMBPOSITION) carries the new thumb position in HIWORD(wParam)
+            // -- the handler writes it (SetScrollPos), re-reads the real
+            // position (GetScrollPos, so the event observes the thumb at fire
+            // time) and mirrors it into the status bar text.
+            int code17 = (int)(wParam.ToInt64() & 0xFFFFL);
+            int thumb17 = (int)((wParam.ToInt64() >> 16) & 0xFFFFL);
+            if (code17 == SB_THUMBTRACK || code17 == SB_THUMBPOSITION)
+            {
+                SetScrollPos(P17ScrollHwnd, SB_CTL, thumb17, false);
+            }
+            int got17 = GetScrollPos(P17ScrollHwnd, SB_CTL);
+            string s17b = P17MirrorStatus(got17);
+            P17Seq = P17Seq + (code17 == SB_THUMBTRACK ? "track" : "thumb") + "/pos" + got17 + "/status" + s17b + ";";
+            P17VscrollCount++;
+            return IntPtr.Zero;
+        }
+        if (msg == WM_CLOSE) { wmCloseCount++; closeDestroyed = DestroyWindow(hwnd) != 0; return IntPtr.Zero; }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    // Phase 15: the PANEL's window proc -- installed on a STATIC window via
+    // SetWindowLongPtrW(GWLP_WNDPROC) so the container has its OWN event
+    // surface. It handles its own posted message (WF_PANEL_MSG) and the
+    // WM_COMMAND its child BUTTON sends -- a container receives its children's
+    // events: the command raises the panel's "button clicked" (P15Seq append)
+    // and BUBBLES WF_PANEL_BTN to the FORM (the nested event chain button ->
+    // panel -> form). Every unhandled message falls to DefWindowProcW (the
+    // same fallback every WndProc in this file uses).
+    public static IntPtr PanelWndProcImpl(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WF_PANEL_MSG) { P15MsgCount++; P15Seq = P15Seq + "panel:msg;"; return IntPtr.Zero; }
+        if (msg == WM_COMMAND)
+        {
+            int cid = (int)(wParam.ToInt64() & 0xFFFFL);
+            if (cid == ID_PANEL_BTN)
+            {
+                P15ClickCount++;
+                P15Seq = P15Seq + "panel:btn;";
+                PostMessageW(GetParent(hwnd), WF_PANEL_BTN, IntPtr.Zero, IntPtr.Zero);
+            }
+            return IntPtr.Zero;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    // Phase 5: the child Form's independent window proc. It counts its OWN
+    // WM_CREATE, handles its OWN posted message (WF_CHILD_MSG) and destroys
+    // itself on WM_CLOSE -- proving the two windows do not share a proc.
+    public static IntPtr ChildWndProcImpl(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_CREATE) { WmChildCreateCount++; return IntPtr.Zero; }
+        if (msg == WF_CHILD_MSG) { ChildMsgCount++; return IntPtr.Zero; }
+        if (msg == WM_CLOSE) { ChildCloseDestroyed = DestroyWindow(hwnd) != 0; return IntPtr.Zero; }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    // Phase 6: MessageBoxW is a BLOCKING call -- in a headless test the box
+    // runs on a WORKER thread. The worker stores the return value; the main
+    // thread joins it (happens-before) and reads MsgBoxResult. The worker
+    // ONLY calls MessageBoxW (no managed allocations -- the M-stage allocator
+    // is single-threaded, same constraint as the threadcase workers).
+    public static void MessageBoxWorker()
+    {
+        MsgBoxResult = MessageBoxW(IntPtr.Zero, "Wf6DialogText", "Wf6Caption", MB_OK);
+    }
+
+    // Phase 13: the cross-thread marshaling WORKER. It posts WF_WORKER_MSG to
+    // the main form (wParam = the step index) -- the "background thread
+    // reports progress" pattern -- counting each post with Interlocked.
+    // Increment. M-stage constraint: the worker must NOT allocate (the
+    // managed allocator is single-threaded) -- PostMessageW is a scalar
+    // P/Invoke and Interlocked is a raw icall, both allocation-free. The main
+    // thread Joins it before draining, so the FIFO post order is the dispatch
+    // order (deterministic on both sides).
+    public static void Worker13()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            PostMessageW(P13FormHwnd, WF_WORKER_MSG, new IntPtr(i), IntPtr.Zero);
+            Interlocked.Increment(ref P13PostedCount);
+        }
+    }
+
+    // Phase 6: the MODAL window's own WndProc. It destroys itself on WM_CLOSE
+    // (the simplified modal loop below exits when the modal is gone) and
+    // records the create/close/destroy transitions on its OWN counters.
+    public static IntPtr ModalWndProcImpl(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_CREATE) { ModalCreateCount++; return IntPtr.Zero; }
+        if (msg == WM_CLOSE) { ModalCloseCount++; ModalDestroyed = DestroyWindow(hwnd) != 0; return IntPtr.Zero; }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    // Phase 11: the MDI FRAME window's WndProc. The frame is the top-level MDI
+    // container (WS_CLIPCHILDREN); it counts its OWN WM_CREATE.
+    public static IntPtr MdiFrameWndProcImpl(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_CREATE) { MdiFrameCreateCount++; return IntPtr.Zero; }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    // Phase 11: the MDI CLIENT window's WndProc. The client is the single
+    // parent of all MDI children (the simplified MDICLIENT surface). It owns
+    // the MDI activation channel: a posted WM_MDIACTIVATE (wParam = the child
+    // being activated) records the activation order (MdiActSeq) and activates
+    // the child via SetActiveWindow (the simplified child-activation path).
+    public static IntPtr MdiClientWndProcImpl(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_MDIACTIVATE) {
+            MdiActiveChild = wParam;
+            if (MdiChildA != null && wParam == MdiChildA.Handle) MdiActSeq = MdiActSeq + "A;";
+            else if (MdiChildB != null && wParam == MdiChildB.Handle) MdiActSeq = MdiActSeq + "B;";
+            else if (MdiChildC != null && wParam == MdiChildC.Handle) MdiActSeq = MdiActSeq + "C;";
+            SetActiveWindow(wParam);
+            return IntPtr.Zero;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    // Phase 11: the MDI CHILD windows' shared WndProc. All three children use
+    // the SAME registered class + this proc; a posted WF_MDI_CHILD_MSG routes
+    // into the matching WfMdiChild's OWN Click event by HWND (per-child event
+    // isolation -- posting to child A fires ONLY A's handlers).
+    public static IntPtr MdiChildWndProcImpl(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_CREATE) { MdiChildCreateCount++; return IntPtr.Zero; }
+        if (msg == WF_MDI_CHILD_MSG) {
+            MdiChildMsgCount++;
+            if (MdiChildA != null && hwnd == MdiChildA.Handle) MdiChildA.RaiseClick();
+            else if (MdiChildB != null && hwnd == MdiChildB.Handle) MdiChildB.RaiseClick();
+            else if (MdiChildC != null && hwnd == MdiChildC.Handle) MdiChildC.RaiseClick();
+            return IntPtr.Zero;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    public static void Main()
+    {
+        IntPtr hModule = GetModuleHandleW(null);
+        Console.WriteLine("module_nonzero=" + (hModule != IntPtr.Zero));
+
+        // Register the "Form" window class (WNDPROC = our delegate thunk).
+        WNDCLASSEX wc = new WNDCLASSEX();
+        // cbSize = sizeof(WNDCLASSEXW) on x64 = 80 (5 int32 + 7 pointers, with
+        // the pointer-alignment padding). Hard-coded literal -- Marshal.SizeOf
+        // is not part of the transpiler's wired Marshal surface.
+        wc.cbSize = 80;
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        RootWndProc = WndProcImpl;
+        wc.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(RootWndProc);
+        wc.hInstance = hModule;
+        IntPtr clsName = Marshal.StringToHGlobalUni("Wf1FormClass");
+        wc.lpszClassName = clsName;
+        ushort atom = RegisterClassExW(ref wc);
+        Console.WriteLine("class_registered=" + (atom != 0));
+        Marshal.FreeHGlobal(clsName);
+
+        // Create the Form window (hidden: WS_OVERLAPPED, no WS_VISIBLE).
+        IntPtr hForm = CreateWindowExW(0, "Wf1FormClass", "Wf1Form",
+            WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, 320, 200,
+            IntPtr.Zero, IntPtr.Zero, hModule, IntPtr.Zero);
+        Console.WriteLine("form_created=" + (hForm != IntPtr.Zero));
+
+        // Child controls: a BUTTON (the "Button") and a STATIC (the "Label").
+        IntPtr hButton = CreateWindowExW(0, "BUTTON", "Click me",
+            WS_CHILD | WS_TABSTOP, 20, 40, 100, 30,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        Console.WriteLine("button_created=" + (hButton != IntPtr.Zero));
+
+        IntPtr hLabel = CreateWindowExW(0, "STATIC", "Hello from Wf1",
+            WS_CHILD, 20, 90, 200, 20,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        Console.WriteLine("label_created=" + (hLabel != IntPtr.Zero));
+
+        // Stage 3: a TextBox is an EDIT common control (user32 "EDIT" class,
+        // WS_CHILD + WS_TABSTOP + ES_AUTOHSCROLL) -- same CreateWindowExW path
+        // as the Button, but the text lives in the EDIT's own native buffer
+        // (WM_SETTEXT / GetWindowTextW round-trip).
+        IntPtr hEdit = CreateWindowExW(0, "EDIT", "Wf3Edit",
+            WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 20, 130, 160, 24,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        EditHwnd = hEdit;
+        Console.WriteLine("textbox_created=" + (hEdit != IntPtr.Zero));
+
+        // Stage 3: a CheckBox is a BUTTON common control with the
+        // BS_AUTOCHECKBOX style; its on/off state is read via BM_GETCHECK.
+        IntPtr hCheck = CreateWindowExW(0, "BUTTON", "Wf3Check",
+            WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, 20, 170, 120, 24,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        Console.WriteLine("checkbox_created=" + (hCheck != IntPtr.Zero));
+
+        // Stage 2: ShowWindow transition returns (headless acceptance ends
+        // HIDDEN -- SW_SHOW is exercised for its return value only).
+        int swHide1 = ShowWindow(hForm, SW_HIDE);
+        int swShow = ShowWindow(hForm, SW_SHOW);
+        int swHide2 = ShowWindow(hForm, SW_HIDE);
+        int visAfter = IsWindowVisible(hForm);
+        // ShowWindow returns nonzero iff the window was previously visible;
+        // normalize to the boolean shape (the exact nonzero value differs by
+        // window state, but both sides run the same native call).
+        Console.WriteLine("show_hide1_prev_visible=" + (swHide1 != 0));
+        Console.WriteLine("show_prev_visible=" + (swShow != 0));
+        Console.WriteLine("hide2_prev_visible=" + (swHide2 != 0));
+        Console.WriteLine("visible_after=" + (visAfter != 0));
+
+        // Stage 2: window title readback (GetWindowTextW into an IntPtr buffer
+        // + PtrToStringUni -- both wired marshal paths).
+        IntPtr buf = Marshal.AllocHGlobal(256);
+        int tlen = GetWindowTextW(hForm, buf, 256);
+        string title = Marshal.PtrToStringUni(buf);
+        Marshal.FreeHGlobal(buf);
+        Console.WriteLine("title_len=" + tlen);
+        Console.WriteLine("window_title=" + title);
+
+        // Stage 3: TextBox text round-trip. The EDIT starts with its window
+        // name as text; WM_SETTEXT replaces it, GetWindowTextW reads it back.
+        IntPtr ebuf = Marshal.AllocHGlobal(256);
+        int elen0 = GetWindowTextW(hEdit, ebuf, 256);
+        string etext0 = Marshal.PtrToStringUni(ebuf);
+        Console.WriteLine("edit_initial_len=" + elen0);
+        Console.WriteLine("edit_initial_text=" + etext0);
+
+        IntPtr setText = Marshal.StringToHGlobalUni("Wf3Typed");
+        IntPtr setRet = SendMessageW(hEdit, WM_SETTEXT, IntPtr.Zero, setText);
+        Marshal.FreeHGlobal(setText);
+        Console.WriteLine("edit_set_ok=" + (setRet != IntPtr.Zero));
+        int elen1 = GetWindowTextW(hEdit, ebuf, 256);
+        string etext1 = Marshal.PtrToStringUni(ebuf);
+        Console.WriteLine("edit_len=" + elen1);
+        Console.WriteLine("edit_text=" + etext1);
+
+        // Stage 3: CheckBox state. BS_AUTOCHECKBOX toggles on BM_SETCHECK;
+        // BM_GETCHECK reads the current check state (0 unchecked / 1 checked).
+        IntPtr cs0 = SendMessageW(hCheck, BM_GETCHECK, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("check_state0=" + cs0.ToInt64());
+        SendMessageW(hCheck, BM_SETCHECK, new IntPtr(1), IntPtr.Zero);
+        IntPtr cs1 = SendMessageW(hCheck, BM_GETCHECK, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("check_state1=" + cs1.ToInt64());
+        SendMessageW(hCheck, BM_SETCHECK, new IntPtr(0), IntPtr.Zero);
+        IntPtr cs2 = SendMessageW(hCheck, BM_GETCHECK, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("check_state2=" + cs2.ToInt64());
+
+        // Stage 3: keyboard focus -- SetFocus then GetFocus round-trip.
+        // The result is a boolean (focus landed on the target), NOT a raw
+        // handle, so the output is deterministic across runs.
+        SetFocus(hEdit);
+        IntPtr curFocus = GetFocus();
+        Console.WriteLine("focus_is_edit=" + (curFocus == hEdit));
+
+        Marshal.FreeHGlobal(ebuf);
+
+        // Stage 3: PostMessage-simulated interactions. The user "types" into
+        // the TextBox (WF_SET_TEXT custom message -> real WM_SETTEXT round-trip),
+        // clicks the CheckBox (BM_SETCHECK), and presses a key (WM_KEYDOWN).
+        // All are POSTED messages; the non-blocking PeekMessageW drain below
+        // dispatches them deterministically without a blocking wait.
+        int postSet = PostMessageW(hForm, WF_SET_TEXT, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("inject_settext=" + (postSet != 0));
+        int postCheck = PostMessageW(hCheck, BM_SETCHECK, new IntPtr(1), IntPtr.Zero);
+        Console.WriteLine("inject_check=" + (postCheck != 0));
+        int postKey = PostMessageW(hForm, WM_KEYDOWN, new IntPtr(VK_F1), IntPtr.Zero);
+        Console.WriteLine("inject_key=" + (postKey != 0));
+
+        // Drain the posted messages (PeekMessageW PM_REMOVE -- returns 0 when
+        // the queue is empty, so this never blocks; bounded for safety).
+        MSG msg3;
+        int drained = 0;
+        while (PeekMessageW(out msg3, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg3);
+            DispatchMessageW(ref msg3);
+            drained++;
+            if (drained >= 200) break;
+        }
+        Console.WriteLine("posted_edit_len=" + postedTextLen);
+        Console.WriteLine("posted_edit_text=" + postedText);
+        IntPtr cs3 = SendMessageW(hCheck, BM_GETCHECK, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("check_state_posted=" + cs3.ToInt64());
+        Console.WriteLine("keydown_count=" + wmKeydownCount);
+
+        // ===================== Phase 4: event delegate system =====================
+        // Managed Control model with field-backed Click/KeyDown events (custom
+        // add/remove accessors -> Delegate.Combine/Remove, the delechain-proven
+        // multicast path). WM_COMMAND dispatches by control id to the matching
+        // control's Click event; WM_KEYDOWN raises KeyDown. Headless acceptance:
+        // PostMessage WM_COMMAND/WM_KEYDOWN + PeekMessageW drain (stage-3 pattern),
+        // trigger order recorded in a sequence string. Runs BEFORE the WM_CLOSE
+        // path so the form window still exists for the posted messages.
+        P4A = new WfControl(); P4A.Id = 0x101; P4A.Name = "A";
+        P4B = new WfControl(); P4B.Id = 0x102; P4B.Name = "B";
+        P4C = new WfControl(); P4C.Id = 0x103; P4C.Name = "C";
+        P4T = new WfControl(); P4T.Id = 0x104; P4T.Name = "T";
+        EventSeq = "";
+
+        // Multicast: control A gets TWO handlers (subscription order preserved).
+        P4A.Click += OnA1;
+        P4A.Click += OnA2;
+        // Per-control handlers: B and C each have their own handler PLUS a
+        // handler shared across both controls (multi-control observation).
+        P4B.Click += OnB1;
+        P4C.Click += OnC1;
+        P4B.Click += OnShared;
+        P4C.Click += OnShared;
+        // Multi-event: a control can also subscribe KeyDown.
+        P4T.KeyDown += OnKey;
+        P4A.KeyDown += OnKey2;
+
+        Console.WriteLine("p4_click_subs_a=" + P4A.ClickCount);   // 2 (multicast)
+        Console.WriteLine("p4_click_subs_b=" + P4B.ClickCount);   // 2 (B1 + shared)
+        Console.WriteLine("p4_click_subs_c=" + P4C.ClickCount);   // 2 (C1 + shared)
+        Console.WriteLine("p4_key_subs_t=" + P4T.KeyCount);       // 1
+
+        // Simulated clicks: post WM_COMMAND with each control's id + a keydown.
+        int postA = PostMessageW(hForm, WM_COMMAND, new IntPtr(P4A.Id), IntPtr.Zero);
+        int postB = PostMessageW(hForm, WM_COMMAND, new IntPtr(P4B.Id), IntPtr.Zero);
+        int postC = PostMessageW(hForm, WM_COMMAND, new IntPtr(P4C.Id), IntPtr.Zero);
+        int postK = PostMessageW(hForm, WM_KEYDOWN, new IntPtr(VK_F2), IntPtr.Zero);
+        Console.WriteLine("p4_inject=" + (postA != 0 && postB != 0 && postC != 0 && postK != 0));
+
+        // Drain the phase-4 posted messages (non-blocking, stage-3 pattern).
+        MSG msg4;
+        int d4 = 0;
+        while (PeekMessageW(out msg4, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg4);
+            DispatchMessageW(ref msg4);
+            d4++;
+            if (d4 >= 200) break;
+        }
+        Console.WriteLine("p4_seq=" + EventSeq);   // A1;A2;B1;S;C1;S;K;K2;
+
+        // Unsubscribe: remove A2 from A and the shared handler from C.
+        P4A.Click -= OnA2;
+        P4C.Click -= OnShared;
+        Console.WriteLine("p4_click_subs_a_after=" + P4A.ClickCount);   // 1
+        Console.WriteLine("p4_click_subs_c_after=" + P4C.ClickCount);   // 1
+
+        int postA2 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P4A.Id), IntPtr.Zero);
+        int postC2 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P4C.Id), IntPtr.Zero);
+        Console.WriteLine("p4_inject2=" + (postA2 != 0 && postC2 != 0));
+        int d5 = 0;
+        while (PeekMessageW(out msg4, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg4);
+            DispatchMessageW(ref msg4);
+            d5++;
+            if (d5 >= 200) break;
+        }
+        Console.WriteLine("p4_seq2=" + EventSeq);   // ...;A1;C1;
+
+        // ===================== Phase 5: multi-window + layout + hierarchy =====================
+        // Two windows, two WndProcs. The child Form is a SECOND CreateWindowExW
+        // HWND with its OWN registered window class and its OWN WndProc
+        // delegate (independent message handling), parented to the main form
+        // via WS_CHILD + hwndParent -- the WinForms child-form relationship.
+        WNDCLASSEX wc5 = new WNDCLASSEX();
+        wc5.cbSize = 80;
+        wc5.style = CS_HREDRAW | CS_VREDRAW;
+        RootChildWndProc = ChildWndProcImpl;
+        wc5.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(RootChildWndProc);
+        wc5.hInstance = hModule;
+        IntPtr cls5 = Marshal.StringToHGlobalUni("Wf1ChildClass");
+        wc5.lpszClassName = cls5;
+        ushort atom5 = RegisterClassExW(ref wc5);
+        Console.WriteLine("child_class_registered=" + (atom5 != 0));
+        Marshal.FreeHGlobal(cls5);
+
+        IntPtr hChild = CreateWindowExW(0, "Wf1ChildClass", "Wf1Child",
+            WS_CHILD, 40, 60, 200, 120,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        ChildHwnd = hChild;
+        Console.WriteLine("child_created=" + (hChild != IntPtr.Zero));
+
+        // Window relationship: GetParent exposes the parent chain. The child
+        // Form and the Button/Label are children of the main form; the main
+        // form itself is a top-level window (no owner) -> NULL.
+        Console.WriteLine("child_parent_is_form=" + (GetParent(hChild) == hForm));
+        Console.WriteLine("button_parent_is_form=" + (GetParent(hButton) == hForm));
+        Console.WriteLine("label_parent_is_form=" + (GetParent(hLabel) == hForm));
+        Console.WriteLine("form_parent_null=" + (GetParent(hForm) == IntPtr.Zero));
+
+        // Layout: GetWindowRect (size query) + MoveWindow (position/size).
+        // Child-window sizes are exact; positions are printed as DELTAS so the
+        // output is deterministic (the screen origin differs by window station,
+        // but the parent does not move between the two measurements).
+        RECT rBtn0 = new RECT();
+        int grBtn0 = GetWindowRect(hButton, out rBtn0);
+        Console.WriteLine("getrect_ok=" + (grBtn0 != 0));
+        Console.WriteLine("btn_size0=" + (rBtn0.right - rBtn0.left) + "x" + (rBtn0.bottom - rBtn0.top));
+
+        RECT rChild0 = new RECT();
+        int grChild0 = GetWindowRect(hChild, out rChild0);
+        Console.WriteLine("child_getrect_ok=" + (grChild0 != 0));
+        Console.WriteLine("child_size0=" + (rChild0.right - rChild0.left) + "x" + (rChild0.bottom - rChild0.top));
+
+        int mvBtn = MoveWindow(hButton, 30, 50, 140, 40, true);
+        Console.WriteLine("movewindow_ok=" + (mvBtn != 0));
+        RECT rBtn1 = new RECT();
+        GetWindowRect(hButton, out rBtn1);
+        Console.WriteLine("btn_dx=" + (rBtn1.left - rBtn0.left));
+        Console.WriteLine("btn_dy=" + (rBtn1.top - rBtn0.top));
+        Console.WriteLine("btn_size1=" + (rBtn1.right - rBtn1.left) + "x" + (rBtn1.bottom - rBtn1.top));
+
+        int mvChild = MoveWindow(hChild, 50, 70, 220, 140, false);
+        Console.WriteLine("child_move_ok=" + (mvChild != 0));
+        RECT rChild1 = new RECT();
+        GetWindowRect(hChild, out rChild1);
+        Console.WriteLine("child_dx=" + (rChild1.left - rChild0.left));
+        Console.WriteLine("child_dy=" + (rChild1.top - rChild0.top));
+        Console.WriteLine("child_size1=" + (rChild1.right - rChild1.left) + "x" + (rChild1.bottom - rChild1.top));
+
+        // Headless acceptance: a posted message to the child HWND is dispatched
+        // by the CHILD's OWN WndProc (the second delegate) -- independent
+        // message handling. WM_CLOSE also routes through the child's proc; the
+        // child dies BEFORE the form (a parent is destroyed after its children).
+        int postChild = PostMessageW(hChild, WF_CHILD_MSG, IntPtr.Zero, IntPtr.Zero);
+        int postChildClose = PostMessageW(hChild, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("inject_child_msg=" + (postChild != 0));
+        Console.WriteLine("inject_child_close=" + (postChildClose != 0));
+        MSG msg5;
+        int d6 = 0;
+        while (PeekMessageW(out msg5, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg5);
+            DispatchMessageW(ref msg5);
+            d6++;
+            if (d6 >= 200) break;
+        }
+        Console.WriteLine("child_msg_count=" + ChildMsgCount);
+        Console.WriteLine("child_wm_create_count=" + WmChildCreateCount);
+        Console.WriteLine("child_close_destroyed=" + ChildCloseDestroyed);
+
+        // ===================== Phase 6: dialogs + modal windows =====================
+        // 6a) MessageBoxW (user32): MessageBoxW BLOCKS its caller (a modal box),
+        //     so the headless acceptance runs it on a WORKER thread and dismisses
+        //     the box programmatically -- the same technique UI-automation
+        //     frameworks use. The worker calls MessageBoxW(.., MB_OK) and stores
+        //     the return; the main thread finds the box (FindWindowW by the
+        //     standard dialog class "#32770" + the caption title) and posts
+        //     WM_COMMAND IDOK. MB_OK must return IDOK.
+        // 6b) Modal window: EnableWindow disables the owner (the parent Form);
+        //     a nested BLOCKING GetMessageW pump (the simplified modal loop, the
+        //     same GetMessageW/Translate/Dispatch shape as a real ShowDialog)
+        //     dispatches until the modal window destroys itself on WM_CLOSE; the
+        //     owner is re-enabled after the loop.
+        //
+        // The MessageBoxW worker thread does NO managed allocation (MessageBoxW
+        // is a scalar P/Invoke; the caption/text are the only string args and
+        // they come from the MAIN thread's FindWindowW probe, not the worker) --
+        // the single-threaded M-stage allocator stays safe.
+        MsgBoxResult = -1;
+        Thread msgThread = new Thread(MessageBoxWorker);
+        // Background: if the box were ever not found/dismissed, the blocked
+        // worker must NOT prevent the process from exiting (a foreground
+        // thread would hang teardown). Background keeps the test fail-safe.
+        msgThread.IsBackground = true;
+        msgThread.Start();
+        Console.WriteLine("msgbox_thread_started=" + msgThread.IsAlive);
+
+        // Find the box: dialog class "#32770" + the caption we passed (the box's
+        // window title). Poll briefly -- the dialog is created synchronously
+        // inside MessageBoxW, but the poll keeps the acceptance robust across
+        // scheduling (bounded: 200 x 2 ms max).
+        IntPtr msgBox = IntPtr.Zero;
+        int msgPolls = 0;
+        while (msgBox == IntPtr.Zero && msgPolls < 200)
+        {
+            msgBox = FindWindowW(DLG_CLASS, "Wf6Caption");
+            if (msgBox == IntPtr.Zero)
+            {
+                Thread.Sleep(2);
+                msgPolls++;
+            }
+        }
+        Console.WriteLine("msgbox_found=" + (msgBox != IntPtr.Zero));
+
+        // Dismiss: find the OK button (control id IDOK) inside the box and
+        // click it via a posted BM_CLICK -- the canonical UI-automation
+        // dismissal. The box closes and MessageBoxW returns IDOK. (A bare
+        // posted WM_COMMAND IDOK does NOT dismiss a message box -- the dialog
+        // proc only ends it on a real button click / WM_COMMAND from the
+        // button itself, so the click must go to the BUTTON hwnd.) The OK
+        // button is created a moment AFTER the dialog window appears, so both
+        // lookups are polled (bounded) -- deterministic across scheduling.
+        int msgDismiss = 0;
+        if (msgBox != IntPtr.Zero)
+        {
+            // The OK button is the "Button"-class child of the dialog. Walk the
+            // child window list directly (FindWindowExW -- a pure handle walk,
+            // reliable cross-thread). The button is created a moment after the
+            // dialog appears, so poll briefly (bounded) -- deterministic.
+            IntPtr okBtn = IntPtr.Zero;
+            int btnPolls = 0;
+            while (okBtn == IntPtr.Zero && btnPolls < 500)
+            {
+                okBtn = FindWindowExW(msgBox, IntPtr.Zero, "Button", null);
+                if (okBtn == IntPtr.Zero)
+                {
+                    Thread.Sleep(2);
+                    btnPolls++;
+                }
+            }
+            if (okBtn == IntPtr.Zero && btnPolls >= 500)
+            {
+                // Fallback: GetDlgItem by control id (IDOK).
+                okBtn = GetDlgItem(msgBox, IDOK);
+            }
+            msgDismiss = okBtn != IntPtr.Zero
+                ? PostMessageW(okBtn, BM_CLICK, IntPtr.Zero, IntPtr.Zero)
+                : 0;
+        }
+        Console.WriteLine("msgbox_dismiss_posted=" + (msgDismiss != 0));
+
+        // Bounded wait for the worker (instead of an unbounded Join -- if the
+        // box was somehow never dismissed, MsgBoxResult stays -1 and the test
+        // FAILs cleanly instead of hanging). The worker returns as soon as the
+        // box closes, so ~400 ms is ample.
+        int msgWaits = 0;
+        while (msgThread.IsAlive && msgWaits < 200)
+        {
+            Thread.Sleep(2);
+            msgWaits++;
+        }
+        Console.WriteLine("msgbox_result_idok=" + (MsgBoxResult == IDOK));
+
+        // --- 6b: modal window (owner disabled + nested modal loop) ---
+        // The modal Form is its OWN registered class with its OWN WndProc
+        // (ModalWndProcImpl) -- like the phase-5 child -- but it is shown as a
+        // MODAL: its owner (hForm) is disabled via EnableWindow and a nested
+        // blocking message loop pumps until the modal destroys itself.
+        WNDCLASSEX wc6 = new WNDCLASSEX();
+        wc6.cbSize = 80;
+        wc6.style = CS_HREDRAW | CS_VREDRAW;
+        RootModalWndProc = ModalWndProcImpl;
+        wc6.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(RootModalWndProc);
+        wc6.hInstance = hModule;
+        IntPtr cls6 = Marshal.StringToHGlobalUni("Wf1ModalClass");
+        wc6.lpszClassName = cls6;
+        ushort atom6 = RegisterClassExW(ref wc6);
+        Console.WriteLine("modal_class_registered=" + (atom6 != 0));
+        Marshal.FreeHGlobal(cls6);
+
+        IntPtr hModal = CreateWindowExW(0, "Wf1ModalClass", "Wf1Modal",
+            WS_OVERLAPPED, 60, 80, 240, 140,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        ModalHwnd = hModal;
+        Console.WriteLine("modal_created=" + (hModal != IntPtr.Zero));
+        Console.WriteLine("modal_wm_create_count=" + ModalCreateCount);
+
+        // Disable the owner. Probe the enabled state before AND after -- the
+        // state transitions are the observable acceptance (the EnableWindow
+        // return value itself is the PREVIOUS state: nonzero iff previously
+        // disabled, per MSDN).
+        bool modalOwnerEnabledBefore = IsWindowEnabled(hForm) != 0;
+        EnableWindow(hForm, 0);
+        Console.WriteLine("modal_owner_was_enabled=" + modalOwnerEnabledBefore);
+        Console.WriteLine("modal_owner_disabled=" + (IsWindowEnabled(hForm) == 0));
+        Console.WriteLine("modal_itself_enabled=" + (IsWindowEnabled(hModal) != 0));
+
+        // Post WM_CLOSE to the modal -- its WndProc destroys itself and the
+        // nested modal loop below exits once the window is gone.
+        int modalClosePost = PostMessageW(hModal, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("modal_close_posted=" + (modalClosePost != 0));
+
+        // Simplified MODAL LOOP: a BLOCKING GetMessageW pump (a real ShowDialog
+        // loop is the same nested GetMessageW/Translate/Dispatch). Dispatches
+        // until the modal window is destroyed (WM_CLOSE handled) or the bounded
+        // 200-dispatch cap (harness watchdog). NOTE: the dispatch count is NOT
+        // printed -- the OS may inject its own activation messages into the
+        // queue (the modal is top-level), so the observable acceptance is the
+        // WM_CLOSE handling + destroy + owner re-enable, not the message count.
+        MSG msg6;
+        int modalDisp = 0;
+        while (GetMessageW(out msg6, IntPtr.Zero, 0, 0) != 0)
+        {
+            TranslateMessage(ref msg6);
+            DispatchMessageW(ref msg6);
+            modalDisp++;
+            if (ModalDestroyed) break;
+            if (modalDisp >= 200) break;
+        }
+        Console.WriteLine("modal_wm_close_count=" + ModalCloseCount);
+        Console.WriteLine("modal_destroyed=" + ModalDestroyed);
+
+        // Re-enable the owner after the modal loop exits.
+        EnableWindow(hForm, 1);
+        Console.WriteLine("modal_owner_reenabled=" + (IsWindowEnabled(hForm) != 0));
+
+        // ===================== Phase 7: property-based control access =====================
+        // The managed control-property surface (plan 搂1.5 / 搂4.3): Text /
+        // Visible / Enabled as C# PROPERTIES on a WfPropControl wrapper that
+        // translate to the native control channel:
+        //   Text    get -> GetWindowTextW;        set -> WM_SETTEXT (SendMessageW)
+        //   Visible get -> IsWindowVisible;       set -> ShowWindow (SW_SHOW/SW_HIDE)
+        //   Enabled get -> IsWindowEnabled;       set -> EnableWindow
+        // plus the Click event + Enabled TOGGLE combination: a Click handler
+        // flips Enabled, and the dispatch gates Click on Enabled -- a disabled
+        // control receives no click (the WinForms rule). Headless acceptance:
+        // PostMessage WM_COMMAND by control id + PeekMessageW drain (phase-4
+        // pattern), property sequences byte-exact across net48 + both compilers.
+        WfPropControl p7Form = new WfPropControl(); p7Form.Handle = hForm;
+        WfPropControl p7Btn = new WfPropControl();  p7Btn.Handle = hButton;  p7Btn.Id = 0x107;
+        WfPropControl p7Edit = new WfPropControl(); p7Edit.Handle = hEdit;
+
+        // Text property: get (button caption from CreateWindowExW), set via
+        // WM_SETTEXT, get back.
+        Console.WriteLine("p7_btn_text0=" + p7Btn.Text);        // Click me
+        p7Btn.Text = "Wf7Btn";
+        Console.WriteLine("p7_btn_text1=" + p7Btn.Text);        // Wf7Btn
+
+        // Text property on the EDIT control: the phase-3 posted text is the
+        // current value; the setter replaces it, the getter reads it back.
+        Console.WriteLine("p7_edit_text0=" + p7Edit.Text);      // Wf3Posted
+        p7Edit.Text = "Wf7Edit";
+        Console.WriteLine("p7_edit_text1=" + p7Edit.Text);      // Wf7Edit
+
+        // Visible property: the form is HIDDEN (stage-2 SW_HIDE, phase-6 modal
+        // never shows it). ShowWindow transitions + IsWindowVisible readback.
+        Console.WriteLine("p7_form_visible0=" + p7Form.Visible);// False
+        p7Form.Visible = true;
+        Console.WriteLine("p7_form_visible1=" + p7Form.Visible);// True
+        p7Form.Visible = false;
+        Console.WriteLine("p7_form_visible2=" + p7Form.Visible);// False
+
+        // Enabled property: the form was DISABLED + re-ENABLED by the phase-6
+        // modal loop (ends enabled). EnableWindow transitions + readback.
+        Console.WriteLine("p7_form_enabled0=" + p7Form.Enabled);// True
+        p7Form.Enabled = false;
+        Console.WriteLine("p7_form_enabled1=" + p7Form.Enabled);// False
+        p7Form.Enabled = true;
+        Console.WriteLine("p7_form_enabled2=" + p7Form.Enabled);// True
+
+        // Click event + Enabled toggle: subscribe a toggle handler, post
+        // WM_COMMAND by control id. The first click (enabled) fires AND
+        // disables the control; a second posted click is GATED (disabled
+        // controls receive no click); re-enable, the third fires again.
+        P7Btn = p7Btn;
+        P7Seq = "";
+        P7Btn.Click += OnP7Toggle;
+        Console.WriteLine("p7_btn_enabled0=" + P7Btn.Enabled);  // True
+
+        int p7ok1 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P7Btn.Id), IntPtr.Zero);
+        Console.WriteLine("p7_inject1=" + (p7ok1 != 0));
+        MSG msg7;
+        int d7 = 0;
+        while (PeekMessageW(out msg7, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg7);
+            DispatchMessageW(ref msg7);
+            d7++;
+            if (d7 >= 200) break;
+        }
+        Console.WriteLine("p7_seq1=" + P7Seq);                  // C;
+        Console.WriteLine("p7_btn_enabled1=" + P7Btn.Enabled);  // False (toggled by handler)
+
+        int p7ok2 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P7Btn.Id), IntPtr.Zero);
+        Console.WriteLine("p7_inject2=" + (p7ok2 != 0));
+        int d8 = 0;
+        while (PeekMessageW(out msg7, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg7);
+            DispatchMessageW(ref msg7);
+            d8++;
+            if (d8 >= 200) break;
+        }
+        Console.WriteLine("p7_seq2=" + P7Seq);                  // C; (disabled -> gated)
+        Console.WriteLine("p7_btn_enabled2=" + P7Btn.Enabled);  // False
+
+        P7Btn.Enabled = true;                                    // property setter re-enables
+        Console.WriteLine("p7_btn_enabled3=" + P7Btn.Enabled);  // True
+        int p7ok3 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P7Btn.Id), IntPtr.Zero);
+        Console.WriteLine("p7_inject3=" + (p7ok3 != 0));
+        int d9 = 0;
+        while (PeekMessageW(out msg7, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg7);
+            DispatchMessageW(ref msg7);
+            d9++;
+            if (d9 >= 200) break;
+        }
+        Console.WriteLine("p7_seq3=" + P7Seq);                  // C;C;
+        Console.WriteLine("p7_btn_enabled4=" + P7Btn.Enabled);  // False
+
+        // ===================== Phase 8: dialog controls (ComboBox / ListBox) =====================
+        // The ListControl surface (plan 搂1.5: ListControl -> ListBox/ComboBox)
+        // driven through the raw user32 COMBOBOX/LISTBOX classes:
+        //   * Items:       CB_ADDSTRING / LB_ADDSTRING (returns the item index)
+        //   * Selection:   CB_GETCURSEL/CB_SETCURSEL / LB_GETCURSEL/LB_SETCURSEL
+        //                  (CB_ERR / LB_ERR = -1 when nothing is selected)
+        //   * Item text:   CB_GETLBTEXT / LB_GETTEXT (IntPtr buffer +
+        //                  PtrToStringUni -- the stage-2 marshal path)
+        //   * Interaction: when the USER changes the selection, the native
+        //                  control sends WM_COMMAND to its parent with
+        //                  HIWORD(wParam) = CBN_SELCHANGE / LBN_SELCHANGE and
+        //                  LOWORD = the control id. The form's WndProc decodes
+        //                  the notification code and dispatches it into the
+        //                  managed SelectionChanged event.
+        // Headless acceptance: PostMessage WM_COMMAND (id | (notif << 16)) +
+        // PeekMessageW drain (phase-4 pattern); the handlers RE-READ the native
+        // selection so the sequence proves the event observes it at fire time.
+        IntPtr hCombo = CreateWindowExW(0, "COMBOBOX", "Wf8Combo",
+            WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST, 20, 210, 160, 120,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        Console.WriteLine("combo_created=" + (hCombo != IntPtr.Zero));
+        IntPtr hList = CreateWindowExW(0, "LISTBOX", "Wf8List",
+            WS_CHILD | WS_TABSTOP | LBS_NOTIFY, 200, 210, 160, 120,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        Console.WriteLine("listbox_created=" + (hList != IntPtr.Zero));
+        Console.WriteLine("combo_parent_is_form=" + (GetParent(hCombo) == hForm));
+        Console.WriteLine("list_parent_is_form=" + (GetParent(hList) == hForm));
+
+        WfDialogControl p8Combo = new WfDialogControl();
+        p8Combo.Handle = hCombo; p8Combo.Id = 0x108; p8Combo.Kind = 1;
+        WfDialogControl p8List = new WfDialogControl();
+        p8List.Handle = hList; p8List.Id = 0x109; p8List.Kind = 2;
+        P8Combo = p8Combo; P8List = p8List;
+        P8Seq = "";
+
+        // Items.Add: CB_ADDSTRING / LB_ADDSTRING return the item's zero-based
+        // index in the native list (deterministic add order).
+        Console.WriteLine("p8_combo_add0=" + p8Combo.Add("Alpha"));
+        Console.WriteLine("p8_combo_add1=" + p8Combo.Add("Beta"));
+        Console.WriteLine("p8_combo_add2=" + p8Combo.Add("Gamma"));
+        Console.WriteLine("p8_combo_count=" + p8Combo.Count);       // 3
+        Console.WriteLine("p8_list_add0=" + p8List.Add("One"));
+        Console.WriteLine("p8_list_add1=" + p8List.Add("Two"));
+        Console.WriteLine("p8_list_add2=" + p8List.Add("Three"));
+        Console.WriteLine("p8_list_count=" + p8List.Count);         // 3
+
+        // Initial selection: nothing selected -> CB_GETCURSEL / LB_GETCURSEL
+        // return CB_ERR / LB_ERR (-1).
+        Console.WriteLine("p8_combo_sel0=" + p8Combo.SelectedIndex); // -1
+        Console.WriteLine("p8_list_sel0=" + p8List.SelectedIndex);   // -1
+
+        // Item text readback: CB_GETLBTEXT / LB_GETTEXT into an IntPtr buffer.
+        Console.WriteLine("p8_combo_item1=" + p8Combo.GetItemText(1)); // Beta
+        Console.WriteLine("p8_list_item2=" + p8List.GetItemText(2));   // Three
+
+        // Selection via CB_SETCURSEL / LB_SETCURSEL -- the native selection
+        // changes but NO CBN_SELCHANGE/LBN_SELCHANGE is generated (those fire
+        // only when the USER changes the selection, per MSDN).
+        p8Combo.SelectedIndex = 2;
+        Console.WriteLine("p8_combo_sel1=" + p8Combo.SelectedIndex);  // 2
+        p8List.SelectedIndex = 1;
+        Console.WriteLine("p8_list_sel1=" + p8List.SelectedIndex);    // 1
+
+        // Interaction -> event: subscribe SelectionChanged handlers that record
+        // the CURRENT selection (re-read at fire time), then SIMULATE the user's
+        // selection change by posting WM_COMMAND with the notification code in
+        // the HIWORD (id | (CBN_SELCHANGE << 16)) -- exactly the message the
+        // native control sends its parent on a real selection change.
+        p8Combo.SelectionChanged += OnP8ComboChange;
+        p8List.SelectionChanged += OnP8ListChange;
+        Console.WriteLine("p8_selchange_subs=" + p8Combo.SelCount + "," + p8List.SelCount); // 1,1
+
+        int postSelC = PostMessageW(hForm, WM_COMMAND, new IntPtr(P8Combo.Id | (CBN_SELCHANGE << 16)), IntPtr.Zero);
+        int postSelL = PostMessageW(hForm, WM_COMMAND, new IntPtr(P8List.Id | (LBN_SELCHANGE << 16)), IntPtr.Zero);
+        Console.WriteLine("p8_inject=" + (postSelC != 0 && postSelL != 0));
+        MSG msg8;
+        int d10 = 0;
+        while (PeekMessageW(out msg8, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg8);
+            DispatchMessageW(ref msg8);
+            d10++;
+            if (d10 >= 200) break;
+        }
+        Console.WriteLine("p8_seq=" + P8Seq);   // combo2;list1;
+
+        // ===================== Phase 9: status bar + progress bar =====================
+        // The status-strip surface (plan 搂1.6): a StatusBar (comctl32
+        // "msctls_statusbar32" / STATUSCLASSNAME) and a ProgressBar (comctl32
+        // "msctls_progress32" / PROGRESS_CLASS), driven through the raw
+        // common-control message channels:
+        //   * StatusBar: SB_SETTEXT (wParam = part index | flags, lParam =
+        //     string pointer) writes a part's text; SB_GETTEXT / SB_GETTEXTLENGTH
+        //     read it back into a caller buffer.
+        //   * ProgressBar: PBM_SETRANGE32 sets an explicit 0..100 range;
+        //     PBM_SETPOS / PBM_GETPOS read/write the position (PBM_SETPOS
+        //     returns the PREVIOUS position -- a deterministic sequence).
+        //   * Interaction: a posted WF_PROGRESS_STEP advances the progress bar
+        //     and mirrors the new position into the status text (progress
+        //     drives status), recorded in a step/position/status sequence.
+        // Headless acceptance: InitCommonControlsEx registers the comctl32
+        // classes (no comctl32 shim sources -- the INTERFACE target forwards
+        // to the system library); both controls are WS_CHILD of the HIDDEN
+        // form; the interaction is PostMessage + PeekMessageW drain.
+        INITCOMMONCONTROLSEX icc = new INITCOMMONCONTROLSEX();
+        icc.dwSize = 8;
+        icc.dwICC = ICC_BAR_CLASSES | ICC_PROGRESS_CLASS;
+        int iccRet = InitCommonControlsEx(ref icc);
+        Console.WriteLine("comctl_init=" + (iccRet != 0));
+
+        IntPtr hStatus = CreateWindowExW(0, "msctls_statusbar32", "",
+            WS_CHILD, 0, 0, 320, 20,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        P9StatusHwnd = hStatus;
+        Console.WriteLine("statusbar_created=" + (hStatus != IntPtr.Zero));
+        IntPtr hProgress = CreateWindowExW(0, "msctls_progress32", "",
+            WS_CHILD, 20, 250, 160, 20,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        P9ProgressHwnd = hProgress;
+        Console.WriteLine("progressbar_created=" + (hProgress != IntPtr.Zero));
+
+        // Direct channels: explicit range, position read/write round-trip,
+        // status text write/read-back round-trip.
+        IntPtr rangeRet = SendMessageW(hProgress, PBM_SETRANGE32, new IntPtr(0), new IntPtr(100));
+        Console.WriteLine("p9_range_set=" + (rangeRet != IntPtr.Zero));
+        IntPtr pos0 = SendMessageW(hProgress, PBM_GETPOS, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p9_progress0=" + pos0.ToInt64());
+        IntPtr len0 = SendMessageW(hStatus, SB_GETTEXTLENGTH, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p9_status0_len=" + (len0.ToInt64() & 0xFFFFL));
+
+        IntPtr prev1 = SendMessageW(hProgress, PBM_SETPOS, new IntPtr(25), IntPtr.Zero);
+        Console.WriteLine("p9_setpos_prev=" + prev1.ToInt64());
+        IntPtr pos1 = SendMessageW(hProgress, PBM_GETPOS, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p9_progress1=" + pos1.ToInt64());
+
+        IntPtr setTxt = Marshal.StringToHGlobalUni("Ready");
+        IntPtr setRet9 = SendMessageW(hStatus, SB_SETTEXT, IntPtr.Zero, setTxt);
+        Marshal.FreeHGlobal(setTxt);
+        Console.WriteLine("p9_settext_ok=" + (setRet9 != IntPtr.Zero));
+        IntPtr getLen1 = SendMessageW(hStatus, SB_GETTEXTLENGTH, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p9_status1_len=" + (getLen1.ToInt64() & 0xFFFFL));
+        IntPtr getBuf = Marshal.AllocHGlobal(256);
+        SendMessageW(hStatus, SB_GETTEXT, IntPtr.Zero, getBuf);
+        string status1 = Marshal.PtrToStringUni(getBuf);
+        Marshal.FreeHGlobal(getBuf);
+        Console.WriteLine("p9_status1=" + status1);
+
+        // Interaction: post 4 progress steps; each advances the bar and
+        // updates the status text (progress drives status). The drain
+        // dispatches them in order; the handler records the sequence.
+        P9Seq = "";
+        P9StepCount = 0;
+        int p9a = PostMessageW(hForm, WF_PROGRESS_STEP, new IntPtr(1), IntPtr.Zero);
+        int p9b = PostMessageW(hForm, WF_PROGRESS_STEP, new IntPtr(2), IntPtr.Zero);
+        int p9c = PostMessageW(hForm, WF_PROGRESS_STEP, new IntPtr(3), IntPtr.Zero);
+        int p9d = PostMessageW(hForm, WF_PROGRESS_STEP, new IntPtr(4), IntPtr.Zero);
+        Console.WriteLine("p9_inject=" + (p9a != 0 && p9b != 0 && p9c != 0 && p9d != 0));
+        MSG msg9;
+        int d11 = 0;
+        while (PeekMessageW(out msg9, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg9);
+            DispatchMessageW(ref msg9);
+            d11++;
+            if (d11 >= 200) break;
+        }
+        Console.WriteLine("p9_seq=" + P9Seq);
+        IntPtr posF = SendMessageW(hProgress, PBM_GETPOS, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p9_final_progress=" + posF.ToInt64());
+        IntPtr fBuf = Marshal.AllocHGlobal(256);
+        SendMessageW(hStatus, SB_GETTEXT, IntPtr.Zero, fBuf);
+        string statusF = Marshal.PtrToStringUni(fBuf);
+        Marshal.FreeHGlobal(fBuf);
+        Console.WriteLine("p9_final_status=" + statusF);
+        Console.WriteLine("p9_step_count=" + P9StepCount);
+
+        // ===================== Phase 10: main menu (MainMenu / MenuItem) =====================
+        // The menu surface: a MainMenu is a CreateMenu() menu BAR attached to
+        // the form with SetMenu; each top-level MenuItem is a CreatePopupMenu()
+        // DROPDOWN appended with AppendMenuW(MF_POPUP); sub-items are string
+        // items with an explicit WM_COMMAND id (AppendMenuW MF_STRING).
+        //   * Structure: GetMenu(hForm) reads the attached bar back; item
+        //     counts and item-text readback (GetMenuStringW MF_BYPOSITION)
+        //     prove the tree shape.
+        //   * Menu events: the USER clicks a sub-item -> the OS posts WM_COMMAND
+        //     with LOWORD(wParam) = the item id. The form's WndProc decodes the
+        //     id and raises the matching MenuItem.Click (the WinForms
+        //     MenuItem.Click surface).
+        //   * Status linkage: each Click handler mirrors the clicked item's
+        //     text into the status bar (SB_SETTEXT + SB_GETTEXT round-trip,
+        //     stage-9 channel): menu drives status.
+        // Headless acceptance: PostMessage WM_COMMAND by menu item id +
+        // PeekMessageW drain (phase-4 pattern); sequences byte-exact across
+        // net48 + both compilers.
+        // NOTE: the phase-6 message box runs on a WORKER thread whose dialog
+        // steals and restores focus; the edit control's focus notifications
+        // (EN_KILLFOCUS/EN_SETFOCUS) to the form are posted asynchronously, so
+        // the GLOBAL wmCommandCount is timing-dependent (卤1). Phase 10 makes
+        // its own acceptance deterministic by resetting the counter to zero
+        // before the posts -- after the phase-6/7/8/9 drains the queue is
+        // empty and phase 10 creates no new windows (no focus changes), so the
+        // count at the end is exactly the 3 posted menu commands.
+        wmCommandCount = 0;
+        IntPtr hMenuBar = CreateMenu();
+        Console.WriteLine("p10_menu_created=" + (hMenuBar != IntPtr.Zero));
+
+        IntPtr hFilePopup = CreatePopupMenu();
+        int appendFile = AppendMenuW(hMenuBar, MF_POPUP, hFilePopup, "File");
+        int appendNew = AppendMenuW(hFilePopup, MF_STRING, new IntPtr(0x110), "New");
+        int appendOpen = AppendMenuW(hFilePopup, MF_STRING, new IntPtr(0x111), "Open");
+        Console.WriteLine("p10_append_file=" + (appendFile != 0));
+        Console.WriteLine("p10_append_new=" + (appendNew != 0));
+        Console.WriteLine("p10_append_open=" + (appendOpen != 0));
+
+        IntPtr hHelpPopup = CreatePopupMenu();
+        int appendHelp = AppendMenuW(hMenuBar, MF_POPUP, hHelpPopup, "Help");
+        int appendAbout = AppendMenuW(hHelpPopup, MF_STRING, new IntPtr(0x120), "About");
+        Console.WriteLine("p10_append_help=" + (appendHelp != 0));
+        Console.WriteLine("p10_append_about=" + (appendAbout != 0));
+
+        int setMenuOk = SetMenu(hForm, hMenuBar);
+        IntPtr gotMenu = GetMenu(hForm);
+        Console.WriteLine("p10_setmenu=" + (setMenuOk != 0));
+        Console.WriteLine("p10_getmenu_matches=" + (gotMenu == hMenuBar));
+
+        Console.WriteLine("p10_top_count=" + GetMenuItemCount(hMenuBar));
+        Console.WriteLine("p10_file_count=" + GetMenuItemCount(hFilePopup));
+        Console.WriteLine("p10_help_count=" + GetMenuItemCount(hHelpPopup));
+
+        IntPtr mBuf = Marshal.AllocHGlobal(512);
+        GetMenuStringW(hMenuBar, 0, mBuf, 256, MF_BYPOSITION);
+        string top0Text = Marshal.PtrToStringUni(mBuf);
+        GetMenuStringW(hFilePopup, 0, mBuf, 256, MF_BYPOSITION);
+        string file0Text = Marshal.PtrToStringUni(mBuf);
+        GetMenuStringW(hHelpPopup, 0, mBuf, 256, MF_BYPOSITION);
+        string help0Text = Marshal.PtrToStringUni(mBuf);
+        Marshal.FreeHGlobal(mBuf);
+        Console.WriteLine("p10_top0_text=" + top0Text);
+        Console.WriteLine("p10_file0_text=" + file0Text);
+        Console.WriteLine("p10_help0_text=" + help0Text);
+
+        P10New = new WfMenuItem(); P10New.Id = 0x110; P10New.Text = "New";
+        P10Open = new WfMenuItem(); P10Open.Id = 0x111; P10Open.Text = "Open";
+        P10About = new WfMenuItem(); P10About.Id = 0x120; P10About.Text = "About";
+        P10New.Click += OnP10New;
+        P10Open.Click += OnP10Open;
+        P10About.Click += OnP10About;
+        Console.WriteLine("p10_click_subs=" + P10New.ClickCount + "," + P10Open.ClickCount + "," + P10About.ClickCount);
+
+        P10Seq = "";
+        P10Status = "";
+        int postM1 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P10New.Id), IntPtr.Zero);
+        int postM2 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P10Open.Id), IntPtr.Zero);
+        int postM3 = PostMessageW(hForm, WM_COMMAND, new IntPtr(P10About.Id), IntPtr.Zero);
+        Console.WriteLine("p10_inject=" + (postM1 != 0 && postM2 != 0 && postM3 != 0));
+        MSG msg10;
+        int d12 = 0;
+        while (PeekMessageW(out msg10, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg10);
+            DispatchMessageW(ref msg10);
+            d12++;
+            if (d12 >= 200) break;
+        }
+        Console.WriteLine("p10_seq=" + P10Seq);
+        Console.WriteLine("p10_status=" + P10Status);
+        Console.WriteLine("p10_drain_count=" + d12);
+
+        // ===================== Phase 11: MDI (multiple document interface) =====================
+        // Simplified MDI container: the MDI FRAME is a top-level window created
+        // with WS_CLIPCHILDREN (the frame never paints over its children --
+        // style read back via GetWindowLongW GWL_STYLE); its child is the MDI
+        // CLIENT -- a single window that is the PARENT of all MDI children
+        // ("multiple children, same parent", the simplified MDICLIENT surface).
+        //   * Container: GetParent proves the tree child->client->frame.
+        //   * Child activation: WM_MDIACTIVATE posted to the CLIENT (wParam =
+        //     the child being activated) -- the client records the activation
+        //     ORDER (MdiActSeq, the net48 oracle) + SetActiveWindow.
+        //   * Multi-child events: each child is a WfMdiChild with its OWN Click
+        //     event; a posted WF_MDI_CHILD_MSG to a child fires ONLY that
+        //     child's handlers (per-child event isolation).
+        // Headless acceptance: PostMessage WM_MDIACTIVATE / WF_MDI_CHILD_MSG +
+        // PeekMessageW drain (phase-4 pattern); all windows hidden (children of
+        // a hidden frame).
+        // MDI frame class: the top-level MDI container. Its WndProc is the
+        // frame proc (counts its OWN WM_CREATE) -- distinct from the client.
+        WNDCLASSEX wcMdi = new WNDCLASSEX();
+        wcMdi.cbSize = 80;
+        wcMdi.style = CS_HREDRAW | CS_VREDRAW;
+        MdiFrameWndProc = MdiFrameWndProcImpl;
+        wcMdi.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(MdiFrameWndProc);
+        wcMdi.hInstance = hModule;
+        IntPtr clsMdi = Marshal.StringToHGlobalUni("Wf1MdiFrameClass");
+        wcMdi.lpszClassName = clsMdi;
+        ushort atomMdi = RegisterClassExW(ref wcMdi);
+        Console.WriteLine("p11_frame_class_registered=" + (atomMdi != 0));
+        Marshal.FreeHGlobal(clsMdi);
+
+        // MDI client class: the single parent of all MDI children (the
+        // simplified MDICLIENT surface). Its WndProc owns the activation
+        // channel (WM_MDIACTIVATE).
+        WNDCLASSEX wcMdiClient = new WNDCLASSEX();
+        wcMdiClient.cbSize = 80;
+        wcMdiClient.style = CS_HREDRAW | CS_VREDRAW;
+        MdiClientWndProc = MdiClientWndProcImpl;
+        wcMdiClient.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(MdiClientWndProc);
+        wcMdiClient.hInstance = hModule;
+        IntPtr clsMdiClient = Marshal.StringToHGlobalUni("Wf1MdiClientClass");
+        wcMdiClient.lpszClassName = clsMdiClient;
+        ushort atomMdiClient = RegisterClassExW(ref wcMdiClient);
+        Console.WriteLine("p11_client_class_registered=" + (atomMdiClient != 0));
+        Marshal.FreeHGlobal(clsMdiClient);
+
+        // MDI child class: shared by all three children (one class, one
+        // WndProc -- dispatch by HWND to the per-child managed model).
+        WNDCLASSEX wcMdiChild = new WNDCLASSEX();
+        wcMdiChild.cbSize = 80;
+        wcMdiChild.style = CS_HREDRAW | CS_VREDRAW;
+        MdiChildWndProc = MdiChildWndProcImpl;
+        wcMdiChild.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(MdiChildWndProc);
+        wcMdiChild.hInstance = hModule;
+        IntPtr clsMdiChild = Marshal.StringToHGlobalUni("Wf1MdiChildClass");
+        wcMdiChild.lpszClassName = clsMdiChild;
+        ushort atomMdiChild = RegisterClassExW(ref wcMdiChild);
+        Console.WriteLine("p11_child_class_registered=" + (atomMdiChild != 0));
+        Marshal.FreeHGlobal(clsMdiChild);
+
+        // MDI frame: top-level (WS_OVERLAPPED) + WS_CLIPCHILDREN -- the MDI
+        // frame style. Hidden (no WS_VISIBLE); read the style back to prove it.
+        IntPtr hMdiFrame = CreateWindowExW(0, "Wf1MdiFrameClass", "Wf1MdiFrame",
+            WS_OVERLAPPED | WS_CLIPCHILDREN, 0, 0, 360, 260,
+            IntPtr.Zero, IntPtr.Zero, hModule, IntPtr.Zero);
+        MdiFrameHwnd = hMdiFrame;
+        Console.WriteLine("p11_frame_created=" + (hMdiFrame != IntPtr.Zero));
+        IntPtr frameStyle = GetWindowLongW(hMdiFrame, GWL_STYLE);
+        Console.WriteLine("p11_frame_clipchildren=" + ((frameStyle.ToInt64() & WS_CLIPCHILDREN) != 0));
+        Console.WriteLine("p11_frame_create_count=" + MdiFrameCreateCount);
+
+        // MDI client: a WS_CHILD of the frame (the single parent of all
+        // children -- the simplified MDICLIENT). GetParent proves the tree.
+        IntPtr hMdiClient = CreateWindowExW(0, "Wf1MdiClientClass", "",
+            WS_CHILD | WS_CLIPSIBLINGS, 0, 0, 360, 260,
+            hMdiFrame, IntPtr.Zero, hModule, IntPtr.Zero);
+        MdiClientHwnd = hMdiClient;
+        Console.WriteLine("p11_client_created=" + (hMdiClient != IntPtr.Zero));
+        Console.WriteLine("p11_client_parent_is_frame=" + (GetParent(hMdiClient) == hMdiFrame));
+
+        // Three MDI children -- each its OWN window, ALL parented to the client
+        // ("multiple children, same parent"). Titles distinguish the windows.
+        IntPtr hMdiA = CreateWindowExW(0, "Wf1MdiChildClass", "Wf11DocA",
+            WS_CHILD | WS_CLIPSIBLINGS, 10, 10, 160, 100,
+            hMdiClient, IntPtr.Zero, hModule, IntPtr.Zero);
+        IntPtr hMdiB = CreateWindowExW(0, "Wf1MdiChildClass", "Wf11DocB",
+            WS_CHILD | WS_CLIPSIBLINGS, 30, 30, 160, 100,
+            hMdiClient, IntPtr.Zero, hModule, IntPtr.Zero);
+        IntPtr hMdiC = CreateWindowExW(0, "Wf1MdiChildClass", "Wf11DocC",
+            WS_CHILD | WS_CLIPSIBLINGS, 50, 50, 160, 100,
+            hMdiClient, IntPtr.Zero, hModule, IntPtr.Zero);
+        Console.WriteLine("p11_childA_created=" + (hMdiA != IntPtr.Zero));
+        Console.WriteLine("p11_childB_created=" + (hMdiB != IntPtr.Zero));
+        Console.WriteLine("p11_childC_created=" + (hMdiC != IntPtr.Zero));
+        Console.WriteLine("p11_childA_parent_is_client=" + (GetParent(hMdiA) == hMdiClient));
+        Console.WriteLine("p11_childB_parent_is_client=" + (GetParent(hMdiB) == hMdiClient));
+        Console.WriteLine("p11_childC_parent_is_client=" + (GetParent(hMdiC) == hMdiClient));
+
+        // Per-child managed models: each child has its OWN WfMdiChild with its
+        // OWN Click event + own handler (the multi-child event delegates).
+        MdiChildA = new WfMdiChild(); MdiChildA.Handle = hMdiA;
+        MdiChildB = new WfMdiChild(); MdiChildB.Handle = hMdiB;
+        MdiChildC = new WfMdiChild(); MdiChildC.Handle = hMdiC;
+        MdiChildSeq = "";
+        MdiChildA.Click += OnMdiA;
+        MdiChildB.Click += OnMdiB;
+        MdiChildC.Click += OnMdiC;
+
+        // Child activation: post WM_MDIACTIVATE to the CLIENT, wParam = the
+        // child being activated (A, then B, then C). The client records the
+        // activation ORDER and activates each child (SetActiveWindow).
+        MdiActSeq = "";
+        int postActA = PostMessageW(hMdiClient, WM_MDIACTIVATE, hMdiA, IntPtr.Zero);
+        int postActB = PostMessageW(hMdiClient, WM_MDIACTIVATE, hMdiB, IntPtr.Zero);
+        int postActC = PostMessageW(hMdiClient, WM_MDIACTIVATE, hMdiC, IntPtr.Zero);
+        Console.WriteLine("p11_act_inject=" + (postActA != 0 && postActB != 0 && postActC != 0));
+
+        // Multi-child events: post WF_MDI_CHILD_MSG to EACH child -- the shared
+        // child WndProc raises only the matching child's OWN Click.
+        int postEvA = PostMessageW(hMdiA, WF_MDI_CHILD_MSG, IntPtr.Zero, IntPtr.Zero);
+        int postEvB = PostMessageW(hMdiB, WF_MDI_CHILD_MSG, IntPtr.Zero, IntPtr.Zero);
+        int postEvC = PostMessageW(hMdiC, WF_MDI_CHILD_MSG, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p11_child_inject=" + (postEvA != 0 && postEvB != 0 && postEvC != 0));
+
+        MSG msg11;
+        int d13 = 0;
+        while (PeekMessageW(out msg11, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg11);
+            DispatchMessageW(ref msg11);
+            d13++;
+            if (d13 >= 200) break;
+        }
+        Console.WriteLine("p11_act_seq=" + MdiActSeq);
+        Console.WriteLine("p11_active_is_C=" + (MdiActiveChild == hMdiC));
+        Console.WriteLine("p11_child_seq=" + MdiChildSeq);
+        Console.WriteLine("p11_child_msg_count=" + MdiChildMsgCount);
+        Console.WriteLine("p11_child_create_count=" + MdiChildCreateCount);
+
+        // ===================== Phase 12: clipboard (copy / paste) =====================
+        // The Clipboard surface (winforms-plan 搂2 stage-2 list: OpenClipboard /
+        // GetClipboardData / SetClipboardData -- user32, no COM). The WinForms
+        // Clipboard.SetText + GetText round-trip is exercised headless:
+        //   * Copy:  OpenClipboard -> EmptyClipboard -> SetClipboardData
+        //            (CF_UNICODETEXT, a StringToHGlobalUni handle -- the SYSTEM
+        //            owns the memory on success) -> CloseClipboard.
+        //   * Paste: OpenClipboard -> GetClipboardData(CF_UNICODETEXT) ->
+        //            GlobalLock -> PtrToStringUni -> GlobalUnlock -> CloseClipboard.
+        // Headless acceptance: OpenClipboard associates the clipboard with the
+        // calling task (its message queue); the SET/GET run inside the WndProc
+        // handler for POSTED custom messages -- the phase-4 PostMessage +
+        // PeekMessageW drain pattern -- so the sequence is deterministic across
+        // net48 + both compilers (the clipboard lives in the session, so a
+        // non-interactive window station can copy/paste). The only real-world
+        // hazard, another process holding the clipboard open, is handled by a
+        // bounded OpenClipboard retry INSIDE the handler (identical on both
+        // sides).
+        int clipPostSet = PostMessageW(hForm, WF_CLIP_SET, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p12_clip_set_post=" + (clipPostSet != 0));
+        MSG msg12s;
+        int d14 = 0;
+        while (PeekMessageW(out msg12s, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg12s);
+            DispatchMessageW(ref msg12s);
+            d14++;
+            if (d14 >= 200) break;
+        }
+        Console.WriteLine("p12_clip_set_open=" + P12OpenOk);
+        Console.WriteLine("p12_clip_set_empty=" + P12EmptyOk);
+        Console.WriteLine("p12_clip_set_ok=" + P12SetOk);
+        Console.WriteLine("p12_clip_set_close=" + P12CloseOk);
+
+        int clipPostGet = PostMessageW(hForm, WF_CLIP_GET, IntPtr.Zero, IntPtr.Zero);
+        Console.WriteLine("p12_clip_get_post=" + (clipPostGet != 0));
+        MSG msg12g;
+        int d15 = 0;
+        while (PeekMessageW(out msg12g, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg12g);
+            DispatchMessageW(ref msg12g);
+            d15++;
+            if (d15 >= 200) break;
+        }
+        Console.WriteLine("p12_clip_get_open=" + P12Open2Ok);
+        Console.WriteLine("p12_clip_get_ok=" + P12GetOk);
+        Console.WriteLine("p12_clip_get_len=" + P12ClipLen);
+        Console.WriteLine("p12_clip_get_text=" + P12ClipText);
+        Console.WriteLine("p12_clip_get_close=" + P12Close2Ok);
+
+        // ===================== Phase 13: background thread -> UI update =====================
+        // The WinForms rule "background work must be marshaled to the UI
+        // thread", exercised with the primitives this file already wires: a
+        // WORKER thread does the work (posting progress messages) and the
+        // MAIN thread's message queue + WndProc receive them (the
+        // Control.BeginInvoke/PostMessage handoff, simplified). The worker
+        // posts WF_WORKER_MSG four times (wParam = the step index); each
+        // message is dispatched by the main pump into the form's WndProc --
+        // which runs on the MAIN thread and updates UI state (Interlocked
+        // counter + TextBox text). The worker Interlocked-counts its own
+        // posts; Thread.Join (happens-before) guarantees all four are queued
+        // before the drain, so the FIFO dispatch order is deterministic
+        // (w0;w1;w2;w3;) and posted count == processed count proves every
+        // cross-thread message was handled 1:1.
+        P13FormHwnd = hForm;
+        P13PostedCount = 0; P13UiCount = 0; P13Seq = ""; P13UiText = ""; P13UiTextLen = 0;
+        Thread worker13 = new Thread(Worker13);
+        worker13.IsBackground = true;
+        worker13.Start();
+        worker13.Join();
+        Console.WriteLine("p13_worker_joined=" + (worker13.IsAlive == false));
+        Console.WriteLine("p13_posted_count=" + P13PostedCount);
+        MSG msg13;
+        int d16 = 0;
+        while (PeekMessageW(out msg13, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg13);
+            DispatchMessageW(ref msg13);
+            d16++;
+            if (d16 >= 200) break;
+        }
+        Console.WriteLine("p13_ui_count=" + P13UiCount);
+        Console.WriteLine("p13_ui_text_len=" + P13UiTextLen);
+        Console.WriteLine("p13_ui_text=" + P13UiText);
+        Console.WriteLine("p13_seq=" + P13Seq);
+
+        // ===================== Phase 15: Panel container (STATIC + subclass) =====================
+        // The WinForms Panel (a child container that owns child controls)
+        // modeled on a STATIC common control: CreateWindowExW("STATIC", ...)
+        // with WS_CHILD, then SUBCLASSED via SetWindowLongPtrW(GWLP_WNDPROC) so
+        // the container gets its OWN managed WndProc (unhandled messages fall
+        // to DefWindowProcW, the same fallback every WndProc here uses). A
+        // BUTTON is created
+        // INSIDE the panel -- its parent is the PANEL, not the form. When the
+        // button "clicks" the panel's proc receives the WM_COMMAND (a container
+        // receives its children's events), records the nested event, and
+        // BUBBLES WF_PANEL_BTN to the form (button -> panel -> form). A posted
+        // WF_PANEL_MSG routed to the PANEL's own proc proves the container has
+        // an independent event surface. Layout: GetWindowRect/GetClientRect
+        // sizes + the GetParent container tree (deltas, byte-exact). All
+        // windows stay hidden; messages are posted + drained (phase-4 pattern).
+        P15PanelCreated = false; P15BtnCreated = false; P15SubclassOk = false;
+        P15ParentIsForm = false; P15BtnParentIsPanel = false;
+        P15RectOk = false; P15PanelW = 0; P15PanelH = 0; P15BtnW = 0; P15BtnH = 0;
+        P15ClientOk = false; P15ClientW = 0; P15ClientH = 0;
+        P15MsgCount = 0; P15ClickCount = 0; P15FormNotify = 0;
+        P15Seq = ""; P15Destroyed = false;
+
+        IntPtr hPanel = CreateWindowExW(0, "STATIC", "",
+            WS_CHILD, 20, 30, 300, 200, hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        P15PanelHwnd = hPanel;
+        P15PanelCreated = hPanel != IntPtr.Zero;
+        Console.WriteLine("p15_panel_created=" + P15PanelCreated);
+
+        PanelWndProc = PanelWndProcImpl;
+        IntPtr panelFn = Marshal.GetFunctionPointerForDelegate(PanelWndProc);
+        IntPtr oldProc = SetWindowLongPtrW(hPanel, GWLP_WNDPROC, panelFn);
+        P15SubclassOk = oldProc != IntPtr.Zero;
+        Console.WriteLine("p15_subclass_ok=" + P15SubclassOk);
+
+        IntPtr hBtn15 = CreateWindowExW(0, "BUTTON", "P15Btn",
+            WS_CHILD | WS_TABSTOP, 10, 10, 100, 30,
+            hPanel, new IntPtr(ID_PANEL_BTN), hModule, IntPtr.Zero);
+        P15BtnHwnd = hBtn15;
+        P15BtnCreated = hBtn15 != IntPtr.Zero;
+        Console.WriteLine("p15_btn_created=" + P15BtnCreated);
+
+        P15ParentIsForm = GetParent(hPanel) == hForm;
+        Console.WriteLine("p15_gp_panel_is_form=" + P15ParentIsForm);
+        P15BtnParentIsPanel = GetParent(hBtn15) == hPanel;
+        Console.WriteLine("p15_gp_btn_is_panel=" + P15BtnParentIsPanel);
+
+        RECT rP15 = new RECT();
+        int prOk = GetWindowRect(hPanel, out rP15);
+        P15RectOk = prOk != 0;
+        P15PanelW = rP15.right - rP15.left;
+        P15PanelH = rP15.bottom - rP15.top;
+        RECT rB15 = new RECT();
+        GetWindowRect(hBtn15, out rB15);
+        P15BtnW = rB15.right - rB15.left;
+        P15BtnH = rB15.bottom - rB15.top;
+        Console.WriteLine("p15_rect_ok=" + P15RectOk);
+        Console.WriteLine("p15_panel_w=" + P15PanelW);
+        Console.WriteLine("p15_panel_h=" + P15PanelH);
+        Console.WriteLine("p15_btn_w=" + P15BtnW);
+        Console.WriteLine("p15_btn_h=" + P15BtnH);
+
+        RECT rC15 = new RECT();
+        int crOk = GetClientRect(hPanel, out rC15);
+        P15ClientOk = crOk != 0;
+        P15ClientW = rC15.right - rC15.left;
+        P15ClientH = rC15.bottom - rC15.top;
+        Console.WriteLine("p15_client_ok=" + P15ClientOk);
+        Console.WriteLine("p15_client_w=" + P15ClientW);
+        Console.WriteLine("p15_client_h=" + P15ClientH);
+
+        // Nested events: a posted WF_PANEL_MSG to the panel's OWN proc + a
+        // button WM_COMMAND (the container receives its child's click and
+        // bubbles the notification to the form).
+        PostMessageW(hPanel, WF_PANEL_MSG, IntPtr.Zero, IntPtr.Zero);
+        PostMessageW(hPanel, WM_COMMAND, new IntPtr(ID_PANEL_BTN), hBtn15);
+
+        MSG msg15;
+        int d15p = 0;
+        while (PeekMessageW(out msg15, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg15);
+            DispatchMessageW(ref msg15);
+            d15p++;
+            if (d15p >= 200) break;
+        }
+        Console.WriteLine("p15_msg_count=" + P15MsgCount);
+        Console.WriteLine("p15_click_count=" + P15ClickCount);
+        Console.WriteLine("p15_form_notify=" + P15FormNotify);
+        Console.WriteLine("p15_seq=" + P15Seq);
+
+        P15Destroyed = DestroyWindow(hPanel) != 0;
+        Console.WriteLine("p15_destroyed=" + P15Destroyed);
+
+        // ===================== Phase 16: TabControl (WC_TABCONTROL) =====================
+        // The TabControl (winforms-plan stage-16 list) modeled on the comctl32
+        // "SysTabControl32" class (WC_TABCONTROL):
+        //   * Tabs: TCM_INSERTITEMW inserts a page (lParam = a TCITEM*). The
+        //     TCITEM is built in a GCHandle-PINNED int[] with the native TCITEMW
+        //     layout (mask @0, pszText @16, lParam @32 -- 12 int32s; the array
+        //     data is 8-aligned exactly like the struct): the wired Marshal
+        //     surface has no StructureToPtr, so the struct is written
+        //     field-by-field into the pinned array's data bytes. Native quirk
+        //     (deterministic on both sides): the control inserts each new tab at
+        //     the FRONT (return 0) and auto-selects, so the SELECTION is always
+        //     driven EXPLICITLY with TCM_SETCURSEL (the reliable channel).
+        //   * Page list + selection: TCM_GETITEMCOUNT counts the pages;
+        //     TCM_GETCURSEL / TCM_SETCURSEL read/change the selected tab
+        //     (TCM_SETCURSEL is SILENT -- no parent notification).
+        //   * Page-switch event: a real user click sends the parent WM_NOTIFY
+        //     (wParam = id, lParam = NMHDR* code TCN_SELCHANGE); headless we POST
+        //     WM_NOTIFY to the form + PeekMessageW drain. The form's WM_NOTIFY
+        //     dispatch raises SelectedIndexChanged -> re-reads TCM_GETCURSEL and
+        //     switches the visible page.
+        //   * Per-page content: tab index k owns its OWN content STATIC child of
+        //     the form (Page0Content / Page1Content / Page2Content); P16ShowPage
+        //     shows exactly ONE page per tab and hides the other two (style-bit
+        //     visibility readback -- IsWindowVisible walks the hidden form's
+        //     ancestor chain, so the probe reads the window's OWN WS_VISIBLE bit).
+        // net48 oracle: page count / selection round-trips / page-switch sequence
+        // (p16_seq) / per-page visibility byte-exact. All windows hidden.
+        INITCOMMONCONTROLSEX icc16 = new INITCOMMONCONTROLSEX();
+        icc16.dwSize = 8;
+        icc16.dwICC = ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_PROGRESS_CLASS;
+        int icc16Ret = InitCommonControlsEx(ref icc16);
+        Console.WriteLine("p16_comctl_init=" + (icc16Ret != 0));
+
+        IntPtr hTab16 = CreateWindowExW(0, WC_TABCONTROL, "",
+            WS_CHILD, 10, 10, 280, 120, hForm, new IntPtr(ID_TAB16), hModule, IntPtr.Zero);
+        TabHwnd = hTab16;
+        P16TabCreated = hTab16 != IntPtr.Zero;
+        Console.WriteLine("p16_tab_created=" + P16TabCreated);
+
+        // Per-page content controls: tab index k owns P16Page k (all hidden
+        // until the first page switch).
+        IntPtr hPg0 = CreateWindowExW(0, "STATIC", "Page0Content", WS_CHILD, 30, 30, 120, 24,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        IntPtr hPg1 = CreateWindowExW(0, "STATIC", "Page1Content", WS_CHILD, 30, 30, 120, 24,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        IntPtr hPg2 = CreateWindowExW(0, "STATIC", "Page2Content", WS_CHILD, 30, 30, 120, 24,
+            hForm, IntPtr.Zero, hModule, IntPtr.Zero);
+        P16Page0 = hPg0; P16Page1 = hPg1; P16Page2 = hPg2;
+        P16Page0Created = hPg0 != IntPtr.Zero;
+        P16Page1Created = hPg1 != IntPtr.Zero;
+        P16Page2Created = hPg2 != IntPtr.Zero;
+        Console.WriteLine("p16_page0_created=" + P16Page0Created);
+        Console.WriteLine("p16_page1_created=" + P16Page1Created);
+        Console.WriteLine("p16_page2_created=" + P16Page2Created);
+
+        P16Tab = new WfTabControl();
+        P16Tab.Handle = hTab16;
+        P16Tab.Id = ID_TAB16;
+        P16NotifyCount = 0;
+        P16SelChangeCount = 0;
+        P16Seq = "";
+        P16Tab.SelectedIndexChanged += OnP16TabChanged;
+
+        // Pages via TCITEM (lParam = the page index each tab owns); the count
+        // is read back with TCM_GETITEMCOUNT.
+        P16Tab.AddTab(0);
+        P16Tab.AddTab(1);
+        P16Tab.AddTab(2);
+        int p16count = P16Tab.Count;
+        Console.WriteLine("p16_count=" + p16count);
+
+        // Selection round-trips: explicit TCM_SETCURSEL + TCM_GETCURSEL readback
+        // for every page index (the reliable selection channel -- the native
+        // control auto-selects on insert, so the selection is always explicit).
+        P16Tab.SelectedIndex = 0;
+        int p16sel0 = P16Tab.SelectedIndex;
+        Console.WriteLine("p16_sel0=" + p16sel0);
+        P16Tab.SelectedIndex = 1;
+        int p16sel1 = P16Tab.SelectedIndex;
+        Console.WriteLine("p16_sel1=" + p16sel1);
+        P16Tab.SelectedIndex = 2;
+        int p16sel2 = P16Tab.SelectedIndex;
+        Console.WriteLine("p16_sel2=" + p16sel2);
+
+        // Page-switch events: select page 1 + post the WM_NOTIFY TCN_SELCHANGE
+        // a real user click sends; drain (the dispatch re-reads sel=1 -> shows
+        // page1). Then select page 2 + post again; drain (sel=2 -> page2).
+        // Each RaiseSelectionChanged re-reads the CURRENT selection
+        // (TCM_GETCURSEL) at fire time -- P16Seq = page1;page2;.
+        P16Tab.SelectedIndex = 1;
+        int p16n1 = PostMessageW(hForm, WM_NOTIFY, new IntPtr(ID_TAB16), IntPtr.Zero);
+        Console.WriteLine("p16_inject1=" + (p16n1 != 0));
+        MSG msg16;
+        int d16a = 0;
+        while (PeekMessageW(out msg16, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg16);
+            DispatchMessageW(ref msg16);
+            d16a++;
+            if (d16a >= 200) break;
+        }
+        P16Tab.SelectedIndex = 2;
+        int p16n2 = PostMessageW(hForm, WM_NOTIFY, new IntPtr(ID_TAB16), IntPtr.Zero);
+        Console.WriteLine("p16_inject2=" + (p16n2 != 0));
+        int d16b = 0;
+        while (PeekMessageW(out msg16, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg16);
+            DispatchMessageW(ref msg16);
+            d16b++;
+            if (d16b >= 200) break;
+        }
+        Console.WriteLine("p16_notify_count=" + P16NotifyCount);
+        Console.WriteLine("p16_selchange_count=" + P16SelChangeCount);
+        Console.WriteLine("p16_seq=" + P16Seq);
+
+        // Per-page independence: after the two switches (page1 then page2), only
+        // the LAST selected page's content is visible (one page per tab).
+        Console.WriteLine("p16_page0_vis=" + P16PageVisible(P16Page0));
+        Console.WriteLine("p16_page1_vis=" + P16PageVisible(P16Page1));
+        Console.WriteLine("p16_page2_vis=" + P16PageVisible(P16Page2));
+
+        P16Destroyed = DestroyWindow(hTab16) != 0;
+        Console.WriteLine("p16_tab_destroyed=" + P16Destroyed);
+
+        // ===================== Phase 17: ScrollBar (ScrollBar class) =====================
+        // The ScrollBar modeled on the user32-built-in "ScrollBar" class (no
+        // InitCommonControlsEx needed):
+        //   * Range: SetScrollRange sets an explicit 0..100 range (the DOCUMENTED
+        //     replacement for the legacy SBM_SETRANGE control message, which is
+        //     a no-op on this OS -- probed: the range stays 0..0 after sending
+        //     it). The range is VERIFIED by a CLAMP readback -- SetScrollPos(120)
+        //     clamps to max 100 and SetScrollPos(-5) clamps to min 0 (the docs:
+        //     "The position must be within the scrolling range"), each read back
+        //     via GetScrollPos (the DOCUMENTED replacement for the no-op
+        //     SBM_GETPOS). SetScrollPos RETURNS the previous position -- a
+        //     deterministic sequence value (same shape as PBM_SETPOS).
+        //   * Position channel: SetScrollPos / GetScrollPos write/read the thumb
+        //     (the same native state WinForms' VScrollBar drives -- probed:
+        //     GetScrollPos reads 25 after VScrollBar.Value = 25).
+        //   * Scroll event (WM_VSCROLL): a real user scroll makes the scrollbar
+        //     send WM_VSCROLL to its PARENT (the form) with LOWORD(wParam) =
+        //     the scroll code; a thumb code (SB_THUMBTRACK / SB_THUMBPOSITION)
+        //     carries the new thumb position in HIWORD(wParam). Headless
+        //     acceptance POSTS WM_VSCROLL (the phase-8 posted-notification
+        //     pattern); the form's WM_VSCROLL dispatch writes the thumb,
+        //     re-reads the real position (GetScrollPos -- the event observes
+        //     the thumb at fire time) and mirrors it into the status bar text.
+        //   * Status linkage: each scroll (the WF_VSCROLL_STEP channel AND the
+        //     WM_VSCROLL parent-notification channel) mirrors "Scroll: <pos>"
+        //     into the stage-9 status bar (SB_SETTEXT + SB_GETTEXT round-trip):
+        //     scroll drives status.
+        // net48 oracle: range-clamp readbacks / position round-trips / the
+        // scroll sequence (p17_seq) / status linkage byte-exact. The scrollbar
+        // is WS_CHILD of the HIDDEN form; destroyed before the form.
+        IntPtr hScroll17 = CreateWindowExW(0, SCROLLBAR_CLASS, "",
+            WS_CHILD | SBS_VERT, 10, 10, 20, 120, hForm, new IntPtr(ID_SCROLL17), hModule, IntPtr.Zero);
+        P17ScrollHwnd = hScroll17;
+        P17ScrollCreated = hScroll17 != IntPtr.Zero;
+        Console.WriteLine("p17_scrollbar_created=" + P17ScrollCreated);
+
+        // Explicit 0..100 range (SB_CTL addresses the scroll-bar control); the
+        // initial thumb position is 0 (GetScrollPos readback).
+        int p17range = SetScrollRange(hScroll17, SB_CTL, 0, 100, false);
+        Console.WriteLine("p17_range_set=" + (p17range != 0));
+        int p17pos0 = GetScrollPos(hScroll17, SB_CTL);
+        Console.WriteLine("p17_pos0=" + p17pos0);
+
+        // Range-clamp verification: positions outside 0..100 round to the
+        // nearest valid value -- SetScrollPos(120) clamps to max (100) and
+        // SetScrollPos(-5) clamps to min (0). Both read back via GetScrollPos.
+        SetScrollPos(hScroll17, SB_CTL, 120, false);
+        int p17clampHigh = GetScrollPos(hScroll17, SB_CTL);
+        P17ClampHigh = p17clampHigh == 100;
+        Console.WriteLine("p17_clamp_high=" + P17ClampHigh);
+        SetScrollPos(hScroll17, SB_CTL, -5, false);
+        int p17clampLow = GetScrollPos(hScroll17, SB_CTL);
+        P17ClampLow = p17clampLow == 0;
+        Console.WriteLine("p17_clamp_low=" + P17ClampLow);
+
+        // Scroll sequence: two position-channel steps (posted WF_VSCROLL_STEP
+        // drives SetScrollPos + GetScrollPos readback) interleaved with two
+        // WM_VSCROLL parent notifications (a real user scroll; the thumb
+        // position rides in HIWORD(wParam) of SB_THUMBTRACK / SB_THUMBPOSITION).
+        // Each scroll mirrors "Scroll: <pos>" into the status bar text.
+        P17StepCount = 0;
+        P17VscrollCount = 0;
+        P17Seq = "";
+        int p17s1 = PostMessageW(hForm, WF_VSCROLL_STEP, new IntPtr(25), IntPtr.Zero);
+        Console.WriteLine("p17_inject1=" + (p17s1 != 0));
+        MSG msg17;
+        int d17a = 0;
+        while (PeekMessageW(out msg17, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg17);
+            DispatchMessageW(ref msg17);
+            d17a++;
+            if (d17a >= 200) break;
+        }
+        int p17v1 = PostMessageW(hForm, WM_VSCROLL, new IntPtr(SB_THUMBTRACK | (40 << 16)), IntPtr.Zero);
+        Console.WriteLine("p17_inject2=" + (p17v1 != 0));
+        int d17b = 0;
+        while (PeekMessageW(out msg17, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg17);
+            DispatchMessageW(ref msg17);
+            d17b++;
+            if (d17b >= 200) break;
+        }
+        int p17s2 = PostMessageW(hForm, WF_VSCROLL_STEP, new IntPtr(60), IntPtr.Zero);
+        Console.WriteLine("p17_inject3=" + (p17s2 != 0));
+        int d17c = 0;
+        while (PeekMessageW(out msg17, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg17);
+            DispatchMessageW(ref msg17);
+            d17c++;
+            if (d17c >= 200) break;
+        }
+        int p17v2 = PostMessageW(hForm, WM_VSCROLL, new IntPtr(SB_THUMBPOSITION | (80 << 16)), IntPtr.Zero);
+        Console.WriteLine("p17_inject4=" + (p17v2 != 0));
+        int d17d = 0;
+        while (PeekMessageW(out msg17, IntPtr.Zero, 0, 0, PM_REMOVE) != 0)
+        {
+            TranslateMessage(ref msg17);
+            DispatchMessageW(ref msg17);
+            d17d++;
+            if (d17d >= 200) break;
+        }
+        Console.WriteLine("p17_step_count=" + P17StepCount);
+        Console.WriteLine("p17_vscroll_count=" + P17VscrollCount);
+        Console.WriteLine("p17_seq=" + P17Seq);
+        int p17final = GetScrollPos(hScroll17, SB_CTL);
+        Console.WriteLine("p17_final_pos=" + p17final);
+
+        P17Destroyed = DestroyWindow(hScroll17) != 0;
+        Console.WriteLine("p17_scrollbar_destroyed=" + P17Destroyed);
+
+        // Stage 2: wire the Button Click event (WM_COMMAND -> delegate).
+        ButtonClick = OnButtonClick;
+
+        Console.WriteLine("wm_create_count=" + wmCreateCount);
+        Console.WriteLine("wm_command_count=" + wmCommandCount);
+
+        // Inject a click: WM_COMMAND to the Form with the button's id + hwnd.
+        IntPtr zero = IntPtr.Zero;
+        int ok = PostMessageW(hForm, WM_COMMAND, new IntPtr(1), hButton);
+        Console.WriteLine("inject_command=" + (ok != 0));
+
+        // Stage 2: inject a WM_PAINT with the marker (deterministic count).
+        int okPaint = PostMessageW(hForm, WM_PAINT, new IntPtr(PAINT_MARKER), zero);
+        Console.WriteLine("inject_paint=" + (okPaint != 0));
+
+        // Close path: post WM_CLOSE; the WndProc destroys the window and the
+        // next pump iteration's DispatchMessageW delivers WM_DESTROY; we post
+        // WM_QUIT so the pump terminates deterministically.
+        PostMessageW(hForm, WM_CLOSE, zero, zero);
+        PostQuitMessage(0);
+
+        // Bounded pump + timeout sentinel: at most 200 dispatches.
+        MSG msg;
+        int dispatched = 0;
+        while (GetMessageW(out msg, IntPtr.Zero, 0, 0) != 0)
+        {
+            TranslateMessage(ref msg);
+            DispatchMessageW(ref msg);
+            dispatched++;
+            if (dispatched >= 200) { pumpExitReason = "cap"; break; }
+        }
+        if (pumpExitReason == "never") pumpExitReason = "quit";
+
+        Console.WriteLine("wm_command_count_after=" + wmCommandCount);
+        Console.WriteLine("click_count=" + clickCount);
+        Console.WriteLine("wm_paint_count=" + wmPaintCount);
+        Console.WriteLine("begin_paint_ok=" + beginPaintOk);
+        Console.WriteLine("textout_ok=" + textOutOk);
+        Console.WriteLine("painted_text=" + paintedText);
+        Console.WriteLine("p14_font_created=" + P14FontCreated);
+        Console.WriteLine("p14_select_ok=" + P14SelectOk);
+        Console.WriteLine("p14_draw_ok=" + P14DrawOk);
+        Console.WriteLine("p14_draw_height=" + P14DrawHeight);
+        Console.WriteLine("p14_ext_ok=" + P14ExtOk);
+        Console.WriteLine("p14_ext_cx=" + P14ExtCx);
+        Console.WriteLine("p14_ext_cy=" + P14ExtCy);
+        Console.WriteLine("p14_restore_ok=" + P14RestoreOk);
+        Console.WriteLine("p14_delete_ok=" + P14DeleteOk);
+        Console.WriteLine("p14_text=Wf14Draw");
+        Console.WriteLine("p14_seq=" + P14Seq);
+        Console.WriteLine("wm_close_count=" + wmCloseCount);
+        Console.WriteLine("close_destroyed=" + closeDestroyed);
+        Console.WriteLine("pump_exit_reason=" + pumpExitReason);
+
+        // Control state dump (plan 搂4.3): structure/counts only, no raw handles.
+        Console.WriteLine("dump_form_nonzero=" + (hForm != IntPtr.Zero));
+        Console.WriteLine("dump_button_nonzero=" + (hButton != IntPtr.Zero));
+        Console.WriteLine("dump_label_nonzero=" + (hLabel != IntPtr.Zero));
+        Console.WriteLine("dump_commands=" + wmCommandCount);
+        Console.WriteLine("dump_clicks=" + clickCount);
+    }
+}}
+
+// Phase 4 managed Control model: per-instance event fields (Click/KeyDown)
+// with custom add/remove accessors that route through Delegate.Combine/Remove
+// -- the same multicast semantics the runtime already implements
+// (icall_delegate_combine/remove + icall_multicast_invoke_i4, delegateext.cpp).
+public class WfControl
+{
+    public int Id;
+    public string Name;
+    private Cases.Winforms1.ClickHandler _click;
+    private Cases.Winforms1.ClickHandler _keydown;
+
+    public event Cases.Winforms1.ClickHandler Click
+    {
+        add { _click = _click + value; }
+        remove { _click = _click - value; }
+    }
+
+    public event Cases.Winforms1.ClickHandler KeyDown
+    {
+        add { _keydown = _keydown + value; }
+        remove { _keydown = _keydown - value; }
+    }
+
+    public int ClickCount
+    {
+        get { return _click == null ? 0 : _click.GetInvocationList().Length; }
+    }
+
+    public int KeyCount
+    {
+        get { return _keydown == null ? 0 : _keydown.GetInvocationList().Length; }
+    }
+
+    public void RaiseClick() { if (_click != null) _click(); }
+    public void RaiseKeyDown() { if (_keydown != null) _keydown(); }
+}
+
+// Phase 7 managed Control model: PROPERTY-based access to the native control
+// state. WfPropControl wraps a raw HWND and exposes the WinForms
+// control-property surface as C# get/set properties that translate to the
+// Win32 control channel:
+//   Text    get -> GetWindowTextW;        set -> WM_SETTEXT (SendMessageW)
+//   Visible get -> IsWindowVisible;       set -> ShowWindow (SW_SHOW/SW_HIDE)
+//   Enabled get -> IsWindowEnabled;       set -> EnableWindow
+// The Click event + Enabled combination: RaiseClick GATES on Enabled -- a
+// disabled control receives no click (the WinForms rule) -- so a Click
+// handler that toggles Enabled arms/disarms the next dispatch. All the
+// marshaled calls are the same wired paths as the earlier phases, so the
+// property get/set sequences are byte-exact across net48 + both compilers.
+public class WfPropControl
+{
+    public IntPtr Handle;
+    public int Id;
+    private Cases.Winforms1.ClickHandler _click;
+
+    public string Text
+    {
+        get
+        {
+            IntPtr buf = Marshal.AllocHGlobal(256);
+            int len = Cases.Winforms1.GetWindowTextW(Handle, buf, 256);
+            string s = Marshal.PtrToStringUni(buf);
+            Marshal.FreeHGlobal(buf);
+            return s;
+        }
+        set
+        {
+            IntPtr p = Marshal.StringToHGlobalUni(value);
+            Cases.Winforms1.SendMessageW(Handle, Cases.Winforms1.WM_SETTEXT, IntPtr.Zero, p);
+            Marshal.FreeHGlobal(p);
+        }
+    }
+
+    public bool Visible
+    {
+        get { return Cases.Winforms1.IsWindowVisible(Handle) != 0; }
+        set { Cases.Winforms1.ShowWindow(Handle, value ? Cases.Winforms1.SW_SHOW : Cases.Winforms1.SW_HIDE); }
+    }
+
+    public bool Enabled
+    {
+        get { return Cases.Winforms1.IsWindowEnabled(Handle) != 0; }
+        set { Cases.Winforms1.EnableWindow(Handle, value ? 1 : 0); }
+    }
+
+    public event Cases.Winforms1.ClickHandler Click
+    {
+        add { _click = _click + value; }
+        remove { _click = _click - value; }
+    }
+
+    public void RaiseClick() { if (Enabled && _click != null) _click(); }
+}
+
+// Phase 8 managed model: DIALOG CONTROLS (ComboBox / ListBox). WfDialogControl
+// wraps a native COMBOBOX/LISTBOX HWND and exposes the ListControl surface:
+//   Add(text)         -> CB_ADDSTRING / LB_ADDSTRING (returns the item index)
+//   Count             -> CB_GETCOUNT / LB_GETCOUNT
+//   SelectedIndex     -> CB_GETCURSEL/CB_SETCURSEL / LB_GETCURSEL/LB_SETCURSEL
+//                        (CB_ERR / LB_ERR = -1 when nothing is selected)
+//   GetItemText(i)    -> CB_GETLBTEXT / LB_GETTEXT (IntPtr buffer + PtrToStringUni)
+//   SelectionChanged event -> raised by the form's WM_COMMAND dispatch when
+//     HIWORD(wParam) == CBN_SELCHANGE / LBN_SELCHANGE (the notification the
+//     native control sends its parent when the user changes the selection).
+// Kind selects the channel: 1 = COMBOBOX, 2 = LISTBOX. All marshaled calls are
+// the same wired paths as the earlier phases, so the sequences are byte-exact
+// across net48 + both compilers.
+public class WfDialogControl
+{
+    public IntPtr Handle;
+    public int Id;
+    public int Kind;
+    private Cases.Winforms1.ClickHandler _selchange;
+
+    public event Cases.Winforms1.ClickHandler SelectionChanged
+    {
+        add { _selchange = _selchange + value; }
+        remove { _selchange = _selchange - value; }
+    }
+
+    public int SelCount
+    {
+        get { return _selchange == null ? 0 : _selchange.GetInvocationList().Length; }
+    }
+
+    private int AddMsg() { return Kind == 1 ? Cases.Winforms1.CB_ADDSTRING : Cases.Winforms1.LB_ADDSTRING; }
+    private int GetCountMsg() { return Kind == 1 ? Cases.Winforms1.CB_GETCOUNT : Cases.Winforms1.LB_GETCOUNT; }
+    private int GetSelMsg() { return Kind == 1 ? Cases.Winforms1.CB_GETCURSEL : Cases.Winforms1.LB_GETCURSEL; }
+    private int SetSelMsg() { return Kind == 1 ? Cases.Winforms1.CB_SETCURSEL : Cases.Winforms1.LB_SETCURSEL; }
+    private int GetTextMsg() { return Kind == 1 ? Cases.Winforms1.CB_GETLBTEXT : Cases.Winforms1.LB_GETTEXT; }
+
+    public int Add(string text)
+    {
+        IntPtr p = Marshal.StringToHGlobalUni(text);
+        IntPtr r = Cases.Winforms1.SendMessageW(Handle, AddMsg(), IntPtr.Zero, p);
+        Marshal.FreeHGlobal(p);
+        return (int)r.ToInt64();
+    }
+
+    public int Count
+    {
+        get
+        {
+            IntPtr r = Cases.Winforms1.SendMessageW(Handle, GetCountMsg(), IntPtr.Zero, IntPtr.Zero);
+            return (int)r.ToInt64();
+        }
+    }
+
+    public int SelectedIndex
+    {
+        get
+        {
+            IntPtr r = Cases.Winforms1.SendMessageW(Handle, GetSelMsg(), IntPtr.Zero, IntPtr.Zero);
+            return (int)r.ToInt64();
+        }
+        set { Cases.Winforms1.SendMessageW(Handle, SetSelMsg(), new IntPtr(value), IntPtr.Zero); }
+    }
+
+    public string GetItemText(int index)
+    {
+        IntPtr buf = Marshal.AllocHGlobal(256);
+        Cases.Winforms1.SendMessageW(Handle, GetTextMsg(), new IntPtr(index), buf);
+        string s = Marshal.PtrToStringUni(buf);
+        Marshal.FreeHGlobal(buf);
+        return s;
+    }
+
+    public void RaiseSelectionChanged() { if (_selchange != null) _selchange(); }
+}
+
+// Phase 10 managed model: MENU ITEMS. WfMenuItem models the WinForms MenuItem
+// surface: a text + a WM_COMMAND id + a Click event. The form's WM_COMMAND
+// handler routes a menu-id command into the matching item's Click (the
+// WinForms MenuItem.Click path); a Click handler can drive other controls
+// (the stage-10 status linkage: menu drives status). Same multicast event
+// shape as WfControl (Delegate.Combine / GetInvocationList).
+public class WfMenuItem
+{
+    public int Id;
+    public string Text;
+    private Cases.Winforms1.ClickHandler _click;
+
+    public event Cases.Winforms1.ClickHandler Click
+    {
+        add { _click = _click + value; }
+        remove { _click = _click - value; }
+    }
+
+    public int ClickCount
+    {
+        get { return _click == null ? 0 : _click.GetInvocationList().Length; }
+    }
+
+    public void RaiseClick() { if (_click != null) _click(); }
+}
+
+// Phase 11 managed model: MDI CHILD WINDOWS. WfMdiChild models an MDI child
+// window surface: a native HWND (a WS_CHILD of the MDI client) + its OWN Click
+// event (the per-child event delegate). The shared MDI child WndProc routes a
+// posted WF_MDI_CHILD_MSG into the matching WfMdiChild's RaiseClick by HWND --
+// each child's handlers fire only when ITS OWN window is posted to (per-child
+// event isolation). Same multicast event shape as WfControl.
+public class WfMdiChild
+{
+    public IntPtr Handle;
+    private Cases.Winforms1.ClickHandler _click;
+
+    public event Cases.Winforms1.ClickHandler Click
+    {
+        add { _click = _click + value; }
+        remove { _click = _click - value; }
+    }
+
+    public int ClickCount
+    {
+        get { return _click == null ? 0 : _click.GetInvocationList().Length; }
+    }
+
+    public void RaiseClick() { if (_click != null) _click(); }
+}
+
+// Phase 16 managed model: TAB CONTROL. WfTabControl wraps a WC_TABCONTROL
+// ("SysTabControl32") HWND and exposes the TabControl surface:
+//   AddTab(pageIndex)   -> TCM_INSERTITEMW with a TCITEM (TCIF_PARAM, lParam =
+//                          the page index each tab owns). The TCITEM is built
+//                          in a GCHandle-PINNED int[] with the native TCITEMW
+//                          layout (mask @0, pszText @16, lParam @32 -- 12
+//                          int32s; the pinned array data is 8-aligned exactly
+//                          like the struct) -- the wired Marshal surface has no
+//                          StructureToPtr, so the struct is written
+//                          field-by-field into the pinned array's data bytes.
+//   Count               -> TCM_GETITEMCOUNT (the page count)
+//   SelectedIndex       -> TCM_GETCURSEL / TCM_SETCURSEL (TCM_SETCURSEL is
+//                          SILENT -- the parent is NOT notified; the initial
+//                          selection is -1, the CB_ERR-like "nothing selected")
+//   SelectedIndexChanged event -> raised by the form's WM_NOTIFY dispatch on
+//                          TCN_SELCHANGE; RaiseSelectionChanged RE-READS the
+//                          current selection (TCM_GETCURSEL) and switches the
+//                          visible page (P16ShowPage -- one page per tab).
+// Same multicast event shape as WfControl.
+public class WfTabControl
+{
+    public IntPtr Handle;
+    public int Id;
+    private Cases.Winforms1.ClickHandler _selchange;
+
+    public event Cases.Winforms1.ClickHandler SelectedIndexChanged
+    {
+        add { _selchange = _selchange + value; }
+        remove { _selchange = _selchange - value; }
+    }
+
+    public int SelCount
+    {
+        get { return _selchange == null ? 0 : _selchange.GetInvocationList().Length; }
+    }
+
+    public int AddTab(int pageIndex)
+    {
+        // TCITEMW x64 layout as 12 int32s (the pinned array data is 8-aligned,
+        // so the pointer fields sit at their natural offsets):
+        //   [0]=mask [1]=dwState [2]=dwStateMask [3]=pad
+        //   [4..5]=pszText (NULL) [6]=cchTextMax [7]=iImage
+        //   [8..9]=lParam [10]=iIndent [11]=pad
+        int[] tci = new int[12];
+        tci[0] = Cases.Winforms1.TCIF_PARAM;
+        tci[8] = pageIndex;
+        GCHandle pin = GCHandle.Alloc(tci, GCHandleType.Pinned);
+        IntPtr pItem = pin.AddrOfPinnedObject();
+        IntPtr r = Cases.Winforms1.SendMessageW(Handle, Cases.Winforms1.TCM_INSERTITEMW, IntPtr.Zero, pItem);
+        pin.Free();
+        return (int)r.ToInt64();
+    }
+
+    public int Count
+    {
+        get
+        {
+            IntPtr r = Cases.Winforms1.SendMessageW(Handle, Cases.Winforms1.TCM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+            return (int)r.ToInt64();
+        }
+    }
+
+    public int SelectedIndex
+    {
+        get
+        {
+            IntPtr r = Cases.Winforms1.SendMessageW(Handle, Cases.Winforms1.TCM_GETCURSEL, IntPtr.Zero, IntPtr.Zero);
+            return (int)r.ToInt64();
+        }
+        set { Cases.Winforms1.SendMessageW(Handle, Cases.Winforms1.TCM_SETCURSEL, new IntPtr(value), IntPtr.Zero); }
+    }
+
+    public void RaiseSelectionChanged()
+    {
+        int sel = SelectedIndex;
+        if (sel >= 0) Cases.Winforms1.P16ShowPage(sel);
+        if (_selchange != null) _selchange();
+    }
+}

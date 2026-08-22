@@ -60,6 +60,10 @@ namespace runtime {
 void icall_array_copy(Il2CppObject* src, int32_t srcIndex, Il2CppObject* dst,
                       int32_t dstIndex, int32_t length);
 
+// Array.Copy(Array src, Array dst, int length) -- the 3-arg overload: the
+// same validation+copy with both indices zero (the net48 3-arg contract).
+void icall_array_copy_3(Il2CppObject* src, Il2CppObject* dst, int32_t length);
+
 // Array.Sort: ascending in-place quicksort of an int32 array.
 //   Non-int32 arrays throw System.NotSupportedException (domain contract).
 void icall_array_sort(Il2CppObject* arr);
@@ -95,6 +99,11 @@ int32_t icall_array_get_rank(Il2CppObject* arr);
 // net48 LongLength property returns Int64; for one-dimensional arrays it
 // equals Length). A null receiver throws NullReferenceException.
 int64_t icall_array_get_long_length(Il2CppObject* arr);
+
+// Static Array.GetElementSize(Array) (netcore31+ audit gap): the array's
+// element stride in bytes (the allocator-stamped elemSize field). A null
+// argument throws ArgumentNullException.
+int32_t icall_array_get_element_size(Il2CppObject* arr);
 
 // Instance Array.GetLowerBound(int dimension): the lowest valid index in
 // 'dimension'. One-dimensional scope: a zero-based array has lower bound 0;

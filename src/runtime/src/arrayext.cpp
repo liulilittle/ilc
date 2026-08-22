@@ -28,6 +28,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_array_ext.h"
+#include "il2cpp_exception_ext.h"
 
 #include "il2cpp_array.h"
 #include "il2cpp_exception.h"
@@ -187,7 +188,6 @@ void icall_array_copy(Il2CppObject* src, int32_t srcIndex, Il2CppObject* dst,
 {
     Il2CppArray* s = RequireArray(src);
     Il2CppArray* d = RequireArray(dst);
-
     if (srcIndex < 0 || dstIndex < 0 || length < 0)
     {
         il2cpp_throw_new(kArgOutOfRangeChain, "Index or length is less than zero.");
@@ -232,6 +232,17 @@ void icall_array_copy(Il2CppObject* src, int32_t srcIndex, Il2CppObject* dst,
                      s->data + static_cast<size_t>(srcIndex) * static_cast<size_t>(s->elemSize),
                      static_cast<size_t>(length) * static_cast<size_t>(s->elemSize));
     }
+}
+
+//------------------------------------------------------------------------------
+// icall_array_copy_3 -- Array.Copy(Array src, Array dst, int length): the
+// 3-arg overload forwards to the 5-arg validated copy with both indices
+// zero (the net48 3-arg contract; the emitter has no constant-injection
+// facility, so this wrapper IS the overload).
+//------------------------------------------------------------------------------
+void icall_array_copy_3(Il2CppObject* src, Il2CppObject* dst, int32_t length)
+{
+    icall_array_copy(src, 0, dst, 0, length);
 }
 
 //------------------------------------------------------------------------------
@@ -333,6 +344,22 @@ int64_t icall_array_get_long_length(Il2CppObject* arr)
 {
     Il2CppArray* a = RequireInstanceArray(arr);
     return static_cast<int64_t>(a->length);
+}
+
+//------------------------------------------------------------------------------
+// icall_array_get_element_size -- static Array.GetElementSize(Array) (the
+// netcore31+ audit gap): the array's element stride in bytes (the elemSize
+// field the allocator stamps on every array). Null -> ArgumentNullException
+// (static-argument semantics).
+//------------------------------------------------------------------------------
+int32_t icall_array_get_element_size(Il2CppObject* arr)
+{
+    if (arr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("array");
+    }
+    Il2CppArray* a = RequireInstanceArray(arr);
+    return a->elemSize;
 }
 
 //------------------------------------------------------------------------------

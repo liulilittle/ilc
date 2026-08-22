@@ -1,0 +1,18 @@
+PASS ToInt32(string)=123
+PASS ToInt32(string-neg)=-456
+PASS ToInt32(int)=2147483647
+PASS ToInt32(int-min)=-2147483648
+PASS ToInt32(bool)=1/0
+PASS ToInt32(double)=4/2/4/-2
+PASS ToBoolean(int)=F/T/T/T
+PASS ToString(int)=789/-42
+PASS ToString(long)=9223372036854775807/-9034567890123456789
+PASS ToString(double)=2.5/0.1/123.456
+PASS ToString(bool)=True/False
+PASS ToInt64(string)=9223372036854775806/-123456789012
+PASS ToDouble(string)=3.14/-0.5
+PASS roundtrip int=123456789
+PASS roundtrip long=-9034567890123456789
+PASS roundtrip double=123.456
+PASS roundtrip bool=T/T
+ALL-PASS

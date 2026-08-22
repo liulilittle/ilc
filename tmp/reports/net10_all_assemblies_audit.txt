@@ -1,0 +1,409 @@
+.NET 10 (10.0.11) Microsoft.NETCore.App - InternalCall coverage audit - ALL assemblies except System.Private.CoreLib.dll
+Generated: 2026-08-22 03:56:25
+Tool: dotnet E:\il2cpp\src\il2cppc\bin\Release\net8.0\il2cppc.dll audit-internalcalls <dll>
+Target: E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\ (*.dll, excluding System.Private.CoreLib.dll)
+
+RESULT: 184 assemblies audited (171 managed with SUMMARY + 13 native NO-METADATA).
+Assemblies with realGap>0: NONE (0)
+Assemblies with realErr>0: NONE (0)
+Aggregate over all SUMMARY lines: total=0 mapped=0 receiverMapped=0 realGap=0 realErr=0 internalGap=0 internalErr=0
+GAP/ERR method lines found: 0 (also 0 IGAP/IERR false-positive lines)
+Interpretation: in the .NET 10 shared framework, every public [MethodImpl(InternalCall)] lives in System.Private.CoreLib.dll (excluded here); all other managed assemblies are facades/type-forwarders or carry no public icalls, so there is nothing for the ILC to close outside CoreLib.
+
+=== PER-ASSEMBLY RESULTS (batch order b00..b12) ===
+
+--- net10_audit_b00.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clretwrc.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clretwrc.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clrgc.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clrgc.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clrgcexp.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clrgcexp.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clrjit.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\clrjit.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\coreclr.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\coreclr.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\hostpolicy.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\hostpolicy.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.CSharp.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.CSharp.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.DiaSymReader.Native.amd64.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.DiaSymReader.Native.amd64.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.VisualBasic.Core.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.VisualBasic.Core.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.VisualBasic.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.VisualBasic.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.Win32.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.Win32.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.Win32.Registry.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\Microsoft.Win32.Registry.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscordaccore_amd64_amd64_10.0.1126.37416.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscordaccore_amd64_amd64_10.0.1126.37416.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscordaccore.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscordaccore.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscordbi.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscordbi.dll
+
+--- net10_audit_b01.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscorlib.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscorlib.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscorrc.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\mscorrc.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\msquic.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\msquic.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\netstandard.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\netstandard.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.AppContext.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.AppContext.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Buffers.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Buffers.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.Concurrent.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.Concurrent.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.Immutable.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.Immutable.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.NonGeneric.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.NonGeneric.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.Specialized.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Collections.Specialized.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.Annotations.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.Annotations.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.DataAnnotations.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.DataAnnotations.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.EventBasedAsync.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.EventBasedAsync.dll
+
+--- net10_audit_b02.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.TypeConverter.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ComponentModel.TypeConverter.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Configuration.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Configuration.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Console.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Console.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Core.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Core.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Data.Common.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Data.Common.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Data.DataSetExtensions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Data.DataSetExtensions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Data.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Data.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Contracts.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Contracts.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Debug.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Debug.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.DiagnosticSource.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.DiagnosticSource.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.FileVersionInfo.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.FileVersionInfo.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Process.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Process.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.StackTrace.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.StackTrace.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.TextWriterTraceListener.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.TextWriterTraceListener.dll
+
+--- net10_audit_b03.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Tools.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Tools.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.TraceSource.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.TraceSource.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Tracing.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Diagnostics.Tracing.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Drawing.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Drawing.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Drawing.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Drawing.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Dynamic.Runtime.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Dynamic.Runtime.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Formats.Asn1.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Formats.Asn1.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Formats.Tar.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Formats.Tar.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Globalization.Calendars.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Globalization.Calendars.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Globalization.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Globalization.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Globalization.Extensions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Globalization.Extensions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.Brotli.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.Brotli.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.FileSystem.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.FileSystem.dll
+
+--- net10_audit_b04.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.Native.dll =====
+NO-METADATA	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.Native.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.ZipFile.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Compression.ZipFile.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.AccessControl.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.AccessControl.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.DriveInfo.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.DriveInfo.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.Watcher.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.FileSystem.Watcher.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.IsolatedStorage.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.IsolatedStorage.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.MemoryMappedFiles.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.MemoryMappedFiles.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Pipelines.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Pipelines.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Pipes.AccessControl.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Pipes.AccessControl.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Pipes.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.Pipes.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.UnmanagedMemoryStream.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.IO.UnmanagedMemoryStream.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.AsyncEnumerable.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.AsyncEnumerable.dll
+
+--- net10_audit_b05.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.Expressions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.Expressions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.Parallel.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.Parallel.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.Queryable.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Linq.Queryable.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Memory.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Memory.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Http.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Http.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Http.Json.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Http.Json.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.HttpListener.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.HttpListener.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Mail.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Mail.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.NameResolution.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.NameResolution.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.NetworkInformation.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.NetworkInformation.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Ping.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Ping.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Quic.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Quic.dll
+
+--- net10_audit_b06.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Requests.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Requests.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Security.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Security.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.ServerSentEvents.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.ServerSentEvents.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.ServicePoint.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.ServicePoint.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Sockets.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.Sockets.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebClient.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebClient.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebHeaderCollection.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebHeaderCollection.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebProxy.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebProxy.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebSockets.Client.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebSockets.Client.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebSockets.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Net.WebSockets.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Numerics.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Numerics.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Numerics.Vectors.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Numerics.Vectors.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ObjectModel.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ObjectModel.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.DataContractSerialization.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.DataContractSerialization.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.Uri.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.Uri.dll
+
+--- net10_audit_b07.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.Xml.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.Xml.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.Xml.Linq.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Private.Xml.Linq.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.DispatchProxy.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.DispatchProxy.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Emit.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Emit.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Emit.ILGeneration.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Emit.ILGeneration.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Emit.Lightweight.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Emit.Lightweight.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Extensions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Extensions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Metadata.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Metadata.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.TypeExtensions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Reflection.TypeExtensions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Resources.Reader.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Resources.Reader.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Resources.ResourceManager.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Resources.ResourceManager.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Resources.Writer.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Resources.Writer.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.CompilerServices.Unsafe.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.CompilerServices.Unsafe.dll
+
+--- net10_audit_b08.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.CompilerServices.VisualC.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.CompilerServices.VisualC.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Extensions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Extensions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Handles.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Handles.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.InteropServices.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.InteropServices.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.InteropServices.JavaScript.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.InteropServices.JavaScript.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.InteropServices.RuntimeInformation.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.InteropServices.RuntimeInformation.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Intrinsics.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Intrinsics.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Loader.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Loader.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Numerics.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Numerics.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Formatters.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Formatters.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Json.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Json.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Xml.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Runtime.Serialization.Xml.dll
+
+--- net10_audit_b09.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.AccessControl.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.AccessControl.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Claims.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Claims.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Algorithms.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Algorithms.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Cng.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Cng.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Csp.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Csp.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Encoding.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Encoding.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.OpenSsl.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.OpenSsl.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Primitives.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.Primitives.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.X509Certificates.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Cryptography.X509Certificates.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Principal.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Principal.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Principal.Windows.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.Principal.Windows.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.SecureString.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Security.SecureString.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ServiceModel.Web.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ServiceModel.Web.dll
+
+--- net10_audit_b10.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ServiceProcess.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ServiceProcess.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encoding.CodePages.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encoding.CodePages.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encoding.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encoding.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encoding.Extensions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encoding.Extensions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encodings.Web.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Encodings.Web.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Json.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.Json.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.RegularExpressions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Text.RegularExpressions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.AccessControl.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.AccessControl.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Channels.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Channels.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Overlapped.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Overlapped.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.Dataflow.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.Dataflow.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.Extensions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.Extensions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.Parallel.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Tasks.Parallel.dll
+
+--- net10_audit_b11.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Thread.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Thread.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.ThreadPool.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.ThreadPool.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Timer.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Threading.Timer.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Transactions.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Transactions.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Transactions.Local.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Transactions.Local.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ValueTuple.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.ValueTuple.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Web.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Web.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Web.HttpUtility.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Web.HttpUtility.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Windows.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Windows.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.Linq.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.Linq.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.ReaderWriter.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.ReaderWriter.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.Serialization.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.Serialization.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XDocument.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XDocument.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XmlDocument.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XmlDocument.dll
+
+--- net10_audit_b12.log ---
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XmlSerializer.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XmlSerializer.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XPath.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XPath.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XPath.XDocument.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\System.Xml.XPath.XDocument.dll
+===== E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\WindowsBase.dll =====
+SUMMARY	total=0	mapped=0	receiverMapped=0	realGap=0	realErr=0	internalGap=0	internalErr=0	E:\il2cpp\tmp\net910\net10\shared\Microsoft.NETCore.App\10.0.11\WindowsBase.dll
+
+=== END OF REPORT ===

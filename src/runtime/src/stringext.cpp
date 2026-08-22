@@ -710,7 +710,6 @@ Il2CppArray* icall_string_split(Il2CppString* self, Il2CppArray* separators)
         il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
                          "Object reference not set to an instance of an object.");
     }
-
     // --- Stage the receiver payload + separator units into non-GC scratch
     //     BEFORE any allocation (Gen0 compaction can move unrooted objects).
     const int32_t len = self->length;
@@ -787,6 +786,42 @@ Il2CppArray* icall_string_split(Il2CppString* self, Il2CppArray* separators)
     slots[w] = reinterpret_cast<Il2CppObject*>(tail);
 
     return result;
+}
+
+//------------------------------------------------------------------------------
+// icall_string_split_char -- Split(char) (the netcore21+ single-char
+// overload): forwards to icall_string_split with a 1-element char[].
+// GC safety: the temp separator array is read ONLY during the callee's
+// staging phase, which completes BEFORE its first managed allocation -- no
+// collection can observe the unrooted temp after its last read.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_string_split_char(Il2CppString* self, char16_t separator)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    Il2CppArray* seps = il2cpp_array_new(nullptr, sizeof(char16_t), false, 1);
+    *reinterpret_cast<char16_t*>(il2cpp_array_get_elem_ptr(seps, 0)) = separator;
+    return icall_string_split(self, seps);
+}
+
+//------------------------------------------------------------------------------
+// icall_string_split_char_options -- Split(char, StringSplitOptions) (the
+// netcore21+ shape csc binds s.Split(' ') to): the same 1-element temp
+// array forwarded to the options-aware split (GC-safety argument identical).
+//------------------------------------------------------------------------------
+Il2CppArray* icall_string_split_char_options(Il2CppString* self, char16_t separator, int32_t options)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    Il2CppArray* seps = il2cpp_array_new(nullptr, sizeof(char16_t), false, 1);
+    *reinterpret_cast<char16_t*>(il2cpp_array_get_elem_ptr(seps, 0)) = separator;
+    return icall_string_split_options(self, seps, options);
 }
 
 //------------------------------------------------------------------------------

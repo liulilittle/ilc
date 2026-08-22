@@ -1,0 +1,17 @@
+testdir=E:\il2cpp\build\runtime_full
+passed=15 failed=0 total=15
+PASS	test_boxedtostring.exe	
+PASS	test_string_utf8.exe	
+PASS	test_string.exe	
+PASS	test_stringalloc.exe	
+PASS	test_stringbuilder.exe	
+PASS	test_stringext.exe	
+PASS	test_stringext2.exe	
+PASS	test_stringext3.exe	
+PASS	test_stringext4.exe	
+PASS	test_stringext5.exe	
+PASS	test_stringext6.exe	
+PASS	test_stringhash.exe	
+PASS	test_stringintern.exe	
+PASS	test_stringrw.exe	
+PASS	test_stringrwobj.exe	

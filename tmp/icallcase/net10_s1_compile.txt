@@ -1,0 +1,2 @@
+=== STEP 1: csc compile against net10 ===
+EXITCODE=0

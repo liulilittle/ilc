@@ -1,0 +1,10 @@
+3
+Byte
+3
+SByte
+3
+Int16
+3
+UInt16
+3
+UInt32

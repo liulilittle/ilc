@@ -1,0 +1,8 @@
+edit_created=True
+cmd_after_settext=0
+cmd_mid_seq=9
+cmd_seq_mid=id0/n256;id0/n1024;id0/n768;id0/n1024;id0/n768;id0/n1024;id0/n768;id0/n1024;id0/n768;
+cmd_final=9
+cmd_seq_final=id0/n256;id0/n1024;id0/n768;id0/n1024;id0/n768;id0/n1024;id0/n768;id0/n1024;id0/n768;
+destroy=True
+destroy_parent=True

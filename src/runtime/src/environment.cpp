@@ -429,6 +429,18 @@ int32_t icall_environment_get_exit_code()
     return g_exit_code;
 }
 
+//------------------------------------------------------------------------------
+// icall_environment_get_has_shutdown_started -- Environment.HasShutdownStarted
+// (the netcore21+ audit surface): the simplified runtime never initiates
+// shutdown while managed code runs -- the honest constant answer is false on
+// every platform (cross-platform consistency).
+//------------------------------------------------------------------------------
+int32_t icall_environment_get_has_shutdown_started()
+{
+    return 0;
+}
+
+
 int32_t icall_environment_set_exit_code(int32_t code)
 {
     g_exit_code = code;

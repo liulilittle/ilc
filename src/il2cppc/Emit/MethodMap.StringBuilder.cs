@@ -57,6 +57,11 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException($"StringBuilder.Insert signature not wired in M5");
             case "Remove":
                 return I("il2cpp::runtime::icall_stringbuilder_remove", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+            // netcore21+ audit surface: Clear() -- Length drops to 0 (the
+            // buffer stays allocated; stringbuilder.cpp).
+            case "Clear":
+                if (count == 0) return I("il2cpp::runtime::icall_stringbuilder_clear", 0, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                return null;
             case "AppendLine":
                 if (count == 0) return I("il2cpp::runtime::icall_stringbuilder_append_line", 0, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 if (count == 1 && ps[0] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_append_line_s", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");

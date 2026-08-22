@@ -1,0 +1,260 @@
+using System;
+using System.Runtime.InteropServices;
+
+public static class P41Probe
+{
+    [DllImport("kernel32", EntryPoint = "GetModuleHandleW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr GetModuleHandleW(string name);
+    [DllImport("user32", EntryPoint = "RegisterClassExW", CharSet = CharSet.Unicode)]
+    public static extern ushort RegisterClassExW(ref WNDCLASSEX wc);
+    [DllImport("user32", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateWindowExW(int exStyle, string className, string windowName,
+        int style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+    [DllImport("user32", EntryPoint = "SendMessageW")]
+    public static extern IntPtr SendMessageW(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32", EntryPoint = "DefWindowProcW")]
+    public static extern IntPtr DefProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32", EntryPoint = "DestroyWindow")]
+    public static extern int DestroyWindow(IntPtr hwnd);
+    [DllImport("comctl32", EntryPoint = "InitCommonControlsEx")]
+    public static extern int InitCommonControlsEx(ref INITCOMMONCONTROLSEX icc);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INITCOMMONCONTROLSEX { public int dwSize; public int dwICC; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct WNDCLASSEX
+    {
+        public int cbSize; public int style; public IntPtr lpfnWndProc; public int cbClsExtra;
+        public int cbWndExtra; public IntPtr hInstance; public IntPtr hIcon; public IntPtr hCursor;
+        public IntPtr hbrBackground; public IntPtr lpszMenuName; public IntPtr lpszClassName; public IntPtr hIconSm;
+    }
+
+    public const int WS_CHILD = 0x40000000;
+    public const int WS_OVERLAPPED = 0x00000000;
+    public const int ICC_TREEVIEW_CLASSES = 0x00000002;
+
+    // Phase 41 constants under test
+    public const int TVM_FIRST = 0x1100;
+    public const int TVM_GETITEMW = TVM_FIRST + 62;
+    public const int TVM_SETITEMW = TVM_FIRST + 63;
+    public const int TVM_GETITEMSTATE = TVM_FIRST + 39;
+    public const int TVM_SELECTITEM = TVM_FIRST + 11;
+    public const int TVM_INSERTITEMW = TVM_FIRST + 50;
+    public const int TVM_GETCOUNT = TVM_FIRST + 5;
+    public const int TVM_EXPAND = TVM_FIRST + 2;
+    public const int TVM_DELETEITEM = TVM_FIRST + 1;
+    public const int TVM_GETNEXTITEM = TVM_FIRST + 10;
+    public const int TVIF_TEXT = 0x0001;
+    public const int TVIF_PARAM4 = 0x0004;   // candidate CORRECT
+    public const int TVIF_PARAM8 = 0x0008;   // current wrong value
+    public const int TVIF_STATE = 0x0008;
+    public const int TVIF_HANDLE = 0x0010;
+    public const int TVGN_ROOT = 0x0000;
+    public const int TVGN_CHILD = 0x0004;
+    public const int TVGN_CARET = 0x0009;
+    public const int TVIS_SELECTED = 0x0002;
+    public const int TVIS_BOLD = 0x0010;
+    public const int TVIS_EXPANDED = 0x0020;
+    public const int TVE_EXPAND = 0x0002;
+    public const int TVE_COLLAPSE = 0x0001;
+
+    public static IntPtr InsertNode(IntPtr hTree, IntPtr hParent, string text, int paramMaskBit, int lParamVal)
+    {
+        IntPtr p = Marshal.StringToHGlobalUni(text);
+        int[] tvi = new int[18];
+        long hp = hParent.ToInt64();
+        tvi[0] = (int)(hp & 0xFFFFFFFFL);
+        tvi[1] = (int)((hp >> 32) & 0xFFFFFFFFL);
+        tvi[2] = unchecked((int)0xFFFF0002);
+        tvi[3] = 0;
+        tvi[4] = TVIF_TEXT | paramMaskBit;
+        long pt = p.ToInt64();
+        tvi[10] = (int)(pt & 0xFFFFFFFFL);
+        tvi[11] = (int)((pt >> 32) & 0xFFFFFFFFL);
+        tvi[12] = 128;
+        tvi[16] = lParamVal; tvi[17] = 0;
+        GCHandle pin = GCHandle.Alloc(tvi, GCHandleType.Pinned);
+        IntPtr r = SendMessageW(hTree, TVM_INSERTITEMW, IntPtr.Zero, pin.AddrOfPinnedObject());
+        pin.Free();
+        Marshal.FreeHGlobal(p);
+        return r;
+    }
+
+    public static string GetNodeText(IntPtr hTree, IntPtr hItem)
+    {
+        IntPtr buf = Marshal.AllocHGlobal(256);
+        int[] item = new int[14];
+        item[0] = TVIF_TEXT | TVIF_HANDLE;
+        long hi = hItem.ToInt64();
+        item[2] = (int)(hi & 0xFFFFFFFFL);
+        item[3] = (int)((hi >> 32) & 0xFFFFFFFFL);
+        long bp = buf.ToInt64();
+        item[6] = (int)(bp & 0xFFFFFFFFL);
+        item[7] = (int)((bp >> 32) & 0xFFFFFFFFL);
+        item[8] = 128;
+        GCHandle pin = GCHandle.Alloc(item, GCHandleType.Pinned);
+        SendMessageW(hTree, TVM_GETITEMW, IntPtr.Zero, pin.AddrOfPinnedObject());
+        pin.Free();
+        string s = Marshal.PtrToStringUni(buf);
+        Marshal.FreeHGlobal(buf);
+        return s;
+    }
+
+    public static int GetNodeLParam(IntPtr hTree, IntPtr hItem, int paramBit)
+    {
+        int[] item = new int[14];
+        item[0] = paramBit | TVIF_HANDLE;
+        long hi = hItem.ToInt64();
+        item[2] = (int)(hi & 0xFFFFFFFFL);
+        item[3] = (int)((hi >> 32) & 0xFFFFFFFFL);
+        GCHandle pin = GCHandle.Alloc(item, GCHandleType.Pinned);
+        IntPtr r = SendMessageW(hTree, TVM_GETITEMW, IntPtr.Zero, pin.AddrOfPinnedObject());
+        pin.Free();
+        long lo = item[12];
+        long lp = lo & 0xFFFFFFFFL;
+        return (int)lp;
+    }
+
+    public static void Main()
+    {
+        IntPtr hInst = GetModuleHandleW(null);
+        WNDCLASSEX wc = new WNDCLASSEX();
+        wc.cbSize = 80;
+        wc.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(new WndProcDel(DefProc));
+        wc.hInstance = hInst;
+        wc.lpszClassName = Marshal.StringToHGlobalUni("P41Parent");
+        RegisterClassExW(ref wc);
+        IntPtr hParent = CreateWindowExW(0, "P41Parent", "P41P",
+            WS_OVERLAPPED, 0, 0, 300, 200, IntPtr.Zero, IntPtr.Zero, hInst, IntPtr.Zero);
+
+        INITCOMMONCONTROLSEX icc = new INITCOMMONCONTROLSEX();
+        icc.dwSize = 8;
+        icc.dwICC = ICC_TREEVIEW_CLASSES;
+        InitCommonControlsEx(ref icc);
+
+        IntPtr hTree = CreateWindowExW(0, "SysTreeView32", "",
+            WS_CHILD, 10, 10, 280, 160, hParent, new IntPtr(0x280), hInst, IntPtr.Zero);
+        Console.WriteLine("p41probe_tree_created=" + (hTree != IntPtr.Zero));
+
+        // (1) TVITEMW layout offsets on x64 (pinned int[14] mapping).
+        Console.WriteLine("p41probe_size=" + Marshal.SizeOf(typeof(TVITEMWProbe)));
+        Console.WriteLine("p41probe_mask_off=" + Marshal.OffsetOf(typeof(TVITEMWProbe), "mask").ToInt64());
+        Console.WriteLine("p41probe_hitem_off=" + Marshal.OffsetOf(typeof(TVITEMWProbe), "hItem").ToInt64());
+        Console.WriteLine("p41probe_state_off=" + Marshal.OffsetOf(typeof(TVITEMWProbe), "state").ToInt64());
+        Console.WriteLine("p41probe_statmask_off=" + Marshal.OffsetOf(typeof(TVITEMWProbe), "stateMask").ToInt64());
+        Console.WriteLine("p41probe_psz_off=" + Marshal.OffsetOf(typeof(TVITEMWProbe), "pszText").ToInt64());
+        Console.WriteLine("p41probe_cch_off=" + Marshal.OffsetOf(typeof(TVITEMWProbe), "cchTextMax").ToInt64());
+        Console.WriteLine("p41probe_lparam_off=" + Marshal.OffsetOf(typeof(TVITEMWProbe), "lParam").ToInt64());
+
+        int cnt0 = (int)SendMessageW(hTree, TVM_GETCOUNT, IntPtr.Zero, IntPtr.Zero).ToInt64();
+        Console.WriteLine("p41probe_count0=" + cnt0);
+
+        // Insert root (mask TVIF_PARAM=0x4, lParam 42) + child.
+        InsertNode(hTree, IntPtr.Zero, "Root", TVIF_PARAM4, 42);
+        IntPtr root = SendMessageW(hTree, TVM_GETNEXTITEM, new IntPtr(TVGN_ROOT), IntPtr.Zero);
+        Console.WriteLine("p41probe_root_ok=" + (root != IntPtr.Zero));
+        InsertNode(hTree, root, "Child", TVIF_PARAM4, 42);
+        IntPtr child = SendMessageW(hTree, TVM_GETNEXTITEM, new IntPtr(TVGN_CHILD), root);
+        Console.WriteLine("p41probe_child_ok=" + (child != IntPtr.Zero));
+        int cnt2 = (int)SendMessageW(hTree, TVM_GETCOUNT, IntPtr.Zero, IntPtr.Zero).ToInt64();
+        Console.WriteLine("p41probe_count2=" + cnt2);
+
+        // (2) TVM_GETITEMW text readback.
+        Console.WriteLine("p41probe_root_text=" + GetNodeText(hTree, root));
+        Console.WriteLine("p41probe_child_text=" + GetNodeText(hTree, child));
+
+        // (3) TVIF_PARAM bit verification: lParam stored under mask bit 0x4 but
+        //     NOT under mask bit 0x8 (0x8 = TVIF_STATE).
+        Console.WriteLine("p41probe_param_bit4=" + GetNodeLParam(hTree, root, TVIF_PARAM4));
+        InsertNode(hTree, root, "Child8", TVIF_PARAM8, 99);
+        IntPtr child8 = SendMessageW(hTree, TVM_GETNEXTITEM, new IntPtr(TVGN_CHILD), root);
+        Console.WriteLine("p41probe_param_bit8=" + GetNodeLParam(hTree, child8, TVIF_PARAM4));
+        SendMessageW(hTree, TVM_DELETEITEM, IntPtr.Zero, child8);
+
+        // (4) TVM_GETITEMSTATE scalar (fresh = 0).
+        int st_fresh = (int)SendMessageW(hTree, TVM_GETITEMSTATE, root, new IntPtr(TVIS_BOLD)).ToInt64();
+        Console.WriteLine("p41probe_state_fresh=" + st_fresh);
+
+        // (5) TVM_SETITEMW state write (TVIS_BOLD) + readback via scalar.
+        int[] itemB = new int[14];
+        itemB[0] = TVIF_HANDLE | TVIF_STATE;
+        long hb = root.ToInt64();
+        itemB[2] = (int)(hb & 0xFFFFFFFFL);
+        itemB[3] = (int)((hb >> 32) & 0xFFFFFFFFL);
+        itemB[4] = TVIS_BOLD;
+        itemB[5] = TVIS_BOLD;
+        GCHandle pinB = GCHandle.Alloc(itemB, GCHandleType.Pinned);
+        IntPtr setB = SendMessageW(hTree, TVM_SETITEMW, IntPtr.Zero, pinB.AddrOfPinnedObject());
+        pinB.Free();
+        Console.WriteLine("p41probe_setbold_ok=" + (setB.ToInt64() != 0));
+        int st_bold = (int)SendMessageW(hTree, TVM_GETITEMSTATE, root, new IntPtr(TVIS_BOLD)).ToInt64();
+        Console.WriteLine("p41probe_state_bold=" + st_bold);
+
+        // Clear the bold bit via TVM_SETITEMW (state 0 under the mask).
+        itemB[4] = 0;
+        GCHandle pinC = GCHandle.Alloc(itemB, GCHandleType.Pinned);
+        SendMessageW(hTree, TVM_SETITEMW, IntPtr.Zero, pinC.AddrOfPinnedObject());
+        pinC.Free();
+        int st_clear = (int)SendMessageW(hTree, TVM_GETITEMSTATE, root, new IntPtr(TVIS_BOLD)).ToInt64();
+        Console.WriteLine("p41probe_state_cleared=" + st_clear);
+
+        // (6) TVGN_CARET selection on a HIDDEN window: select child, re-fetch caret.
+        IntPtr selRet = SendMessageW(hTree, TVM_SELECTITEM, new IntPtr(TVGN_CARET), child);
+        Console.WriteLine("p41probe_select_ok=" + (selRet.ToInt64() != 0));
+        IntPtr caret = SendMessageW(hTree, TVM_GETNEXTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero);
+        Console.WriteLine("p41probe_caret_ok=" + (caret != IntPtr.Zero));
+        Console.WriteLine("p41probe_caret_text=" + GetNodeText(hTree, caret));
+        int st_sel = (int)SendMessageW(hTree, TVM_GETITEMSTATE, caret, new IntPtr(TVIS_SELECTED)).ToInt64();
+        Console.WriteLine("p41probe_state_selected=" + st_sel);
+
+        // (7) TVM_SETITEMW text rewrite (Child -> Child2).
+        IntPtr p2 = Marshal.StringToHGlobalUni("Child2");
+        int[] itemT = new int[14];
+        itemT[0] = TVIF_HANDLE | TVIF_TEXT;
+        long ht = child.ToInt64();
+        itemT[2] = (int)(ht & 0xFFFFFFFFL);
+        itemT[3] = (int)((ht >> 32) & 0xFFFFFFFFL);
+        long pt = p2.ToInt64();
+        itemT[6] = (int)(pt & 0xFFFFFFFFL);
+        itemT[7] = (int)((pt >> 32) & 0xFFFFFFFFL);
+        itemT[8] = 128;
+        GCHandle pinT = GCHandle.Alloc(itemT, GCHandleType.Pinned);
+        IntPtr setT = SendMessageW(hTree, TVM_SETITEMW, IntPtr.Zero, pinT.AddrOfPinnedObject());
+        pinT.Free();
+        Marshal.FreeHGlobal(p2);
+        Console.WriteLine("p41probe_settext_ok=" + (setT.ToInt64() != 0));
+        Console.WriteLine("p41probe_child_text2=" + GetNodeText(hTree, child));
+
+        // Expand/collapse state readback (TVIS_EXPANDED 0x20).
+        SendMessageW(hTree, TVM_EXPAND, new IntPtr(TVE_EXPAND), root);
+        int st_exp = (int)SendMessageW(hTree, TVM_GETITEMSTATE, root, new IntPtr(TVIS_EXPANDED)).ToInt64();
+        Console.WriteLine("p41probe_state_expanded=" + st_exp);
+        SendMessageW(hTree, TVM_EXPAND, new IntPtr(TVE_COLLAPSE), root);
+        int st_col = (int)SendMessageW(hTree, TVM_GETITEMSTATE, root, new IntPtr(TVIS_EXPANDED)).ToInt64();
+        Console.WriteLine("p41probe_state_collapsed=" + st_col);
+
+        int cntF = (int)SendMessageW(hTree, TVM_GETCOUNT, IntPtr.Zero, IntPtr.Zero).ToInt64();
+        Console.WriteLine("p41probe_count_final=" + cntF);
+
+        Console.WriteLine("p41probe_tree_destroyed=" + (DestroyWindow(hTree) != 0));
+        Console.WriteLine("p41probe_parent_destroyed=" + (DestroyWindow(hParent) != 0));
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TVITEMWProbe
+    {
+        public uint mask;
+        public IntPtr hItem;
+        public uint state;
+        public uint stateMask;
+        public IntPtr pszText;
+        public int cchTextMax;
+        public int iImage;
+        public int iSelectedImage;
+        public int cChildren;
+        public IntPtr lParam;
+    }
+
+    public delegate IntPtr WndProcDel(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+}

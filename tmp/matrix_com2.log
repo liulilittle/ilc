@@ -1,0 +1,12 @@
+winforms1 : PASS
+winformsext : PASS
+winchain : PASS
+winevent : PASS
+winpanel : PASS
+pinvokeext : PASS
+pinvokedeep2 : PASS
+marshalcase : PASS
+marshaldeep : PASS
+delegatecb : PASS
+com17type : PASS
+icomparedeep : PASS

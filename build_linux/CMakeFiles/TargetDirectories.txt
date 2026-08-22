@@ -1,0 +1,3 @@
+/mnt/e/il2cpp/build_linux/CMakeFiles/il2cpp_runtime.dir
+/mnt/e/il2cpp/build_linux/CMakeFiles/edit_cache.dir
+/mnt/e/il2cpp/build_linux/CMakeFiles/rebuild_cache.dir

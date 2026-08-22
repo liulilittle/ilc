@@ -1,0 +1,11 @@
+MethodMap files scanned: 91
+Runtime corpus files: 269 (.cpp + .h)
+Total reference occurrences (il2cpp::* strings): 1395
+Total unique referenced names: 1158
+Total found in runtime: 1144
+Total not found (raw): 14
+  - genuine missing literal symbols: 2
+      icall_gc_get_total_allocated_bytes_approximate  (MethodMap.GC.cs:40)
+      il2cpp_stringbuilder_capacity                   (MethodMap.StringBuilder.cs:87)
+  - extraction artifacts (interpolated prefixes / comments): 12
+Result: GENUINE MISSING = 2 / 1158 unique names

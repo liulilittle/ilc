@@ -1,0 +1,17 @@
+[0/2] Re-checking globbed directories...
+[1/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/dtoffset.cpp.o
+[2/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/calendar.cpp.o
+[3/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/timezone.cpp.o
+[4/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/timeext2.cpp.o
+[5/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/stopwatch.cpp.o
+[6/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/time.cpp.o
+E:/il2cpp/src/runtime/src/time.cpp:452:68: warning: unused parameter 'unitsPerTickInverse' [-Wunused-parameter]
+static Il2CppTimeSpan TimeSpanFromDoubleUnits(double units, double unitsPerTickInverse, double tickScale)
+                                                                   ^
+1 warning generated.
+[7/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/timeext.cpp.o
+[8/9] Building CXX object CMakeFiles/il2cpp_runtime.dir/src/io.cpp.o
+[9/9] Linking CXX static library libil2cpp_runtime.a
+
+=== RESULT: BUILD SUCCESS ===
+Target: libil2cpp_runtime.a linked [9/9] | Errors: 0 | Warnings: 1 (time.cpp:452 unused parameter 'unitsPerTickInverse', pre-existing)
