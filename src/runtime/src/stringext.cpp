@@ -1194,14 +1194,15 @@ static Il2CppArray* SliceRefArray(Il2CppArray* values, int32_t startIndex, int32
 Il2CppString* icall_string_join_range_s(Il2CppString* separator, Il2CppArray* values, int32_t startIndex, int32_t count)
 {
     Il2CppArray* sub = SliceRefArray(values, startIndex, count);
-    return reinterpret_cast<Il2CppString*>(icall_string_join(separator, sub));
+    return reinterpret_cast<Il2CppString*>(
+        icall_string_join(separator, reinterpret_cast<Il2CppObject*>(sub)));
 }
 
 Il2CppString* icall_string_join_range_c(char16_t separator, Il2CppArray* values, int32_t startIndex, int32_t count)
 {
     Il2CppArray* sub = SliceRefArray(values, startIndex, count);
     // The char-separator join lives in the concat domain (il2cpp_concat.h).
-    return il2cpp_string_builder_join(separator, sub);
+    return il2cpp_string_builder_join(separator, reinterpret_cast<Il2CppObject*>(sub));
 }
 
 } // namespace runtime
