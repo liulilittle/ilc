@@ -74,7 +74,9 @@ public static class TempSlotPass
     // Rename: returns the transformed statement list and the temp-slot counts
     // before/after. Returns the SAME list instance when nothing was renamed.
     //--------------------------------------------------------------------------
-    public static (List<Stmt> Stmts, int SlotsBefore, int SlotsAfter) Rename(List<Stmt> stmts)
+    public static (List<Stmt> Stmts, int SlotsBefore, int SlotsAfter) Rename(
+        List<Stmt> stmts,
+        Func<string, bool>? isRefStaticField = null)
     {
         // Pass 1: type-kind propagation mirroring CodeGenerator.EmitBody's
         // locKind (forward, last-wins -- CodeGenerator.cs:461-487) so the
@@ -92,7 +94,7 @@ public static class TempSlotPass
                     if (IsTemp(a.Target))
                     {
                         defs.Add((i, a.Target));
-                        var k = KindOf(a.Value, locKind);
+                        var k = KindOf(a.Value, locKind, isRefStaticField);
                         if (k != null) locKind[a.Target] = k;
                     }
                     CollectUses(a.Value, i, uses, allNames);
@@ -149,7 +151,7 @@ public static class TempSlotPass
             var kind = locKind.TryGetValue(name, out var k) ? k : "val";
             if (!EligibleKinds.Contains(kind)) continue;
             if (defs.Where(d => d.Name == name).Any(d =>
-                string.Equals(KindOf(((AssignStmt)stmts[d.Pos]).Value, locKind), kind, StringComparison.Ordinal) == false))
+                string.Equals(KindOf(((AssignStmt)stmts[d.Pos]).Value, locKind, isRefStaticField), kind, StringComparison.Ordinal) == false))
                 continue; // mixed RHS kinds: the single declaration cannot serve both
 
             kindOfTemp[name] = kind;
@@ -226,8 +228,18 @@ public static class TempSlotPass
     // metadata-free, so the pass reproduces the emitter's per-name C++ type.
     // Value-type newobj returns a sentinel kind (never eligible for sharing).
     //--------------------------------------------------------------------------
-    private static string? KindOf(Expr e, Dictionary<string, string> locKind) => e switch
+    private static string? KindOf(Expr e, Dictionary<string, string> locKind,
+        Func<string, bool>? isRefStaticField) => e switch
     {
+        // probe3 (closurecase): a reference-typed static field read (the
+        // `<>c.<>9__4_0` lambda/delegate cache -- GenericInst Func`1) is a
+        // REFERENCE def. The metadata-free default arm classified it "val",
+        // so the pass merged its slot with an int32 bool temp and the emitter
+        // declared int32_t for a pointer store (cmake FAIL). The caller
+        // supplies the metadata-backed predicate (CodeGenerator
+        // StaticFieldExprIsReference); null (pure-fold tests) keeps the old
+        // behavior.
+        StaticFieldExpr sf when isRefStaticField?.Invoke(sf.FieldName) == true => "ref",
         StringConstExpr => "ref",
         NullExpr => "ref",
         ExceptionEntryExpr => "ref",

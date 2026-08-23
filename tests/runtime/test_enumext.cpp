@@ -433,13 +433,13 @@ int main()
         Expect(il2cpp_enum_parse(&colorClass,
                                  reinterpret_cast<Il2CppObject*>(
                                      il2cpp_string_new_from_cs("abc")),
-                                 &r) == 0 && r == 12345,
-               "parse non-numeric text -> 0, out slot untouched");
+                                 &r) == 0 && r == 0,
+               "parse non-numeric text -> 0, out writes default (TryParse contract)");
         Expect(il2cpp_enum_parse(&colorClass,
                                  reinterpret_cast<Il2CppObject*>(
                                      il2cpp_string_new_from_cs("2147483648")),
-                                 &r) == 0 && r == 12345,
-               "parse int32 overflow \"2147483648\" -> 0, out slot untouched");
+                                 &r) == 0 && r == 0,
+               "parse int32 overflow -> 0, out writes default (TryParse contract)");
         Expect(il2cpp_enum_parse(&colorClass, nullptr, &r) == 0,
                "parse null text -> 0");
         Expect(il2cpp_enum_parse(&colorClass,

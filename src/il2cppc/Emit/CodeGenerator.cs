@@ -730,7 +730,12 @@ public static class CodeGenerator
                 // live spans do not overlap onto one slot name (pure rename,
                 // post-Fold pre-EmitBody -- the emitter declares one C++
                 // variable and one GC root per slot). See TempSlotPass.cs.
-                stmts = TempSlotPass.Rename(stmts).Stmts;
+                // probe3 (closurecase): the pass's metadata-free kind analysis
+                // cannot see reference-typed static fields -- supply the
+                // metadata-backed predicate so a `<>c.<>9__4_0` delegate-cache
+                // read is a "ref" def and never shares an int32 slot.
+                stmts = TempSlotPass.Rename(stmts,
+                    fieldName => StaticFieldExprIsReference(md, types, fieldName)).Stmts;
                 methodCount++;
                 var (body, refLocals, rootAnalysis, structFieldRoots) = EmitBody(md, types, bodyInfo, stmts, symMap, m.ParamTypes);
                 // Audit C1: reference-typed parameters (including 'this') are
@@ -5364,30 +5369,39 @@ public static class CodeGenerator
         if (dot <= 0) return false;
         var ownerFullName = fieldName[..dot];
         var field = fieldName[(dot + 1)..];
-        var t = types.FirstOrDefault(x => x.FullName == ownerFullName);
-        return t != null && StaticFieldIsReference(md, t, field);
-    }
-
-    private static bool StaticFieldIsReference(MetadataReader md, TypeDef t, string fieldName)
-    {
+        // probe3 (closurecase): the owner may be a NESTED compiler-generated
+        // type (`<>c` lambda cache class). MetadataLoader skips nested types
+        // from the transpiled `types` list, so the TypeDef lookup below
+        // misses and the read degrades to int32_t. Resolve directly in
+        // metadata instead. Spelling note: a MemberReference parent renders
+        // nested owners as "Outer+Nested" (GetFullName on TypeReference),
+        // while GetFullName on the TypeDefinition itself yields the short
+        // name -- compare the LAST '+' segment.
+        var ownerShort = ownerFullName[(ownerFullName.LastIndexOf('+') + 1)..];
         foreach (var tdh in md.TypeDefinitions)
         {
-            if (md.GetFullName(tdh) != t.FullName) continue;
-            var td = md.GetTypeDefinition(tdh);
-            foreach (var fh in td.GetFields())
-            {
-                var fd = md.GetFieldDefinition(fh);
-                if (md.GetString(fd.Name) != fieldName) continue;
-                var sig = md.GetBlobReader(fd.Signature);
-                if (sig.ReadByte() != 0x06) return false; // not a FIELD sig
-                var typeByte = sig.ReadByte();
-                // Reference kinds (mirrors MetadataLoader.DecodeFieldSignature
-                // reference arms + GenericInst/delegate classes): 0x0E String,
-                // 0x1C Object, 0x12 Class, 0x15 GenericInst (Func`N etc.),
-                // 0x1D/0x1F SZARRAY, 0x14 ARRAY. Everything else (int32,
-                // value-type, VAR) stays int32_t storage.
-                return typeByte is 0x0E or 0x1C or 0x12 or 0x15 or 0x1D or 0x1F or 0x14;
-            }
+            if (md.GetFullName(tdh) != ownerShort) continue;
+            return StaticFieldIsReference(md, tdh, field);
+        }
+        return false;
+    }
+
+    private static bool StaticFieldIsReference(MetadataReader md, TypeDefinitionHandle owner, string fieldName)
+    {
+        var td = md.GetTypeDefinition(owner);
+        foreach (var fh in td.GetFields())
+        {
+            var fd = md.GetFieldDefinition(fh);
+            if (md.GetString(fd.Name) != fieldName) continue;
+            var sig = md.GetBlobReader(fd.Signature);
+            if (sig.ReadByte() != 0x06) return false; // not a FIELD sig
+            var typeByte = sig.ReadByte();
+            // Reference kinds (mirrors MetadataLoader.DecodeFieldSignature
+            // reference arms + GenericInst/delegate classes): 0x0E String,
+            // 0x1C Object, 0x12 Class, 0x15 GenericInst (Func`N etc.),
+            // 0x1D/0x1F SZARRAY, 0x14 ARRAY. Everything else (int32,
+            // value-type, VAR) stays int32_t storage.
+            return typeByte is 0x0E or 0x1C or 0x12 or 0x15 or 0x1D or 0x1F or 0x14;
         }
         return false;
     }

@@ -449,11 +449,10 @@ int main()
     Expect(TryParseIs("", "") == false, "try_parse empty == false");
     {
         Il2CppDecimal out = MakeDec(0xDEADBEEFDEADBEEFULL, 0xDEADBEEF, 0, false);
-        const Il2CppDecimal before = out;
         icall_decimal_try_parse(il2cpp::il2cpp_string_new_from_cs("nope"), &out);
-        Expect(out.lo64 == before.lo64 && out.hi32 == before.hi32 &&
-               out.flags == before.flags,
-               "try_parse failure leaves output untouched");
+        // .NET TryParse contract: a FAILED parse writes decimal.Zero.
+        Expect(out.lo64 == 0 && out.hi32 == 0 && out.flags == 0,
+               "try_parse failure writes zero (TryParse contract)");
     }
 
     // --- 12. Round-trips ---

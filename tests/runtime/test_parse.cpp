@@ -365,29 +365,29 @@ int main()
     {
         int32_t out = static_cast<int32_t>(0xDEADBEEF);
         const int32_t ok = il2cpp::runtime::icall_try_parse_int32(AsObj(MakeStr("abc")), &out);
-        Expect(ok == 0 && out == static_cast<int32_t>(0xDEADBEEF),
-               "int32 failure leaves out untouched");
+        Expect(ok == 0 && out == 0,
+               "int32 failure writes zero (TryParse contract)");
     }
     {
         int64_t out = static_cast<int64_t>(UINT64_C(0xDEADBEEFDEADBEEF));
         const int32_t ok = il2cpp::runtime::icall_try_parse_int64(AsObj(MakeStr("abc")), &out);
-        Expect(ok == 0 && out == static_cast<int64_t>(UINT64_C(0xDEADBEEFDEADBEEF)),
-               "int64 failure leaves out untouched");
+        Expect(ok == 0 && out == 0,
+               "int64 failure writes zero (TryParse contract)");
     }
     {
         double out = 123.5;
         const int32_t ok = il2cpp::runtime::icall_try_parse_double(AsObj(MakeStr("abc")), &out);
-        Expect(ok == 0 && out == 123.5, "double failure leaves out untouched");
+        Expect(ok == 0 && out == 0.0, "double failure writes zero (TryParse contract)");
     }
     {
         int32_t out = 7;
         const int32_t ok = il2cpp::runtime::icall_try_parse_bool(AsObj(MakeStr("abc")), &out);
-        Expect(ok == 0 && out == 7, "bool failure leaves out untouched");
+        Expect(ok == 0 && out == 0, "bool failure writes zero (TryParse contract)");
     }
     {
         int32_t out = 7;
         const int32_t ok = il2cpp::runtime::icall_try_parse_byte(AsObj(MakeStr("abc")), &out);
-        Expect(ok == 0 && out == 7, "byte failure leaves out untouched");
+        Expect(ok == 0 && out == 0, "byte failure writes zero (TryParse contract)");
     }
     Expect(il2cpp::runtime::icall_try_parse_int32(AsObj(MakeStr("42")), nullptr) == 0,
            "int32 null out pointer -> 0");
