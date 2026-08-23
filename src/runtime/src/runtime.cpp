@@ -136,9 +136,21 @@ intptr_t icall_marshal_alloc_hglobal(int32_t size)
         return 0;
     }
 #if defined(_WIN32)
-    return reinterpret_cast<intptr_t>(GlobalAlloc(GMEM_FIXED | GMEM_ZEROINIT, static_cast<size_t>(size)));
+    HGLOBAL h = GlobalAlloc(GMEM_FIXED | GMEM_ZEROINIT, static_cast<size_t>(size));
+    if (h == nullptr)
+    {
+        std::fprintf(stderr, "icall_marshal_alloc_hglobal: out of memory\n");
+        std::abort();
+    }
+    return reinterpret_cast<intptr_t>(h);
 #else
-    return reinterpret_cast<intptr_t>(std::calloc(1, static_cast<size_t>(size)));
+    void* p = std::calloc(1, static_cast<size_t>(size));
+    if (p == nullptr)
+    {
+        std::fprintf(stderr, "icall_marshal_alloc_hglobal: out of memory\n");
+        std::abort();
+    }
+    return reinterpret_cast<intptr_t>(p);
 #endif
 }
 

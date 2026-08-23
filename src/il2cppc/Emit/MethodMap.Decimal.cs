@@ -191,9 +191,6 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_rem", 2, true, false, false, new[] { "dec", "dec" }, "dec");
                 return null;
-                if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
-                    return I("il2cpp::runtime::icall_decimal_compare", 2, true, false, false, new[] { "dec", "dec" });
-                return null;
             case "CompareTo":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_compare", 1, true, false, true, new[] { "dec", "dec" });

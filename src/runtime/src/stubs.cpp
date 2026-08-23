@@ -17,25 +17,25 @@ namespace il2cpp {
 namespace runtime {
 
 // System.Array.GetCorElementTypeOfElementType
-int32_t icall_array_get_cor_element_type_of_element_type(Il2CppObject* arr)
+int32_t icall_array_get_cor_element_type_of_element_type(Il2CppObject*)
 {
     return 4; // ELEMENT_TYPE_I4 (int32 default)
 }
 
 // System.GC.AllocateNewArray
-Il2CppObject* icall_gc_allocate_new_array(int32_t length, int32_t elementType)
+Il2CppObject* icall_gc_allocate_new_array(int32_t, int32_t)
 {
     return nullptr; // stub
 }
 
 // System.ComAwareWeakReference.HasInteropInfo
-int32_t icall_com_aware_weak_reference_has_interop_info(Il2CppObject* self)
+int32_t icall_com_aware_weak_reference_has_interop_info(Il2CppObject*)
 {
     return 0; // false
 }
 
 // System.Exception.SaveStackTracesFromDeepCopy
-void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject* self)
+void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)
 {
     // no-op
 }
@@ -47,7 +47,7 @@ int32_t icall_exception_get_exception_count()
 }
 
 // System.Type.GetTypeFromHandleUnsafe
-Il2CppObject* icall_type_get_type_from_handle_unsafe(intptr_t handle)
+Il2CppObject* icall_type_get_type_from_handle_unsafe(intptr_t)
 {
     return nullptr; // stub
 }
@@ -77,58 +77,58 @@ int32_t icall_assembly_load_context_is_tracing_enabled()
 }
 
 // System.Diagnostics.StackTrace.GetStackFramesInternal
-Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject* self, int32_t skipFrames, int32_t fNeedFileInfo)
+Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject*, int32_t, int32_t)
 {
     return nullptr; // empty array
 }
 
 // Number formatting stubs
-Il2CppObject* icall_number_format_decimal(Il2CppObject* str, int32_t digits) { return nullptr; }
-Il2CppObject* icall_number_format_double(double value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
-Il2CppObject* icall_number_format_int32(int32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
-Il2CppObject* icall_number_format_uint32(uint32_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
-Il2CppObject* icall_number_format_int64(int64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
-Il2CppObject* icall_number_format_uint64(uint64_t value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
-Il2CppObject* icall_number_format_single(float value, Il2CppString* fmt, Il2CppObject* provider) { return nullptr; }
-void icall_number_number_buffer_to_decimal(Il2CppObject* str, Il2CppObject* decimal) {}
-double icall_number_number_buffer_to_double(Il2CppObject* str) { return 0.0; }
-Il2CppObject* icall_number_format_number_buffer(int32_t options, int32_t numBase) { return nullptr; }
+Il2CppObject* icall_number_format_decimal(Il2CppObject*, int32_t) { return nullptr; }
+Il2CppObject* icall_number_format_double(double, Il2CppString*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_number_format_int32(int32_t, Il2CppString*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_number_format_uint32(uint32_t, Il2CppString*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_number_format_int64(int64_t, Il2CppString*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_number_format_uint64(uint64_t, Il2CppString*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_number_format_single(float, Il2CppString*, Il2CppObject*) { return nullptr; }
+void icall_number_number_buffer_to_decimal(Il2CppObject*, Il2CppObject*) {}
+double icall_number_number_buffer_to_double(Il2CppObject*) { return 0.0; }
+Il2CppObject* icall_number_format_number_buffer(int32_t, int32_t) { return nullptr; }
 
 // ParseNumbers stubs
-int64_t icall_parse_numbers_string_to_long(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
-int32_t icall_parse_numbers_string_to_int(Il2CppString* str, int32_t radix, int32_t flags) { return 0; }
-Il2CppObject* icall_parse_numbers_int_to_string(int32_t value, int32_t radix, int32_t flags) { return nullptr; }
-Il2CppObject* icall_parse_numbers_long_to_string(int64_t value, int32_t radix, int32_t flags) { return nullptr; }
+int64_t icall_parse_numbers_string_to_long(Il2CppString*, int32_t, int32_t) { return 0; }
+int32_t icall_parse_numbers_string_to_int(Il2CppString*, int32_t, int32_t) { return 0; }
+Il2CppObject* icall_parse_numbers_int_to_string(int32_t, int32_t, int32_t) { return nullptr; }
+Il2CppObject* icall_parse_numbers_long_to_string(int64_t, int32_t, int32_t) { return nullptr; }
 
 // CurrentSystemTimeZone stubs
 int32_t icall_current_system_timezone_native_get_time_zone_minute_offset() { return 0; }
 Il2CppObject* icall_current_system_timezone_native_get_daylight_name() { return nullptr; }
 Il2CppObject* icall_current_system_timezone_native_get_standard_name() { return nullptr; }
-Il2CppObject* icall_current_system_timezone_native_get_daylight_changes(int32_t year) { return nullptr; }
+Il2CppObject* icall_current_system_timezone_native_get_daylight_changes(int32_t) { return nullptr; }
 
 // CultureData stubs
-int32_t icall_culture_data_lcid_to_locale_name(int32_t lcid) { return 0; }
-int32_t icall_culture_data_locale_name_to_lcid(Il2CppString* name) { return 0; }
-void icall_culture_data_native_init_culture_data(Il2CppObject* self) {}
-Il2CppObject* icall_culture_data_native_get_number_format_info_values(Il2CppObject* self) { return nullptr; }
+int32_t icall_culture_data_lcid_to_locale_name(int32_t) { return 0; }
+int32_t icall_culture_data_locale_name_to_lcid(Il2CppString*) { return 0; }
+void icall_culture_data_native_init_culture_data(Il2CppObject*) {}
+Il2CppObject* icall_culture_data_native_get_number_format_info_values(Il2CppObject*) { return nullptr; }
 
 // CodeAccessSecurityEngine stubs
-void icall_code_access_security_engine_special_demand(int32_t flag) {}
+void icall_code_access_security_engine_special_demand(int32_t) {}
 int32_t icall_code_access_security_engine_quick_check_for_all_demands() { return 1; }
 int32_t icall_code_access_security_engine_all_domains_homogeneous_with_no_stack_modifiers() { return 1; }
-int32_t icall_code_access_security_engine_check_n_return_so(int32_t flag) { return 0; }
+int32_t icall_code_access_security_engine_check_n_return_so(int32_t) { return 0; }
 
 // CompressedStack stubs
-Il2CppObject* icall_compressed_stack_get_delayed_compressed_stack(Il2CppObject* self) { return nullptr; }
-void icall_compressed_stack_destroy_delayed_compressed_stack(Il2CppObject* self) {}
-void icall_compressed_stack_destroy_dcs_list(Il2CppObject* self) {}
-int32_t icall_compressed_stack_get_dcs_count(Il2CppObject* self) { return 0; }
+Il2CppObject* icall_compressed_stack_get_delayed_compressed_stack(Il2CppObject*) { return nullptr; }
+void icall_compressed_stack_destroy_delayed_compressed_stack(Il2CppObject*) {}
+void icall_compressed_stack_destroy_dcs_list(Il2CppObject*) {}
+int32_t icall_compressed_stack_get_dcs_count(Il2CppObject*) { return 0; }
 
 // DomainCompressedStack stubs
-int32_t icall_domain_compressed_stack_create_domain_compressed_stack(Il2CppObject* self) { return 0; }
-int32_t icall_domain_compressed_stack_get_domain_compressed_stack_size(Il2CppObject* self) { return 0; }
-int32_t icall_domain_compressed_stack_get_domain_compressed_stack_flags(Il2CppObject* self) { return 0; }
-Il2CppObject* icall_domain_compressed_stack_get_domain_compressed_stack_stack_blobs(Il2CppObject* self) { return nullptr; }
+int32_t icall_domain_compressed_stack_create_domain_compressed_stack(Il2CppObject*) { return 0; }
+int32_t icall_domain_compressed_stack_get_domain_compressed_stack_size(Il2CppObject*) { return 0; }
+int32_t icall_domain_compressed_stack_get_domain_compressed_stack_flags(Il2CppObject*) { return 0; }
+Il2CppObject* icall_domain_compressed_stack_get_domain_compressed_stack_stack_blobs(Il2CppObject*) { return nullptr; }
 
 // ThreadPool stubs
 int32_t icall_thread_pool_get_thread_count() { return 1; }
@@ -160,59 +160,59 @@ void icall_thread_pool_get_available_threads_out(int32_t* workerThreads, int32_t
 bool icall_thread_pool_can_set_io_threads() { return false; }
 
 // OverlappedData stubs
-int32_t icall_overlapped_data_get_pending_count(Il2CppObject* self) { return 0; }
-int32_t icall_overlapped_data_get_wait_handle(Il2CppObject* self) { return 0; }
-int32_t icall_overlapped_data_get_error_code(Il2CppObject* self) { return 0; }
+int32_t icall_overlapped_data_get_pending_count(Il2CppObject*) { return 0; }
+int32_t icall_overlapped_data_get_wait_handle(Il2CppObject*) { return 0; }
+int32_t icall_overlapped_data_get_error_code(Il2CppObject*) { return 0; }
 
 // Crypto/X509 stubs
-Il2CppObject* icall_crypto_utils_create_csp(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_crypto_utils_decrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
-Il2CppObject* icall_crypto_utils_encrypt_data(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
-Il2CppObject* icall_crypto_utils_export_key(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
-Il2CppObject* icall_crypto_utils_generate_key(int32_t keySize) { return nullptr; }
+Il2CppObject* icall_crypto_utils_create_csp(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_decrypt_data(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_encrypt_data(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_export_key(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_generate_key(int32_t) { return nullptr; }
 int32_t icall_crypto_utils_get_enforce_fips_policy_setting() { return 0; }
-Il2CppObject* icall_crypto_utils_get_key_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
-Il2CppObject* icall_crypto_utils_get_key_set_security_info(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_crypto_utils_get_provider_parameter(Il2CppObject* self, Il2CppString* name) { return nullptr; }
-Il2CppObject* icall_crypto_utils_get_user_key(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_crypto_utils_import_bulk_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
-Il2CppObject* icall_crypto_utils_import_csp_blob(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
-Il2CppObject* icall_crypto_utils_import_key(Il2CppObject* self, Il2CppObject* data) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_key_parameter(Il2CppObject*, Il2CppString*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_key_set_security_info(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_provider_parameter(Il2CppObject*, Il2CppString*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_user_key(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_import_bulk_key(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_import_csp_blob(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_import_key(Il2CppObject*, Il2CppObject*) { return nullptr; }
 int32_t icall_crypto_utils_produce_legacy_hmac_values() { return 0; }
-Il2CppObject* icall_crypto_utils_open_csp(Il2CppObject* self, int32_t flags) { return nullptr; }
-Il2CppObject* icall_crypto_utils_acquire_csp(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_add_certificate_to_store(Il2CppObject* self, Il2CppObject* cert) { return nullptr; }
-Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject* self, Il2CppObject* password) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_cert_raw_data(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_date_not_after(Il2CppObject* self) { return nullptr; }
+Il2CppObject* icall_crypto_utils_open_csp(Il2CppObject*, int32_t) { return nullptr; }
+Il2CppObject* icall_crypto_utils_acquire_csp(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_add_certificate_to_store(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_cert_raw_data(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_date_not_after(Il2CppObject*) { return nullptr; }
 
 // Remaining X509 stubs
-Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject* self) { return nullptr; }
-int32_t icall_x509_utils_query_cert_blob_type(Il2CppObject* self) { return 0; }
-int32_t icall_x509_utils_query_cert_file_type(Il2CppString* path) { return 0; }
+Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject*) { return nullptr; }
+int32_t icall_x509_utils_query_cert_blob_type(Il2CppObject*) { return 0; }
+int32_t icall_x509_utils_query_cert_file_type(Il2CppString*) { return 0; }
 
 // Remaining Environment stubs
-Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString* name) { return nullptr; }
+Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString*) { return nullptr; }
 // (icall_environment_get_version/_ex moved to the PNSE contract at the tail)
 
 // Remaining DateTime stubs
 int64_t icall_datetime_get_system_time_as_file_time() { return 0; }
-int32_t icall_datetime_validate_system_time(int64_t ticks) { return 1; }
+int32_t icall_datetime_validate_system_time(int64_t) { return 1; }
 int64_t icall_datetime_get_system_time_with_leap_seconds_handling() { return 0; }
 int64_t icall_datetime_system_file_time_to_system_time(int64_t ticks) { return ticks; }
 int64_t icall_datetime_system_time_to_system_file_time(int64_t ticks) { return ticks; }
 
 // Remaining String stubs
-int32_t icall_string_native_compare_ordinal_ex(Il2CppObject* str1, Il2CppObject* str2, int32_t offset1, int32_t count1, int32_t offset2, int32_t count2) { return 0; }
-int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString* str, Il2CppString* value) { return 0; }
-Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString* str) { return nullptr; }
+int32_t icall_string_native_compare_ordinal_ex(Il2CppObject*, Il2CppObject*, int32_t, int32_t, int32_t, int32_t) { return 0; }
+int32_t icall_string_native_compare_ordinal_ignore_case_wc(Il2CppString*, Il2CppString*) { return 0; }
+Il2CppObject* icall_string_internal_marvin32_hash_string(Il2CppString*) { return nullptr; }
 
 // NOTE: icall_environment_fail_fast lives in environment.cpp:402 and
 // icall_string_set_trail_byte / icall_string_try_get_trail_byte in
@@ -246,20 +246,20 @@ void icall_threadobj_spin_wait(int32_t iterations)
 
 // Remaining miscellaneous stubs
 // (icall_object_memberwise_clone moved to object.cpp -- real impl, not a stub)
-Il2CppObject* icall_array_get_data_ptr_offset_internal(Il2CppObject* arr) { return nullptr; }
-Il2CppObject* icall_string_is_fast_sort(Il2CppString* str) { return nullptr; }
-int32_t icall_string_is_ascii(Il2CppString* str) { return 1; }
+Il2CppObject* icall_array_get_data_ptr_offset_internal(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_string_is_fast_sort(Il2CppString*) { return nullptr; }
+int32_t icall_string_is_ascii(Il2CppString*) { return 1; }
 // set/try_get_trail_byte: real impls in stringext3.cpp (see NOTE above).
-int32_t icall_delegate_internal_equal_types(Il2CppObject* d1, Il2CppObject* d2) { return 1; }
-int32_t icall_delegate_compare_unmanaged_function_ptrs(Il2CppObject* d1, Il2CppObject* d2) { return 0; }
-void icall_buffer_internal_block_copy(Il2CppObject* src, int32_t srcOffset, Il2CppObject* dst, int32_t dstOffset, int32_t count) {}
+int32_t icall_delegate_internal_equal_types(Il2CppObject*, Il2CppObject*) { return 1; }
+int32_t icall_delegate_compare_unmanaged_function_ptrs(Il2CppObject*, Il2CppObject*) { return 0; }
+void icall_buffer_internal_block_copy(Il2CppObject*, int32_t, Il2CppObject*, int32_t, int32_t) {}
 Il2CppObject* icall_base_config_handler_run_parser() { return nullptr; }
-int32_t icall_decimal_fcall_to_int32(Il2CppObject* d) { return 0; }
-int32_t icall_default_binder_can_convert_primitive_object_to_type(Il2CppObject* obj, int32_t targetType) { return 0; }
-Il2CppObject* icall_enum_internal_get_underlying_type(Il2CppClass* enumType) { return nullptr; }
-Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self, Il2CppString* name, Il2CppObject* value) { return nullptr; }
-Il2CppObject* icall_marshal_by_ref_object_get_com_i_unknown(Il2CppObject* self) { return nullptr; }
-Il2CppObject* icall_missing_member_exception_format_signature(Il2CppString* str) { return nullptr; }
+int32_t icall_decimal_fcall_to_int32(Il2CppObject*) { return 0; }
+int32_t icall_default_binder_can_convert_primitive_object_to_type(Il2CppObject*, int32_t) { return 0; }
+Il2CppObject* icall_enum_internal_get_underlying_type(Il2CppClass*) { return nullptr; }
+Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject*, Il2CppString*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_marshal_by_ref_object_get_com_i_unknown(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_missing_member_exception_format_signature(Il2CppString*) { return nullptr; }
 int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2)
 {
     // Type-as-name model: a Type VALUE is the full-name string (see
@@ -284,46 +284,46 @@ int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2)
     }
     return 0;
 }
-int32_t icall_value_type_get_hash_code_of_ptr(void* ptr) { return 0; }
+int32_t icall_value_type_get_hash_code_of_ptr(void*) { return 0; }
 int32_t icall_clr_config_check_legacy_managed_deflate_stream() { return 0; }
 int32_t icall_clr_config_check_throw_unobserved_task_exceptions() { return 0; }
 int32_t icall_security_context_get_impersonation_flow_mode() { return 0; }
 int32_t icall_security_context_is_default_thread_security_info() { return 1; }
-void icall_security_manager_set_thread_security(int32_t flag) {}
+void icall_security_manager_set_thread_security(int32_t) {}
 Il2CppObject* icall_security_runtime_get_security_object_for_frame() { return nullptr; }
 Il2CppObject* icall_security_principal_win32_open_thread_token() { return nullptr; }
-int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
-Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t calendarId) { return nullptr; }
-Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t lcid) { return nullptr; }
+int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t) { return 0; }
+Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t) { return nullptr; }
+Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t) { return nullptr; }
 
 // Remaining Environment/Calendar/CultureInfo stubs
-int32_t icall_environment_get_resource_from_default(Il2CppString* name, Il2CppString* value) { return 0; }
-int32_t icall_environment_get_compatibility_flag(Il2CppString* flag) { return 0; }
-int32_t icall_calendar_data_native_get_two_digit_year_max(int32_t calendarId) { return 0; }
-int32_t icall_calendar_data_native_get_calendars(int32_t calendarId, int32_t* calendars) { return 0; }
-int32_t icall_culture_info_native_get_locale_info_ex_int(int32_t lcid) { return 0; }
-void icall_culture_info_native_set_thread_locale(int32_t lcid) {}
+int32_t icall_environment_get_resource_from_default(Il2CppString*, Il2CppString*) { return 0; }
+int32_t icall_environment_get_compatibility_flag(Il2CppString*) { return 0; }
+int32_t icall_calendar_data_native_get_two_digit_year_max(int32_t) { return 0; }
+int32_t icall_calendar_data_native_get_calendars(int32_t, int32_t*) { return 0; }
+int32_t icall_culture_info_native_get_locale_info_ex_int(int32_t) { return 0; }
+void icall_culture_info_native_set_thread_locale(int32_t) {}
 Il2CppObject* icall_encoding_table_native_create_open_file_mapping() { return nullptr; }
 void icall_assert_show_default_assert_dialog() {}
-void icall_log_add_log_switch(Il2CppString* name, int32_t level) {}
-void icall_log_modify_log_switch(Il2CppString* name, int32_t level) {}
+void icall_log_add_log_switch(Il2CppString*, int32_t) {}
+void icall_log_modify_log_switch(Il2CppString*, int32_t) {}
 
 // Remaining Thread/Interlocked stubs
-void icall_synchronization_context_wait_helper(int32_t millisecondsTimeout) {}
+void icall_synchronization_context_wait_helper(int32_t) {}
 int32_t icall_compressed_stack_is_immediate_completion_candidate() { return 0; }
 Il2CppObject* icall_compressed_stack_get_domain_compressed_stack() { return nullptr; }
 Il2CppObject* icall_compressed_stack_get_homogeneous_pls() { return nullptr; }
 int32_t icall_domain_compressed_stack_get_desc_count() { return 0; }
 Il2CppObject* icall_domain_compressed_stack_get_domain_permission_sets() { return nullptr; }
 Il2CppObject* icall_domain_compressed_stack_get_descriptor_info() { return nullptr; }
-int32_t icall_domain_compressed_stack_ignore_domain(int32_t id) { return 0; }
+int32_t icall_domain_compressed_stack_ignore_domain(int32_t) { return 0; }
 void icall_host_execution_context_manager_release_host_security_context() {}
 Il2CppObject* icall_host_execution_context_manager_clone_host_security_context() { return nullptr; }
 Il2CppObject* icall_overlapped_data_free_native_overlapped() { return nullptr; }
 Il2CppObject* icall_overlapped_data_get_overlapped_from_native() { return nullptr; }
 int32_t icall_overlapped_data_check_vm_for_io_packet() { return 0; }
 void icall_thread_pool_notify_work_item_complete() {}
-void icall_thread_pool_report_thread_status(int32_t status) {}
+void icall_thread_pool_report_thread_status(int32_t) {}
 void icall_thread_pool_notify_work_item_progress_native() {}
 int32_t icall_thread_pool_is_thread_pool_hosted() { return 0; }
 void icall_thread_pool_clear_notify() {}
@@ -332,16 +332,16 @@ void icall_thread_pool_clear_notify() {}
 Il2CppObject* icall_appdomain_is_unloading_forced_finalize() { return nullptr; }
 int32_t icall_appdomain_is_finalizing_for_unload() { return 0; }
 Il2CppObject* icall_appdomain_publish_anonymously_hosted_dynamic_methods_assembly() { return nullptr; }
-int32_t icall_appdomain_is_domain_id_valid(int32_t id) { return 0; }
+int32_t icall_appdomain_is_domain_id_valid(int32_t) { return 0; }
 Il2CppObject* icall_appdomain_get_default_domain() { return nullptr; }
 Il2CppObject* icall_appdomain_get_fusion_context() { return nullptr; }
 Il2CppObject* icall_appdomain_get_security_descriptor() { return nullptr; }
-int32_t icall_appdomain_n_create_domain(Il2CppString* name, Il2CppObject* info, Il2CppObject* evidence) { return 0; }
-Il2CppObject* icall_appdomain_n_create_instance(int32_t id, Il2CppString* typeName) { return nullptr; }
-void icall_appdomain_update_loader_optimization(int32_t optimization) {}
-Il2CppObject* icall_appdomain_is_string_interned(Il2CppString* str) { return nullptr; }
-Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString* str) { return nullptr; }
-void icall_appdomain_n_unload(int32_t id) {}
+int32_t icall_appdomain_n_create_domain(Il2CppString*, Il2CppObject*, Il2CppObject*) { return 0; }
+Il2CppObject* icall_appdomain_n_create_instance(int32_t, Il2CppString*) { return nullptr; }
+void icall_appdomain_update_loader_optimization(int32_t) {}
+Il2CppObject* icall_appdomain_is_string_interned(Il2CppString*) { return nullptr; }
+Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString*) { return nullptr; }
+void icall_appdomain_n_unload(int32_t) {}
 int32_t icall_appdomain_get_id() { return 0; }
 
 //------------------------------------------------------------------------------
@@ -376,25 +376,6 @@ void icall_gc_get_memory_info_6(uint64_t* highWaterMark, uint64_t* totalAvailabl
     if (pauseTime2) *pauseTime2 = 0;
 }
 
-// System.Number formatting internals (netcore21): reachable only with the
-// internal NumberBuffer struct user code cannot construct -- the documented
-// PNSE contract (the transpiled double.ToString/Parse paths use their own
-// wired plumbing and never route here).
-void icall_number_double_to_number(double value, int32_t decimals, void* buffer)
-{
-    (void)value; (void)decimals; (void)buffer;
-    il2cpp_throw_not_supported_exception(
-        "System.Number.DoubleToNumber is an internal formatting helper (NumberBuffer is not constructible from user code)");
-}
-
-double icall_number_number_to_double(void* buffer)
-{
-    (void)buffer;
-    il2cpp_throw_not_supported_exception(
-        "System.Number.NumberToDouble is an internal formatting helper (NumberBuffer is not constructible from user code)");
-    return 0.0;
-}
-
 // RuntimeImports.RhBulkMoveWithWriteBarrier (netcore21/31 GC internal):
 // a bulk move whose destination slots must be card-marked when they may
 // bridge generations. The move itself is memmove (overlap-safe); the
@@ -418,9 +399,8 @@ void icall_rh_bulk_move_with_write_barrier(void* dst, void* src, int64_t size)
 // Thread.GetThreadDeserializationTracker (netcore31/net5 remoting-era
 // surface): the simplified runtime has no remoting deserialization pipeline
 // -- the documented PNSE contract.
-Il2CppObject* icall_thread_get_deserialization_tracker(Il2CppObject* context)
+Il2CppObject* icall_thread_get_deserialization_tracker(Il2CppObject*)
 {
-    (void)context;
     il2cpp_throw_not_supported_exception(
         "Thread.GetThreadDeserializationTracker requires the remoting infrastructure (not present in this runtime)");
     return nullptr;
@@ -431,9 +411,9 @@ Il2CppObject* icall_thread_get_deserialization_tracker(Il2CppObject* context)
 // the runtime during ETW tracing callbacks, which never fire in this
 // runtime -- the ctor is a validated no-op and the getters answer the
 // tracing-disabled defaults (Enabled=false, TraceLevel=0=Off).
-void icall_tracing_status_changed_ctor(Il2CppObject* self) { (void)self; }
-int32_t icall_tracing_status_changed_get_enabled(Il2CppObject* self) { (void)self; return 0; }
-int32_t icall_tracing_status_changed_get_trace_level(Il2CppObject* self) { (void)self; return 0; }
+void icall_tracing_status_changed_ctor(Il2CppObject*) {}
+int32_t icall_tracing_status_changed_get_enabled(Il2CppObject*) { return 0; }
+int32_t icall_tracing_status_changed_get_trace_level(Il2CppObject*) { return 0; }
 
 // Interlocked.CompareExchange(ref int, int, int, out bool) (the netcore21/31
 // success-indicator overload): the original value is returned AND 'found'
@@ -449,7 +429,7 @@ int32_t icall_interlocked_compare_exchange_found(int32_t* location, int32_t valu
 // WeakReference.Finalize (netcore21/31): finalization is driven by the GC's
 // finalizer machinery (icall_gc_finalize_trigger); the explicit Finalize
 // icall surface is a validated no-op here.
-void icall_weak_reference_finalize(Il2CppObject* self) { (void)self; }
+void icall_weak_reference_finalize(Il2CppObject*) {}
 
 // AppDomain.nCreateContext (netcore21): the single-domain model has no
 // context infrastructure -- returns null (the "no context" answer).
@@ -473,9 +453,8 @@ void icall_environment_get_version_ex()
 
 // ReaderWriterLock.AnyWritersSince (net48): the legacy lock has no runtime
 // model -- the constant false answer (no writer ever held it).
-int32_t icall_reader_writer_lock_any_writers_since(int32_t seqNum)
+int32_t icall_reader_writer_lock_any_writers_since(int32_t)
 {
-    (void)seqNum;
     return 0;
 }
 
