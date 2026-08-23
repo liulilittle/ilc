@@ -1108,15 +1108,21 @@ Il2CppArray* il2cpp_enum_get_values_by_type_name(Il2CppObject* typeName)
 {
     const Il2CppEnumInfo* info = FindInfoByName(CsToUtf8Name(typeName));
     const int32_t count = (info != nullptr) ? info->valueCount : 0;
-    Il2CppArray* result = il2cpp_array_new(nullptr, sizeof(int32_t), false, count);
+    // .NET GetValues returns a T[] whose elements are the enum VALUES -- the
+    // model represents each element as a BOXED ENUM (il2cpp_enum_to_object
+    // with the same type name), so GetValue(i).Equals(managedValue) does the
+    // registry payload compare and returns true (icallwide E2E contract; the
+    // historical int32[] raw-value array made every Equals false because the
+    // element box klass was System.Int32, not the enum).
+    Il2CppArray* result = il2cpp_array_new(nullptr, sizeof(Il2CppObject*), true, count);
     if (count <= 0)
     {
         return result;
     }
-    int32_t* slots = reinterpret_cast<int32_t*>(result->data);
     for (int32_t i = 0; i < count; ++i)
     {
-        slots[i] = static_cast<int32_t>(info->values[i]);
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(result, i)) =
+            il2cpp_enum_to_object(typeName, info->values[i]);
     }
     return result;
 }
