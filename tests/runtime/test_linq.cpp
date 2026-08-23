@@ -42,6 +42,7 @@
 //------------------------------------------------------------------------------
 
 #include "linq.h"
+#include "linq_sort.h"
 
 #include "il2cpp_array.h"
 #include "il2cpp_delegate.h"
@@ -271,6 +272,9 @@ int main()
     il2cpp::Il2CppArray* empty = MakeI4Array(kEmpty, 0);
     il2cpp::Il2CppArray* single = MakeI4Array(kSingle, 1);
     il2cpp::Il2CppArray* multi = MakeI4Array(kMulti, 3);
+    il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&empty));
+    il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&single));
+    il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&multi));
 
     Expect(il2cpp::il2cpp_linq_count(empty) == 0, "count(empty) == 0");
     Expect(il2cpp::il2cpp_linq_count(single) == 1, "count(single) == 1");
@@ -563,6 +567,74 @@ int main()
 
         il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&gcRefSrc));
         il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&gcSrc));
+    }
+
+    // --- 14. long_count: int64 element count (net48 Enumerable.LongCount) ---
+    {
+        const int64_t lc_empty = il2cpp::il2cpp_linq_long_count(empty);
+        Expect(lc_empty == 0, "long_count(empty) == 0");
+        const int64_t lc_single = il2cpp::il2cpp_linq_long_count(single);
+        Expect(lc_single == 1, "long_count(single) == 1");
+        const int64_t lc_multi = il2cpp::il2cpp_linq_long_count(multi);
+        Expect(lc_multi == 3, "long_count(multi) == 3");
+
+        // Large array: verify int64 width (no truncation on a >INT32_MAX count
+        // -- simulated with a small array but the return type is int64).
+        const int32_t kBig[5] = {10, 20, 30, 40, 50};
+        Expect(il2cpp::il2cpp_linq_long_count(MakeI4Array(kBig, 5)) == 5,
+               "long_count(5-element) == 5");
+
+        // Null source -> ArgumentNullException
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_long_count(nullptr); }, kArgNullChain),
+               "long_count(null) throws ArgumentNullException");
+    }
+
+    // --- 15. sequence_equal_i4: element-wise equality (net48) ---
+    {
+        const int32_t kA[3] = {1, 2, 3};
+        const int32_t kB[3] = {1, 2, 3};
+        const int32_t kC[3] = {1, 2, 4};
+        const int32_t kD[2] = {1, 2};
+
+        Expect(il2cpp::il2cpp_linq_sequence_equal_i4(
+                   MakeI4Array(kA, 3), MakeI4Array(kB, 3)),
+               "sequence_equal({1,2,3},{1,2,3}) == true");
+        Expect(!il2cpp::il2cpp_linq_sequence_equal_i4(
+                   MakeI4Array(kA, 3), MakeI4Array(kC, 3)),
+               "sequence_equal({1,2,3},{1,2,4}) == false");
+        Expect(!il2cpp::il2cpp_linq_sequence_equal_i4(
+                   MakeI4Array(kA, 3), MakeI4Array(kD, 2)),
+               "sequence_equal(diff lengths) == false");
+        Expect(il2cpp::il2cpp_linq_sequence_equal_i4(
+                   MakeI4Array(kA, 3), MakeI4Array(kA, 3)),
+               "sequence_equal(same array) == true");
+        Expect(il2cpp::il2cpp_linq_sequence_equal_i4(
+                   MakeI4Array(kEmpty, 0), MakeI4Array(kEmpty, 0)),
+               "sequence_equal(empty,empty) == true");
+
+        // Null source -> ArgumentNullException
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_sequence_equal_i4(nullptr, MakeI4Array(kA, 3)); }, kArgNullChain),
+               "sequence_equal(null,...) throws ArgumentNullException");
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_sequence_equal_i4(MakeI4Array(kA, 3), nullptr); }, kArgNullChain),
+               "sequence_equal(...,null) throws ArgumentNullException");
+    }
+
+    // --- 16. default_if_empty_i4: non-empty -> source; empty -> new[]{0} ---
+    {
+        il2cpp::Il2CppArray* src = MakeI4Array(kMulti, 3);
+        il2cpp::Il2CppArray* result = il2cpp::il2cpp_linq_default_if_empty_i4(src);
+        Expect(result == src, "default_if_empty(non-empty) returns source as-is");
+        Expect(result->length == 3, "default_if_empty(non-empty) length == 3");
+
+        il2cpp::Il2CppArray* emptyResult = il2cpp::il2cpp_linq_default_if_empty_i4(empty);
+        Expect(emptyResult != empty, "default_if_empty(empty) returns a NEW array");
+        Expect(emptyResult->length == 1, "default_if_empty(empty) length == 1");
+        Expect(*reinterpret_cast<int32_t*>(emptyResult->data) == 0,
+               "default_if_empty(empty) element == 0 (int32 default)");
+
+        // Null source -> ArgumentNullException
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_default_if_empty_i4(nullptr); }, kArgNullChain),
+               "default_if_empty(null) throws ArgumentNullException");
     }
 
     // --- Report ---
