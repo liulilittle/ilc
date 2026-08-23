@@ -217,6 +217,34 @@ namespace il2cpp {
 namespace runtime {
 
 //------------------------------------------------------------------------------
+// icall_object_memberwise_clone -- Object.MemberwiseClone: a SHALLOW copy.
+// Allocates an instance of the SAME class and copies the full instanceSize
+// bytes (header + all fields); reference fields keep pointing at the same
+// targets (the documented shallow semantics). No allocation happens between
+// the gc_alloc and the memcpy, so the copy cannot be observed half-built by
+// the collector. The stub that used to return nullptr lived in stubs.cpp --
+// this is the real implementation (icallwide E2E exercises it).
+// NOTE: declared in stubs.h inside namespace il2cpp::runtime -- the impl
+// must live in the SAME namespace or the linker sees two distinct symbols.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_object_memberwise_clone(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("self");
+    }
+    Il2CppObject* copy = il2cpp_gc_alloc(self->klass);
+    std::memcpy(copy, self, static_cast<size_t>(self->klass->instanceSize));
+    return copy;
+}
+
+} // namespace runtime
+} // namespace il2cpp
+
+namespace il2cpp {
+namespace runtime {
+
+//------------------------------------------------------------------------------
 // icall_value_type_get_hash_code_ref -- System.ValueType.GetHashCode default
 // for a value type whose FIRST instance field is a GC reference (the
 // reference arm of the transpiler's per-kind value-type hash wiring; see

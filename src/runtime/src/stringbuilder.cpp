@@ -50,6 +50,7 @@
 #include "il2cpp_stringbuilder.h"
 
 #include "il2cpp_exception.h"
+#include "il2cpp_exception_ext.h"
 #include "il2cpp_format.h"       // icall_int64_to_string / icall_bool_to_string / icall_double_to_string
 #include "il2cpp_format_ext.h" // icall_format_composite_item (composite engine)
 #include "il2cpp_gc.h"
@@ -1308,6 +1309,23 @@ int32_t icall_stringbuilder_get_length(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return AsBuilder(self)->length;
+}
+
+//------------------------------------------------------------------------------
+// get_Chars(index) -- the indexer. Reads the UTF-16 unit at 'index' from the
+// managed char buffer; out-of-range -> IndexOutOfRangeException (the .NET
+// contract; the array helper's bounds check provides it).
+//------------------------------------------------------------------------------
+int32_t icall_stringbuilder_get_chars(Il2CppObject* self, int32_t index)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (index < 0 || index >= sb->length)
+    {
+        il2cpp_throw_index_out_of_range_exception("index");
+    }
+    const void* elem = il2cpp_array_get_elem_ptr(sb->chars, index);
+    return *reinterpret_cast<const uint16_t*>(elem);
 }
 
 //------------------------------------------------------------------------------

@@ -177,10 +177,10 @@ public static partial class MethodRefResolver
                             // net48 InvalidCastException ALWAYS (unsupported).
                             0x03 => throw new NotSupportedException("Convert.ToBoolean(char) throws InvalidCastException on net48 and no existing icall raises it"),
                             0x0C or 0x0D => throw new NotSupportedException("Convert.ToBoolean(float/double) throws InvalidCastException on net48 and no existing icall raises it"),
-                            // NEEDS-NEW: throwing bool parser (null -> false,
-                            // then bool.Parse); only the no-throw try_parse_bool
-                            // exists today.
-                            0x0E => throw new NotSupportedException("Convert.ToBoolean(string) needs a throwing bool-parse icall (null -> false; only the TryParse-contract helper exists)"),
+                            // The throwing parser exists now: null -> false,
+                            // "true"/"false" (case-insensitive, trimmed),
+                            // anything else FormatException.
+                            0x0E => I("il2cpp::runtime::icall_convert_to_boolean_string", 1, true, false, false, new[] { "s" }),
                             _ => throw new NotSupportedException($"Convert.ToBoolean param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
                         };
                     case "ToChar":

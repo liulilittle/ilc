@@ -737,6 +737,37 @@ bool icall_hashtable_contains_key(Il2CppObject* self, Il2CppObject* key)
 }
 
 //------------------------------------------------------------------------------
+// icall_hashtable_contains_value -- ContainsValue(value): the O(n) linear
+// scan over every entry chain comparing values with object equality (the
+// .NET contract; null matches a stored null).
+//------------------------------------------------------------------------------
+bool icall_hashtable_contains_value(Il2CppObject* self, Il2CppObject* value)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppHashtable* ht = AsHashtable(self);
+    if (ht->buckets == nullptr)
+    {
+        return false;
+    }
+    Il2CppObject* const* slots = reinterpret_cast<Il2CppObject* const*>(ht->buckets->data);
+    const int32_t bucketCount = ht->buckets->length;
+    for (int32_t i = 0; i < bucketCount; ++i)
+    {
+        for (Il2CppObject* cur = slots[i]; cur != nullptr;)
+        {
+            Il2CppHashEntry* entry = AsEntry(cur);
+            if (value == nullptr ? entry->value == nullptr
+                                 : KeyEquals(entry->value, value))
+            {
+                return true;
+            }
+            cur = entry->next;
+        }
+    }
+    return false;
+}
+
+//------------------------------------------------------------------------------
 // icall_hashtable_remove -- Remove(key) (see header): unlink the pair; a
 // missing key is a silent success.
 //------------------------------------------------------------------------------

@@ -319,6 +319,10 @@ Il2CppObject* icall_stringbuilder_to_string(Il2CppObject* self);
 // Length (getter): the current UTF-16 unit count.
 int32_t icall_stringbuilder_get_length(Il2CppObject* self);
 
+// get_Chars(index): the indexer -- reads one UTF-16 unit from the buffer;
+// out-of-range -> IndexOutOfRangeException.
+int32_t icall_stringbuilder_get_chars(Il2CppObject* self, int32_t index);
+
 // P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal — net48 internal helpers.
 // ReplaceBufferInternal(char* buffer): replaces the entire buffer contents
 // with the given char buffer. Returns the SAME builder.

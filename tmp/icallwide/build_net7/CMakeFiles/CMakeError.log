@@ -1,0 +1,73 @@
+Performing C++ SOURCE FILE Test CMAKE_HAVE_LIBC_PTHREAD failed with the following output:
+Change Dir: E:/il2cpp/tmp/icallwide/build_net7/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/PROGRA~1/ming-w64/bin/mingw32-make.exe -f Makefile cmTC_12f8e/fast && C:/PROGRA~1/ming-w64/bin/mingw32-make.exe  -f CMakeFiles\cmTC_12f8e.dir\build.make CMakeFiles/cmTC_12f8e.dir/build
+mingw32-make[1]: Entering directory 'E:/il2cpp/tmp/icallwide/build_net7/CMakeFiles/CMakeTmp'
+Building CXX object CMakeFiles/cmTC_12f8e.dir/src.cxx.obj
+C:\PROGRA~1\ming-w64\bin\G__~1.EXE -DCMAKE_HAVE_LIBC_PTHREAD   -MD -MT CMakeFiles/cmTC_12f8e.dir/src.cxx.obj -MF CMakeFiles\cmTC_12f8e.dir\src.cxx.obj.d -o CMakeFiles\cmTC_12f8e.dir\src.cxx.obj -c E:\il2cpp\tmp\icallwide\build_net7\CMakeFiles\CMakeTmp\src.cxx
+Linking CXX executable cmTC_12f8e.exe
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E cmake_link_script CMakeFiles\cmTC_12f8e.dir\link.txt --verbose=1
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E rm -f CMakeFiles\cmTC_12f8e.dir/objects.a
+C:\PROGRA~1\ming-w64\bin\llvm-ar.exe qc CMakeFiles\cmTC_12f8e.dir/objects.a @CMakeFiles\cmTC_12f8e.dir\objects1.rsp
+C:\PROGRA~1\ming-w64\bin\G__~1.EXE -Wl,--whole-archive CMakeFiles\cmTC_12f8e.dir/objects.a -Wl,--no-whole-archive -o cmTC_12f8e.exe -Wl,--out-implib,libcmTC_12f8e.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\cmTC_12f8e.dir\linklibs.rsp
+ld.lld: error: undefined symbol: pthread_create
+>>> referenced by objects.a(src.cxx.obj):(main)
+
+ld.lld: error: undefined symbol: pthread_detach
+>>> referenced by objects.a(src.cxx.obj):(main)
+
+ld.lld: error: undefined symbol: pthread_cancel
+>>> referenced by objects.a(src.cxx.obj):(main)
+
+ld.lld: error: undefined symbol: pthread_join
+>>> referenced by objects.a(src.cxx.obj):(main)
+
+ld.lld: error: undefined symbol: pthread_exit
+>>> referenced by objects.a(src.cxx.obj):(main)
+clang-17: error: linker command failed with exit code 1 (use -v to see invocation)
+mingw32-make[1]: *** [CMakeFiles\cmTC_12f8e.dir\build.make:101: cmTC_12f8e.exe] Error 1
+mingw32-make[1]: Leaving directory 'E:/il2cpp/tmp/icallwide/build_net7/CMakeFiles/CMakeTmp'
+mingw32-make: *** [Makefile:126: cmTC_12f8e/fast] Error 2
+
+
+Source file was:
+#include <pthread.h>
+
+static void* test_func(void* data)
+{
+  return data;
+}
+
+int main(void)
+{
+  pthread_t thread;
+  pthread_create(&thread, NULL, test_func, NULL);
+  pthread_detach(thread);
+  pthread_cancel(thread);
+  pthread_join(thread, NULL);
+  pthread_atfork(NULL, NULL, NULL);
+  pthread_exit(NULL);
+
+  return 0;
+}
+
+Determining if the function pthread_create exists in the pthreads failed with the following output:
+Change Dir: E:/il2cpp/tmp/icallwide/build_net7/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/PROGRA~1/ming-w64/bin/mingw32-make.exe -f Makefile cmTC_941da/fast && C:/PROGRA~1/ming-w64/bin/mingw32-make.exe  -f CMakeFiles\cmTC_941da.dir\build.make CMakeFiles/cmTC_941da.dir/build
+mingw32-make[1]: Entering directory 'E:/il2cpp/tmp/icallwide/build_net7/CMakeFiles/CMakeTmp'
+Building CXX object CMakeFiles/cmTC_941da.dir/CheckFunctionExists.cxx.obj
+C:\PROGRA~1\ming-w64\bin\G__~1.EXE   -DCHECK_FUNCTION_EXISTS=pthread_create -MD -MT CMakeFiles/cmTC_941da.dir/CheckFunctionExists.cxx.obj -MF CMakeFiles\cmTC_941da.dir\CheckFunctionExists.cxx.obj.d -o CMakeFiles\cmTC_941da.dir\CheckFunctionExists.cxx.obj -c E:\il2cpp\tmp\icallwide\build_net7\CMakeFiles\CheckLibraryExists\CheckFunctionExists.cxx
+Linking CXX executable cmTC_941da.exe
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E cmake_link_script CMakeFiles\cmTC_941da.dir\link.txt --verbose=1
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E rm -f CMakeFiles\cmTC_941da.dir/objects.a
+C:\PROGRA~1\ming-w64\bin\llvm-ar.exe qc CMakeFiles\cmTC_941da.dir/objects.a @CMakeFiles\cmTC_941da.dir\objects1.rsp
+C:\PROGRA~1\ming-w64\bin\G__~1.EXE  -DCHECK_FUNCTION_EXISTS=pthread_create -Wl,--whole-archive CMakeFiles\cmTC_941da.dir/objects.a -Wl,--no-whole-archive -o cmTC_941da.exe -Wl,--out-implib,libcmTC_941da.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\cmTC_941da.dir\linklibs.rsp
+lld: error: unable to find library -lpthreads
+clang-17: error: linker command failed with exit code 1 (use -v to see invocation)
+mingw32-make[1]: *** [CMakeFiles\cmTC_941da.dir\build.make:101: cmTC_941da.exe] Error 1
+mingw32-make[1]: Leaving directory 'E:/il2cpp/tmp/icallwide/build_net7/CMakeFiles/CMakeTmp'
+mingw32-make: *** [Makefile:126: cmTC_941da/fast] Error 2
+
+
+

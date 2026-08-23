@@ -154,6 +154,10 @@ Il2CppObject* icall_hashtable_get(Il2CppObject* self, Il2CppObject* key);
 // ContainsKey(key): true when the key is present. Null key -> ANE.
 bool icall_hashtable_contains_key(Il2CppObject* self, Il2CppObject* key);
 
+// ContainsValue(value): the O(n) linear scan with the KeyEquals value
+// semantics (null matches a stored null).
+bool icall_hashtable_contains_value(Il2CppObject* self, Il2CppObject* value);
+
 // Remove(key): unlink the pair; a missing key is a silent success. Null key
 // -> ArgumentNullException.
 void icall_hashtable_remove(Il2CppObject* self, Il2CppObject* key);

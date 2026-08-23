@@ -769,6 +769,11 @@ public static class TypeEmitter
         // Image: mantissa 1, scale 0, sign bit set (flags = 0x80000000 -- the
         // same bit icall_decimal_ctor_5 sets for isNegative; decimal.cpp:2308).
         w.Line("inline il2cpp::runtime::Il2CppDecimal System_Decimal_sf_MinusOne = { static_cast<int32_t>(0x80000000), 0, 1 };");
+        // icallwide: System.TimeSpan::Zero -- the all-zero ticks slot (the
+        // same inline-variable doctrine as the Decimal constants above; the
+        // int64 ctor is EXPLICIT so the value form is used, not brace-init).
+        w.Line("// System.TimeSpan::Zero BCL static storage (8-byte Il2CppTimeSpan, inline variable)");
+        w.Line("inline il2cpp::runtime::Il2CppTimeSpan System_TimeSpan_sf_Zero = il2cpp::runtime::Il2CppTimeSpan(0);");
         // wf2 (winforms1): System.IntPtr::Zero / System.UIntPtr::Zero are BCL
         // static fields (mscorlib types have no TypeDef -- no storage emitted).
         w.Line("// System.IntPtr::Zero BCL static storage (intptr_t pointer carrier, inline variable)");

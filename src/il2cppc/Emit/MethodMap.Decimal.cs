@@ -55,10 +55,25 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapDecimal(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, byte ret = 0x00)
     {
         switch (name)
         {
+            // op_Explicit(decimal) -> primitive: the SOURCE is always decimal
+            // (ps[0] == 0x11); the TARGET type is only visible in the
+            // signature's RETURN byte, which the dispatcher now forwards.
+            case "op_Explicit":
+                if (ps.Length == 1 && ps[0] == 0x11)
+                {
+                    switch (ret)
+                    {
+                        case 0x0D: return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, false, new[] { "dec" }, "d");
+                        case 0x0C: return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "dec" }, "d");
+                        case 0x08: return I("il2cpp::runtime::icall_decimal_to_int32", 1, true, false, false, new[] { "dec" });
+                        case 0x0A: return I("il2cpp::runtime::icall_decimal_to_int64", 1, true, false, false, new[] { "dec" }, "l");
+                    }
+                }
+                return null;
             // static decimal op_Addition/op_Subtraction/op_Multiply/op_Division/
             // op_Remainder(decimal, decimal): both operands are ldloca ADDRESSES
             // of 16-byte slots -- uncast (Guid op_Equality precedent). The
@@ -150,6 +165,32 @@ public static partial class MethodRefResolver
                 return null;
             // static int32 Compare(decimal, decimal) / instance CompareTo(decimal).
             case "Compare":
+                if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_compare", 2, true, false, false, new[] { "dec", "dec" });
+                return null;
+            // The NAMED arithmetic API family (decimal.Add/Subtract/...):
+            // same icalls as the operator spellings -- the fixture-facing
+            // surface (icallwide E2E exercises the named forms).
+            case "Add":
+                if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_add", 2, true, false, false, new[] { "dec", "dec" }, "dec");
+                return null;
+            case "Subtract":
+                if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_sub", 2, true, false, false, new[] { "dec", "dec" }, "dec");
+                return null;
+            case "Multiply":
+                if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_mul", 2, true, false, false, new[] { "dec", "dec" }, "dec");
+                return null;
+            case "Divide":
+                if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_div", 2, true, false, false, new[] { "dec", "dec" }, "dec");
+                return null;
+            case "Remainder":
+                if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_rem", 2, true, false, false, new[] { "dec", "dec" }, "dec");
+                return null;
                 if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_compare", 2, true, false, false, new[] { "dec", "dec" });
                 return null;

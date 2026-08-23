@@ -87,6 +87,10 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
             case "get_Length":
                 return I("il2cpp::runtime::icall_stringbuilder_get_length", 0, true, false, true);
+            // get_Chars(index): the indexer -- one UTF-16 unit out of the
+            // buffer (int32 carrier); out-of-range -> IndexOutOfRangeException.
+            case "get_Chars":
+                return I("il2cpp::runtime::icall_stringbuilder_get_chars", 1, true, false, true, new[] { "", "i" });
             case "get_Capacity":
                 // No capacity icall: read the runtime struct field directly.
                 return I("il2cpp::runtime::il2cpp_stringbuilder_capacity", 0, true, false, true, new[] { "fcap" });

@@ -463,6 +463,169 @@ int32_t icall_string_parse_int(Il2CppString* text)
 }
 
 //------------------------------------------------------------------------------
+// icall_string_parse_long -- Int64.Parse: the same strict contract as
+// icall_string_parse_int with int64 bounds (19 significant digits; the
+// negation limit is 9223372036854775808).
+//------------------------------------------------------------------------------
+int64_t icall_string_parse_long(Il2CppString* text)
+{
+    if (text == nullptr)
+    {
+        il2cpp_throw_format_exception("String reference not set to an instance of a String.");
+    }
+    const char16_t* p = text->chars;
+    const char16_t* end = p + text->length;
+    while (p < end && IsAsciiWhitespace(*p))
+    {
+        ++p;
+    }
+    bool negative = false;
+    if (p < end && (*p == u'+' || *p == u'-'))
+    {
+        negative = (*p == u'-');
+        ++p;
+    }
+    const char16_t* digitStart = p;
+    while (p < end && *p >= u'0' && *p <= u'9')
+    {
+        ++p;
+    }
+    const int digitCount = static_cast<int>(p - digitStart);
+    const char16_t* trail = p;
+    while (trail < end && IsAsciiWhitespace(*trail))
+    {
+        ++trail;
+    }
+    if (digitCount == 0 || trail != end)
+    {
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+    }
+    // Leading zeros do not count toward the digit limit. More than 19
+    // significant digits can never fit int64 -- OverflowException.
+    const char16_t* sig = digitStart;
+    while (sig < p && *sig == u'0')
+    {
+        ++sig;
+    }
+    const int sigCount = static_cast<int>(p - sig);
+    if (sigCount > 19)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int64.");
+    }
+    uint64_t acc = 0;
+    for (const char16_t* q = sig; q < p; ++q)
+    {
+        acc = acc * 10ULL + static_cast<uint64_t>(*q - u'0');
+    }
+    // acc <= 999,999,999,999,999,999,999 bound from sigCount <= 19 fits
+    // uint64 (< 2^63.4); only the int64 range check remains.
+    const uint64_t limit = negative ? 9223372036854775808ULL : 9223372036854775807ULL;
+    if (acc > limit)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int64.");
+    }
+    const int64_t v = negative ? -static_cast<int64_t>(acc) : static_cast<int64_t>(acc);
+    return v;
+}
+
+//------------------------------------------------------------------------------
+// icall_convert_to_boolean_string -- Convert.ToBoolean(string): null is
+// FALSE (the documented Convert contract, unlike bool.Parse which throws);
+// "true"/"false" case-insensitive with surrounding ASCII whitespace;
+// anything else -> FormatException.
+//------------------------------------------------------------------------------
+int32_t icall_convert_to_boolean_string(Il2CppString* text)
+{
+    if (text == nullptr)
+    {
+        return 0;
+    }
+    const char16_t* p = text->chars;
+    const char16_t* end = p + text->length;
+    while (p < end && IsAsciiWhitespace(*p))
+    {
+        ++p;
+    }
+    const char16_t* wordStart = p;
+    while (p < end && !IsAsciiWhitespace(*p))
+    {
+        ++p;
+    }
+    const char16_t* wordEnd = p;
+    while (p < end && IsAsciiWhitespace(*p))
+    {
+        ++p;
+    }
+    if (p != end)
+    {
+        il2cpp_throw_format_exception("String was not recognized as a valid Boolean.");
+    }
+    auto matches = [&](const char16_t* wBegin, const char16_t* wEnd, const char* word)
+    {
+        size_t n = std::strlen(word);
+        if (static_cast<size_t>(wEnd - wBegin) != n)
+        {
+            return false;
+        }
+        for (size_t i = 0; i < n; ++i)
+        {
+            char16_t c = wBegin[i];
+            if (c >= u'A' && c <= u'Z')
+            {
+                c = static_cast<char16_t>(c - u'A' + u'a');
+            }
+            if (c != static_cast<char16_t>(word[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (matches(wordStart, wordEnd, "true"))
+    {
+        return 1;
+    }
+    if (matches(wordStart, wordEnd, "false"))
+    {
+        return 0;
+    }
+    il2cpp_throw_format_exception("String was not recognized as a valid Boolean.");
+    return 0; // unreachable
+}
+
+//------------------------------------------------------------------------------
+// icall_bool_parse -- bool.Parse(string): the STRICT contract -- null throws
+// ArgumentNullException (unlike Convert.ToBoolean's null -> false); otherwise
+// identical word matching ("true"/"false", case-insensitive, trimmed).
+//------------------------------------------------------------------------------
+int32_t icall_bool_parse(Il2CppString* text)
+{
+    if (text == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("value");
+    }
+    return icall_convert_to_boolean_string(text);
+}
+
+//------------------------------------------------------------------------------
+// icall_char_parse -- char.Parse(string): exactly one UTF-16 unit, anything
+// else (null included) is a FormatException / ArgumentNullException per the
+// net48 contract.
+//------------------------------------------------------------------------------
+int32_t icall_char_parse(Il2CppString* text)
+{
+    if (text == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("s");
+    }
+    if (text->length != 1)
+    {
+        il2cpp_throw_format_exception("String must be exactly one character long.");
+    }
+    return text->chars[0];
+}
+
+//------------------------------------------------------------------------------
 // icall_string_parse_double -- double.Parse (net48, zh-CN culture):
 //   * skips leading/trailing ASCII whitespace
 //   * legal double text: the culture words "NaN" and U+221E/-U+221E (zh-CN

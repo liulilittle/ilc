@@ -85,4 +85,42 @@ char16_t icall_char_to_lower(char16_t c)
     return (c >= u'A' && c <= u'Z') ? static_cast<char16_t>(c + 32) : c;
 }
 
+//------------------------------------------------------------------------------
+// The remaining ASCII-domain classification family (icallwide E2E). The
+// runtime's char domain is ASCII-only (the documented collation deviation of
+// the culture comparator) -- every predicate below is exact on ASCII and a
+// conservative false for non-ASCII units.
+//------------------------------------------------------------------------------
+bool icall_char_is_control(char16_t c)
+{
+    return c <= 0x1F || c == 0x7F;
+}
+
+bool icall_char_is_punctuation(char16_t c)
+{
+    return (c >= u'!' && c <= u'/') || (c >= u':' && c <= u'@')
+        || (c >= u'[' && c <= u'`') || (c >= u'{' && c <= u'~');
+}
+
+bool icall_char_is_surrogate(char16_t c)
+{
+    return c >= 0xD800 && c <= 0xDFFF;
+}
+
+bool icall_char_is_separator(char16_t c)
+{
+    return c == 0x20; // ASCII space; the other Unicode separators are out of domain
+}
+
+bool icall_char_is_symbol(char16_t c)
+{
+    return (c >= u'$' && c <= u'&') || c == u'+' || c == u'<'
+        || c == u'=' || c == u'>' || c == u'^' || c == u'|' || c == u'~';
+}
+
+double icall_char_get_numeric_value(char16_t c)
+{
+    return (c >= u'0' && c <= u'9') ? static_cast<double>(c - u'0') : -1.0;
+}
+
 }} // namespace il2cpp::runtime

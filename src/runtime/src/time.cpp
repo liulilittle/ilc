@@ -31,6 +31,7 @@
 
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_string.h"
+#include "il2cpp_value_semantics.h" // icall_int64_get_hash_code (TimeSpan.GetHashCode)
 
 #include <chrono>
 #include <cmath>
@@ -50,6 +51,7 @@ constexpr int64_t kTicksPerHour = 36000000000;
 constexpr int64_t kTicksPerDay = 864000000000;
 constexpr int64_t kTicksPerMillisecond = 10000;
 constexpr int64_t kMillisPerMinute = 60000;
+constexpr int64_t kMillisPerSecond = 1000;
 constexpr int64_t kMillisPerHour = 3600000;
 constexpr int64_t kMillisPerDay = 86400000;
 // 1970-01-01 expressed in .NET ticks (719162 days * 864000000000).
@@ -343,6 +345,44 @@ int64_t icall_datetime_get_ticks(Il2CppDateTime dt)
     return dt.ticks;
 }
 
+//------------------------------------------------------------------------------
+// ToFileTimeUtc / FromFileTimeUtc -- the Windows FILETIME bridge. FILETIME
+// counts 100 ns ticks since 1601-01-01; DateTime ticks count since
+// 0001-01-01, so the conversion is a fixed offset of exactly
+// 599,266,080,000,000,000 ticks (DateTime(1601,1,1).Ticks). The single-zone
+// runtime has no Kind bits, so Utc and Local forms coincide (the UTC-host
+// doctrine). Out-of-range results throw ArgumentOutOfRangeException per the
+// net48 contract.
+//------------------------------------------------------------------------------
+constexpr int64_t kFileTimeEpochOffset = 504911232000000000LL;
+
+int64_t icall_datetime_to_file_time_utc(Il2CppDateTime dt)
+{
+    // FILETIME counts from 1601-01-01, DateTime ticks from 0001-01-01: the
+    // FILETIME value is the SMALLER count (subtract the 1601 epoch's .NET
+    // ticks). A negative result (pre-1601 date) throws per net48.
+    const int64_t fileTime = dt.ticks - kFileTimeEpochOffset;
+    if (fileTime < 0)
+    {
+        ThrowArgOutOfRange();
+    }
+    return fileTime;
+}
+
+Il2CppDateTime icall_datetime_from_file_time_utc(int64_t fileTime)
+{
+    if (fileTime < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("fileTime", nullptr);
+    }
+    const int64_t ticks = fileTime + kFileTimeEpochOffset;
+    if (ticks > kMaxDateTimeTicks)
+    {
+        il2cpp_throw_argument_out_of_range_exception("fileTime", nullptr);
+    }
+    return Il2CppDateTime(ticks);
+}
+
 int32_t icall_datetime_get_millisecond(Il2CppDateTime dt)
 {
     // .NET: Millisecond => (int)((UTicks / TicksPerMillisecond) % 1000).
@@ -398,6 +438,124 @@ Il2CppDateTime icall_datetime_add_minutes(Il2CppDateTime dt, double minutes)
     return AddMillis(dt, minutes, kMillisPerMinute);
 }
 
+Il2CppDateTime icall_datetime_add_seconds(Il2CppDateTime dt, double seconds)
+{
+    return AddMillis(dt, seconds, kMillisPerSecond);
+}
+
+Il2CppDateTime icall_datetime_add_milliseconds(Il2CppDateTime dt, double milliseconds)
+{
+    return AddMillis(dt, milliseconds, 1.0);
+}
+
+//------------------------------------------------------------------------------
+// Kind support under the single-zone doctrine: this runtime IS a UTC host
+// (cf. cultureinfo get_current), so every DateTime reads as Kind.Utc (the
+// raw value 2) and SpecifyKind is the identity on ticks -- the kind argument
+// is accepted and dropped, never honored as a local-time conversion.
+//------------------------------------------------------------------------------
+int32_t icall_datetime_get_kind(Il2CppDateTime dt)
+{
+    (void)dt;
+    return 2; // DateTimeKind.Utc
+}
+
+Il2CppDateTime icall_datetime_specify_kind(Il2CppDateTime dt, int32_t kind)
+{
+    (void)kind;
+    return dt;
+}
+
+//------------------------------------------------------------------------------
+// get_Date -- the date part at midnight; get_TimeOfDay -- the elapsed time
+// since midnight as a TimeSpan. Pure tick arithmetic on the raw value.
+//------------------------------------------------------------------------------
+Il2CppDateTime icall_datetime_get_date(Il2CppDateTime dt)
+{
+    return Il2CppDateTime(dt.ticks - (dt.ticks % kTicksPerDay));
+}
+
+Il2CppTimeSpan icall_datetime_get_time_of_day(Il2CppDateTime dt)
+{
+    return Il2CppTimeSpan(dt.ticks % kTicksPerDay);
+}
+
+// Equals: pure ticks equality (no Kind bits in this runtime).
+bool icall_datetime_equals(Il2CppDateTime left, Il2CppDateTime right)
+{
+    return left.ticks == right.ticks;
+}
+
+//------------------------------------------------------------------------------
+// TimeSpan.ToString() -- the constant "c" format: [-]d.hh:mm:ss[.fffffff].
+// The day part (and its dot) is omitted when zero; hours are NOT taken
+// modulo 24 (a 25-hour span prints "25:00:00"); the 7-digit fraction is
+// omitted when zero. The fixture asserts the no-fraction shape.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_timespan_to_string(Il2CppTimeSpan ts)
+{
+    int64_t t = ts.ticks;
+    bool neg = t < 0;
+    if (neg) t = -t;
+    const int64_t days = t / kTicksPerDay;
+    const int32_t hours = static_cast<int32_t>((t % kTicksPerDay) / kTicksPerHour);
+    const int32_t minutes = static_cast<int32_t>((t % kTicksPerHour) / kTicksPerMinute);
+    const int32_t seconds = static_cast<int32_t>((t % kTicksPerMinute) / kTicksPerSecond);
+    const int32_t frac = static_cast<int32_t>(t % kTicksPerSecond);
+    char buf[48];
+    int p = 0;
+    if (neg) buf[p++] = '-';
+    if (days > 0)
+    {
+        p += std::snprintf(buf + p, sizeof(buf) - static_cast<size_t>(p),
+                           "%lld.", static_cast<long long>(days));
+    }
+    p += std::snprintf(buf + p, sizeof(buf) - static_cast<size_t>(p),
+                       "%02d:%02d:%02d", hours, minutes, seconds);
+    if (frac != 0)
+    {
+        std::snprintf(buf + p, sizeof(buf) - static_cast<size_t>(p), ".%07d", frac);
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(buf));
+}
+
+//------------------------------------------------------------------------------
+// AddMonths / AddYears -- civil-calendar arithmetic. The month count moves
+// in calendar units (not fixed ticks): the day clamps to the target month's
+// length (Jan 31 + 1 month = Feb 28/29), the time-of-day (including the
+// sub-second tick fraction) is preserved exactly, and a year outside
+// [1, 9999] throws ArgumentOutOfRangeException per .NET.
+//------------------------------------------------------------------------------
+Il2CppDateTime icall_datetime_add_months(Il2CppDateTime dt, int32_t months)
+{
+    const CivilTime t = GetCivilTime(dt);
+    const int64_t timeTicks = dt.ticks % kTicksPerDay;
+    const int64_t totalMonths = static_cast<int64_t>(t.year) * 12 + (t.month - 1) + months;
+    if (totalMonths < 0)
+    {
+        ThrowArgOutOfRange();
+    }
+    const int32_t newYear = static_cast<int32_t>(totalMonths / 12);
+    const int32_t newMonth = static_cast<int32_t>(totalMonths % 12) + 1;
+    if (newYear < 1 || newYear > 9999)
+    {
+        ThrowArgOutOfRange();
+    }
+    int32_t newDay = t.day;
+    const int32_t dim = DaysInMonth(newYear, newMonth);
+    if (newDay > dim)
+    {
+        newDay = dim;
+    }
+    const int64_t dayTicks = DaysFromNetEpoch(newYear, newMonth, newDay) * kTicksPerDay;
+    return Il2CppDateTime(dayTicks + timeTicks);
+}
+
+Il2CppDateTime icall_datetime_add_years(Il2CppDateTime dt, int32_t years)
+{
+    return icall_datetime_add_months(dt, years * 12);
+}
+
 Il2CppTimeSpan icall_datetime_subtract(Il2CppDateTime left, Il2CppDateTime right)
 {
     // Signed difference; both operands are within [0, MaxValue ticks] for
@@ -410,6 +568,42 @@ int32_t icall_datetime_compare_to(Il2CppDateTime left, Il2CppDateTime right)
     if (left.ticks < right.ticks) return -1;
     if (left.ticks > right.ticks) return 1;
     return 0;
+}
+
+//------------------------------------------------------------------------------
+// The relational operators (static, two DateTime operands). The single-zone
+// runtime has no Kind bits, so the comparison is pure ticks -- which is also
+// the .NET Utc-vs-Utc behavior (mixed-kind comparisons in real .NET use
+// wall-clock ticks; this runtime has no such distinction to reconcile).
+//------------------------------------------------------------------------------
+bool icall_datetime_op_equality(Il2CppDateTime left, Il2CppDateTime right)
+{
+    return left.ticks == right.ticks;
+}
+
+bool icall_datetime_op_inequality(Il2CppDateTime left, Il2CppDateTime right)
+{
+    return left.ticks != right.ticks;
+}
+
+bool icall_datetime_op_less_than(Il2CppDateTime left, Il2CppDateTime right)
+{
+    return left.ticks < right.ticks;
+}
+
+bool icall_datetime_op_greater_than(Il2CppDateTime left, Il2CppDateTime right)
+{
+    return left.ticks > right.ticks;
+}
+
+bool icall_datetime_op_less_or_equal(Il2CppDateTime left, Il2CppDateTime right)
+{
+    return left.ticks <= right.ticks;
+}
+
+bool icall_datetime_op_greater_or_equal(Il2CppDateTime left, Il2CppDateTime right)
+{
+    return left.ticks >= right.ticks;
 }
 
 Il2CppObject* icall_datetime_to_string(Il2CppDateTime dt)
@@ -500,6 +694,18 @@ Il2CppTimeSpan icall_timespan_from_seconds(double seconds)
     return TimeSpanFromDoubleUnits(seconds, static_cast<double>(kTicksPerSecond));
 }
 
+// FromMilliseconds: the same double-unit composition at the ticks/ms scale.
+Il2CppTimeSpan icall_timespan_from_milliseconds(double milliseconds)
+{
+    return TimeSpanFromDoubleUnits(milliseconds, static_cast<double>(kTicksPerMillisecond));
+}
+
+// FromTicks: the exact constructor (no range scaling -- the value IS ticks).
+Il2CppTimeSpan icall_timespan_from_ticks_exact(int64_t ticks)
+{
+    return Il2CppTimeSpan(ticks);
+}
+
 //------------------------------------------------------------------------------
 // icall_timespan_from_dhms -- TimeSpan(days, hours, minutes, seconds)
 // (batch 152): the net48 TimeToTicks composition.
@@ -518,6 +724,27 @@ Il2CppTimeSpan icall_timespan_from_dhms(int32_t days, int32_t hours, int32_t min
         ThrowArgOutOfRange();
     }
     return Il2CppTimeSpan(totalSeconds * kTicksPerSecond);
+}
+
+//------------------------------------------------------------------------------
+// icall_timespan_from_dhmsm -- TimeSpan(d, h, m, s, ms): the 5-arg ctor. The
+// millisecond term rides the same checked composition (the .NET reference
+// composes seconds then adds ms * TicksPerMillisecond).
+//------------------------------------------------------------------------------
+Il2CppTimeSpan icall_timespan_from_dhmsm(int32_t days, int32_t hours, int32_t minutes,
+                                         int32_t seconds, int32_t millis)
+{
+    const int64_t totalSeconds = static_cast<int64_t>(days) * 86400
+                               + static_cast<int64_t>(hours) * 3600
+                               + static_cast<int64_t>(minutes) * 60
+                               + static_cast<int64_t>(seconds);
+    if (totalSeconds < kMinTotalSeconds || totalSeconds > kMaxTotalSeconds)
+    {
+        ThrowArgOutOfRange();
+    }
+    const int64_t ticks = totalSeconds * kTicksPerSecond
+                        + static_cast<int64_t>(millis) * kTicksPerMillisecond;
+    return Il2CppTimeSpan(ticks);
 }
 
 int64_t icall_timespan_get_ticks(Il2CppTimeSpan ts)
@@ -543,6 +770,69 @@ int32_t icall_timespan_get_minutes(Il2CppTimeSpan ts)
 int32_t icall_timespan_get_seconds(Il2CppTimeSpan ts)
 {
     return static_cast<int32_t>((ts.ticks % kTicksPerMinute) / kTicksPerSecond);
+}
+
+// Milliseconds: the 0..999 sub-second component.
+int32_t icall_timespan_get_milliseconds(Il2CppTimeSpan ts)
+{
+    return static_cast<int32_t>((ts.ticks % kTicksPerSecond) / kTicksPerMillisecond);
+}
+
+//------------------------------------------------------------------------------
+// TimeSpan relational operators: pure ticks comparison.
+//------------------------------------------------------------------------------
+bool icall_timespan_op_equality(Il2CppTimeSpan left, Il2CppTimeSpan right)
+{
+    return left.ticks == right.ticks;
+}
+
+bool icall_timespan_op_inequality(Il2CppTimeSpan left, Il2CppTimeSpan right)
+{
+    return left.ticks != right.ticks;
+}
+
+bool icall_timespan_op_less_than(Il2CppTimeSpan left, Il2CppTimeSpan right)
+{
+    return left.ticks < right.ticks;
+}
+
+bool icall_timespan_op_greater_than(Il2CppTimeSpan left, Il2CppTimeSpan right)
+{
+    return left.ticks > right.ticks;
+}
+
+bool icall_timespan_op_less_or_equal(Il2CppTimeSpan left, Il2CppTimeSpan right)
+{
+    return left.ticks <= right.ticks;
+}
+
+bool icall_timespan_op_greater_or_equal(Il2CppTimeSpan left, Il2CppTimeSpan right)
+{
+    return left.ticks >= right.ticks;
+}
+
+// Duration: the absolute value (OverflowException at Int64.MinValue -- the
+// .NET contract; -Int64.MinValue is unrepresentable).
+Il2CppTimeSpan icall_timespan_duration(Il2CppTimeSpan value)
+{
+    if (value.ticks == INT64_MIN)
+    {
+        ThrowOverflow();
+    }
+    return Il2CppTimeSpan(value.ticks < 0 ? -value.ticks : value.ticks);
+}
+
+// GetHashCode: the .NET contract is ticks.GetHashCode() -- the int64 hash of
+// the raw tick count (icall_int64_get_hash_code semantics).
+int32_t icall_timespan_get_hash_code(Il2CppTimeSpan ts)
+{
+    return icall_int64_get_hash_code(ts.ticks);
+}
+
+// Equals(TimeSpan): pure ticks equality.
+bool icall_timespan_equals(Il2CppTimeSpan left, Il2CppTimeSpan right)
+{
+    return left.ticks == right.ticks;
 }
 
 double icall_timespan_get_total_seconds(Il2CppTimeSpan ts)

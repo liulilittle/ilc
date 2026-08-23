@@ -62,7 +62,7 @@ public static partial class MethodRefResolver
                     return null; // ToString(string format) is handled by TryMapFormat
                 }
                 if (name == "Parse" && ps.Length == 1)
-                    throw new NotSupportedException("Int64.Parse not wired: the runtime has no int64 Parse icall (only TryParse, which needs an out result -- ref/out milestone item)");
+                    return I("il2cpp::runtime::icall_string_parse_long", 1, true, false, false, new[] { "s" }, "l");
                 if (name == "TryParse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x0A)
                     return I("il2cpp::runtime::icall_try_parse_int64", 2, true, false, false, new[] { "", "addr:l" });
                 if (name == "GetHashCode" && ps.Length == 0)
@@ -80,6 +80,10 @@ public static partial class MethodRefResolver
                 // int32_t 1/0), so the address cast is "addr:i".
                 if (name == "TryParse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x02)
                     return I("il2cpp::runtime::icall_try_parse_bool", 2, true, false, false, new[] { "", "addr:i" });
+                // bool.Parse(string): the strict parser (null -> ANE, unlike
+                // Convert.ToBoolean's null -> false).
+                if (name == "Parse" && ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_bool_parse", 1, true, false, false, new[] { "s" });
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_bool_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:b" : "unbox:b" });
@@ -117,6 +121,11 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_double_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:d" : "unbox:d" });
+                // float.Parse(string): the value rides a double slot and the
+                // float domain is a subset of double -- the double parser is
+                // exact for every float-representable text.
+                if (name == "Parse" && ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_string_parse_double", 1, true, false, false, new[] { "s" }, "d");
                 if (name == "Equals" && ps.Length == 1)
                     return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
                 return null;

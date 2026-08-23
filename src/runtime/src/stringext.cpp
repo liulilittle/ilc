@@ -630,6 +630,77 @@ Il2CppObject* icall_string_trim_start(Il2CppObject* this_)
     return TrimImpl(this_, TrimMode::Start);
 }
 
+//------------------------------------------------------------------------------
+// icall_string_trim_start_set / icall_string_trim_end_set -- the char[]-set
+// overloads (icallwide E2E): strip every LEADING (resp. TRAILING) unit that
+// is a member of 'set'. A null/empty set returns the SAME string content
+// (.NET: an empty trim set trims nothing). The result is a fresh string
+// through the same allocation path as TrimImpl.
+//------------------------------------------------------------------------------
+static Il2CppObject* TrimSetImpl(Il2CppObject* this_, Il2CppObject* set, bool start)
+{
+    ThrowIfNullReceiver(this_);
+    const Il2CppString* s = AsString(this_);
+    if (set == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("trimChars");
+    }
+    const auto* arr = reinterpret_cast<const Il2CppArray*>(set);
+    const int32_t setLen = arr->length;
+    if (setLen == 0 || s->length == 0)
+    {
+        // .NET: an empty trim set removes nothing -> return the source
+        // (a fresh copy is unnecessary; return this_ like Trim on no-match).
+        return this_;
+    }
+    const uint16_t* units = reinterpret_cast<const uint16_t*>(arr->data);
+    int32_t begin = 0;
+    if (start)
+    {
+        while (begin < s->length)
+        {
+            bool member = false;
+            for (int32_t k = 0; k < setLen; ++k)
+            {
+                if (s->chars[begin] == static_cast<char16_t>(units[k])) { member = true; break; }
+            }
+            if (!member) break;
+            ++begin;
+        }
+    }
+    int32_t end = s->length;
+    if (!start)
+    {
+        while (end > begin)
+        {
+            bool member = false;
+            for (int32_t k = 0; k < setLen; ++k)
+            {
+                if (s->chars[end - 1] == static_cast<char16_t>(units[k])) { member = true; break; }
+            }
+            if (!member) break;
+            --end;
+        }
+    }
+    const int32_t len = end - begin;
+    if (len == s->length)
+    {
+        return this_; // nothing trimmed
+    }
+    Il2CppString* out = il2cpp_string_new(s->chars + begin, len);
+    return reinterpret_cast<Il2CppObject*>(out);
+}
+
+Il2CppObject* icall_string_trim_start_set(Il2CppObject* this_, Il2CppObject* set)
+{
+    return TrimSetImpl(this_, set, true);
+}
+
+Il2CppObject* icall_string_trim_end_set(Il2CppObject* this_, Il2CppObject* set)
+{
+    return TrimSetImpl(this_, set, false);
+}
+
 Il2CppObject* icall_string_trim_end(Il2CppObject* this_)
 {
     ThrowIfNullReceiver(this_);

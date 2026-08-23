@@ -641,6 +641,49 @@ int32_t icall_string_compare_static(Il2CppObject* a, Il2CppObject* b)
 }
 
 //------------------------------------------------------------------------------
+// icall_string_compare_mode -- string.Compare(a, b, StringComparison mode):
+// the MODE-AWARE static comparator. Ordinal(4) is the exact byte-unit
+// comparison; OrdinalIgnoreCase(5) folds ASCII case before deciding; the
+// culture forms (0..3) degrade to the ordinal fold (the documented
+// ASCII-domain collation deviation shared with the whole culture layer).
+// Null doctrine matches CompareOrdinal: null sorts below any non-null.
+//------------------------------------------------------------------------------
+int32_t icall_string_compare_mode(Il2CppObject* a, Il2CppObject* b, int32_t mode)
+{
+    if (a == nullptr && b == nullptr)
+    {
+        return 0;
+    }
+    if (a == nullptr)
+    {
+        return -1;
+    }
+    if (b == nullptr)
+    {
+        return 1;
+    }
+    const bool ignoreCase = (mode == 1 || mode == 3 || mode == 5);
+    const Il2CppString* x = AsString(a);
+    const Il2CppString* y = AsString(b);
+    const int32_t common = (x->length < y->length) ? x->length : y->length;
+    for (int32_t i = 0; i < common; ++i)
+    {
+        char16_t cx = x->chars[i];
+        char16_t cy = y->chars[i];
+        if (ignoreCase)
+        {
+            if (cx >= u'A' && cx <= u'Z') cx = static_cast<char16_t>(cx - u'A' + u'a');
+            if (cy >= u'A' && cy <= u'Z') cy = static_cast<char16_t>(cy - u'A' + u'a');
+        }
+        if (cx != cy)
+        {
+            return static_cast<int32_t>(cx) - static_cast<int32_t>(cy);
+        }
+    }
+    return x->length - y->length;
+}
+
+//------------------------------------------------------------------------------
 // icall_string_equals_static -- string.Equals(a, b) ordinal static form.
 //------------------------------------------------------------------------------
 bool icall_string_equals_static(Il2CppObject* a, Il2CppObject* b)

@@ -1867,6 +1867,25 @@ public static class StackFold
             // the local so WriteLine(d) resolves the boxed type).
             if (value is LocExpr vl && objTypes.TryGetValue(vl.Name, out var vt))
                 objTypes[target] = vt;
+            // icallwide: a VALUE-TYPE ctor/newobj store propagates the value
+            // type name (TimeSpan loc = from_hours(...) -- later Object::
+            // ToString/GetHashCode callvirts on the local need the hint).
+            if (value is ValueTypeNewExpr vn2)
+                objTypes[target] = vn2.TypeFullName;
+            // icallwide: icall results with a BCL value-type ResultKind carry
+            // their declared type into the target local the same way.
+            if (value is CallExpr rc && rc.Resolved?.ResultKind is string rk)
+            {
+                var rkType = rk switch
+                {
+                    "dt" => "System.DateTime",
+                    "ts" => "System.TimeSpan",
+                    "dec" => "System.Decimal",
+                    "guid" => "System.Guid",
+                    _ => null,
+                };
+                if (rkType != null) objTypes[target] = rkType;
+            }
         }
 
         // Whether the expression tree directly/indirectly references a local or
@@ -3020,6 +3039,12 @@ public static class StackFold
                     SourceOffset = ins.Offset,
                     SourceOpName = OpName(ins.OpCode)
                 });
+                // icallwide: track the VALUE-TYPE receiver's declared type too
+                // -- a later `loc.ToString()` / `loc.GetHashCode()` callvirt
+                // (Roslyn emits parent System.Object for the overrides) needs
+                // the hint to route to the domain icall (the same doctrine as
+                // the delegate tracking below).
+                objTypes[vname] = typeFullName;
                 var vctor = new CallStmt
                 {
                     Function = $"vctor_{ins.Operand}",
@@ -3548,7 +3573,14 @@ public static class StackFold
                 // path (the invoke routes through the 2-ref-arg void
                 // multicast icall).
                 || fullName == "System.EventHandler"
-                || fullName == "System.EventHandler`1")
+                || fullName == "System.EventHandler`1"
+                // icallwide (arrayext2 predicate/converter domain): the
+                // Array.Find*/Exists/TrueForAll/ConvertAll delegate types ride
+                // the same il2cpp_delegate_new path (the single-cast static
+                // methodPtr ABI the arrayext2 icalls invoke directly).
+                || fullName.StartsWith("System.Predicate`", StringComparison.Ordinal)
+                || fullName.StartsWith("System.Converter`", StringComparison.Ordinal)
+                || fullName.StartsWith("System.Comparison`", StringComparison.Ordinal))
                 return true;
             if (types == null) return false;
             var cur = types.FirstOrDefault(t => t.FullName == fullName);
@@ -3636,7 +3668,7 @@ public static class StackFold
             var sig = md.GetBlobReader(spec.Signature);
             var header = sig.ReadByte();
             if (header != 0x15)
-                throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3");
+                throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3 (newobj ctor-type resolution)");
             // GenericInst definition: ELEMENT_TYPE_CLASS(0x12)/VALUETYPE(0x11)/
             // TypeSpec(0x1B) + TypeDefOrRef coded index (Roslyn references the
             // generic definition with CLASS).

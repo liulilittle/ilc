@@ -148,11 +148,15 @@ int32_t icall_array_find_index_int32(Il2CppObject* arr, int32_t startIndex,
 // -1 when no element matches. net48 range validation (same shape as
 // icall_array_find_index_int32): startIndex < 0 || startIndex > Length ->
 // ArgumentOutOfRangeException; count < 0 || count > Length - startIndex ->
-// ArgumentOutOfRangeException. (The 2-arg and 3-arg net48 overloads
-// FindIndex(array, Predicate) / FindIndex(array, startIndex, Predicate) are
-// wired as the same call with the range folded in by the MethodMap.)
+// ArgumentOutOfRangeException. (The 3-arg overload
+// FindIndex(array, startIndex, Predicate) is NOT yet wired -- only the full
+// 4-arg form and the 2-arg icall_array_find_index_2 exist.)
 int32_t icall_array_find_index(Il2CppArray* arr, Il2CppObject* predicate,
                                int32_t startIndex, int32_t count);
+
+// Array.FindIndex<T>(T[], Predicate<T>): the 2-arg overload -- the whole
+// range (start=0, count=Length), delegating to the validated 4-arg core.
+int32_t icall_array_find_index_2(Il2CppArray* arr, Il2CppObject* predicate);
 
 // Array.Reverse(int32[], int index, int length): reverse the range
 // [index, index + length) in place. Validation per the header comment
@@ -198,6 +202,12 @@ Il2CppArray* icall_array_convert_all_i4_i4(Il2CppArray* arr, Il2CppObject* conve
 // ABI as the i4_i4 variant; the source is a REFERENCE array (string elements
 // ride managed-ref slots). GC-rooted across the callback loop.
 Il2CppArray* icall_array_convert_all_str_i4(Il2CppArray* arr, Il2CppObject* converter);
+
+// Array.ConvertAll<int,long>(int32[], Converter<int,long>): the int64-output
+// variant (icallwide E2E). A NEW int64[] of the same length; same validation
+// order and per-binding delegate ABI as the i4_i4 variant. GC-rooted across
+// the callback loop.
+Il2CppArray* icall_array_convert_all_i4_i8(Il2CppArray* arr, Il2CppObject* converter);
 
 // Array.FindAll<int>(int32[], Predicate<int>): a NEW int32[] holding EVERY
 // element for which the predicate returns true, in source order (an empty

@@ -435,6 +435,40 @@ int32_t icall_version_get_revision(Il2CppObject* self)
     return v->componentCount >= 4 ? v->components[3] : -1;
 }
 
+//------------------------------------------------------------------------------
+// get_MajorRevision / get_MinorRevision: the upper/lower 16-bit halves of
+// Revision (net48 contract; an unwritten Revision reads as -1, whose halves
+// are also -1 -- the arithmetic falls out naturally).
+//------------------------------------------------------------------------------
+int32_t icall_version_get_major_revision(Il2CppObject* self)
+{
+    const int32_t revision = icall_version_get_revision(self);
+    return static_cast<int16_t>(static_cast<uint32_t>(revision) >> 16);
+}
+
+int32_t icall_version_get_minor_revision(Il2CppObject* self)
+{
+    const int32_t revision = icall_version_get_revision(self);
+    return static_cast<int16_t>(revision & 0xFFFF);
+}
+
+//------------------------------------------------------------------------------
+// GetHashCode: a deterministic component fold (net48's exact bit layout is
+// implementation-defined; the E2E contract is same-value -> same-hash).
+//------------------------------------------------------------------------------
+int32_t icall_version_get_hash_code(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    const Il2CppVersionObject* v = AsVersion(self);
+    int32_t acc = 0;
+    for (int32_t i = 0; i < 4; ++i)
+    {
+        const int32_t c = i < v->componentCount ? v->components[i] : -1;
+        acc = (acc << 5) - acc + c;
+    }
+    return acc;
+}
+
 Il2CppObject* icall_version_to_string(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
@@ -497,6 +531,46 @@ bool icall_version_op_equality(Il2CppObject* a, Il2CppObject* b)
 bool icall_version_op_inequality(Il2CppObject* a, Il2CppObject* b)
 {
     return !icall_version_op_equality(a, b);
+}
+
+//------------------------------------------------------------------------------
+// op_LessThan / op_GreaterThan / op_LessThanOrEqual / op_GreaterThanOrEqual
+// (static, two Version operands). Null doctrine (modern .NET): null compares
+// as LESS than any non-null version; null vs null is equal. The comparison
+// itself reuses il2cpp_version_compare's net48 missing-component rule.
+//------------------------------------------------------------------------------
+namespace {
+int32_t VersionNullAwareCompare(Il2CppObject* a, Il2CppObject* b)
+{
+    if (a == nullptr || b == nullptr)
+    {
+        return a == b ? 0 : (a == nullptr ? -1 : 1);
+    }
+    const Il2CppVersionObject* av = AsVersion(a);
+    const Il2CppVersionObject* bv = AsVersion(b);
+    return il2cpp_version_compare(av->components, av->componentCount,
+                                  bv->components, bv->componentCount);
+}
+}
+
+bool icall_version_op_less_than(Il2CppObject* a, Il2CppObject* b)
+{
+    return VersionNullAwareCompare(a, b) < 0;
+}
+
+bool icall_version_op_greater_than(Il2CppObject* a, Il2CppObject* b)
+{
+    return VersionNullAwareCompare(a, b) > 0;
+}
+
+bool icall_version_op_less_or_equal(Il2CppObject* a, Il2CppObject* b)
+{
+    return VersionNullAwareCompare(a, b) <= 0;
+}
+
+bool icall_version_op_greater_or_equal(Il2CppObject* a, Il2CppObject* b)
+{
+    return VersionNullAwareCompare(a, b) >= 0;
 }
 
 Il2CppObject* icall_version_parse(Il2CppObject* input)

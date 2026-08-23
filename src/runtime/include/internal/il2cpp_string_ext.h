@@ -155,6 +155,12 @@ Il2CppArray* icall_string_to_char_array(Il2CppString* self);
 // TrimStart(): leading whitespace only (contract as Trim).
 Il2CppObject* icall_string_trim_start(Il2CppObject* this_);
 
+// TrimStart/TrimEnd(char[] set): the SET-aware overloads (icallwide E2E) --
+// strip leading/trailing units that are members of 'set'; a null/empty set
+// trims nothing.
+Il2CppObject* icall_string_trim_start_set(Il2CppObject* this_, Il2CppObject* set);
+Il2CppObject* icall_string_trim_end_set(Il2CppObject* this_, Il2CppObject* set);
+
 // TrimEnd(): trailing whitespace only (contract as Trim).
 Il2CppObject* icall_string_trim_end(Il2CppObject* this_);
 

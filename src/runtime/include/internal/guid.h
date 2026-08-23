@@ -58,6 +58,13 @@ namespace il2cpp {
 // (10xx xxxx) in byte[8].
 void il2cpp_guid_new_guid(uint8_t bytes[16]);
 
+// Guid(int32, int16, int16, byte[8]) -- the 11-argument component ctor
+// (see guid.cpp for the layout contract).
+void il2cpp_guid_ctor_components(uint8_t bytes[16],
+                                 int32_t a, int32_t b, int32_t c,
+                                 int32_t d, int32_t e, int32_t f, int32_t g,
+                                 int32_t h, int32_t i, int32_t j, int32_t k);
+
 // TryParse of the strict forms (see header comment): the 36-char "D" form
 // (dashes at 8/13/18/23) or the 32-char "N" form (hex digits only, no
 // dashes -- net48 accepts both). Hex digits are 0-9 a-f A-F.
@@ -75,6 +82,11 @@ void il2cpp_guid_parse_strict(Il2CppString* s, uint8_t bytes[16]);
 
 // ToString("D"): the 36-char lowercase form above, as a managed string.
 Il2CppString* il2cpp_guid_to_string(const uint8_t bytes[16]);
+
+// ToString(format): the full .NET family -- null/"D" dashed, "N" bare,
+// "B" braced, "P" parenthesised, "X" the {0x...} hex form. Case-insensitive;
+// anything else is FormatException (net48 contract).
+Il2CppString* il2cpp_guid_to_string_format(const uint8_t bytes[16], Il2CppString* format);
 
 // Value equality: true iff all 16 bytes match.
 bool il2cpp_guid_equals(const uint8_t a[16], const uint8_t b[16]);

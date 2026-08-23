@@ -26,7 +26,14 @@ public static partial class MethodRefResolver
     {
         if (owner != "System.Char")
             return null;
-        if (ps.Length != 1 || ps[0] != 0x03)
+        if (ps.Length != 1)
+            return null;
+        // char.Parse(string): the argument is a STRING (0x0E), not a char.
+        if (name == "Parse")
+            return ps[0] == 0x0E
+                ? I("il2cpp::runtime::icall_char_parse", 1, true, false, false, new[] { "s" })
+                : null;
+        if (ps[0] != 0x03)
             return null;
         switch (name)
         {
@@ -36,6 +43,13 @@ public static partial class MethodRefResolver
             case "IsLower": return I("il2cpp::runtime::icall_char_is_lower", 1, true, false, false, new[] { "c" });
             case "IsUpper": return I("il2cpp::runtime::icall_char_is_upper", 1, true, false, false, new[] { "c" });
             case "IsWhiteSpace": return I("il2cpp::runtime::icall_char_is_whitespace", 1, true, false, false, new[] { "c" });
+            // The ASCII-domain classification family (char.cpp).
+            case "IsControl": return I("il2cpp::runtime::icall_char_is_control", 1, true, false, false, new[] { "c" });
+            case "IsPunctuation": return I("il2cpp::runtime::icall_char_is_punctuation", 1, true, false, false, new[] { "c" });
+            case "IsSurrogate": return I("il2cpp::runtime::icall_char_is_surrogate", 1, true, false, false, new[] { "c" });
+            case "IsSeparator": return I("il2cpp::runtime::icall_char_is_separator", 1, true, false, false, new[] { "c" });
+            case "IsSymbol": return I("il2cpp::runtime::icall_char_is_symbol", 1, true, false, false, new[] { "c" });
+            case "GetNumericValue": return I("il2cpp::runtime::icall_char_get_numeric_value", 1, true, false, false, new[] { "c" }, "d");
             case "ToUpper":
             case "ToUpperInvariant": return I("il2cpp::runtime::icall_char_to_upper", 1, true, false, false, new[] { "c" });
             case "ToLower":

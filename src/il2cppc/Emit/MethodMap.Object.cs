@@ -41,8 +41,20 @@ public static partial class MethodRefResolver
                 // M5 wiring: Object.GetHashCode virtual dispatch (value_semantics).
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_object_get_hash_code", 0, true, false, true);
+                // icallwide: Object::ToString/GetHashCode on a TimeSpan
+                // receiver (Roslyn emits callvirt Object::* for the overrides)
+                // -- route to the ticks formatters/hashes (time.cpp).
+                if (name == "ToString" && receiverType == "System.TimeSpan")
+                    return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
+                if (name == "GetHashCode" && receiverType == "System.TimeSpan")
+                    return I("il2cpp::runtime::icall_timespan_get_hash_code", 0, true, false, true, new[] { "deref:ts" });
                 if (name == "ToString" && receiverType == "System.Text.StringBuilder")
                     return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
+                // icallwide: Object::ToString on a TimeSpan receiver (Roslyn
+                // emits callvirt Object::ToString for the override) -- route
+                // to the constant-"c" formatter (time.cpp).
+                if (name == "ToString" && receiverType == "System.TimeSpan")
+                    return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
                 // M6 G6 wiring: Object::ToString on a Version receiver (Roslyn
                 // emits callvirt Object::ToString) -- route to the Version
                 // object icall (versionuri.cpp): rebuilds from the stored
@@ -114,7 +126,11 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, true);
                 // P6: Object.MemberwiseClone (stub).
                 if (name == "MemberwiseClone")
-                    return I("il2cpp::runtime::icall_object_memberwise_clone", 0, true, true, false);
+                    // rv=true, ReturnsRef=TRUE (the result is a managed
+                    // reference -- the reinterpret/ref-local path), inst=true
+                    // (the receiver rides as arg0 even though the IL `call`
+                    // pushes nothing: MemberwiseClone is this-method).
+                    return I("il2cpp::runtime::icall_object_memberwise_clone", 0, true, true, true);
                 return null; // Object::ToString on unknown receivers: loud vtable failure downstream
             case "System.IConvertible":
                 if (name == "GetTypeCode")

@@ -74,6 +74,13 @@ Il2CppDateTime icall_datetime_from_ymdhms(int32_t year, int32_t month, int32_t d
 //------------------------------------------------------------------------------
 Il2CppDateTime icall_datetime_from_ticks(int64_t ticks);
 
+// ToFileTimeUtc: ticks + the 1601-epoch offset (see time.cpp); a result
+// below zero throws ArgumentOutOfRangeException.
+int64_t icall_datetime_to_file_time_utc(Il2CppDateTime dt);
+// FromFileTimeUtc: the inverse conversion; out-of-range input throws
+// ArgumentOutOfRangeException.
+Il2CppDateTime icall_datetime_from_file_time_utc(int64_t fileTime);
+
 //------------------------------------------------------------------------------
 // System.DateTime -- component accessors (Year/Month/Day/Hour/Minute/Second).
 //------------------------------------------------------------------------------
@@ -130,12 +137,39 @@ int32_t icall_datetime_is_leap_year(int32_t year);
 //------------------------------------------------------------------------------
 Il2CppDateTime icall_datetime_add_days(Il2CppDateTime dt, double days);
 Il2CppDateTime icall_datetime_add_hours(Il2CppDateTime dt, double hours);
+// Civil-calendar arithmetic: the day clamps to the target month's length;
+// the time-of-day is preserved exactly (see time.cpp).
+Il2CppDateTime icall_datetime_add_months(Il2CppDateTime dt, int32_t months);
+Il2CppDateTime icall_datetime_add_years(Il2CppDateTime dt, int32_t years);
 Il2CppDateTime icall_datetime_add_minutes(Il2CppDateTime dt, double minutes);
+Il2CppDateTime icall_datetime_add_seconds(Il2CppDateTime dt, double seconds);
+Il2CppDateTime icall_datetime_add_milliseconds(Il2CppDateTime dt, double milliseconds);
+// Kind support (single-zone doctrine): every DateTime is Utc; SpecifyKind
+// is the identity on ticks.
+int32_t icall_datetime_get_kind(Il2CppDateTime dt);
+Il2CppDateTime icall_datetime_specify_kind(Il2CppDateTime dt, int32_t kind);
+// get_Date: the date part at midnight; get_TimeOfDay: the time since
+// midnight as a TimeSpan.
+Il2CppDateTime icall_datetime_get_date(Il2CppDateTime dt);
+Il2CppTimeSpan icall_datetime_get_time_of_day(Il2CppDateTime dt);
+// Equals: pure ticks equality.
+bool icall_datetime_equals(Il2CppDateTime left, Il2CppDateTime right);
+
+// TimeSpan.ToString(): the constant "c" format (see time.cpp).
+Il2CppObject* icall_timespan_to_string(Il2CppTimeSpan ts);
 
 // DateTime.Subtract(DateTime) -> TimeSpan (signed tick difference).
 Il2CppTimeSpan icall_datetime_subtract(Il2CppDateTime left, Il2CppDateTime right);
 // DateTime.CompareTo(DateTime): -1 / 0 / +1.
 int32_t icall_datetime_compare_to(Il2CppDateTime left, Il2CppDateTime right);
+
+// The relational operators: pure ticks comparison (see time.cpp).
+bool icall_datetime_op_equality(Il2CppDateTime left, Il2CppDateTime right);
+bool icall_datetime_op_inequality(Il2CppDateTime left, Il2CppDateTime right);
+bool icall_datetime_op_less_than(Il2CppDateTime left, Il2CppDateTime right);
+bool icall_datetime_op_greater_than(Il2CppDateTime left, Il2CppDateTime right);
+bool icall_datetime_op_less_or_equal(Il2CppDateTime left, Il2CppDateTime right);
+bool icall_datetime_op_greater_or_equal(Il2CppDateTime left, Il2CppDateTime right);
 // DateTime.ToString(): fixed culture-neutral "MM/dd/yyyy HH:mm:ss" string.
 Il2CppObject* icall_datetime_to_string(Il2CppDateTime dt);
 
@@ -151,12 +185,18 @@ Il2CppTimeSpan icall_timespan_from_minutes(double minutes);
 Il2CppTimeSpan icall_timespan_from_hours(double hours);
 Il2CppTimeSpan icall_timespan_from_days(double days);
 Il2CppTimeSpan icall_timespan_from_seconds(double seconds);
+// FromMilliseconds / FromTicks (see time.cpp).
+Il2CppTimeSpan icall_timespan_from_milliseconds(double milliseconds);
+Il2CppTimeSpan icall_timespan_from_ticks_exact(int64_t ticks);
 
 //------------------------------------------------------------------------------
 // TimeSpan(int days, int hours, int minutes, int seconds) -- batch 152: the
 // net48 TimeToTicks composition (bounded like from_hms).
 //------------------------------------------------------------------------------
 Il2CppTimeSpan icall_timespan_from_dhms(int32_t days, int32_t hours, int32_t minutes, int32_t seconds);
+// TimeSpan(d, h, m, s, ms): the 5-arg ctor (see time.cpp).
+Il2CppTimeSpan icall_timespan_from_dhmsm(int32_t days, int32_t hours, int32_t minutes,
+                                         int32_t seconds, int32_t millis);
 
 int64_t icall_timespan_get_ticks(Il2CppTimeSpan ts);
 int32_t icall_timespan_get_days(Il2CppTimeSpan ts);
@@ -169,6 +209,24 @@ double icall_timespan_get_total_minutes(Il2CppTimeSpan ts);
 double icall_timespan_get_total_hours(Il2CppTimeSpan ts);
 double icall_timespan_get_total_days(Il2CppTimeSpan ts);
 double icall_timespan_get_total_milliseconds(Il2CppTimeSpan ts);
+
+// Milliseconds: the 0..999 sub-second component.
+int32_t icall_timespan_get_milliseconds(Il2CppTimeSpan ts);
+
+// The TimeSpan relational operators: pure ticks comparison.
+bool icall_timespan_op_equality(Il2CppTimeSpan left, Il2CppTimeSpan right);
+bool icall_timespan_op_inequality(Il2CppTimeSpan left, Il2CppTimeSpan right);
+bool icall_timespan_op_less_than(Il2CppTimeSpan left, Il2CppTimeSpan right);
+bool icall_timespan_op_greater_than(Il2CppTimeSpan left, Il2CppTimeSpan right);
+bool icall_timespan_op_less_or_equal(Il2CppTimeSpan left, Il2CppTimeSpan right);
+bool icall_timespan_op_greater_or_equal(Il2CppTimeSpan left, Il2CppTimeSpan right);
+
+// Duration: the absolute value (OverflowException at Int64.MinValue).
+Il2CppTimeSpan icall_timespan_duration(Il2CppTimeSpan value);
+
+// GetHashCode: the int64 hash of the raw ticks; Equals: pure ticks equality.
+int32_t icall_timespan_get_hash_code(Il2CppTimeSpan ts);
+bool icall_timespan_equals(Il2CppTimeSpan left, Il2CppTimeSpan right);
 
 // TimeSpan.Add / Subtract / Negate: OverflowException when the result is not
 // representable (sign-of-result test for Add, Int64.MinValue for Negate --

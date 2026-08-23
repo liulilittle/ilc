@@ -54,7 +54,13 @@ public static partial class MethodRefResolver
             case "ToString":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_guid_to_string", 0, true, true, true, new[] { "g" });
-                throw new NotSupportedException("ToString(format) not wired: guid.h implements the \"D\" form only and a format argument would be silently ignored");
+                // ToString(string format): the full family (N/D/B/P/X,
+                // case-insensitive, FormatException otherwise) lives in
+                // il2cpp_guid_to_string_format -- the format crosses as a
+                // managed string ("s" cast), null behaves as "D".
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_guid_to_string_format", 1, true, true, true, new[] { "g", "s" });
+                throw new NotSupportedException("ToString(format) not wired: only the 0-arg and string-format shapes exist");
             // static Guid Parse(string): the runtime STRICT parse wrapper
             // (il2cpp_guid_parse_strict) throws ArgumentNullException on a
             // null string and FormatException on any other invalid input --
@@ -109,6 +115,10 @@ public static partial class MethodRefResolver
             case ".ctor":
                 if (ps.Length == 1 && ps[0] == 0x1D)
                     throw new NotSupportedException(".ctor(byte[]) not wired: guid.h has no from-bytes icall (the surface is new_guid/parse/to_string/equals/compare only)");
+                // NOTE (icallwide): the 11-arg component ctor needs a Guid
+                // VALUE-SLOT newobj path (uint8_t[16] in-place init) that the
+                // emitter does not have yet -- fixtures construct via
+                // Guid.Parse instead. Loud until that emitter work lands.
                 return null;
             default: return null;
         }

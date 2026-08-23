@@ -79,10 +79,15 @@ typedef bool (*FindIndexPredThisFn)(Il2CppObject*, int32_t);
 // Converter<int32, int32> callback signature (the same single-cast static
 // delegate ABI; the selector shape of linq_map.cpp SelI4I4Fn).
 typedef int32_t (*ConvertAllI4Fn)(int32_t);
-
 // Converter<int32, int32> INSTANCE-method callback (target-bound leaf): the
 // target arrives in the `this` slot (linq_map.cpp SelI4I4ThisFn).
 typedef int32_t (*ConvertAllI4ThisFn)(Il2CppObject*, int32_t);
+
+// Converter<int32, int64> callback signatures (icallwide E2E: the int64
+// output variant; the native leaf returns in the full register regardless
+// of the declared width, so the thunk reads int64).
+typedef int64_t (*ConvertAllI4I8Fn)(int32_t);
+typedef int64_t (*ConvertAllI4I8ThisFn)(Il2CppObject*, int32_t);
 
 // Converter<string, int32> callback signatures (net9/10 E2E icallcase:
 // Array.ConvertAll<string,int>(string[], int.Parse) -- the same single-cast
@@ -428,6 +433,13 @@ int32_t InvokeConvertAllI4(Il2CppDelegate* d, int32_t v)
         : reinterpret_cast<ConvertAllI4Fn>(d->methodPtr)(v);
 }
 
+int64_t InvokeConvertAllI4I8(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<ConvertAllI4I8ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<ConvertAllI4I8Fn>(d->methodPtr)(v);
+}
+
 int32_t InvokeConvertAllStrI4(Il2CppDelegate* d, Il2CppString* v)
 {
     return d->target != nullptr
@@ -673,6 +685,19 @@ int32_t icall_array_find_index(Il2CppArray* arr, Il2CppObject* predicate,
 }
 
 //------------------------------------------------------------------------------
+// icall_array_find_index_2 -- Array.FindIndex<T>(T[], Predicate<T>): the
+// 2-arg overload as its own entry (the whole range). The header comment of
+// icall_array_find_index historically claimed the 2/3-arg overloads were
+// "folded in by the MethodMap" -- they never were; this is the real 2-arg
+// wiring, delegating to the validated 4-arg core with start=0, count=len.
+//------------------------------------------------------------------------------
+int32_t icall_array_find_index_2(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index(a, predicate, 0, a->length);
+}
+
+//------------------------------------------------------------------------------
 // icall_array_reverse_range -- Array.Reverse(int32[], index, length) (see
 // header). Validation as Clear; length 0/1 is a no-op. In-place two-pointer
 // reversal of [index, index + length).
@@ -858,6 +883,35 @@ Il2CppArray* icall_array_convert_all_str_i4(Il2CppArray* arr, Il2CppObject* conv
             il2cpp_array_get_elem_ptr(a, i));
         const int32_t r = InvokeConvertAllStrI4(d, v);
         *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// icall_array_convert_all_i4_i8 -- Array.ConvertAll<int,long>(int32[],
+// Converter<int,long>) (icallwide E2E). A NEW int64[] of the same length
+// whose element i is converter(array[i]); the source is never modified.
+// Same validation order and GC rooting discipline as the i4_i4 variant.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_array_convert_all_i4_i8(Il2CppArray* arr, Il2CppObject* converter)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    RequireInt32ArrayExt2(a);
+    Il2CppDelegate* d = RequireArrayCallback(converter, "converter");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(int64_t), false, a->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const int32_t v = *reinterpret_cast<const int32_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        const int64_t r = InvokeConvertAllI4I8(d, v);
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
     }
     return out;
 }

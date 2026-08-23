@@ -663,7 +663,12 @@ public static partial class MethodRefResolver
             case "System.Int16":
             case "System.UInt16":
             case "System.UInt32":
-            case "System.UInt64": return TryMapValueType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.UInt64":
+                // Format first (uint/ulong ToString(format) ride the signed
+                // custom engines -- see MethodMap.Format.cs), ValueType
+                // fallback for the rest.
+                return TryMapFormat(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                    ?? TryMapValueType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Char":
                 // D-CHA-2: the char STATIC surface (IsDigit/IsLetter/ToUpper
                 // ...) is TryMapChar (MethodMap.Char.cs); the instance surface
@@ -927,7 +932,7 @@ public static partial class MethodRefResolver
             case "System.Text.UnicodeEncoding": return TryMapEncoding(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Guid": return TryMapGuid(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Decimal": return TryMapFormat(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
-                ?? TryMapDecimal(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                ?? TryMapDecimal(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, ret);
             case "System.Numerics.BigInteger": return TryMapBigInteger(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Version": return TryMapVersion(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Uri": return TryMapUri(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
@@ -1432,7 +1437,7 @@ public static partial class MethodRefResolver
         var sig = md.GetBlobReader(spec.Signature);
         var header = sig.ReadByte();
         if (header != 0x15)
-            throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3");
+            throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3 (owner-resolution context)");
         var defType = sig.ReadByte();
         _ = defType;
         var defHandle = sig.ReadTypeHandle();

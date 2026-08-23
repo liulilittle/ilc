@@ -67,6 +67,9 @@ public static partial class MethodRefResolver
             case "GetSegmentSize": return I("il2cpp::il2cpp_gc_get_segment_size", 0, true, false, false, null, "l");
             case "GetLastGCPercentTimeInGC": return I("il2cpp::il2cpp_gc_get_last_gc_percent_time_in_gc", 0, true, false, false);
             case "GetGenerationSize": return I("il2cpp::il2cpp_gc_get_generation_size", 1, true, false, false, new[] { "i" }, "l");
+            // GC.CollectionCount(int generation): the per-generation counter
+            // (il2cpp_gc.h GC API layer -- the il2cpp:: prefix, NOT runtime::).
+            case "CollectionCount": return I("il2cpp::il2cpp_gc_get_collection_count", 1, true, false, false, new[] { "i" }, "l");
             // net9/10 E2E icallcase namespace fix: these two live in
             // il2cpp_gc.h = namespace il2cpp (the GC API layer), NOT
             // il2cpp::runtime -- the wrong prefix failed to compile.

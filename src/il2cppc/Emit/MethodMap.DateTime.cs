@@ -20,10 +20,26 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0A)
                     // DateTime(long ticks) -- batch 151.
                     return I("il2cpp::runtime::icall_datetime_from_ticks", 1, false, false, true, new[] { "", "l" }, "dt", resultIsReceiver: true);
+                // ctor(long ticks, DateTimeKind): the kind argument is dropped
+                // (single-zone doctrine -- every DateTime reads as Utc).
+                if (ps.Length == 2 && ps[0] == 0x0A && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_datetime_from_ticks", 2, false, false, true, new[] { "", "l", "drop" }, "dt", resultIsReceiver: true);
                 if (ps.Length == 3)
                     return I("il2cpp::runtime::icall_datetime_from_ymd", 3, false, false, true, null, "dt", resultIsReceiver: true);
                 if (ps.Length == 6)
                     return I("il2cpp::runtime::icall_datetime_from_ymdhms", 6, false, false, true, null, "dt", resultIsReceiver: true);
+                // ctor(y,m,d,h,mi,s,kind): the trailing DateTimeKind is
+                // dropped ("drop" cast) -- the runtime is single-zone (UTC-host
+                // doctrine, cf. cultureinfo get_current), so every Kind
+                // composes the same ticks. NOTE: the casts array INDEXES THE
+                // RECEIVER SLOT TOO (slot 0 = the value-slot target; the
+                // from_ticks precedent's ["", "l"]), so this array has EIGHT
+                // entries for the 7 IL arguments. The 8-arg ms+kind form stays
+                // LOUD until a runtime entry with a millisecond parameter
+                // exists.
+                if (ps.Length == 7 && ps[6] == 0x11)
+                    return I("il2cpp::runtime::icall_datetime_from_ymdhms", 7, false, false, true,
+                        new[] { "", "", "", "", "", "", "", "drop" }, "dt", resultIsReceiver: true);
                 throw new NotSupportedException($"DateTime ctor with {ps.Length} arg(s) not wired in M5 (the runtime has from_ticks/from_ymd/from_ymdhms only)");
             case "get_UtcNow":
                 return I("il2cpp::runtime::icall_datetime_utc_now", 0, true, false, false, null, "dt");
@@ -36,10 +52,41 @@ public static partial class MethodRefResolver
             case "get_Minute": return I("il2cpp::runtime::icall_datetime_get_minute", 0, true, false, true, new[] { "deref:dt" });
             case "get_Second": return I("il2cpp::runtime::icall_datetime_get_second", 0, true, false, true, new[] { "deref:dt" });
             case "get_Ticks": return I("il2cpp::runtime::icall_datetime_get_ticks", 0, true, false, true, new[] { "deref:dt" }, "l");
+            // ToFileTimeUtc / FromFileTimeUtc -- the 1601-epoch bridge
+            // (time.cpp; the single-zone runtime has no Kind bits so the Utc
+            // and Local forms coincide).
+            case "ToFileTimeUtc":
+                return I("il2cpp::runtime::icall_datetime_to_file_time_utc", 0, true, false, true, new[] { "deref:dt" }, "l");
+            case "FromFileTimeUtc":
+                return I("il2cpp::runtime::icall_datetime_from_file_time_utc", 1, true, false, false, new[] { "l" }, "dt");
+            // AddMonths / AddYears -- civil-calendar arithmetic (the day
+            // clamps to the target month's length; time-of-day preserved).
+            case "AddMonths":
+                return I("il2cpp::runtime::icall_datetime_add_months", 1, true, false, true, new[] { "deref:dt", "i" }, "dt");
+            case "AddYears":
+                return I("il2cpp::runtime::icall_datetime_add_years", 1, true, false, true, new[] { "deref:dt", "i" }, "dt");
             case "get_DayOfWeek": return I("il2cpp::runtime::icall_datetime_get_dayofweek", 0, true, false, true, new[] { "deref:dt" });
             case "AddDays": return I("il2cpp::runtime::icall_datetime_add_days", 1, true, false, true, new[] { "deref:dt", "d" }, "dt");
             case "AddHours": return I("il2cpp::runtime::icall_datetime_add_hours", 1, true, false, true, new[] { "deref:dt", "d" }, "dt");
             case "AddMinutes": return I("il2cpp::runtime::icall_datetime_add_minutes", 1, true, false, true, new[] { "deref:dt", "d" }, "dt");
+            case "AddSeconds": return I("il2cpp::runtime::icall_datetime_add_seconds", 1, true, false, true, new[] { "deref:dt", "d" }, "dt");
+            case "AddMilliseconds": return I("il2cpp::runtime::icall_datetime_add_milliseconds", 1, true, false, true, new[] { "deref:dt", "d" }, "dt");
+            // Kind support (single-zone doctrine): every DateTime reads as
+            // Utc; SpecifyKind is the identity on ticks (the kind argument
+            // is dropped).
+            case "get_Kind":
+                return I("il2cpp::runtime::icall_datetime_get_kind", 0, true, false, true, new[] { "deref:dt" });
+            case "SpecifyKind":
+                return I("il2cpp::runtime::icall_datetime_specify_kind", 2, true, false, false, new[] { "", "i" }, "dt");
+            // get_Date: midnight of the same day; get_TimeOfDay: the time
+            // since midnight as a TimeSpan.
+            case "get_Date":
+                return I("il2cpp::runtime::icall_datetime_get_date", 0, true, false, true, new[] { "deref:dt" }, "dt");
+            case "get_TimeOfDay":
+                return I("il2cpp::runtime::icall_datetime_get_time_of_day", 0, true, false, true, new[] { "deref:dt" }, "ts");
+            // Equals: pure ticks equality.
+            case "Equals":
+                return I("il2cpp::runtime::icall_datetime_equals", 1, true, false, true, new[] { "deref:dt", "" });
             case "Subtract":
                 // DateTime.Subtract(DateTime) -> TimeSpan.
                 return ps.Length == 1
@@ -48,6 +95,18 @@ public static partial class MethodRefResolver
             case "op_Subtraction":
                 // DateTime - DateTime -> TimeSpan (static).
                 return I("il2cpp::runtime::icall_datetime_subtract", 2, true, false, false, new[] { "", "" }, "ts");
+            case "op_Equality":
+                return I("il2cpp::runtime::icall_datetime_op_equality", 2, true, false, false, new[] { "", "" });
+            case "op_Inequality":
+                return I("il2cpp::runtime::icall_datetime_op_inequality", 2, true, false, false, new[] { "", "" });
+            case "op_LessThan":
+                return I("il2cpp::runtime::icall_datetime_op_less_than", 2, true, false, false, new[] { "", "" });
+            case "op_GreaterThan":
+                return I("il2cpp::runtime::icall_datetime_op_greater_than", 2, true, false, false, new[] { "", "" });
+            case "op_LessThanOrEqual":
+                return I("il2cpp::runtime::icall_datetime_op_less_or_equal", 2, true, false, false, new[] { "", "" });
+            case "op_GreaterThanOrEqual":
+                return I("il2cpp::runtime::icall_datetime_op_greater_or_equal", 2, true, false, false, new[] { "", "" });
             case "CompareTo":
                 return I("il2cpp::runtime::icall_datetime_compare_to", 1, true, false, true, new[] { "deref:dt", "" });
             // net9/10 E2E icallcase: DateTime.IsLeapYear / DaysInMonth --

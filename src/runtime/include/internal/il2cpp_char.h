@@ -61,6 +61,15 @@ char16_t icall_char_to_upper(char16_t c);
 
 // char.ToLower(char) / char.ToLowerInvariant(char) -- ASCII lower-case one
 // code unit ('A'-'Z' -> 'a'-'z', others unchanged).
-char16_t icall_char_to_lower(char16_t c);
+    char16_t icall_char_to_lower(char16_t c);
+
+// The ASCII-domain classification family (icallwide E2E; see char.cpp for
+// the exact-on-ASCII / conservative-false-elsewhere contract).
+bool icall_char_is_control(char16_t c);
+bool icall_char_is_punctuation(char16_t c);
+bool icall_char_is_surrogate(char16_t c);
+bool icall_char_is_separator(char16_t c);
+bool icall_char_is_symbol(char16_t c);
+double icall_char_get_numeric_value(char16_t c);
 
 }} // namespace il2cpp::runtime

@@ -100,6 +100,11 @@ namespace runtime {
 // Ordinal static Compare (see header: null < non-null; unit diff; length diff).
 int32_t icall_string_compare_static(Il2CppObject* a, Il2CppObject* b);
 
+// MODE-AWARE static Compare (string.Compare(a, b, StringComparison)):
+// Ordinal exact; IgnoreCase folds ASCII; culture forms degrade to the fold
+// (documented ASCII-domain deviation).
+int32_t icall_string_compare_mode(Il2CppObject* a, Il2CppObject* b, int32_t mode);
+
 // Ordinal static Equals (both null -> true; one null -> false; content).
 bool icall_string_equals_static(Il2CppObject* a, Il2CppObject* b);
 

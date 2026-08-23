@@ -17,9 +17,9 @@ namespace Il2Cpp.Transpiler.Emit;
 //     fixed-size: only the worker count is meaningful; the completion-port
 //     count is DROPPED -- never honored, matching the fixed-pool contract)
 //
-// GetMaxThreads is LOUDLY rejected: its out params need a write-back the
-// emitter cannot express (the runtime icall returns int32 with no out
-// slots).
+// GetMinThreads/GetMaxThreads/GetAvailableThreads (the public out-param
+// forms) write the fixed worker count into BOTH slots via the *_out
+// runtime wrappers and the emitter's "addr:i" cast.
 // Owners: System.Threading.ThreadPool
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
@@ -46,8 +46,21 @@ public static partial class MethodRefResolver
                 // is dropped.
                 return I("il2cpp::runtime::il2cpp_threadpool_set_max_threads", 2, false, false, false,
                     new[] { "i", "drop" });
+            case "GetMinThreads":
             case "GetMaxThreads":
-                throw new NotSupportedException("System.Threading.ThreadPool::GetMaxThreads not wired: the out-param write-back (workerThreads/completionPortThreads) is not expressible in the emitter; the runtime icall il2cpp_threadpool_get_max_threads returns int32 with no out slots");
+            case "GetAvailableThreads":
+                // (out int workerThreads, out int completionPortThreads): the
+                // out slots ride the emitter's "addr:i" cast (the TryParse/
+                // DivRem precedent -- the historical "not expressible" comment
+                // predates that support). The simplified pool has no IOCP
+                // model, so both slots receive the fixed worker count.
+                // NOTE: ReadParamByte carries the BYREF ELEMENT byte, so two
+                // out ints arrive as ps=[0x08,0x08] (not the 0x10 marker).
+                return count == 2 && ps[0] == 0x08 && ps[1] == 0x08
+                    ? I("il2cpp::runtime::icall_thread_pool_get_" +
+                        (name == "GetMinThreads" ? "min" : name == "GetMaxThreads" ? "max" : "available") +
+                        "_threads_out", 2, false, false, false, new[] { "addr:i", "addr:i" })
+                    : null;
             // P6: ThreadPool internal helpers (stubs).
             case "NotifyWorkItemComplete": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_complete", 0, false, false, false);
             case "ReportThreadStatus": return I("il2cpp::runtime::icall_thread_pool_report_thread_status", 1, false, false, false, new[] { "i" });

@@ -135,6 +135,26 @@ int32_t icall_thread_pool_get_thread_count() { return 1; }
 int32_t icall_thread_pool_get_min_threads() { return 1; }
 int32_t icall_thread_pool_get_max_threads() { return 1; }
 int32_t icall_thread_pool_get_available_threads() { return 1; }
+// The PUBLIC out-param forms (GetMinThreads/GetMaxThreads/
+// GetAvailableThreads(out workerThreads, out completionPortThreads)): the
+// simplified pool has no IOCP model, so both slots receive the same fixed
+// worker count (min == max == available == N -- the documented single-pool
+// doctrine of threadpool.h).
+void icall_thread_pool_get_min_threads_out(int32_t* workerThreads, int32_t* completionPortThreads)
+{
+    if (workerThreads) *workerThreads = 1;
+    if (completionPortThreads) *completionPortThreads = 1;
+}
+void icall_thread_pool_get_max_threads_out(int32_t* workerThreads, int32_t* completionPortThreads)
+{
+    if (workerThreads) *workerThreads = 1;
+    if (completionPortThreads) *completionPortThreads = 1;
+}
+void icall_thread_pool_get_available_threads_out(int32_t* workerThreads, int32_t* completionPortThreads)
+{
+    if (workerThreads) *workerThreads = 1;
+    if (completionPortThreads) *completionPortThreads = 1;
+}
 // net6/net7: CanSetMin/MaxIOCompletionThreads -- the simplified pool has no
 // IOCP model; the honest constant answer is false on every platform.
 bool icall_thread_pool_can_set_io_threads() { return false; }
@@ -225,7 +245,7 @@ void icall_threadobj_spin_wait(int32_t iterations)
 }
 
 // Remaining miscellaneous stubs
-Il2CppObject* icall_object_memberwise_clone(Il2CppObject* self) { return nullptr; }
+// (icall_object_memberwise_clone moved to object.cpp -- real impl, not a stub)
 Il2CppObject* icall_array_get_data_ptr_offset_internal(Il2CppObject* arr) { return nullptr; }
 Il2CppObject* icall_string_is_fast_sort(Il2CppString* str) { return nullptr; }
 int32_t icall_string_is_ascii(Il2CppString* str) { return 1; }

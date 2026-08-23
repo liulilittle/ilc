@@ -83,6 +83,28 @@ public static partial class MethodRefResolver
                 if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
                     return I("il2cpp::runtime::icall_version_op_inequality", 2, true, false, false);
                 return null;
+            case "op_LessThan":
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_version_op_less_than", 2, true, false, false);
+                return null;
+            case "op_GreaterThan":
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_version_op_greater_than", 2, true, false, false);
+                return null;
+            case "op_LessThanOrEqual":
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_version_op_less_or_equal", 2, true, false, false);
+                return null;
+            case "op_GreaterThanOrEqual":
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_version_op_greater_or_equal", 2, true, false, false);
+                return null;
+            case "get_MajorRevision":
+                return I("il2cpp::runtime::icall_version_get_major_revision", 0, true, false, true);
+            case "get_MinorRevision":
+                return I("il2cpp::runtime::icall_version_get_minor_revision", 0, true, false, true);
+            case "GetHashCode":
+                return I("il2cpp::runtime::icall_version_get_hash_code", 0, true, false, true);
             default:
                 throw new NotSupportedException(
                     "System.Version member not wired: the object icalls cover " +

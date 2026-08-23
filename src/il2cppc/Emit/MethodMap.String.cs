@@ -206,21 +206,17 @@ case "ReplaceLineEndings":
                     ? I("il2cpp::runtime::icall_string_trim", 1, true, true, true, new[] { "", "drop" })
                     : I("il2cpp::runtime::icall_string_trim", 0, true, true, true);
             case "TrimStart":
-                // net48 has NO 0-arg TrimStart -- the only overload is
-                // TrimStart(params char[]); Roslyn (optimize) lowers a
-                // no-arg call to TrimStart(Array.Empty<char>()). The char[]
-                // argument is the trim set: the runtime icall is
-                // whitespace-only, so a NON-empty trim set would be ignored
-                // (documented deviation); the empty-array shape the e2e
-                // cases reach (Array.Empty<char>) is exact. ParamCount = 1
-                // keeps the fold's shadow stack in lockstep with the IL
-                // (this + char[] pushed); the array is dropped at emission.
+                // TrimStart(params char[]): the SET-aware icall
+                // (icall_string_trim_start_set) strips every leading unit in
+                // the set -- the old whitespace-only deviation is retired.
+                // ParamCount = 1 keeps the fold's shadow stack in lockstep
+                // with the IL (this + char[] pushed).
                 return ps.Length == 1
-                    ? I("il2cpp::runtime::icall_string_trim_start", 1, true, true, true, new[] { "", "drop" })
+                    ? I("il2cpp::runtime::icall_string_trim_start_set", 1, true, true, true, new[] { "", "" })
                     : I("il2cpp::runtime::icall_string_trim_start", 0, true, true, true);
             case "TrimEnd":
                 return ps.Length == 1
-                    ? I("il2cpp::runtime::icall_string_trim_end", 1, true, true, true, new[] { "", "drop" })
+                    ? I("il2cpp::runtime::icall_string_trim_end_set", 1, true, true, true, new[] { "", "" })
                     : I("il2cpp::runtime::icall_string_trim_end", 0, true, true, true);
             case "PadLeft":
             case "PadRight":
@@ -291,8 +287,8 @@ case "ReplaceLineEndings":
                 if (ps.Length == 2)
                     return I("il2cpp::runtime::icall_string_compare_static", 2, true, false, false);
                 if (ps.Length == 3 && ps[2] == 0x11)
-                    return I("il2cpp::runtime::icall_string_compare_static", 3, true, false, false,
-                        new[] { "", "", "drop" });
+                    return I("il2cpp::runtime::icall_string_compare_mode", 3, true, false, false,
+                        new[] { "", "", "i" });
                 if (ps.Length == 3 && ps[2] == 0x02)
                     throw new NotSupportedException($"String.{name}(string, string, bool ignoreCase) not wired (no mode-aware static compare icall; dropping the flag would silently ignore ignoreCase=true)");
                 throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5");

@@ -197,8 +197,15 @@ public static partial class MethodRefResolver
                 // count) -- a resolver-only mapping cannot express the
                 // reorder; see the wir8 report for the emitter gap.
                 if (genArgs != null && genArgs[0] == 0x08)   // FindIndex<int>
+                {
+                    // 2-arg overload (array, match): the whole range via the
+                    // dedicated icall_array_find_index_2 wrapper.
+                    if (ps.Length == 2)
+                        return I("il2cpp::runtime::icall_array_find_index_2", 2, true, false, false,
+                            new[] { "a", "" });
                     return I("il2cpp::runtime::icall_array_find_index", 4, true, false, false,
                         new[] { "a", "", "i", "i" });
+                }
                 throw new NotSupportedException(
                     $"Array.FindIndex<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the delegate icall icall_array_find_index (il2cpp_array_ext2.h:145); 2/3-arg overloads fold to the 4-arg shape in the runtime");
             // ARRFUNCS (2026-08-09, wir9-b23): the five remaining arrayext2
@@ -262,8 +269,14 @@ public static partial class MethodRefResolver
                     && genArgs[0] == 0x0E && genArgs[1] == 0x08)   // ConvertAll<string,int>
                     return I("il2cpp::runtime::icall_array_convert_all_str_i4", 2, true, true, false,
                         new[] { "a", "" });
+                // icallwide E2E: ConvertAll<int,long>(int32[], x => (long)x * 2)
+                // -- the int64-output variant (arrayext2 i4_i8 icall).
+                if (genArgs != null && genArgs.Length == 2
+                    && genArgs[0] == 0x08 && genArgs[1] == 0x0A)   // ConvertAll<int,long>
+                    return I("il2cpp::runtime::icall_array_convert_all_i4_i8", 2, true, true, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{(genArgs?[0] ?? 0):X2},0x{(genArgs is { Length: 2 } g ? g[1] : 0):X2} not wired: only (int32,int32) (0x08,0x08) has the converter icall icall_array_convert_all_i4_i4 (il2cpp_array_ext2.h:181)");
+                    $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{(genArgs?[0] ?? 0):X2},0x{(genArgs is { Length: 2 } g ? g[1] : 0):X2} not wired: only (int32,int32) (0x08,0x08), (string,int32) and (int32,int64) have converter icalls");
             case "Resize":
                 // void Array.Resize<int>(ref int32[] array, int newSize): the
                 // byref array slot arrives as an ldloca LocAddrExpr -- the

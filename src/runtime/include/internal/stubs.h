@@ -77,6 +77,11 @@ int32_t icall_thread_pool_get_max_threads();
 // net6/net7: CanSetMin/MaxIOCompletionThreads -- constant false (no IOCP model).
 bool icall_thread_pool_can_set_io_threads();
 int32_t icall_thread_pool_get_available_threads();
+// The PUBLIC out-param forms: both slots receive the fixed worker count
+// (single-pool doctrine -- no IOCP model, min == max == available).
+void icall_thread_pool_get_min_threads_out(int32_t* workerThreads, int32_t* completionPortThreads);
+void icall_thread_pool_get_max_threads_out(int32_t* workerThreads, int32_t* completionPortThreads);
+void icall_thread_pool_get_available_threads_out(int32_t* workerThreads, int32_t* completionPortThreads);
 
 // OverlappedData stubs
 int32_t icall_overlapped_data_get_pending_count(Il2CppObject* self);

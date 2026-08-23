@@ -89,6 +89,23 @@ Il2CppString* icall_int32_to_string_hex(int32_t value);
 // OverflowException. Returns the parsed value.
 int32_t icall_string_parse_int(Il2CppString* text);
 
+// Int64.Parse: the same strict contract with int64 bounds (see
+// icall_string_parse_int). Returns the parsed value.
+int64_t icall_string_parse_long(Il2CppString* text);
+
+// Convert.ToBoolean(string): null -> false; "true"/"false"
+// case-insensitive with surrounding whitespace; anything else ->
+// FormatException. Returns 0/1.
+int32_t icall_convert_to_boolean_string(Il2CppString* text);
+
+// bool.Parse(string): the strict form -- null -> ArgumentNullException;
+// otherwise identical to icall_convert_to_boolean_string.
+int32_t icall_bool_parse(Il2CppString* text);
+
+// char.Parse(string): exactly one UTF-16 unit; null -> ArgumentNullException,
+// any other length -> FormatException. Returns the unit.
+int32_t icall_char_parse(Il2CppString* text);
+
 // double.Parse: ASCII-whitespace tolerant, legal double text (see header).
 // Invalid text -> FormatException; |value| > double.MaxValue ->
 // OverflowException. Returns the parsed value.

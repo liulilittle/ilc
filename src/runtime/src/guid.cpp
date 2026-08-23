@@ -123,6 +123,33 @@ void il2cpp_guid_new_guid(uint8_t bytes[16])
 }
 
 //------------------------------------------------------------------------------
+// Guid(int32 a, int16 b, int16 c, byte d..k) -- the 11-argument component
+// ctor. The IL pushes 11 int32 slots; the storage layout is the .NET byte
+// layout (Data1/Data2/Data3 little-endian, Data4 bytes in order) per the
+// guid.h header contract. The icall writes the receiver's 16-byte value
+// slot (the emitter passes &slot for this ResultIsReceiver-style ctor).
+//------------------------------------------------------------------------------
+void il2cpp_guid_ctor_components(uint8_t bytes[16],
+                                 int32_t a, int32_t b, int32_t c,
+                                 int32_t d, int32_t e, int32_t f, int32_t g,
+                                 int32_t h, int32_t i, int32_t j, int32_t k)
+{
+    bytes[0]  = static_cast<uint8_t>(a & 0xFF);
+    bytes[1]  = static_cast<uint8_t>((a >> 8) & 0xFF);
+    bytes[2]  = static_cast<uint8_t>((a >> 16) & 0xFF);
+    bytes[3]  = static_cast<uint8_t>((a >> 24) & 0xFF);
+    bytes[4]  = static_cast<uint8_t>(b & 0xFF);
+    bytes[5]  = static_cast<uint8_t>((b >> 8) & 0xFF);
+    bytes[6]  = static_cast<uint8_t>(c & 0xFF);
+    bytes[7]  = static_cast<uint8_t>((c >> 8) & 0xFF);
+    const int32_t rest[8] = { d, e, f, g, h, i, j, k };
+    for (int32_t n = 0; n < 8; ++n)
+    {
+        bytes[8 + n] = static_cast<uint8_t>(rest[n] & 0xFF);
+    }
+}
+
+//------------------------------------------------------------------------------
 // Parse -- strict "D" (36-char, dashes at 8/13/18/23) or "N" (32-char, no
 // dashes) form, both net48-accepted (TryParse-style, verify-then-mutate).
 //------------------------------------------------------------------------------
@@ -220,6 +247,105 @@ Il2CppString* il2cpp_guid_to_string(const uint8_t bytes[16])
         }
         buf[p++] = kHex[(bytes[kOrder[i]] >> 4) & 0x0F];
         buf[p++] = kHex[bytes[kOrder[i]] & 0x0F];
+    }
+    buf[p] = '\0';
+    return il2cpp_string_new_from_utf8(buf);
+}
+
+//------------------------------------------------------------------------------
+// ToString(format) -- the full .NET format family. Contract (net48 probe):
+// null or "D" -> dddddddd-dddd-dddd-dddd-dddddddddddd; "N" -> no dashes;
+// "B" -> {D}; "P" -> (D); "X" -> {0xdddddddd,0xdddd,0xdddd,{0xdd,...}} with
+// Data1/Data2/Data3 shown big-endian and Data4 bytes in stored order. The
+// format is case-insensitive; any other string is FormatException.
+//------------------------------------------------------------------------------
+Il2CppString* il2cpp_guid_to_string_format(const uint8_t bytes[16], Il2CppString* format)
+{
+    static const char kHex[] = "0123456789abcdef";
+    static const int32_t kOrder[16] = {
+        3, 2, 1, 0,
+        5, 4,
+        7, 6,
+        8, 9,
+        10, 11, 12, 13, 14, 15,
+    };
+    char hex[33];
+    for (int32_t i = 0; i < 16; ++i)
+    {
+        hex[i * 2]     = kHex[(bytes[kOrder[i]] >> 4) & 0x0F];
+        hex[i * 2 + 1] = kHex[bytes[kOrder[i]] & 0x0F];
+    }
+    hex[32] = '\0';
+
+    char fmtChar = 'd'; // null format behaves as "D"
+    if (format != nullptr)
+    {
+        if (format->length != 1)
+        {
+            il2cpp_throw_format_exception("format");
+        }
+        fmtChar = static_cast<char>(format->chars[0]);
+        switch (fmtChar)
+        {
+            case 'd': case 'D': case 'n': case 'N':
+            case 'b': case 'B': case 'p': case 'P': case 'x': case 'X':
+                break;
+            default:
+                il2cpp_throw_format_exception("format");
+        }
+    }
+
+    char buf[80];
+    int32_t p = 0;
+    auto emit_dashed = [&]()
+    {
+        for (int32_t i = 0; i < 32; ++i)
+        {
+            if (i == 8 || i == 12 || i == 16 || i == 20) buf[p++] = '-';
+            buf[p++] = hex[i];
+        }
+    };
+
+    switch (fmtChar)
+    {
+        case 'n': case 'N':
+            std::memcpy(buf, hex, 32);
+            p = 32;
+            break;
+        case 'b': case 'B':
+            buf[p++] = '{';
+            emit_dashed();
+            buf[p++] = '}';
+            break;
+        case 'p': case 'P':
+            buf[p++] = '(';
+            emit_dashed();
+            buf[p++] = ')';
+            break;
+        case 'x': case 'X':
+        {
+            // {0xdddddddd,0xdddd,0xdddd,{0xdd,0xdd,0xdd,0xdd,0xdd,0xdd,0xdd,0xdd}}
+            buf[p++] = '{';
+            buf[p++] = '0'; buf[p++] = 'x';
+            for (int32_t i = 0; i < 8; ++i) buf[p++] = hex[i];          // Data1 BE
+            buf[p++] = ','; buf[p++] = '0'; buf[p++] = 'x';
+            for (int32_t i = 8; i < 12; ++i) buf[p++] = hex[i];         // Data2 BE
+            buf[p++] = ','; buf[p++] = '0'; buf[p++] = 'x';
+            for (int32_t i = 12; i < 16; ++i) buf[p++] = hex[i];        // Data3 BE
+            buf[p++] = ','; buf[p++] = '{';
+            for (int32_t g = 0; g < 8; ++g)                             // Data4 in order
+            {
+                if (g != 0) buf[p++] = ',';
+                buf[p++] = '0'; buf[p++] = 'x';
+                buf[p++] = kHex[(bytes[8 + g] >> 4) & 0x0F];
+                buf[p++] = kHex[bytes[8 + g] & 0x0F];
+            }
+            buf[p++] = '}'; buf[p++] = '}';
+            break;
+        }
+        default: // 'd' / 'D'
+            emit_dashed();
+            break;
     }
     buf[p] = '\0';
     return il2cpp_string_new_from_utf8(buf);

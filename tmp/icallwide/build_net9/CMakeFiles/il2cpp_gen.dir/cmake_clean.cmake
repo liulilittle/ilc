@@ -1,0 +1,31 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/il2cpp_gen.dir/src/Cloneable.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/Cloneable.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/Finalizable.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/Finalizable.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/_PrivateImplementationDetails_.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/_PrivateImplementationDetails_.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/__O.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/__O.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_12.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_12.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_20.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_20.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_3.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/__StaticArrayInitTypeSize_3.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/__c.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/__c.cpp.obj.d"
+  "CMakeFiles/il2cpp_gen.dir/src/entry.cpp.obj"
+  "CMakeFiles/il2cpp_gen.dir/src/entry.cpp.obj.d"
+  "libil2cpp_gen.a"
+  "libil2cpp_gen.pdb"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/il2cpp_gen.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

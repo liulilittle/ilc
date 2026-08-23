@@ -2535,7 +2535,22 @@ public static class CodeGenerator
                     if (resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_decimal", StringComparison.Ordinal)
                         || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_biginteger", StringComparison.Ordinal))
                         thisCode = $"(&{thisCode})";
-                    var argCode = c.Args.Skip(1).Select(a => EmitExpr(a, md, types)).ToList();
+                    // drop-cast fix (icallwide): the old inline walk ignored
+                    // ParamTypeNames -- a trailing "drop" (DateTime
+                    // ctor(y,m,d,h,mi,s,kind) drops the DateTimeKind) leaked
+                    // into the emitted call ("expected 6, have 7"). Walk the
+                    // casts exactly like EmitIcallCallArgs does: index ai in
+                    // the casts array aligns with c.Args[ai] (slot 0 is the
+                    // receiver); "drop" skips the argument.
+                    var argCode = new List<string>();
+                    for (var ai = 1; ai < c.Args.Count; ai++)
+                    {
+                        var castV = resolvedVc.ParamTypeNames != null && ai < resolvedVc.ParamTypeNames.Length
+                            ? resolvedVc.ParamTypeNames[ai]
+                            : null;
+                        if (castV == "drop") continue;
+                        argCode.Add(EmitExpr(c.Args[ai], md, types));
+                    }
                     var argList = argCode.Count > 0 ? ", " + string.Join(", ", argCode) : "";
                     if (resolvedVc.ResultIsReceiver)
                     {
@@ -2830,13 +2845,19 @@ public static class CodeGenerator
                     var ctorArgs2 = new List<string>();
                     for (var ai = 1; ai < c.Args.Count; ai++)
                     {
+                        var ptnCast = resolvedStmt.ParamTypeNames is { Length: > 0 } ptn2 && ai < ptn2.Length ? ptn2[ai] : null;
+                        // drop-cast fix (icallwide): a "drop" slot must skip the
+                        // argument ENTIRELY (the DateTime ctor(y,m,d,h,mi,s,kind)
+                        // kind) -- the old walk only skipped the CAST and still
+                        // added the argument ("expected 6, have 7").
+                        if (ptnCast == "drop") continue;
                         var acode = EmitExpr(c.Args[ai], md, types);
-                        if (resolvedStmt.ParamTypeNames is { Length: > 0 } ptn && ai < ptn.Length && ptn[ai] is { Length: > 0 } pcast && pcast != "drop")
+                        if (ptnCast is { Length: > 0 } pcast)
                         {
                             acode = EmitIcallCallArgs(new ResolvedMethod(resolvedStmt.CppName, resolvedStmt.ParamCount,
                                     resolvedStmt.IsConsoleWriteLine, resolvedStmt.ReturnsValue, resolvedStmt.ReturnsRef,
                                     resolvedStmt.ParamIsRef, resolvedStmt.IsInstance, resolvedStmt.IsPInvoke,
-                                    new[] { ptn[ai] }, resolvedStmt.SetLastError, resolvedStmt.ResultKind,
+                                    new[] { pcast }, resolvedStmt.SetLastError, resolvedStmt.ResultKind,
                                     resolvedStmt.PrependCountArg, resolvedStmt.PrependZeroArg,
                                     resolvedStmt.AppendZeroArg, resolvedStmt.ReturnTypeName, resolvedStmt.ResultIsReceiver),
                                 new List<Expr> { c.Args[ai] }, md, types)!;
@@ -5134,7 +5155,7 @@ public static class CodeGenerator
             return false;
         }
         if (methodName != ".ctor") return false;
-        return ownerFullName is "System.DateTime" or "System.TimeSpan" or "System.Decimal"
+        return ownerFullName is "System.DateTime" or "System.TimeSpan" or "System.Decimal" or "System.Guid"
             || types.Any(t => t.FullName == ownerFullName && t.IsValueType);
     }
 

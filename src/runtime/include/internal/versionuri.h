@@ -196,6 +196,11 @@ int32_t icall_version_get_major(Il2CppObject* self);
 int32_t icall_version_get_minor(Il2CppObject* self);
 int32_t icall_version_get_build(Il2CppObject* self);
 int32_t icall_version_get_revision(Il2CppObject* self);
+// The 16-bit halves of Revision (net48 contract; see versionuri.cpp).
+int32_t icall_version_get_major_revision(Il2CppObject* self);
+int32_t icall_version_get_minor_revision(Il2CppObject* self);
+// GetHashCode: the deterministic component fold (same-value -> same-hash).
+int32_t icall_version_get_hash_code(Il2CppObject* self);
 
 // ToString(): rebuilds "major.minor[.build[.revision]]" from the stored
 // components (the count is preserved verbatim -- the domain round-trip rule).
@@ -214,6 +219,13 @@ bool icall_version_equals(Il2CppObject* self, Il2CppObject* other);
 // equal, exactly one null unequal; otherwise component equality.
 bool icall_version_op_equality(Il2CppObject* a, Il2CppObject* b);
 bool icall_version_op_inequality(Il2CppObject* a, Il2CppObject* b);
+
+// The relational operators (static, two Version operands): null compares as
+// LESS than any non-null version; null vs null is equal.
+bool icall_version_op_less_than(Il2CppObject* a, Il2CppObject* b);
+bool icall_version_op_greater_than(Il2CppObject* a, Il2CppObject* b);
+bool icall_version_op_less_or_equal(Il2CppObject* a, Il2CppObject* b);
+bool icall_version_op_greater_or_equal(Il2CppObject* a, Il2CppObject* b);
 
 // Parse(string) -- static: allocates a Version object through
 // System_Version_class and returns it. Null input -> ArgumentNullException;

@@ -27,6 +27,8 @@ public static partial class MethodRefResolver
             case "set_Item": return I("il2cpp::runtime::icall_hashtable_set", 2, false, false, true);
             case "get_Item": return I("il2cpp::runtime::icall_hashtable_get", 1, true, true, true);
             case "ContainsKey": return I("il2cpp::runtime::icall_hashtable_contains_key", 1, true, false, true);
+            // ContainsValue(value): the O(n) linear scan (hashtable.cpp).
+            case "ContainsValue": return I("il2cpp::runtime::icall_hashtable_contains_value", 1, true, false, true);
             case "Remove": return I("il2cpp::runtime::icall_hashtable_remove", 1, false, false, true);
             case "get_Count": return I("il2cpp::runtime::icall_hashtable_get_count", 0, true, false, true);
             case "Clear": return I("il2cpp::runtime::icall_hashtable_clear", 0, false, false, true);
