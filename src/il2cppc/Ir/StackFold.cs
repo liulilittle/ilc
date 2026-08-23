@@ -3129,6 +3129,10 @@ public static class StackFold
                     SourceOffset = ins.Offset,
                     SourceOpName = OpName(ins.OpCode)
                 });
+                // icallwide: track the reference-newobj receiver's declared
+                // type (new Version(...).GetHashCode() chained callvirts need
+                // the hint to route Object::GetHashCode to the domain icall).
+                objTypes[name] = typeFullName;
             }
             // excext (m7m): remember the BCL-exception ctor args so the throw
             // site can forward the real message/paramName to il2cpp_throw_new.

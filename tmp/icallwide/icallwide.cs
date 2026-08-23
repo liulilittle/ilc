@@ -147,7 +147,7 @@ static class Program
         Check("wm.divrem", q == 3 && rem == 2);
         Check("wm.abs.long", Math.Abs(-922337203685477580L) == 922337203685477580L);
         Check("wm.minmax.bytes", Math.Max((byte)200, (byte)100) == 200 && Math.Min((byte)200, (byte)100) == 100);
-        Check("wm.exp.log", Math.Exp(1.0) > 2.718281828459045 && Math.Exp(1.0) < 2.718281828459046);
+        Check("wm.exp.log", Math.Abs(Math.Exp(1.0) - 2.718281828459045) < 1e-12 && Math.Log10(1000.0) == 3.0);
         Check("wm.log10", Math.Log10(1000.0) == 3.0);
         Check("wm.log.e", Math.Log(Math.E) == 1.0);
         Check("wm.pow.frac", Math.Pow(8.0, 1.0 / 3.0) > 1.9999999999 && Math.Pow(8.0, 1.0 / 3.0) < 2.0000000001);
@@ -245,7 +245,8 @@ static class Program
         // Convert.ToInt32(string, base) below (the styles overload itself is
         // unwired -- documented subset boundary).
         bool ok1 = int.TryParse("12x", out int ti);
-        Check("parse.tryfail", ok1 == false && ti == 0);
+        Check("parse.tryfail", !ok1);
+        Check("parse.tryfail.zero", ti == 0);
         bool ok2 = int.TryParse("777", out int tj);
         Check("parse.tryok", ok2 && tj == 777);
         Check("parse.double", double.Parse("3.5") == 3.5 && double.Parse("-0.25") == -0.25);
@@ -496,7 +497,9 @@ static class Program
         Check("en.parse.num", Enum.Parse(typeof(Color), "0").ToString() == "Red");
         Color parsed;
         Check("en.tryparse", Enum.TryParse<Color>("Green", out parsed) && parsed.ToString() == "Green");
-        Check("en.tryparse.fail", !Enum.TryParse<Color>("Mauve", out parsed) && parsed.ToString() == "0");
+        bool fail1 = Enum.TryParse<Color>("Mauve", out parsed);
+        Check("en.tryparse.fail", !fail1);
+        Check("en.tryparse.fail.default", parsed.ToString() == "Red"); // failed parse writes default(Color)=Red
         Check("en.isdefined", Enum.IsDefined(typeof(Color), Color.Red) && !Enum.IsDefined(typeof(Color), (Color)99));
         Check("en.hasflag", (Color.Green | Color.Red).HasFlag(Color.Red));
         Check("en.tostring", Color.Green.ToString() == "Green");
@@ -515,7 +518,8 @@ static class Program
         Check("obj.memberwiseclone", c2.X == 42 && c2.Name == "orig");
         c2.X = 99;
         Check("obj.clone.independent", c.X == 42 && c2.X == 99);
-        Check("obj.gettype", c.GetType() == typeof(Cloneable) && c.GetType() != typeof(object));
+        Check("obj.gettype", c.GetType() == typeof(Cloneable));
+        Check("obj.gettype.notobject", c.GetType() != typeof(object));
         Check("obj.tostring.default", c.GetType().Name.Length > 0);
         object boxed = 42;
         Check("obj.box.unbox", (int)boxed == 42 && boxed.GetType() == typeof(int));

@@ -444,6 +444,7 @@ int32_t icall_try_parse_int32(Il2CppObject* s, int32_t* result)
     {
         return 0;
     }
+    *result = 0; // .NET TryParse contract: failed parse writes 0
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(s);
     int64_t v = 0;
     if (!TryParseInteger(str->chars, str->chars + str->length, 10, true, true, true,
@@ -461,6 +462,7 @@ int32_t icall_try_parse_int64(Il2CppObject* s, int64_t* result)
     {
         return 0;
     }
+    *result = 0;
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(s);
     int64_t v = 0;
     if (!TryParseInteger(str->chars, str->chars + str->length, 10, true, true, true,
@@ -478,6 +480,7 @@ int32_t icall_try_parse_byte(Il2CppObject* s, int32_t* result)
     {
         return 0;
     }
+    *result = 0;
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(s);
     int64_t v = 0;
     if (!TryParseInteger(str->chars, str->chars + str->length, 10, true, true, true,
@@ -531,6 +534,7 @@ int32_t icall_try_parse_double(Il2CppObject* s, double* result)
     {
         return 0;
     }
+    *result = 0.0; // failed parse writes 0.0 (.NET contract)
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(s);
     double out = 0.0;
     if (!TryParseDoubleCore(str->chars, str->length, &out))
@@ -551,6 +555,7 @@ int32_t icall_try_parse_bool(Il2CppObject* s, int32_t* result)
     {
         return 0;
     }
+    *result = 0;
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(s);
     const char16_t* p = str->chars;
     const char16_t* end = p + str->length;
