@@ -2069,10 +2069,10 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_parse(il2cpp::g_strPool[261])); // IL call @0x01A2 -- store call result into t0
     t8 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_to_string(t0));           // IL callvirt @0x01A7 -- store call result into t8
     Program_Check_0c8420c745f790fe(il2cpp::g_strPool[262], il2cpp::runtime::icall_string_equals_static(t8, il2cpp::g_strPool[261])); // IL call @0x01B6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t5 = il2cpp::runtime::icall_object_get_hash_code(loc2);                                       // IL callvirt @0x01C2 -- store call result into t5
+    t5 = il2cpp::runtime::icall_version_get_hash_code(loc2);                                      // IL callvirt @0x01C2 -- store call result into t5
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x01CB -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x01CB -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[263], (t5 == il2cpp::runtime::icall_object_get_hash_code(t0))); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[263], (t5 == il2cpp::runtime::icall_version_get_hash_code(t0))); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x01DD -- exit method with no value (void)
 }
 
@@ -2749,7 +2749,7 @@ IL2CPP_NOINLINE void Program_WideEnum_da11afa97a3a0b32(void)
     loc1 = il2cpp::runtime::il2cpp_enum_parse(&Color_class, il2cpp::g_strPool[338], reinterpret_cast<int64_t*>((&(((&loc0))->value__)))); // IL stloc.1 @0x0159 -- store call result into loc1
     Program_Check_0c8420c745f790fe(il2cpp::g_strPool[339], (loc1 == 0LL));                        // IL call @0x0163 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(&Color_class, ((&loc0))->value__)); // IL callvirt @0x0176 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[340], il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[129])); // IL call @0x0185 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[340], il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[331])); // IL call @0x0185 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_box_enum(&Color_class, static_cast<int64_t>(0LL));                // IL box @0x019B -- store call result into t0
     t33 = il2cpp::runtime::il2cpp_enum_is_defined(il2cpp::g_strPool[326], t0);                    // IL call @0x01A0 -- store call result into t33
     t34 = il2cpp::g_strPool[341];                                                                 // IL brfalse.s @0x01A5 -- store evaluated value into t34

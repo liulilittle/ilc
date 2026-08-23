@@ -2366,6 +2366,12 @@ public static class StackFold
                 if (md != null && recvType != null
                     && (resolved == null || !resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal)
                         || recvType == "System.Threading.Timer"
+                        // icallwide: the Object::ToString/GetHashCode default
+                        // arms are receiver-agnostic first-pass results -- a
+                        // tracked typed receiver (Version/TimeSpan/...) must
+                        // re-resolve to the domain icall.
+                        || resolved.CppName.EndsWith("icall_object_get_hash_code")
+                        || resolved.CppName.EndsWith("icall_object_to_string")
                         // P18 deflate: a DeflateStream receiver must re-resolve
                         // the inherited Stream Write/Read/Close to the deflate
                         // icalls -- the first resolution (TryMapStreamIO) returns

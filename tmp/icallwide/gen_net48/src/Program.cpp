@@ -2043,10 +2043,10 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_parse(il2cpp::g_strPool[255])); // IL call @0x01A2 -- store call result into t0
     t8 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_to_string(t0));           // IL callvirt @0x01A7 -- store call result into t8
     Program_Check_0c8420c745f790fe(il2cpp::g_strPool[256], il2cpp::runtime::icall_string_equals_static(t8, il2cpp::g_strPool[255])); // IL call @0x01B6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t5 = il2cpp::runtime::icall_object_get_hash_code(loc2);                                       // IL callvirt @0x01C2 -- store call result into t5
+    t5 = il2cpp::runtime::icall_version_get_hash_code(loc2);                                      // IL callvirt @0x01C2 -- store call result into t5
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x01CB -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x01CB -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[257], (t5 == il2cpp::runtime::icall_object_get_hash_code(t0))); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[257], (t5 == il2cpp::runtime::icall_version_get_hash_code(t0))); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x01DD -- exit method with no value (void)
 }
 

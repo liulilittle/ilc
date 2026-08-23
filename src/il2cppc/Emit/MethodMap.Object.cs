@@ -38,19 +38,22 @@ public static partial class MethodRefResolver
                 // call with a C++ pointer comparison (reference identity).
                 if (name == "ReferenceEquals" && ps.Length == 2)
                     return new ResolvedMethod(ResolvedMethod.RefEqMarker, 2, false, true, false, new[] { false, false }, false);
-                // M5 wiring: Object.GetHashCode virtual dispatch (value_semantics).
-                if (name == "GetHashCode" && ps.Length == 0)
-                    return I("il2cpp::runtime::icall_object_get_hash_code", 0, true, false, true);
-                // icallwide: Object::ToString/GetHashCode on a TimeSpan
-                // receiver (Roslyn emits callvirt Object::* for the overrides)
-                // -- route to the ticks formatters/hashes (time.cpp).
+                // icallwide: typed-receiver dispatches MUST precede the
+                // Object::GetHashCode default arm below (the default arm
+                // would swallow every callvirt with a tracked receiver type).
                 if (name == "ToString" && receiverType == "System.TimeSpan")
                     return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
                 if (name == "GetHashCode" && receiverType == "System.TimeSpan")
                     return I("il2cpp::runtime::icall_timespan_get_hash_code", 0, true, false, true, new[] { "deref:ts" });
-                // icallwide: Version receiver (Roslyn emits callvirt Object::*)
                 if (name == "GetHashCode" && receiverType == "System.Version")
                     return I("il2cpp::runtime::icall_version_get_hash_code", 0, true, false, true);
+                if (name == "ToString" && receiverType == "System.Text.StringBuilder")
+                    return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
+                if (name == "ToString" && receiverType == "System.Version")
+                    return I("il2cpp::runtime::icall_version_to_string", 0, true, true, true);
+                // M5 wiring: Object.GetHashCode virtual dispatch (value_semantics).
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_object_get_hash_code", 0, true, false, true);
                 if (name == "ToString" && receiverType == "System.Text.StringBuilder")
                     return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
                 // icallwide: Object::ToString on a TimeSpan receiver (Roslyn

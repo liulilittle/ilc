@@ -348,7 +348,7 @@ inline void il2cpp_string_pool_fill() {
     g_strPool[337] = il2cpp_string_intern_literal("en.tryparse");
     g_strPool[338] = il2cpp_string_intern_literal("Mauve");
     g_strPool[339] = il2cpp_string_intern_literal("en.tryparse.fail");
-    g_strPool[340] = il2cpp_string_intern_literal("en.tryparse.fail.zero");
+    g_strPool[340] = il2cpp_string_intern_literal("en.tryparse.fail.default");
     g_strPool[341] = il2cpp_string_intern_literal("en.isdefined");
     g_strPool[342] = il2cpp_string_intern_literal("en.hasflag");
     g_strPool[343] = il2cpp_string_intern_literal("en.tostring");
