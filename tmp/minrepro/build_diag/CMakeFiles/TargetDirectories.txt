@@ -1,0 +1,7 @@
+E:/il2cpp/tmp/minrepro/build_diag/CMakeFiles/il2cpp_gen.dir
+E:/il2cpp/tmp/minrepro/build_diag/CMakeFiles/il2cpp_gen_exe.dir
+E:/il2cpp/tmp/minrepro/build_diag/CMakeFiles/edit_cache.dir
+E:/il2cpp/tmp/minrepro/build_diag/CMakeFiles/rebuild_cache.dir
+E:/il2cpp/tmp/minrepro/build_diag/runtime/CMakeFiles/il2cpp_runtime.dir
+E:/il2cpp/tmp/minrepro/build_diag/runtime/CMakeFiles/edit_cache.dir
+E:/il2cpp/tmp/minrepro/build_diag/runtime/CMakeFiles/rebuild_cache.dir

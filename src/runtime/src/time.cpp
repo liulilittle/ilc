@@ -450,14 +450,15 @@ Il2CppDateTime icall_datetime_add_milliseconds(Il2CppDateTime dt, double millise
 
 //------------------------------------------------------------------------------
 // Kind support under the single-zone doctrine: this runtime IS a UTC host
-// (cf. cultureinfo get_current), so every DateTime reads as Kind.Utc (the
-// raw value 2) and SpecifyKind is the identity on ticks -- the kind argument
-// is accepted and dropped, never honored as a local-time conversion.
+// (cf. cultureinfo get_current), so every DateTime reads as Kind.Utc -- whose
+// underlying value is 1 (.NET definition: Unspecified=0, Utc=1, Local=2) --
+// and SpecifyKind is the identity on ticks (the kind argument is accepted
+// and dropped, never honored as a local-time conversion).
 //------------------------------------------------------------------------------
 int32_t icall_datetime_get_kind(Il2CppDateTime dt)
 {
     (void)dt;
-    return 2; // DateTimeKind.Utc
+    return 1; // DateTimeKind.Utc
 }
 
 Il2CppDateTime icall_datetime_specify_kind(Il2CppDateTime dt, int32_t kind)

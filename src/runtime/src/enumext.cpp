@@ -788,6 +788,10 @@ int32_t il2cpp_enum_parse(Il2CppClass* enumClass, Il2CppObject* text,
     {
         return 0; // TryParse contract: null input is a failure, no throw
     }
+    // .NET TryParse contract: a FAILED parse writes default(T) (=0) into the
+    // out slot -- the historical "written only on success" comment was wrong
+    // (icallwide E2E: Enum.TryParse<Color>("Mauve", out pc) must yield 0).
+    *result = 0;
     const Il2CppEnumInfo* info = FindInfo(enumClass);
     if (info != nullptr)
     {
@@ -816,6 +820,7 @@ int32_t il2cpp_enum_parse_ic(Il2CppClass* enumClass, Il2CppObject* text,
     {
         return 0; // TryParse contract: null input is a failure, no throw
     }
+    *result = 0; // failed parse writes default(T) (see il2cpp_enum_parse)
     const Il2CppEnumInfo* info = FindInfo(enumClass);
     if (info != nullptr && ignoreCase != 0)
     {

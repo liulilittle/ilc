@@ -255,7 +255,7 @@ static class Program
         // NOTE: TimeSpan.Parse is unwired (no runtime parser icall) --
         // documented subset boundary; the From* factories cover construction.
         TimeSpan ts = new TimeSpan(1, 2, 3, 0, 4);
-        Check("parse.timespan", ts.Hours == 1 && ts.Minutes == 2 && ts.Seconds == 3 && ts.Milliseconds == 4);
+        Check("parse.timespan", ts.Days == 1 && ts.Hours == 2 && ts.Minutes == 3 && ts.Seconds == 0 && ts.Milliseconds == 4);
         Guid g = Guid.Parse("00010203-0405-0607-0809-0a0b0c0d0e0f");
         Check("parse.guid", g.ToString("N") == "000102030405060708090a0b0c0d0e0f");        Check("parse.decimal", decimal.Parse("-5.5") == -5.5m);
         Check("parse.convert.toint32", Convert.ToInt32("123") == 123);

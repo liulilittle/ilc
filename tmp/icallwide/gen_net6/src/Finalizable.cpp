@@ -57,7 +57,7 @@ il2cpp::Il2CppTypeInfo Finalizable_typeinfo = {
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Finalizable::Finalize(System.Int32)
-// IL offset (RVA): 0x00005018 (assembly: icallwide_net6.dll, token: 0x0600001A)
+// IL offset (RVA): 0x00005020 (assembly: icallwide_net6.dll, token: 0x0600001A)
 // Semantics: Transpiled from 1 argument slot(s) and 13 byte(s) of IL; the body below is the stack-folding result (3 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Finalizable_Finalize_400e46cac37eabfb(Il2CppObject* arg0)

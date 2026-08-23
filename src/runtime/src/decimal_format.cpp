@@ -1139,6 +1139,12 @@ void icall_decimal_parse(Il2CppDecimal* result, Il2CppString* text)
 
 bool icall_decimal_try_parse(Il2CppString* text, Il2CppDecimal* result)
 {
+    if (result != nullptr)
+    {
+        // .NET TryParse contract: a FAILED parse writes decimal.Zero into
+        // the out slot (icallwide E2E caught the garbage-slot leak).
+        std::memset(result, 0, sizeof(*result));
+    }
     if (text == nullptr)
     {
         return false;
