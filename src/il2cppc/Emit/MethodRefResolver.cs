@@ -806,6 +806,17 @@ public static partial class MethodRefResolver
             case "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Runtime.CompilerServices.TaskAwaiter`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Collections.Generic.List`1": return TryMapList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // P25 (listp25): the List<int>.Enumerator STRUCT is address-taken
+            // by the C# compiler (ldloca), so foreach over List<int> calls
+            // MoveNext/get_Current DIRECTLY on the concrete nested type
+            // ("System.Collections.Generic.List`1+Enumerator" -- a nested-type
+            // owner from the TypeSpec parent; the '+' is the ECMA nesting
+            // separator). This owner case routes to the enumerator icalls
+            // (TryMapCollectionInterface's List`1.Enumerator arm -- the
+            // generic IEnumerator surface shares the same runtime).
+            // IEnumerable<T>.GetEnumerator (via the interface owner) also
+            // dispatches here through the receiver hint.
+            case "System.Collections.Generic.List`1+Enumerator": return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Collections.Generic.Dictionary`2": return TryMapDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // hset-b23 (D-HSET-1): HashSet<string> -- the string AOT expansion
             // (MethodMap.HashSet.cs, runtime hashset.h -- a set-of-unique-
@@ -878,6 +889,15 @@ public static partial class MethodRefResolver
                     // no-op rather than the undefined generated name. The
                     // receiver (the isinst result) is untracked, so this arm
                     // fires exactly when no stream hint exists.
+                    // P25b: List<int> enumerator Dispose -- the foreach over
+                    // List<int> lowers to the same try/finally isinst shape;
+                    // route to the List enumerator dispose icall when the
+                    // receiver hint is the List enumerator pseudo-type. The
+                    // receiver is the address-taken struct ((&loc)), so the
+                    // icall's Il2CppObject* parameter needs the deref:r cast
+                    // (the same shape the MoveNext/get_Current arms use).
+                    if (receiverType == "System.Collections.Generic.List`1.Enumerator")
+                        return I("il2cpp::il2cpp_list_i4_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
                     if (receiverType == null && arg0Type == null)
                         return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true);
                 }

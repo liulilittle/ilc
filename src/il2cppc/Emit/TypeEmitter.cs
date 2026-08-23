@@ -147,6 +147,7 @@ public static class TypeEmitter
                 {
                     HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)impl.Interface),
                     HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)impl.Interface),
+                    HandleKind.TypeSpecification => ResolveNestedTypeSpec(md, (TypeSpecificationHandle)impl.Interface),
                     _ => throw new NotSupportedException($"interface impl kind {impl.Interface.Kind} not supported in M2"),
                 };
                 nested.InterfaceNames.Add(ifaceName);
@@ -325,8 +326,36 @@ public static class TypeEmitter
         {
             HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)handle),
             HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)handle),
+            HandleKind.TypeSpecification => ResolveNestedTypeSpec(md, (TypeSpecificationHandle)handle),
             _ => throw new NotSupportedException($"type handle kind {handle.Kind} not supported in M2"),
         };
+
+    // P25: decode a TypeSpec interface implementation on a nested type
+    // (e.g. IComparable<int>). Mirrors MetadataLoader.ResolveTypeSpec.
+    private static string ResolveNestedTypeSpec(MetadataReader md, TypeSpecificationHandle handle)
+    {
+        var spec = md.GetTypeSpecification(handle);
+        var sig = md.GetBlobReader(spec.Signature);
+        var header = sig.ReadByte();
+        switch (header)
+        {
+            case 0x15:
+                return GenericNestedInstantiationName(md, ref sig);
+            case 0x1D:
+                return ResolveNestedTypeName(md, sig.ReadTypeHandle()) + "[]";
+            case 0x12:
+            case 0x11:
+                return ResolveNestedTypeName(md, sig.ReadTypeHandle());
+            case 0x13:
+                sig.ReadCompressedInteger();
+                return "T";
+            case 0x1E:
+                sig.ReadCompressedInteger();
+                return "!!T";
+            default:
+                throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not supported in nested interface impl");
+        }
+    }
 
     // batch 156a (asynccase): GENERICINST (0x15) field type on a NESTED
     // state-machine struct. Shape: 0x15 CLASS/VALUETYPE marker + generic

@@ -49,6 +49,7 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
+#include "sortedlist.h" // Il2CppArrayEnumerator re-use
 
 #include <cstdint>
 
@@ -121,5 +122,28 @@ bool il2cpp_list_i4_contains(Il2CppObject* self, int32_t value);
 // ToArray() -- a NEW int32 array with exactly the current elements
 // (independent storage; the caller owns the reference).
 Il2CppObject* il2cpp_list_i4_to_array(Il2CppObject* self);
+
+// GetEnumerator() -- return a snapshot enumerator over the list's items
+// array [0, count). The enumerator is a managed object (Il2CppArrayEnumerator
+// re-used from sortedlist.h) holding the items array and a cursor starting
+// at -1 (before the first element).
+Il2CppObject* il2cpp_list_i4_get_enumerator(Il2CppObject* self);
+
+// Sort() -- ascending in-place sort of the elements [0, count).
+// Reuses il2cpp_array_sort_int32 on a temporary exact-length copy, then
+// copies back (the items array may be longer than count).
+void il2cpp_list_i4_sort(Il2CppObject* self);
+
+// CopyTo(T[] array, int32_t arrayIndex) -- copy elements [0, count) into
+// 'array' starting at 'arrayIndex'. Validates: null array, negative index,
+// insufficient space (ArgumentOutOfRangeException/ArgumentNullException).
+void il2cpp_list_i4_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t arrayIndex);
+
+// Enumerator members (the generated code passes (&loc) where loc is an
+// Il2CppObject* reference slot; the "deref:r" cast dereferences to the
+// enumerator object pointer, so the icall receives Il2CppObject*).
+int32_t il2cpp_list_i4_enumerator_move_next(Il2CppObject* self);
+int32_t il2cpp_list_i4_enumerator_get_current(Il2CppObject* self);
+void il2cpp_list_i4_enumerator_dispose(Il2CppObject* self);
 
 } // namespace il2cpp

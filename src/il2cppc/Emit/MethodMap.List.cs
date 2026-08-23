@@ -124,6 +124,25 @@ public static partial class MethodRefResolver
                 return count == 1 && ps.Length == 1 && ps[0] == 0x13 && i4Receiver
                     ? I("il2cpp::il2cpp_list_i4_contains", 1, true, false, true, new[] { "", "i" })
                     : Loud();
+            case "GetEnumerator":
+                // GetEnumerator() -> snapshot enumerator (Il2CppArrayEnumerator).
+                // ReturnTypeName tracks it so the IEnumerator member dispatch in
+                // MethodMap.Collections.cs resolves MoveNext/get_Current/Dispose.
+                return count == 0 && i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_get_enumerator", 0, true, true, true,
+                        returnTypeName: "System.Collections.Generic.List`1.Enumerator")
+                    : Loud();
+            case "Sort":
+                // void Sort() -- ascending in-place sort [0, count).
+                return count == 0 && i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_sort", 0, false, false, true)
+                    : Loud();
+            case "CopyTo":
+                // void CopyTo(T[] array, int32_t arrayIndex) -- the array is a
+                // reference ("" passthrough), the index is int32 ("i").
+                return count == 2 && i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_copy_to", 2, false, false, true, new[] { "", "", "i" })
+                    : Loud();
             default: return null;
         }
     }

@@ -47,6 +47,18 @@ public static partial class MethodRefResolver
     private static ResolvedMethod? TryMapCollectionInterface(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
+        // P25 (listp25): the generic List<int>.Enumerator is a STRUCT, so the
+        // C# compiler calls its members DIRECTLY on the concrete nested type
+        // (owner "System.Collections.Generic.List`1+Enumerator", a nested-type
+        // name -- the '+' is the ECMA nesting separator -- from a TypeSpec
+        // parent), NOT through the IEnumerator interface. The owner itself IS
+        // the dispatcher: no receiverType hint is needed. When the receiver
+        // hint IS tracked ("System.Collections.Generic.List`1.Enumerator",
+        // the GetEnumerator ReturnTypeName), the IEnumerator-owner subroutine
+        // below also matches. Both routes converge on the same arms.
+        if (owner == "System.Collections.Generic.List`1+Enumerator")
+            return TryMapListEnumerator(owner, name, ps, count, genArgs, receiverType);
+
         switch (owner)
         {
             case "System.Collections.ICollection":                // ICollection.get_Count on a Keys / Values snapshot: the
@@ -121,7 +133,52 @@ public static partial class MethodRefResolver
                             return null;
                     }
                 }
+                // P25b: List<int> enumerator (Il2CppArrayEnumerator re-use).
+                // The generated code passes (&loc) with deref:r, so the icall
+                // receives Il2CppObject* (the enumerator). MoveNext returns
+                // int32 (bool carrier); get_Current returns int32 (the element
+                // value, NOT a reference -- the enumerator walks a value array).
+                if (receiverType == "System.Collections.Generic.List`1.Enumerator")
+                    return TryMapListEnumerator(owner, name, ps, count, genArgs, receiverType);
                 return null;
+            default:
+                return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // TryMapListEnumerator -- P25 (listp25): System.Collections.Generic.
+    // List`1+Enumerator (int32 AOT). The generic List<int>.Enumerator is a
+    // STRUCT, so the C# compiler calls its members DIRECTLY on the concrete
+    // nested type (owner "System.Collections.Generic.List`1+Enumerator" --
+    // ECMA nested-name '+'), NOT via IEnumerator. Reaches this routine via:
+    //   (a) the owner-direct route (BclResolveCore owner case), or
+    //   (b) the IEnumerator-owner interface route with a tracked receiver
+    //       hint "System.Collections.Generic.List`1.Enumerator".
+    // The runtime re-uses Il2CppArrayEnumerator (sortedlist.h) as the list
+    // enumerator object; the icalls take Il2CppObject*.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapListEnumerator(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType)
+    {
+        switch (name)
+        {
+            case "MoveNext":
+                // bool MoveNext(): advances the snapshot cursor; returns the
+                // bool carrier as int32.
+                return count == 0
+                    ? I("il2cpp::il2cpp_list_i4_enumerator_move_next", 0, true, false, true, new[] { "deref:r" })
+                    : null;
+            case "get_Current":
+                // int32 get_Current(): the CURRENT element value (NOT a
+                // reference -- the enumerator walks an int32[] snapshot).
+                return count == 0
+                    ? I("il2cpp::il2cpp_list_i4_enumerator_get_current", 0, true, false, true, new[] { "deref:r" })
+                    : null;
+            case "Reset":
+                return count == 0
+                    ? I("il2cpp::il2cpp_list_i4_enumerator_reset", 0, false, false, true, new[] { "deref:r" })
+                    : null;
             default:
                 return null;
         }

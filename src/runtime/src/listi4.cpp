@@ -35,6 +35,7 @@
 
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_runtime.h"
+#include "arraysort.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -462,6 +463,155 @@ Il2CppObject* il2cpp_list_i4_to_array(Il2CppObject* self)
         dst[i] = src != nullptr ? src[i] : 0;
     }
     return reinterpret_cast<Il2CppObject*>(result);
+}
+
+//------------------------------------------------------------------------------
+// GetEnumerator -- return a snapshot enumerator over the list's items
+// array [0, count). The enumerator is a managed Il2CppArrayEnumerator (re-used
+// from sortedlist.h) holding a FRESH exact-length copy of the items array and
+// a cursor starting at -1. A fresh copy (not the live items array) is used
+// because the list may grow (and replace its items array) during enumeration;
+// the snapshot keeps the foreach stable (same semantics as SortedList's
+// snapshot enumerator).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_list_i4_get_enumerator(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    EnsureListI4Registered();
+    // Ensure the enumerator class is registered (it is defined in
+    // sortedlist.cpp; register here too -- il2cpp_class_register dedupes by
+    // pointer).
+    il2cpp_class_register(&System_Collections_SortedList_Enumerator_class);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppListI4* list = AsList(self);
+    // Allocate a snapshot array of exactly 'count' elements.
+    Il2CppArray* snap = AllocItems(list->count);
+    // Re-derive after the allocation (may have compacted/moved the list).
+    list = AsList(self);
+    // Copy [0, count) into the snapshot.
+    if (list->count > 0 && list->items != nullptr)
+    {
+        const int32_t* src = Slots(list);
+        int32_t* dst = reinterpret_cast<int32_t*>(snap->data);
+        for (int32_t i = 0; i < list->count; ++i)
+        {
+            dst[i] = src[i];
+        }
+    }
+    // Allocate the enumerator object (re-uses Il2CppArrayEnumerator from
+    // sortedlist.h -- the struct is { obj, array, index }).
+    Il2CppArrayEnumerator* en = reinterpret_cast<Il2CppArrayEnumerator*>(
+        il2cpp_object_new(&System_Collections_SortedList_Enumerator_class));
+    en->array = snap;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->array),
+                         reinterpret_cast<Il2CppObject*>(snap));
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
+}
+
+//------------------------------------------------------------------------------
+// Sort -- ascending in-place sort of the elements [0, count).
+// The items array may be longer than count (capacity > count), so a temporary
+// exact-length copy is sorted and copied back.
+//------------------------------------------------------------------------------
+void il2cpp_list_i4_sort(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppListI4* list = AsList(self);
+    if (list->count <= 1)
+    {
+        return; // 0 or 1 elements: already sorted
+    }
+    // Allocate a temporary array of exactly 'count' elements.
+    Il2CppArray* temp = AllocItems(list->count);
+    // Re-derive after the allocation.
+    list = AsList(self);
+    // Copy [0, count) into temp.
+    {
+        const int32_t* src = Slots(list);
+        int32_t* dst = reinterpret_cast<int32_t*>(temp->data);
+        for (int32_t i = 0; i < list->count; ++i)
+        {
+            dst[i] = src[i];
+        }
+    }
+    // Sort the temp array in-place.
+    il2cpp_array_sort_int32(temp);
+    // Copy back into the list's items array (no allocation, no collection).
+    list = AsList(self); // defensive re-derive (temp alloc may have moved list)
+    {
+        int32_t* dst = Slots(list);
+        const int32_t* src = reinterpret_cast<int32_t*>(temp->data);
+        for (int32_t i = 0; i < list->count; ++i)
+        {
+            dst[i] = src[i];
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// CopyTo(T[] array, int32_t arrayIndex) -- copy elements [0, count) into
+// 'array' starting at 'arrayIndex'. Validates: null array
+// (ArgumentNullException), negative index (ArgumentOutOfRangeException),
+// insufficient space (ArgumentException).
+//------------------------------------------------------------------------------
+void il2cpp_list_i4_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t arrayIndex)
+{
+    ThrowIfNullReceiver(self);
+    if (array == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("array");
+    }
+    Il2CppArray* dst = reinterpret_cast<Il2CppArray*>(array);
+    if (arrayIndex < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("arrayIndex", kNonNegativeMessage);
+    }
+    Il2CppListI4* list = AsList(self);
+    // Bounds: arrayIndex + count must not exceed dst->length.
+    if (static_cast<int64_t>(arrayIndex) + list->count > dst->length)
+    {
+        il2cpp_throw_argument_exception("Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+    }
+    if (list->count > 0 && list->items != nullptr)
+    {
+        const int32_t* src = Slots(list);
+        int32_t* dstSlots = reinterpret_cast<int32_t*>(dst->data);
+        for (int32_t i = 0; i < list->count; ++i)
+        {
+            dstSlots[arrayIndex + i] = src[i];
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Enumerator members -- the generated code stores the enumerator object in a
+// reference slot (Il2CppObject*) and passes (&slot) with a "deref:r" cast,
+// so the icall receives the Il2CppObject* (the enumerator). The Il2CppArrayEnumerator
+// struct is { Il2CppObject obj; Il2CppArray* array; int32_t index; }.
+//------------------------------------------------------------------------------
+
+int32_t il2cpp_list_i4_enumerator_move_next(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayEnumerator* en = reinterpret_cast<Il2CppArrayEnumerator*>(self);
+    ++en->index;
+    return en->index < en->array->length ? 1 : 0;
+}
+
+int32_t il2cpp_list_i4_enumerator_get_current(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayEnumerator* en = reinterpret_cast<Il2CppArrayEnumerator*>(self);
+    return reinterpret_cast<int32_t*>(en->array->data)[en->index];
+}
+
+void il2cpp_list_i4_enumerator_dispose(Il2CppObject* self)
+{
+    (void)self;
 }
 
 } // namespace il2cpp

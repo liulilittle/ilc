@@ -2284,6 +2284,17 @@ public static class StackFold
                 var recvType = args[0] is ExceptionEntryExpr ? "System.Type"
                     : args[0] is StringConstExpr ? "System.String"
                     : args[0] is LocExpr rl2 && objTypes.TryGetValue(rl2.Name, out var rt2) ? rt2
+                    // P25 (listp25): a VALUE-TYPE receiver that was ldloca'd
+                    // (a struct enumerator -- List<int>.Enumerator as a value
+                    // type is address-taken by the C# compiler) arrives as a
+                    // LocAddrExpr whose slot is the same tracked managed local
+                    // (il2cpp_list_i4_get_enumerator stores Il2CppObject* into
+                    // the local; the foreach body re-loads it via ldloca). The
+                    // track follows the SLOT NAME, so the address form must hit
+                    // the same objTypes lookup -- otherwise MoveNext/Dispose on
+                    // the enumerator lose the "List`1.Enumerator" receiver hint
+                    // and fall through to the generated-name fallback.
+                    : args[0] is LocAddrExpr rl2a && objTypes.TryGetValue(rl2a.Name, out var rt2a) ? rt2a
                     // M6 (encoding domain): a null folded from an Encoding
                     // singleton getter carries the tracked encoding type
                     // (NullExpr.TypeName) -- GetBytes/GetString dispatch on it.
@@ -2372,6 +2383,13 @@ public static class StackFold
                         // re-resolve to the domain icall.
                         || resolved.CppName.EndsWith("icall_object_get_hash_code")
                         || resolved.CppName.EndsWith("icall_object_to_string")
+                        // P25 (listp25): the List<int>.Enumerator used in a
+                        // foreach bodies ... the MoveNext/get_Current on the
+                        // address-taken struct first resolve (hint-less) to the
+                        // sortedlist-enumerator no-op fallback or the
+                        // generated-name path; the tracked enumerator hint must
+                        // re-resolve to the List enumerator icalls.
+                        || recvType == "System.Collections.Generic.List`1.Enumerator"
                         // P18 deflate: a DeflateStream receiver must re-resolve
                         // the inherited Stream Write/Read/Close to the deflate
                         // icalls -- the first resolution (TryMapStreamIO) returns
