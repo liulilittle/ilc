@@ -227,7 +227,7 @@ public class MethodMapDecimalTests
             Sig(0x0E, 0x0E)), "ToString");
 
         Assert.Equal("il2cpp::runtime::icall_decimal_to_string_custom", resolved.CppName);
-        Assert.Equal(new[] { "unbox:dec", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "dec", "s" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

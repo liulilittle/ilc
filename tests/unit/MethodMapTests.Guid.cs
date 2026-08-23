@@ -87,13 +87,13 @@ public class MethodMapGuidTests
     }
 
     [Fact]
-    public void Resolve_Guid_ToStringFormat_ThrowsLoud()
+    public void Resolve_Guid_ToStringFormat_MapsToFormatFamily()
     {
-        // ToString(string format): only the "D" form exists in guid.h.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Guid", "ToString", Sig(0x0E, 0x0E)), "ToString"));
+        // icallwide: ToString(string format) wires to the full N/D/B/P/X
+        // family (il2cpp_guid_to_string_format).
+        var resolved = ResolveMember(Synthesize("System", "Guid", "ToString", Sig(0x0E, 0x0E)), "ToString");
 
-        Assert.Contains("System.Guid::ToString", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_guid_to_string_format", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------

@@ -175,13 +175,13 @@ public class MethodMapTestsTimeExt2
     }
 
     [Fact]
-    public void Resolve_DateTime_OpEquality_ThrowsLoud()
+    public void Resolve_DateTime_OpEquality_MapsToTicksCompare()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "DateTime", "op_Equality",
-                new byte[] { 0x00, 0x02, 0x02, 0x11, 0x05, 0x11, 0x05 }), "op_Equality"));
+        // icallwide: op_Equality wires to the pure-ticks comparator.
+        var resolved = ResolveMember(Synthesize("System", "DateTime", "op_Equality",
+            new byte[] { 0x00, 0x02, 0x02, 0x11, 0x05, 0x11, 0x05 }), "op_Equality");
 
-        Assert.Contains("System.DateTime::op_Equality", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_datetime_op_equality", resolved.CppName);
     }
 
     [Fact]

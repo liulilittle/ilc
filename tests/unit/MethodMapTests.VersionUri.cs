@@ -256,13 +256,13 @@ public class MethodMapVersionUriTests
     // Members without a mapping hit the default -- LOUD "member not wired"
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Version_GetHashCode_ThrowsLoudNotWired()
+    public void Resolve_Version_GetHashCode_MapsToComponentFold()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Version", "GetHashCode", Sig(0x08)), "GetHashCode"));
+        // icallwide: Version.GetHashCode wires to the deterministic
+        // component fold (same-value -> same-hash contract).
+        var resolved = ResolveMember(Synthesize("System", "Version", "GetHashCode", Sig(0x08)), "GetHashCode");
 
-        Assert.StartsWith("System.Version::GetHashCode: ", ex.Message);
-        Assert.Contains("member not wired", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_version_get_hash_code", resolved.CppName);
     }
 
     [Fact]

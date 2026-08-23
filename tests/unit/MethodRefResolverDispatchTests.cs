@@ -793,12 +793,12 @@ public class MethodRefResolverDispatchTests
     }
 
     [Fact]
-    public void Resolve_TimeSpan_ToString_ThrowsLoud()
+    public void Resolve_TimeSpan_ToString_MapsToCanonicalFormatter()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "TimeSpan", "ToString", Sig(0x0E)), "ToString"));
+        // icallwide: TimeSpan.ToString() wires to the constant-"c" formatter.
+        var resolved = ResolveMember(Synthesize("System", "TimeSpan", "ToString", Sig(0x0E)), "ToString");
 
-        Assert.Contains("System.TimeSpan::ToString", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_timespan_to_string", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------

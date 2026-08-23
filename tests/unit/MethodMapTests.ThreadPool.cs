@@ -73,13 +73,14 @@ public class MethodMapTestsThreadPool
     }
 
     [Fact]
-    public void Resolve_GetMaxThreads_ThrowsLoud()
+    public void Resolve_GetMaxThreads_MapsToOutWrapper()
     {
-        // static void GetMaxThreads(out int workerThreads, out int completionPortThreads)
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("GetMaxThreads", Sig(0x00, B(0x10, 0x08), B(0x10, 0x08))), "GetMaxThreads"));
+        // icallwide: the out-param form now wires through the *_out runtime
+        // wrappers + the emitter's "addr:i" cast (ps carry the BYREF ELEMENT
+        // byte 0x08, not the 0x10 marker).
+        var resolved = ResolveMember(Synthesize("GetMaxThreads", Sig(0x00, B(0x10, 0x08), B(0x10, 0x08))), "GetMaxThreads");
 
-        Assert.Contains("GetMaxThreads", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_thread_pool_get_max_threads_out", resolved.CppName);
     }
 
     [Fact]

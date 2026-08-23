@@ -76,35 +76,32 @@ public class MethodMapTestsString
     // shadow stack stays in lockstep with the IL.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_TrimStart_CharArrayArg_DropsArgAtEmission()
+    public void Resolve_TrimStart_CharArrayArg_MapsToSetAwareTrim()
     {
-        // TrimStart(char[]) -- SZARRAY 0x1D + 0x03 char element byte. The Sig
-        // helper cannot express an SZARRAY parameter (it counts each byte as
-        // one param -- 0x1D,0x03 would yield count=2 and the array's element
-        // byte would be read as a second param, running out of bounds), so
-        // the raw blob is written out: DEFAULT header, count=1, string return,
-        // one SZARRAY(char) param.
+        // icallwide: TrimStart(char[]) wires to the SET-aware trim
+        // (icall_string_trim_start_set) -- the whitespace-only deviation is
+        // retired. The array argument is KEPT (cast "").
         var resolved = ResolveMember(Synthesize("System", "String", "TrimStart",
             new byte[] { 0x00, 0x01, 0x0E, 0x1D, 0x03 }), "TrimStart");
 
-        Assert.Equal("il2cpp::runtime::icall_string_trim_start", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_string_trim_start_set", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.True(resolved.ReturnsValue);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(1, resolved.ParamCount);
-        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_TrimEnd_CharArrayArg_DropsArgAtEmission()
+    public void Resolve_TrimEnd_CharArrayArg_MapsToSetAwareTrim()
     {
         var resolved = ResolveMember(Synthesize("System", "String", "TrimEnd",
             new byte[] { 0x00, 0x01, 0x0E, 0x1D, 0x03 }), "TrimEnd");
 
-        Assert.Equal("il2cpp::runtime::icall_string_trim_end", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_string_trim_end_set", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(1, resolved.ParamCount);
-        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
     [Fact]
