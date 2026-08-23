@@ -260,7 +260,30 @@ Il2CppObject* icall_enum_internal_get_underlying_type(Il2CppClass* enumType) { r
 Il2CppObject* icall_app_domain_setup_update_context_property(Il2CppObject* self, Il2CppString* name, Il2CppObject* value) { return nullptr; }
 Il2CppObject* icall_marshal_by_ref_object_get_com_i_unknown(Il2CppObject* self) { return nullptr; }
 Il2CppObject* icall_missing_member_exception_format_signature(Il2CppString* str) { return nullptr; }
-int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2) { return 0; }
+int32_t icall_type_op_inequality(Il2CppObject* t1, Il2CppObject* t2)
+{
+    // Type-as-name model: a Type VALUE is the full-name string (see
+    // il2cpp_typeext.h assumption 1), so != is string inequality. Null
+    // doctrine: ReferenceEquals semantics on the pointers.
+    if (t1 == nullptr || t2 == nullptr)
+    {
+        return t1 != t2 ? 1 : 0;
+    }
+    const Il2CppString* x = reinterpret_cast<const Il2CppString*>(t1);
+    const Il2CppString* y = reinterpret_cast<const Il2CppString*>(t2);
+    if (x->length != y->length)
+    {
+        return 1;
+    }
+    for (int32_t i = 0; i < x->length; ++i)
+    {
+        if (x->chars[i] != y->chars[i])
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
 int32_t icall_value_type_get_hash_code_of_ptr(void* ptr) { return 0; }
 int32_t icall_clr_config_check_legacy_managed_deflate_stream() { return 0; }
 int32_t icall_clr_config_check_throw_unobserved_task_exceptions() { return 0; }
