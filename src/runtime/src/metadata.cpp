@@ -104,6 +104,24 @@ Il2CppClass System_Object_class = {
     0,                                     // interfaceCount
 };
 
+// System.ValueType: the implicit base of every user struct (the transpiler
+// wires generated {T}_class descriptors for user value types to this). It is
+// never allocated directly (instanceSize 0); it exists so the isinst/castclass
+// base-chain walk in il2cpp_is_instance can answer `boxedStruct is ValueType`
+// and `boxedStruct is object` (via baseClass System.Object). Registered in
+// il2cpp_ensure_builtin_system_classes alongside the other System.* roots.
+Il2CppClass System_ValueType_class = {
+    "System.ValueType",                    // name
+    0,                                     // instanceSize (abstract; never allocated)
+    0u,                                    // refFieldBitmap
+    0,                                     // refFieldCount
+    &System_Object_class,                  // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
 // System.String: base of the object model under Object; the string
 // allocation paths (string.cpp) allocate through this descriptor.
 Il2CppClass System_String_class = {
@@ -426,6 +444,7 @@ void il2cpp_ensure_builtin_system_classes()
     static std::once_flag s_builtinSystemOnce;
     std::call_once(s_builtinSystemOnce, [] {
         il2cpp_class_register(&System_Object_class);
+        il2cpp_class_register(&System_ValueType_class);
         il2cpp_class_register(&System_String_class);
         il2cpp_class_register(&System_Int32_class);
         il2cpp_class_register(&System_UInt32_class);

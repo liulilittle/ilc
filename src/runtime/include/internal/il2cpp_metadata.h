@@ -107,6 +107,7 @@ void il2cpp_ensure_builtin_system_classes();
 // `is IConvertible` / `is object` on those boxed values hit (box2 audit).
 //------------------------------------------------------------------------------
 extern il2cpp::Il2CppClass System_Object_class;
+extern il2cpp::Il2CppClass System_ValueType_class;
 extern il2cpp::Il2CppClass System_String_class;
 extern il2cpp::Il2CppClass System_Int32_class;
 extern il2cpp::Il2CppClass System_UInt32_class;

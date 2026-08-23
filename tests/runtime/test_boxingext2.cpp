@@ -375,6 +375,70 @@ int main()
     Expect(!il2cpp_is_instance(lBig, il2cpp_class_by_name("System.Byte")),
            "boxed long is NOT a System.Byte instance (cross-type)");
 
+    // --- P25b: user struct box/unbox (icall_box_user_struct /
+    // il2cpp_unbox_user_struct) ---
+    // A USER value type descriptor (a plain C++ struct payload, baseClass
+    // System.ValueType -- the transpiler wires every generated {T}_class this
+    // way). Registered here so klass identity resolves; the base chain makes
+    // `boxed struct is object` / `is ValueType` true.
+    il2cpp::Il2CppClass pointClass = {
+        "Test.Point", 8, 0u, 0, &System_ValueType_class, nullptr, 0, nullptr, 0,
+    };
+    il2cpp_class_register(&pointClass);
+
+    // Box a two-int struct; verify klass identity + base-chain isinst + payload
+    // bytes at the shared kBoxPayloadOffset.
+    struct TestPoint { int32_t x; int32_t y; };
+    TestPoint pv{ 30, 40 };
+    Il2CppObject* bPoint = icall_box_user_struct(&pointClass, &pv, sizeof(TestPoint));
+    Expect(bPoint != nullptr, "user struct box allocates");
+    Expect(bPoint->klass == &pointClass, "user struct box klass is the struct descriptor");
+    Expect(il2cpp_is_instance(bPoint, &System_Object_class),
+           "boxed user struct IS-A System.Object (base chain via ValueType)");
+    Expect(il2cpp_is_instance(bPoint, &System_ValueType_class),
+           "boxed user struct IS-A System.ValueType (base chain)");
+
+    // Unbox: the payload pointer aliases the boxed bytes; the copy round-trips.
+    TestPoint* pun = static_cast<TestPoint*>(il2cpp_unbox_user_struct(bPoint));
+    Expect(pun != nullptr, "user struct unbox returns a payload pointer");
+    Expect(pun->x == 30 && pun->y == 40,
+           "user struct unbox payload round-trips the boxed fields");
+
+    // isinst against the struct's own descriptor resolves.
+    Expect(il2cpp_is_instance(bPoint, &pointClass),
+           "boxed user struct IS-A its own descriptor (identity)");
+
+    // Cross-type unbox adjacency: an int box is NOT a user-struct box -- the
+    // ValueType-chain check rejects it (the int box's baseClass is
+    // System.Object, not System.ValueType).
+    Il2CppObject* intBox2 = il2cpp_box_int32(nullptr, 7);
+    Expect(ThrowsDotNet([&] { il2cpp_unbox_user_struct(intBox2); },
+                        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception"),
+           "unboxing a boxed Int32 as a user struct throws InvalidCastException");
+    Expect(ThrowsDotNet([&] { il2cpp_unbox_user_struct(nullptr); },
+                        "System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception"),
+           "unboxing null as a user struct throws NullReferenceException");
+
+    // ValueType-chain negative: an enum box (base System.Enum chain, NOT
+    // System.ValueType) is rejected too -- the user-struct unbox owns only
+    // genuine value-type boxes.
+    il2cpp::Il2CppClass colorClass = {
+        "Test.Color", 4, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+    };
+    il2cpp_class_register(&colorClass);
+    Il2CppObject* bEnum = icall_box_enum(&colorClass, 1);
+    Expect(ThrowsDotNet([&] { il2cpp_unbox_user_struct(bEnum); },
+                        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception"),
+           "unboxing an enum box as a user struct throws InvalidCastException");
+
+    // Null klass / null value box inputs reject loudly.
+    Expect(ThrowsDotNet([&] { icall_box_user_struct(nullptr, &pv, sizeof(TestPoint)); },
+                        "System.ArgumentNullException,System.ArgumentNullException,System.SystemException,System.Exception"),
+           "boxing with a null struct descriptor throws ArgumentNullException");
+    Expect(ThrowsDotNet([&] { icall_box_user_struct(&pointClass, nullptr, sizeof(TestPoint)); },
+                        "System.ArgumentNullException,System.ArgumentNullException,System.SystemException,System.Exception"),
+           "boxing a null struct value throws ArgumentNullException");
+
     // --- Report ---
     if (g_failures != 0)
     {

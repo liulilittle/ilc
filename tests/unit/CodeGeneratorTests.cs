@@ -399,20 +399,26 @@ public class CodeGeneratorTests
     }
 
     //--------------------------------------------------------------------------
-    // Audit H3 -- box of a non-Int32 value type must be rejected LOUDLY
-    // (silently boxing a long as Int32 truncates the value and stamps the
-    // wrong box class -- subsequent isinst/unbox behave wrongly).
+    // P25b (user struct box, replaces the audit H3 rejection): box of a USER
+    // value type (a struct with a System.ValueType base) must generate the
+    // icall_box_user_struct path -- the earlier LOUD rejection of every
+    // non-Int32 box was the pre-P25b gap (boxingext2 had no user-struct box
+    // helper). The generated code copies the sizeof(struct) payload into a
+    // box stamped with the struct's own {T}_class descriptor.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Generate_BoxLong_ThrowsLoud()
+    public void Generate_BoxUserStruct_EmitsBoxIcalls()
     {
         var types = MetadataLoader.LoadAssembly(FixturePath("boxlong"));
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
-            var ex = Assert.Throws<NotSupportedException>(() =>
-                CodeGenerator.Generate(types, dir, FixturePath("boxlong")));
-            Assert.Contains("box", ex.Message);
+            CodeGenerator.Generate(types, dir, FixturePath("boxlong"));
+            var cpp = Directory.GetFiles(Path.Combine(dir, "src"), "*.cpp", SearchOption.AllDirectories)
+                .Select(File.ReadAllText)
+                .Aggregate((a, b) => a + b);
+            Assert.Contains("icall_box_user_struct", cpp);
+            Assert.Contains("Pt_class", cpp);
         }
         finally
         {

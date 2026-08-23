@@ -502,6 +502,18 @@ public static class CodeGenerator
                 // NO class descriptor (they are not GC classes).
                 if (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))
                     generatedHeader.Line(TypeEmitter.EmitClassStruct(t, types));
+                // P25b (user struct box): user value types DO get a runtime
+                // descriptor ({T}_class, defined in the .cpp, registered by
+                // entry.cpp). The box icall stamps boxed instances with it
+                // (identity + isinst object/ValueType via the ValueType base
+                // chain) and il2cpp_unbox_user_struct validates against it.
+                // Reference-free MVP: structs with GC reference fields are
+                // rejected at box/unbox sites, so the descriptor's
+                // refFieldBitmap stays 0 (the collector never scans these
+                // boxes). Interface types / delegates / fieldless empty structs
+                // keep the M3 shape (no descriptor).
+                if (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))
+                    generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
                 continue;
             }
             if (!(t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))) continue;
@@ -605,8 +617,15 @@ public static class CodeGenerator
             // delechain: custom delegate TypeDefs have NO descriptor either --
             // delegate objects are runtime Il2CppDelegate instances, never
             // il2cpp_object_new(&..._class) allocations.
-            if (!t.IsValueType && !IsDelegateTypeDef(t) && (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor")
+            // P25b (user struct box): user value types DO emit a descriptor --
+            // the box icall needs {T}_class (instanceSize = sizeof(payload),
+            // baseClass = &System_ValueType_class) to stamp boxed instances so
+            // isinst/castclass and il2cpp_unbox_user_struct's ValueType-chain
+            // check resolve. The condition mirrors the generated.h extern gate
+            // (field-bearing or .ctor-bearing structs only).
+            if ((!t.IsValueType && !IsDelegateTypeDef(t) && (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor")
                 || t.VirtualMethods.Count > 0 || t.IsInterface))
+                || (t.IsValueType && !IsDelegateTypeDef(t) && (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))))
             {
                 w.Line(TypeEmitter.EmitClassDescriptor(t,
                     t.VirtualMethods.Count > 0 && !t.IsInterface ? $"{cppName}_vtable" : null,
@@ -3363,6 +3382,11 @@ public static class CodeGenerator
         // icalls WRITE through the output buffer -- the "guid" kind carries
         // the slot shape to the declaration site).
         CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "ptr" or "ip4" or "dto" or "bi" => c.ResultKind,
+        // P25b (user struct box): the unbox of a user value type carries
+        // "us:{CppName}" (StackFold.UnboxUserStructKind) -- strip the prefix to
+        // the C++ struct type so the result temp is declared `{T} t;` and the
+        // unboxed value is copied in as a real struct member-by-member.
+        CallExpr c when c.ResultKind?.StartsWith("us:", StringComparison.Ordinal) == true => c.ResultKind["us:".Length..],
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
         DelegateInvokeExpr d when d.ReturnsRef => "ref",
@@ -5787,12 +5811,27 @@ public static class CodeGenerator
                 // icall copies the slot into a new System.Decimal box object).
                 // Runtime symbol lands with T1 (boxingext2 + decimal.h).
                 "System.Decimal" => $"il2cpp::runtime::icall_box_decimal(static_cast<il2cpp::runtime::Il2CppDecimal*>(&({boxVal})))",
+                // P25b (user struct box): a USER value type (a TypeDef whose
+                // base is System.ValueType -- not an enum, not a BCL struct)
+                // boxes through icall_box_user_struct with the struct's OWN
+                // generated descriptor (&{T}_class), copying the sizeof({T})
+                // payload bytes into the box. Reference-free MVP: a struct
+                // with GC reference fields is REJECTED loudly here (boxing it
+                // would place an object reference at slot 1 (offset 8), and
+                // the boxed object's mark scan indexes the bitmap from the
+                // object header -- a ref field would be miscounted as a pure
+                // header, a GC-safety leak).
+                _ when boxTypeDef != null && boxTypeDef.IsValueType =>
+                    boxTypeDef.RefFieldCount > 0
+                        ? throw new NotSupportedException($"box of {boxType} not supported -- user structs with GC reference fields are not yet boxable (P25b reference-free MVP)")
+                        : $"il2cpp::runtime::icall_box_user_struct(&{TypeEmitter.TypeCppName(boxTypeDef)}_class, &({boxVal}), sizeof({TypeEmitter.TypeCppName(boxTypeDef)}))",
                 _ => throw new NotSupportedException($"box of {boxType} not supported -- no runtime box helper (audit H3 + M5)"),
             };
         }
         if (c.Function.StartsWith("unbox_", StringComparison.Ordinal) && int.TryParse(c.Function[6..], out var unboxTok))
         {
             var unboxType = TypeTokenFullName(md, unboxTok);
+            var unboxTypeDef = types.FirstOrDefault(x => x.FullName == unboxType);
             var unboxVal = EmitExpr(c.Args[0], md, types);
             return unboxType switch
             {
@@ -5812,6 +5851,17 @@ public static class CodeGenerator
                 // value (the "dec"-kind temp assignment). Runtime symbol lands
                 // with T1 (boxingext2 + decimal.h).
                 "System.Decimal" => $"il2cpp::runtime::icall_unbox_decimal({unboxVal})",
+                // P25b (user struct box): a USER value type unboxes through
+                // il2cpp_unbox_user_struct -- the runtime validates the box
+                // (its klass's base chain reaches System.ValueType; NRE/ICE on
+                // failure) and returns the payload ADDRESS; the generated code
+                // casts it to {T}* and dereferences to the {T} value. The
+                // ResultKind (StackFold) routes the result temp to the {T}
+                // C++ struct type so the local holds a real struct copy.
+                _ when unboxTypeDef != null && unboxTypeDef.IsValueType =>
+                    unboxTypeDef.RefFieldCount > 0
+                        ? throw new NotSupportedException($"unbox of {unboxType} not supported -- user structs with GC reference fields are not yet unboxable (P25b reference-free MVP)")
+                        : $"(*reinterpret_cast<{TypeEmitter.TypeCppName(unboxTypeDef)}*>(il2cpp::runtime::il2cpp_unbox_user_struct({unboxVal})))",
                 _ => throw new NotSupportedException($"unbox of {unboxType} not supported -- no runtime unbox helper (audit H3 + M5)"),
             };
         }
@@ -7356,7 +7406,20 @@ public static class CodeGenerator
         // entry registers the type table uniformly; static-field reference roots join the GC root set in Task 10 (frame records).
         foreach (var t in types)
         {
-            if (t.IsValueType) continue; // value types are not GC classes
+            // P25b (user struct box): user value types are NOT GC classes and
+            // their descriptors were never registered before -- the box icall
+            // needs {T}_class reachable (class_by_name / isinst / the
+            // unbox-ValueType-chain check). Register them like every other
+            // descriptor -- the registration key is the descriptor pointer
+            // (idempotent), and the descriptor's instanceSize/refFieldBitmap
+            // are the PAYLOAD shape (the box object itself is header+payload,
+            // allocated via il2cpp_gc_alloc_size).
+            if (t.IsValueType)
+            {
+                if (!(t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))) continue;
+                w.Line($"il2cpp::il2cpp_class_register(&{TypeEmitter.TypeCppName(t)}_class);");
+                continue;
+            }
             var hasExport = t.Methods.Any(m => m.IsStatic &&
                 m.ReturnType == SignatureTypeCode.Int32 &&
                 m.ParamCount == 4 && m.ParamTypes == "i,i,i,i");

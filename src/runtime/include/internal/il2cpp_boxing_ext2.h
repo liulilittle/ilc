@@ -115,6 +115,17 @@ Il2CppObject* icall_box_enum(Il2CppClass* enumClass, int64_t value);
 //                        box (instanceSize 32 -- header + 16-byte payload)
 Il2CppObject* icall_box_decimal(const Il2CppDecimal* value);
 
+//   icall_box_user_struct : P25b user-struct boxing. Copies a USER value type
+//                        (an application TypeDef -- a plain C++ struct with no
+//                        runtime kind) into a boxed object whose klass is the
+//                        user type's generated descriptor (&{T}_class). The
+//                        payload starts at kBoxPayloadOffset (8) and holds
+//                        payloadSize bytes (the transpiler passes
+//                        sizeof({T})). refFieldBitmap is 0 (reference-free MVP
+//                        -- the transpiler rejects structs with GC reference
+//                        fields loudly at box sites).
+Il2CppObject* icall_box_user_struct(Il2CppClass* klass, const void* value, size_t payloadSize);
+
 //------------------------------------------------------------------------------
 // Unboxing icalls -- extract the payload of a boxed primitive.
 //
@@ -150,6 +161,13 @@ double icall_unbox_float(Il2CppObject* obj);
 //                         because it is a BY-VALUE return, unlike the icall
 //                         parameter surface, which is pointer-shaped)
 Il2CppDecimal icall_unbox_decimal(Il2CppObject* obj);
+
+//   il2cpp_unbox_user_struct : returns the ADDRESS of the boxed user-struct
+//                        payload (the box's klass must be a user-struct
+//                        descriptor; the caller casts the void* payload and
+//                        copies/reads the struct). Null or a non-user-struct
+//                        box throws (NRE/InvalidCast) -- never garbage.
+void* il2cpp_unbox_user_struct(Il2CppObject* obj);
 
 //------------------------------------------------------------------------------
 // icall_boxed_equals_ext2 -- superset value equality for boxed values.

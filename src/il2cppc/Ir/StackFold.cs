@@ -1146,12 +1146,18 @@ public static class StackFold
                     // (unbox double -> double temp, int64 -> int64_t temp).
                     {
                         var unboxType = TypeFullNameFromToken(md, (int)ins.Operand);
-                        var kind = unboxType is "System.Double" or "System.Single" ? "d"
+                        // P25b (user struct box): a USER value type (a TypeDef
+                        // with a System.ValueType base -- NOT an enum, NOT a BCL
+                        // struct) unboxes to the C++ struct type. The ResultKind
+                        // carries the struct's C++ name; CodeGenerator.ExprKind
+                        // maps the "us:" prefix to the declaration type and the
+                        // unbox_ emit site casts the runtime payload pointer.
+                        string? kind = unboxType is "System.Double" or "System.Single" ? "d"
                             : unboxType is "System.Int64" or "System.UInt64" ? "l"
                             // decimal-domain T3: a boxed decimal unboxes to the
                             // 16-byte value ("dec"-kind temp declaration).
                             : unboxType is "System.Decimal" ? "dec"
-                            : null;
+                            : UnboxUserStructKind(unboxType, types);
                         Push(new CallExpr { Function = $"unbox_{ins.Operand}", ReturnsRef = false, ResultKind = kind, Args = { stack.Pop() } }, ins);
                     }
                     break;
@@ -3195,6 +3201,19 @@ public static class StackFold
                 return true;
             var t = types.FirstOrDefault(x => x.FullName == ownerFullName);
             return t != null && t.IsValueType;
+        }
+
+        // P25b (user struct box): the unbox ResultKind for a USER value type --
+        // "us:{CppName}" (CodeGenerator.ExprKind strips the prefix to the C++
+        // struct declaration type; the unbox_ emit site casts the runtime
+        // payload). Returns null for everything else (primitives handle their
+        // own kinds; enums/BCL structs are not routed here).
+        static string? UnboxUserStructKind(string fullName, IReadOnlyList<TypeDef>? types)
+        {
+            if (types == null) return null;
+            var t = types.FirstOrDefault(x => x.FullName == fullName);
+            if (t == null || !t.IsValueType) return null;
+            return "us:" + TypeEmitter.TypeCppName(t);
         }
 
         // M4 Task 5 + M5 wiring: runtime icall methods (resolved by

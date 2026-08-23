@@ -627,10 +627,19 @@ public static class TypeEmitter
         // Audit H7: wire the resolved user base class -- il2cpp_is_instance
         // walks baseClass and il2cpp_interface_dispatch scans the base chain
         // for inherited interfaces. System.Object roots stay nullptr.
-        var baseClassRef = t.BaseType != null
-            ? $"&{TypeCppName(t.BaseType)}_class"
-            : "nullptr";
-        w.Line($"    {baseClassRef},                                                // baseClass ({(t.BaseType != null ? "user inheritance: " + t.BaseType.FullName : "null (System.Object root)")})");
+        // P25b (user struct box): a user value type's descriptor baseClass is
+        // &System_ValueType_class (the runtime builtin) so il2cpp_is_instance
+        // answers `boxedPoint is object` / `is ValueType` (the base chain
+        // walks {T}_class -> System.ValueType -> System.Object) and
+        // il2cpp_unbox_user_struct's ValueType-chain check accepts the box.
+        // User classes keep their resolved user base; enums (BaseTypeName
+        // System.Enum, not IsValueType) keep nullptr -- unchanged.
+        var baseClassRef = t.IsValueType
+            ? "&System_ValueType_class"
+            : t.BaseType != null
+                ? $"&{TypeCppName(t.BaseType)}_class"
+                : "nullptr";
+        w.Line($"    {baseClassRef},                                                // baseClass ({(t.IsValueType ? "System.ValueType (P25b box base)" : t.BaseType != null ? "user inheritance: " + t.BaseType.FullName : "null (System.Object root)")})");
         w.Line(vtableArrayName == null
             ? $"    nullptr,                                                // vtable (no virtual methods in this type)"
             : $"    reinterpret_cast<void**>({vtableArrayName}),            // vtable: {vtableSize} virtual slot(s)");

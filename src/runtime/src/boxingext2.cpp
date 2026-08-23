@@ -247,6 +247,24 @@ void ThrowInvalidCast(const char* expected)
     il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception", expected);
 }
 
+// P25b: is this descriptor a USER value type (its base chain reaches
+// System.ValueType)? The transpiler wires every generated user-struct {T}_class
+// to &System_ValueType_class; the builtin primitive box classes (Int32 >=
+// baseClass System.Object) and enum boxes (base System.Enum chain) do NOT
+// reach it, so `boxed int is ValueType` stays false (the runtime-primitive
+// unbox helpers own those) while `boxed Point is ValueType` is true.
+bool IsValueTypeClass(Il2CppClass* klass)
+{
+    for (Il2CppClass* cur = klass; cur != nullptr; cur = cur->baseClass)
+    {
+        if (cur == &System_ValueType_class)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Payload accessors -- the shared layout contract with boxing.cpp.
 int32_t BoxPayloadInt32(Il2CppObject* obj)
 {
@@ -419,6 +437,61 @@ Il2CppObject* icall_box_decimal(const Il2CppDecimal* value)
     std::memcpy(reinterpret_cast<char*>(boxed) + kBoxPayloadOffset, value,
                 sizeof(Il2CppDecimal));
     return boxed;
+}
+
+//------------------------------------------------------------------------------
+// icall_box_user_struct -- box a USER value type (P25b). The value arrives as
+// a pointer to a plain C++ struct (the generated {T}); the box is allocated
+// with the user type's OWN descriptor (&{T}_class -- the boxed object's klass
+// carries the user struct identity, so isinst/castclass against {T} / object /
+// ValueType resolve through the base chain) and the struct bytes are copied
+// verbatim into the payload at kBoxPayloadOffset. payloadSize is the struct
+// byte size (sizeof({T}), emitted by the transpiler) -- the physical box size
+// is header + payloadSize (the descriptor's own instanceSize may be smaller,
+// exactly like the enum box precedent). Reference-free MVP: the transpiler
+// rejects structs with GC reference fields at box sites, so the box is never
+// scanned for references.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_box_user_struct(Il2CppClass* klass, const void* value, size_t payloadSize)
+{
+    if (klass == nullptr || value == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.SystemException,System.Exception",
+                         "Value does not fall within the expected range.");
+        return nullptr; // unreachable (always throws); well-formed path only
+    }
+    Il2CppObject* boxed = il2cpp_gc_alloc_size(klass, kBoxPayloadOffset + payloadSize);
+    std::memcpy(reinterpret_cast<char*>(boxed) + kBoxPayloadOffset, value, payloadSize);
+    return boxed;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_unbox_user_struct -- return the ADDRESS of a boxed user struct's
+// payload (P25b). Unlike the primitive unbox helpers (which extract a scalar),
+// a user struct has unknown compound shape at runtime -- the caller (the
+// generated code) casts the returned payload pointer to {T}* and copies/reads
+// the struct. Safety contract (mirrors the primitive unboxes):
+//     null input   -> NullReferenceException
+//     klass not a  -> InvalidCastException (the payload is NOT a user struct's
+//     user struct     value -- casting it would read garbage). A klass whose
+//                     base chain reaches System.ValueType is a value-type
+//                     descriptor (user structs -- enums box through their own
+//                     descriptors too; their base is System.Enum, NOT
+//                     System.ValueType, so this check excludes enum boxes).
+// Never returns garbage: every failure path throws.
+//------------------------------------------------------------------------------
+void* il2cpp_unbox_user_struct(Il2CppObject* obj)
+{
+    if (obj == nullptr)
+    {
+        ThrowUnboxNull();
+        return nullptr; // unreachable (always throws); well-formed path only
+    }
+    if (obj->klass == nullptr || !IsValueTypeClass(obj->klass))
+    {
+        ThrowInvalidCast("Specified cast is not valid: object is not a boxed user value type.");
+    }
+    return reinterpret_cast<char*>(obj) + kBoxPayloadOffset;
 }
 
 //------------------------------------------------------------------------------
