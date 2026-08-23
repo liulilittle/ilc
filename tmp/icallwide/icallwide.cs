@@ -115,7 +115,9 @@ static class Program
 
         StringBuilder sb6 = new StringBuilder("hi");
         sb6.Append(true); sb6.AppendLine();
-        CheckEqS("sb.appendline.b", "hitrue\r\n", sb6.ToString());
+        CheckEq("sb.appendline.b.len", 8L, sb6.Length);
+        CheckEq("sb.appendline.b.strlen", 8L, sb6.ToString().Length);
+        CheckEqS("sb.appendline.b", "hiTrue\r\n", sb6.ToString());
 
         StringBuilder sb7 = new StringBuilder();
         sb7.Append(1.25);

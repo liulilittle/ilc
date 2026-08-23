@@ -48,6 +48,9 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
                 if (name == "GetHashCode" && receiverType == "System.TimeSpan")
                     return I("il2cpp::runtime::icall_timespan_get_hash_code", 0, true, false, true, new[] { "deref:ts" });
+                // icallwide: Version receiver (Roslyn emits callvirt Object::*)
+                if (name == "GetHashCode" && receiverType == "System.Version")
+                    return I("il2cpp::runtime::icall_version_get_hash_code", 0, true, false, true);
                 if (name == "ToString" && receiverType == "System.Text.StringBuilder")
                     return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
                 // icallwide: Object::ToString on a TimeSpan receiver (Roslyn

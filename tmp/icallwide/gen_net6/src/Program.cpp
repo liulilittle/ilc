@@ -368,7 +368,7 @@ IL2CPP_NOINLINE void Program_WideString_a18e48d2c77e866e(void)
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideStringBuilder()
 // IL offset (RVA): 0x00002554 (assembly: icallwide_net6.dll, token: 0x0600000B)
-// Semantics: Transpiled from 0 argument slot(s) and 581 byte(s) of IL; the body below is the stack-folding result (132 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
+// Semantics: Transpiled from 0 argument slot(s) and 628 byte(s) of IL; the body below is the stack-folding result (143 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideStringBuilder_c2718dc85def225f(void)
 {
@@ -400,42 +400,48 @@ IL2CPP_NOINLINE void Program_WideStringBuilder_c2718dc85def225f(void)
     Il2CppObject* inl24 = nullptr;
     Il2CppObject* loc5 = nullptr;
     Il2CppObject* inl25 = nullptr;
-    Il2CppObject* inl26 = nullptr;
-    Il2CppObject* inl27 = nullptr;
+    int64_t inl26;
+    int32_t inl27;
     Il2CppObject* inl29 = nullptr;
-    Il2CppObject* loc6 = nullptr;
-    Il2CppObject* inl30 = nullptr;
-    Il2CppObject* inl31 = nullptr;
-    Il2CppObject* inl32 = nullptr;
+    int64_t inl30;
+    int32_t inl31;
+    Il2CppObject* inl33 = nullptr;
     Il2CppObject* inl34 = nullptr;
+    Il2CppObject* inl35 = nullptr;
+    Il2CppObject* inl37 = nullptr;
+    Il2CppObject* loc6 = nullptr;
+    Il2CppObject* inl38 = nullptr;
+    Il2CppObject* inl39 = nullptr;
+    Il2CppObject* inl40 = nullptr;
+    Il2CppObject* inl42 = nullptr;
     Il2CppObject* loc7 = nullptr;
     Il2CppObject* t1 = nullptr;
-    Il2CppObject* inl35 = nullptr;
-    Il2CppObject* inl36 = nullptr;
-    Il2CppObject* inl37 = nullptr;
-    Il2CppObject* inl39 = nullptr;
-    Il2CppObject* loc8 = nullptr;
-    int32_t t36;
-    Il2CppObject* t37 = nullptr;
-    int32_t t2;
-    Il2CppObject* t40 = nullptr;
-    int32_t t41;
-    Il2CppObject* loc9 = nullptr;
-    int32_t loc10;
-    Il2CppObject* inl40 = nullptr;
-    Il2CppObject* inl41 = nullptr;
-    Il2CppObject* inl42 = nullptr;
+    Il2CppObject* inl43 = nullptr;
     Il2CppObject* inl44 = nullptr;
     Il2CppObject* inl45 = nullptr;
-    int64_t inl46;
-    int32_t inl47;
+    Il2CppObject* inl47 = nullptr;
+    Il2CppObject* loc8 = nullptr;
+    int32_t t39;
+    Il2CppObject* t40 = nullptr;
+    int32_t t2;
+    Il2CppObject* t43 = nullptr;
+    int32_t t44;
+    Il2CppObject* loc9 = nullptr;
+    int32_t loc10;
+    Il2CppObject* inl48 = nullptr;
+    Il2CppObject* inl49 = nullptr;
+    Il2CppObject* inl50 = nullptr;
+    Il2CppObject* inl52 = nullptr;
+    Il2CppObject* inl53 = nullptr;
+    int64_t inl54;
+    int32_t inl55;
 
     // Managed frame (M3 Task 9): this method's reference locals are GC roots while it is on the call stack.
-    void* __frameRefs[] = { static_cast<void*>(&t0), static_cast<void*>(&loc0), static_cast<void*>(&inl0), static_cast<void*>(&inl1), static_cast<void*>(&inl2), static_cast<void*>(&inl4), static_cast<void*>(&loc1), static_cast<void*>(&inl5), static_cast<void*>(&inl6), static_cast<void*>(&inl7), static_cast<void*>(&inl9), static_cast<void*>(&loc2), static_cast<void*>(&inl10), static_cast<void*>(&inl11), static_cast<void*>(&inl12), static_cast<void*>(&inl14), static_cast<void*>(&loc3), static_cast<void*>(&inl15), static_cast<void*>(&inl16), static_cast<void*>(&inl17), static_cast<void*>(&inl19), static_cast<void*>(&loc4), static_cast<void*>(&inl20), static_cast<void*>(&inl21), static_cast<void*>(&inl22), static_cast<void*>(&inl24), static_cast<void*>(&loc5), static_cast<void*>(&inl25), static_cast<void*>(&inl26), static_cast<void*>(&inl27), static_cast<void*>(&inl29), static_cast<void*>(&loc6), static_cast<void*>(&inl30), static_cast<void*>(&inl31), static_cast<void*>(&inl32), static_cast<void*>(&inl34), static_cast<void*>(&loc7), static_cast<void*>(&t1), static_cast<void*>(&inl35), static_cast<void*>(&inl36), static_cast<void*>(&inl37), static_cast<void*>(&inl39), static_cast<void*>(&loc8), static_cast<void*>(&t37), static_cast<void*>(&loc9), static_cast<void*>(&inl40), static_cast<void*>(&inl41), static_cast<void*>(&inl42), static_cast<void*>(&inl44), static_cast<void*>(&inl45) };
+    void* __frameRefs[] = { static_cast<void*>(&t0), static_cast<void*>(&loc0), static_cast<void*>(&inl0), static_cast<void*>(&inl1), static_cast<void*>(&inl2), static_cast<void*>(&inl4), static_cast<void*>(&loc1), static_cast<void*>(&inl5), static_cast<void*>(&inl6), static_cast<void*>(&inl7), static_cast<void*>(&inl9), static_cast<void*>(&loc2), static_cast<void*>(&inl10), static_cast<void*>(&inl11), static_cast<void*>(&inl12), static_cast<void*>(&inl14), static_cast<void*>(&loc3), static_cast<void*>(&inl15), static_cast<void*>(&inl16), static_cast<void*>(&inl17), static_cast<void*>(&inl19), static_cast<void*>(&loc4), static_cast<void*>(&inl20), static_cast<void*>(&inl21), static_cast<void*>(&inl22), static_cast<void*>(&inl24), static_cast<void*>(&loc5), static_cast<void*>(&inl25), static_cast<void*>(&inl33), static_cast<void*>(&inl34), static_cast<void*>(&inl35), static_cast<void*>(&inl37), static_cast<void*>(&loc6), static_cast<void*>(&inl38), static_cast<void*>(&inl39), static_cast<void*>(&inl40), static_cast<void*>(&inl42), static_cast<void*>(&loc7), static_cast<void*>(&t1), static_cast<void*>(&inl43), static_cast<void*>(&inl44), static_cast<void*>(&inl45), static_cast<void*>(&inl47), static_cast<void*>(&loc8), static_cast<void*>(&t40), static_cast<void*>(&loc9), static_cast<void*>(&inl48), static_cast<void*>(&inl49), static_cast<void*>(&inl50), static_cast<void*>(&inl52), static_cast<void*>(&inl53) };
     il2cpp::Il2CppFrame __frame = { nullptr, nullptr, nullptr, 0 };
     __frame.methodName = "Program_WideStringBuilder_c2718dc85def225f";
     __frame.refs = static_cast<void**>(__frameRefs);
-    __frame.refCount = 50;
+    __frame.refCount = 51;
     il2cpp::il2cpp_frame_push(&__frame);
 
     t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x0001 -- store evaluated value into t0
@@ -502,70 +508,79 @@ IL2CPP_NOINLINE void Program_WideStringBuilder_c2718dc85def225f(void)
     loc5 = t0;                                                                                    // IL stloc.s @0x0143 -- store evaluated value into loc5
     il2cpp::runtime::icall_stringbuilder_append_b(loc5, static_cast<bool>(1LL));                  // IL callvirt @0x0148 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_append_b
     il2cpp::runtime::icall_stringbuilder_append_line(loc5);                                       // IL callvirt @0x0150 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_append_line
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(loc5));   // IL callvirt @0x0162 -- store call result into t0
-    inl25 = il2cpp::g_strPool[70];                                                                // IL call @0x0167 -- store evaluated value into inl25
-    inl26 = il2cpp::g_strPool[71];                                                                // IL call @0x0167 -- store evaluated value into inl26
-    inl27 = t0;                                                                                   // IL call @0x0167 -- store evaluated value into inl27
-    inl29 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl25, il2cpp::g_strPool[2], inl27)); // IL call @0x0167 -- store call result into inl29
-    Program_Check_0c8420c745f790fe(inl29, il2cpp::runtime::icall_string_equals_static(inl26, inl27)); // IL call @0x0167 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x016D -- store evaluated value into t0
-    il2cpp::runtime::icall_stringbuilder_ctor_default(t0);                                        // IL newobj @0x016D -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_default
-    loc6 = t0;                                                                                    // IL stloc.s @0x0172 -- store evaluated value into loc6
-    il2cpp::runtime::icall_stringbuilder_append_d(loc6, static_cast<double>(1.25));               // IL callvirt @0x017F -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_append_d
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(loc6));   // IL callvirt @0x0191 -- store call result into t0
-    inl30 = il2cpp::g_strPool[72];                                                                // IL call @0x0196 -- store evaluated value into inl30
-    inl31 = il2cpp::g_strPool[73];                                                                // IL call @0x0196 -- store evaluated value into inl31
-    inl32 = t0;                                                                                   // IL call @0x0196 -- store evaluated value into inl32
-    inl34 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl30, il2cpp::g_strPool[2], inl32)); // IL call @0x0196 -- store call result into inl34
-    Program_Check_0c8420c745f790fe(inl34, il2cpp::runtime::icall_string_equals_static(inl31, inl32)); // IL call @0x0196 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x01A1 -- store evaluated value into t0
-    il2cpp::runtime::icall_stringbuilder_ctor_string(t0, il2cpp::g_strPool[40]);                  // IL newobj @0x01A1 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_string
-    loc7 = t0;                                                                                    // IL stloc.s @0x01A6 -- store evaluated value into loc7
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_insert_s_count(loc7, static_cast<int32_t>(2LL), il2cpp::g_strPool[64], static_cast<int32_t>(3LL))); // IL callvirt @0x01BB -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(t0));     // IL callvirt @0x01C0 -- store call result into t1
-    inl35 = il2cpp::g_strPool[74];                                                                // IL call @0x01C5 -- store evaluated value into inl35
-    inl36 = il2cpp::g_strPool[75];                                                                // IL call @0x01C5 -- store evaluated value into inl36
-    inl37 = t1;                                                                                   // IL call @0x01C5 -- store evaluated value into inl37
-    inl39 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl35, il2cpp::g_strPool[2], inl37)); // IL call @0x01C5 -- store call result into inl39
-    Program_Check_0c8420c745f790fe(inl39, il2cpp::runtime::icall_string_equals_static(inl36, inl37)); // IL call @0x01C5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    inl25 = il2cpp::g_strPool[70];                                                                // IL call @0x0165 -- store evaluated value into inl25
+    inl26 = 8LL;                                                                                  // IL call @0x0165 -- store evaluated value into inl26
+    inl27 = il2cpp::runtime::icall_stringbuilder_get_length(loc5);                                // IL call @0x0165 -- store call result into inl27
+    Program_Check_0c8420c745f790fe(inl25, (inl26 == inl27));                                      // IL call @0x0165 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(loc5));   // IL callvirt @0x0174 -- store call result into t0
+    inl29 = il2cpp::g_strPool[71];                                                                // IL call @0x017F -- store evaluated value into inl29
+    inl30 = 8LL;                                                                                  // IL call @0x017F -- store evaluated value into inl30
+    inl31 = il2cpp::il2cpp_string_get_length(t0);                                                 // IL call @0x017F -- store call result into inl31
+    Program_Check_0c8420c745f790fe(inl29, (inl30 == inl31));                                      // IL call @0x017F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(loc5));   // IL callvirt @0x0191 -- store call result into t0
+    inl33 = il2cpp::g_strPool[72];                                                                // IL call @0x0196 -- store evaluated value into inl33
+    inl34 = il2cpp::g_strPool[73];                                                                // IL call @0x0196 -- store evaluated value into inl34
+    inl35 = t0;                                                                                   // IL call @0x0196 -- store evaluated value into inl35
+    inl37 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl33, il2cpp::g_strPool[2], inl35)); // IL call @0x0196 -- store call result into inl37
+    Program_Check_0c8420c745f790fe(inl37, il2cpp::runtime::icall_string_equals_static(inl34, inl35)); // IL call @0x0196 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x019C -- store evaluated value into t0
+    il2cpp::runtime::icall_stringbuilder_ctor_default(t0);                                        // IL newobj @0x019C -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_default
+    loc6 = t0;                                                                                    // IL stloc.s @0x01A1 -- store evaluated value into loc6
+    il2cpp::runtime::icall_stringbuilder_append_d(loc6, static_cast<double>(1.25));               // IL callvirt @0x01AE -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_append_d
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(loc6));   // IL callvirt @0x01C0 -- store call result into t0
+    inl38 = il2cpp::g_strPool[74];                                                                // IL call @0x01C5 -- store evaluated value into inl38
+    inl39 = il2cpp::g_strPool[75];                                                                // IL call @0x01C5 -- store evaluated value into inl39
+    inl40 = t0;                                                                                   // IL call @0x01C5 -- store evaluated value into inl40
+    inl42 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl38, il2cpp::g_strPool[2], inl40)); // IL call @0x01C5 -- store call result into inl42
+    Program_Check_0c8420c745f790fe(inl42, il2cpp::runtime::icall_string_equals_static(inl39, inl40)); // IL call @0x01C5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x01D0 -- store evaluated value into t0
-    il2cpp::runtime::icall_stringbuilder_ctor_string(t0, il2cpp::g_strPool[76]);                  // IL newobj @0x01D0 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_string
-    loc8 = t0;                                                                                    // IL stloc.s @0x01D5 -- store evaluated value into loc8
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_clear(loc8));       // IL callvirt @0x01DE -- store call result into t0
-    t36 = il2cpp::runtime::icall_stringbuilder_get_length(t0);                                    // IL callvirt @0x01E3 -- store call result into t36
-    t37 = il2cpp::g_strPool[77];                                                                  // IL brtrue.s @0x01E8 -- store evaluated value into t37
-    if(t36) goto L_507;                                                                           // IL brtrue.s @0x01E8 -- jump when condition evaluates to true to L_507
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(loc8));   // IL callvirt @0x01EC -- store call result into t0
-    t2 = il2cpp::il2cpp_string_get_length(t0);                                                    // IL callvirt @0x01F1 -- store call result into t2
-    t40 = t37;                                                                                    // IL br.s @0x01F9 -- store evaluated value into t40
-    t41 = (t2 == 0LL);                                                                            // IL br.s @0x01F9 -- store evaluated value into t41
-    goto L_508;                                                                                   // IL br.s @0x01F9 -- unconditional jump to L_508
-    L_507: ;                                                                                      // IL branch target at offset 0x01FB
-    t40 = t37;                                                                                    // IL call @0x01FC -- store evaluated value into t40
-    t41 = 0LL;                                                                                    // IL call @0x01FC -- store evaluated value into t41
-    L_508: ;                                                                                      // IL branch target at offset 0x01FC
-    Program_Check_0c8420c745f790fe(t40, t41);                                                     // IL call @0x01FC -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x0207 -- store evaluated value into t0
-    il2cpp::runtime::icall_stringbuilder_ctor_string(t0, il2cpp::g_strPool[78]);                  // IL newobj @0x0207 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_string
-    loc9 = t0;                                                                                    // IL stloc.s @0x020C -- store evaluated value into loc9
-    loc10 = il2cpp::runtime::icall_stringbuilder_get_chars(loc9, static_cast<int32_t>(0LL));      // IL stloc.s @0x0220 -- store call result into loc10
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_char_to_string((*reinterpret_cast<int32_t*>((&loc10))))); // IL call @0x0224 -- store call result into t0
-    inl40 = il2cpp::g_strPool[79];                                                                // IL call @0x0229 -- store evaluated value into inl40
-    inl41 = il2cpp::g_strPool[80];                                                                // IL call @0x0229 -- store evaluated value into inl41
-    inl42 = t0;                                                                                   // IL call @0x0229 -- store evaluated value into inl42
-    inl44 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl40, il2cpp::g_strPool[2], inl42)); // IL call @0x0229 -- store call result into inl44
-    Program_Check_0c8420c745f790fe(inl44, il2cpp::runtime::icall_string_equals_static(inl41, inl42)); // IL call @0x0229 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    inl45 = il2cpp::g_strPool[81];                                                                // IL call @0x023E -- store evaluated value into inl45
-    inl46 = 5LL;                                                                                  // IL call @0x023E -- store evaluated value into inl46
-    inl47 = il2cpp::runtime::icall_stringbuilder_get_length(loc9);                                // IL call @0x023E -- store call result into inl47
-    Program_Check_0c8420c745f790fe(inl45, (inl46 == inl47));                                      // IL call @0x023E -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    return;                                                                                       // IL ret @0x0244 -- exit method with no value (void)
+    il2cpp::runtime::icall_stringbuilder_ctor_string(t0, il2cpp::g_strPool[40]);                  // IL newobj @0x01D0 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_string
+    loc7 = t0;                                                                                    // IL stloc.s @0x01D5 -- store evaluated value into loc7
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_insert_s_count(loc7, static_cast<int32_t>(2LL), il2cpp::g_strPool[64], static_cast<int32_t>(3LL))); // IL callvirt @0x01EA -- store call result into t0
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(t0));     // IL callvirt @0x01EF -- store call result into t1
+    inl43 = il2cpp::g_strPool[76];                                                                // IL call @0x01F4 -- store evaluated value into inl43
+    inl44 = il2cpp::g_strPool[77];                                                                // IL call @0x01F4 -- store evaluated value into inl44
+    inl45 = t1;                                                                                   // IL call @0x01F4 -- store evaluated value into inl45
+    inl47 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl43, il2cpp::g_strPool[2], inl45)); // IL call @0x01F4 -- store call result into inl47
+    Program_Check_0c8420c745f790fe(inl47, il2cpp::runtime::icall_string_equals_static(inl44, inl45)); // IL call @0x01F4 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x01FF -- store evaluated value into t0
+    il2cpp::runtime::icall_stringbuilder_ctor_string(t0, il2cpp::g_strPool[78]);                  // IL newobj @0x01FF -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_string
+    loc8 = t0;                                                                                    // IL stloc.s @0x0204 -- store evaluated value into loc8
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_clear(loc8));       // IL callvirt @0x020D -- store call result into t0
+    t39 = il2cpp::runtime::icall_stringbuilder_get_length(t0);                                    // IL callvirt @0x0212 -- store call result into t39
+    t40 = il2cpp::g_strPool[79];                                                                  // IL brtrue.s @0x0217 -- store evaluated value into t40
+    if(t39) goto L_554;                                                                           // IL brtrue.s @0x0217 -- jump when condition evaluates to true to L_554
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stringbuilder_to_string(loc8));   // IL callvirt @0x021B -- store call result into t0
+    t2 = il2cpp::il2cpp_string_get_length(t0);                                                    // IL callvirt @0x0220 -- store call result into t2
+    t43 = t40;                                                                                    // IL br.s @0x0228 -- store evaluated value into t43
+    t44 = (t2 == 0LL);                                                                            // IL br.s @0x0228 -- store evaluated value into t44
+    goto L_555;                                                                                   // IL br.s @0x0228 -- unconditional jump to L_555
+    L_554: ;                                                                                      // IL branch target at offset 0x022A
+    t43 = t40;                                                                                    // IL call @0x022B -- store evaluated value into t43
+    t44 = 0LL;                                                                                    // IL call @0x022B -- store evaluated value into t44
+    L_555: ;                                                                                      // IL branch target at offset 0x022B
+    Program_Check_0c8420c745f790fe(t43, t44);                                                     // IL call @0x022B -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x0236 -- store evaluated value into t0
+    il2cpp::runtime::icall_stringbuilder_ctor_string(t0, il2cpp::g_strPool[80]);                  // IL newobj @0x0236 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_string
+    loc9 = t0;                                                                                    // IL stloc.s @0x023B -- store evaluated value into loc9
+    loc10 = il2cpp::runtime::icall_stringbuilder_get_chars(loc9, static_cast<int32_t>(0LL));      // IL stloc.s @0x024F -- store call result into loc10
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_char_to_string((*reinterpret_cast<int32_t*>((&loc10))))); // IL call @0x0253 -- store call result into t0
+    inl48 = il2cpp::g_strPool[81];                                                                // IL call @0x0258 -- store evaluated value into inl48
+    inl49 = il2cpp::g_strPool[82];                                                                // IL call @0x0258 -- store evaluated value into inl49
+    inl50 = t0;                                                                                   // IL call @0x0258 -- store evaluated value into inl50
+    inl52 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl48, il2cpp::g_strPool[2], inl50)); // IL call @0x0258 -- store call result into inl52
+    Program_Check_0c8420c745f790fe(inl52, il2cpp::runtime::icall_string_equals_static(inl49, inl50)); // IL call @0x0258 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    inl53 = il2cpp::g_strPool[83];                                                                // IL call @0x026D -- store evaluated value into inl53
+    inl54 = 5LL;                                                                                  // IL call @0x026D -- store evaluated value into inl54
+    inl55 = il2cpp::runtime::icall_stringbuilder_get_length(loc9);                                // IL call @0x026D -- store call result into inl55
+    Program_Check_0c8420c745f790fe(inl53, (inl54 == inl55));                                      // IL call @0x026D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    return;                                                                                       // IL ret @0x0273 -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideMath()
-// IL offset (RVA): 0x000027A8 (assembly: icallwide_net6.dll, token: 0x0600000C)
+// IL offset (RVA): 0x000027D4 (assembly: icallwide_net6.dll, token: 0x0600000C)
 // Semantics: Transpiled from 0 argument slot(s) and 1207 byte(s) of IL; the body below is the stack-folding result (150 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
@@ -628,7 +643,7 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     il2cpp::il2cpp_frame_push(&__frame);
 
     t0 = il2cpp::runtime::icall_math_round_digits_d(3.14159, 3LL);                                // IL call @0x0010 -- store call result into t0
-    t1 = il2cpp::g_strPool[82];                                                                   // IL bne.un.s @0x001E -- store evaluated value into t1
+    t1 = il2cpp::g_strPool[84];                                                                   // IL bne.un.s @0x001E -- store evaluated value into t1
     if(static_cast<double>((static_cast<double>(t0) == static_cast<double>(3.142))) == static_cast<double>(0LL)) goto L_60; // IL bne.un.s @0x001E -- jump when condition evaluates to true to L_60
     t2 = il2cpp::runtime::icall_math_round_digits_d(2.71828, 2LL);                                // IL call @0x002A -- store call result into t2
     t3 = t1;                                                                                      // IL br.s @0x003A -- store evaluated value into t3
@@ -639,12 +654,12 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     t4 = 0LL;                                                                                     // IL call @0x003D -- store evaluated value into t4
     L_61: ;                                                                                       // IL branch target at offset 0x003D
     Program_Check_0c8420c745f790fe(t3, t4);                                                       // IL call @0x003D -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[83], (static_cast<double>(il2cpp::runtime::icall_math_round_mode_d(static_cast<double>(2.5), static_cast<int32_t>(1LL))) == static_cast<double>(3.0))); // IL call @0x0062 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[84], (static_cast<double>(il2cpp::runtime::icall_math_round_mode_d(static_cast<double>(2.5), static_cast<int32_t>(0LL))) == static_cast<double>(2.0))); // IL call @0x0087 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[85], (static_cast<double>(il2cpp::runtime::icall_math_round_digits_mode_d(static_cast<double>(3.456), static_cast<int32_t>(1LL), static_cast<int32_t>(1LL))) == static_cast<double>(3.5))); // IL call @0x00AD -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[86], (il2cpp::runtime::icall_math_bigmul(static_cast<int32_t>(2147483647LL), static_cast<int32_t>(2LL)) == 4294967294LL)); // IL call @0x00C8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[85], (static_cast<double>(il2cpp::runtime::icall_math_round_mode_d(static_cast<double>(2.5), static_cast<int32_t>(1LL))) == static_cast<double>(3.0))); // IL call @0x0062 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[86], (static_cast<double>(il2cpp::runtime::icall_math_round_mode_d(static_cast<double>(2.5), static_cast<int32_t>(0LL))) == static_cast<double>(2.0))); // IL call @0x0087 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[87], (static_cast<double>(il2cpp::runtime::icall_math_round_digits_mode_d(static_cast<double>(3.456), static_cast<int32_t>(1LL), static_cast<int32_t>(1LL))) == static_cast<double>(3.5))); // IL call @0x00AD -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[88], (il2cpp::runtime::icall_math_bigmul(static_cast<int32_t>(2147483647LL), static_cast<int32_t>(2LL)) == 4294967294LL)); // IL call @0x00C8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_math_divrem_i(static_cast<int32_t>(17LL), static_cast<int32_t>(5LL), reinterpret_cast<int32_t*>((&loc0))); // IL stloc.1 @0x00D8 -- store call result into loc1
-    t10 = il2cpp::g_strPool[87];                                                                  // IL bne.un.s @0x00E0 -- store evaluated value into t10
+    t10 = il2cpp::g_strPool[89];                                                                  // IL bne.un.s @0x00E0 -- store evaluated value into t10
     if((loc1 == 3LL) == 0LL) goto L_232;                                                          // IL bne.un.s @0x00E0 -- jump when condition evaluates to true to L_232
     t11 = t10;                                                                                    // IL br.s @0x00E6 -- store evaluated value into t11
     t12 = (loc0 == 2LL);                                                                          // IL br.s @0x00E6 -- store evaluated value into t12
@@ -654,9 +669,9 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     t12 = 0LL;                                                                                    // IL call @0x00E9 -- store evaluated value into t12
     L_233: ;                                                                                      // IL branch target at offset 0x00E9
     Program_Check_0c8420c745f790fe(t11, t12);                                                     // IL call @0x00E9 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[88], (il2cpp::runtime::icall_math_abs_l(-922337203685477580LL) == 922337203685477580LL)); // IL call @0x010D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[90], (il2cpp::runtime::icall_math_abs_l(-922337203685477580LL) == 922337203685477580LL)); // IL call @0x010D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t14 = il2cpp::runtime::icall_math_max_d(200LL, 100LL);                                        // IL call @0x011F -- store call result into t14
-    t15 = il2cpp::g_strPool[89];                                                                  // IL bne.un.s @0x0129 -- store evaluated value into t15
+    t15 = il2cpp::g_strPool[91];                                                                  // IL bne.un.s @0x0129 -- store evaluated value into t15
     if(static_cast<double>((static_cast<double>(t14) == static_cast<double>(200LL))) == static_cast<double>(0LL)) goto L_317; // IL bne.un.s @0x0129 -- jump when condition evaluates to true to L_317
     t2 = il2cpp::runtime::icall_math_min_d(200LL, 100LL);                                         // IL call @0x0132 -- store call result into t2
     t17 = t15;                                                                                    // IL br.s @0x013B -- store evaluated value into t17
@@ -668,7 +683,7 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     L_318: ;                                                                                      // IL branch target at offset 0x013E
     Program_Check_0c8420c745f790fe(t17, t18);                                                     // IL call @0x013E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t19 = il2cpp::runtime::icall_math_exp_d(1.0);                                                 // IL call @0x0152 -- store call result into t19
-    t20 = il2cpp::g_strPool[90];                                                                  // IL ble.un.s @0x0160 -- store evaluated value into t20
+    t20 = il2cpp::g_strPool[92];                                                                  // IL ble.un.s @0x0160 -- store evaluated value into t20
     if(static_cast<double>((static_cast<double>(t19) > static_cast<double>(2.718281828459045))) == static_cast<double>(0LL)) goto L_381; // IL ble.un.s @0x0160 -- jump when condition evaluates to true to L_381
     t2 = il2cpp::runtime::icall_math_exp_d(1.0);                                                  // IL call @0x016B -- store call result into t2
     t22 = t20;                                                                                    // IL br.s @0x017B -- store evaluated value into t22
@@ -679,10 +694,10 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     t23 = 0LL;                                                                                    // IL call @0x017E -- store evaluated value into t23
     L_382: ;                                                                                      // IL branch target at offset 0x017E
     Program_Check_0c8420c745f790fe(t22, t23);                                                     // IL call @0x017E -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[91], (static_cast<double>(il2cpp::runtime::icall_math_log10_d(1000.0)) == static_cast<double>(3.0))); // IL call @0x01A2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[92], (static_cast<double>(il2cpp::runtime::icall_math_log_d(2.718281828459045)) == static_cast<double>(1.0))); // IL call @0x01C6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[93], (static_cast<double>(il2cpp::runtime::icall_math_log10_d(1000.0)) == static_cast<double>(3.0))); // IL call @0x01A2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[94], (static_cast<double>(il2cpp::runtime::icall_math_log_d(2.718281828459045)) == static_cast<double>(1.0))); // IL call @0x01C6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t26 = il2cpp::runtime::icall_math_pow_d(8.0, 0.3333333333333333);                             // IL call @0x01E3 -- store call result into t26
-    t27 = il2cpp::g_strPool[93];                                                                  // IL ble.un.s @0x01F1 -- store evaluated value into t27
+    t27 = il2cpp::g_strPool[95];                                                                  // IL ble.un.s @0x01F1 -- store evaluated value into t27
     if(static_cast<double>((static_cast<double>(t26) > static_cast<double>(1.9999999999))) == static_cast<double>(0LL)) goto L_535; // IL ble.un.s @0x01F1 -- jump when condition evaluates to true to L_535
     t2 = il2cpp::runtime::icall_math_pow_d(8.0, 0.3333333333333333);                              // IL call @0x0205 -- store call result into t2
     t29 = t27;                                                                                    // IL br.s @0x0215 -- store evaluated value into t29
@@ -694,13 +709,13 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     L_536: ;                                                                                      // IL branch target at offset 0x0218
     Program_Check_0c8420c745f790fe(t29, t30);                                                     // IL call @0x0218 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t2 = il2cpp::runtime::icall_math_sqrt_d(2.0);                                                 // IL call @0x022C -- store call result into t2
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[94], (static_cast<double>((static_cast<double>(t2) * static_cast<double>(il2cpp::runtime::icall_math_sqrt_d(2.0)))) > static_cast<double>(1.9999999999999996))); // IL call @0x024B -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[95], (il2cpp::runtime::icall_math_abs_i(-128LL) == 128LL)); // IL call @0x0266 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[96], (static_cast<double>(il2cpp::runtime::icall_math_truncate_d(7.89)) == static_cast<double>(7.0))); // IL call @0x028A -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[97], (static_cast<double>(il2cpp::runtime::icall_math_ceiling_d(-3.2)) == static_cast<double>(-3.0))); // IL call @0x02AE -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[98], (static_cast<double>(il2cpp::runtime::icall_math_floor_d(-3.7)) == static_cast<double>(-4.0))); // IL call @0x02D2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[96], (static_cast<double>((static_cast<double>(t2) * static_cast<double>(il2cpp::runtime::icall_math_sqrt_d(2.0)))) > static_cast<double>(1.9999999999999996))); // IL call @0x024B -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[97], (il2cpp::runtime::icall_math_abs_i(-128LL) == 128LL)); // IL call @0x0266 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[98], (static_cast<double>(il2cpp::runtime::icall_math_truncate_d(7.89)) == static_cast<double>(7.0))); // IL call @0x028A -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[99], (static_cast<double>(il2cpp::runtime::icall_math_ceiling_d(-3.2)) == static_cast<double>(-3.0))); // IL call @0x02AE -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[100], (static_cast<double>(il2cpp::runtime::icall_math_floor_d(-3.7)) == static_cast<double>(-4.0))); // IL call @0x02D2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t37 = il2cpp::runtime::icall_math_clamp_i(5LL, 1LL, 3LL);                                     // IL call @0x02E0 -- store call result into t37
-    t38 = il2cpp::g_strPool[99];                                                                  // IL bne.un.s @0x02E6 -- store evaluated value into t38
+    t38 = il2cpp::g_strPool[101];                                                                 // IL bne.un.s @0x02E6 -- store evaluated value into t38
     if((t37 == 3LL) == 0LL) goto L_768;                                                           // IL bne.un.s @0x02E6 -- jump when condition evaluates to true to L_768
     t39 = il2cpp::runtime::icall_math_clamp_i(0LL, 1LL, 3LL);                                     // IL call @0x02EB -- store call result into t39
     t38 = t38;                                                                                    // IL bne.un.s @0x02F1 -- store evaluated value into t38
@@ -714,9 +729,9 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     t42 = 0LL;                                                                                    // IL call @0x0301 -- store evaluated value into t42
     L_769: ;                                                                                      // IL branch target at offset 0x0301
     Program_Check_0c8420c745f790fe(t41, t42);                                                     // IL call @0x0301 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[100], (static_cast<double>(il2cpp::runtime::icall_math_clamp_d(2.5, 0.0, 2.0)) == static_cast<double>(2.0))); // IL call @0x0337 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[102], (static_cast<double>(il2cpp::runtime::icall_math_clamp_d(2.5, 0.0, 2.0)) == static_cast<double>(2.0))); // IL call @0x0337 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t44 = il2cpp::runtime::icall_math_bit_increment_d(1.0);                                       // IL call @0x034B -- store call result into t44
-    t45 = il2cpp::g_strPool[101];                                                                 // IL ble.un.s @0x0359 -- store evaluated value into t45
+    t45 = il2cpp::g_strPool[103];                                                                 // IL ble.un.s @0x0359 -- store evaluated value into t45
     if(static_cast<double>((static_cast<double>(t44) > static_cast<double>(1.0))) == static_cast<double>(0LL)) goto L_886; // IL ble.un.s @0x0359 -- jump when condition evaluates to true to L_886
     t2 = il2cpp::runtime::icall_math_bit_increment_d(1.0);                                        // IL call @0x0364 -- store call result into t2
     t47 = t45;                                                                                    // IL br.s @0x0374 -- store evaluated value into t47
@@ -728,7 +743,7 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     L_887: ;                                                                                      // IL branch target at offset 0x0377
     Program_Check_0c8420c745f790fe(t47, t48);                                                     // IL call @0x0377 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t49 = il2cpp::runtime::icall_math_bit_decrement_d(1.0);                                       // IL call @0x038B -- store call result into t49
-    t50 = il2cpp::g_strPool[102];                                                                 // IL bge.un.s @0x0399 -- store evaluated value into t50
+    t50 = il2cpp::g_strPool[104];                                                                 // IL bge.un.s @0x0399 -- store evaluated value into t50
     if(static_cast<double>((static_cast<double>(t49) < static_cast<double>(1.0))) == static_cast<double>(0LL)) goto L_950; // IL bge.un.s @0x0399 -- jump when condition evaluates to true to L_950
     t2 = il2cpp::runtime::icall_math_bit_decrement_d(1.0);                                        // IL call @0x03A4 -- store call result into t2
     t52 = t50;                                                                                    // IL br.s @0x03B4 -- store evaluated value into t52
@@ -740,7 +755,7 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     L_951: ;                                                                                      // IL branch target at offset 0x03B7
     Program_Check_0c8420c745f790fe(t52, t53);                                                     // IL call @0x03B7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t54 = il2cpp::runtime::icall_math_copy_sign_d(3.0, -1.0);                                     // IL call @0x03D4 -- store call result into t54
-    t55 = il2cpp::g_strPool[103];                                                                 // IL bne.un.s @0x03E2 -- store evaluated value into t55
+    t55 = il2cpp::g_strPool[105];                                                                 // IL bne.un.s @0x03E2 -- store evaluated value into t55
     if(static_cast<double>((static_cast<double>(t54) == static_cast<double>(-3.0))) == static_cast<double>(0LL)) goto L_1032; // IL bne.un.s @0x03E2 -- jump when condition evaluates to true to L_1032
     t2 = il2cpp::runtime::icall_math_copy_sign_d(-3.0, 1.0);                                      // IL call @0x03F6 -- store call result into t2
     t57 = t55;                                                                                    // IL br.s @0x0406 -- store evaluated value into t57
@@ -752,7 +767,7 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     L_1033: ;                                                                                     // IL branch target at offset 0x0409
     Program_Check_0c8420c745f790fe(t57, t58);                                                     // IL call @0x0409 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t59 = il2cpp::runtime::icall_math_ilogb_d(static_cast<double>(8.0));                          // IL call @0x041D -- store call result into t59
-    t60 = il2cpp::g_strPool[104];                                                                 // IL bne.un.s @0x0423 -- store evaluated value into t60
+    t60 = il2cpp::g_strPool[106];                                                                 // IL bne.un.s @0x0423 -- store evaluated value into t60
     if((t59 == 3LL) == 0LL) goto L_1080;                                                          // IL bne.un.s @0x0423 -- jump when condition evaluates to true to L_1080
     t5 = il2cpp::runtime::icall_math_ilogb_d(static_cast<double>(0.5));                           // IL call @0x042E -- store call result into t5
     t62 = t60;                                                                                    // IL br.s @0x0436 -- store evaluated value into t62
@@ -763,9 +778,9 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
     t63 = 0LL;                                                                                    // IL call @0x0439 -- store evaluated value into t63
     L_1081: ;                                                                                     // IL branch target at offset 0x0439
     Program_Check_0c8420c745f790fe(t62, t63);                                                     // IL call @0x0439 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[105], (static_cast<double>(il2cpp::runtime::icall_math_scaleb_d(static_cast<double>(1.5), static_cast<int32_t>(4LL))) == static_cast<double>(24.0))); // IL call @0x045E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[107], (static_cast<double>(il2cpp::runtime::icall_math_scaleb_d(static_cast<double>(1.5), static_cast<int32_t>(4LL))) == static_cast<double>(24.0))); // IL call @0x045E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t65 = il2cpp::runtime::icall_math_max_magnitude_d(-5.0, 3.0);                                 // IL call @0x047B -- store call result into t65
-    t66 = il2cpp::g_strPool[106];                                                                 // IL bne.un.s @0x0489 -- store evaluated value into t66
+    t66 = il2cpp::g_strPool[108];                                                                 // IL bne.un.s @0x0489 -- store evaluated value into t66
     if(static_cast<double>((static_cast<double>(t65) == static_cast<double>(-5.0))) == static_cast<double>(0LL)) goto L_1199; // IL bne.un.s @0x0489 -- jump when condition evaluates to true to L_1199
     t2 = il2cpp::runtime::icall_math_min_magnitude_d(-5.0, 3.0);                                  // IL call @0x049D -- store call result into t2
     t68 = t66;                                                                                    // IL br.s @0x04AD -- store evaluated value into t68
@@ -782,7 +797,7 @@ IL2CPP_NOINLINE void Program_WideMath_8468e4bb69ee5511(void)
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideDecimal()
-// IL offset (RVA): 0x00002C6C (assembly: icallwide_net6.dll, token: 0x0600000D)
+// IL offset (RVA): 0x00002C98 (assembly: icallwide_net6.dll, token: 0x0600000D)
 // Semantics: Transpiled from 0 argument slot(s) and 1138 byte(s) of IL; the body below is the stack-folding result (217 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
@@ -895,11 +910,11 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     il2cpp::runtime::icall_decimal_add((&t0), (&(loc0)), (&(loc1)));                              // IL call @0x0028 -- write decimal value into (&t0) (16-byte value slot)
     t1 = il2cpp::runtime::Il2CppDecimal { };                                                      // IL newobj @0x0036 -- store evaluated value into t1
     il2cpp::runtime::icall_decimal_ctor_5((&t1), 19134LL, 0LL, 0LL, 0LL, 2LL);                    // IL newobj @0x0036 -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[107], il2cpp::runtime::icall_decimal_equals((&(t0)), (&(t1)))); // IL call @0x0040 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[109], il2cpp::runtime::icall_decimal_equals((&(t0)), (&(t1)))); // IL call @0x0040 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_decimal_sub((&t3), (&(loc0)), (&(loc1)));                              // IL call @0x004D -- write decimal value into (&t3) (16-byte value slot)
     t4 = il2cpp::runtime::Il2CppDecimal { };                                                      // IL newobj @0x005B -- store evaluated value into t4
     il2cpp::runtime::icall_decimal_ctor_5((&t4), 5556LL, 0LL, 0LL, 0LL, 2LL);                     // IL newobj @0x005B -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[108], il2cpp::runtime::icall_decimal_equals((&(t3)), (&(t4)))); // IL call @0x0065 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[110], il2cpp::runtime::icall_decimal_equals((&(t3)), (&(t4)))); // IL call @0x0065 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t6 = il2cpp::runtime::Il2CppDecimal { };                                                      // IL newobj @0x0076 -- store evaluated value into t6
     il2cpp::runtime::icall_decimal_ctor_5((&t6), 15LL, 0LL, 0LL, 0LL, 1LL);                       // IL newobj @0x0076 -- initialize value-type instance (newobj)
     t7 = il2cpp::runtime::Il2CppDecimal { };                                                      // IL newobj @0x007C -- store evaluated value into t7
@@ -907,7 +922,7 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     il2cpp::runtime::icall_decimal_mul((&t8), (&(t6)), (&(t7)));                                  // IL call @0x0081 -- write decimal value into (&t8) (16-byte value slot)
     t9 = il2cpp::runtime::Il2CppDecimal { };                                                      // IL newobj @0x008C -- store evaluated value into t9
     il2cpp::runtime::icall_decimal_ctor_5((&t9), 60LL, 0LL, 0LL, 0LL, 1LL);                       // IL newobj @0x008C -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[109], il2cpp::runtime::icall_decimal_equals((&(t8)), (&(t9)))); // IL call @0x0096 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[111], il2cpp::runtime::icall_decimal_equals((&(t8)), (&(t9)))); // IL call @0x0096 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t11 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x00A3 -- store evaluated value into t11
     il2cpp::runtime::icall_decimal_ctor_int32((&t11), 10LL);                                      // IL newobj @0x00A3 -- initialize value-type instance (newobj)
     t12 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x00A9 -- store evaluated value into t12
@@ -915,24 +930,24 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     il2cpp::runtime::icall_decimal_div((&t13), (&(t11)), (&(t12)));                               // IL call @0x00AE -- write decimal value into (&t13) (16-byte value slot)
     t14 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x00B9 -- store evaluated value into t14
     il2cpp::runtime::icall_decimal_ctor_5((&t14), 25LL, 0LL, 0LL, 0LL, 1LL);                      // IL newobj @0x00B9 -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[110], il2cpp::runtime::icall_decimal_equals((&(t13)), (&(t14)))); // IL call @0x00C3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[112], il2cpp::runtime::icall_decimal_equals((&(t13)), (&(t14)))); // IL call @0x00C3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t16 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x00D0 -- store evaluated value into t16
     il2cpp::runtime::icall_decimal_ctor_int32((&t16), 10LL);                                      // IL newobj @0x00D0 -- initialize value-type instance (newobj)
     t17 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x00D6 -- store evaluated value into t17
     il2cpp::runtime::icall_decimal_ctor_int32((&t17), 3LL);                                       // IL newobj @0x00D6 -- initialize value-type instance (newobj)
     il2cpp::runtime::icall_decimal_rem((&t18), (&(t16)), (&(t17)));                               // IL call @0x00DB -- write decimal value into (&t18) (16-byte value slot)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[111], il2cpp::runtime::icall_decimal_equals((&(t18)), (&(System_Decimal_sf_One)))); // IL call @0x00EA -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[113], il2cpp::runtime::icall_decimal_equals((&(t18)), (&(System_Decimal_sf_One)))); // IL call @0x00EA -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_decimal_negate((&t20), (&(loc0)));                                     // IL call @0x00F6 -- write decimal value into (&t20) (16-byte value slot)
     t21 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x0104 -- store evaluated value into t21
     il2cpp::runtime::icall_decimal_ctor_5((&t21), 12345LL, 0LL, 0LL, 1LL, 2LL);                   // IL newobj @0x0104 -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[112], il2cpp::runtime::icall_decimal_equals((&(t20)), (&(t21)))); // IL call @0x010E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[114], il2cpp::runtime::icall_decimal_equals((&(t20)), (&(t21)))); // IL call @0x010E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t23 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x011F -- store evaluated value into t23
     il2cpp::runtime::icall_decimal_ctor_5((&t23), 79LL, 0LL, 0LL, 0LL, 1LL);                      // IL newobj @0x011F -- initialize value-type instance (newobj)
     il2cpp::runtime::icall_decimal_floor((&t24), (&(t23)));                                       // IL call @0x0124 -- write decimal value into (&t24) (16-byte value slot)
     t25 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x012A -- store evaluated value into t25
     il2cpp::runtime::icall_decimal_ctor_int32((&t25), 7LL);                                       // IL newobj @0x012A -- initialize value-type instance (newobj)
     t26 = il2cpp::runtime::icall_decimal_equals((&(t24)), (&(t25)));                              // IL call @0x012F -- store call result into t26
-    t27 = il2cpp::g_strPool[113];                                                                 // IL brfalse.s @0x0134 -- store evaluated value into t27
+    t27 = il2cpp::g_strPool[115];                                                                 // IL brfalse.s @0x0134 -- store evaluated value into t27
     if(t26 == 0LL) goto L_340;                                                                    // IL brfalse.s @0x0134 -- jump when condition evaluates to true to L_340
     t28 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x013C -- store evaluated value into t28
     il2cpp::runtime::icall_decimal_ctor_5((&t28), 79LL, 0LL, 0LL, 1LL, 1LL);                      // IL newobj @0x013C -- initialize value-type instance (newobj)
@@ -954,7 +969,7 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     t36 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x0171 -- store evaluated value into t36
     il2cpp::runtime::icall_decimal_ctor_int32((&t36), 8LL);                                       // IL newobj @0x0171 -- initialize value-type instance (newobj)
     t37 = il2cpp::runtime::icall_decimal_equals((&(t35)), (&(t36)));                              // IL call @0x0176 -- store call result into t37
-    t38 = il2cpp::g_strPool[114];                                                                 // IL brfalse.s @0x017B -- store evaluated value into t38
+    t38 = il2cpp::g_strPool[116];                                                                 // IL brfalse.s @0x017B -- store evaluated value into t38
     if(t37 == 0LL) goto L_411;                                                                    // IL brfalse.s @0x017B -- jump when condition evaluates to true to L_411
     t39 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x0183 -- store evaluated value into t39
     il2cpp::runtime::icall_decimal_ctor_5((&t39), 79LL, 0LL, 0LL, 1LL, 1LL);                      // IL newobj @0x0183 -- initialize value-type instance (newobj)
@@ -975,20 +990,20 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     il2cpp::runtime::icall_decimal_truncate((&t46), (&(t45)));                                    // IL call @0x01B2 -- write decimal value into (&t46) (16-byte value slot)
     t47 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x01B8 -- store evaluated value into t47
     il2cpp::runtime::icall_decimal_ctor_int32((&t47), 7LL);                                       // IL newobj @0x01B8 -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[115], il2cpp::runtime::icall_decimal_equals((&(t46)), (&(t47)))); // IL call @0x01C2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[117], il2cpp::runtime::icall_decimal_equals((&(t46)), (&(t47)))); // IL call @0x01C2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t49 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x01D3 -- store evaluated value into t49
     il2cpp::runtime::icall_decimal_ctor_5((&t49), 75LL, 0LL, 0LL, 0LL, 1LL);                      // IL newobj @0x01D3 -- initialize value-type instance (newobj)
     il2cpp::runtime::icall_decimal_round((&t50), (&(t49)), 0, 0);                                 // IL call @0x01D8 -- write decimal value into (&t50) (16-byte value slot)
     t51 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x01DE -- store evaluated value into t51
     il2cpp::runtime::icall_decimal_ctor_int32((&t51), 8LL);                                       // IL newobj @0x01DE -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[116], il2cpp::runtime::icall_decimal_equals((&(t50)), (&(t51)))); // IL call @0x01E8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[118], il2cpp::runtime::icall_decimal_equals((&(t50)), (&(t51)))); // IL call @0x01E8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t53 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x01FC -- store evaluated value into t53
     il2cpp::runtime::icall_decimal_ctor_5((&t53), 2345LL, 0LL, 0LL, 0LL, 3LL);                    // IL newobj @0x01FC -- initialize value-type instance (newobj)
     il2cpp::runtime::icall_decimal_round((&t54), (&(t53)), static_cast<int32_t>(2LL), 0);         // IL call @0x0202 -- write decimal value into (&t54) (16-byte value slot)
     t55 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x0210 -- store evaluated value into t55
     il2cpp::runtime::icall_decimal_ctor_5((&t55), 235LL, 0LL, 0LL, 0LL, 2LL);                     // IL newobj @0x0210 -- initialize value-type instance (newobj)
     t56 = il2cpp::runtime::icall_decimal_equals((&(t54)), (&(t55)));                              // IL call @0x0215 -- store call result into t56
-    t57 = il2cpp::g_strPool[117];                                                                 // IL brtrue.s @0x021A -- store evaluated value into t57
+    t57 = il2cpp::g_strPool[119];                                                                 // IL brtrue.s @0x021A -- store evaluated value into t57
     if(t56) goto L_581;                                                                           // IL brtrue.s @0x021A -- jump when condition evaluates to true to L_581
     t58 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x0225 -- store evaluated value into t58
     il2cpp::runtime::icall_decimal_ctor_5((&t58), 2345LL, 0LL, 0LL, 0LL, 3LL);                    // IL newobj @0x0225 -- initialize value-type instance (newobj)
@@ -1005,7 +1020,7 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     L_582: ;                                                                                      // IL branch target at offset 0x0246
     Program_Check_0c8420c745f790fe(t62, t63);                                                     // IL call @0x0246 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t64 = il2cpp::runtime::icall_decimal_compare((&(loc0)), (&(loc1)));                           // IL call @0x0253 -- store call result into t64
-    t65 = il2cpp::g_strPool[118];                                                                 // IL ble.s @0x0259 -- store evaluated value into t65
+    t65 = il2cpp::g_strPool[120];                                                                 // IL ble.s @0x0259 -- store evaluated value into t65
     if((t64 > 0LL) == 0LL) goto L_625;                                                            // IL ble.s @0x0259 -- jump when condition evaluates to true to L_625
     t66 = il2cpp::runtime::icall_decimal_compare((&(loc1)), (&(loc0)));                           // IL call @0x025D -- store call result into t66
     t65 = t65;                                                                                    // IL bge.s @0x0263 -- store evaluated value into t65
@@ -1023,7 +1038,7 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     t71 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x028D -- store evaluated value into t71
     il2cpp::runtime::icall_decimal_ctor_5((&t71), 19134LL, 0LL, 0LL, 0LL, 2LL);                   // IL newobj @0x028D -- initialize value-type instance (newobj)
     t72 = il2cpp::runtime::icall_decimal_equals((&(t70)), (&(t71)));                              // IL call @0x0292 -- store call result into t72
-    t73 = il2cpp::g_strPool[119];                                                                 // IL brfalse.s @0x0297 -- store evaluated value into t73
+    t73 = il2cpp::g_strPool[121];                                                                 // IL brfalse.s @0x0297 -- store evaluated value into t73
     if(t72 == 0LL) goto L_720;                                                                    // IL brfalse.s @0x0297 -- jump when condition evaluates to true to L_720
     il2cpp::runtime::icall_decimal_sub((&t74), (&(loc0)), (&(loc1)));                             // IL call @0x029B -- write decimal value into (&t74) (16-byte value slot)
     t75 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x02A9 -- store evaluated value into t75
@@ -1044,7 +1059,7 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     L_721: ;                                                                                      // IL branch target at offset 0x02D1
     Program_Check_0c8420c745f790fe(t80, t81);                                                     // IL call @0x02D1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t82 = il2cpp::runtime::icall_decimal_to_double((&(loc0)));                                    // IL call @0x02DD -- store call result into t82
-    t83 = il2cpp::g_strPool[120];                                                                 // IL ble.un.s @0x02EC -- store evaluated value into t83
+    t83 = il2cpp::g_strPool[122];                                                                 // IL ble.un.s @0x02EC -- store evaluated value into t83
     if(static_cast<double>((static_cast<double>(t82) > static_cast<double>(123.4499999))) == static_cast<double>(0LL)) goto L_770; // IL ble.un.s @0x02EC -- jump when condition evaluates to true to L_770
     t5 = il2cpp::runtime::icall_decimal_to_double((&(loc0)));                                     // IL call @0x02EF -- store call result into t5
     t85 = t83;                                                                                    // IL br.s @0x0300 -- store evaluated value into t85
@@ -1055,21 +1070,21 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     t86 = 0LL;                                                                                    // IL call @0x0303 -- store evaluated value into t86
     L_771: ;                                                                                      // IL branch target at offset 0x0303
     Program_Check_0c8420c745f790fe(t85, t86);                                                     // IL call @0x0303 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[121], 1LL);                                  // IL call @0x030F -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[122], 1LL);                                  // IL call @0x031B -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[123], 1LL);                                  // IL call @0x0327 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[123], 1LL);                                  // IL call @0x030F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[124], 1LL);                                  // IL call @0x031B -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[125], 1LL);                                  // IL call @0x0327 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t87 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x033B -- store evaluated value into t87
     il2cpp::runtime::icall_decimal_ctor_5((&t87), 429LL, 0LL, 0LL, 0LL, 1LL);                     // IL newobj @0x033B -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[124], (il2cpp::runtime::icall_decimal_to_int32((&(t87))) == 42LL)); // IL call @0x0349 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[126], (il2cpp::runtime::icall_decimal_to_int32((&(t87))) == 42LL)); // IL call @0x0349 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t89 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x035D -- store evaluated value into t89
     il2cpp::runtime::icall_decimal_ctor_5((&t89), 429LL, 0LL, 0LL, 1LL, 1LL);                     // IL newobj @0x035D -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[125], (il2cpp::runtime::icall_decimal_to_int64((&(t89))) == -42LL)); // IL call @0x036C -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    il2cpp::runtime::icall_decimal_parse((&t91), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[126])); // IL call @0x037C -- write decimal value into (&t91) (16-byte value slot)
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[127], (il2cpp::runtime::icall_decimal_to_int64((&(t89))) == -42LL)); // IL call @0x036C -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    il2cpp::runtime::icall_decimal_parse((&t91), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[128])); // IL call @0x037C -- write decimal value into (&t91) (16-byte value slot)
     t92 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x038A -- store evaluated value into t92
     il2cpp::runtime::icall_decimal_ctor_5((&t92), 12345LL, 0LL, 0LL, 0LL, 2LL);                   // IL newobj @0x038A -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[127], il2cpp::runtime::icall_decimal_equals((&(t91)), (&(t92)))); // IL call @0x0394 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t94 = il2cpp::runtime::icall_decimal_try_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[128]), (&loc2)); // IL call @0x03A6 -- store call result into t94
-    t95 = il2cpp::g_strPool[129];                                                                 // IL brtrue.s @0x03AB -- store evaluated value into t95
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[129], il2cpp::runtime::icall_decimal_equals((&(t91)), (&(t92)))); // IL call @0x0394 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t94 = il2cpp::runtime::icall_decimal_try_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[130]), (&loc2)); // IL call @0x03A6 -- store call result into t94
+    t95 = il2cpp::g_strPool[131];                                                                 // IL brtrue.s @0x03AB -- store evaluated value into t95
     if(t94) goto L_954;                                                                           // IL brtrue.s @0x03AB -- jump when condition evaluates to true to L_954
     t2 = il2cpp::runtime::icall_decimal_equals((&(loc2)), (&(System_Decimal_sf_Zero)));           // IL call @0x03B3 -- store call result into t2
     t97 = t95;                                                                                    // IL br.s @0x03B8 -- store evaluated value into t97
@@ -1084,18 +1099,18 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
     t100 = il2cpp::runtime::Il2CppDecimal { };                                                    // IL newobj @0x03D6 -- store evaluated value into t100
     il2cpp::runtime::icall_decimal_ctor_5((&t100), 12345LL, 0LL, 0LL, 0LL, 2LL);                  // IL newobj @0x03D6 -- initialize value-type instance (newobj)
     loc3 = t100;                                                                                  // IL stloc.3 @0x03DB -- store evaluated value into loc3
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[130], (t2 == il2cpp::runtime::icall_decimal_get_hash_code((&loc3)))); // IL call @0x03E5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[132], (t2 == il2cpp::runtime::icall_decimal_get_hash_code((&loc3)))); // IL call @0x03E5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t10 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_decimal_to_string((&loc0)));     // IL call @0x03F2 -- store call result into t10
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[131], il2cpp::runtime::icall_string_equals_static(t10, il2cpp::g_strPool[126])); // IL call @0x0401 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[133], il2cpp::runtime::icall_string_equals_static(t10, il2cpp::g_strPool[128])); // IL call @0x0401 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = System_Decimal_sf_Zero;                                                                // IL stloc.3 @0x0411 -- store evaluated value into loc3
     t10 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_decimal_to_string((&loc3)));     // IL call @0x0414 -- store call result into t10
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[132], il2cpp::runtime::icall_string_equals_static(t10, il2cpp::g_strPool[133])); // IL call @0x0423 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[134], 1LL);                                  // IL call @0x042F -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[135], 1LL);                                  // IL call @0x043B -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[134], il2cpp::runtime::icall_string_equals_static(t10, il2cpp::g_strPool[135])); // IL call @0x0423 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[136], 1LL);                                  // IL call @0x042F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[137], 1LL);                                  // IL call @0x043B -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t106 = il2cpp::runtime::Il2CppDecimal { };                                                    // IL newobj @0x0451 -- store evaluated value into t106
     il2cpp::runtime::icall_decimal_ctor_5((&t106), 12345LL, 0LL, 0LL, 0LL, 2LL);                  // IL newobj @0x0451 -- initialize value-type instance (newobj)
     t107 = il2cpp::runtime::icall_decimal_equals((&loc0), (&(t106)));                             // IL call @0x0456 -- store call result into t107
-    t108 = il2cpp::g_strPool[136];                                                                // IL brfalse.s @0x045B -- store evaluated value into t108
+    t108 = il2cpp::g_strPool[138];                                                                // IL brfalse.s @0x045B -- store evaluated value into t108
     if(t107 == 0LL) goto L_1130;                                                                  // IL brfalse.s @0x045B -- jump when condition evaluates to true to L_1130
     t2 = il2cpp::runtime::icall_decimal_equals((&loc0), (&(loc1)));                               // IL call @0x0460 -- store call result into t2
     t110 = t108;                                                                                  // IL br.s @0x0468 -- store evaluated value into t110
@@ -1112,7 +1127,7 @@ IL2CPP_NOINLINE void Program_WideDecimal_081bd8a94e87189c(void)
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideFormat()
-// IL offset (RVA): 0x000030EC (assembly: icallwide_net6.dll, token: 0x0600000E)
+// IL offset (RVA): 0x00003118 (assembly: icallwide_net6.dll, token: 0x0600000E)
 // Semantics: Transpiled from 0 argument slot(s) and 667 byte(s) of IL; the body below is the stack-folding result (159 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideFormat_0d81d169b62ed628(void)
@@ -1218,93 +1233,93 @@ IL2CPP_NOINLINE void Program_WideFormat_0d81d169b62ed628(void)
     il2cpp::il2cpp_frame_push(&__frame);
 
     loc1 = 42LL;                                                                                  // IL stloc.1 @0x000D -- store evaluated value into loc1
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int32_custom((*reinterpret_cast<int32_t*>((&loc1))), il2cpp::g_strPool[137])); // IL call @0x0015 -- store call result into t0
-    inl0 = il2cpp::g_strPool[138];                                                                // IL call @0x001A -- store evaluated value into inl0
-    inl1 = il2cpp::g_strPool[139];                                                                // IL call @0x001A -- store evaluated value into inl1
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int32_custom((*reinterpret_cast<int32_t*>((&loc1))), il2cpp::g_strPool[139])); // IL call @0x0015 -- store call result into t0
+    inl0 = il2cpp::g_strPool[140];                                                                // IL call @0x001A -- store evaluated value into inl0
+    inl1 = il2cpp::g_strPool[141];                                                                // IL call @0x001A -- store evaluated value into inl1
     inl2 = t0;                                                                                    // IL call @0x001A -- store evaluated value into inl2
     inl4 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl0, il2cpp::g_strPool[2], inl2)); // IL call @0x001A -- store call result into inl4
     Program_Check_0c8420c745f790fe(inl4, il2cpp::runtime::icall_string_equals_static(inl1, inl2)); // IL call @0x001A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = 683LL;                                                                                 // IL stloc.1 @0x002F -- store evaluated value into loc1
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int32_custom((*reinterpret_cast<int32_t*>((&loc1))), il2cpp::g_strPool[140])); // IL call @0x0037 -- store call result into t0
-    inl5 = il2cpp::g_strPool[141];                                                                // IL call @0x003C -- store evaluated value into inl5
-    inl6 = il2cpp::g_strPool[142];                                                                // IL call @0x003C -- store evaluated value into inl6
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int32_custom((*reinterpret_cast<int32_t*>((&loc1))), il2cpp::g_strPool[142])); // IL call @0x0037 -- store call result into t0
+    inl5 = il2cpp::g_strPool[143];                                                                // IL call @0x003C -- store evaluated value into inl5
+    inl6 = il2cpp::g_strPool[144];                                                                // IL call @0x003C -- store evaluated value into inl6
     inl7 = t0;                                                                                    // IL call @0x003C -- store evaluated value into inl7
     inl9 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl5, il2cpp::g_strPool[2], inl7)); // IL call @0x003C -- store call result into inl9
     Program_Check_0c8420c745f790fe(inl9, il2cpp::runtime::icall_string_equals_static(inl6, inl7)); // IL call @0x003C -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = 255LL;                                                                                 // IL stloc.1 @0x0051 -- store evaluated value into loc1
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int32_custom((*reinterpret_cast<int32_t*>((&loc1))), il2cpp::g_strPool[64])); // IL call @0x0059 -- store call result into t0
-    inl10 = il2cpp::g_strPool[143];                                                               // IL call @0x005E -- store evaluated value into inl10
-    inl11 = il2cpp::g_strPool[144];                                                               // IL call @0x005E -- store evaluated value into inl11
+    inl10 = il2cpp::g_strPool[145];                                                               // IL call @0x005E -- store evaluated value into inl10
+    inl11 = il2cpp::g_strPool[146];                                                               // IL call @0x005E -- store evaluated value into inl11
     inl12 = t0;                                                                                   // IL call @0x005E -- store evaluated value into inl12
     inl14 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl10, il2cpp::g_strPool[2], inl12)); // IL call @0x005E -- store call result into inl14
     Program_Check_0c8420c745f790fe(inl14, il2cpp::runtime::icall_string_equals_static(inl11, inl12)); // IL call @0x005E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = 683LL;                                                                                 // IL stloc.1 @0x0073 -- store evaluated value into loc1
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int32_custom((*reinterpret_cast<int32_t*>((&loc1))), il2cpp::g_strPool[145])); // IL call @0x007B -- store call result into t0
-    inl15 = il2cpp::g_strPool[146];                                                               // IL call @0x0080 -- store evaluated value into inl15
-    inl16 = il2cpp::g_strPool[147];                                                               // IL call @0x0080 -- store evaluated value into inl16
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int32_custom((*reinterpret_cast<int32_t*>((&loc1))), il2cpp::g_strPool[147])); // IL call @0x007B -- store call result into t0
+    inl15 = il2cpp::g_strPool[148];                                                               // IL call @0x0080 -- store evaluated value into inl15
+    inl16 = il2cpp::g_strPool[149];                                                               // IL call @0x0080 -- store evaluated value into inl16
     inl17 = t0;                                                                                   // IL call @0x0080 -- store evaluated value into inl17
     inl19 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl15, il2cpp::g_strPool[2], inl17)); // IL call @0x0080 -- store call result into inl19
     Program_Check_0c8420c745f790fe(inl19, il2cpp::runtime::icall_string_equals_static(inl16, inl17)); // IL call @0x0080 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc2 = 123456LL;                                                                              // IL stloc.2 @0x0096 -- store evaluated value into loc2
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int64_custom((*reinterpret_cast<int64_t*>((&loc2))), il2cpp::g_strPool[148])); // IL call @0x009E -- store call result into t0
-    inl20 = il2cpp::g_strPool[149];                                                               // IL call @0x00A3 -- store evaluated value into inl20
-    inl21 = il2cpp::g_strPool[150];                                                               // IL call @0x00A3 -- store evaluated value into inl21
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int64_custom((*reinterpret_cast<int64_t*>((&loc2))), il2cpp::g_strPool[150])); // IL call @0x009E -- store call result into t0
+    inl20 = il2cpp::g_strPool[151];                                                               // IL call @0x00A3 -- store evaluated value into inl20
+    inl21 = il2cpp::g_strPool[152];                                                               // IL call @0x00A3 -- store evaluated value into inl21
     inl22 = t0;                                                                                   // IL call @0x00A3 -- store evaluated value into inl22
     inl24 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl20, il2cpp::g_strPool[2], inl22)); // IL call @0x00A3 -- store call result into inl24
     Program_Check_0c8420c745f790fe(inl24, il2cpp::runtime::icall_string_equals_static(inl21, inl22)); // IL call @0x00A3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc2 = 9223372036854775807LL;                                                                 // IL stloc.2 @0x00BC -- store evaluated value into loc2
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int64_custom((*reinterpret_cast<int64_t*>((&loc2))), il2cpp::g_strPool[151])); // IL call @0x00C4 -- store call result into t0
-    inl25 = il2cpp::g_strPool[152];                                                               // IL call @0x00C9 -- store evaluated value into inl25
-    inl26 = il2cpp::g_strPool[153];                                                               // IL call @0x00C9 -- store evaluated value into inl26
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_int64_custom((*reinterpret_cast<int64_t*>((&loc2))), il2cpp::g_strPool[153])); // IL call @0x00C4 -- store call result into t0
+    inl25 = il2cpp::g_strPool[154];                                                               // IL call @0x00C9 -- store evaluated value into inl25
+    inl26 = il2cpp::g_strPool[155];                                                               // IL call @0x00C9 -- store evaluated value into inl26
     inl27 = t0;                                                                                   // IL call @0x00C9 -- store evaluated value into inl27
     inl29 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl25, il2cpp::g_strPool[2], inl27)); // IL call @0x00C9 -- store call result into inl29
     Program_Check_0c8420c745f790fe(inl29, il2cpp::runtime::icall_string_equals_static(inl26, inl27)); // IL call @0x00C9 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = 1LL;                                                                                   // IL stloc.3 @0x00DA -- store evaluated value into loc3
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc3))))); // IL call @0x00DD -- store call result into t0
-    inl30 = il2cpp::g_strPool[154];                                                               // IL call @0x00E2 -- store evaluated value into inl30
-    inl31 = il2cpp::g_strPool[155];                                                               // IL call @0x00E2 -- store evaluated value into inl31
+    inl30 = il2cpp::g_strPool[156];                                                               // IL call @0x00E2 -- store evaluated value into inl30
+    inl31 = il2cpp::g_strPool[157];                                                               // IL call @0x00E2 -- store evaluated value into inl31
     inl32 = t0;                                                                                   // IL call @0x00E2 -- store evaluated value into inl32
     inl34 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl30, il2cpp::g_strPool[2], inl32)); // IL call @0x00E2 -- store call result into inl34
     Program_Check_0c8420c745f790fe(inl34, il2cpp::runtime::icall_string_equals_static(inl31, inl32)); // IL call @0x00E2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = 0LL;                                                                                   // IL stloc.3 @0x00F3 -- store evaluated value into loc3
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc3))))); // IL call @0x00F6 -- store call result into t0
-    inl35 = il2cpp::g_strPool[156];                                                               // IL call @0x00FB -- store evaluated value into inl35
-    inl36 = il2cpp::g_strPool[157];                                                               // IL call @0x00FB -- store evaluated value into inl36
+    inl35 = il2cpp::g_strPool[158];                                                               // IL call @0x00FB -- store evaluated value into inl35
+    inl36 = il2cpp::g_strPool[159];                                                               // IL call @0x00FB -- store evaluated value into inl36
     inl37 = t0;                                                                                   // IL call @0x00FB -- store evaluated value into inl37
     inl39 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl35, il2cpp::g_strPool[2], inl37)); // IL call @0x00FB -- store call result into inl39
     Program_Check_0c8420c745f790fe(inl39, il2cpp::runtime::icall_string_equals_static(inl36, inl37)); // IL call @0x00FB -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc4 = 81LL;                                                                                  // IL stloc.s @0x010D -- store evaluated value into loc4
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_char_to_string((*reinterpret_cast<int32_t*>((&loc4))))); // IL call @0x0111 -- store call result into t0
-    inl40 = il2cpp::g_strPool[158];                                                               // IL call @0x0116 -- store evaluated value into inl40
-    inl41 = il2cpp::g_strPool[159];                                                               // IL call @0x0116 -- store evaluated value into inl41
+    inl40 = il2cpp::g_strPool[160];                                                               // IL call @0x0116 -- store evaluated value into inl40
+    inl41 = il2cpp::g_strPool[161];                                                               // IL call @0x0116 -- store evaluated value into inl41
     inl42 = t0;                                                                                   // IL call @0x0116 -- store evaluated value into inl42
     inl44 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl40, il2cpp::g_strPool[2], inl42)); // IL call @0x0116 -- store call result into inl44
     Program_Check_0c8420c745f790fe(inl44, il2cpp::runtime::icall_string_equals_static(inl41, inl42)); // IL call @0x0116 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc5 = 3.14159;                                                                               // IL stloc.s @0x012F -- store evaluated value into loc5
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc5))), il2cpp::g_strPool[160])); // IL call @0x0138 -- store call result into t0
-    inl45 = il2cpp::g_strPool[161];                                                               // IL call @0x013D -- store evaluated value into inl45
-    inl46 = il2cpp::g_strPool[162];                                                               // IL call @0x013D -- store evaluated value into inl46
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc5))), il2cpp::g_strPool[162])); // IL call @0x0138 -- store call result into t0
+    inl45 = il2cpp::g_strPool[163];                                                               // IL call @0x013D -- store evaluated value into inl45
+    inl46 = il2cpp::g_strPool[164];                                                               // IL call @0x013D -- store evaluated value into inl46
     inl47 = t0;                                                                                   // IL call @0x013D -- store evaluated value into inl47
     inl49 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl45, il2cpp::g_strPool[2], inl47)); // IL call @0x013D -- store call result into inl49
     Program_Check_0c8420c745f790fe(inl49, il2cpp::runtime::icall_string_equals_static(inl46, inl47)); // IL call @0x013D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc5 = 2.5;                                                                                   // IL stloc.s @0x0156 -- store evaluated value into loc5
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc5))), il2cpp::g_strPool[163])); // IL call @0x015F -- store call result into t0
-    inl50 = il2cpp::g_strPool[164];                                                               // IL call @0x0164 -- store evaluated value into inl50
-    inl51 = il2cpp::g_strPool[165];                                                               // IL call @0x0164 -- store evaluated value into inl51
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc5))), il2cpp::g_strPool[165])); // IL call @0x015F -- store call result into t0
+    inl50 = il2cpp::g_strPool[166];                                                               // IL call @0x0164 -- store evaluated value into inl50
+    inl51 = il2cpp::g_strPool[167];                                                               // IL call @0x0164 -- store evaluated value into inl51
     inl52 = t0;                                                                                   // IL call @0x0164 -- store evaluated value into inl52
     inl54 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl50, il2cpp::g_strPool[2], inl52)); // IL call @0x0164 -- store call result into inl54
     Program_Check_0c8420c745f790fe(inl54, il2cpp::runtime::icall_string_equals_static(inl51, inl52)); // IL call @0x0164 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc5 = 5.0;                                                                                   // IL stloc.s @0x017D -- store evaluated value into loc5
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc5))), il2cpp::g_strPool[145])); // IL call @0x0186 -- store call result into t0
-    inl55 = il2cpp::g_strPool[166];                                                               // IL call @0x018B -- store evaluated value into inl55
-    inl56 = il2cpp::g_strPool[167];                                                               // IL call @0x018B -- store evaluated value into inl56
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc5))), il2cpp::g_strPool[147])); // IL call @0x0186 -- store call result into t0
+    inl55 = il2cpp::g_strPool[168];                                                               // IL call @0x018B -- store evaluated value into inl55
+    inl56 = il2cpp::g_strPool[169];                                                               // IL call @0x018B -- store evaluated value into inl56
     inl57 = t0;                                                                                   // IL call @0x018B -- store evaluated value into inl57
     inl59 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl55, il2cpp::g_strPool[2], inl57)); // IL call @0x018B -- store call result into inl59
     Program_Check_0c8420c745f790fe(inl59, il2cpp::runtime::icall_string_equals_static(inl56, inl57)); // IL call @0x018B -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc6 = 1.25;                                                                                  // IL stloc.s @0x01A0 -- store evaluated value into loc6
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc6))), il2cpp::g_strPool[168])); // IL call @0x01A9 -- store call result into t0
-    inl60 = il2cpp::g_strPool[169];                                                               // IL call @0x01AE -- store evaluated value into inl60
-    inl61 = il2cpp::g_strPool[73];                                                                // IL call @0x01AE -- store evaluated value into inl61
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_format_double_custom((*reinterpret_cast<double*>((&loc6))), il2cpp::g_strPool[170])); // IL call @0x01A9 -- store call result into t0
+    inl60 = il2cpp::g_strPool[171];                                                               // IL call @0x01AE -- store evaluated value into inl60
+    inl61 = il2cpp::g_strPool[75];                                                                // IL call @0x01AE -- store evaluated value into inl61
     inl62 = t0;                                                                                   // IL call @0x01AE -- store evaluated value into inl62
     inl64 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl60, il2cpp::g_strPool[2], inl62)); // IL call @0x01AE -- store call result into inl64
     Program_Check_0c8420c745f790fe(inl64, il2cpp::runtime::icall_string_equals_static(inl61, inl62)); // IL call @0x01AE -- invoke the transpiled function Program_Check_0c8420c745f790fe
@@ -1312,47 +1327,47 @@ IL2CPP_NOINLINE void Program_WideFormat_0d81d169b62ed628(void)
     t13 = il2cpp::runtime::icall_timespan_from_hms(1LL, 2LL, 3LL);                                // IL newobj @0x01C1 -- initialize value-type instance (BCL runtime icall)
     loc7 = t13;                                                                                   // IL stloc.s @0x01C6 -- store evaluated value into loc7
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_timespan_to_string((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc7))))); // IL callvirt @0x01D0 -- store call result into t0
-    inl65 = il2cpp::g_strPool[170];                                                               // IL call @0x01D5 -- store evaluated value into inl65
-    inl66 = il2cpp::g_strPool[171];                                                               // IL call @0x01D5 -- store evaluated value into inl66
+    inl65 = il2cpp::g_strPool[172];                                                               // IL call @0x01D5 -- store evaluated value into inl65
+    inl66 = il2cpp::g_strPool[173];                                                               // IL call @0x01D5 -- store evaluated value into inl66
     inl67 = t0;                                                                                   // IL call @0x01D5 -- store evaluated value into inl67
     inl69 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl65, il2cpp::g_strPool[2], inl67)); // IL call @0x01D5 -- store call result into inl69
     Program_Check_0c8420c745f790fe(inl69, il2cpp::runtime::icall_string_equals_static(inl66, inl67)); // IL call @0x01D5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t15 = il2cpp::runtime::Il2CppDateTime { };                                                    // IL newobj @0x01F4 -- store evaluated value into t15
     t15 = il2cpp::runtime::icall_datetime_from_ymdhms(2020LL, 6LL, 15LL, 12LL, 30LL, 45LL);       // IL newobj @0x01F4 -- initialize value-type instance (BCL runtime icall)
     loc8 = t15;                                                                                   // IL stloc.s @0x01F9 -- store evaluated value into loc8
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_datetime_to_string_format((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc8))), il2cpp::g_strPool[172])); // IL call @0x0202 -- store call result into t0
-    inl70 = il2cpp::g_strPool[173];                                                               // IL call @0x0207 -- store evaluated value into inl70
-    inl71 = il2cpp::g_strPool[174];                                                               // IL call @0x0207 -- store evaluated value into inl71
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_datetime_to_string_format((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc8))), il2cpp::g_strPool[174])); // IL call @0x0202 -- store call result into t0
+    inl70 = il2cpp::g_strPool[175];                                                               // IL call @0x0207 -- store evaluated value into inl70
+    inl71 = il2cpp::g_strPool[176];                                                               // IL call @0x0207 -- store evaluated value into inl71
     inl72 = t0;                                                                                   // IL call @0x0207 -- store evaluated value into inl72
     inl74 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl70, il2cpp::g_strPool[2], inl72)); // IL call @0x0207 -- store call result into inl74
     Program_Check_0c8420c745f790fe(inl74, il2cpp::runtime::icall_string_equals_static(inl71, inl72)); // IL call @0x0207 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    il2cpp::il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[175]), loc0); // IL stloc.0 @0x0217 -- write Guid value into loc0 (16-byte value slot)
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_guid_to_string_format(reinterpret_cast<uint8_t*>((&loc0)), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[176]))); // IL call @0x0229 -- store call result into t0
-    inl75 = il2cpp::g_strPool[177];                                                               // IL call @0x022E -- store evaluated value into inl75
-    inl76 = il2cpp::g_strPool[178];                                                               // IL call @0x022E -- store evaluated value into inl76
+    il2cpp::il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[177]), loc0); // IL stloc.0 @0x0217 -- write Guid value into loc0 (16-byte value slot)
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_guid_to_string_format(reinterpret_cast<uint8_t*>((&loc0)), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[178]))); // IL call @0x0229 -- store call result into t0
+    inl75 = il2cpp::g_strPool[179];                                                               // IL call @0x022E -- store evaluated value into inl75
+    inl76 = il2cpp::g_strPool[180];                                                               // IL call @0x022E -- store evaluated value into inl76
     inl77 = t0;                                                                                   // IL call @0x022E -- store evaluated value into inl77
     inl79 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl75, il2cpp::g_strPool[2], inl77)); // IL call @0x022E -- store call result into inl79
     Program_Check_0c8420c745f790fe(inl79, il2cpp::runtime::icall_string_equals_static(inl76, inl77)); // IL call @0x022E -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_guid_to_string_format(reinterpret_cast<uint8_t*>((&loc0)), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[179]))); // IL call @0x0245 -- store call result into t0
-    inl80 = il2cpp::g_strPool[180];                                                               // IL call @0x024A -- store evaluated value into inl80
-    inl81 = il2cpp::g_strPool[175];                                                               // IL call @0x024A -- store evaluated value into inl81
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_guid_to_string_format(reinterpret_cast<uint8_t*>((&loc0)), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[181]))); // IL call @0x0245 -- store call result into t0
+    inl80 = il2cpp::g_strPool[182];                                                               // IL call @0x024A -- store evaluated value into inl80
+    inl81 = il2cpp::g_strPool[177];                                                               // IL call @0x024A -- store evaluated value into inl81
     inl82 = t0;                                                                                   // IL call @0x024A -- store evaluated value into inl82
     inl84 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl80, il2cpp::g_strPool[2], inl82)); // IL call @0x024A -- store call result into inl84
     Program_Check_0c8420c745f790fe(inl84, il2cpp::runtime::icall_string_equals_static(inl81, inl82)); // IL call @0x024A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x025E -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x025E -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_to_string(t0));           // IL callvirt @0x0263 -- store call result into t1
-    inl85 = il2cpp::g_strPool[181];                                                               // IL call @0x0268 -- store evaluated value into inl85
-    inl86 = il2cpp::g_strPool[182];                                                               // IL call @0x0268 -- store evaluated value into inl86
+    inl85 = il2cpp::g_strPool[183];                                                               // IL call @0x0268 -- store evaluated value into inl85
+    inl86 = il2cpp::g_strPool[184];                                                               // IL call @0x0268 -- store evaluated value into inl86
     inl87 = t1;                                                                                   // IL call @0x0268 -- store evaluated value into inl87
     inl89 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl85, il2cpp::g_strPool[2], inl87)); // IL call @0x0268 -- store call result into inl89
     Program_Check_0c8420c745f790fe(inl89, il2cpp::runtime::icall_string_equals_static(inl86, inl87)); // IL call @0x0268 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t22 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x0281 -- store evaluated value into t22
     il2cpp::runtime::icall_decimal_ctor_5((&t22), 12345LL, 0LL, 0LL, 0LL, 2LL);                   // IL newobj @0x0281 -- initialize value-type instance (newobj)
     loc9 = t22;                                                                                   // IL stloc.s @0x0286 -- store evaluated value into loc9
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_decimal_to_string_custom((&loc9), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[168]))); // IL call @0x028F -- store call result into t0
-    inl90 = il2cpp::g_strPool[183];                                                               // IL call @0x0294 -- store evaluated value into inl90
-    inl91 = il2cpp::g_strPool[126];                                                               // IL call @0x0294 -- store evaluated value into inl91
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_decimal_to_string_custom((&loc9), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[170]))); // IL call @0x028F -- store call result into t0
+    inl90 = il2cpp::g_strPool[185];                                                               // IL call @0x0294 -- store evaluated value into inl90
+    inl91 = il2cpp::g_strPool[128];                                                               // IL call @0x0294 -- store evaluated value into inl91
     inl92 = t0;                                                                                   // IL call @0x0294 -- store evaluated value into inl92
     inl94 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_3(inl90, il2cpp::g_strPool[2], inl92)); // IL call @0x0294 -- store call result into inl94
     Program_Check_0c8420c745f790fe(inl94, il2cpp::runtime::icall_string_equals_static(inl91, inl92)); // IL call @0x0294 -- invoke the transpiled function Program_Check_0c8420c745f790fe
@@ -1362,7 +1377,7 @@ IL2CPP_NOINLINE void Program_WideFormat_0d81d169b62ed628(void)
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideParse()
-// IL offset (RVA): 0x00003394 (assembly: icallwide_net6.dll, token: 0x0600000F)
+// IL offset (RVA): 0x000033C0 (assembly: icallwide_net6.dll, token: 0x0600000F)
 // Semantics: Transpiled from 0 argument slot(s) and 687 byte(s) of IL; the body below is the stack-folding result (126 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
@@ -1422,10 +1437,10 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     __frame.refCount = 8;
     il2cpp::il2cpp_frame_push(&__frame);
 
-    t0 = il2cpp::runtime::icall_string_parse_int(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[184])); // IL call @0x000B -- store call result into t0
-    t1 = il2cpp::g_strPool[185];                                                                  // IL bne.un.s @0x0012 -- store evaluated value into t1
+    t0 = il2cpp::runtime::icall_string_parse_int(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[186])); // IL call @0x000B -- store call result into t0
+    t1 = il2cpp::g_strPool[187];                                                                  // IL bne.un.s @0x0012 -- store evaluated value into t1
     if((t0 == -123LL) == 0LL) goto L_35;                                                          // IL bne.un.s @0x0012 -- jump when condition evaluates to true to L_35
-    t2 = il2cpp::runtime::icall_string_parse_int(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[186])); // IL call @0x0019 -- store call result into t2
+    t2 = il2cpp::runtime::icall_string_parse_int(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[188])); // IL call @0x0019 -- store call result into t2
     t3 = t1;                                                                                      // IL br.s @0x0021 -- store evaluated value into t3
     t4 = (t2 == 7LL);                                                                             // IL br.s @0x0021 -- store evaluated value into t4
     goto L_36;                                                                                    // IL br.s @0x0021 -- unconditional jump to L_36
@@ -1434,10 +1449,10 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     t4 = 0LL;                                                                                     // IL call @0x0024 -- store evaluated value into t4
     L_36: ;                                                                                       // IL branch target at offset 0x0024
     Program_Check_0c8420c745f790fe(t3, t4);                                                       // IL call @0x0024 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[187], (il2cpp::runtime::icall_string_parse_int(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[188])) == 42LL)); // IL call @0x003D -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[189], (il2cpp::runtime::icall_string_parse_long(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[190])) == 922337203685477580LL)); // IL call @0x005D -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    loc0 = il2cpp::runtime::icall_try_parse_int32(il2cpp::g_strPool[191], reinterpret_cast<int32_t*>((&loc1))); // IL stloc.0 @0x006F -- store call result into loc0
-    t8 = il2cpp::g_strPool[192];                                                                  // IL brtrue.s @0x0076 -- store evaluated value into t8
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[189], (il2cpp::runtime::icall_string_parse_int(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[190])) == 42LL)); // IL call @0x003D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[191], (il2cpp::runtime::icall_string_parse_long(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[192])) == 922337203685477580LL)); // IL call @0x005D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    loc0 = il2cpp::runtime::icall_try_parse_int32(il2cpp::g_strPool[193], reinterpret_cast<int32_t*>((&loc1))); // IL stloc.0 @0x006F -- store call result into loc0
+    t8 = il2cpp::g_strPool[194];                                                                  // IL brtrue.s @0x0076 -- store evaluated value into t8
     if(loc0) goto L_126;                                                                          // IL brtrue.s @0x0076 -- jump when condition evaluates to true to L_126
     t9 = t8;                                                                                      // IL br.s @0x007C -- store evaluated value into t9
     t10 = (loc1 == 0LL);                                                                          // IL br.s @0x007C -- store evaluated value into t10
@@ -1447,8 +1462,8 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     t10 = 0LL;                                                                                    // IL call @0x007F -- store evaluated value into t10
     L_127: ;                                                                                      // IL branch target at offset 0x007F
     Program_Check_0c8420c745f790fe(t9, t10);                                                      // IL call @0x007F -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    loc2 = il2cpp::runtime::icall_try_parse_int32(il2cpp::g_strPool[193], reinterpret_cast<int32_t*>((&loc3))); // IL stloc.2 @0x0091 -- store call result into loc2
-    t12 = il2cpp::g_strPool[194];                                                                 // IL brfalse.s @0x0098 -- store evaluated value into t12
+    loc2 = il2cpp::runtime::icall_try_parse_int32(il2cpp::g_strPool[195], reinterpret_cast<int32_t*>((&loc3))); // IL stloc.2 @0x0091 -- store call result into loc2
+    t12 = il2cpp::g_strPool[196];                                                                 // IL brfalse.s @0x0098 -- store evaluated value into t12
     if(loc2 == 0LL) goto L_164;                                                                   // IL brfalse.s @0x0098 -- jump when condition evaluates to true to L_164
     t13 = t12;                                                                                    // IL br.s @0x00A2 -- store evaluated value into t13
     t14 = (loc3 == 777LL);                                                                        // IL br.s @0x00A2 -- store evaluated value into t14
@@ -1458,10 +1473,10 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     t14 = 0LL;                                                                                    // IL call @0x00A5 -- store evaluated value into t14
     L_165: ;                                                                                      // IL branch target at offset 0x00A5
     Program_Check_0c8420c745f790fe(t13, t14);                                                     // IL call @0x00A5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t15 = il2cpp::runtime::icall_string_parse_double(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[195])); // IL call @0x00B5 -- store call result into t15
-    t16 = il2cpp::g_strPool[196];                                                                 // IL bne.un.s @0x00C3 -- store evaluated value into t16
+    t15 = il2cpp::runtime::icall_string_parse_double(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[197])); // IL call @0x00B5 -- store call result into t15
+    t16 = il2cpp::g_strPool[198];                                                                 // IL bne.un.s @0x00C3 -- store evaluated value into t16
     if(static_cast<double>((static_cast<double>(t15) == static_cast<double>(3.5))) == static_cast<double>(0LL)) goto L_220; // IL bne.un.s @0x00C3 -- jump when condition evaluates to true to L_220
-    t5 = il2cpp::runtime::icall_string_parse_double(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[197])); // IL call @0x00CA -- store call result into t5
+    t5 = il2cpp::runtime::icall_string_parse_double(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[199])); // IL call @0x00CA -- store call result into t5
     t18 = t16;                                                                                    // IL br.s @0x00DA -- store evaluated value into t18
     t19 = (static_cast<double>(t5) == static_cast<double>(-0.25));                                // IL br.s @0x00DA -- store evaluated value into t19
     goto L_221;                                                                                   // IL br.s @0x00DA -- unconditional jump to L_221
@@ -1470,11 +1485,11 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     t19 = 0LL;                                                                                    // IL call @0x00DD -- store evaluated value into t19
     L_221: ;                                                                                      // IL branch target at offset 0x00DD
     Program_Check_0c8420c745f790fe(t18, t19);                                                     // IL call @0x00DD -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[198], (static_cast<double>(il2cpp::runtime::icall_string_parse_double(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[199]))) == static_cast<double>(1.5))); // IL call @0x00F9 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t21 = il2cpp::runtime::icall_bool_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[200])); // IL call @0x0109 -- store call result into t21
-    t22 = il2cpp::g_strPool[201];                                                                 // IL brfalse.s @0x010E -- store evaluated value into t22
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[200], (static_cast<double>(il2cpp::runtime::icall_string_parse_double(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[201]))) == static_cast<double>(1.5))); // IL call @0x00F9 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t21 = il2cpp::runtime::icall_bool_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[202])); // IL call @0x0109 -- store call result into t21
+    t22 = il2cpp::g_strPool[203];                                                                 // IL brfalse.s @0x010E -- store evaluated value into t22
     if(t21 == 0LL) goto L_287;                                                                    // IL brfalse.s @0x010E -- jump when condition evaluates to true to L_287
-    t2 = il2cpp::runtime::icall_bool_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[157])); // IL call @0x0115 -- store call result into t2
+    t2 = il2cpp::runtime::icall_bool_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[159])); // IL call @0x0115 -- store call result into t2
     t24 = t22;                                                                                    // IL br.s @0x011D -- store evaluated value into t24
     t25 = (t2 == 0LL);                                                                            // IL br.s @0x011D -- store evaluated value into t25
     goto L_288;                                                                                   // IL br.s @0x011D -- unconditional jump to L_288
@@ -1483,10 +1498,10 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     t25 = 0LL;                                                                                    // IL call @0x0120 -- store evaluated value into t25
     L_288: ;                                                                                      // IL branch target at offset 0x0120
     Program_Check_0c8420c745f790fe(t24, t25);                                                     // IL call @0x0120 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[202], (il2cpp::runtime::icall_char_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[203])) == 75LL)); // IL call @0x0139 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    loc4 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_parse(il2cpp::g_strPool[204])); // IL stloc.s @0x0149 -- store call result into loc4
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[204], (il2cpp::runtime::icall_char_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[205])) == 75LL)); // IL call @0x0139 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    loc4 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_parse(il2cpp::g_strPool[206])); // IL stloc.s @0x0149 -- store call result into loc4
     t28 = il2cpp::runtime::icall_version_get_major(loc4);                                         // IL callvirt @0x0152 -- store call result into t28
-    t29 = il2cpp::g_strPool[205];                                                                 // IL bne.un.s @0x0158 -- store evaluated value into t29
+    t29 = il2cpp::g_strPool[207];                                                                 // IL bne.un.s @0x0158 -- store evaluated value into t29
     if((t28 == 2LL) == 0LL) goto L_369;                                                           // IL bne.un.s @0x0158 -- jump when condition evaluates to true to L_369
     t30 = il2cpp::runtime::icall_version_get_minor(loc4);                                         // IL callvirt @0x015C -- store call result into t30
     t29 = t29;                                                                                    // IL bne.un.s @0x0163 -- store evaluated value into t29
@@ -1502,7 +1517,7 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     Program_Check_0c8420c745f790fe(t32, t33);                                                     // IL call @0x0172 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     (*((&loc5))) = il2cpp::runtime::icall_timespan_from_dhmsm(1LL, 2LL, 3LL, 0LL, 4LL);           // IL call @0x017F -- initialize value-type instance (ldloca ctor)
     t34 = il2cpp::runtime::icall_timespan_get_days((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc5)))); // IL call @0x018B -- store call result into t34
-    t35 = il2cpp::g_strPool[206];                                                                 // IL bne.un.s @0x0191 -- store evaluated value into t35
+    t35 = il2cpp::g_strPool[208];                                                                 // IL bne.un.s @0x0191 -- store evaluated value into t35
     if((t34 == 1LL) == 0LL) goto L_444;                                                           // IL bne.un.s @0x0191 -- jump when condition evaluates to true to L_444
     t36 = il2cpp::runtime::icall_timespan_get_hours((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc5)))); // IL call @0x0195 -- store call result into t36
     t35 = t35;                                                                                    // IL bne.un.s @0x019B -- store evaluated value into t35
@@ -1522,20 +1537,20 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
     t41 = 0LL;                                                                                    // IL call @0x01BD -- store evaluated value into t41
     L_445: ;                                                                                      // IL branch target at offset 0x01BD
     Program_Check_0c8420c745f790fe(t40, t41);                                                     // IL call @0x01BD -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    il2cpp::il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[175]), loc6); // IL stloc.s @0x01CD -- write Guid value into loc6 (16-byte value slot)
-    t6 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_guid_to_string_format(reinterpret_cast<uint8_t*>((&loc6)), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[176]))); // IL call @0x01DB -- store call result into t6
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[207], il2cpp::runtime::icall_string_equals_static(t6, il2cpp::g_strPool[178])); // IL call @0x01EA -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    il2cpp::runtime::icall_decimal_parse((&t45), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[208])); // IL call @0x01FA -- write decimal value into (&t45) (16-byte value slot)
+    il2cpp::il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[177]), loc6); // IL stloc.s @0x01CD -- write Guid value into loc6 (16-byte value slot)
+    t6 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_guid_to_string_format(reinterpret_cast<uint8_t*>((&loc6)), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[178]))); // IL call @0x01DB -- store call result into t6
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[209], il2cpp::runtime::icall_string_equals_static(t6, il2cpp::g_strPool[180])); // IL call @0x01EA -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    il2cpp::runtime::icall_decimal_parse((&t45), reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[210])); // IL call @0x01FA -- write decimal value into (&t45) (16-byte value slot)
     t46 = il2cpp::runtime::Il2CppDecimal { };                                                     // IL newobj @0x0205 -- store evaluated value into t46
     il2cpp::runtime::icall_decimal_ctor_5((&t46), 55LL, 0LL, 0LL, 1LL, 1LL);                      // IL newobj @0x0205 -- initialize value-type instance (newobj)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[209], il2cpp::runtime::icall_decimal_equals((&(t45)), (&(t46)))); // IL call @0x020F -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[210], (il2cpp::runtime::icall_convert_to_int32_string(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[211])) == 123LL)); // IL call @0x0228 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[212], (static_cast<double>(il2cpp::runtime::icall_convert_to_double_string(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[213]))) == static_cast<double>(2.75))); // IL call @0x0248 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[214], il2cpp::runtime::icall_convert_to_boolean_string(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[200]))); // IL call @0x025D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[211], il2cpp::runtime::icall_decimal_equals((&(t45)), (&(t46)))); // IL call @0x020F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[212], (il2cpp::runtime::icall_convert_to_int32_string(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[213])) == 123LL)); // IL call @0x0228 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[214], (static_cast<double>(il2cpp::runtime::icall_convert_to_double_string(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[215]))) == static_cast<double>(2.75))); // IL call @0x0248 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[216], il2cpp::runtime::icall_convert_to_boolean_string(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[202]))); // IL call @0x025D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t6 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_convert_to_string_i4(88LL));      // IL call @0x026A -- store call result into t6
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[215], il2cpp::runtime::icall_string_equals_static(t6, il2cpp::g_strPool[216])); // IL call @0x0279 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t53 = il2cpp::runtime::icall_convert_to_int32_string_base(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[217]), static_cast<int32_t>(2LL)); // IL call @0x028A -- store call result into t53
-    t54 = il2cpp::g_strPool[218];                                                                 // IL bne.un.s @0x0290 -- store evaluated value into t54
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[217], il2cpp::runtime::icall_string_equals_static(t6, il2cpp::g_strPool[218])); // IL call @0x0279 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t53 = il2cpp::runtime::icall_convert_to_int32_string_base(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[219]), static_cast<int32_t>(2LL)); // IL call @0x028A -- store call result into t53
+    t54 = il2cpp::g_strPool[220];                                                                 // IL bne.un.s @0x0290 -- store evaluated value into t54
     if((t53 == 5LL) == 0LL) goto L_679;                                                           // IL bne.un.s @0x0290 -- jump when condition evaluates to true to L_679
     t6 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_convert_to_string_i4_base(static_cast<int32_t>(10LL), static_cast<int32_t>(16LL))); // IL call @0x0296 -- store call result into t6
     t2 = il2cpp::runtime::icall_string_equals_static(t6, il2cpp::g_strPool[28]);                  // IL call @0x02A0 -- store call result into t2
@@ -1553,7 +1568,7 @@ IL2CPP_NOINLINE void Program_WideParse_e90d063471ac5a64(void)
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideArray()
-// IL offset (RVA): 0x00003650 (assembly: icallwide_net6.dll, token: 0x06000010)
+// IL offset (RVA): 0x0000367C (assembly: icallwide_net6.dll, token: 0x06000010)
 // Semantics: Transpiled from 0 argument slot(s) and 782 byte(s) of IL; the body below is the stack-folding result (195 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
@@ -1628,10 +1643,10 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(3LL))) = static_cast<int32_t>(4LL)); // IL InitializeArray @0x000D -- store value into array element
     (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(4LL))) = static_cast<int32_t>(2LL)); // IL InitializeArray @0x000D -- store value into array element
     loc0 = t0;                                                                                    // IL stloc.0 @0x0012 -- store evaluated value into loc0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[219], (il2cpp::il2cpp_array_get_length(reinterpret_cast<Il2CppArray*>(loc0)) == 5LL)); // IL call @0x001F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[221], (il2cpp::il2cpp_array_get_length(reinterpret_cast<Il2CppArray*>(loc0)) == 5LL)); // IL call @0x001F -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_array_reverse_range(loc0, 1LL, 3LL);                                   // IL call @0x0028 -- invoke the transpiled function il2cpp::runtime::icall_array_reverse_range
     t2 = (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc0), static_cast<int32_t>(1LL)))); // IL ldelem.i4 @0x0035 -- store call result into t2
-    t3 = il2cpp::g_strPool[220];                                                                  // IL bne.un.s @0x0037 -- store evaluated value into t3
+    t3 = il2cpp::g_strPool[222];                                                                  // IL bne.un.s @0x0037 -- store evaluated value into t3
     if((t2 == 4LL) == 0LL) goto L_65;                                                             // IL bne.un.s @0x0037 -- jump when condition evaluates to true to L_65
     t1 = (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc0), static_cast<int32_t>(3LL)))); // IL ldelem.i4 @0x003B -- store call result into t1
     t5 = t3;                                                                                      // IL br.s @0x003F -- store evaluated value into t5
@@ -1644,7 +1659,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     Program_Check_0c8420c745f790fe(t5, t6);                                                       // IL call @0x0042 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_array_sort(loc0);                                                      // IL call @0x0049 -- invoke the transpiled function il2cpp::runtime::icall_array_sort
     t7 = (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc0), static_cast<int32_t>(0LL)))); // IL ldelem.i4 @0x0056 -- store call result into t7
-    t8 = il2cpp::g_strPool[221];                                                                  // IL bne.un.s @0x0058 -- store evaluated value into t8
+    t8 = il2cpp::g_strPool[223];                                                                  // IL bne.un.s @0x0058 -- store evaluated value into t8
     if((t7 == 1LL) == 0LL) goto L_98;                                                             // IL bne.un.s @0x0058 -- jump when condition evaluates to true to L_98
     t1 = (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc0), static_cast<int32_t>(4LL)))); // IL ldelem.i4 @0x005C -- store call result into t1
     t10 = t8;                                                                                     // IL br.s @0x0060 -- store evaluated value into t10
@@ -1655,9 +1670,9 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     t11 = 0LL;                                                                                    // IL call @0x0063 -- store evaluated value into t11
     L_99: ;                                                                                       // IL branch target at offset 0x0063
     Program_Check_0c8420c745f790fe(t10, t11);                                                     // IL call @0x0063 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[222], (il2cpp::runtime::icall_array_binary_search_int32(loc0, 4LL) == 3LL)); // IL call @0x0078 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[224], (il2cpp::runtime::icall_array_binary_search_int32(loc0, 4LL) == 3LL)); // IL call @0x0078 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t13 = il2cpp::runtime::icall_array_index_of_int32(loc0, 3LL);                                 // IL call @0x0085 -- store call result into t13
-    t14 = il2cpp::g_strPool[223];                                                                 // IL bne.un.s @0x008B -- store evaluated value into t14
+    t14 = il2cpp::g_strPool[225];                                                                 // IL bne.un.s @0x008B -- store evaluated value into t14
     if((t13 == 2LL) == 0LL) goto L_153;                                                           // IL bne.un.s @0x008B -- jump when condition evaluates to true to L_153
     t1 = il2cpp::runtime::icall_array_last_index_of_int32(loc0, 1LL);                             // IL call @0x008F -- store call result into t1
     t16 = t14;                                                                                    // IL br.s @0x0097 -- store evaluated value into t16
@@ -1669,7 +1684,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     L_154: ;                                                                                      // IL branch target at offset 0x009A
     Program_Check_0c8420c745f790fe(t16, t17);                                                     // IL call @0x009A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     if (__c_cctor_done == false) ensure_cctor___c();                                              // IL ldsfld @0x00A6 -- run the static-constructor guard when not yet initialized
-    t18 = il2cpp::g_strPool[224];                                                                 // IL brtrue.s @0x00AC -- store evaluated value into t18
+    t18 = il2cpp::g_strPool[226];                                                                 // IL brtrue.s @0x00AC -- store evaluated value into t18
     t19 = loc0;                                                                                   // IL brtrue.s @0x00AC -- store evaluated value into t19
     t20 = __c_sf___9__12_0;                                                                       // IL brtrue.s @0x00AC -- store evaluated value into t20
     if(__c_sf___9__12_0) goto L_197;                                                              // IL brtrue.s @0x00AC -- jump when condition evaluates to true to L_197
@@ -1683,7 +1698,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     L_197: ;                                                                                      // IL branch target at offset 0x00C5
     Program_Check_0c8420c745f790fe(t18, (il2cpp::runtime::icall_array_find_index_2(reinterpret_cast<Il2CppArray*>(t19), t20) == 2LL)); // IL call @0x00CD -- invoke the transpiled function Program_Check_0c8420c745f790fe
     if (__c_cctor_done == false) ensure_cctor___c();                                              // IL ldsfld @0x00D9 -- run the static-constructor guard when not yet initialized
-    t23 = il2cpp::g_strPool[225];                                                                 // IL brtrue.s @0x00DF -- store evaluated value into t23
+    t23 = il2cpp::g_strPool[227];                                                                 // IL brtrue.s @0x00DF -- store evaluated value into t23
     t24 = loc0;                                                                                   // IL brtrue.s @0x00DF -- store evaluated value into t24
     t25 = __c_sf___9__12_1;                                                                       // IL brtrue.s @0x00DF -- store evaluated value into t25
     if(__c_sf___9__12_1) goto L_248;                                                              // IL brtrue.s @0x00DF -- jump when condition evaluates to true to L_248
@@ -1697,7 +1712,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     L_248: ;                                                                                      // IL branch target at offset 0x00F8
     Program_Check_0c8420c745f790fe(t23, il2cpp::runtime::icall_array_exists_i4(reinterpret_cast<Il2CppArray*>(t24), t25)); // IL call @0x00FD -- invoke the transpiled function Program_Check_0c8420c745f790fe
     if (__c_cctor_done == false) ensure_cctor___c();                                              // IL ldsfld @0x0109 -- run the static-constructor guard when not yet initialized
-    t28 = il2cpp::g_strPool[226];                                                                 // IL brtrue.s @0x010F -- store evaluated value into t28
+    t28 = il2cpp::g_strPool[228];                                                                 // IL brtrue.s @0x010F -- store evaluated value into t28
     t29 = loc0;                                                                                   // IL brtrue.s @0x010F -- store evaluated value into t29
     t30 = __c_sf___9__12_2;                                                                       // IL brtrue.s @0x010F -- store evaluated value into t30
     if(__c_sf___9__12_2) goto L_296;                                                              // IL brtrue.s @0x010F -- jump when condition evaluates to true to L_296
@@ -1720,7 +1735,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     L_335: ;                                                                                      // IL branch target at offset 0x014F
     loc1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_array_convert_all_i4_i8(reinterpret_cast<Il2CppArray*>(t33), t34)); // IL stloc.1 @0x0154 -- store call result into loc1
     t37 = (*reinterpret_cast<int64_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc1), static_cast<int32_t>(4LL)))); // IL ldelem.i8 @0x015C -- store call result into t37
-    t38 = il2cpp::g_strPool[227];                                                                 // IL bne.un.s @0x0160 -- store evaluated value into t38
+    t38 = il2cpp::g_strPool[229];                                                                 // IL bne.un.s @0x0160 -- store evaluated value into t38
     if((t37 == 10LL) == 0LL) goto L_363;                                                          // IL bne.un.s @0x0160 -- jump when condition evaluates to true to L_363
     t4 = (*reinterpret_cast<int64_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc1), static_cast<int32_t>(0LL)))); // IL ldelem.i8 @0x0164 -- store call result into t4
     t40 = t38;                                                                                    // IL br.s @0x0169 -- store evaluated value into t40
@@ -1734,7 +1749,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     loc2 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(nullptr, 4, false, static_cast<int32_t>(4LL))); // IL stloc.2 @0x0178 -- store call result into loc2
     il2cpp::runtime::icall_array_initialize(loc2);                                                // IL callvirt @0x017A -- invoke the transpiled function il2cpp::runtime::icall_array_initialize
     t43 = (*reinterpret_cast<int32_t*>(((static_cast<int32_t>(0LL) >= 0 && static_cast<int32_t>(0LL) < 4LL) ? reinterpret_cast<Il2CppArray*>(loc2)->data + static_cast<size_t>(static_cast<int32_t>(0LL)) * static_cast<size_t>(4) : (il2cpp::il2cpp_array_fail(reinterpret_cast<Il2CppArray*>(loc2), static_cast<int32_t>(0LL)), nullptr)))); // IL ldelem.i4 @0x0187 -- store call result into t43
-    t44 = il2cpp::g_strPool[228];                                                                 // IL brtrue.s @0x0188 -- store evaluated value into t44
+    t44 = il2cpp::g_strPool[230];                                                                 // IL brtrue.s @0x0188 -- store evaluated value into t44
     if(t43) goto L_402;                                                                           // IL brtrue.s @0x0188 -- jump when condition evaluates to true to L_402
     t1 = (*reinterpret_cast<int32_t*>(((static_cast<int32_t>(3LL) >= 0 && static_cast<int32_t>(3LL) < 4LL) ? reinterpret_cast<Il2CppArray*>(loc2)->data + static_cast<size_t>(static_cast<int32_t>(3LL)) * static_cast<size_t>(4) : (il2cpp::il2cpp_array_fail(reinterpret_cast<Il2CppArray*>(loc2), static_cast<int32_t>(3LL)), nullptr)))); // IL ldelem.i4 @0x018C -- store call result into t1
     t46 = t44;                                                                                    // IL br.s @0x0190 -- store evaluated value into t46
@@ -1746,10 +1761,10 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     L_403: ;                                                                                      // IL branch target at offset 0x0193
     Program_Check_0c8420c745f790fe(t46, t47);                                                     // IL call @0x0193 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_array_empty_string());            // IL call @0x019E -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[229], (il2cpp::il2cpp_array_get_length(reinterpret_cast<Il2CppArray*>(t0)) == 0LL)); // IL call @0x01A7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[231], (il2cpp::il2cpp_array_get_length(reinterpret_cast<Il2CppArray*>(t0)) == 0LL)); // IL call @0x01A7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_array_clear_int32(loc0, 0LL, 5LL);                                     // IL call @0x01B0 -- invoke the transpiled function il2cpp::runtime::icall_array_clear_int32
     t50 = (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc0), static_cast<int32_t>(0LL)))); // IL ldelem.i4 @0x01BD -- store call result into t50
-    t51 = il2cpp::g_strPool[230];                                                                 // IL brtrue.s @0x01BE -- store evaluated value into t51
+    t51 = il2cpp::g_strPool[232];                                                                 // IL brtrue.s @0x01BE -- store evaluated value into t51
     if(t50) goto L_456;                                                                           // IL brtrue.s @0x01BE -- jump when condition evaluates to true to L_456
     t1 = (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc0), static_cast<int32_t>(4LL)))); // IL ldelem.i4 @0x01C2 -- store call result into t1
     t53 = t51;                                                                                    // IL br.s @0x01C6 -- store evaluated value into t53
@@ -1767,12 +1782,12 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     loc3 = t0;                                                                                    // IL stloc.3 @0x01E0 -- store evaluated value into loc3
     loc4 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(nullptr, 4, false, static_cast<int32_t>(3LL))); // IL stloc.s @0x01E7 -- store call result into loc4
     il2cpp::runtime::icall_array_copy_3(loc3, loc4, 3LL);                                         // IL call @0x01ED -- invoke the transpiled function il2cpp::runtime::icall_array_copy_3
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[231], ((*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc4), static_cast<int32_t>(2LL)))) == 7LL)); // IL call @0x01FF -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[233], ((*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc4), static_cast<int32_t>(2LL)))) == 7LL)); // IL call @0x01FF -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_array_copy(loc3, 0LL, loc4, 0LL, 3LL);                                 // IL call @0x020B -- invoke the transpiled function il2cpp::runtime::icall_array_copy
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[232], ((*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc4), static_cast<int32_t>(0LL)))) == 9LL)); // IL call @0x021E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[234], ((*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc4), static_cast<int32_t>(0LL)))) == 9LL)); // IL call @0x021E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_array_resize_i4(reinterpret_cast<Il2CppArray**>((&loc4)), static_cast<int32_t>(5LL)); // IL call @0x0227 -- invoke the transpiled function il2cpp::runtime::icall_array_resize_i4
     t59 = il2cpp::il2cpp_array_get_length(reinterpret_cast<Il2CppArray*>(loc4));                  // IL ldlen @0x0234 -- store call result into t59
-    t60 = il2cpp::g_strPool[233];                                                                 // IL bne.un.s @0x0237 -- store evaluated value into t60
+    t60 = il2cpp::g_strPool[235];                                                                 // IL bne.un.s @0x0237 -- store evaluated value into t60
     if((t59 == 5LL) == 0LL) goto L_579;                                                           // IL bne.un.s @0x0237 -- jump when condition evaluates to true to L_579
     t1 = (*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc4), static_cast<int32_t>(0LL)))); // IL ldelem.i4 @0x023C -- store call result into t1
     t62 = t60;                                                                                    // IL br.s @0x0241 -- store evaluated value into t62
@@ -1785,17 +1800,17 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     Program_Check_0c8420c745f790fe(t62, t63);                                                     // IL call @0x0244 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_get_value(reinterpret_cast<Il2CppArray*>(loc3), static_cast<int32_t>(1LL))); // IL callvirt @0x0251 -- store call result into t0
     t9 = il2cpp::il2cpp_box_int32(nullptr, 8LL);                                                  // IL box @0x0257 -- store call result into t9
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[234], il2cpp::runtime::icall_boxed_equals_ext2(t0, t9)); // IL call @0x0261 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[236], il2cpp::runtime::icall_boxed_equals_ext2(t0, t9)); // IL call @0x0261 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::il2cpp_box_int32(nullptr, 100LL);                                                // IL box @0x026A -- store call result into t0
     il2cpp::il2cpp_array_set_value(reinterpret_cast<Il2CppArray*>(loc3), t0, static_cast<int32_t>(0LL)); // IL callvirt @0x0270 -- invoke the transpiled function il2cpp::il2cpp_array_set_value
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[235], ((*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc3), static_cast<int32_t>(0LL)))) == 100LL)); // IL call @0x0282 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[236], (il2cpp::runtime::icall_array_get_rank(loc3) == 1LL)); // IL call @0x0296 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[237], ((*reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc3), static_cast<int32_t>(0LL)))) == 100LL)); // IL call @0x0282 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[238], (il2cpp::runtime::icall_array_get_rank(loc3) == 1LL)); // IL call @0x0296 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(3LL))); // IL newarr @0x029D -- store call result into t0
     (*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(0LL))) = static_cast<uint8_t>(1LL)); // IL InitializeArray @0x02A8 -- store value into array element
     (*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(1LL))) = static_cast<uint8_t>(2LL)); // IL InitializeArray @0x02A8 -- store value into array element
     (*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(2LL))) = static_cast<uint8_t>(3LL)); // IL InitializeArray @0x02A8 -- store value into array element
     loc5 = t0;                                                                                    // IL stloc.s @0x02AD -- store evaluated value into loc5
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[237], ((*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc5), static_cast<int32_t>(0LL)))) == 1LL)); // IL call @0x02BB -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[239], ((*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc5), static_cast<int32_t>(0LL)))) == 1LL)); // IL call @0x02BB -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(&System_String_class, 8, true, static_cast<int32_t>(2LL))); // IL newarr @0x02C2 -- store call result into t0
     (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(0LL))) = static_cast<Il2CppObject*>(il2cpp::g_strPool[29])); // IL stelem.ref @0x02CE -- store value into array element
     (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(1LL))) = static_cast<Il2CppObject*>(il2cpp::g_strPool[28])); // IL stelem.ref @0x02D6 -- store value into array element
@@ -1803,7 +1818,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
     il2cpp::runtime::icall_array_sort_strings(loc6);                                              // IL call @0x02DB -- invoke the transpiled function il2cpp::runtime::icall_array_sort_strings
     t0 = static_cast<Il2CppObject*>(*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc6), static_cast<int32_t>(0LL)))); // IL ldelem.ref @0x02E9 -- store call result into t0
     t74 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[28]);                 // IL call @0x02EF -- store call result into t74
-    t75 = il2cpp::g_strPool[238];                                                                 // IL brfalse.s @0x02F4 -- store evaluated value into t75
+    t75 = il2cpp::g_strPool[240];                                                                 // IL brfalse.s @0x02F4 -- store evaluated value into t75
     if(t74 == 0LL) goto L_774;                                                                    // IL brfalse.s @0x02F4 -- jump when condition evaluates to true to L_774
     t0 = static_cast<Il2CppObject*>(*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(loc6), static_cast<int32_t>(1LL)))); // IL ldelem.ref @0x02F9 -- store call result into t0
     t1 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[29]);                  // IL call @0x02FF -- store call result into t1
@@ -1821,7 +1836,7 @@ IL2CPP_NOINLINE void Program_WideArray_bf34cccd4401b512(void)
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideGC()
-// IL offset (RVA): 0x0000396C (assembly: icallwide_net6.dll, token: 0x06000011)
+// IL offset (RVA): 0x00003998 (assembly: icallwide_net6.dll, token: 0x06000011)
 // Semantics: Transpiled from 0 argument slot(s) and 188 byte(s) of IL; the body below is the stack-folding result (24 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideGC_cb11709b473be085(void)
@@ -1841,11 +1856,11 @@ IL2CPP_NOINLINE void Program_WideGC_cb11709b473be085(void)
     __frame.refCount = 4;
     il2cpp::il2cpp_frame_push(&__frame);
 
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[239], (il2cpp::runtime::icall_gc_get_total_memory() > 0LL)); // IL call @0x0010 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[240], ((il2cpp::il2cpp_gc_get_collection_count(static_cast<int32_t>(0LL)) < 0LL) == 0LL)); // IL call @0x0027 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[241], ((il2cpp::il2cpp_gc_get_max_generation() < 0LL) == 0LL)); // IL call @0x003D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[241], (il2cpp::runtime::icall_gc_get_total_memory() > 0LL)); // IL call @0x0010 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[242], ((il2cpp::il2cpp_gc_get_collection_count(static_cast<int32_t>(0LL)) < 0LL) == 0LL)); // IL call @0x0027 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[243], ((il2cpp::il2cpp_gc_get_max_generation() < 0LL) == 0LL)); // IL call @0x003D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_gc_collect();                                                          // IL call @0x0043 -- invoke the transpiled function il2cpp::runtime::icall_gc_collect
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[242], 1LL);                                  // IL call @0x004F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[244], 1LL);                                  // IL call @0x004F -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t3 = il2cpp_object_new(&Finalizable_class);                                                   // IL newobj @0x0055 -- store evaluated value into t3
     inl0 = t3;                                                                                    // IL newobj @0x0055 -- store evaluated value into inl0
     il2cpp::runtime::il2cpp_object_ctor_nop(inl0);                                                // IL newobj @0x0055 -- invoke the transpiled function il2cpp::runtime::il2cpp_object_ctor_nop
@@ -1853,7 +1868,7 @@ IL2CPP_NOINLINE void Program_WideGC_cb11709b473be085(void)
     il2cpp::runtime::icall_gc_suppress_finalize(loc0);                                            // IL call @0x005C -- invoke the transpiled function il2cpp::runtime::icall_gc_suppress_finalize
     il2cpp::runtime::icall_gc_re_register_for_finalize(loc0);                                     // IL call @0x0063 -- invoke the transpiled function il2cpp::runtime::icall_gc_re_register_for_finalize
     il2cpp::runtime::icall_gc_keep_alive(loc0);                                                   // IL call @0x006A -- invoke the transpiled function il2cpp::runtime::icall_gc_keep_alive
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[243], 1LL);                                  // IL call @0x0076 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[245], 1LL);                                  // IL call @0x0076 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(&System_Object_class);                                                 // IL newobj @0x007C -- store evaluated value into t0
     il2cpp::runtime::il2cpp_object_ctor_nop(t0);                                                  // IL newobj @0x007C -- invoke the transpiled function il2cpp::runtime::il2cpp_object_ctor_nop
     t1 = il2cpp_object_new(&System_WeakReference_class);                                          // IL newobj @0x0081 -- store evaluated value into t1
@@ -1861,15 +1876,15 @@ IL2CPP_NOINLINE void Program_WideGC_cb11709b473be085(void)
     loc1 = t1;                                                                                    // IL stloc.1 @0x0086 -- store evaluated value into loc1
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc1));           // IL callvirt @0x008D -- store call result into t0
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_type_get_short_name(t0));        // IL callvirt @0x0092 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[244], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[245])); // IL call @0x00A1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[246], (il2cpp::il2cpp_gc_get_allocated_bytes_for_current_thread() > 0LL)); // IL call @0x00B5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[246], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[247])); // IL call @0x00A1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[248], (il2cpp::il2cpp_gc_get_allocated_bytes_for_current_thread() > 0LL)); // IL call @0x00B5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x00BB -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideThread()
-// IL offset (RVA): 0x00003A34 (assembly: icallwide_net6.dll, token: 0x06000012)
+// IL offset (RVA): 0x00003A60 (assembly: icallwide_net6.dll, token: 0x06000012)
 // Semantics: Transpiled from 0 argument slot(s) and 226 byte(s) of IL; the body below is the stack-folding result (44 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideThread_b70407e136671593(void)
@@ -1900,16 +1915,16 @@ IL2CPP_NOINLINE void Program_WideThread_b70407e136671593(void)
     il2cpp::il2cpp_frame_push(&__frame);
 
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_threadobj_get_current_thread());  // IL call @0x0006 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[247], (t0 != nullptr));                      // IL call @0x000E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[249], (t0 != nullptr));                      // IL call @0x000E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_threadobj_get_current_thread());  // IL call @0x0019 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[248], (il2cpp::runtime::icall_threadobj_get_managed_thread_id(t0) > 0LL)); // IL call @0x0026 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[250], (il2cpp::runtime::icall_threadobj_get_managed_thread_id(t0) > 0LL)); // IL call @0x0026 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_threadobj_get_current_thread());  // IL call @0x0031 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[249], il2cpp::runtime::icall_threadobj_get_is_alive(t0)); // IL call @0x003B -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[251], il2cpp::runtime::icall_threadobj_get_is_alive(t0)); // IL call @0x003B -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_thread_sleep(1LL);                                                     // IL call @0x0042 -- invoke the transpiled function il2cpp::runtime::icall_thread_sleep
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[250], 1LL);                                  // IL call @0x004E -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[251], 1LL);                                  // IL call @0x005A -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[252], 1LL);                                  // IL call @0x004E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[253], 1LL);                                  // IL call @0x005A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_thread_pool_get_min_threads_out(reinterpret_cast<int32_t*>((&loc0)), reinterpret_cast<int32_t*>((&loc1))); // IL call @0x0064 -- invoke the transpiled function il2cpp::runtime::icall_thread_pool_get_min_threads_out
-    t5 = il2cpp::g_strPool[252];                                                                  // IL blt.s @0x0071 -- store evaluated value into t5
+    t5 = il2cpp::g_strPool[254];                                                                  // IL blt.s @0x0071 -- store evaluated value into t5
     if(loc0 < 0LL) goto L_124;                                                                    // IL blt.s @0x0071 -- jump when condition evaluates to true to L_124
     t6 = t5;                                                                                      // IL br.s @0x007A -- store evaluated value into t6
     t7 = ((loc1 < 0LL) == 0LL);                                                                   // IL br.s @0x007A -- store evaluated value into t7
@@ -1920,7 +1935,7 @@ IL2CPP_NOINLINE void Program_WideThread_b70407e136671593(void)
     L_125: ;                                                                                      // IL branch target at offset 0x007D
     Program_Check_0c8420c745f790fe(t6, t7);                                                       // IL call @0x007D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_thread_pool_get_max_threads_out(reinterpret_cast<int32_t*>((&loc2)), reinterpret_cast<int32_t*>((&loc3))); // IL call @0x0087 -- invoke the transpiled function il2cpp::runtime::icall_thread_pool_get_max_threads_out
-    t8 = il2cpp::g_strPool[253];                                                                  // IL blt.s @0x0094 -- store evaluated value into t8
+    t8 = il2cpp::g_strPool[255];                                                                  // IL blt.s @0x0094 -- store evaluated value into t8
     if(loc2 < loc0) goto L_159;                                                                   // IL blt.s @0x0094 -- jump when condition evaluates to true to L_159
     t9 = t8;                                                                                      // IL br.s @0x009D -- store evaluated value into t9
     t10 = ((loc3 < loc1) == 0LL);                                                                 // IL br.s @0x009D -- store evaluated value into t10
@@ -1931,7 +1946,7 @@ IL2CPP_NOINLINE void Program_WideThread_b70407e136671593(void)
     L_160: ;                                                                                      // IL branch target at offset 0x00A0
     Program_Check_0c8420c745f790fe(t9, t10);                                                      // IL call @0x00A0 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_thread_pool_get_available_threads_out(reinterpret_cast<int32_t*>((&loc4)), reinterpret_cast<int32_t*>((&loc5))); // IL call @0x00AA -- invoke the transpiled function il2cpp::runtime::icall_thread_pool_get_available_threads_out
-    t11 = il2cpp::g_strPool[254];                                                                 // IL blt.s @0x00B8 -- store evaluated value into t11
+    t11 = il2cpp::g_strPool[256];                                                                 // IL blt.s @0x00B8 -- store evaluated value into t11
     if(loc4 < 0LL) goto L_196;                                                                    // IL blt.s @0x00B8 -- jump when condition evaluates to true to L_196
     t12 = t11;                                                                                    // IL br.s @0x00C2 -- store evaluated value into t12
     t13 = ((loc5 < 0LL) == 0LL);                                                                  // IL br.s @0x00C2 -- store evaluated value into t13
@@ -1941,14 +1956,14 @@ IL2CPP_NOINLINE void Program_WideThread_b70407e136671593(void)
     t13 = 0LL;                                                                                    // IL call @0x00C5 -- store evaluated value into t13
     L_197: ;                                                                                      // IL branch target at offset 0x00C5
     Program_Check_0c8420c745f790fe(t12, t13);                                                     // IL call @0x00C5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[255], ((il2cpp::runtime::icall_thread_pool_get_thread_count() < 1LL) == 0LL)); // IL call @0x00DB -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[257], ((il2cpp::runtime::icall_thread_pool_get_thread_count() < 1LL) == 0LL)); // IL call @0x00DB -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x00E1 -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideVersion()
-// IL offset (RVA): 0x00003B24 (assembly: icallwide_net6.dll, token: 0x06000013)
+// IL offset (RVA): 0x00003B50 (assembly: icallwide_net6.dll, token: 0x06000013)
 // Semantics: Transpiled from 0 argument slot(s) and 478 byte(s) of IL; the body below is the stack-folding result (145 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
@@ -2011,7 +2026,7 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     il2cpp::runtime::icall_version_ctor_2(t0, static_cast<int32_t>(2LL), static_cast<int32_t>(5LL)); // IL newobj @0x0003 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_2
     loc0 = t0;                                                                                    // IL stloc.0 @0x0008 -- store evaluated value into loc0
     t1 = il2cpp::runtime::icall_version_get_major(loc0);                                          // IL callvirt @0x000F -- store call result into t1
-    t2 = il2cpp::g_strPool[256];                                                                  // IL bne.un.s @0x0015 -- store evaluated value into t2
+    t2 = il2cpp::g_strPool[258];                                                                  // IL bne.un.s @0x0015 -- store evaluated value into t2
     if((t1 == 2LL) == 0LL) goto L_52;                                                             // IL bne.un.s @0x0015 -- jump when condition evaluates to true to L_52
     t3 = il2cpp::runtime::icall_version_get_minor(loc0);                                          // IL callvirt @0x0018 -- store call result into t3
     t2 = t2;                                                                                      // IL bne.un.s @0x001E -- store evaluated value into t2
@@ -2032,7 +2047,7 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     il2cpp::runtime::icall_version_ctor_3(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL)); // IL newobj @0x003E -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_3
     loc1 = t0;                                                                                    // IL stloc.1 @0x0043 -- store evaluated value into loc1
     t9 = il2cpp::runtime::icall_version_get_build(loc1);                                          // IL callvirt @0x004A -- store call result into t9
-    t10 = il2cpp::g_strPool[257];                                                                 // IL bne.un.s @0x0050 -- store evaluated value into t10
+    t10 = il2cpp::g_strPool[259];                                                                 // IL bne.un.s @0x0050 -- store evaluated value into t10
     if((t9 == 3LL) == 0LL) goto L_93;                                                             // IL bne.un.s @0x0050 -- jump when condition evaluates to true to L_93
     t5 = il2cpp::runtime::icall_version_get_revision(loc1);                                       // IL callvirt @0x0053 -- store call result into t5
     t12 = t10;                                                                                    // IL br.s @0x005B -- store evaluated value into t12
@@ -2046,12 +2061,12 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x0068 -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x0068 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
     loc2 = t0;                                                                                    // IL stloc.2 @0x006D -- store evaluated value into loc2
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[258], (il2cpp::runtime::icall_version_get_revision(loc2) == 4LL)); // IL call @0x007C -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[260], (il2cpp::runtime::icall_version_get_revision(loc2) == 4LL)); // IL call @0x007C -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x0087 -- store evaluated value into t0
-    il2cpp::runtime::icall_version_ctor(t0, il2cpp::g_strPool[259]);                              // IL newobj @0x0087 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor
+    il2cpp::runtime::icall_version_ctor(t0, il2cpp::g_strPool[261]);                              // IL newobj @0x0087 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor
     loc3 = t0;                                                                                    // IL stloc.3 @0x008C -- store evaluated value into loc3
     t17 = il2cpp::runtime::icall_version_get_major(loc3);                                         // IL callvirt @0x0093 -- store call result into t17
-    t18 = il2cpp::g_strPool[260];                                                                 // IL bne.un.s @0x0099 -- store evaluated value into t18
+    t18 = il2cpp::g_strPool[262];                                                                 // IL bne.un.s @0x0099 -- store evaluated value into t18
     if((t17 == 7LL) == 0LL) goto L_174;                                                           // IL bne.un.s @0x0099 -- jump when condition evaluates to true to L_174
     t19 = il2cpp::runtime::icall_version_get_minor(loc3);                                         // IL callvirt @0x009C -- store call result into t19
     t18 = t18;                                                                                    // IL brtrue.s @0x00A1 -- store evaluated value into t18
@@ -2066,7 +2081,7 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     L_175: ;                                                                                      // IL branch target at offset 0x00AF
     Program_Check_0c8420c745f790fe(t21, t22);                                                     // IL call @0x00AF -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t23 = il2cpp::runtime::icall_version_compare(loc2, loc0);                                     // IL callvirt @0x00BC -- store call result into t23
-    t24 = il2cpp::g_strPool[261];                                                                 // IL bge.s @0x00C2 -- store evaluated value into t24
+    t24 = il2cpp::g_strPool[263];                                                                 // IL bge.s @0x00C2 -- store evaluated value into t24
     if((t23 < 0LL) == 0LL) goto L_226;                                                            // IL bge.s @0x00C2 -- jump when condition evaluates to true to L_226
     t25 = il2cpp::runtime::icall_version_compare(loc0, loc2);                                     // IL callvirt @0x00C6 -- store call result into t25
     t24 = t24;                                                                                    // IL ble.s @0x00CC -- store evaluated value into t24
@@ -2083,9 +2098,9 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     L_227: ;                                                                                      // IL branch target at offset 0x00E3
     Program_Check_0c8420c745f790fe(t28, t29);                                                     // IL call @0x00E3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x00F4 -- store evaluated value into t0
-    il2cpp::runtime::icall_version_ctor(t0, il2cpp::g_strPool[182]);                              // IL newobj @0x00F4 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor
+    il2cpp::runtime::icall_version_ctor(t0, il2cpp::g_strPool[184]);                              // IL newobj @0x00F4 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor
     t31 = il2cpp::runtime::icall_version_equals(loc2, t0);                                        // IL callvirt @0x00F9 -- store call result into t31
-    t32 = il2cpp::g_strPool[262];                                                                 // IL brfalse.s @0x00FE -- store evaluated value into t32
+    t32 = il2cpp::g_strPool[264];                                                                 // IL brfalse.s @0x00FE -- store evaluated value into t32
     if(t31 == 0LL) goto L_268;                                                                    // IL brfalse.s @0x00FE -- jump when condition evaluates to true to L_268
     t5 = il2cpp::runtime::icall_version_equals(loc2, loc0);                                       // IL callvirt @0x0102 -- store call result into t5
     t34 = t32;                                                                                    // IL br.s @0x010A -- store evaluated value into t34
@@ -2099,7 +2114,7 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x011D -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x011D -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
     t37 = il2cpp::runtime::icall_version_op_equality(loc2, t0);                                   // IL call @0x0122 -- store call result into t37
-    t38 = il2cpp::g_strPool[263];                                                                 // IL brfalse.s @0x0127 -- store evaluated value into t38
+    t38 = il2cpp::g_strPool[265];                                                                 // IL brfalse.s @0x0127 -- store evaluated value into t38
     if(t37 == 0LL) goto L_306;                                                                    // IL brfalse.s @0x0127 -- jump when condition evaluates to true to L_306
     t5 = il2cpp::runtime::icall_version_op_inequality(loc2, loc0);                                // IL call @0x012B -- store call result into t5
     t40 = t38;                                                                                    // IL br.s @0x0130 -- store evaluated value into t40
@@ -2111,7 +2126,7 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     L_307: ;                                                                                      // IL branch target at offset 0x0133
     Program_Check_0c8420c745f790fe(t40, t41);                                                     // IL call @0x0133 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t42 = il2cpp::runtime::icall_version_op_greater_than(loc0, loc2);                             // IL call @0x0140 -- store call result into t42
-    t43 = il2cpp::g_strPool[264];                                                                 // IL brfalse.s @0x0145 -- store evaluated value into t43
+    t43 = il2cpp::g_strPool[266];                                                                 // IL brfalse.s @0x0145 -- store evaluated value into t43
     if(t42 == 0LL) goto L_354;                                                                    // IL brfalse.s @0x0145 -- jump when condition evaluates to true to L_354
     t44 = il2cpp::runtime::icall_version_op_less_than(loc2, loc0);                                // IL call @0x0149 -- store call result into t44
     t43 = t43;                                                                                    // IL brfalse.s @0x014E -- store evaluated value into t43
@@ -2131,7 +2146,7 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x0172 -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x0172 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
     t50 = il2cpp::runtime::icall_version_get_major_revision(t0);                                  // IL call @0x0177 -- store call result into t50
-    t51 = il2cpp::g_strPool[265];                                                                 // IL brtrue.s @0x017C -- store evaluated value into t51
+    t51 = il2cpp::g_strPool[267];                                                                 // IL brtrue.s @0x017C -- store evaluated value into t51
     if(t50) goto L_401;                                                                           // IL brtrue.s @0x017C -- jump when condition evaluates to true to L_401
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x0182 -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x0182 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
@@ -2144,20 +2159,20 @@ IL2CPP_NOINLINE void Program_WideVersion_b95b880380a22f3f(void)
     t55 = 0LL;                                                                                    // IL call @0x0192 -- store evaluated value into t55
     L_402: ;                                                                                      // IL branch target at offset 0x0192
     Program_Check_0c8420c745f790fe(t54, t55);                                                     // IL call @0x0192 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_parse(il2cpp::g_strPool[266])); // IL call @0x01A2 -- store call result into t0
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_parse(il2cpp::g_strPool[268])); // IL call @0x01A2 -- store call result into t0
     t8 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_version_to_string(t0));           // IL callvirt @0x01A7 -- store call result into t8
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[267], il2cpp::runtime::icall_string_equals_static(t8, il2cpp::g_strPool[266])); // IL call @0x01B6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[269], il2cpp::runtime::icall_string_equals_static(t8, il2cpp::g_strPool[268])); // IL call @0x01B6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t5 = il2cpp::runtime::icall_object_get_hash_code(loc2);                                       // IL callvirt @0x01C2 -- store call result into t5
     t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x01CB -- store evaluated value into t0
     il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x01CB -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[268], (t5 == il2cpp::runtime::icall_object_get_hash_code(t0))); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[270], (t5 == il2cpp::runtime::icall_object_get_hash_code(t0))); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x01DD -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideDateTime()
-// IL offset (RVA): 0x00003D10 (assembly: icallwide_net6.dll, token: 0x06000014)
+// IL offset (RVA): 0x00003D3C (assembly: icallwide_net6.dll, token: 0x06000014)
 // Semantics: Transpiled from 0 argument slot(s) and 1103 byte(s) of IL; the body below is the stack-folding result (183 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
@@ -2232,16 +2247,16 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     il2cpp::runtime::Il2CppDateTime t90;
 
     (*((&loc0))) = il2cpp::runtime::icall_datetime_from_ymdhms(1970LL, 1LL, 1LL, 0LL, 0LL, 0LL);  // IL call @0x000E -- initialize value-type instance (ldloca ctor)
-    inl0 = il2cpp::g_strPool[269];                                                                // IL call @0x0028 -- store evaluated value into inl0
+    inl0 = il2cpp::g_strPool[271];                                                                // IL call @0x0028 -- store evaluated value into inl0
     inl1 = 116444736000000000LL;                                                                  // IL call @0x0028 -- store evaluated value into inl1
     inl2 = il2cpp::runtime::icall_datetime_to_file_time_utc((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc0)))); // IL call @0x0028 -- store call result into inl2
     Program_Check_0c8420c745f790fe(inl0, (inl1 == inl2));                                         // IL call @0x0028 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_datetime_from_file_time_utc(static_cast<int64_t>(116444736000000000LL)); // IL stloc.1 @0x003C -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[270], il2cpp::runtime::icall_datetime_op_equality(loc1, loc0)); // IL call @0x0049 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[272], il2cpp::runtime::icall_datetime_op_equality(loc1, loc0)); // IL call @0x0049 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     (*((&loc2))) = il2cpp::runtime::icall_datetime_from_ymdhms(2000LL, 1LL, 1LL, 12LL, 30LL, 45LL); // IL call @0x005F -- initialize value-type instance (ldloca ctor)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[271], (il2cpp::runtime::icall_datetime_get_dayofweek((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))) == 6LL)); // IL call @0x0073 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[273], (il2cpp::runtime::icall_datetime_get_dayofweek((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))) == 6LL)); // IL call @0x0073 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t4 = il2cpp::runtime::icall_datetime_get_year((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))); // IL call @0x0080 -- store call result into t4
-    t5 = il2cpp::g_strPool[272];                                                                  // IL bne.un.s @0x008A -- store evaluated value into t5
+    t5 = il2cpp::g_strPool[274];                                                                  // IL bne.un.s @0x008A -- store evaluated value into t5
     if((t4 == 2000LL) == 0LL) goto L_162;                                                         // IL bne.un.s @0x008A -- jump when condition evaluates to true to L_162
     t6 = il2cpp::runtime::icall_datetime_get_month((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))); // IL call @0x008E -- store call result into t6
     t5 = t5;                                                                                      // IL bne.un.s @0x0094 -- store evaluated value into t5
@@ -2256,7 +2271,7 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     L_163: ;                                                                                      // IL branch target at offset 0x00A3
     Program_Check_0c8420c745f790fe(t8, t9);                                                       // IL call @0x00A3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t10 = il2cpp::runtime::icall_datetime_get_hour((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))); // IL call @0x00B0 -- store call result into t10
-    t11 = il2cpp::g_strPool[273];                                                                 // IL bne.un.s @0x00B7 -- store evaluated value into t11
+    t11 = il2cpp::g_strPool[275];                                                                 // IL bne.un.s @0x00B7 -- store evaluated value into t11
     if((t10 == 12LL) == 0LL) goto L_209;                                                          // IL bne.un.s @0x00B7 -- jump when condition evaluates to true to L_209
     t12 = il2cpp::runtime::icall_datetime_get_minute((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))); // IL call @0x00BB -- store call result into t12
     t11 = t11;                                                                                    // IL bne.un.s @0x00C2 -- store evaluated value into t11
@@ -2272,7 +2287,7 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     Program_Check_0c8420c745f790fe(t14, t15);                                                     // IL call @0x00D2 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::icall_datetime_add_hours((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(12.0)); // IL stloc.3 @0x00ED -- store call result into loc3
     t17 = il2cpp::runtime::icall_datetime_get_day((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x00F0 -- store call result into t17
-    t18 = il2cpp::g_strPool[274];                                                                 // IL bne.un.s @0x00F6 -- store evaluated value into t18
+    t18 = il2cpp::g_strPool[276];                                                                 // IL bne.un.s @0x00F6 -- store evaluated value into t18
     if((t17 == 2LL) == 0LL) goto L_278;                                                           // IL bne.un.s @0x00F6 -- jump when condition evaluates to true to L_278
     loc3 = il2cpp::runtime::icall_datetime_add_hours((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(-13.0)); // IL stloc.3 @0x0108 -- store call result into loc3
     t0 = il2cpp::runtime::icall_datetime_get_hour((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x010B -- store call result into t0
@@ -2286,7 +2301,7 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     Program_Check_0c8420c745f790fe(t21, t22);                                                     // IL call @0x0117 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::icall_datetime_add_days((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(31.0)); // IL stloc.3 @0x0132 -- store call result into loc3
     t24 = il2cpp::runtime::icall_datetime_get_month((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x0135 -- store call result into t24
-    t25 = il2cpp::g_strPool[275];                                                                 // IL bne.un.s @0x013B -- store evaluated value into t25
+    t25 = il2cpp::g_strPool[277];                                                                 // IL bne.un.s @0x013B -- store evaluated value into t25
     if((t24 == 2LL) == 0LL) goto L_346;                                                           // IL bne.un.s @0x013B -- jump when condition evaluates to true to L_346
     loc3 = il2cpp::runtime::icall_datetime_add_days((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(31.0)); // IL stloc.3 @0x014D -- store call result into loc3
     t0 = il2cpp::runtime::icall_datetime_get_day((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x0150 -- store call result into t0
@@ -2299,12 +2314,12 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     L_347: ;                                                                                      // IL branch target at offset 0x015B
     Program_Check_0c8420c745f790fe(t28, t29);                                                     // IL call @0x015B -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::icall_datetime_add_months((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<int32_t>(1LL)); // IL stloc.3 @0x016E -- store call result into loc3
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[276], (il2cpp::runtime::icall_datetime_get_month((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 2LL)); // IL call @0x0179 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[278], (il2cpp::runtime::icall_datetime_get_month((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 2LL)); // IL call @0x0179 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::icall_datetime_add_years((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<int32_t>(1LL)); // IL stloc.3 @0x018C -- store call result into loc3
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[277], (il2cpp::runtime::icall_datetime_get_year((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 2001LL)); // IL call @0x019B -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[279], (il2cpp::runtime::icall_datetime_get_year((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 2001LL)); // IL call @0x019B -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::icall_datetime_add_minutes((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(30.0)); // IL stloc.3 @0x01B6 -- store call result into loc3
     t35 = il2cpp::runtime::icall_datetime_get_minute((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x01B9 -- store call result into t35
-    t36 = il2cpp::g_strPool[278];                                                                 // IL brtrue.s @0x01BE -- store evaluated value into t36
+    t36 = il2cpp::g_strPool[280];                                                                 // IL brtrue.s @0x01BE -- store evaluated value into t36
     if(t35) goto L_478;                                                                           // IL brtrue.s @0x01BE -- jump when condition evaluates to true to L_478
     loc3 = il2cpp::runtime::icall_datetime_add_minutes((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(30.0)); // IL stloc.3 @0x01D0 -- store call result into loc3
     t0 = il2cpp::runtime::icall_datetime_get_hour((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x01D3 -- store call result into t0
@@ -2318,7 +2333,7 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     Program_Check_0c8420c745f790fe(t39, t40);                                                     // IL call @0x01DF -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::icall_datetime_add_seconds((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(15.0)); // IL stloc.3 @0x01FA -- store call result into loc3
     t42 = il2cpp::runtime::icall_datetime_get_second((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x01FD -- store call result into t42
-    t43 = il2cpp::g_strPool[279];                                                                 // IL brtrue.s @0x0202 -- store evaluated value into t43
+    t43 = il2cpp::g_strPool[281];                                                                 // IL brtrue.s @0x0202 -- store evaluated value into t43
     if(t42) goto L_546;                                                                           // IL brtrue.s @0x0202 -- jump when condition evaluates to true to L_546
     loc3 = il2cpp::runtime::icall_datetime_add_seconds((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(15.0)); // IL stloc.3 @0x0214 -- store call result into loc3
     t0 = il2cpp::runtime::icall_datetime_get_minute((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))); // IL call @0x0217 -- store call result into t0
@@ -2331,14 +2346,14 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     L_547: ;                                                                                      // IL branch target at offset 0x0223
     Program_Check_0c8420c745f790fe(t46, t47);                                                     // IL call @0x0223 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::icall_datetime_add_milliseconds((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(1500.0)); // IL stloc.3 @0x023E -- store call result into loc3
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[280], (il2cpp::runtime::icall_datetime_get_second((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 46LL)); // IL call @0x024A -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[282], (il2cpp::runtime::icall_datetime_get_second((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 46LL)); // IL call @0x024A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc3 = il2cpp::runtime::il2cpp_datetime_add_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<int64_t>(10000000LL)); // IL stloc.3 @0x0262 -- store call result into loc3
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[281], (il2cpp::runtime::icall_datetime_get_second((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 46LL)); // IL call @0x026E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[283], (il2cpp::runtime::icall_datetime_get_second((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 46LL)); // IL call @0x026E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = il2cpp::runtime::icall_datetime_add_hours((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), static_cast<double>(1.0)); // IL call @0x0285 -- store call result into t1
     loc4 = il2cpp::runtime::icall_datetime_subtract(loc2, t1);                                    // IL stloc.s @0x028F -- store call result into loc4
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[282], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_hours((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc4))))) == static_cast<double>(-1.0))); // IL call @0x02A3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[284], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_hours((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc4))))) == static_cast<double>(-1.0))); // IL call @0x02A3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t55 = il2cpp::runtime::icall_datetime_compare_to((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), loc0); // IL call @0x02B1 -- store call result into t55
-    t56 = il2cpp::g_strPool[283];                                                                 // IL ble.s @0x02B7 -- store evaluated value into t56
+    t56 = il2cpp::g_strPool[285];                                                                 // IL ble.s @0x02B7 -- store evaluated value into t56
     if((t55 > 0LL) == 0LL) goto L_720;                                                            // IL ble.s @0x02B7 -- jump when condition evaluates to true to L_720
     t57 = il2cpp::runtime::icall_datetime_compare_to((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc0))), loc2); // IL call @0x02BC -- store call result into t57
     t56 = t56;                                                                                    // IL bge.s @0x02C2 -- store evaluated value into t56
@@ -2354,9 +2369,9 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     Program_Check_0c8420c745f790fe(t59, t60);                                                     // IL call @0x02D1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t61 = il2cpp::runtime::Il2CppDateTime { };                                                    // IL newobj @0x02EB -- store evaluated value into t61
     t61 = il2cpp::runtime::icall_datetime_from_ymdhms(2000LL, 1LL, 1LL, 12LL, 30LL, 45LL);        // IL newobj @0x02EB -- initialize value-type instance (BCL runtime icall)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[284], il2cpp::runtime::icall_datetime_op_equality(loc2, t61)); // IL call @0x02F5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[286], il2cpp::runtime::icall_datetime_op_equality(loc2, t61)); // IL call @0x02F5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t63 = il2cpp::runtime::icall_datetime_op_less_than(loc0, loc2);                               // IL call @0x0302 -- store call result into t63
-    t64 = il2cpp::g_strPool[285];                                                                 // IL brfalse.s @0x0307 -- store evaluated value into t64
+    t64 = il2cpp::g_strPool[287];                                                                 // IL brfalse.s @0x0307 -- store evaluated value into t64
     if(t63 == 0LL) goto L_786;                                                                    // IL brfalse.s @0x0307 -- jump when condition evaluates to true to L_786
     t0 = il2cpp::runtime::icall_datetime_op_greater_than(loc2, loc0);                             // IL call @0x030B -- store call result into t0
     t66 = t64;                                                                                    // IL br.s @0x0310 -- store evaluated value into t66
@@ -2367,19 +2382,19 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     t67 = 0LL;                                                                                    // IL call @0x0313 -- store evaluated value into t67
     L_787: ;                                                                                      // IL branch target at offset 0x0313
     Program_Check_0c8420c745f790fe(t66, t67);                                                     // IL call @0x0313 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[286], (il2cpp::runtime::icall_datetime_get_kind((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))) == 1LL)); // IL call @0x0328 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[288], (il2cpp::runtime::icall_datetime_get_kind((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))) == 1LL)); // IL call @0x0328 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = il2cpp::runtime::icall_datetime_get_date((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))); // IL call @0x0335 -- store call result into t1
     t70 = il2cpp::runtime::Il2CppDateTime { };                                                    // IL newobj @0x0345 -- store evaluated value into t70
     t70 = il2cpp::runtime::icall_datetime_from_ymdhms(2000LL, 1LL, 1LL, 0LL, 0LL, 0LL);           // IL newobj @0x0345 -- initialize value-type instance (BCL runtime icall)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[287], il2cpp::runtime::icall_datetime_op_equality(t1, t70)); // IL call @0x034F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[289], il2cpp::runtime::icall_datetime_op_equality(t1, t70)); // IL call @0x034F -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t2 = il2cpp::runtime::icall_datetime_get_time_of_day((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))); // IL call @0x035C -- store call result into t2
     t73 = il2cpp::runtime::Il2CppTimeSpan { };                                                    // IL newobj @0x0367 -- store evaluated value into t73
     t73 = il2cpp::runtime::icall_timespan_from_hms(12LL, 30LL, 45LL);                             // IL newobj @0x0367 -- initialize value-type instance (BCL runtime icall)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[288], il2cpp::runtime::icall_timespan_op_equality(t2, t73)); // IL call @0x0371 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[290], il2cpp::runtime::icall_timespan_op_equality(t2, t73)); // IL call @0x0371 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc4 = il2cpp::runtime::icall_datetime_get_time_of_day((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2)))); // IL stloc.s @0x0383 -- store call result into loc4
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[289], (il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc4)))) == 450450000000LL)); // IL call @0x0397 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[291], (il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc4)))) == 450450000000LL)); // IL call @0x0397 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t77 = il2cpp::runtime::icall_datetime_days_in_month(static_cast<int32_t>(2000LL), static_cast<int32_t>(2LL)); // IL call @0x03A8 -- store call result into t77
-    t78 = il2cpp::g_strPool[290];                                                                 // IL bne.un.s @0x03AF -- store evaluated value into t78
+    t78 = il2cpp::g_strPool[292];                                                                 // IL bne.un.s @0x03AF -- store evaluated value into t78
     if((t77 == 29LL) == 0LL) goto L_962;                                                          // IL bne.un.s @0x03AF -- jump when condition evaluates to true to L_962
     t0 = il2cpp::runtime::icall_datetime_days_in_month(static_cast<int32_t>(2001LL), static_cast<int32_t>(2LL)); // IL call @0x03B7 -- store call result into t0
     t80 = t78;                                                                                    // IL br.s @0x03C0 -- store evaluated value into t80
@@ -2391,7 +2406,7 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     L_963: ;                                                                                      // IL branch target at offset 0x03C3
     Program_Check_0c8420c745f790fe(t80, t81);                                                     // IL call @0x03C3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t82 = il2cpp::runtime::icall_datetime_is_leap_year(static_cast<int32_t>(2000LL));             // IL call @0x03D3 -- store call result into t82
-    t83 = il2cpp::g_strPool[291];                                                                 // IL brfalse.s @0x03D8 -- store evaluated value into t83
+    t83 = il2cpp::g_strPool[293];                                                                 // IL brfalse.s @0x03D8 -- store evaluated value into t83
     if(t82 == 0LL) goto L_1001;                                                                   // IL brfalse.s @0x03D8 -- jump when condition evaluates to true to L_1001
     t0 = il2cpp::runtime::icall_datetime_is_leap_year(static_cast<int32_t>(2001LL));              // IL call @0x03DF -- store call result into t0
     t85 = t83;                                                                                    // IL br.s @0x03E7 -- store evaluated value into t85
@@ -2406,19 +2421,19 @@ IL2CPP_NOINLINE void Program_WideDateTime_597f19030ef09dea(void)
     t88 = il2cpp::runtime::Il2CppDateTime { };                                                    // IL newobj @0x03FD -- store evaluated value into t88
     t88 = il2cpp::runtime::icall_datetime_from_ticks(t3);                                         // IL newobj @0x03FD -- initialize value-type instance (BCL runtime icall)
     loc3 = t88;                                                                                   // IL stloc.3 @0x0402 -- store evaluated value into loc3
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[292], (il2cpp::runtime::icall_datetime_get_kind((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 1LL)); // IL call @0x040D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[294], (il2cpp::runtime::icall_datetime_get_kind((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc3)))) == 1LL)); // IL call @0x040D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t90 = il2cpp::runtime::Il2CppDateTime { };                                                    // IL newobj @0x0428 -- store evaluated value into t90
     t90 = il2cpp::runtime::icall_datetime_from_ymdhms(2000LL, 1LL, 1LL, 12LL, 30LL, 45LL);        // IL newobj @0x0428 -- initialize value-type instance (BCL runtime icall)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[293], il2cpp::runtime::icall_datetime_equals((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), t90)); // IL call @0x0432 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[295], il2cpp::runtime::icall_datetime_equals((*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>((&loc2))), t90)); // IL call @0x0432 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = il2cpp::runtime::icall_datetime_utc_now();                                               // IL call @0x043D -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[294], il2cpp::runtime::icall_datetime_op_greater_or_equal(t1, loc0)); // IL call @0x0448 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[296], il2cpp::runtime::icall_datetime_op_greater_or_equal(t1, loc0)); // IL call @0x0448 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x044E -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideTimeSpan()
-// IL offset (RVA): 0x0000416C (assembly: icallwide_net6.dll, token: 0x06000015)
+// IL offset (RVA): 0x00004198 (assembly: icallwide_net6.dll, token: 0x06000015)
 // Semantics: Transpiled from 0 argument slot(s) and 1129 byte(s) of IL; the body below is the stack-folding result (121 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideTimeSpan_4063afb9cfbb7402(void)
@@ -2462,28 +2477,28 @@ IL2CPP_NOINLINE void Program_WideTimeSpan_4063afb9cfbb7402(void)
     t0 = il2cpp::runtime::icall_timespan_from_days(static_cast<double>(0.5));                     // IL call @0x000F -- store call result into t0
     t1 = il2cpp::runtime::Il2CppTimeSpan { };                                                     // IL newobj @0x0018 -- store evaluated value into t1
     t1 = il2cpp::runtime::icall_timespan_from_hms(12LL, 0LL, 0LL);                                // IL newobj @0x0018 -- initialize value-type instance (BCL runtime icall)
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[295], il2cpp::runtime::icall_timespan_op_equality(t0, t1)); // IL call @0x0022 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[297], il2cpp::runtime::icall_timespan_op_equality(t0, t1)); // IL call @0x0022 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.5));                  // IL stloc.1 @0x003B -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[296], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_minutes((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(90.0))); // IL call @0x004E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[298], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_minutes((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(90.0))); // IL call @0x004E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(90.0));                 // IL call @0x0062 -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.5));                    // IL call @0x0070 -- store call result into t2
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[297], il2cpp::runtime::icall_timespan_op_equality(t0, t2)); // IL call @0x007A -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[299], il2cpp::runtime::icall_timespan_op_equality(t0, t2)); // IL call @0x007A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_timespan_from_seconds(static_cast<double>(3600.0));               // IL call @0x008E -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.0));                    // IL call @0x009C -- store call result into t2
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[298], il2cpp::runtime::icall_timespan_op_equality(t0, t2)); // IL call @0x00A6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[300], il2cpp::runtime::icall_timespan_op_equality(t0, t2)); // IL call @0x00A6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_milliseconds(static_cast<double>(1500.0));        // IL stloc.1 @0x00BF -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[299], (il2cpp::runtime::icall_timespan_get_seconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))) == 1LL)); // IL call @0x00CA -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[301], (il2cpp::runtime::icall_timespan_get_seconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))) == 1LL)); // IL call @0x00CA -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_ticks_exact(static_cast<int64_t>(864000000000LL)); // IL stloc.1 @0x00E3 -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[300], (il2cpp::runtime::icall_timespan_get_days((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))) == 1LL)); // IL call @0x00EE -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[302], (il2cpp::runtime::icall_timespan_get_days((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))) == 1LL)); // IL call @0x00EE -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t15 = il2cpp::runtime::Il2CppTimeSpan { };                                                    // IL newobj @0x00FE -- store evaluated value into t15
     t15 = il2cpp::runtime::icall_timespan_from_dhmsm(1LL, 2LL, 3LL, 4LL, 5LL);                    // IL newobj @0x00FE -- initialize value-type instance (BCL runtime icall)
     loc1 = t15;                                                                                   // IL stloc.1 @0x0103 -- store evaluated value into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[301], (il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))) == 937840050000LL)); // IL call @0x0116 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[303], (il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))) == 937840050000LL)); // IL call @0x0116 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t17 = il2cpp::runtime::Il2CppTimeSpan { };                                                    // IL newobj @0x0126 -- store evaluated value into t17
     t17 = il2cpp::runtime::icall_timespan_from_dhmsm(2LL, 3LL, 4LL, 5LL, 6LL);                    // IL newobj @0x0126 -- initialize value-type instance (BCL runtime icall)
     loc1 = t17;                                                                                   // IL stloc.1 @0x012B -- store evaluated value into loc1
     t18 = il2cpp::runtime::icall_timespan_get_days((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))); // IL call @0x012E -- store call result into t18
-    t19 = il2cpp::g_strPool[302];                                                                 // IL bne.un.s @0x0134 -- store evaluated value into t19
+    t19 = il2cpp::g_strPool[304];                                                                 // IL bne.un.s @0x0134 -- store evaluated value into t19
     if((t18 == 2LL) == 0LL) goto L_333;                                                           // IL bne.un.s @0x0134 -- jump when condition evaluates to true to L_333
     t20 = il2cpp::runtime::Il2CppTimeSpan { };                                                    // IL newobj @0x013B -- store evaluated value into t20
     t20 = il2cpp::runtime::icall_timespan_from_dhmsm(2LL, 3LL, 4LL, 5LL, 6LL);                    // IL newobj @0x013B -- initialize value-type instance (BCL runtime icall)
@@ -2501,7 +2516,7 @@ IL2CPP_NOINLINE void Program_WideTimeSpan_4063afb9cfbb7402(void)
     t24 = il2cpp::runtime::icall_timespan_from_dhmsm(2LL, 3LL, 4LL, 5LL, 6LL);                    // IL newobj @0x015E -- initialize value-type instance (BCL runtime icall)
     loc1 = t24;                                                                                   // IL stloc.1 @0x0163 -- store evaluated value into loc1
     t25 = il2cpp::runtime::icall_timespan_get_minutes((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))); // IL call @0x0166 -- store call result into t25
-    t26 = il2cpp::g_strPool[303];                                                                 // IL bne.un.s @0x016C -- store evaluated value into t26
+    t26 = il2cpp::g_strPool[305];                                                                 // IL bne.un.s @0x016C -- store evaluated value into t26
     if((t25 == 4LL) == 0LL) goto L_410;                                                           // IL bne.un.s @0x016C -- jump when condition evaluates to true to L_410
     t27 = il2cpp::runtime::Il2CppTimeSpan { };                                                    // IL newobj @0x0173 -- store evaluated value into t27
     t27 = il2cpp::runtime::icall_timespan_from_dhmsm(2LL, 3LL, 4LL, 5LL, 6LL);                    // IL newobj @0x0173 -- initialize value-type instance (BCL runtime icall)
@@ -2522,47 +2537,47 @@ IL2CPP_NOINLINE void Program_WideTimeSpan_4063afb9cfbb7402(void)
     L_411: ;                                                                                      // IL branch target at offset 0x019B
     Program_Check_0c8420c745f790fe(t31, t32);                                                     // IL call @0x019B -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(48.0));                 // IL stloc.1 @0x01B4 -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[304], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_days((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(2.0))); // IL call @0x01C7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[306], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_days((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(2.0))); // IL call @0x01C7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(180.0));              // IL stloc.1 @0x01E0 -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[305], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_hours((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(3.0))); // IL call @0x01F3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[307], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_hours((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(3.0))); // IL call @0x01F3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc0 = 2500.0;                                                                                // IL stloc.0 @0x0202 -- store evaluated value into loc0
     loc1 = il2cpp::runtime::icall_timespan_from_milliseconds(static_cast<double>(loc0));          // IL stloc.1 @0x020E -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[306], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_seconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(2.5))); // IL call @0x0221 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[308], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_seconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(2.5))); // IL call @0x0221 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_seconds(static_cast<double>(1.5));                // IL stloc.1 @0x023A -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[307], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_milliseconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(1500.0))); // IL call @0x024D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[309], (static_cast<double>(il2cpp::runtime::icall_timespan_get_total_milliseconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))) == static_cast<double>(1500.0))); // IL call @0x024D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(3.0));                  // IL stloc.1 @0x0266 -- store call result into loc1
     loc1 = il2cpp::runtime::icall_timespan_negate((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))); // IL stloc.1 @0x026E -- store call result into loc1
     t4 = il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))); // IL call @0x0271 -- store call result into t4
     loc1 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(3.0));                  // IL stloc.1 @0x0284 -- store call result into loc1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[308], (t4 == (-il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))))); // IL call @0x028F -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[310], (t4 == (-il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))))))); // IL call @0x028F -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(-3.0));                 // IL stloc.1 @0x02A8 -- store call result into loc1
     t0 = il2cpp::runtime::icall_timespan_duration((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1)))); // IL call @0x02AB -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(3.0));                    // IL call @0x02B9 -- store call result into t2
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[309], il2cpp::runtime::icall_timespan_op_equality(t0, t2)); // IL call @0x02C3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[311], il2cpp::runtime::icall_timespan_op_equality(t0, t2)); // IL call @0x02C3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.0));                  // IL stloc.1 @0x02DC -- store call result into loc1
     t0 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(30.0));                 // IL call @0x02E8 -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_add((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))), t0); // IL call @0x02ED -- store call result into t2
     t0 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(90.0));                 // IL call @0x02FB -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[310], il2cpp::runtime::icall_timespan_op_equality(t2, t0)); // IL call @0x0305 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[312], il2cpp::runtime::icall_timespan_op_equality(t2, t0)); // IL call @0x0305 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(2.0));                  // IL stloc.1 @0x031E -- store call result into loc1
     t0 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(30.0));                 // IL call @0x032A -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_subtract((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))), t0); // IL call @0x032F -- store call result into t2
     t0 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(90.0));                 // IL call @0x033D -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[311], il2cpp::runtime::icall_timespan_op_equality(t2, t0)); // IL call @0x0347 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[313], il2cpp::runtime::icall_timespan_op_equality(t2, t0)); // IL call @0x0347 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.0));                    // IL call @0x035B -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(30.0));                 // IL call @0x0369 -- store call result into t2
     t5 = il2cpp::runtime::icall_timespan_add(t0, t2);                                             // IL call @0x036E -- store call result into t5
     t0 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(90.0));                 // IL call @0x037C -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[312], il2cpp::runtime::icall_timespan_op_equality(t5, t0)); // IL call @0x0386 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[314], il2cpp::runtime::icall_timespan_op_equality(t5, t0)); // IL call @0x0386 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(2.0));                    // IL call @0x039A -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(30.0));                 // IL call @0x03A8 -- store call result into t2
     t5 = il2cpp::runtime::icall_timespan_subtract(t0, t2);                                        // IL call @0x03AD -- store call result into t5
     t0 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(90.0));                 // IL call @0x03BB -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[313], il2cpp::runtime::icall_timespan_op_equality(t5, t0)); // IL call @0x03C5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[315], il2cpp::runtime::icall_timespan_op_equality(t5, t0)); // IL call @0x03C5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(2.0));                    // IL call @0x03D9 -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.0));                    // IL call @0x03E7 -- store call result into t2
     t72 = il2cpp::runtime::icall_timespan_op_greater_than(t0, t2);                                // IL call @0x03EC -- store call result into t72
-    t73 = il2cpp::g_strPool[314];                                                                 // IL brfalse.s @0x03F1 -- store evaluated value into t73
+    t73 = il2cpp::g_strPool[316];                                                                 // IL brfalse.s @0x03F1 -- store evaluated value into t73
     if(t72 == 0LL) goto L_1049;                                                                   // IL brfalse.s @0x03F1 -- jump when condition evaluates to true to L_1049
     t0 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.0));                    // IL call @0x03FC -- store call result into t0
     t2 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.0));                    // IL call @0x040A -- store call result into t2
@@ -2577,15 +2592,15 @@ IL2CPP_NOINLINE void Program_WideTimeSpan_4063afb9cfbb7402(void)
     Program_Check_0c8420c745f790fe(t77, t78);                                                     // IL call @0x041A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = il2cpp::runtime::icall_timespan_from_minutes(static_cast<double>(60.0));               // IL stloc.1 @0x0433 -- store call result into loc1
     t0 = il2cpp::runtime::icall_timespan_from_hours(static_cast<double>(1.0));                    // IL call @0x043F -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[315], il2cpp::runtime::icall_timespan_equals((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))), t0)); // IL call @0x0449 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[316], (il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&System_TimeSpan_sf_Zero)))) == 0LL)); // IL call @0x0462 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[317], il2cpp::runtime::icall_timespan_equals((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc1))), t0)); // IL call @0x0449 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[318], (il2cpp::runtime::icall_timespan_get_ticks((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&System_TimeSpan_sf_Zero)))) == 0LL)); // IL call @0x0462 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x0468 -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideChar()
-// IL offset (RVA): 0x000045E4 (assembly: icallwide_net6.dll, token: 0x06000016)
+// IL offset (RVA): 0x00004610 (assembly: icallwide_net6.dll, token: 0x06000016)
 // Semantics: Transpiled from 0 argument slot(s) and 420 byte(s) of IL; the body below is the stack-folding result (109 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
@@ -2635,7 +2650,7 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     il2cpp::il2cpp_frame_push(&__frame);
 
     t0 = il2cpp::runtime::icall_char_is_upper(static_cast<char16_t>(65LL));                       // IL call @0x0008 -- store call result into t0
-    t1 = il2cpp::g_strPool[317];                                                                  // IL brfalse.s @0x000D -- store evaluated value into t1
+    t1 = il2cpp::g_strPool[319];                                                                  // IL brfalse.s @0x000D -- store evaluated value into t1
     if(t0 == 0LL) goto L_27;                                                                      // IL brfalse.s @0x000D -- jump when condition evaluates to true to L_27
     t2 = il2cpp::runtime::icall_char_is_upper(static_cast<char16_t>(97LL));                       // IL call @0x0011 -- store call result into t2
     t3 = t1;                                                                                      // IL br.s @0x0019 -- store evaluated value into t3
@@ -2647,7 +2662,7 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     L_28: ;                                                                                       // IL branch target at offset 0x001C
     Program_Check_0c8420c745f790fe(t3, t4);                                                       // IL call @0x001C -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t5 = il2cpp::runtime::icall_char_is_lower(static_cast<char16_t>(97LL));                       // IL call @0x0029 -- store call result into t5
-    t6 = il2cpp::g_strPool[318];                                                                  // IL brfalse.s @0x002E -- store evaluated value into t6
+    t6 = il2cpp::g_strPool[320];                                                                  // IL brfalse.s @0x002E -- store evaluated value into t6
     if(t5 == 0LL) goto L_60;                                                                      // IL brfalse.s @0x002E -- jump when condition evaluates to true to L_60
     t2 = il2cpp::runtime::icall_char_is_lower(static_cast<char16_t>(65LL));                       // IL call @0x0032 -- store call result into t2
     t8 = t6;                                                                                      // IL br.s @0x003A -- store evaluated value into t8
@@ -2659,7 +2674,7 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     L_61: ;                                                                                       // IL branch target at offset 0x003D
     Program_Check_0c8420c745f790fe(t8, t9);                                                       // IL call @0x003D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t10 = il2cpp::runtime::icall_char_is_digit(static_cast<char16_t>(53LL));                      // IL call @0x004A -- store call result into t10
-    t11 = il2cpp::g_strPool[319];                                                                 // IL brfalse.s @0x004F -- store evaluated value into t11
+    t11 = il2cpp::g_strPool[321];                                                                 // IL brfalse.s @0x004F -- store evaluated value into t11
     if(t10 == 0LL) goto L_93;                                                                     // IL brfalse.s @0x004F -- jump when condition evaluates to true to L_93
     t2 = il2cpp::runtime::icall_char_is_digit(static_cast<char16_t>(120LL));                      // IL call @0x0053 -- store call result into t2
     t13 = t11;                                                                                    // IL br.s @0x005B -- store evaluated value into t13
@@ -2671,7 +2686,7 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     L_94: ;                                                                                       // IL branch target at offset 0x005E
     Program_Check_0c8420c745f790fe(t13, t14);                                                     // IL call @0x005E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t15 = il2cpp::runtime::icall_char_is_letter(static_cast<char16_t>(113LL));                    // IL call @0x006B -- store call result into t15
-    t16 = il2cpp::g_strPool[320];                                                                 // IL brfalse.s @0x0070 -- store evaluated value into t16
+    t16 = il2cpp::g_strPool[322];                                                                 // IL brfalse.s @0x0070 -- store evaluated value into t16
     if(t15 == 0LL) goto L_126;                                                                    // IL brfalse.s @0x0070 -- jump when condition evaluates to true to L_126
     t2 = il2cpp::runtime::icall_char_is_letter(static_cast<char16_t>(49LL));                      // IL call @0x0074 -- store call result into t2
     t18 = t16;                                                                                    // IL br.s @0x007C -- store evaluated value into t18
@@ -2683,7 +2698,7 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     L_127: ;                                                                                      // IL branch target at offset 0x007F
     Program_Check_0c8420c745f790fe(t18, t19);                                                     // IL call @0x007F -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t20 = il2cpp::runtime::icall_char_is_letter_or_digit(static_cast<char16_t>(55LL));            // IL call @0x008C -- store call result into t20
-    t21 = il2cpp::g_strPool[321];                                                                 // IL brfalse.s @0x0091 -- store evaluated value into t21
+    t21 = il2cpp::g_strPool[323];                                                                 // IL brfalse.s @0x0091 -- store evaluated value into t21
     if(t20 == 0LL) goto L_168;                                                                    // IL brfalse.s @0x0091 -- jump when condition evaluates to true to L_168
     t22 = il2cpp::runtime::icall_char_is_letter_or_digit(static_cast<char16_t>(90LL));            // IL call @0x0095 -- store call result into t22
     t21 = t21;                                                                                    // IL brfalse.s @0x009A -- store evaluated value into t21
@@ -2698,7 +2713,7 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     L_169: ;                                                                                      // IL branch target at offset 0x00A9
     Program_Check_0c8420c745f790fe(t24, t25);                                                     // IL call @0x00A9 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t26 = il2cpp::runtime::icall_char_is_whitespace(static_cast<char16_t>(32LL));                 // IL call @0x00B6 -- store call result into t26
-    t27 = il2cpp::g_strPool[322];                                                                 // IL brfalse.s @0x00BB -- store evaluated value into t27
+    t27 = il2cpp::g_strPool[324];                                                                 // IL brfalse.s @0x00BB -- store evaluated value into t27
     if(t26 == 0LL) goto L_210;                                                                    // IL brfalse.s @0x00BB -- jump when condition evaluates to true to L_210
     t28 = il2cpp::runtime::icall_char_is_whitespace(static_cast<char16_t>(9LL));                  // IL call @0x00BF -- store call result into t28
     t27 = t27;                                                                                    // IL brfalse.s @0x00C4 -- store evaluated value into t27
@@ -2713,7 +2728,7 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     L_211: ;                                                                                      // IL branch target at offset 0x00D3
     Program_Check_0c8420c745f790fe(t30, t31);                                                     // IL call @0x00D3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t32 = il2cpp::runtime::icall_char_is_control(static_cast<char16_t>(10LL));                    // IL call @0x00E0 -- store call result into t32
-    t33 = il2cpp::g_strPool[323];                                                                 // IL brfalse.s @0x00E5 -- store evaluated value into t33
+    t33 = il2cpp::g_strPool[325];                                                                 // IL brfalse.s @0x00E5 -- store evaluated value into t33
     if(t32 == 0LL) goto L_243;                                                                    // IL brfalse.s @0x00E5 -- jump when condition evaluates to true to L_243
     t2 = il2cpp::runtime::icall_char_is_control(static_cast<char16_t>(110LL));                    // IL call @0x00E9 -- store call result into t2
     t35 = t33;                                                                                    // IL br.s @0x00F1 -- store evaluated value into t35
@@ -2724,11 +2739,11 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     t36 = 0LL;                                                                                    // IL call @0x00F4 -- store evaluated value into t36
     L_244: ;                                                                                      // IL branch target at offset 0x00F4
     Program_Check_0c8420c745f790fe(t35, t36);                                                     // IL call @0x00F4 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[324], (il2cpp::runtime::icall_char_to_upper(static_cast<char16_t>(97LL)) == 65LL)); // IL call @0x010A -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[325], (il2cpp::runtime::icall_char_to_lower(static_cast<char16_t>(90LL)) == 122LL)); // IL call @0x0120 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[326], (static_cast<double>(il2cpp::runtime::icall_char_get_numeric_value(static_cast<char16_t>(57LL))) == static_cast<double>(9.0))); // IL call @0x013D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[326], (il2cpp::runtime::icall_char_to_upper(static_cast<char16_t>(97LL)) == 65LL)); // IL call @0x010A -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[327], (il2cpp::runtime::icall_char_to_lower(static_cast<char16_t>(90LL)) == 122LL)); // IL call @0x0120 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[328], (static_cast<double>(il2cpp::runtime::icall_char_get_numeric_value(static_cast<char16_t>(57LL))) == static_cast<double>(9.0))); // IL call @0x013D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t40 = il2cpp::runtime::icall_char_is_punctuation(static_cast<char16_t>(46LL));                // IL call @0x014A -- store call result into t40
-    t41 = il2cpp::g_strPool[327];                                                                 // IL brfalse.s @0x014F -- store evaluated value into t41
+    t41 = il2cpp::g_strPool[329];                                                                 // IL brfalse.s @0x014F -- store evaluated value into t41
     if(t40 == 0LL) goto L_349;                                                                    // IL brfalse.s @0x014F -- jump when condition evaluates to true to L_349
     t2 = il2cpp::runtime::icall_char_is_punctuation(static_cast<char16_t>(97LL));                 // IL call @0x0153 -- store call result into t2
     t43 = t41;                                                                                    // IL br.s @0x015B -- store evaluated value into t43
@@ -2739,16 +2754,16 @@ IL2CPP_NOINLINE void Program_WideChar_a22979e5bc58130f(void)
     t44 = 0LL;                                                                                    // IL call @0x015E -- store evaluated value into t44
     L_350: ;                                                                                      // IL branch target at offset 0x015E
     Program_Check_0c8420c745f790fe(t43, t44);                                                     // IL call @0x015E -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[328], (il2cpp::runtime::icall_char_is_surrogate(static_cast<char16_t>(97LL)) == 0LL)); // IL call @0x0173 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[329], (il2cpp::runtime::icall_char_is_separator(static_cast<char16_t>(97LL)) == 0LL)); // IL call @0x0188 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[330], (il2cpp::runtime::icall_char_is_symbol(static_cast<char16_t>(97LL)) == 0LL)); // IL call @0x019D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[330], (il2cpp::runtime::icall_char_is_surrogate(static_cast<char16_t>(97LL)) == 0LL)); // IL call @0x0173 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[331], (il2cpp::runtime::icall_char_is_separator(static_cast<char16_t>(97LL)) == 0LL)); // IL call @0x0188 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[332], (il2cpp::runtime::icall_char_is_symbol(static_cast<char16_t>(97LL)) == 0LL)); // IL call @0x019D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x01A3 -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideEnum()
-// IL offset (RVA): 0x00004794 (assembly: icallwide_net6.dll, token: 0x06000017)
+// IL offset (RVA): 0x000047C0 (assembly: icallwide_net6.dll, token: 0x06000017)
 // Semantics: Transpiled from 0 argument slot(s) and 590 byte(s) of IL; the body below is the stack-folding result (83 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideEnum_da11afa97a3a0b32(void)
@@ -2784,16 +2799,16 @@ IL2CPP_NOINLINE void Program_WideEnum_da11afa97a3a0b32(void)
     Color loc1;
 
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_underlying_type(0));    // IL call @0x0010 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[332], il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[333])); // IL call @0x0024 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[334], il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[335])); // IL call @0x0024 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::il2cpp_box_int32(nullptr, 1LL);                                                  // IL box @0x003A -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_name_by_type_name(il2cpp::g_strPool[331], t0)); // IL call @0x003F -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[334], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[335])); // IL call @0x004E -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_names_by_type_name(il2cpp::g_strPool[331])); // IL call @0x0063 -- store call result into t0
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_name_by_type_name(il2cpp::g_strPool[333], t0)); // IL call @0x003F -- store call result into t1
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[336], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[337])); // IL call @0x004E -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_names_by_type_name(il2cpp::g_strPool[333])); // IL call @0x0063 -- store call result into t0
     t1 = static_cast<Il2CppObject*>(*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(0LL)))); // IL ldelem.ref @0x0069 -- store call result into t1
-    t7 = il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[336]);                 // IL call @0x006F -- store call result into t7
-    t8 = il2cpp::g_strPool[337];                                                                  // IL brfalse.s @0x0074 -- store evaluated value into t8
+    t7 = il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[338]);                 // IL call @0x006F -- store call result into t7
+    t8 = il2cpp::g_strPool[339];                                                                  // IL brfalse.s @0x0074 -- store evaluated value into t8
     if(t7 == 0LL) goto L_140;                                                                     // IL brfalse.s @0x0074 -- jump when condition evaluates to true to L_140
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_names_by_type_name(il2cpp::g_strPool[331])); // IL call @0x0080 -- store call result into t0
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_names_by_type_name(il2cpp::g_strPool[333])); // IL call @0x0080 -- store call result into t0
     t2 = il2cpp::il2cpp_array_get_length(reinterpret_cast<Il2CppArray*>(t0));                     // IL ldlen @0x0085 -- store call result into t2
     t11 = t8;                                                                                     // IL br.s @0x008A -- store evaluated value into t11
     t12 = (t2 == 3LL);                                                                            // IL br.s @0x008A -- store evaluated value into t12
@@ -2803,21 +2818,21 @@ IL2CPP_NOINLINE void Program_WideEnum_da11afa97a3a0b32(void)
     t12 = 0LL;                                                                                    // IL call @0x008D -- store evaluated value into t12
     L_141: ;                                                                                      // IL branch target at offset 0x008D
     Program_Check_0c8420c745f790fe(t11, t12);                                                     // IL call @0x008D -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_values_by_type_name(il2cpp::g_strPool[331])); // IL call @0x00A2 -- store call result into t0
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_values_by_type_name(il2cpp::g_strPool[333])); // IL call @0x00A2 -- store call result into t0
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_get_value(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(2LL))); // IL callvirt @0x00A8 -- store call result into t1
     t0 = il2cpp::runtime::icall_box_enum(&Color_class, static_cast<int64_t>(2LL));                // IL box @0x00AE -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[338], il2cpp::runtime::icall_boxed_equals_ext2(t1, t0)); // IL call @0x00B8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_parse_boxed(il2cpp::g_strPool[331], il2cpp::g_strPool[339])); // IL call @0x00D2 -- store call result into t0
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[340], il2cpp::runtime::icall_boxed_equals_ext2(t1, t0)); // IL call @0x00B8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_parse_boxed(il2cpp::g_strPool[333], il2cpp::g_strPool[341])); // IL call @0x00D2 -- store call result into t0
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string(t0));            // IL callvirt @0x00D7 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[340], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[339])); // IL call @0x00E6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_parse_boxed(il2cpp::g_strPool[331], il2cpp::g_strPool[133])); // IL call @0x0100 -- store call result into t0
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[342], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[341])); // IL call @0x00E6 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_parse_boxed(il2cpp::g_strPool[333], il2cpp::g_strPool[135])); // IL call @0x0100 -- store call result into t0
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string(t0));            // IL callvirt @0x0105 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[341], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[336])); // IL call @0x0114 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t23 = il2cpp::runtime::il2cpp_enum_parse(&Color_class, il2cpp::g_strPool[335], reinterpret_cast<int64_t*>((&(((&loc0))->value__)))); // IL call @0x0126 -- store call result into t23
-    t24 = il2cpp::g_strPool[342];                                                                 // IL brfalse.s @0x012B -- store evaluated value into t24
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[343], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[338])); // IL call @0x0114 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t23 = il2cpp::runtime::il2cpp_enum_parse(&Color_class, il2cpp::g_strPool[337], reinterpret_cast<int64_t*>((&(((&loc0))->value__)))); // IL call @0x0126 -- store call result into t23
+    t24 = il2cpp::g_strPool[344];                                                                 // IL brfalse.s @0x012B -- store evaluated value into t24
     if(t23 == 0LL) goto L_326;                                                                    // IL brfalse.s @0x012B -- jump when condition evaluates to true to L_326
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(&Color_class, ((&loc0))->value__)); // IL callvirt @0x0135 -- store call result into t0
-    t2 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[335]);                 // IL call @0x013F -- store call result into t2
+    t2 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[337]);                 // IL call @0x013F -- store call result into t2
     t27 = t24;                                                                                    // IL br.s @0x0144 -- store evaluated value into t27
     t28 = t2;                                                                                     // IL br.s @0x0144 -- store evaluated value into t28
     goto L_327;                                                                                   // IL br.s @0x0144 -- unconditional jump to L_327
@@ -2826,11 +2841,11 @@ IL2CPP_NOINLINE void Program_WideEnum_da11afa97a3a0b32(void)
     t28 = 0LL;                                                                                    // IL call @0x0147 -- store evaluated value into t28
     L_327: ;                                                                                      // IL branch target at offset 0x0147
     Program_Check_0c8420c745f790fe(t27, t28);                                                     // IL call @0x0147 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t29 = il2cpp::runtime::il2cpp_enum_parse(&Color_class, il2cpp::g_strPool[343], reinterpret_cast<int64_t*>((&(((&loc0))->value__)))); // IL call @0x0159 -- store call result into t29
-    t30 = il2cpp::g_strPool[344];                                                                 // IL brtrue.s @0x015E -- store evaluated value into t30
+    t29 = il2cpp::runtime::il2cpp_enum_parse(&Color_class, il2cpp::g_strPool[345], reinterpret_cast<int64_t*>((&(((&loc0))->value__)))); // IL call @0x0159 -- store call result into t29
+    t30 = il2cpp::g_strPool[346];                                                                 // IL brtrue.s @0x015E -- store evaluated value into t30
     if(t29) goto L_377;                                                                           // IL brtrue.s @0x015E -- jump when condition evaluates to true to L_377
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(&Color_class, ((&loc0))->value__)); // IL callvirt @0x0168 -- store call result into t0
-    t2 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[133]);                 // IL call @0x0172 -- store call result into t2
+    t2 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[135]);                 // IL call @0x0172 -- store call result into t2
     t33 = t30;                                                                                    // IL br.s @0x0177 -- store evaluated value into t33
     t34 = t2;                                                                                     // IL br.s @0x0177 -- store evaluated value into t34
     goto L_378;                                                                                   // IL br.s @0x0177 -- unconditional jump to L_378
@@ -2840,11 +2855,11 @@ IL2CPP_NOINLINE void Program_WideEnum_da11afa97a3a0b32(void)
     L_378: ;                                                                                      // IL branch target at offset 0x017A
     Program_Check_0c8420c745f790fe(t33, t34);                                                     // IL call @0x017A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_box_enum(&Color_class, static_cast<int64_t>(0LL));                // IL box @0x0190 -- store call result into t0
-    t36 = il2cpp::runtime::il2cpp_enum_is_defined(il2cpp::g_strPool[331], t0);                    // IL call @0x0195 -- store call result into t36
-    t37 = il2cpp::g_strPool[345];                                                                 // IL brfalse.s @0x019A -- store evaluated value into t37
+    t36 = il2cpp::runtime::il2cpp_enum_is_defined(il2cpp::g_strPool[333], t0);                    // IL call @0x0195 -- store call result into t36
+    t37 = il2cpp::g_strPool[347];                                                                 // IL brfalse.s @0x019A -- store evaluated value into t37
     if(t36 == 0LL) goto L_439;                                                                    // IL brfalse.s @0x019A -- jump when condition evaluates to true to L_439
     t0 = il2cpp::runtime::icall_box_enum(&Color_class, static_cast<int64_t>(99LL));               // IL box @0x01A8 -- store call result into t0
-    t2 = il2cpp::runtime::il2cpp_enum_is_defined(il2cpp::g_strPool[331], t0);                     // IL call @0x01AD -- store call result into t2
+    t2 = il2cpp::runtime::il2cpp_enum_is_defined(il2cpp::g_strPool[333], t0);                     // IL call @0x01AD -- store call result into t2
     t40 = t37;                                                                                    // IL br.s @0x01B5 -- store evaluated value into t40
     t41 = (t2 == 0LL);                                                                            // IL br.s @0x01B5 -- store evaluated value into t41
     goto L_440;                                                                                   // IL br.s @0x01B5 -- unconditional jump to L_440
@@ -2855,23 +2870,23 @@ IL2CPP_NOINLINE void Program_WideEnum_da11afa97a3a0b32(void)
     Program_Check_0c8420c745f790fe(t40, t41);                                                     // IL call @0x01B8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::runtime::icall_box_enum(&Color_class, static_cast<int64_t>(1LL));                // IL box @0x01C4 -- store call result into t0
     t1 = il2cpp::runtime::icall_box_enum(&Color_class, static_cast<int64_t>(0LL));                // IL box @0x01CA -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[346], il2cpp::runtime::il2cpp_enum_has_flag(t0, t1)); // IL call @0x01D4 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[348], il2cpp::runtime::il2cpp_enum_has_flag(t0, t1)); // IL call @0x01D4 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc1 = 1LL;                                                                                   // IL stloc.1 @0x01E0 -- store evaluated value into loc1
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(&Color_class, ((&loc1))->value__)); // IL callvirt @0x01E9 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[347], il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[335])); // IL call @0x01F8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_object(il2cpp::g_strPool[331], 2LL)); // IL call @0x020E -- store call result into t0
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[349], il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[337])); // IL call @0x01F8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_object(il2cpp::g_strPool[333], 2LL)); // IL call @0x020E -- store call result into t0
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string(t0));            // IL callvirt @0x0213 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[348], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[339])); // IL call @0x0222 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[350], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[341])); // IL call @0x0222 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::il2cpp_box_int32(nullptr, 0LL);                                                  // IL box @0x0233 -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_format_1(il2cpp::g_strPool[349], t0)); // IL call @0x0238 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[350], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[133])); // IL call @0x0247 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_format_1(il2cpp::g_strPool[351], t0)); // IL call @0x0238 -- store call result into t1
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[352], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[135])); // IL call @0x0247 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x024D -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideObject()
-// IL offset (RVA): 0x000049F0 (assembly: icallwide_net6.dll, token: 0x06000018)
+// IL offset (RVA): 0x00004A1C (assembly: icallwide_net6.dll, token: 0x06000018)
 // Semantics: Transpiled from 0 argument slot(s) and 864 byte(s) of IL; the body below is the stack-folding result (142 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
@@ -2930,13 +2945,13 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     il2cpp::runtime::il2cpp_object_ctor_nop(inl0);                                                // IL newobj @0x0001 -- invoke the transpiled function il2cpp::runtime::il2cpp_object_ctor_nop
     loc0 = t0;                                                                                    // IL stloc.0 @0x0006 -- store evaluated value into loc0
     ((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc0)))))->X = 42LL; // IL stfld @0x000A -- null-checked store into instance field Cloneable.X
-    il2cpp::il2cpp_write_barrier(reinterpret_cast<void**>(&((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc0)))))->Name), static_cast<Il2CppObject*>(il2cpp::g_strPool[351])); // IL stfld @0x0015 -- write barrier before reference-field store
-    ((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc0)))))->Name = static_cast<Il2CppObject*>(il2cpp::g_strPool[351]); // IL stfld @0x0015 -- null-checked store into instance field Cloneable.Name
+    il2cpp::il2cpp_write_barrier(reinterpret_cast<void**>(&((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc0)))))->Name), static_cast<Il2CppObject*>(il2cpp::g_strPool[353])); // IL stfld @0x0015 -- write barrier before reference-field store
+    ((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc0)))))->Name = static_cast<Il2CppObject*>(il2cpp::g_strPool[353]); // IL stfld @0x0015 -- null-checked store into instance field Cloneable.Name
     t1 = Cloneable_Clone_33aa1f08ca87be5a(il2cpp_null_check(static_cast<Il2CppObject*>(loc0)));   // IL callvirt @0x001B -- store evaluated value into t1
     loc1 = (il2cpp::il2cpp_is_instance(t1, &Cloneable_class) ? static_cast<Il2CppObject*>(t1) : ((t1) == nullptr ? static_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception", "Unable to cast object to the target type."), static_cast<Il2CppObject*>(nullptr)))); // IL stloc.1 @0x0025 -- store call result into loc1
-    t3 = il2cpp::g_strPool[352];                                                                  // IL bne.un.s @0x0033 -- store evaluated value into t3
+    t3 = il2cpp::g_strPool[354];                                                                  // IL bne.un.s @0x0033 -- store evaluated value into t3
     if((((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc1)))))->X == 42LL) == 0LL) goto L_71; // IL bne.un.s @0x0033 -- jump when condition evaluates to true to L_71
-    t2 = il2cpp::runtime::icall_string_equals_static(reinterpret_cast<Il2CppObject*>(((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc1)))))->Name), il2cpp::g_strPool[351]); // IL call @0x0040 -- store call result into t2
+    t2 = il2cpp::runtime::icall_string_equals_static(reinterpret_cast<Il2CppObject*>(((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc1)))))->Name), il2cpp::g_strPool[353]); // IL call @0x0040 -- store call result into t2
     t5 = t3;                                                                                      // IL br.s @0x0045 -- store evaluated value into t5
     t6 = t2;                                                                                      // IL br.s @0x0045 -- store evaluated value into t6
     goto L_72;                                                                                    // IL br.s @0x0045 -- unconditional jump to L_72
@@ -2946,7 +2961,7 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     L_72: ;                                                                                       // IL branch target at offset 0x0048
     Program_Check_0c8420c745f790fe(t5, t6);                                                       // IL call @0x0048 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     ((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc1)))))->X = 99LL; // IL stfld @0x0051 -- null-checked store into instance field Cloneable.X
-    t7 = il2cpp::g_strPool[353];                                                                  // IL bne.un.s @0x0063 -- store evaluated value into t7
+    t7 = il2cpp::g_strPool[355];                                                                  // IL bne.un.s @0x0063 -- store evaluated value into t7
     if((((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc0)))))->X == 42LL) == 0LL) goto L_113; // IL bne.un.s @0x0063 -- jump when condition evaluates to true to L_113
     t8 = t7;                                                                                      // IL br.s @0x006F -- store evaluated value into t8
     t9 = (((reinterpret_cast<Cloneable*>(il2cpp_null_check(static_cast<Il2CppObject*>(loc1)))))->X == 99LL); // IL br.s @0x006F -- store evaluated value into t9
@@ -2957,11 +2972,11 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     L_114: ;                                                                                      // IL branch target at offset 0x0072
     Program_Check_0c8420c745f790fe(t8, t9);                                                       // IL call @0x0072 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc0));           // IL callvirt @0x007E -- store call result into t1
-    t11 = il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[354]);                // IL call @0x008D -- store call result into t11
-    t12 = il2cpp::g_strPool[355];                                                                 // IL brfalse.s @0x0092 -- store evaluated value into t12
+    t11 = il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[356]);                // IL call @0x008D -- store call result into t11
+    t12 = il2cpp::g_strPool[357];                                                                 // IL brfalse.s @0x0092 -- store evaluated value into t12
     if(t11 == 0LL) goto L_171;                                                                    // IL brfalse.s @0x0092 -- jump when condition evaluates to true to L_171
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc0));           // IL callvirt @0x0095 -- store call result into t1
-    t2 = il2cpp::runtime::icall_type_op_inequality(t1, il2cpp::g_strPool[356]);                   // IL call @0x00A4 -- store call result into t2
+    t2 = il2cpp::runtime::icall_type_op_inequality(t1, il2cpp::g_strPool[358]);                   // IL call @0x00A4 -- store call result into t2
     t15 = t12;                                                                                    // IL br.s @0x00A9 -- store evaluated value into t15
     t16 = t2;                                                                                     // IL br.s @0x00A9 -- store evaluated value into t16
     goto L_172;                                                                                   // IL br.s @0x00A9 -- unconditional jump to L_172
@@ -2972,13 +2987,13 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     Program_Check_0c8420c745f790fe(t15, t16);                                                     // IL call @0x00AC -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc0));           // IL callvirt @0x00B8 -- store call result into t1
     t4 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_type_get_short_name(t1));        // IL callvirt @0x00BD -- store call result into t4
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[357], (il2cpp::il2cpp_string_get_length(t4) > 0LL)); // IL call @0x00CA -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[359], (il2cpp::il2cpp_string_get_length(t4) > 0LL)); // IL call @0x00CA -- invoke the transpiled function Program_Check_0c8420c745f790fe
     loc2 = il2cpp::il2cpp_box_int32(nullptr, 42LL);                                               // IL stloc.2 @0x00D7 -- store call result into loc2
     t21 = il2cpp::il2cpp_unbox_int32(loc2);                                                       // IL unbox.any @0x00DE -- store call result into t21
-    t22 = il2cpp::g_strPool[358];                                                                 // IL bne.un.s @0x00E5 -- store evaluated value into t22
+    t22 = il2cpp::g_strPool[360];                                                                 // IL bne.un.s @0x00E5 -- store evaluated value into t22
     if((t21 == 42LL) == 0LL) goto L_254;                                                          // IL bne.un.s @0x00E5 -- jump when condition evaluates to true to L_254
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc2));           // IL callvirt @0x00E8 -- store call result into t1
-    t2 = il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[333]);                 // IL call @0x00F7 -- store call result into t2
+    t2 = il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[335]);                 // IL call @0x00F7 -- store call result into t2
     t25 = t22;                                                                                    // IL br.s @0x00FC -- store evaluated value into t25
     t26 = t2;                                                                                     // IL br.s @0x00FC -- store evaluated value into t26
     goto L_255;                                                                                   // IL br.s @0x00FC -- unconditional jump to L_255
@@ -2987,7 +3002,7 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     t26 = 0LL;                                                                                    // IL call @0x00FF -- store evaluated value into t26
     L_255: ;                                                                                      // IL branch target at offset 0x00FF
     Program_Check_0c8420c745f790fe(t25, t26);                                                     // IL call @0x00FF -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t27 = il2cpp::g_strPool[359];                                                                 // IL bne.un.s @0x010C -- store evaluated value into t27
+    t27 = il2cpp::g_strPool[361];                                                                 // IL bne.un.s @0x010C -- store evaluated value into t27
                                                                                                   // IL bne.un.s @0x010C -- constant-false condition, branch eliminated
     t28 = t27;                                                                                    // IL br.s @0x0115 -- store evaluated value into t28
     t29 = ((loc0 == loc1) == 0LL);                                                                // IL br.s @0x0115 -- store evaluated value into t29
@@ -2995,11 +3010,11 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     L_280: ;                                                                                      // IL branch target at offset 0x0118
     Program_Check_0c8420c745f790fe(t28, t29);                                                     // IL call @0x0118 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t2 = il2cpp::runtime::icall_object_get_hash_code(loc0);                                       // IL callvirt @0x0124 -- store call result into t2
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[360], (t2 == il2cpp::runtime::icall_object_get_hash_code(loc0))); // IL call @0x0131 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern(il2cpp::g_strPool[361]));   // IL call @0x0141 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[362], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[361])); // IL call @0x0150 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_is_interned(il2cpp::g_strPool[361])); // IL call @0x0160 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[363], (t1 != nullptr));                      // IL call @0x0168 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[362], (t2 == il2cpp::runtime::icall_object_get_hash_code(loc0))); // IL call @0x0131 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern(il2cpp::g_strPool[363]));   // IL call @0x0141 -- store call result into t1
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[364], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[363])); // IL call @0x0150 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_is_interned(il2cpp::g_strPool[363])); // IL call @0x0160 -- store call result into t1
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[365], (t1 != nullptr));                      // IL call @0x0168 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(4LL))); // IL newarr @0x016F -- store call result into t1
     (*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t1), static_cast<int32_t>(0LL))) = static_cast<uint8_t>(10LL)); // IL InitializeArray @0x017A -- store value into array element
     (*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t1), static_cast<int32_t>(1LL))) = static_cast<uint8_t>(20LL)); // IL InitializeArray @0x017A -- store value into array element
@@ -3008,24 +3023,24 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     loc3 = t1;                                                                                    // IL stloc.3 @0x017F -- store evaluated value into loc3
     loc4 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(4LL))); // IL stloc.s @0x0186 -- store call result into loc4
     il2cpp::runtime::il2cpp_buffer_block_copy(loc3, static_cast<int32_t>(0LL), loc4, static_cast<int32_t>(0LL), static_cast<int32_t>(4LL)); // IL call @0x018E -- invoke the transpiled function il2cpp::runtime::il2cpp_buffer_block_copy
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[364], ((*reinterpret_cast<uint8_t*>(((static_cast<int32_t>(3LL) >= 0 && static_cast<int32_t>(3LL) < 4LL) ? reinterpret_cast<Il2CppArray*>(loc4)->data + static_cast<size_t>(static_cast<int32_t>(3LL)) * static_cast<size_t>(1) : (il2cpp::il2cpp_array_fail(reinterpret_cast<Il2CppArray*>(loc4), static_cast<int32_t>(3LL)), nullptr)))) == 40LL)); // IL call @0x01A1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[365], (il2cpp::runtime::il2cpp_buffer_byte_length(loc3) == 4LL)); // IL call @0x01B5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[366], ((*reinterpret_cast<uint8_t*>(((static_cast<int32_t>(3LL) >= 0 && static_cast<int32_t>(3LL) < 4LL) ? reinterpret_cast<Il2CppArray*>(loc4)->data + static_cast<size_t>(static_cast<int32_t>(3LL)) * static_cast<size_t>(1) : (il2cpp::il2cpp_array_fail(reinterpret_cast<Il2CppArray*>(loc4), static_cast<int32_t>(3LL)), nullptr)))) == 40LL)); // IL call @0x01A1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[367], (il2cpp::runtime::il2cpp_buffer_byte_length(loc3) == 4LL)); // IL call @0x01B5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_bitconverter_get_bytes_int32(static_cast<int32_t>(123456789LL))); // IL call @0x01C5 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[366], (il2cpp::runtime::il2cpp_bitconverter_to_int32(reinterpret_cast<Il2CppArray*>(t1)) == 123456789LL)); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[368], (il2cpp::runtime::il2cpp_bitconverter_to_int32(reinterpret_cast<Il2CppArray*>(t1)) == 123456789LL)); // IL call @0x01D7 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_bitconverter_get_bytes_int64(static_cast<int64_t>(-987654321LL))); // IL call @0x01E8 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[367], (il2cpp::runtime::il2cpp_bitconverter_to_int64(reinterpret_cast<Il2CppArray*>(t1)) == -987654321LL)); // IL call @0x01FB -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[369], (il2cpp::runtime::il2cpp_bitconverter_to_int64(reinterpret_cast<Il2CppArray*>(t1)) == -987654321LL)); // IL call @0x01FB -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_bitconverter_get_bytes_double(static_cast<double>(3.14159))); // IL call @0x020F -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[368], (static_cast<double>(il2cpp::runtime::il2cpp_bitconverter_to_double(reinterpret_cast<Il2CppArray*>(t1))) == static_cast<double>(3.14159))); // IL call @0x0225 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[370], (static_cast<double>(il2cpp::runtime::il2cpp_bitconverter_to_double(reinterpret_cast<Il2CppArray*>(t1))) == static_cast<double>(3.14159))); // IL call @0x0225 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_bitconverter_get_bytes_single(static_cast<double>(2.5))); // IL call @0x0235 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[369], (static_cast<double>(il2cpp::runtime::il2cpp_bitconverter_to_single(reinterpret_cast<Il2CppArray*>(t1))) == static_cast<double>(2.5))); // IL call @0x0247 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[371], (static_cast<double>(il2cpp::runtime::il2cpp_bitconverter_to_single(reinterpret_cast<Il2CppArray*>(t1))) == static_cast<double>(2.5))); // IL call @0x0247 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_bitconverter_get_bytes_bool(static_cast<bool>(1LL))); // IL call @0x0253 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[370], ((*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t1), static_cast<int32_t>(0LL)))) == 1LL)); // IL call @0x025D -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[372], ((*reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t1), static_cast<int32_t>(0LL)))) == 1LL)); // IL call @0x025D -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_bitconverter_get_bytes_int32(static_cast<int32_t>(1LL))); // IL call @0x0269 -- store call result into t1
     t50 = reinterpret_cast<intptr_t>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t1), static_cast<int32_t>(0LL))); // IL ldelema @0x026F -- store call result into t50
     t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>(t50)))); // IL call @0x0274 -- store call result into t1
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[371], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[372])); // IL call @0x0283 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[373], il2cpp::runtime::icall_string_equals_static(t1, il2cpp::g_strPool[374])); // IL call @0x0283 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t53 = il2cpp::runtime::icall_convert_to_int32_i8(static_cast<int64_t>(255LL));                // IL call @0x0293 -- store call result into t53
-    t54 = il2cpp::g_strPool[373];                                                                 // IL bne.un.s @0x029D -- store evaluated value into t54
+    t54 = il2cpp::g_strPool[375];                                                                 // IL bne.un.s @0x029D -- store evaluated value into t54
     if((t53 == 255LL) == 0LL) goto L_690;                                                         // IL bne.un.s @0x029D -- jump when condition evaluates to true to L_690
     t2 = il2cpp::runtime::icall_convert_to_int32_char(65535LL);                                   // IL call @0x02A4 -- store call result into t2
     t56 = t54;                                                                                    // IL br.s @0x02B0 -- store evaluated value into t56
@@ -3037,7 +3052,7 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     L_691: ;                                                                                      // IL branch target at offset 0x02B3
     Program_Check_0c8420c745f790fe(t56, t57);                                                     // IL call @0x02B3 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t58 = il2cpp::runtime::icall_conv_ovf_u1_i8(static_cast<int64_t>(200LL));                     // IL call @0x02C3 -- store call result into t58
-    t59 = il2cpp::g_strPool[374];                                                                 // IL bne.un.s @0x02CD -- store evaluated value into t59
+    t59 = il2cpp::g_strPool[376];                                                                 // IL bne.un.s @0x02CD -- store evaluated value into t59
     if((t58 == 200LL) == 0LL) goto L_732;                                                         // IL bne.un.s @0x02CD -- jump when condition evaluates to true to L_732
     t2 = il2cpp::runtime::icall_conv_ovf_i1_i8(static_cast<int64_t>(-5LL));                       // IL call @0x02D1 -- store call result into t2
     t61 = t59;                                                                                    // IL br.s @0x02DA -- store evaluated value into t61
@@ -3049,7 +3064,7 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     L_733: ;                                                                                      // IL branch target at offset 0x02DD
     Program_Check_0c8420c745f790fe(t61, t62);                                                     // IL call @0x02DD -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t63 = il2cpp::runtime::icall_conv_ovf_i2_i8(static_cast<int64_t>(300LL));                     // IL call @0x02ED -- store call result into t63
-    t64 = il2cpp::g_strPool[375];                                                                 // IL bne.un.s @0x02F7 -- store evaluated value into t64
+    t64 = il2cpp::g_strPool[377];                                                                 // IL bne.un.s @0x02F7 -- store evaluated value into t64
     if((t63 == 300LL) == 0LL) goto L_780;                                                         // IL bne.un.s @0x02F7 -- jump when condition evaluates to true to L_780
     t2 = il2cpp::runtime::icall_conv_ovf_u2_i8(static_cast<int64_t>(60000LL));                    // IL call @0x02FE -- store call result into t2
     t66 = t64;                                                                                    // IL br.s @0x030A -- store evaluated value into t66
@@ -3060,16 +3075,16 @@ IL2CPP_NOINLINE void Program_WideObject_a45116d5fa51c66c(void)
     t67 = 0LL;                                                                                    // IL call @0x030D -- store evaluated value into t67
     L_781: ;                                                                                      // IL branch target at offset 0x030D
     Program_Check_0c8420c745f790fe(t66, t67);                                                     // IL call @0x030D -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[376], (il2cpp::runtime::icall_conv_ovf_u8_i8(static_cast<int64_t>(0LL)) == 0LL)); // IL call @0x0323 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[377], (static_cast<double>(il2cpp::runtime::icall_conv_r4_d(0.5)) == static_cast<double>(0.5))); // IL call @0x0343 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[378], (il2cpp::runtime::icall_convert_to_char_i4(65LL) == 65LL)); // IL call @0x0359 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[378], (il2cpp::runtime::icall_conv_ovf_u8_i8(static_cast<int64_t>(0LL)) == 0LL)); // IL call @0x0323 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[379], (static_cast<double>(il2cpp::runtime::icall_conv_r4_d(0.5)) == static_cast<double>(0.5))); // IL call @0x0343 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[380], (il2cpp::runtime::icall_convert_to_char_i4(65LL) == 65LL)); // IL call @0x0359 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x035F -- exit method with no value (void)
 }
 
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::WideCollections()
-// IL offset (RVA): 0x00004D5C (assembly: icallwide_net6.dll, token: 0x06000019)
+// IL offset (RVA): 0x00004D88 (assembly: icallwide_net6.dll, token: 0x06000019)
 // Semantics: Transpiled from 0 argument slot(s) and 696 byte(s) of IL; the body below is the stack-folding result (143 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
@@ -3121,16 +3136,16 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     il2cpp::runtime::icall_hashtable_ctor(t0, 0);                                                 // IL newobj @0x0001 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_ctor
     loc0 = t0;                                                                                    // IL stloc.0 @0x0006 -- store evaluated value into loc0
     t0 = il2cpp::il2cpp_box_int32(nullptr, 1LL);                                                  // IL box @0x000E -- store call result into t0
-    il2cpp::runtime::icall_hashtable_set(loc0, il2cpp::g_strPool[379], t0);                       // IL callvirt @0x0013 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_set
+    il2cpp::runtime::icall_hashtable_set(loc0, il2cpp::g_strPool[381], t0);                       // IL callvirt @0x0013 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_set
     t0 = il2cpp::il2cpp_box_int32(nullptr, 2LL);                                                  // IL box @0x0020 -- store call result into t0
-    il2cpp::runtime::icall_hashtable_set(loc0, il2cpp::g_strPool[380], t0);                       // IL callvirt @0x0025 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_set
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[381], (il2cpp::runtime::icall_hashtable_get_count(loc0) == 2LL)); // IL call @0x0039 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_hashtable_get(loc0, il2cpp::g_strPool[379])); // IL callvirt @0x004A -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[382], (il2cpp::il2cpp_unbox_int32(t0) == 1LL)); // IL call @0x0057 -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    t6 = il2cpp::runtime::icall_hashtable_contains_key(loc0, il2cpp::g_strPool[380]);             // IL callvirt @0x0068 -- store call result into t6
-    t7 = il2cpp::g_strPool[383];                                                                  // IL brfalse.s @0x006D -- store evaluated value into t7
+    il2cpp::runtime::icall_hashtable_set(loc0, il2cpp::g_strPool[382], t0);                       // IL callvirt @0x0025 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_set
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[383], (il2cpp::runtime::icall_hashtable_get_count(loc0) == 2LL)); // IL call @0x0039 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_hashtable_get(loc0, il2cpp::g_strPool[381])); // IL callvirt @0x004A -- store call result into t0
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[384], (il2cpp::il2cpp_unbox_int32(t0) == 1LL)); // IL call @0x0057 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    t6 = il2cpp::runtime::icall_hashtable_contains_key(loc0, il2cpp::g_strPool[382]);             // IL callvirt @0x0068 -- store call result into t6
+    t7 = il2cpp::g_strPool[385];                                                                  // IL brfalse.s @0x006D -- store evaluated value into t7
     if(t6 == 0LL) goto L_127;                                                                     // IL brfalse.s @0x006D -- jump when condition evaluates to true to L_127
-    t1 = il2cpp::runtime::icall_hashtable_contains_key(loc0, il2cpp::g_strPool[384]);             // IL callvirt @0x0075 -- store call result into t1
+    t1 = il2cpp::runtime::icall_hashtable_contains_key(loc0, il2cpp::g_strPool[386]);             // IL callvirt @0x0075 -- store call result into t1
     t9 = t7;                                                                                      // IL br.s @0x007D -- store evaluated value into t9
     t10 = (t1 == 0LL);                                                                            // IL br.s @0x007D -- store evaluated value into t10
     goto L_128;                                                                                   // IL br.s @0x007D -- unconditional jump to L_128
@@ -3141,7 +3156,7 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     Program_Check_0c8420c745f790fe(t9, t10);                                                      // IL call @0x0080 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::il2cpp_box_int32(nullptr, 2LL);                                                  // IL box @0x008D -- store call result into t0
     t12 = il2cpp::runtime::icall_hashtable_contains_value(loc0, t0);                              // IL callvirt @0x0092 -- store call result into t12
-    t13 = il2cpp::g_strPool[385];                                                                 // IL brfalse.s @0x0097 -- store evaluated value into t13
+    t13 = il2cpp::g_strPool[387];                                                                 // IL brfalse.s @0x0097 -- store evaluated value into t13
     if(t12 == 0LL) goto L_171;                                                                    // IL brfalse.s @0x0097 -- jump when condition evaluates to true to L_171
     t0 = il2cpp::il2cpp_box_int32(nullptr, 9LL);                                                  // IL box @0x009C -- store call result into t0
     t1 = il2cpp::runtime::icall_hashtable_contains_value(loc0, t0);                               // IL callvirt @0x00A1 -- store call result into t1
@@ -3153,11 +3168,11 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     t17 = 0LL;                                                                                    // IL call @0x00AC -- store evaluated value into t17
     L_172: ;                                                                                      // IL branch target at offset 0x00AC
     Program_Check_0c8420c745f790fe(t16, t17);                                                     // IL call @0x00AC -- invoke the transpiled function Program_Check_0c8420c745f790fe
-    il2cpp::runtime::icall_hashtable_remove(loc0, il2cpp::g_strPool[379]);                        // IL callvirt @0x00B8 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_remove
+    il2cpp::runtime::icall_hashtable_remove(loc0, il2cpp::g_strPool[381]);                        // IL callvirt @0x00B8 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_remove
     t18 = il2cpp::runtime::icall_hashtable_get_count(loc0);                                       // IL callvirt @0x00C4 -- store call result into t18
-    t19 = il2cpp::g_strPool[386];                                                                 // IL bne.un.s @0x00CA -- store evaluated value into t19
+    t19 = il2cpp::g_strPool[388];                                                                 // IL bne.un.s @0x00CA -- store evaluated value into t19
     if((t18 == 1LL) == 0LL) goto L_220;                                                           // IL bne.un.s @0x00CA -- jump when condition evaluates to true to L_220
-    t1 = il2cpp::runtime::icall_hashtable_contains_key(loc0, il2cpp::g_strPool[379]);             // IL callvirt @0x00D2 -- store call result into t1
+    t1 = il2cpp::runtime::icall_hashtable_contains_key(loc0, il2cpp::g_strPool[381]);             // IL callvirt @0x00D2 -- store call result into t1
     t21 = t19;                                                                                    // IL br.s @0x00DA -- store evaluated value into t21
     t22 = (t1 == 0LL);                                                                            // IL br.s @0x00DA -- store evaluated value into t22
     goto L_221;                                                                                   // IL br.s @0x00DA -- unconditional jump to L_221
@@ -3167,7 +3182,7 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     L_221: ;                                                                                      // IL branch target at offset 0x00DD
     Program_Check_0c8420c745f790fe(t21, t22);                                                     // IL call @0x00DD -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::runtime::icall_hashtable_clear(loc0);                                                 // IL callvirt @0x00E4 -- invoke the transpiled function il2cpp::runtime::icall_hashtable_clear
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[387], (il2cpp::runtime::icall_hashtable_get_count(loc0) == 0LL)); // IL call @0x00F8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[389], (il2cpp::runtime::icall_hashtable_get_count(loc0) == 0LL)); // IL call @0x00F8 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(il2cpp::il2cpp_arraylist_class());                                     // IL newobj @0x00FE -- store evaluated value into t0
     il2cpp::il2cpp_arraylist_create();                                                            // IL newobj @0x00FE -- invoke the transpiled function il2cpp::il2cpp_arraylist_create
     loc1 = t0;                                                                                    // IL stloc.1 @0x0103 -- store evaluated value into loc1
@@ -3177,12 +3192,12 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     il2cpp::il2cpp_arraylist_add(loc1, t0);                                                       // IL callvirt @0x0118 -- invoke the transpiled function il2cpp::il2cpp_arraylist_add
     t0 = il2cpp::il2cpp_box_int32(nullptr, 8LL);                                                  // IL box @0x0120 -- store call result into t0
     il2cpp::il2cpp_arraylist_add(loc1, t0);                                                       // IL callvirt @0x0125 -- invoke the transpiled function il2cpp::il2cpp_arraylist_add
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[388], (il2cpp::il2cpp_arraylist_get_count(loc1) == 3LL)); // IL call @0x0139 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[390], (il2cpp::il2cpp_arraylist_get_count(loc1) == 3LL)); // IL call @0x0139 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_arraylist_get_item(loc1, static_cast<int32_t>(1LL))); // IL callvirt @0x0146 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[389], (il2cpp::il2cpp_unbox_int32(t0) == 3LL)); // IL call @0x0153 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[391], (il2cpp::il2cpp_unbox_int32(t0) == 3LL)); // IL call @0x0153 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::il2cpp_box_int32(nullptr, 8LL);                                                  // IL box @0x0160 -- store call result into t0
     t32 = il2cpp::il2cpp_arraylist_contains(loc1, t0);                                            // IL callvirt @0x0165 -- store call result into t32
-    t33 = il2cpp::g_strPool[390];                                                                 // IL brfalse.s @0x016A -- store evaluated value into t33
+    t33 = il2cpp::g_strPool[392];                                                                 // IL brfalse.s @0x016A -- store evaluated value into t33
     if(t32 == 0LL) goto L_381;                                                                    // IL brfalse.s @0x016A -- jump when condition evaluates to true to L_381
     t0 = il2cpp::il2cpp_box_int32(nullptr, 3LL);                                                  // IL box @0x016E -- store call result into t0
     t1 = il2cpp::il2cpp_arraylist_index_of(loc1, t0);                                             // IL callvirt @0x0173 -- store call result into t1
@@ -3196,7 +3211,7 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     Program_Check_0c8420c745f790fe(t36, t37);                                                     // IL call @0x017E -- invoke the transpiled function Program_Check_0c8420c745f790fe
     il2cpp::il2cpp_arraylist_remove_at(loc1, static_cast<int32_t>(0LL));                          // IL callvirt @0x0186 -- invoke the transpiled function il2cpp::il2cpp_arraylist_remove_at
     t38 = il2cpp::il2cpp_arraylist_get_count(loc1);                                               // IL callvirt @0x0192 -- store call result into t38
-    t39 = il2cpp::g_strPool[391];                                                                 // IL bne.un.s @0x0198 -- store evaluated value into t39
+    t39 = il2cpp::g_strPool[393];                                                                 // IL bne.un.s @0x0198 -- store evaluated value into t39
     if((t38 == 2LL) == 0LL) goto L_427;                                                           // IL bne.un.s @0x0198 -- jump when condition evaluates to true to L_427
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_arraylist_get_item(loc1, static_cast<int32_t>(0LL))); // IL callvirt @0x019C -- store call result into t0
     t1 = il2cpp::il2cpp_unbox_int32(t0);                                                          // IL unbox.any @0x01A1 -- store call result into t1
@@ -3211,10 +3226,10 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     t0 = il2cpp::il2cpp_box_int32(nullptr, 1LL);                                                  // IL box @0x01B5 -- store call result into t0
     il2cpp::il2cpp_arraylist_insert(loc1, static_cast<int32_t>(0LL), t0);                         // IL callvirt @0x01BA -- invoke the transpiled function il2cpp::il2cpp_arraylist_insert
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_arraylist_get_item(loc1, static_cast<int32_t>(0LL))); // IL callvirt @0x01C7 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[392], (il2cpp::il2cpp_unbox_int32(t0) == 1LL)); // IL call @0x01D4 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[394], (il2cpp::il2cpp_unbox_int32(t0) == 1LL)); // IL call @0x01D4 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp::il2cpp_box_int32(nullptr, 8LL);                                                  // IL box @0x01DC -- store call result into t0
     il2cpp::il2cpp_arraylist_remove(loc1, t0);                                                    // IL callvirt @0x01E1 -- invoke the transpiled function il2cpp::il2cpp_arraylist_remove
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[393], (il2cpp::il2cpp_arraylist_get_count(loc1) == 2LL)); // IL call @0x01F5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[395], (il2cpp::il2cpp_arraylist_get_count(loc1) == 2LL)); // IL call @0x01F5 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(il2cpp::il2cpp_queue_class());                                         // IL newobj @0x01FB -- store evaluated value into t0
     il2cpp::il2cpp_queue_create();                                                                // IL newobj @0x01FB -- invoke the transpiled function il2cpp::il2cpp_queue_create
     loc2 = t0;                                                                                    // IL stloc.2 @0x0200 -- store evaluated value into loc2
@@ -3224,7 +3239,7 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     il2cpp::il2cpp_queue_enqueue(loc2, t0);                                                       // IL callvirt @0x0215 -- invoke the transpiled function il2cpp::il2cpp_queue_enqueue
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_queue_dequeue(loc2));                     // IL callvirt @0x0221 -- store call result into t0
     t53 = il2cpp::il2cpp_unbox_int32(t0);                                                         // IL unbox.any @0x0226 -- store call result into t53
-    t54 = il2cpp::g_strPool[394];                                                                 // IL bne.un.s @0x022C -- store evaluated value into t54
+    t54 = il2cpp::g_strPool[396];                                                                 // IL bne.un.s @0x022C -- store evaluated value into t54
     if((t53 == 1LL) == 0LL) goto L_569;                                                           // IL bne.un.s @0x022C -- jump when condition evaluates to true to L_569
     t1 = il2cpp::il2cpp_queue_get_count(loc2);                                                    // IL callvirt @0x022F -- store call result into t1
     t56 = t54;                                                                                    // IL br.s @0x0237 -- store evaluated value into t56
@@ -3236,7 +3251,7 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     L_570: ;                                                                                      // IL branch target at offset 0x023A
     Program_Check_0c8420c745f790fe(t56, t57);                                                     // IL call @0x023A -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_queue_peek(loc2));                        // IL callvirt @0x0246 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[395], (il2cpp::il2cpp_unbox_int32(t0) == 2LL)); // IL call @0x0253 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[397], (il2cpp::il2cpp_unbox_int32(t0) == 2LL)); // IL call @0x0253 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = il2cpp_object_new(il2cpp::il2cpp_stack_class());                                         // IL newobj @0x0259 -- store evaluated value into t0
     il2cpp::il2cpp_stack_create();                                                                // IL newobj @0x0259 -- invoke the transpiled function il2cpp::il2cpp_stack_create
     loc3 = t0;                                                                                    // IL stloc.3 @0x025E -- store evaluated value into loc3
@@ -3246,7 +3261,7 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     il2cpp::il2cpp_stack_push(loc3, t0);                                                          // IL callvirt @0x0273 -- invoke the transpiled function il2cpp::il2cpp_stack_push
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_stack_pop(loc3));                         // IL callvirt @0x027F -- store call result into t0
     t64 = il2cpp::il2cpp_unbox_int32(t0);                                                         // IL unbox.any @0x0284 -- store call result into t64
-    t65 = il2cpp::g_strPool[396];                                                                 // IL bne.un.s @0x028A -- store evaluated value into t65
+    t65 = il2cpp::g_strPool[398];                                                                 // IL bne.un.s @0x028A -- store evaluated value into t65
     if((t64 == 2LL) == 0LL) goto L_663;                                                           // IL bne.un.s @0x028A -- jump when condition evaluates to true to L_663
     t1 = il2cpp::il2cpp_stack_get_count(loc3);                                                    // IL callvirt @0x028D -- store call result into t1
     t67 = t65;                                                                                    // IL br.s @0x0295 -- store evaluated value into t67
@@ -3258,7 +3273,7 @@ IL2CPP_NOINLINE void Program_WideCollections_436d23c7e95f2e52(void)
     L_664: ;                                                                                      // IL branch target at offset 0x0298
     Program_Check_0c8420c745f790fe(t67, t68);                                                     // IL call @0x0298 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_stack_peek(loc3));                        // IL callvirt @0x02A4 -- store call result into t0
-    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[397], (il2cpp::il2cpp_unbox_int32(t0) == 1LL)); // IL call @0x02B1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
+    Program_Check_0c8420c745f790fe(il2cpp::g_strPool[399], (il2cpp::il2cpp_unbox_int32(t0) == 1LL)); // IL call @0x02B1 -- invoke the transpiled function Program_Check_0c8420c745f790fe
     return;                                                                                       // IL ret @0x02B7 -- exit method with no value (void)
 }
 
