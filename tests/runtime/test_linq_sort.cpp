@@ -569,7 +569,66 @@ int main()
         ExpectI32(re->length, 0, "order_by_string of an empty array returns an empty array");
     }
 
-    // --- 9. ThenBy / ThenByDescending (D-LO2-1): the FUSED composite sort ---
+    // --- 10. OrderByDescending(keySelector): the D-LINQ-1 DESCENDING bridge ---
+    {
+        // { 3, 1, 4, 1, 5, 9, 2, 6 }: descending by identity key ->
+        // [9, 6, 5, 4, 3, 2, 1, 1] (stable within equal keys: the 1 at
+        // index 1 stays before the 1 at index 3).
+        const int32_t unsorted[8] = { 3, 1, 4, 1, 5, 9, 2, 6 };
+        il2cpp::Il2CppArray* a = NewInt32Array(8);
+        FillInt32(a, unsorted, 8);
+
+        il2cpp::Il2CppArray* r = il2cpp::il2cpp_linq_order_by_key_desc_i4(a, Del(KeyIdentity));
+        const int32_t descSorted[8] = { 9, 6, 5, 4, 3, 2, 1, 1 };
+        ExpectInt32Content(r, descSorted, 8, "order_by_key_desc_i4 sorts DESCENDING by the identity key");
+        ExpectInt32Content(a, unsorted, 8, "order_by_key_desc_i4 leaves the source array untouched");
+        Expect(r != a, "order_by_key_desc_i4 returns a NEW array (not the source)");
+        ExpectI32(r->length, 8, "order_by_key_desc_i4 result length matches the source");
+
+        // Stability: equal keys keep original order even in descending mode.
+        // { 10, 20, 30, 40, 50 }: parity key (0,0,0,0,0) -> all equal ->
+        // original order preserved (stable).
+        const int32_t parVals[5] = { 10, 20, 30, 40, 50 };
+        il2cpp::Il2CppArray* p = NewInt32Array(5);
+        FillInt32(p, parVals, 5);
+        il2cpp::Il2CppArray* rp = il2cpp::il2cpp_linq_order_by_key_desc_i4(p, Del(KeyParity));
+        ExpectInt32Content(rp, parVals, 5, "order_by_key_desc_i4 is STABLE within equal-key groups");
+
+        // Empty / single-element.
+        il2cpp::Il2CppArray* empty = NewInt32Array(0);
+        il2cpp::Il2CppArray* re = il2cpp::il2cpp_linq_order_by_key_desc_i4(empty, Del(KeyIdentity));
+        ExpectI32(re->length, 0, "order_by_key_desc_i4 of an empty array returns an empty array");
+        Expect(re != empty, "order_by_key_desc_i4 of an empty array returns a NEW array");
+
+        il2cpp::Il2CppArray* single = NewInt32Array(1);
+        const int32_t one[1] = { 42 };
+        FillInt32(single, one, 1);
+        il2cpp::Il2CppArray* rs = il2cpp::il2cpp_linq_order_by_key_desc_i4(single, Del(KeyIdentity));
+        ExpectInt32Content(rs, one, 1, "order_by_key_desc_i4 of a single-element array");
+        Expect(rs != single, "order_by_key_desc_i4 of a single-element array still returns a NEW array");
+
+        // Key evaluation EXACTLY ONCE per element (net48 EnumerableSorter).
+        g_keyCalls = 0;
+        il2cpp::il2cpp_linq_order_by_key_desc_i4(a, Del(CountingKey));
+        ExpectI32(g_keyCalls, 8, "order_by_key_desc_i4 key selector called EXACTLY ONCE per element (8 calls for n=8)");
+
+        // Error paths: null source, null selector, wrong element family.
+        il2cpp::Il2CppArray* i4err = NewInt32Array(2);
+        ExpectThrows(kArgNullType, "order_by_key_desc_i4 with a null source throws ArgumentNullException",
+                     [&] { il2cpp::il2cpp_linq_order_by_key_desc_i4(nullptr, Del(KeyIdentity)); });
+        ExpectThrows(kArgNullType, "order_by_key_desc_i4 with a null key selector throws ArgumentNullException",
+                     [&] { il2cpp::il2cpp_linq_order_by_key_desc_i4(i4err, nullptr); });
+        il2cpp::Il2CppObject* keyMulti = il2cpp::runtime::icall_delegate_combine(
+            Del(KeyIdentity), Del(KeyIdentity));
+        ExpectThrows(kInvalidOpType, "a multicast key selector throws InvalidOperationException",
+                     [&] { il2cpp::il2cpp_linq_order_by_key_desc_i4(i4err, keyMulti); });
+        il2cpp::Il2CppObject* notDel = reinterpret_cast<il2cpp::Il2CppObject*>(i4err);
+        ExpectThrows(kArgumentException, "a non-delegate key selector throws ArgumentException",
+                     [&] { il2cpp::il2cpp_linq_order_by_key_desc_i4(i4err, notDel); });
+        il2cpp::Il2CppArray* refArr = NewRefArray(2);
+        ExpectThrows(kNotSupportedType, "order_by_key_desc_i4 of a reference array throws NotSupportedException",
+                     [&] { il2cpp::il2cpp_linq_order_by_key_desc_i4(refArr, Del(KeyIdentity)); });
+    }
     {
         // { 53, 54, 51, 12, 11 }: primary = tens (5,5,5,1,1), secondary =
         // units (3,4,1,2,1). ThenBy orders (tens asc, units asc):

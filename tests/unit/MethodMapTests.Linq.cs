@@ -462,6 +462,211 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
+    // Reverse() -> il2cpp_linq_reverse_i4: a fresh int32[] with elements in
+    // reverse order (ReturnsRef true, tracked as "System.Int32[]").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Reverse_MapsToReverseI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Reverse",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x15,
+                0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_reverse_i4", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // Last() -> il2cpp_linq_last_i4: last element; empty ->
+    // InvalidOperationException.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Last_MapsToLastI4Icall()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_last_i4",
+            ResolveMethodSpec(SynthesizeGeneric("Last",
+                new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x08 })).CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // LastOrDefault() -> il2cpp_linq_last_or_default_i4.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_LastOrDefault_MapsToLastOrDefaultI4Icall()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_last_or_default_i4",
+            ResolveMethodSpec(SynthesizeGeneric("LastOrDefault",
+                new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x08 })).CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // ElementAt(index) -> il2cpp_linq_element_at_i4: 2 params (array + int32
+    // index); out-of-range -> ArgumentOutOfRangeException.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ElementAt_MapsToElementAtI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("ElementAt",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x08 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_element_at_i4", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "i" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // Contains(value) -> il2cpp_linq_contains_i4: 2 params (array + int32
+    // value); bool result.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Contains_MapsToContainsI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Contains",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x08 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_contains_i4", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "i" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // Aggregate(func) -> il2cpp_linq_aggregate_i4: 2 params (array + binary
+    // func delegate); int32 result.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Aggregate_MapsToAggregateI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x00, 0x08 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_i4", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // Average() -> il2cpp_linq_average_i4: double result (resultKind "d").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Average_MapsToAverageI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Average",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_average_i4", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // OrderByDescending(keySelector) -> il2cpp_linq_order_by_key_desc_i4:
+    // identical to OrderBy but with DESCENDING key order. Same 2 params
+    // (array + delegate keySelector), result tracked as "System.Int32[]".
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_OrderByDescending_MapsToOrderByKeyDescI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("OrderByDescending",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_order_by_key_desc_i4", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // OrderByDescending with non-int32 key -> LOUD (same gate as OrderBy).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_OrderByDescending_StringKey_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("OrderByDescending",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0E })));
+
+        Assert.Contains("System.Linq.Enumerable::OrderByDescending", ex.Message);
+        Assert.Contains("int32 (0x08)", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // LongCount() -> il2cpp_linq_long_count: int64 return (resultKind "l").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_LongCount_MapsToLongCountIcall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("LongCount",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_long_count", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // SequenceEqual(second) -> il2cpp_linq_sequence_equal_i4: 2 params
+    // (array + array), bool result.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_SequenceEqual_MapsToSequenceEqualI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("SequenceEqual",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_sequence_equal_i4", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "a" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // DefaultIfEmpty() -> il2cpp_linq_default_if_empty_i4: 1 param (array),
+    // returns array (ReturnsRef true, tracked as "System.Int32[]").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_DefaultIfEmpty_MapsToDefaultIfEmptyI4Icall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("DefaultIfEmpty",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x15,
+                0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_default_if_empty_i4", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (the ArraySort-test pipeline).
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)

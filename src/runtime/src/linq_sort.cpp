@@ -381,7 +381,7 @@ Il2CppArray* SortRefsCopy(Il2CppArray* src, CompareRefFn cmp)
 // allocation separates its creation from the payload writes, so it cannot be
 // moved between creation and fill.
 //------------------------------------------------------------------------------
-Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel)
+Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc = false)
 {
     const int32_t n = src->length;
 
@@ -417,7 +417,8 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel)
         // keys keep their original index order -- the stable contract.
         MergeSortStable(order.data(), scratch.data(), 0, n,
                         [&](int32_t a, int32_t b) -> int32_t {
-                            return (keys[a] > keys[b]) - (keys[a] < keys[b]);
+                            const int32_t c = (keys[a] > keys[b]) - (keys[a] < keys[b]);
+                            return desc ? -c : c;
                         });
         // Materialize from the native snapshot by index. Last selector call
         // done; the result allocation below cannot be followed by a move.
@@ -556,7 +557,19 @@ Il2CppArray* il2cpp_linq_order_by_key_i4(Il2CppArray* src, Il2CppObject* keySel)
     Il2CppArray* s = RequireLinqArray(src);
     RequireValueLinqArray(s, sizeof(int32_t));
     Il2CppDelegate* d = RequireKeySelector(keySel);
-    return SortInt32KeyCopy(s, d);
+    return SortInt32KeyCopy(s, d, false);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_linq_order_by_key_desc_i4 -- OrderByDescending(source, keySelector)
+// over int32 arrays: identical to order_by_key_i4 except DESCENDING order.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopy(s, d, true);
 }
 
 //------------------------------------------------------------------------------

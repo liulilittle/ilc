@@ -129,7 +129,7 @@ public static partial class MethodRefResolver
             string argType = genArgs is { Length: > 0 } ? GenericArgTypeName(genArgs[0]) : "?";
             return name switch
             {
-                "Count" or "Any" or "Where" or "Select" or "OrderBy" or "First" or "FirstOrDefault" or "ToArray" or "All" or "Take" or "Skip" or "TakeWhile" or "SkipWhile" or "Concat" or "Distinct" or "Except" or "Zip" =>
+                "Count" or "Any" or "Where" or "Select" or "OrderBy" or "OrderByDescending" or "First" or "FirstOrDefault" or "ToArray" or "All" or "Take" or "Skip" or "TakeWhile" or "SkipWhile" or "Concat" or "Distinct" or "Except" or "Zip" or "Average" or "Reverse" or "Last" or "LastOrDefault" or "ElementAt" or "Contains" or "Aggregate" or "LongCount" or "SequenceEqual" or "DefaultIfEmpty" =>
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{argType}> not wired: " +
                         "the stage-1 runtime LINQ surface is int32 (0x08) element-family only " +
@@ -183,6 +183,11 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_min_i4", 1, true, false, false, OneArg);
             case "Max":
                 return I("il2cpp::il2cpp_linq_max_i4", 1, true, false, false, OneArg);
+            case "Average":
+                // Average(int32[]) -> double (resultKind "d", linq.h). net48
+                // Enumerable.Average(this IEnumerable<int>) returns double.
+                return I("il2cpp::il2cpp_linq_average_i4", 1, true, false, false,
+                    OneArg, resultKind: "d");
             case "Where":
                 // Returns a fresh int32[] -- tracked as "System.Int32[]" so a
                 // downstream .ToArray()/.Count()/indexer resolves on the array.
@@ -281,6 +286,24 @@ public static partial class MethodRefResolver
                 }
                 return I("il2cpp::il2cpp_linq_order_by_key_i4", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Int32[]");
+            case "OrderByDescending":
+                // OrderByDescending(source, keySelector) ->
+                // il2cpp_linq_order_by_key_desc_i4 (the D-LINQ-1 DESCENDING
+                // bridge): identical to OrderBy but with DESCENDING key order.
+                // Requires int32 keys (TKey == 0x08).
+                if (genArgs is not { Length: >= 2 } || genArgs[1] != 0x08)
+                {
+                    string elemArgType = genArgs is { Length: >= 1 }
+                        ? GenericArgTypeName(genArgs[0]) : "?";
+                    string keyArgType = genArgs is { Length: >= 2 }
+                        ? GenericArgTypeName(genArgs[1]) : "?";
+                    throw new NotSupportedException(
+                        $"Enumerable.OrderByDescending<{elemArgType},{keyArgType}> not wired: " +
+                        "the stage-1 runtime key-selector surface (il2cpp_linq_order_by_key_desc_i4) is int32 (0x08) " +
+                        "elements AND int32 (0x08) keys only -- the runtime caches int32 keys for the stable sort");
+                }
+                return I("il2cpp::il2cpp_linq_order_by_key_desc_i4", 2, true, true, false, TwoArg,
+                    returnTypeName: "System.Int32[]");
             case "ThenBy":
             case "ThenByDescending":
                 // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending
@@ -377,6 +400,47 @@ public static partial class MethodRefResolver
                 }
                 return I("il2cpp::il2cpp_linq_zip_i4", 3, true, true, false,
                     new[] { "a", "a", "" }, returnTypeName: "System.Int32[]");
+            case "Reverse":
+                // Reverse(source) -> il2cpp_linq_reverse_i4: a NEW int32[] with
+                // elements in reverse order (net48). Eager materialization.
+                return I("il2cpp::il2cpp_linq_reverse_i4", 1, true, true, false,
+                    OneArg, returnTypeName: "System.Int32[]");
+            case "Last":
+                // Last() -> last_i4: the last element; empty ->
+                // InvalidOperationException. Last(source, predicate) is not
+                // wired in stage 1 (no runtime entry).
+                return I("il2cpp::il2cpp_linq_last_i4", 1, true, false, false, OneArg);
+            case "LastOrDefault":
+                return I("il2cpp::il2cpp_linq_last_or_default_i4", 1, true, false, false, OneArg);
+            case "ElementAt":
+                // ElementAt(source, index) -> il2cpp_linq_element_at_i4.
+                // index < 0 or >= length -> ArgumentOutOfRangeException.
+                return I("il2cpp::il2cpp_linq_element_at_i4", 2, true, false, false,
+                    new[] { "a", "i" });
+            case "Contains":
+                // Contains(source, value) -> il2cpp_linq_contains_i4: ordinal
+                // int32 equality (EqualityComparer<int>.Default).
+                return I("il2cpp::il2cpp_linq_contains_i4", 2, true, false, false,
+                    new[] { "a", "i" });
+            case "Aggregate":
+                // Aggregate(source, func) -> il2cpp_linq_aggregate_i4: fold
+                // left-to-right seeded from the first element (net48 Aggregate
+                // without a seed). Empty -> InvalidOperationException.
+                return I("il2cpp::il2cpp_linq_aggregate_i4", 2, true, false, false, TwoArg);
+            case "LongCount":
+                // LongCount(source) -> il2cpp_linq_long_count: the number of
+                // elements as int64 (net48 Enumerable.LongCount returns long).
+                return I("il2cpp::il2cpp_linq_long_count", 1, true, false, false, OneArg, resultKind: "l");
+            case "SequenceEqual":
+                // SequenceEqual(source, second) -> il2cpp_linq_sequence_equal_i4:
+                // true iff same length and every pair equal (net48 ordinal).
+                return I("il2cpp::il2cpp_linq_sequence_equal_i4", 2, true, false, false,
+                    new[] { "a", "a" });
+            case "DefaultIfEmpty":
+                // DefaultIfEmpty(source) -> il2cpp_linq_default_if_empty_i4:
+                // non-empty -> source as-is; empty -> new int32[]{0}.
+                return I("il2cpp::il2cpp_linq_default_if_empty_i4", 1, true, true, false,
+                    OneArg, returnTypeName: "System.Int32[]");
             default:
                 return null;
         }

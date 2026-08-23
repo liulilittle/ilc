@@ -81,6 +81,14 @@ Il2CppArray* il2cpp_linq_order_by_string(Il2CppArray* src, Il2CppObject* cmp);
 // the `this` slot); multicast containers are rejected.
 Il2CppArray* il2cpp_linq_order_by_key_i4(Il2CppArray* src, Il2CppObject* keySel);
 
+// Enumerable.OrderByDescending(TSource[], Func<TSource,TKey>) -- the KEY-
+// SELECTOR surface, DESCENDING. Identical to il2cpp_linq_order_by_key_i4
+// except the sort order is DESCENDING (keys compared in reverse). int32
+// elements AND int32 keys only; anything else throws
+// System.NotSupportedException. Instance-bound selectors accepted; multicast
+// containers rejected.
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4(Il2CppArray* src, Il2CppObject* keySel);
+
 // Enumerable.ThenBy -- the CHAINED-SORTER surface (D-LO2-1). Enumerable.
 // OrderBy(k1).ThenBy(k2) is a FUSED composite sort (net48 EnumerableSorter
 // chain): the elements order by (k1 asc, k2 asc), stable. This entry takes

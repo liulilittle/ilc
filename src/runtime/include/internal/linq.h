@@ -85,4 +85,50 @@ int32_t il2cpp_linq_min_i4(Il2CppArray* src);
 // empty -> InvalidOperationException.
 int32_t il2cpp_linq_max_i4(Il2CppArray* src);
 
+// Average on int32[]: the arithmetic mean as a double (net48 Enumerable.Average
+// returns double); empty -> InvalidOperationException (net48). The sum is
+// computed as int64 to avoid intermediate overflow (net48 uses a checked
+// long accumulator), then divided by the count as a double.
+double il2cpp_linq_average_i4(Il2CppArray* src);
+
+// Reverse on int32[]: a NEW int32[] with elements in reverse order. The
+// source is never modified; empty -> a new empty array.
+Il2CppArray* il2cpp_linq_reverse_i4(Il2CppArray* src);
+
+// Last on int32[]: the last element; empty -> InvalidOperationException.
+int32_t il2cpp_linq_last_i4(Il2CppArray* src);
+
+// LastOrDefault on int32[]: the last element, or 0 (int32 default) when empty.
+int32_t il2cpp_linq_last_or_default_i4(Il2CppArray* src);
+
+// ElementAt on int32[]: the element at the given index. index < 0 or
+// index >= length -> ArgumentOutOfRangeException (net48).
+int32_t il2cpp_linq_element_at_i4(Il2CppArray* src, int32_t index);
+
+// Contains on int32[]: true iff the sequence contains the given value (net48
+// ordinal int32 equality, EqualityComparer<int>.Default). Empty -> false.
+bool il2cpp_linq_contains_i4(Il2CppArray* src, int32_t value);
+
+// Aggregate(source, func) on int32[]: fold the sequence left-to-right using
+// the binary func, seeding from the FIRST element (net48 Aggregate without a
+// seed). Empty -> InvalidOperationException. The func delegate ABI is
+// int32_t(*)(int32_t, int32_t) (static leaf) / int32_t(*)(Il2CppObject*,
+// int32_t, int32_t) (instance leaf -- target in the `this` slot, linq_map
+// per-binding dispatch). Each step's result becomes the next accumulator.
+int32_t il2cpp_linq_aggregate_i4(Il2CppArray* src, Il2CppObject* func);
+
+// LongCount on int32[]: the number of elements as int64 (net48 Enumerable.
+// LongCount returns long). Null source -> ArgumentNullException; empty -> 0.
+int64_t il2cpp_linq_long_count(Il2CppArray* src);
+
+// SequenceEqual on int32[]: true iff both arrays have the same length and
+// every pair of elements at the same position is equal (net48 ordinal int32
+// equality). Null source -> ArgumentNullException; different lengths -> false.
+bool il2cpp_linq_sequence_equal_i4(Il2CppArray* first, Il2CppArray* second);
+
+// DefaultIfEmpty on int32[]: if the source is non-empty, return it as-is;
+// if empty, return a NEW single-element int32[] containing 0 (the int32
+// default). Null source -> ArgumentNullException.
+Il2CppArray* il2cpp_linq_default_if_empty_i4(Il2CppArray* src);
+
 } // namespace il2cpp

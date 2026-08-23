@@ -31,6 +31,7 @@
 
 #include "linq.h"
 
+#include "il2cpp_array.h"
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
@@ -100,6 +101,8 @@ typedef bool (*I4PredFn)(int32_t);
 typedef bool (*I4PredThisFn)(Il2CppObject*, int32_t);
 typedef bool (*RefPredFn)(Il2CppObject*);
 typedef bool (*RefPredThisFn)(Il2CppObject*, Il2CppObject*);
+typedef int32_t (*I4BinFn)(int32_t, int32_t);
+typedef int32_t (*I4BinThisFn)(Il2CppObject*, int32_t, int32_t);
 
 // Per-binding dispatch. The target is re-read through the ROOTED delegate
 // slot (d is registered as a static root by every callback entry) so a
@@ -348,6 +351,197 @@ int32_t il2cpp_linq_count_ref(Il2CppArray* src, Il2CppObject* pred)
         if (InvokePredRef(d, elem)) ++count;
     }
     return count;
+}
+
+//------------------------------------------------------------------------------
+// Average on int32[]: the arithmetic mean as a double (net48 Enumerable.Average
+// returns double). Empty -> InvalidOperationException. The sum is computed as
+// int64 to avoid intermediate overflow (net48 uses a checked long accumulator);
+// the final division is double (net48 casts the long sum to double before
+// dividing).
+//------------------------------------------------------------------------------
+double il2cpp_linq_average_i4(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t sum = 0;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        sum += elem;
+    }
+    return static_cast<double>(sum) / static_cast<double>(n);
+}
+
+//------------------------------------------------------------------------------
+// Reverse on int32[]: a NEW int32[] with elements in reverse order. The source
+// is never modified; empty -> a new empty array. No callback, so the only GC
+// interaction is the single allocation: the source is rooted across
+// il2cpp_array_new and every element is read BY VALUE through the rooted slot
+// (to_array discipline, linq_map.cpp).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_reverse_i4(Il2CppArray* src)
+{
+    CheckSource(src);
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, 4, false, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, n - 1 - i)) = elem;
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// Last on int32[]: the last element; empty -> InvalidOperationException.
+// No allocation, no callback -- no rooting needed (first_i4 precedent).
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_last_i4(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    return *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, src->length - 1));
+}
+
+// LastOrDefault on int32[]: the last element, or 0 (int32 default) when empty.
+int32_t il2cpp_linq_last_or_default_i4(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0
+        ? *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, src->length - 1))
+        : 0;
+}
+
+//------------------------------------------------------------------------------
+// ElementAt on int32[]: the element at the given index. index < 0 or
+// index >= length -> ArgumentOutOfRangeException (net48).
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_element_at_i4(Il2CppArray* src, int32_t index)
+{
+    CheckSource(src);
+    if (index < 0 || index >= src->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", "Index was out of range.");
+    }
+    return *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, index));
+}
+
+// Contains on int32[]: true iff the sequence contains the given value (net48
+// ordinal int32 equality, EqualityComparer<int>.Default). Empty -> false.
+bool il2cpp_linq_contains_i4(Il2CppArray* src, int32_t value)
+{
+    CheckSource(src);
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (elem == value) return true;
+    }
+    return false;
+}
+
+//------------------------------------------------------------------------------
+// Aggregate(source, func) on int32[]: fold the sequence left-to-right using
+// the binary func, seeding from the FIRST element (net48 Aggregate without a
+// seed). Empty -> InvalidOperationException. The func delegate ABI is
+// int32_t(*)(int32_t, int32_t) (static leaf) / int32_t(*)(Il2CppObject*,
+// int32_t, int32_t) (instance leaf -- target in the `this` slot). Each step's
+// result becomes the next accumulator. The func may allocate -> rooting
+// discipline (predicate-loop precedent).
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_aggregate_i4(Il2CppArray* src, Il2CppObject* func)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t acc = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    const int32_t n = src->length;
+    for (int32_t i = 1; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<I4BinThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<I4BinFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_linq_long_count -- LongCount on int32[]: the number of elements as
+// int64 (net48 Enumerable.LongCount returns long). Type-independent (the
+// array is self-describing); null source -> ArgumentNullException.
+//------------------------------------------------------------------------------
+int64_t il2cpp_linq_long_count(Il2CppArray* src)
+{
+    CheckSource(src);
+    return static_cast<int64_t>(src->length);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_linq_sequence_equal_i4 -- SequenceEqual on int32[]: true iff both
+// arrays have the same length and every pair of elements at the same position
+// is equal (net48 ordinal int32 equality). Null source ->
+// ArgumentNullException; different lengths -> false.
+//------------------------------------------------------------------------------
+bool il2cpp_linq_sequence_equal_i4(Il2CppArray* first, Il2CppArray* second)
+{
+    CheckSource(first);
+    CheckSource(second);
+    if (first->length != second->length)
+    {
+        return false;
+    }
+    const int32_t n = first->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t a = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(first, i));
+        const int32_t b = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(second, i));
+        if (a != b)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_linq_default_if_empty_i4 -- DefaultIfEmpty on int32[]: if the source
+// is non-empty, return it as-is; if empty, return a NEW single-element
+// int32[] containing 0 (the int32 default). Null source ->
+// ArgumentNullException.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_default_if_empty_i4(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length > 0)
+    {
+        return src;
+    }
+    Il2CppArray* result = il2cpp_array_new(nullptr, sizeof(int32_t), false, 1);
+    *reinterpret_cast<int32_t*>(result->data) = 0;
+    return result;
 }
 
 } // namespace il2cpp
