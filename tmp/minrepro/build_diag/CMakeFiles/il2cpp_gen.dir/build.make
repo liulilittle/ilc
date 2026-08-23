@@ -68,26 +68,11 @@ include CMakeFiles/il2cpp_gen.dir/progress.make
 # Include the compile flags for this target's objects.
 include CMakeFiles/il2cpp_gen.dir/flags.make
 
-CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: CMakeFiles/il2cpp_gen.dir/flags.make
-CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: CMakeFiles/il2cpp_gen.dir/includes_CXX.rsp
-CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: E:/il2cpp/tmp/minrepro/gen_diag/src/Program.cpp
-CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: CMakeFiles/il2cpp_gen.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=E:\il2cpp\tmp\minrepro\build_diag\CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj"
-	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj -MF CMakeFiles\il2cpp_gen.dir\src\Program.cpp.obj.d -o CMakeFiles\il2cpp_gen.dir\src\Program.cpp.obj -c E:\il2cpp\tmp\minrepro\gen_diag\src\Program.cpp
-
-CMakeFiles/il2cpp_gen.dir/src/Program.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/il2cpp_gen.dir/src/Program.cpp.i"
-	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E E:\il2cpp\tmp\minrepro\gen_diag\src\Program.cpp > CMakeFiles\il2cpp_gen.dir\src\Program.cpp.i
-
-CMakeFiles/il2cpp_gen.dir/src/Program.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/il2cpp_gen.dir/src/Program.cpp.s"
-	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S E:\il2cpp\tmp\minrepro\gen_diag\src\Program.cpp -o CMakeFiles\il2cpp_gen.dir\src\Program.cpp.s
-
 CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj: CMakeFiles/il2cpp_gen.dir/flags.make
 CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj: CMakeFiles/il2cpp_gen.dir/includes_CXX.rsp
 CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj: E:/il2cpp/tmp/minrepro/gen_diag/src/Color.cpp
 CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj: CMakeFiles/il2cpp_gen.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=E:\il2cpp\tmp\minrepro\build_diag\CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=E:\il2cpp\tmp\minrepro\build_diag\CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj"
 	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj -MF CMakeFiles\il2cpp_gen.dir\src\Color.cpp.obj.d -o CMakeFiles\il2cpp_gen.dir\src\Color.cpp.obj -c E:\il2cpp\tmp\minrepro\gen_diag\src\Color.cpp
 
 CMakeFiles/il2cpp_gen.dir/src/Color.cpp.i: cmake_force
@@ -97,6 +82,21 @@ CMakeFiles/il2cpp_gen.dir/src/Color.cpp.i: cmake_force
 CMakeFiles/il2cpp_gen.dir/src/Color.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/il2cpp_gen.dir/src/Color.cpp.s"
 	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S E:\il2cpp\tmp\minrepro\gen_diag\src\Color.cpp -o CMakeFiles\il2cpp_gen.dir\src\Color.cpp.s
+
+CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: CMakeFiles/il2cpp_gen.dir/flags.make
+CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: CMakeFiles/il2cpp_gen.dir/includes_CXX.rsp
+CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: E:/il2cpp/tmp/minrepro/gen_diag/src/Program.cpp
+CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj: CMakeFiles/il2cpp_gen.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=E:\il2cpp\tmp\minrepro\build_diag\CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj"
+	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj -MF CMakeFiles\il2cpp_gen.dir\src\Program.cpp.obj.d -o CMakeFiles\il2cpp_gen.dir\src\Program.cpp.obj -c E:\il2cpp\tmp\minrepro\gen_diag\src\Program.cpp
+
+CMakeFiles/il2cpp_gen.dir/src/Program.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/il2cpp_gen.dir/src/Program.cpp.i"
+	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E E:\il2cpp\tmp\minrepro\gen_diag\src\Program.cpp > CMakeFiles\il2cpp_gen.dir\src\Program.cpp.i
+
+CMakeFiles/il2cpp_gen.dir/src/Program.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/il2cpp_gen.dir/src/Program.cpp.s"
+	C:\PROGRA~1\ming-w64\bin\G__~1.EXE $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S E:\il2cpp\tmp\minrepro\gen_diag\src\Program.cpp -o CMakeFiles\il2cpp_gen.dir\src\Program.cpp.s
 
 CMakeFiles/il2cpp_gen.dir/src/Cloneable.cpp.obj: CMakeFiles/il2cpp_gen.dir/flags.make
 CMakeFiles/il2cpp_gen.dir/src/Cloneable.cpp.obj: CMakeFiles/il2cpp_gen.dir/includes_CXX.rsp
@@ -130,16 +130,16 @@ CMakeFiles/il2cpp_gen.dir/src/entry.cpp.s: cmake_force
 
 # Object files for target il2cpp_gen
 il2cpp_gen_OBJECTS = \
-"CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj" \
 "CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj" \
+"CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj" \
 "CMakeFiles/il2cpp_gen.dir/src/Cloneable.cpp.obj" \
 "CMakeFiles/il2cpp_gen.dir/src/entry.cpp.obj"
 
 # External object files for target il2cpp_gen
 il2cpp_gen_EXTERNAL_OBJECTS =
 
-libil2cpp_gen.a: CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj
 libil2cpp_gen.a: CMakeFiles/il2cpp_gen.dir/src/Color.cpp.obj
+libil2cpp_gen.a: CMakeFiles/il2cpp_gen.dir/src/Program.cpp.obj
 libil2cpp_gen.a: CMakeFiles/il2cpp_gen.dir/src/Cloneable.cpp.obj
 libil2cpp_gen.a: CMakeFiles/il2cpp_gen.dir/src/entry.cpp.obj
 libil2cpp_gen.a: CMakeFiles/il2cpp_gen.dir/build.make

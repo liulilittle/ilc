@@ -33,7 +33,7 @@ inline uintptr_t System_UIntPtr_sf_Zero = 0;
 
 // Reflection metadata for Cloneable (M5.5 typeinfo.h contract).
 static const il2cpp::Il2CppMethodInfo Cloneable_typeinfo_methods[] = {
-    { ".ctor", "v()", 0, 0x5, -1, "Cloneable", reinterpret_cast<void*>(&Cloneable__ctor_499c71da61c4fb47) },
+    { ".ctor", "v()", 0, 0x5, -1, "Program+Cloneable", reinterpret_cast<void*>(&Cloneable__ctor_499c71da61c4fb47) },
 };
 
 static const il2cpp::Il2CppFieldInfo Cloneable_typeinfo_fields[] = {
@@ -41,7 +41,7 @@ static const il2cpp::Il2CppFieldInfo Cloneable_typeinfo_fields[] = {
 };
 
 il2cpp::Il2CppTypeInfo Cloneable_typeinfo = {
-    "Cloneable",
+    "Program+Cloneable",
     &Cloneable_class,
     nullptr, // baseType (System.Object)
     nullptr, 0,          // interfaces
@@ -54,7 +54,7 @@ il2cpp::Il2CppTypeInfo Cloneable_typeinfo = {
 
 //------------------------------------------------------------------------------
 // IL method: System.Void Cloneable::.ctor(System.Int32)
-// IL offset (RVA): 0x000022CA (assembly: diag_net8.dll, token: 0x06000002)
+// IL offset (RVA): 0x00002188 (assembly: diag_net8.dll, token: 0x06000002)
 // Semantics: Transpiled from 1 argument slot(s) and 8 byte(s) of IL; the body below is the stack-folding result (2 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Cloneable__ctor_499c71da61c4fb47(Il2CppObject* arg0)

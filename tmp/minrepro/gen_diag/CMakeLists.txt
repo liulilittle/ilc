@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 project(il2cpp_gen CXX)
 add_subdirectory(../../../src/runtime ${CMAKE_BINARY_DIR}/runtime)
 add_library(il2cpp_gen STATIC
-    src/Program.cpp
     src/Color.cpp
+    src/Program.cpp
     src/Cloneable.cpp
     src/entry.cpp
 )

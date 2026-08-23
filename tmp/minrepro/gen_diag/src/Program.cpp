@@ -37,131 +37,80 @@ il2cpp::Il2CppTypeInfo Program_typeinfo = {
 //------------------------------------------------------------------------------
 // IL method: System.Void Program::Main()
 // IL offset (RVA): 0x00002050 (assembly: diag_net8.dll, token: 0x06000001)
-// Semantics: Transpiled from 0 argument slot(s) and 622 byte(s) of IL; the body below is the stack-folding result (90 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
+// Semantics: Transpiled from 0 argument slot(s) and 300 byte(s) of IL; the body below is the stack-folding result (47 IR statement(s)) of the original instruction stream. On exit the method returns void. All operations follow the M1 32-bit signed integer contract.
 //------------------------------------------------------------------------------
 IL2CPP_NOINLINE void Program_Main_c087fde924c8c721(void)
 {
-    Il2CppObject* loc0 = nullptr;
+    Color loc0;
     Il2CppObject* t0 = nullptr;
-    int32_t loc12;
     Il2CppObject* t1 = nullptr;
-    Il2CppObject* loc1 = nullptr;
-    double loc13;
-    int32_t loc3;
-    il2cpp::runtime::Il2CppDecimal loc2;
     Il2CppObject* t2 = nullptr;
-    int32_t loc5;
-    int32_t loc4;
-    il2cpp::runtime::Il2CppTimeSpan loc6;
-    Il2CppObject* loc7 = nullptr;
-    Il2CppObject* loc8 = nullptr;
-    Il2CppObject* t37 = nullptr;
-    Il2CppObject* t40 = nullptr;
-    Il2CppObject* t41 = nullptr;
-    int32_t loc10;
-    Color loc9;
-    Il2CppObject* t47 = nullptr;
+    Il2CppObject* loc2 = nullptr;
+    Il2CppObject* loc3 = nullptr;
+    Il2CppObject* t6 = nullptr;
+    Il2CppObject* t7 = nullptr;
+    Il2CppObject* t8 = nullptr;
+    int32_t loc6;
+    Il2CppObject* t14 = nullptr;
     Il2CppObject* inl0 = nullptr;
-    Il2CppObject* loc11 = nullptr;
-    int32_t loc14;
+    Il2CppObject* loc4 = nullptr;
+    Il2CppObject* loc5 = nullptr;
+    int32_t t3;
 
     // Managed frame (M3 Task 9): this method's reference locals are GC roots while it is on the call stack.
-    void* __frameRefs[] = { static_cast<void*>(&loc0), static_cast<void*>(&t0), static_cast<void*>(&t1), static_cast<void*>(&loc1), static_cast<void*>(&t2), static_cast<void*>(&loc7), static_cast<void*>(&loc8), static_cast<void*>(&t37), static_cast<void*>(&t40), static_cast<void*>(&t41), static_cast<void*>(&loc11) };
+    void* __frameRefs[] = { static_cast<void*>(&t0), static_cast<void*>(&t1), static_cast<void*>(&t2), static_cast<void*>(&loc2), static_cast<void*>(&loc3), static_cast<void*>(&t6), static_cast<void*>(&t7), static_cast<void*>(&t8), static_cast<void*>(&loc4), static_cast<void*>(&loc5) };
     il2cpp::Il2CppFrame __frame = { nullptr, nullptr, nullptr, 0 };
     __frame.methodName = "Program_Main_c087fde924c8c721";
     __frame.refs = static_cast<void**>(__frameRefs);
-    __frame.refCount = 11;
+    __frame.refCount = 10;
     il2cpp::il2cpp_frame_push(&__frame);
 
-    loc0 = il2cpp::g_strPool[0];                                                                  // IL stloc.0 @0x0006 -- store evaluated value into loc0
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(nullptr, 2, false, static_cast<int32_t>(2LL))); // IL newarr @0x000E -- store call result into t0
-    (*reinterpret_cast<uint16_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(0LL))) = static_cast<uint16_t>(108LL)); // IL stelem.i2 @0x0017 -- store value into array element
-    (*reinterpret_cast<uint16_t*>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(1LL))) = static_cast<uint16_t>(111LL)); // IL stelem.i2 @0x001C -- store value into array element
-    loc12 = il2cpp::runtime::icall_string_index_of_any_start(loc0, t0, static_cast<int32_t>(5LL)); // IL stloc.s @0x0023 -- store call result into loc12
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc12))))); // IL call @0x0027 -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_2(il2cpp::g_strPool[1], t0)); // IL call @0x002C -- store call result into t1
-    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x0031 -- invoke Console.WriteLine via the runtime icall
-    t0 = il2cpp_object_new(il2cpp::il2cpp_stringbuilder_class());                                 // IL newobj @0x003C -- store evaluated value into t0
-    il2cpp::runtime::icall_stringbuilder_ctor_string(t0, il2cpp::g_strPool[2]);                   // IL newobj @0x003C -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_ctor_string
-    loc1 = t0;                                                                                    // IL stloc.1 @0x0041 -- store evaluated value into loc1
-    il2cpp::runtime::icall_stringbuilder_append_b(loc1, static_cast<bool>(1LL));                  // IL callvirt @0x0044 -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_append_b
-    il2cpp::runtime::icall_stringbuilder_append_line(loc1);                                       // IL callvirt @0x004B -- invoke the transpiled function il2cpp::runtime::icall_stringbuilder_append_line
-    loc12 = il2cpp::runtime::icall_stringbuilder_get_length(loc1);                                // IL stloc.s @0x005C -- store call result into loc12
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc12))))); // IL call @0x0060 -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_2(il2cpp::g_strPool[3], t0)); // IL call @0x0065 -- store call result into t1
-    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x006A -- invoke Console.WriteLine via the runtime icall
-    il2cpp::runtime::icall_console_write_line_i(il2cpp::il2cpp_string_get_length(il2cpp::g_strPool[4])); // IL call @0x007A -- invoke Console.WriteLine via the runtime icall
-    loc13 = il2cpp::runtime::icall_math_exp_d(1.0);                                               // IL stloc.s @0x0093 -- store call result into loc13
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_double_to_string((*reinterpret_cast<double*>((&loc13))))); // IL call @0x0097 -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_2(il2cpp::g_strPool[5], t0)); // IL call @0x009C -- store call result into t1
-    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x00A1 -- invoke Console.WriteLine via the runtime icall
-    loc3 = il2cpp::runtime::icall_decimal_try_parse(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[6]), (&loc2)); // IL stloc.3 @0x00B3 -- store call result into loc3
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc3))))); // IL call @0x00BB -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_decimal_to_string((&loc2)));      // IL call @0x00C7 -- store call result into t1
-    t2 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_4(il2cpp::g_strPool[7], t0, il2cpp::g_strPool[8], t1)); // IL call @0x00CC -- store call result into t2
-    il2cpp::runtime::icall_console_write_line_s(t2);                                              // IL call @0x00D1 -- invoke Console.WriteLine via the runtime icall
-    loc5 = il2cpp::runtime::icall_try_parse_int32(il2cpp::g_strPool[9], reinterpret_cast<int32_t*>((&loc4))); // IL stloc.s @0x00E3 -- store call result into loc5
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc5))))); // IL call @0x00EC -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc4))))); // IL call @0x00F8 -- store call result into t1
-    t2 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_4(il2cpp::g_strPool[10], t0, il2cpp::g_strPool[8], t1)); // IL call @0x00FD -- store call result into t2
-    il2cpp::runtime::icall_console_write_line_s(t2);                                              // IL call @0x0102 -- invoke Console.WriteLine via the runtime icall
-    (*((&loc6))) = il2cpp::runtime::icall_timespan_from_dhmsm(1LL, 2LL, 3LL, 0LL, 4LL);           // IL call @0x010F -- initialize value-type instance (ldloca ctor)
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new(&System_String_class, 8, true, static_cast<int32_t>(8LL))); // IL newarr @0x0115 -- store call result into t0
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(0LL))) = static_cast<Il2CppObject*>(il2cpp::g_strPool[11])); // IL stelem.ref @0x0121 -- store value into array element
-    loc12 = il2cpp::runtime::icall_timespan_get_hours((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc6)))); // IL stloc.s @0x012B -- store call result into loc12
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc12))))); // IL call @0x012F -- store call result into t1
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(1LL))) = static_cast<Il2CppObject*>(t1)); // IL stelem.ref @0x0134 -- store value into array element
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(2LL))) = static_cast<Il2CppObject*>(il2cpp::g_strPool[12])); // IL stelem.ref @0x013C -- store value into array element
-    loc12 = il2cpp::runtime::icall_timespan_get_minutes((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc6)))); // IL stloc.s @0x0146 -- store call result into loc12
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc12))))); // IL call @0x014A -- store call result into t1
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(3LL))) = static_cast<Il2CppObject*>(t1)); // IL stelem.ref @0x014F -- store value into array element
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(4LL))) = static_cast<Il2CppObject*>(il2cpp::g_strPool[12])); // IL stelem.ref @0x0157 -- store value into array element
-    loc12 = il2cpp::runtime::icall_timespan_get_seconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc6)))); // IL stloc.s @0x0161 -- store call result into loc12
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc12))))); // IL call @0x0165 -- store call result into t1
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(5LL))) = static_cast<Il2CppObject*>(t1)); // IL stelem.ref @0x016A -- store value into array element
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(6LL))) = static_cast<Il2CppObject*>(il2cpp::g_strPool[12])); // IL stelem.ref @0x0172 -- store value into array element
-    loc12 = il2cpp::runtime::icall_timespan_get_milliseconds((*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>((&loc6)))); // IL stloc.s @0x017C -- store call result into loc12
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc12))))); // IL call @0x0180 -- store call result into t1
-    (*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>(t0), static_cast<int32_t>(7LL))) = static_cast<Il2CppObject*>(t1)); // IL stelem.ref @0x0185 -- store value into array element
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_string_concat_array(t0));        // IL call @0x0186 -- store call result into t1
-    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x018B -- invoke Console.WriteLine via the runtime icall
-    t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x0195 -- store evaluated value into t0
-    il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x0195 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
-    loc7 = t0;                                                                                    // IL stloc.s @0x019A -- store evaluated value into loc7
-    loc12 = il2cpp::runtime::icall_object_get_hash_code(loc7);                                    // IL stloc.s @0x01A8 -- store call result into loc12
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_int32_to_string((*reinterpret_cast<int32_t*>((&loc12))))); // IL call @0x01AC -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_2(il2cpp::g_strPool[13], t0)); // IL call @0x01B1 -- store call result into t1
-    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x01B6 -- invoke Console.WriteLine via the runtime icall
-    loc8 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_values_by_type_name(il2cpp::g_strPool[14])); // IL stloc.s @0x01CB -- store call result into loc8
-    t37 = il2cpp::g_strPool[15];                                                                  // IL brfalse.s @0x01D4 -- store evaluated value into t37
-    if(loc8 == 0LL) goto L_485;                                                                   // IL brfalse.s @0x01D4 -- jump when condition evaluates to true to L_485
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_get_value(reinterpret_cast<Il2CppArray*>(loc8), static_cast<int32_t>(2LL))); // IL callvirt @0x01D9 -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string(t0));            // IL callvirt @0x01DE -- store call result into t1
-    t40 = t37;                                                                                    // IL br.s @0x01E3 -- store evaluated value into t40
-    t41 = t1;                                                                                     // IL br.s @0x01E3 -- store evaluated value into t41
-    goto L_490;                                                                                   // IL br.s @0x01E3 -- unconditional jump to L_490
-    L_485: ;                                                                                      // IL branch target at offset 0x01E5
-    t40 = t37;                                                                                    // IL call @0x01EA -- store evaluated value into t40
-    t41 = il2cpp::g_strPool[16];                                                                  // IL call @0x01EA -- store evaluated value into t41
-    L_490: ;                                                                                      // IL branch target at offset 0x01EA
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_2(t40, t41));       // IL call @0x01EA -- store call result into t0
-    il2cpp::runtime::icall_console_write_line_s(t0);                                              // IL call @0x01EF -- invoke Console.WriteLine via the runtime icall
-    loc10 = il2cpp::runtime::il2cpp_enum_parse(&Color_class, il2cpp::g_strPool[17], reinterpret_cast<int64_t*>((&(((&loc9))->value__)))); // IL stloc.s @0x0201 -- store call result into loc10
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc10))))); // IL call @0x020A -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(&Color_class, ((&loc9))->value__)); // IL callvirt @0x021C -- store call result into t1
-    t2 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_4(il2cpp::g_strPool[18], t0, il2cpp::g_strPool[19], t1)); // IL call @0x0221 -- store call result into t2
-    il2cpp::runtime::icall_console_write_line_s(t2);                                              // IL call @0x0226 -- invoke Console.WriteLine via the runtime icall
-    t47 = il2cpp_object_new(&Cloneable_class);                                                    // IL newobj @0x022C -- store evaluated value into t47
-    inl0 = t47;                                                                                   // IL newobj @0x022C -- store evaluated value into inl0
-    il2cpp::runtime::il2cpp_object_ctor_nop(inl0);                                                // IL newobj @0x022C -- invoke the transpiled function il2cpp::runtime::il2cpp_object_ctor_nop
-    loc11 = t47;                                                                                  // IL stloc.s @0x0231 -- store evaluated value into loc11
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc11));          // IL callvirt @0x023A -- store call result into t0
-    loc14 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[20]);               // IL stloc.s @0x024E -- store call result into loc14
-    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc14))))); // IL call @0x0252 -- store call result into t0
-    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_2(il2cpp::g_strPool[21], t0)); // IL call @0x0257 -- store call result into t1
-    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x025C -- invoke Console.WriteLine via the runtime icall
-    il2cpp::runtime::icall_console_write_line_s(il2cpp::g_strPool[22]);                           // IL call @0x0267 -- invoke Console.WriteLine via the runtime icall
-    return;                                                                                       // IL ret @0x026D -- exit method with no value (void)
+    il2cpp::runtime::il2cpp_enum_parse(&Color_class, il2cpp::g_strPool[0], reinterpret_cast<int64_t*>((&(((&loc0))->value__)))); // IL stloc.1 @0x000D -- invoke the transpiled function il2cpp::runtime::il2cpp_enum_parse
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(&Color_class, ((&loc0))->value__)); // IL callvirt @0x001B -- store call result into t0
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(&Color_class, ((&loc0))->value__)); // IL callvirt @0x002D -- store call result into t1
+    t2 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_4(il2cpp::g_strPool[1], t0, il2cpp::g_strPool[2], t1)); // IL call @0x0032 -- store call result into t2
+    il2cpp::runtime::icall_console_write_line_s(t2);                                              // IL call @0x0037 -- invoke Console.WriteLine via the runtime icall
+    loc2 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_get_values_by_type_name(il2cpp::g_strPool[3])); // IL stloc.2 @0x004C -- store call result into loc2
+    loc3 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_get_value(reinterpret_cast<Il2CppArray*>(loc2), static_cast<int32_t>(2LL))); // IL stloc.3 @0x0054 -- store call result into loc3
+    t6 = il2cpp::g_strPool[4];                                                                    // IL brtrue.s @0x005B -- store evaluated value into t6
+    if(loc3) goto L_96;                                                                           // IL brtrue.s @0x005B -- jump when condition evaluates to true to L_96
+    t7 = t6;                                                                                      // IL br.s @0x005E -- store evaluated value into t7
+    t8 = nullptr;                                                                                 // IL br.s @0x005E -- store evaluated value into t8
+    goto L_102;                                                                                   // IL br.s @0x005E -- unconditional jump to L_102
+    L_96: ;                                                                                       // IL branch target at offset 0x0060
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string(loc3));          // IL callvirt @0x0061 -- store call result into t0
+    t7 = t6;                                                                                      // IL ldstr @0x0066 -- store evaluated value into t7
+    t8 = t0;                                                                                      // IL ldstr @0x0066 -- store evaluated value into t8
+    L_102: ;                                                                                      // IL branch target at offset 0x0066
+    t0 = il2cpp::runtime::icall_box_enum(&Color_class, static_cast<int64_t>(2LL));                // IL box @0x006D -- store call result into t0
+    loc6 = il2cpp::runtime::icall_boxed_equals_ext2(loc3, t0);                                    // IL stloc.s @0x0077 -- store call result into loc6
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc6))))); // IL call @0x007B -- store call result into t0
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_4(t7, t8, il2cpp::g_strPool[5], t0)); // IL call @0x0080 -- store call result into t1
+    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x0085 -- invoke Console.WriteLine via the runtime icall
+    t14 = il2cpp_object_new(&Cloneable_class);                                                    // IL newobj @0x008B -- store evaluated value into t14
+    inl0 = t14;                                                                                   // IL newobj @0x008B -- store evaluated value into inl0
+    il2cpp::runtime::il2cpp_object_ctor_nop(inl0);                                                // IL newobj @0x008B -- invoke the transpiled function il2cpp::runtime::il2cpp_object_ctor_nop
+    loc4 = t14;                                                                                   // IL stloc.s @0x0090 -- store evaluated value into loc4
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc4));           // IL callvirt @0x0099 -- store call result into t0
+    loc6 = il2cpp::runtime::icall_string_equals_static(t0, il2cpp::g_strPool[6]);                 // IL stloc.s @0x00AD -- store call result into loc6
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc6))))); // IL call @0x00B1 -- store call result into t0
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_get_type(loc4));           // IL callvirt @0x00BD -- store call result into t1
+    loc6 = il2cpp::runtime::icall_type_op_inequality(t1, il2cpp::g_strPool[7]);                   // IL stloc.s @0x00D1 -- store call result into loc6
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc6))))); // IL call @0x00D5 -- store call result into t1
+    t2 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_4(il2cpp::g_strPool[8], t0, il2cpp::g_strPool[9], t1)); // IL call @0x00DA -- store call result into t2
+    il2cpp::runtime::icall_console_write_line_s(t2);                                              // IL call @0x00DF -- invoke Console.WriteLine via the runtime icall
+    t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x00E9 -- store evaluated value into t0
+    il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x00E9 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
+    loc5 = t0;                                                                                    // IL stloc.s @0x00EE -- store evaluated value into loc5
+    t3 = il2cpp::runtime::icall_object_get_hash_code(loc5);                                       // IL callvirt @0x00F7 -- store call result into t3
+    t0 = il2cpp_object_new(&System_Version_class);                                                // IL newobj @0x0100 -- store evaluated value into t0
+    il2cpp::runtime::icall_version_ctor_4(t0, static_cast<int32_t>(1LL), static_cast<int32_t>(2LL), static_cast<int32_t>(3LL), static_cast<int32_t>(4LL)); // IL newobj @0x0100 -- invoke the transpiled function il2cpp::runtime::icall_version_ctor_4
+    loc6 = (t3 == il2cpp::runtime::icall_object_get_hash_code(t0));                               // IL stloc.s @0x010C -- store evaluated value into loc6
+    t0 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_bool_to_string(static_cast<bool>(*reinterpret_cast<int32_t*>((&loc6))))); // IL call @0x0110 -- store call result into t0
+    t1 = reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_string_concat_2(il2cpp::g_strPool[10], t0)); // IL call @0x0115 -- store call result into t1
+    il2cpp::runtime::icall_console_write_line_s(t1);                                              // IL call @0x011A -- invoke Console.WriteLine via the runtime icall
+    il2cpp::runtime::icall_console_write_line_s(il2cpp::g_strPool[11]);                           // IL call @0x0125 -- invoke Console.WriteLine via the runtime icall
+    return;                                                                                       // IL ret @0x012B -- exit method with no value (void)
 }
 
 

@@ -169,8 +169,8 @@ void Cloneable__ctor_499c71da61c4fb47(Il2CppObject* arg0);
 
 extern Il2CppClass Color_class;
 extern Il2CppClass Cloneable_class;
-extern il2cpp::Il2CppTypeInfo Program_typeinfo;
 extern il2cpp::Il2CppTypeInfo Color_typeinfo;
+extern il2cpp::Il2CppTypeInfo Program_typeinfo;
 extern il2cpp::Il2CppTypeInfo Cloneable_typeinfo;
 
 IL2CPP_EXPORT int32_t il2cpp_entry_main(void);

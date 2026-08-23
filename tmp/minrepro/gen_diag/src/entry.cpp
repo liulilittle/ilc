@@ -44,8 +44,8 @@ static const int64_t s_Color_values[] = { 0, 1, 2 };
 static const il2cpp::runtime::Il2CppEnumInfo s_Color_enumInfo = { 9, 3, s_Color_names, s_Color_values };
 il2cpp::runtime::il2cpp_enum_register("Color", &s_Color_enumInfo);
 
-    il2cpp::il2cpp_typeinfo_register(&Program_typeinfo);
     il2cpp::il2cpp_typeinfo_register(&Color_typeinfo);
+    il2cpp::il2cpp_typeinfo_register(&Program_typeinfo);
     il2cpp::il2cpp_typeinfo_register(&Cloneable_typeinfo);
 }
 
