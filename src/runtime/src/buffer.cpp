@@ -37,6 +37,7 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_exception.h"
+#include "il2cpp_exception_ext.h" // il2cpp_throw_index_out_of_range_exception (GetByte)
 
 #include <cstdint>
 #include <cstring>
@@ -147,6 +148,30 @@ int32_t il2cpp_buffer_byte_length(Il2CppObject* arr)
         il2cpp_throw_new(kOverflowChain, "Array is too large.");
     }
     return static_cast<int32_t>(bytes);
+}
+
+//------------------------------------------------------------------------------
+// icall_buffer_get_byte -- Buffer.GetByte(Array, int) (see the header
+//   contract). Reads ONE payload byte at the raw-data offset 'index'
+//   regardless of the array's element type (the .NET primitive-array view of
+//   an SZArray's raw payload). Validation: null/not-array, reference-element
+//   array (ArgumentException), index outside [0, byteLength) ->
+//   IndexOutOfRangeException.
+//------------------------------------------------------------------------------
+int32_t icall_buffer_get_byte(Il2CppObject* arr, int32_t index)
+{
+    Il2CppArray* a = RequireArray(arr);
+    if (a->isRefElem)
+    {
+        il2cpp_throw_new(kArgumentChain, "Array is not a primitive type.");
+    }
+    const int64_t bytes =
+        static_cast<int64_t>(a->length) * static_cast<int64_t>(a->elemSize);
+    if (index < 0 || static_cast<int64_t>(index) >= bytes)
+    {
+        il2cpp_throw_index_out_of_range_exception(nullptr);
+    }
+    return a->data[index];
 }
 
 //------------------------------------------------------------------------------

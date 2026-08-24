@@ -51,8 +51,14 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_buffer_internal_block_copy", 5, false, false, false,
                     new[] { "", "i", "", "i", "i" });
             case "GetByte":
+                // D5 cov2: Buffer.GetByte(Array, int) -- int32 carrier byte
+                // read at the raw-data offset (icall_buffer_get_byte).
+                if (ps.Length == 2)
+                    return I("il2cpp::runtime::icall_buffer_get_byte", 2, true, false, false,
+                        new[] { "", "i" });
+                throw new NotSupportedException($"GetByte with {ps.Length} params is not the 2-arg (Array, int) form");
             case "SetByte":
-                throw new NotSupportedException("no runtime icall (runtime surface: block_copy/byte_length/memory_copy only)");
+                throw new NotSupportedException("no runtime icall (runtime surface: block_copy/byte_length/get_byte/memory_copy only)");
             default: return null;
         }
     }

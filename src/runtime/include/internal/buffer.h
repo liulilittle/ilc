@@ -78,6 +78,12 @@ void il2cpp_buffer_block_copy(Il2CppObject* src, int32_t srcOffset,
 // non-primitive arrays); a byte length beyond int32 throws OverflowException.
 int32_t il2cpp_buffer_byte_length(Il2CppObject* arr);
 
+// icall_buffer_get_byte -- Buffer.GetByte(Array, int) -> the array's payload
+// byte at raw-data offset 'index' (int32 carrier), with the net48 validation
+// (see buffer.cpp). Defined here because the MethodMap Buffer surface is
+// buffer.h (il2cpp_buffer_*); the GetByte/SetByte LOUD note is superseded.
+int32_t icall_buffer_get_byte(Il2CppObject* arr, int32_t index);
+
 // Buffer.MemoryCopy (raw pointer form): copy 'count' raw bytes from 'src' to
 // 'dst' with memmove overlap safety (forward and backward overlap both behave
 // as if a temporary buffer were used). No bounds checking -- this is the raw
