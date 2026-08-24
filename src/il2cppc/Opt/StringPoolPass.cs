@@ -182,12 +182,47 @@ public static class StringPoolPass
     /// fill content equals what per-site intern_literal calls would have
     /// seen (semantics: the future ldstr rewrite must be transparent).
     /// </summary>
-    public static string EscapeCppLiteral(string s) => s
-        .Replace("\\", "\\\\")
-        .Replace("\"", "\\\"")
-        .Replace("\n", "\\n")
-        .Replace("\r", "\\r")
-        .Replace("\t", "\\t");
+    public static string EscapeCppLiteral(string s)
+    {
+        // D5 pcprobe (charset-proof literals): beyond the classic 5 escapes,
+        // every non-ASCII (and non-printable) char is emitted as its UTF-8
+        // bytes in 3-DIGIT OCTAL escapes. Raw >=0x80 bytes in the generated
+        // header were being TRANSCODED by the host compiler (MinGW on a GBK
+        // locale reads the UTF-8 source as GBK: the two bytes of U+00A4
+        // decoded as one Han char), corrupting every pooled non-ASCII
+        // literal. Octal escapes survive any input/exec charset pair; exactly
+        // three digits each means a following literal digit can never be
+        // absorbed into the escape (the \xNN hazard).
+        var sb = new System.Text.StringBuilder(s.Length + 16);
+        foreach (var ch in s)
+        {
+            switch (ch)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '"': sb.Append("\\\""); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default:
+                    if (ch >= 0x20 && ch < 0x7F)
+                    {
+                        sb.Append(ch);
+                    }
+                    else
+                    {
+                        foreach (var b in System.Text.Encoding.UTF8.GetBytes(ch.ToString()))
+                        {
+                            sb.Append('\\');
+                            sb.Append((char)('0' + ((b >> 6) & 7)));
+                            sb.Append((char)('0' + ((b >> 3) & 7)));
+                            sb.Append((char)('0' + (b & 7)));
+                        }
+                    }
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
 
     /// <summary>Render the pool data file contents (empty pool -> empty string).</summary>
     public static string RenderPoolHeader(StringPool pool)
