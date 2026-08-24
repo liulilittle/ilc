@@ -242,7 +242,7 @@ int main()
         std::atomic<bool> sharedFailed{false};
         for (int t = 0; t < kThreads; ++t)
         {
-            workers.emplace_back([t, &pre, &sharedFailed, expectedShared] {
+            workers.emplace_back([t, kPerThread, &pre, &sharedFailed, expectedShared] {
                 const int base = t * kPerThread;
                 for (int i = 0; i < kPerThread; ++i)
                 {

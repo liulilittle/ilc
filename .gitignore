@@ -89,3 +89,6 @@ tests/cases/*/gen5/
 *_backup_*/
 .opencode-backup-cons/
 cmpgrid.txt
+
+# scratch probes (tmp/ is throwaway analysis scratch, not source)
+/tmp/
