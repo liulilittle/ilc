@@ -87,12 +87,17 @@ public class MethodMapTestsCollections
     }
 
     [Fact]
-    public void Resolve_IEnumerableGetEnumerator_NonSnapshot_FallsThrough()
+    public void Resolve_IEnumerableGetEnumerator_NonSnapshot_MapsToEnumDispatcher()
     {
+        // Non-generic IEnumerable::GetEnumerator with a TRACKED non-snapshot
+        // receiver (a user enumerable / yield state machine, tracked via the
+        // user method's ReturnTypeName) resolves to the runtime enum
+        // dispatcher. A null receiver is the FIRST-PASS deferral (generated
+        // name) -- the caller re-resolves with the tracked hint.
         var resolved = ResolveInterface("System.Collections.IEnumerable", "GetEnumerator",
-            Blob(0x20, 0x00, 0x1C), null);
+            Blob(0x20, 0x00, 0x1C), "System.Collections.Generic.IEnumerator`1");
 
-        Assert.StartsWith("System_Collections_IEnumerable_GetEnumerator_", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_ienum_get_enumerator_nongeneric", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -115,29 +120,34 @@ public class MethodMapTestsCollections
     }
 
     [Fact]
-    public void Resolve_IEnumeratorMember_NonEnumeratorReceiver_FallsThrough()
+    public void Resolve_IEnumeratorMember_NonEnumeratorReceiver_MapsToEnumDispatcher()
     {
+        // A TRACKED non-snapshot IEnumerator receiver resolves MoveNext to the
+        // runtime enum dispatcher. Null receiver = first-pass deferral (the
+        // caller re-resolves with the tracked hint).
         var resolved = ResolveInterface("System.Collections.IEnumerator", "MoveNext",
-            Blob(0x20, 0x00, 0x02), null);
+            Blob(0x20, 0x00, 0x02), "System.Collections.Generic.IEnumerator`1");
 
-        Assert.StartsWith("System_Collections_IEnumerator_MoveNext_", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_ienum_move_next", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
     // IDisposable::Dispose on the enumerator (the foreach finally) -> no-op
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_IDisposableDispose_UntrackedReceiver_MapsToEnumeratorDispose()
+    public void Resolve_IDisposableDispose_UntrackedReceiver_MapsToIenumDispose()
     {
         // The foreach-finally Dispose call's receiver is the `isinst
         // System.IDisposable` result -- untracked (receiverType null, arg0Type
-        // null). It must map to the no-op enumerator dispose so the symbol
-        // links (the enumerator is NOT IDisposable, so the isinst guard never
-        // reaches it at runtime).
+        // null). It must map to the null-safe no-op enum dispose so the symbol
+        // links (dispose dispatches the v() slot when present; any receiver is
+        // safe -- the isinst guard never reaches it otherwise).
         var resolved = ResolveInterface("System.IDisposable", "Dispose",
             Blob(0x20, 0x00, 0x01), null, arg0Type: null);
 
-        Assert.Equal("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_ienum_dispose", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.False(resolved.ReturnsValue);
         Assert.Equal(0, resolved.ParamCount);
@@ -152,6 +162,57 @@ public class MethodMapTestsCollections
             Blob(0x20, 0x00, 0x01), "System.IO.StreamWriter");
 
         Assert.Equal("il2cpp::runtime::icall_stream_close", resolved.CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // P25c: the GENERIC iterator-interface surface (yieldprobe / enprobe).
+    // A foreach over a user-enumerable / yield-iterator emits callvirts whose
+    // declaring owner is the BCL interface (no translated TypeDef exists).
+    // These map to the runtime interface dispatch entries (il2cpp_ienum_*,
+    // arraysort.h) -- receiver-agnostic, resolved via the receiver's vtable
+    // slot at runtime. The synthetic PE parent is a TypeReference (instName
+    // null), so the generic get_Current carrier defaults to the i4 slot.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_GenericIEnumerableGetEnumerator_MapsToEnumDispatcher()
+    {
+        var resolved = ResolveInterface("System.Collections.Generic.IEnumerable`1", "GetEnumerator",
+            Blob(0x20, 0x00, 0x1C), null);
+
+        Assert.Equal("il2cpp::il2cpp_ienum_get_enumerator", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_GenericIEnumeratorGetCurrent_MapsToI4Carrier()
+    {
+        var resolved = ResolveInterface("System.Collections.Generic.IEnumerator`1", "get_Current",
+            Blob(0x20, 0x00, 0x08), null);
+
+        Assert.Equal("il2cpp::il2cpp_ienum_get_current_i4", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_GenericIEnumeratorMoveNextResetDispose_MapsToEnumDispatcher()
+    {
+        var moveNext = ResolveInterface("System.Collections.Generic.IEnumerator`1", "MoveNext",
+            Blob(0x20, 0x00, 0x02), null);
+        Assert.Equal("il2cpp::il2cpp_ienum_move_next", moveNext.CppName);
+
+        var reset = ResolveInterface("System.Collections.Generic.IEnumerator`1", "Reset",
+            Blob(0x20, 0x00, 0x01), null);
+        Assert.Equal("il2cpp::il2cpp_ienum_reset", reset.CppName);
+
+        var dispose = ResolveInterface("System.Collections.Generic.IEnumerator`1", "Dispose",
+            Blob(0x20, 0x00, 0x01), null);
+        Assert.Equal("il2cpp::il2cpp_ienum_dispose", dispose.CppName);
     }
 
     //--------------------------------------------------------------------------

@@ -1324,5 +1324,347 @@ void il2cpp_array_sort_ref_comparison(Il2CppArray* arr, Il2CppObject* comparison
     }
 }
 
+//------------------------------------------------------------------------------
+// P25c enumerator-interface dispatch (yield iterators / user IEnumerator<T> /
+// IEnumerable<T>). See arraysort.h for the full contract.
+//
+// The dispatchers resolve the receiver's vtable slot for a BCL iterator
+// interface member through the typeinfo registry JOINED BY THE KLASS POINTER
+// (il2cpp_typeinfo_lookup_by_class -- immune to the nested-type
+// short/full-name mismatch that breaks the name lookup). The typeinfo method
+// NAME for an explicit interface implementation carries the interface-qualified
+// metadata name ("System.Collections.Generic.IEnumerator<System.Int32>.
+// get_Current") while an implicit implementation carries the plain name
+// ("MoveNext"); both share the member-name SUFFIX. The two get_Current /
+// GetEnumerator slots (generic vs non-generic) are disambiguated by the
+// SIGNATURE and the stored name's generic/non-generic marker.
+//------------------------------------------------------------------------------
+
+namespace {
+
+// The enumerator-interface member selector for slot resolution.
+enum IEnumMemberKind
+{
+    kIEnumMoveNext,        // "MoveNext" -- bool
+    kIEnumGetCurrentI4,    // generic IEnumerator<T>.get_Current, int32-slot T
+    kIEnumGetCurrentI8,    // generic IEnumerator<T>.get_Current, int64 T
+    kIEnumGetCurrentD,     // generic IEnumerator<T>.get_Current, double/float T
+    kIEnumGetCurrentRef,   // generic IEnumerator<T>.get_Current, ref-typed T
+    kIEnumGetCurrentObj,   // non-generic IEnumerator.get_Current (object)
+    kIEnumGetEnumerator,   // generic IEnumerable<T>.GetEnumerator
+    kIEnumGetEnumeratorObj,// non-generic IEnumerable.GetEnumerator
+    kIEnumReset,           // IEnumerator.Reset
+    kIEnumDispose,         // System.IDisposable.Dispose
+};
+
+// Match the stored typeinfo method name against the member's SHORT name. An
+// explicit interface impl stores "System.Collections.Generic.IEnumerator<System.Int32>.
+// get_Current" (the interface-qualified metadata name); an implicit impl stores
+// "MoveNext". Both share the "." + member suffix; the plain name matches
+// exactly. A '.' boundary guard prevents "ResetAsync"-style false positives.
+bool IEnumNameSuffixMatches(const char* stored, const char* member)
+{
+    if (stored == nullptr || member == nullptr)
+    {
+        return false;
+    }
+    const size_t slen = std::strlen(stored);
+    const size_t mlen = std::strlen(member);
+    if (mlen > slen)
+    {
+        return false;
+    }
+    const char* tail = stored + (slen - mlen);
+    if (std::strcmp(tail, member) != 0)
+    {
+        return false;
+    }
+    return mlen == 0 || slen == mlen || tail[-1] == '.';
+}
+
+// True when the stored signature (MethodSignatureCoder encoding, e.g. "i()" /
+// "b()" / "r:System.Object()") satisfies the member's carrier requirement.
+bool IEnumSigMatches(IEnumMemberKind kind, const char* sig)
+{
+    if (sig == nullptr)
+    {
+        return false;
+    }
+    switch (kind)
+    {
+    case kIEnumMoveNext:
+        return std::strncmp(sig, "b", 1) == 0 && sig[1] == '(';
+    case kIEnumGetCurrentI4:
+        // int32-slot value primitives (M1): i b c i1 u1 i2 u2 n. Two-char
+        // codes checked first so "i1(" isn't misread as "i(".
+        return std::strncmp(sig, "i1", 2) == 0 || std::strncmp(sig, "u1", 2) == 0 ||
+            std::strncmp(sig, "i2", 2) == 0 || std::strncmp(sig, "u2", 2) == 0 ||
+            std::strncmp(sig, "i(", 2) == 0 || std::strncmp(sig, "b(", 2) == 0 ||
+            std::strncmp(sig, "c(", 2) == 0 || std::strncmp(sig, "n(", 2) == 0;
+    case kIEnumGetCurrentI8:
+        return std::strncmp(sig, "l", 1) == 0 || std::strncmp(sig, "q", 1) == 0;
+    case kIEnumGetCurrentD:
+        return std::strncmp(sig, "d", 1) == 0 || std::strncmp(sig, "f", 1) == 0;
+    case kIEnumGetCurrentRef:
+        // The generic IEnumerator<T>.get_Current for a reference-typed T. The
+        // non-generic IEnumerator.get_Current slot's name is the explicit
+        // "System.Collections.IEnumerator.get_Current" (impossible for a
+        // generic interface impl); it is excluded by name below. T=object
+        // produces the same "r:System.Object()" signature as the non-generic
+        // slot, so the name check is the discriminator there.
+        return std::strncmp(sig, "r:", 2) == 0 && sig[2] != '(';
+    case kIEnumGetCurrentObj:
+        // The NON-generic object-returning get_Current slot. Its name is the
+        // explicit "System.Collections.IEnumerator.get_Current" on a class
+        // that also implements IEnumerator<T>; a class implementing ONLY the
+        // non-generic IEnumerator carries the plain "get_Current" name.
+        return std::strcmp(sig, "r:System.Object()") == 0;
+    case kIEnumGetEnumerator:
+        // Generic IEnumerable<T>.GetEnumerator returns IEnumerator<T>; the
+        // signature encodes the instantiation. A class that implements the
+        // generic interface IMPLICITLY stores the PLAIN name "GetEnumerator"
+        // with this same signature (MyEnum2) -- matched by signature alone.
+        // (The prefix "r:System.Collections.Generic.IEnumerator`1" is 42 chars.)
+        return std::strncmp(sig, "r:System.Collections.Generic.IEnumerator`1", 42) == 0;
+    case kIEnumGetEnumeratorObj:
+        // Non-generic IEnumerable.GetEnumerator returns plain IEnumerator.
+        return std::strcmp(sig, "r:System.Collections.IEnumerator()") == 0;
+    case kIEnumReset:
+    case kIEnumDispose:
+        return std::strncmp(sig, "v", 1) == 0 && sig[1] == '(';
+    }
+    return false;
+}
+
+// True when the stored name is VALID for the member kind. The generic
+// get_Current / GetEnumerator interfaces can be implemented implicitly (the
+// metadata name stays the plain "GetEnumerator"); the sole name-based
+// discriminator needed is rejecting the EXACT non-generic interface-qualified
+// "System.Collections.IEnumerator.get_Current" for the reference carrier
+// (T=object collides with it on signature -- the name decides).
+bool IEnumNameAcceptable(IEnumMemberKind kind, const char* stored)
+{
+    if (stored == nullptr)
+    {
+        return false;
+    }
+    switch (kind)
+    {
+    case kIEnumGetCurrentRef:
+        return std::strcmp(stored, "System.Collections.IEnumerator.get_Current") != 0;
+    case kIEnumGetCurrentObj:
+        // The non-generic object get_Current either carries the explicit
+        // interface-qualified name, or (a class implementing ONLY non-generic
+        // IEnumerator) the plain "get_Current". A generic interface impl can
+        // never carry the exact non-generic interface-qualified name.
+        return std::strcmp(stored, "System.Collections.IEnumerator.get_Current") == 0
+            || std::strcmp(stored, "get_Current") == 0;
+    default:
+        return true;
+    }
+}
+
+} // namespace
+
+// Resolve the receiver's vtable slot for the given enumerator-interface member.
+// Returns -1 when the receiver or its type is null, the typeinfo is missing,
+// or no reflected method matches the member name and carrier.
+int32_t FindIEnumSlot(Il2CppObject* receiver, IEnumMemberKind kind, const char* member)
+{
+    if (receiver == nullptr || receiver->klass == nullptr)
+    {
+        return -1;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(receiver->klass);
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo* m = &scan->methods[i];
+            if (m->virtualSlot < 0)
+            {
+                continue; // unreflected/non-virtual entries (property accessors)
+            }
+            if (!IEnumNameSuffixMatches(m->name, member))
+            {
+                continue;
+            }
+            if (!IEnumNameAcceptable(kind, m->name))
+            {
+                continue;
+            }
+            if (!IEnumSigMatches(kind, m->signature))
+            {
+                continue;
+            }
+            return m->virtualSlot;
+        }
+    }
+    return -1;
+}
+
+// The C ABI of the iterator-member vtable slots (this-style receiver).
+using IEnumFnVoid = void (*)(Il2CppObject*);
+using IEnumFnBool = int32_t (*)(Il2CppObject*);
+using IEnumFnI32 = int32_t (*)(Il2CppObject*);
+using IEnumFnI64 = int64_t (*)(Il2CppObject*);
+using IEnumFnD = double (*)(Il2CppObject*);
+using IEnumFnRef = Il2CppObject* (*)(Il2CppObject*);
+
+// Validate the dispatch target: the receiver's klass has a reflected vtable
+// and the resolved slot is in range; otherwise throw NotSupportedException
+// (the D-ICMP-1 contract -- the member must exist on the receiver's type).
+void* RequireIEnumVtableSlot(Il2CppObject* receiver, int32_t slot, const char*)
+{
+    if (slot < 0 || receiver->klass->vtable == nullptr ||
+        slot >= receiver->klass->vtableSize)
+    {
+        il2cpp_throw_not_supported_exception(
+            "IEnumerator interface dispatch: the receiver type has no reflected "
+            "virtual member for the requested iterator interface method.");
+        return nullptr; // unreachable
+    }
+    return receiver->klass->vtable[slot];
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_ienum_move_next -- IEnumerator.MoveNext (bool, int32 slot).
+//------------------------------------------------------------------------------
+int32_t il2cpp_ienum_move_next(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumMoveNext, "MoveNext");
+    return reinterpret_cast<IEnumFnBool>(
+        RequireIEnumVtableSlot(receiver, slot, "MoveNext"))(receiver);
+}
+
+//------------------------------------------------------------------------------
+// The get_Current carriers (generic IEnumerator<T>.get_Current).
+//------------------------------------------------------------------------------
+int32_t il2cpp_ienum_get_current_i4(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentI4, "get_Current");
+    return reinterpret_cast<IEnumFnI32>(
+        RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
+}
+
+int64_t il2cpp_ienum_get_current_i8(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentI8, "get_Current");
+    return reinterpret_cast<IEnumFnI64>(
+        RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
+}
+
+double il2cpp_ienum_get_current_d(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentD, "get_Current");
+    return reinterpret_cast<IEnumFnD>(
+        RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
+}
+
+Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentRef, "get_Current");
+    return reinterpret_cast<IEnumFnRef>(
+        RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_ienum_get_current_obj -- the NON-generic IEnumerator.get_Current
+// (always returns System.Object / r:System.Object()).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_ienum_get_current_obj(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentObj, "get_Current");
+    return reinterpret_cast<IEnumFnRef>(
+        RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_ienum_get_enumerator -- the GENERIC IEnumerable<T>.GetEnumerator;
+// il2cpp_ienum_get_enumerator_nongeneric -- the non-generic
+// IEnumerable.GetEnumerator. The two are distinct vtable slots on the
+// compiler-generated state machine (generic slot 1 vs non-generic slot 3).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_ienum_get_enumerator(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumerator, "GetEnumerator");
+    return reinterpret_cast<IEnumFnRef>(
+        RequireIEnumVtableSlot(receiver, slot, "GetEnumerator"))(receiver);
+}
+
+Il2CppObject* il2cpp_ienum_get_enumerator_nongeneric(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumeratorObj, "GetEnumerator");
+    return reinterpret_cast<IEnumFnRef>(
+        RequireIEnumVtableSlot(receiver, slot, "GetEnumerator"))(receiver);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_ienum_reset -- IEnumerator.Reset; il2cpp_ienum_dispose --
+// System.IDisposable.Dispose. Dispose comes from the foreach `isinst
+// System.IDisposable` guard; a receiver with NO reflected Dispose slot (e.g. a
+// SortedList snapshot enumerator -- not IDisposable, the guard never fires) is
+// a no-op, not a throw.
+//------------------------------------------------------------------------------
+void il2cpp_ienum_reset(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumReset, "Reset");
+    reinterpret_cast<IEnumFnVoid>(
+        RequireIEnumVtableSlot(receiver, slot, "Reset"))(receiver);
+}
+
+void il2cpp_ienum_dispose(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        return; // null-safe: the isinst guard's null branch never calls in
+                // (mirrors the D-SL-3 sortedlist no-op contract).
+    }
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumDispose, "Dispose");
+    if (slot < 0)
+    {
+        return; // no reflected Dispose -- snapshot/BCL enumerators are not
+                // IDisposable and the caller's guard already skipped them.
+    }
+    reinterpret_cast<IEnumFnVoid>(
+        RequireIEnumVtableSlot(receiver, slot, "Dispose"))(receiver);
+}
+
 } // namespace il2cpp
 

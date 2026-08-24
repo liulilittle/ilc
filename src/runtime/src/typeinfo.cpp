@@ -172,6 +172,33 @@ const Il2CppTypeInfo* il2cpp_typeinfo_lookup(const char* name)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_typeinfo_lookup_by_class -- join a class descriptor to its typeinfo
+// by the registered klass POINTER (P25c). The name join is broken for nested /
+// compiler-generated types: the typeinfo registers the full "+"-chained
+// reflection name ("Cases.YieldProbe+<Range>d__0") while the class descriptor
+// carries the SHORT name ("<Range>d__0"). The typeinfo struct already holds
+// the klass back-pointer (emitted by the transpiler), so a pointer scan is
+// exact, order-independent and immune to name-format drift. Returns nullptr
+// when the class is not reflected (BCL / boxed / snapshot runtime objects).
+//------------------------------------------------------------------------------
+const Il2CppTypeInfo* il2cpp_typeinfo_lookup_by_class(const Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        return nullptr;
+    }
+    for (int i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info->klass == klass)
+        {
+            return info;
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_type_get_property -- simplified Type.GetProperty(name) primitive.
 //
 // net48 (probe-verified): a null info (null Type receiver) throws

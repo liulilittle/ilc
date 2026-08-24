@@ -354,7 +354,7 @@ public static partial class MethodRefResolver
         var m = md.GetMethodDefinition(handle);
         var name = md.GetString(m.Name);
         var ownerFullName = md.GetFullName(m.GetDeclaringType());
-        var (paramCount, returnType, paramTypes, _) = MethodSignatureCoder.Decode(md, m.Signature);
+        var (paramCount, returnType, paramTypes, returnTypeName) = MethodSignatureCoder.Decode(md, m.Signature);
         var isInstance = (m.Attributes & System.Reflection.MethodAttributes.Static) == 0;
         // M4 Task 1: P/Invoke -- the C++ name is the native entry symbol
         // (extern "C" declaration emitted by the transpiler).
@@ -406,7 +406,37 @@ public static partial class MethodRefResolver
             // "ptr" like the P/Invoke path (the caller temp is then declared
             // intptr_t -- a null ResultKind falls to the default int32_t and
             // truncates the 64-bit handle on x64).
-            ResultKind: returnType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null);
+            ResultKind: returnType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
+            // P25c (enprobe): a USER GetEnumerator returning the generic
+            // iterator interface must carry the receiver hint -- the caller
+            // stores the result into a local and the foreach MOVENEXT then
+            // resolves through the NON-GENERIC System.Collections.IEnumerator
+            // owner with that local as receiver. Without the ReturnTypeName the
+            // receiver stays untracked, the receiver-hint re-resolve never
+            // fires, and MoveNext falls to the generated-name path (undefined
+            // symbol). The definition name (generics stripped) is what the
+            // IEnumerator owner arm matches against.
+            ReturnTypeName: IteratorInterfaceDefName(returnTypeName));
+    }
+
+    // P25c (yieldprobe/enprobe): a user method (e.g. GetEnumerator) whose
+    // return type decodes to the generic iterator interface carries the
+    // receiver hint for the foreach MoveNext re-resolve. The encoded name from
+    // MethodSignatureCoder is "r:System.Collections.Generic.IEnumerator`1<i>"
+    // (generics retained); strip the "r:" prefix and the "<...>" argument list
+    // to the plain DEFINITION name ("System.Collections.Generic.IEnumerator`1")
+    // -- the name the IEnumerator-owner arm + enum receiver dispatch matches.
+    private static string? IteratorInterfaceDefName(string? encodedReturnTypeName)
+    {
+        if (encodedReturnTypeName == null) return null;
+        var bare = encodedReturnTypeName.StartsWith("r:", StringComparison.Ordinal)
+            ? encodedReturnTypeName[2..]
+            : encodedReturnTypeName;
+        var lt = bare.IndexOf('<');
+        var def = lt >= 0 ? bare[..lt] : bare;
+        return def is "System.Collections.Generic.IEnumerator`1" or "System.Collections.IEnumerator"
+            ? def
+            : null;
     }
 
     //--------------------------------------------------------------------------
@@ -817,6 +847,17 @@ public static partial class MethodRefResolver
             // IEnumerable<T>.GetEnumerator (via the interface owner) also
             // dispatches here through the receiver hint.
             case "System.Collections.Generic.List`1+Enumerator": return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // P25c (yieldprobe/enprobe): the GENERIC iterator interfaces. A
+            // foreach over a user-enumerable / yield-iterator emits callvirts
+            // whose declaring owner is this interface (the compiler never
+            // routes a state machine's members through a translated TypeDef --
+            // the nested compiler-generated type has none). The interface has
+            // no mapping of its own, so the member lowers to the runtime
+            // interface dispatch (TryMapEnumIface); instName carries the
+            // generic INSTANTIATION name and selects the get_Current carrier.
+            case "System.Collections.Generic.IEnumerable`1":
+            case "System.Collections.Generic.IEnumerator`1":
+                return TryMapEnumIface(owner, name, count, instName);
             case "System.Collections.Generic.Dictionary`2": return TryMapDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // hset-b23 (D-HSET-1): HashSet<string> -- the string AOT expansion
             // (MethodMap.HashSet.cs, runtime hashset.h -- a set-of-unique-
@@ -899,7 +940,16 @@ public static partial class MethodRefResolver
                     if (receiverType == "System.Collections.Generic.List`1.Enumerator")
                         return I("il2cpp::il2cpp_list_i4_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
                     if (receiverType == null && arg0Type == null)
-                        return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true);
+                        // P25c: the untracked-receiver IDisposable.Dispose (the
+                        // foreach isinst guard over a user enumerator / yield
+                        // state machine). Rerouted to the enumerator dispatch:
+                        // il2cpp_ienum_dispose is null-safe AND a no-op when
+                        // the receiver has no reflected Dispose slot, so the
+                        // SortedList snapshot enumerator (not IDisposable, the
+                        // isinst guard's null branch never calls) keeps its
+                        // no-op semantics, while a user enumerator with a real
+                        // Dispose/state-machine slot RUNS it.
+                        return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true);
                 }
                 return null;
             case "System.Collections.ICollection":
@@ -910,7 +960,19 @@ public static partial class MethodRefResolver
                 // (MethodMap.Collections.cs -- dispatches on the receiver's
                 // tracked pseudo-type: get_Keys/get_Values ReturnTypeName and
                 // the get_enumerator result).
-                return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                // P25c (yieldprobe/enprobe): a user IEnumerator<int> receiver
+                // gets no snapshot branch (TryMapCollectionInterface returns
+                // null), so the NON-GENERIC interface members fall through to
+                // the runtime interface dispatch too (MoveNext resets the
+                // state machine; get_Current returns the boxed object).
+                // NOTE: only when a receiver is actually TRACKED. A null
+                // receiver is the FIRST-PASS deferral -- handing il2cpp_ienum_*
+                // back then would steal the receiver-aware re-resolve that the
+                // SortedList snapshot receivers rely on (the TextReader defer
+                // pattern): the snapshot KeyList/ValueList receiverType arrives
+                // AFTER the first pass and selects il2cpp_sortedlist_snapshot_*.
+                return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                    ?? (receiverType != null ? TryMapEnumIface(owner, name, count, instName) : null);
             case "System.IO.StringReader":
             case "System.IO.StringWriter":
             case "System.IO.TextReader":
@@ -1170,6 +1232,92 @@ public static partial class MethodRefResolver
             ? "il2cpp::il2cpp_icomparable_compare_to"
             : "il2cpp::il2cpp_icomparer_compare";
         return I(cpp, count, true, false, true);
+    }
+
+    //--------------------------------------------------------------------------
+    // TryMapEnumIface -- P25c (yieldprobe/enprobe): lower a callvirt on the
+    // BCL iterator interfaces -- the GENERIC IEnumerable<T>/IEnumerator<T> and
+    // the non-generic IEnumerable/IEnumerator -- to the runtime interface
+    // dispatch entries (il2cpp_ienum_*, arraysort.h). A foreach over a user-
+    // written enumerable (or a yield-returning iterator, whose compiler
+    // state machine is a nested compiler-generated type) emits callvirts whose
+    // declaring owner is one of these interfaces; the interfaces have no
+    // translated TypeDef, so the runtime resolves the receiver's member vtable
+    // slot through the typeinfo registry JOINED BY THE RECEIVER'S KLASS POINTER
+    // and dispatches through the receiver's vtable (receiver-agnostic -- the
+    // D-ICMP-1 pattern, so no receiver hint is required).
+    //
+    //   owner    the declaring interface full name
+    //   name     the interface member name
+    //   count    the explicit parameter count (every iterator member is 0-arg)
+    //   instName the generic INSTANTIATION name for a TypeSpec parent
+    //            ("System.Collections.Generic.IEnumerator`1_int") -- selects the
+    //            get_Current CARRIER: the runtime keeps one entry per C++ result
+    //            slot (i4/i8/d/ref) and the carrier must match the T instantiation
+    //            so the value lands in the right temp slot.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapEnumIface(string owner, string name, int count, string? instName)
+    {
+        if (count != 0) return null;
+        switch (owner)
+        {
+            case "System.Collections.Generic.IEnumerable`1":
+                if (name == "GetEnumerator")
+                    return I("il2cpp::il2cpp_ienum_get_enumerator", 0, true, true, true,
+                        returnTypeName: "System.Collections.Generic.IEnumerator`1");
+                return null;
+            case "System.Collections.Generic.IEnumerator`1":
+                switch (name)
+                {
+                    case "get_Current":
+                        // The generic IEnumerator<T>.get_Current carrier from
+                        // the T instantiation (the Task instName pattern).
+                        if (instName?.Contains("_valuetype", StringComparison.Ordinal) == true)
+                            throw new NotSupportedException(
+                                $"IEnumerator<T>.get_Current for VALUETYPE T (instName '{instName}') is not built -- " +
+                                "the 16-byte struct carriers are out of scope; only the primitive/ref carriers exist");
+                        if (instName?.Contains("_long", StringComparison.Ordinal) == true
+                            || instName?.Contains("_ulong", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_i8", 0, true, false, true, resultKind: "l");
+                        if (instName?.Contains("_double", StringComparison.Ordinal) == true
+                            || instName?.Contains("_float", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_d", 0, true, false, true, resultKind: "d");
+                        if (instName?.Contains("_string", StringComparison.Ordinal) == true
+                            || instName?.Contains("_object", StringComparison.Ordinal) == true
+                            || instName?.Contains("_class", StringComparison.Ordinal) == true
+                            || instName?.Contains("_array", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true);
+                        // int32-slot primitives (int/bool/char/sbyte/byte/
+                        // short/ushort/uint) and unknown instantiations.
+                        return I("il2cpp::il2cpp_ienum_get_current_i4", 0, true, false, true);
+                    case "MoveNext":
+                        return I("il2cpp::il2cpp_ienum_move_next", 0, true, false, true);
+                    case "Reset":
+                        return I("il2cpp::il2cpp_ienum_reset", 0, false, false, true);
+                    case "Dispose":
+                        return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true);
+                }
+                return null;
+            case "System.Collections.IEnumerable":
+                if (name == "GetEnumerator")
+                    return I("il2cpp::il2cpp_ienum_get_enumerator_nongeneric", 0, true, true, true,
+                        returnTypeName: "System.Collections.IEnumerator");
+                return null;
+            case "System.Collections.IEnumerator":
+                switch (name)
+                {
+                    case "get_Current":
+                        return I("il2cpp::il2cpp_ienum_get_current_obj", 0, true, true, true);
+                    case "MoveNext":
+                        return I("il2cpp::il2cpp_ienum_move_next", 0, true, false, true);
+                    case "Reset":
+                        return I("il2cpp::il2cpp_ienum_reset", 0, false, false, true);
+                    case "Dispose":
+                        return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true);
+                }
+                return null;
+        }
+        return null;
     }
 
     private static ResolvedMethod I(string cpp, int pc, bool rv, bool rr, bool inst,

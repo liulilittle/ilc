@@ -249,4 +249,57 @@ void il2cpp_array_sort_icomparer(Il2CppArray* arr, Il2CppObject* comparer);
 void il2cpp_array_sort_int32_comparison(Il2CppArray* arr, Il2CppObject* comparison);
 void il2cpp_array_sort_ref_comparison(Il2CppArray* arr, Il2CppObject* comparison);
 
+//------------------------------------------------------------------------------
+// P25c enumerator-interface dispatch (yield iterators / user IEnumerator<T> /
+// IEnumerable<T>). A foreach over a USER-enumerable / yield-returning iterator
+// compiles to callvirts whose declaring owner is a BCL interface
+// (System.Collections.Generic.IEnumerable`1 / IEnumerator`1 or the non-generic
+// IEnumerable / IEnumerator). Those owners have no translated TypeDef, so the
+// transpiler lowers each member call to one of these runtime entries
+// (BclResolveCore -> TryMapEnumIface, the D-ICMP-1 dispatch pattern). At
+// runtime the receiver object's vtable slot for the interface member is
+// resolved through the typeinfo registry JOINED BY THE KLASS POINTER
+// (il2cpp_typeinfo_lookup_by_class -- immune to the nested-type
+// short/full-name mismatch) and dispatched through the receiver's vtable.
+//
+// Contract (common to all entries): a null receiver throws
+// NullReferenceException; a receiver whose reflected typeinfo has no virtual
+// slot matching the member's NAME AND SIGNATURE throws NotSupportedException.
+// get/Current selections are SIGNATURE-AWARE: a compiler state machine --
+// and a user IEnumerator<T> -- implement BOTH `IEnumerator<T>.get_Current`
+// (e.g. "i()") and `IEnumerator.get_Current` ("r:System.Object()"), so the
+// entries pick the slot whose stored signature matches the requested carrier
+// (the dispatcher-level carrier is the transpiler's instName decision),
+// never a name-only first match.
+
+// IEnumerator.MoveNext -- returns the enumerator's bool (int32 slot).
+int32_t il2cpp_ienum_move_next(Il2CppObject* receiver);
+
+// IEnumerator<T>/IEnumerable<T>.get_Current -- per-carrier C++ return types.
+int32_t     il2cpp_ienum_get_current_i4(Il2CppObject* receiver);
+int64_t     il2cpp_ienum_get_current_i8(Il2CppObject* receiver);
+double      il2cpp_ienum_get_current_d(Il2CppObject* receiver);
+Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver);
+
+// The NON-generic IEnumerator.get_Current -- always the object-returning slot
+// ("r:System.Object()"). Distinct from il2cpp_ienum_get_current_ref, which
+// targets the generic IEnumerator<T>.get_Current carrier slot.
+Il2CppObject* il2cpp_ienum_get_current_obj(Il2CppObject* receiver);
+
+// IEnumerable<T>.GetEnumerator (and the non-generic IEnumerable/IEnumerator
+// pair below) -- the generic interface entry dispatches to the generic
+// GetEnumerator-vtable slot; the non-generic pair (owner is the non-generic
+// interface) dispatches to the non-generic slot. They differ on the state
+// machine by vtable position (generic slot 1 vs non-generic slot 3 in
+// _Range_d__0), so the two entries are NOT interchangeable.
+Il2CppObject* il2cpp_ienum_get_enumerator(Il2CppObject* receiver);
+Il2CppObject* il2cpp_ienum_get_enumerator_nongeneric(Il2CppObject* receiver);
+
+// IEnumerator.Reset / System.IDisposable.Dispose -- void members. Dispose is
+// reached from the foreach `isinst System.IDisposable` guard; a receiver with
+// no reflected Dispose slot is a NO-OP (the SortedList snapshot enumerator is
+// not IDisposable and the guard never fires) rather than a throw.
+void il2cpp_ienum_reset(Il2CppObject* receiver);
+void il2cpp_ienum_dispose(Il2CppObject* receiver);
+
 } // namespace il2cpp

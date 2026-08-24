@@ -119,6 +119,14 @@ struct Il2CppTypeInfo
 //------------------------------------------------------------------------------
 void il2cpp_typeinfo_register(const Il2CppTypeInfo* info);
 const Il2CppTypeInfo* il2cpp_typeinfo_lookup(const char* name);
+// P25c: join a class descriptor to its typeinfo by KLASS POINTER. The
+// name-based lookup is unreliable for nested/compiler-generated types (the
+// typeinfo registers the FULL "+"-chained reflection name -- "Cases.YieldProbe+
+// <Range>d__0" -- while Il2CppClass.name holds the SHORT name "<Range>d__0"),
+// so the enum-interface dispatchers join by the typeinfo's existing klass
+// back-pointer instead of the name string. Returns nullptr when the class has
+// no reflected typeinfo (BCL/boxed/snapshot runtime objects).
+const Il2CppTypeInfo* il2cpp_typeinfo_lookup_by_class(const Il2CppClass* klass);
 
 //------------------------------------------------------------------------------
 // Simplified reflection member queries (the primitives behind Type's
