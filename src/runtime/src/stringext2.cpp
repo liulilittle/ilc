@@ -228,6 +228,45 @@ int32_t ComparePayloads(const Il2CppString* a, const Il2CppString* b)
     return a->length - b->length; // still-equal prefix: the length difference
 }
 
+// ComparePayloads with the ASCII fold (icall_string_compare_mode core): the
+// SAME CompareOrdinalHelper pair-scan and boundary-unit-as-0 rule, with each
+// unit folded to lowercase (A-Z -> a-z) BEFORE comparing when 'ignoreCase'.
+// The boundary pins hold for the folded scan too -- Compare("ab", "A",
+// OrdinalIgnoreCase) == ('b' - 0) = 98, and the unit-past-the-end is never
+// folded (0 stays 0), exactly net48's null-terminator reads.
+static int32_t ComparePayloadsFold(const Il2CppString* a, const Il2CppString* b,
+                                   bool ignoreCase)
+{
+    int32_t common = (a->length < b->length) ? a->length : b->length;
+    int32_t i = 0;
+    auto fold = [ignoreCase](char16_t c) -> int32_t
+        {
+            if (ignoreCase && c >= u'A' && c <= u'Z')
+            {
+                return static_cast<int32_t>(c - u'A' + u'a');
+            }
+            return static_cast<int32_t>(c);
+        };
+    do
+    {
+        const int32_t a0 = (i < a->length) ? fold(a->chars[i]) : 0;
+        const int32_t b0 = (i < b->length) ? fold(b->chars[i]) : 0;
+        if (a0 != b0)
+        {
+            return a0 - b0; // first unit of the pair decides
+        }
+        const int32_t a1 = (i + 1 < a->length) ? fold(a->chars[i + 1]) : 0;
+        const int32_t b1 = (i + 1 < b->length) ? fold(b->chars[i + 1]) : 0;
+        if (a1 != b1)
+        {
+            return a1 - b1; // second unit of the pair decides
+        }
+        i += 2;
+        common -= 2;
+    } while (common > 0);
+    return a->length - b->length; // still-equal prefix: the length difference
+}
+
 // string.Copy core: a NEW instance with equal content. The payload is staged
 // into non-GC scratch BEFORE the single managed allocation (see header), so
 // a mid-call collection can never reclaim the unrooted source. The empty
@@ -663,24 +702,7 @@ int32_t icall_string_compare_mode(Il2CppObject* a, Il2CppObject* b, int32_t mode
         return 1;
     }
     const bool ignoreCase = (mode == 1 || mode == 3 || mode == 5);
-    const Il2CppString* x = AsString(a);
-    const Il2CppString* y = AsString(b);
-    const int32_t common = (x->length < y->length) ? x->length : y->length;
-    for (int32_t i = 0; i < common; ++i)
-    {
-        char16_t cx = x->chars[i];
-        char16_t cy = y->chars[i];
-        if (ignoreCase)
-        {
-            if (cx >= u'A' && cx <= u'Z') cx = static_cast<char16_t>(cx - u'A' + u'a');
-            if (cy >= u'A' && cy <= u'Z') cy = static_cast<char16_t>(cy - u'A' + u'a');
-        }
-        if (cx != cy)
-        {
-            return static_cast<int32_t>(cx) - static_cast<int32_t>(cy);
-        }
-    }
-    return x->length - y->length;
+    return ComparePayloadsFold(AsString(a), AsString(b), ignoreCase);
 }
 
 //------------------------------------------------------------------------------
