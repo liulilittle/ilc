@@ -258,5 +258,37 @@ bool icall_boxed_equals(Il2CppObject* a, Il2CppObject* b)
     return false;
 }
 
+//------------------------------------------------------------------------------
+// value Semantics Equals -- the UNBOXED primitive Equals(T) instance surface
+// (D5 cov2 bx2 fix). net48 implements `int.Equals(int)` as `return this ==
+// value` inline; for the value receiver the fold delivers the implicit-this
+// as an ldloca ADDRESS of the slot, so each icall takes `T* self` (receiver
+// address crosses with cast "") plus the value. Comparison is BITS-EQUAL for
+// the integer family (so i4 covers int32/uint32/bool/char/i1/u1/i2/u2 and
+// i8 covers int64/uint64 -- unsigned vs signed equality is bitwise in 2's
+// complement); the floating family honors net48 Double/Single.Equals NaN
+// semantics (NaN equals NaN, +0.0 equals -0.0 -- IEEE ==). Single values
+// live in DOUBLE slots (the value_semantics carrier convention below).
+//------------------------------------------------------------------------------
+bool icall_value_equals_i4(int32_t* self, int32_t value)
+{
+    return *self == value;
+}
+
+bool icall_value_equals_i8(int64_t* self, int64_t value)
+{
+    return *self == value;
+}
+
+bool icall_value_equals_f8(double* self, double value)
+{
+    return *self == value || (std::isnan(*self) && std::isnan(value));
+}
+
+bool icall_value_equals_f4(double* self, double value)
+{
+    return *self == value || (std::isnan(*self) && std::isnan(value));
+}
+
 } // namespace runtime
 } // namespace il2cpp

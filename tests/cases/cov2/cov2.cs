@@ -23,6 +23,13 @@ class P
         Console.WriteLine("bg1=" + (big.ToString() == "123456789012345"));
         Console.WriteLine("bg2=" + (big + 1 == new BigInteger(123456789012346L)));
 Console.WriteLine("bx1=" + ((object)5).Equals((object)5));
+        Console.WriteLine("bx2=" + (5.Equals(5)));
+        Console.WriteLine("bx4=" + (7.Equals(5)));
+        Console.WriteLine("bx5=" + ((long)9).Equals(9L));
+        Console.WriteLine("bx6=" + (3.5d).Equals(3.5d));
+        Console.WriteLine("bx7=" + (double.NaN).Equals(double.NaN));
+        Console.WriteLine("bx8=" + ('c'.Equals('d')));
+        Console.WriteLine("bx9=" + (true.Equals(true)));
         object strong = "str";
         Console.WriteLine("bx3=" + strong.Equals("str"));
         MemoryStream ms = new MemoryStream();

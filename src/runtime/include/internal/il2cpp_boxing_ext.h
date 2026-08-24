@@ -81,5 +81,21 @@ double icall_unbox_double(Il2CppObject* obj);
 //------------------------------------------------------------------------------
 bool icall_boxed_equals(Il2CppObject* a, Il2CppObject* b);
 
+//------------------------------------------------------------------------------
+// Unboxed value-EQUALS icalls (D5 cov2): the primitive `T.Equals(T)`
+// instance surface when the receiver arrives as an ldloca ADDRESS (an
+// UNBOXED value-type receiver -- the boxed-receiver cases keep
+// icall_boxed_equals). Each takes `self` = address of the receiver slot
+// (the value_semantics carrier convention: int32 family / int64 family /
+// double; Single rides a double slot) and the compared value.
+//   i4: int32/uint32/bool/char/i1/u1/i2/u2 (bitwise equality)
+//   i8: int64/uint64
+//   f8: double, f4: single -- .NET Equals NaN-fold (NaN == NaN true)
+//------------------------------------------------------------------------------
+bool icall_value_equals_i4(int32_t* self, int32_t value);
+bool icall_value_equals_i8(int64_t* self, int64_t value);
+bool icall_value_equals_f8(double* self, double value);
+bool icall_value_equals_f4(double* self, double value);
+
 } // namespace runtime
 } // namespace il2cpp

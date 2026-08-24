@@ -49,9 +49,17 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_int32_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:i" : "unbox:i" });
                 // M5 wiring: Int32.Equals(object) on a boxed receiver -- the
-                // boxed-value equality dispatcher (boxingext2 domain).
+                // boxed-value equality dispatcher (boxingext2 domain). D5
+                // cov2: Equals(int32) on an UNBOXED receiver (implicit-this
+                // arrives as an address) routes to the value-equals icall
+                // (ps[0] is the ARG element byte -- 0x08 = the int32 form).
                 if (name == "Equals" && ps.Length == 1)
-                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
+                    return ps[0] switch
+                    {
+                        0x08 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
                 return null;
             case "System.Int64":
                 if (name == "ToString")
@@ -69,7 +77,12 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_int64_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:l" : "unbox:l" });
                 if (name == "Equals" && ps.Length == 1)
-                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
+                    return ps[0] switch
+                    {
+                        0x0A => I("il2cpp::runtime::icall_value_equals_i8", 1, true, false, true, new[] { "", "l" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
                 return null;
             case "System.Boolean":
                 if (name == "ToString" && ps.Length == 0)
@@ -88,14 +101,24 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_bool_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:b" : "unbox:b" });
                 if (name == "Equals" && ps.Length == 1)
-                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
+                    return ps[0] switch
+                    {
+                        0x02 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
                 return null;
             case "System.Char":
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_char_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:i" : "unbox:c" });
                 if (name == "Equals" && ps.Length == 1)
-                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
+                    return ps[0] switch
+                    {
+                        0x03 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
                 return null;
             case "System.Double":
                 if (name == "ToString")
@@ -113,7 +136,12 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_double_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:d" : "unbox:d" });
                 if (name == "Equals" && ps.Length == 1)
-                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
+                    return ps[0] switch
+                    {
+                        0x0D => I("il2cpp::runtime::icall_value_equals_f8", 1, true, false, true, new[] { "", "d" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
                 return null;
             case "System.Single":
                 // float values live in double slots; Single.ToString formats like
@@ -127,7 +155,12 @@ public static partial class MethodRefResolver
                 if (name == "Parse" && ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::icall_string_parse_double", 1, true, false, false, new[] { "s" }, "d");
                 if (name == "Equals" && ps.Length == 1)
-                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
+                    return ps[0] switch
+                    {
+                        0x0C => I("il2cpp::runtime::icall_value_equals_f4", 1, true, false, true, new[] { "", "d" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
                 return null;
             // M5 wiring: the remaining boxed numeric types only need Equals(object)
             // in the current case surface (boxext2 e2e). The runtime dispatches the
@@ -148,13 +181,41 @@ public static partial class MethodRefResolver
                 // sig=[0 2 2 14 16 5]); 0x01 is VOID, never the element.
                 if (name == "TryParse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x05)
                     return I("il2cpp::runtime::icall_try_parse_byte", 2, true, false, false, new[] { "", "addr:i" });
-                return name == "Equals" && ps.Length == 1 ? I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true) : null;
+                if (name == "Equals" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x05 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
+                return null;
             case "System.SByte":
-                return name == "Equals" && ps.Length == 1 ? I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true) : null;
+                if (name == "Equals" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x04 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
+                return null;
             case "System.Int16":
-                return name == "Equals" && ps.Length == 1 ? I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true) : null;
+                if (name == "Equals" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x06 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
+                return null;
             case "System.UInt16":
-                return name == "Equals" && ps.Length == 1 ? I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true) : null;
+                if (name == "Equals" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x07 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
+                return null;
             case "System.UInt32":
                 // Decimal-domain C44 (decgap): UInt32.ToString() -- the value
                 // lives in an int32 slot (or a boxed int32 payload); the bit
@@ -165,7 +226,14 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_uint32_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:ui" : "unbox:ui" });
-                return name == "Equals" && ps.Length == 1 ? I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true) : null;
+                if (name == "Equals" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x09 => I("il2cpp::runtime::icall_value_equals_i4", 1, true, false, true, new[] { "", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
+                return null;
             case "System.UInt64":
                 // Decimal-domain C44 (decgap): UInt64.ToString() -- the value
                 // lives in an int64 slot (or a boxed int64 payload); the full
@@ -173,7 +241,14 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_uint64_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:ul" : "unbox:ul" });
-                return name == "Equals" && ps.Length == 1 ? I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true) : null;
+                if (name == "Equals" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x0B => I("il2cpp::runtime::icall_value_equals_i8", 1, true, false, true, new[] { "", "l" }),
+                        0x1C => I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true),
+                        _ => null,
+                    };
+                return null;
             default: return null;
         }
     }
