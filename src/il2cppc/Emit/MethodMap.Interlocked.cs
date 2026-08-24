@@ -136,6 +136,13 @@ public static partial class MethodRefResolver
                     _ => null,
                 })
                 : null;
+            case "Read":
+                // Interlocked.Read(ref long) = atomic current-value load
+                // (int64); net48 reference semantics on x64. The byref param
+                // decodes to 0x0A (int64 element byte). Returns int64.
+                if (ps.Length == 1 && ps[0] == 0x0A)
+                    return I("il2cpp::runtime::il2cpp_interlocked_read64", 1, true, false, false, new[] { "" }, "l");
+                return null;
             case "SpeculationBarrier":
                 // ICALL-C (2026-08-07): the runtime ships the empty
                 // il2cpp_interlocked_speculation_barrier (il2cpp_interlocked.h)

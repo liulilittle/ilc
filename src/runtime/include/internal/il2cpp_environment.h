@@ -119,6 +119,17 @@ Il2CppObject* icall_environment_get_machine_name();
 // elsewhere.
 Il2CppObject* icall_environment_get_os_version();
 
+// Environment.Version -- returns a System.Version OBJECT (the net48
+// closure: mscorlib's Environment.Version property getter, which wraps the
+// CLR release version). Always reports the .NET Framework 4.x release shape
+// (4.0.30319.42000) -- the same value net48 produces on this host, and the
+// surface the OTHER targets (net8+/net10) never reach through this icall
+// (their Environment.Version rides a different code path). The object is a
+// System_Version_class instance built via icall_version_ctor_4, so
+// ToString()/CompareTo() on the returned value work through the existing
+// System.Version runtime surface.
+Il2CppObject* icall_environment_get_version();
+
 // Environment.GetFolderPath(int32 folderId) -> string, simplified. Only
 // Desktop (0), MyDocuments (5) and LocalApplicationData (28) resolve (via
 // the shell known-folder API on Windows -- SHGetFolderPathW, OneDrive-redirected

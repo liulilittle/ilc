@@ -147,7 +147,6 @@ int32_t icall_interlocked_compare_exchange_found(int32_t* location, int32_t valu
                                                  int32_t comparand, int32_t* found);
 void icall_weak_reference_finalize(Il2CppObject* self);
 Il2CppObject* icall_appdomain_n_create_context();
-void icall_environment_get_version();
 void icall_environment_get_version_ex();
 int32_t icall_reader_writer_lock_any_writers_since(int32_t seqNum);
 

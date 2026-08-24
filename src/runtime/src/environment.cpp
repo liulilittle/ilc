@@ -42,6 +42,8 @@
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception (D-ENV-4)
 #include "il2cpp_pinvoke_ext.h"   // il2cpp_pinvoke_string_to_utf8_alloc (P6 FailFast)
 #include "threadobj.h"           // icall_threadobj_get_current_thread (P6 CurrentManagedThreadId)
+#include "versionuri.h"          // il2cpp_version_class / icall_version_ctor_4 (Environment.Version)
+#include "il2cpp_runtime.h"      // il2cpp_object_new (Environment.Version)
 
 #include <cstdint>
 #include <cstdio>
@@ -571,6 +573,21 @@ Il2CppObject* icall_environment_get_os_version()
     std::snprintf(buffer, sizeof(buffer), "%s %s", u.sysname, u.release);
     return Utf8ToCs(buffer, std::strlen(buffer));
 #endif
+}
+
+Il2CppObject* icall_environment_get_version()
+{
+    // System.Version OBJECT (the net48 closure contract; D-ENV-V). net48's
+    // Environment.Version wraps the CLR release version -- the shared
+    // 4.0.30319.xxxxx line (4.0.30319.42000 on every modern host, matching
+    // the live net48 oracle). The other targets (net8+) never reach this
+    // icall: their Environment.Version rides a different code path. Allocate
+    // through the registered System.Version descriptor and fill the four
+    // components via the existing ctor icall so ToString()/CompareTo() work
+    // through the carried System.Version runtime surface.
+    Il2CppObject* v = il2cpp_object_new(il2cpp_version_class());
+    icall_version_ctor_4(v, 4, 0, 30319, 42000);
+    return v;
 }
 
 Il2CppObject* icall_environment_get_special_folder(int32_t folder_id)

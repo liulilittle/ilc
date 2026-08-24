@@ -1,0 +1,18 @@
+c1=True
+c2=True
+c3=True
+c4=True
+c5=True
+c6=True
+c7=True
+c8=3
+c9=True
+ca=3
+i1=True
+i2=True
+i3=True x=7
+i4=False
+i5=True
+i6=False
+g1=False
+v1=4.0.30319.42000

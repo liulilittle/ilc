@@ -112,6 +112,19 @@ int64_t il2cpp_interlocked_exchange64(int64_t* location, int64_t value)
 #endif
 }
 
+// Interlocked.Read(ref int64) -> int64 (net48: the current value as an
+// atomic load; on 64-bit targets a plain seq_cst load is the exact
+// semantics, on 32-bit CompareExchange64(location,0,0) is the reference
+// implementation).
+int64_t il2cpp_interlocked_read64(int64_t* location)
+{
+#if defined(_WIN32)
+    return static_cast<int64_t>(::InterlockedCompareExchange64(reinterpret_cast<volatile LONGLONG*>(location), 0LL, 0LL));
+#else
+    return __atomic_load_n(location, __ATOMIC_SEQ_CST);
+#endif
+}
+
 int64_t il2cpp_interlocked_add64(int64_t* location, int64_t value)
 {
 #if defined(_WIN32)

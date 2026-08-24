@@ -439,11 +439,6 @@ Il2CppObject* icall_appdomain_n_create_context() { return nullptr; }
 // return needs the OS/Version object model, which the simplified runtime
 // does not carry (get_OSVersion serves the string surface) -- the documented
 // PNSE contract.
-void icall_environment_get_version()
-{
-    il2cpp_throw_not_supported_exception(
-        "Environment.GetVersion requires the OperatingSystem object model (use Environment.OSVersion for the string surface)");
-}
 
 void icall_environment_get_version_ex()
 {

@@ -41,6 +41,11 @@ public static partial class MethodRefResolver
             case "get_UserName": return I("il2cpp::runtime::icall_environment_get_user_name", 0, true, true, false);
             case "get_MachineName": return I("il2cpp::runtime::icall_environment_get_machine_name", 0, true, true, false);
             case "get_OSVersion": return I("il2cpp::runtime::icall_environment_get_os_version", 0, true, true, false);
+            // D5 dscmp: Environment.Version -- returns a System.Version OBJECT
+            // (il2cpp_environment.h contract: the net48 closure reports
+            // 4.0.30319.42000). Previously unwired (a PNSE int32 stub would
+            // have corrupted the reference-typed member result slot).
+            case "get_Version": return I("il2cpp::runtime::icall_environment_get_version", 0, true, true, false, returnTypeName: "System.Version");
             // 2026-08-22 sweep: arity guard -- only the 1-param overload has an
             // icall (il2cpp_environment.h:123); the (SpecialFolder,
             // SpecialFolderOption) overload falls through to the LOUD gate.

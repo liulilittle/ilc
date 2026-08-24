@@ -60,6 +60,9 @@ int32_t il2cpp_interlocked_exchange(int32_t* location, int32_t value);
 // Interlocked.Exchange(ref int64, int64) -> int64 (returns the OLD value).
 int64_t il2cpp_interlocked_exchange64(int64_t* location, int64_t value);
 
+// Interlocked.Read(ref int64) -> int64 (net48 current value, atomic load).
+int64_t il2cpp_interlocked_read64(int64_t* location);
+
 // Interlocked.Exchange(ref object, object) -> object; exchanges raw
 // pointers (returns the OLD pointer).
 void* il2cpp_interlocked_exchange_pointer(void** location, void* value);
