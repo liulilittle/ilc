@@ -812,6 +812,13 @@ public static class TypeEmitter
         // int64 ctor is EXPLICIT so the value form is used, not brace-init).
         w.Line("// System.TimeSpan::Zero BCL static storage (8-byte Il2CppTimeSpan, inline variable)");
         w.Line("inline il2cpp::runtime::Il2CppTimeSpan System_TimeSpan_sf_Zero = il2cpp::runtime::Il2CppTimeSpan(0);");
+        // P26 (bcldeep): System.DateTime::MinValue -- a static readonly
+        // VALUETYPE field (net8: NOT const, so Roslyn cannot fold the ldsfld
+        // into a literal -- the read emits &System_DateTime_sf_MinValue).
+        // Image: ticks 0 (0001-01-01T00:00:00 UTC) -- exactly the il2cpp
+        // runtime's Il2CppDateTime zero value (il2cpp_time.h).
+        w.Line("// System.DateTime::MinValue BCL static storage (8-byte Il2CppDateTime, inline variable)");
+        w.Line("inline il2cpp::runtime::Il2CppDateTime System_DateTime_sf_MinValue = il2cpp::runtime::Il2CppDateTime(0);");
         // wf2 (winforms1): System.IntPtr::Zero / System.UIntPtr::Zero are BCL
         // static fields (mscorlib types have no TypeDef -- no storage emitted).
         w.Line("// System.IntPtr::Zero BCL static storage (intptr_t pointer carrier, inline variable)");

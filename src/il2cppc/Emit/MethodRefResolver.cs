@@ -169,7 +169,15 @@ public sealed record ResolvedMethod(
     // &tuple.Field addresses as the LAST arguments to the icall, and
     // returns the filled tuple. Used by Math.SinCos / MathF.SinCos /
     // Math.ModF / MathF.ModF.
-    string[]? TupleReturnFields = null)
+    string[]? TupleReturnFields = null,
+    // P26 (bcldeep/charconv): the MemberReference fallthrough reached the
+    // generated-name path for an EXTERNAL BCL OWNER (System.* type not defined
+    // in the input assembly) -- the generated C++ function can never exist.
+    // The fold must REJECT this LOUDLY at its FINAL resolution (after the
+    // receiver-hinted re-resolve): a hint-less first pass is a DEFERRAL (the
+    // Encoding/Data/Hash/TimeZone/ValueType mappers re-resolve with the
+    // receiver), so the throw lives in StackFold, not inside BclResolve.
+    bool IsFictionalBclFallback = false)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -559,7 +567,14 @@ public static partial class MethodRefResolver
             IsRefType(retType), ParamRefFlags(pt), isInstanceMr,
             // batch 177: same user-method IntPtr/UIntPtr result-kind fix as
             // ResolveMethodDefinition -- the caller temp must be intptr_t.
-            ResultKind: retType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null);
+            ResultKind: retType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
+            // P26 (bcldeep/charconv): the MemberReference fallthrough for an
+            // EXTERNAL BCL owner is a PHANTOM generated name -- flag it so
+            // StackFold.EmitCall REJECTS it loudly at the FINAL resolution
+            // (the hint-less first pass must stay a silent DEFERRAL for the
+            // receiver-typed re-resolve). User-defined owners (defined in the
+            // input assembly) are real generated functions -- no flag.
+            IsFictionalBclFallback: IsExternalBclOwner(md, owner2));
     }
 
     //--------------------------------------------------------------------------
@@ -628,20 +643,100 @@ public static partial class MethodRefResolver
     // (the caller falls through to the generated-name path -- or throws for
     // known-but-unwireable members, which MUST be loud).
     //--------------------------------------------------------------------------
+    // P26 (bcldeep/charconv): the FINAL-resolution loud guard. StackFold calls
+    // this after its receiver-hinted re-resolve (StackFold.cs:2415) -- the
+    // moment at which a MemberReference can no longer be deferred. A
+    // phantom-shaped result (generated-name fallback on an EXTERNAL BCL owner)
+    // would emit a function that can never link: reject it here with a
+    // self-identifying message instead of a late cmake "use of undeclared
+    // identifier" failure.
+    public static ResolvedMethod? RequireResolvable(MetadataReader? md, int token, ResolvedMethod? resolved)
+    {
+        if (md != null && resolved is { IsFictionalBclFallback: true })
+            throw new NotSupportedException(M5PhantomMessage(md, token));
+        return resolved;
+    }
+
+    private static string M5PhantomMessage(MetadataReader md, int token)
+    {
+        var mr = md.GetMemberReference(MetadataTokens.MemberReferenceHandle(token));
+        var name = md.GetString(mr.Name);
+        var owner = mr.Parent.Kind switch
+        {
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)mr.Parent),
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)mr.Parent),
+            _ => "unknown-owner",
+        };
+        return $"{owner}::{name}: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link)";
+    }
+
     private static ResolvedMethod? BclResolve(MetadataReader md, string owner, string name, BlobHandle sigHandle,
         byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type = null,
         string[]? genArgNames = null, string? instName = null)
     {
         try
         {
-            return BclResolveCore(md, owner, name, sigHandle, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
+            var r = BclResolveCore(md, owner, name, sigHandle, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
                 genArgNames, instName);
+            if (r == null && IsExternalBclOwner(md, owner) && receiverType != null)
+            {
+                // P26 (bcldeep): the generated-name fallback for an EXTERNAL
+                // BCL owner is a PHANTOM -- the input assembly never defines
+                // System.* types, so the generated C++ function can never
+                // exist and the cmake build fails with "use of undeclared
+                // identifier System_Xxx_<hash>" AFTER the transpile. That
+                // silent-late-failure must be a LOUD early gap instead.
+                //
+                // charconv G2 (P26 QA): the throw must NOT fire on a hint-less
+                // FIRST pass -- the ReceiverType==null pass is the DEFERRAL
+                // contract of the Encoding/Data/Dictionary/Hash/TimeZone/
+                // ValueType mappers ("if (receiverType == null) return null"),
+                // which StackFold re-resolves with the tracked receiver at
+                // StackFold.cs:2415. A receiver-typed attempt that still comes
+                // back null is a REAL gap: throw here. A hint-less final that
+                // stays unresolved is rejected by StackFold's
+                // RequireResolvable (IsFictionalBclFallback) instead.
+                throw new NotSupportedException($"{owner}::{name}: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link; receiverType='{receiverType ?? "<null>"}' arg0Type='{arg0Type ?? "<null>"}')");
+            }
+            return r;
         }
         catch (NotSupportedException ex)
         {
             // M5 wiring: every wiring gap must be LOUD and self-identifying.
             throw new NotSupportedException($"{owner}::{name}: {ex.Message}");
         }
+    }
+
+    // Is this owner a BCL type the input assembly NEVER defines (there is no
+    // TypeDefinition for it -> the generated-name fallback would be a phantom)?
+    // EXEMPTIONS: System.Object / System.ValueType (their virtual members are
+    // re-resolved by StackFold with the receiver's tracked type AFTER a null
+    // first pass); the BCL DELEGATE families (Func`/Action`/Converter`/... --
+    // their .ctors are consumed by StackFold's EmitNewObj delegate path, which
+    // needs the raw resolution to proceed). The guard must not pre-empt either.
+    private static bool IsExternalBclOwner(MetadataReader md, string owner)
+    {
+        if (owner != "System" && !owner.StartsWith("System.", StringComparison.Ordinal)
+            && !owner.StartsWith("Microsoft.", StringComparison.Ordinal))
+            return false;
+        if (owner is "System.Object" or "System.ValueType")
+            return false;
+        if (owner.StartsWith("System.Func`", StringComparison.Ordinal)
+            || owner.StartsWith("System.Action`", StringComparison.Ordinal)
+            || owner.StartsWith("System.Predicate`", StringComparison.Ordinal)
+            || owner.StartsWith("System.Converter`", StringComparison.Ordinal)
+            || owner.StartsWith("System.Comparison`", StringComparison.Ordinal)
+            || owner is "System.Threading.ThreadStart" or "System.Threading.WaitCallback"
+                or "System.Threading.TimerCallback" or "System.Timers.ElapsedEventHandler"
+                or "System.EventHandler" or "System.EventHandler`1")
+            return false;
+        foreach (var tdh in md.TypeDefinitions)
+        {
+            var full = md.GetFullName(tdh);
+            if (full == owner)
+                return false;
+        }
+        return true;
     }
 
     //--------------------------------------------------------------------------
@@ -974,6 +1069,25 @@ public static partial class MethodRefResolver
                             or "System.Collections.Generic.Dictionary`2.KeyCollection.Enumerator"
                             or "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator")
                         return I("il2cpp::il2cpp_dict_si_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // P26 (yieldprobe): a TRACKED receiver that is a USER enumerator OR the
+                    // GENERIC-INTERFACE shuttle -- the foreach-finally isinst
+                    // shape over a user YIELD state machine arrives with the
+                    // receiver typed as the OPEN `IEnumerator`1` interface
+                    // (not the concrete state-machine type, which the fold
+                    // never track-exposes). Pre-P26 this silently fell to the
+                    // phantom generated-name (late cmake "use of undeclared
+                    // identifier" -- the P26 guard turned it into a LOUD
+                    // transpile gap). The interface Dispose IS the P25c
+                    // untracked-receiver shape: il2cpp_ienum_dispose RUNS the
+                    // real Dispose slot (or no-ops when the object has none).
+                    // A BCL receiver the mapper cannot route still stays LOUD
+                    // (the P26 guard below), preserving "real gap must shout".
+var userRecvLike = receiverType ?? arg0Type;
+                    if (userRecvLike == "System.Collections.IEnumerator" || userRecvLike == "System.Collections.IEnumerable"
+                            || userRecvLike == "System.Collections.Generic.IEnumerator`1" || userRecvLike == "System.Collections.Generic.IEnumerable`1"
+                        || (userRecvLike != null && !userRecvLike.StartsWith("System.", StringComparison.Ordinal)
+                            && !userRecvLike.StartsWith("Microsoft.", StringComparison.Ordinal)))
+                        return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true);
                     if (receiverType == null && arg0Type == null)
                         // P25c: the untracked-receiver IDisposable.Dispose (the
                         // foreach isinst guard over a user enumerator / yield

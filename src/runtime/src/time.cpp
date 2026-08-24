@@ -323,6 +323,15 @@ Il2CppDateTime icall_datetime_from_ticks(int64_t ticks)
 int32_t icall_datetime_get_year(Il2CppDateTime dt) { return GetCivilTime(dt).year; }
 int32_t icall_datetime_get_month(Il2CppDateTime dt) { return GetCivilTime(dt).month; }
 int32_t icall_datetime_get_day(Il2CppDateTime dt) { return GetCivilTime(dt).day; }
+int32_t icall_datetime_get_day_of_year(Il2CppDateTime dt)
+{
+    const CivilTime c = GetCivilTime(dt);
+    int32_t doy = c.day;
+    static const int32_t kCum[12] = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+    doy += kCum[c.month - 1];
+    if (c.month > 2 && (c.year % 4 == 0 && (c.year % 100 != 0 || c.year % 400 == 0))) doy++;
+    return doy;
+}
 int32_t icall_datetime_get_hour(Il2CppDateTime dt) { return GetCivilTime(dt).hour; }
 int32_t icall_datetime_get_minute(Il2CppDateTime dt) { return GetCivilTime(dt).minute; }
 int32_t icall_datetime_get_second(Il2CppDateTime dt) { return GetCivilTime(dt).second; }

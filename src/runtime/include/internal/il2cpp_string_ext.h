@@ -147,6 +147,7 @@ Il2CppString* icall_string_replace_line_endings(Il2CppString* self, Il2CppString
 // values array then delegate to the whole-array join (stringext.cpp).
 Il2CppString* icall_string_join_range_s(Il2CppString* separator, Il2CppArray* values, int32_t startIndex, int32_t count);
 Il2CppString* icall_string_join_range_c(char16_t separator, Il2CppArray* values, int32_t startIndex, int32_t count);
+Il2CppArray* icall_string_to_char_array_range(Il2CppString* self, int32_t startIndex, int32_t length);
 
 // net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy of
 // the UTF-16 units (stringext.cpp). Null self -> ArgumentNullException.

@@ -48,6 +48,7 @@ public static partial class MethodRefResolver
             case "get_Year": return I("il2cpp::runtime::icall_datetime_get_year", 0, true, false, true, new[] { "deref:dt" });
             case "get_Month": return I("il2cpp::runtime::icall_datetime_get_month", 0, true, false, true, new[] { "deref:dt" });
             case "get_Day": return I("il2cpp::runtime::icall_datetime_get_day", 0, true, false, true, new[] { "deref:dt" });
+            case "get_DayOfYear": return I("il2cpp::runtime::icall_datetime_get_day_of_year", 0, true, false, true, new[] { "deref:dt" });
             case "get_Hour": return I("il2cpp::runtime::icall_datetime_get_hour", 0, true, false, true, new[] { "deref:dt" });
             case "get_Minute": return I("il2cpp::runtime::icall_datetime_get_minute", 0, true, false, true, new[] { "deref:dt" });
             case "get_Second": return I("il2cpp::runtime::icall_datetime_get_second", 0, true, false, true, new[] { "deref:dt" });

@@ -173,10 +173,15 @@ case "Remove":
         : null;
 // net9/10 E2E campaign (string sweep): ToCharArray() -- a NEW char[] copy.
 case "ToCharArray":
-    return ps.Length == 0
-        ? I("il2cpp::runtime::icall_string_to_char_array", 0, true, true, true,
-            new[] { "s" }, returnTypeName: "System.Char[]")
-        : null;
+    if (ps.Length == 0)
+        return I("il2cpp::runtime::icall_string_to_char_array", 0, true, true, true,
+            new[] { "s" }, returnTypeName: "System.Char[]");
+    // P26 (bcldeep): ToCharArray(startIndex, length) -- the RANGED copy
+    // (net8 CoreLib body is pure-managed; the transpiler needs the icall).
+    if (ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+        return I("il2cpp::runtime::icall_string_to_char_array_range", 2, true, true, true,
+            new[] { "s", "i", "i" }, returnTypeName: "System.Char[]");
+    return null;
 // net9/10 E2E campaign: CopyTo(srcIndex, dest, destIndex, count).
 // INSTANCE method (callvirt call sites -- icallclassic caught the missing
 // IsInstance flag: StackFold rejects callvirt on a non-instance resolution).

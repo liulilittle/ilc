@@ -323,6 +323,11 @@ int32_t icall_stringbuilder_get_length(Il2CppObject* self);
 // out-of-range -> IndexOutOfRangeException.
 int32_t icall_stringbuilder_get_chars(Il2CppObject* self, int32_t index);
 
+// set_Chars(index, utf16): the indexer WRITER (P26 bcldeep -- the net8
+// Chars[index] setter is pure-managed in CoreLib, so the transpiler needs
+// the icall); same bounds contract as get_Chars.
+void icall_stringbuilder_set_chars(Il2CppObject* self, int32_t index, int32_t utf16);
+
 // P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal — net48 internal helpers.
 // ReplaceBufferInternal(char* buffer): replaces the entire buffer contents
 // with the given char buffer. Returns the SAME builder.

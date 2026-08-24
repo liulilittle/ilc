@@ -2469,6 +2469,9 @@ public static class CodeGenerator
                     w.LineAligned(assignCode, $"IL {At(a.SourceOpName, a.SourceOffset)} -- store call result into {EmitTarget(a.Target)}");
                 else if (a.Target.Contains('.'))
                     w.LineAligned(assignCode, $"IL {At(a.SourceOpName, a.SourceOffset)} -- store value into static field {EmitTarget(a.Target)}");
+                else if (assignCode == $"{EmitTarget(a.Target)} = {EmitTarget(a.Target)};")
+                    w.LineAligned($"/* value already in {EmitTarget(a.Target)} -- merge/store no-op (P26 -Wself-assign guard) */",
+                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- self-assign suppressed");
                 else
                     w.LineAligned(assignCode, $"IL {At(a.SourceOpName, a.SourceOffset)} -- store evaluated value into {EmitTarget(a.Target)}");
                 break;
@@ -3212,6 +3215,30 @@ public static class CodeGenerator
                 // Runs AFTER the double branch (double mul stays IEEE-754 `*`).
                 if (b.Op == BinaryOp.Mul && (ExprIsInt64(b.Left) || ExprIsInt64(b.Right)))
                     return $"il2cpp::il2cpp_unchecked_mul_64({EmitExpr(b.Left, md, types)}, {EmitExpr(b.Right, md, types)})";
+                // P26 (bcldeep): a NEGATIVE integer literal compared to a
+                // numeric call/temp -- e.g. `(uint)x == uint.MaxValue`, where
+                // Roslyn lowers uint.MaxValue to ldc.i4 0xFFFFFFFF carried as
+                // the IntConstExpr -1 and printed "-1LL". The C++ result
+                // `uint32_t == int64_t` promotes to int64 (4294967295 == -1)
+                // and is FALSE, while .NET compares the 32-bit bit patterns.
+                // A negative INTEGER literal operand can never co-exist with a
+                // reference (object == -1 does not compile) or a double
+                // (doubles leave via the branch above), so EQUALITY/
+                // INEQUALITY against it is provably integer-only: compare
+                // through the unsigned cast (int32 -> uint32_t, int64 ->
+                // uint64_t -- bit-pattern equality, the C# ldc.i4 semantics).
+                if (b.Op is BinaryOp.Ceq
+                    && IsNegativeIntConst(b.Left) != IsNegativeIntConst(b.Right))
+                {
+                    var lit = IsNegativeIntConst(b.Left) ? b.Left : b.Right;
+                    var val = IsNegativeIntConst(b.Left) ? b.Right : b.Left;
+                    var sym = "==";
+                    var wide = ExprIsInt64(val)
+                        || (lit is IntConstExpr { IsInt64: true });
+                    return wide
+                        ? $"(static_cast<uint64_t>({EmitExpr(val, md, types)}) {sym} static_cast<uint64_t>({EmitExpr(lit, md, types)}))"
+                        : $"(static_cast<uint32_t>({EmitExpr(val, md, types)}) {sym} static_cast<uint32_t>({EmitExpr(lit, md, types)}))";
+                }
                 return $"({EmitExpr(b.Left, md, types)} {OpSymbol(b.Op)} {EmitExpr(b.Right, md, types)})";
             case UnaryExpr u:
                 if (TryFoldInt32(u, out var uFolded))
@@ -4263,6 +4290,17 @@ public static class CodeGenerator
         IntConstExpr i => i.Value,
         Int64ConstExpr l => l.Value,
         _ => null,
+    };
+
+    // P26 (bcldeep): a negative integer literal operand (ldc.i4 0xFFFFFFFF
+    // carried as -1). Only INTEGER literals can be negative (doubles route
+    // through the fp comparison branch above, references cannot compare to a
+    // number), so this flags exactly the unsigned-narrowing comparisons.
+    private static bool IsNegativeIntConst(Expr e) => e switch
+    {
+        IntConstExpr i => i.Value < 0,
+        Int64ConstExpr l => l.Value < 0,
+        _ => false,
     };
 
     // The operand-width test for the int32/int64-ambiguous binary-op paths

@@ -107,6 +107,18 @@ bool icall_char_is_surrogate(char16_t c)
     return c >= 0xD800 && c <= 0xDFFF;
 }
 
+// P26 (bcldeep): Char.IsHighSurrogate/IsLowSurrogate -- the UTF-16 pair
+// halves (net8 exposes them as API; the resolvers map the static calls).
+bool icall_char_is_high_surrogate(char16_t c)
+{
+    return c >= 0xD800 && c <= 0xDBFF;
+}
+
+bool icall_char_is_low_surrogate(char16_t c)
+{
+    return c >= 0xDC00 && c <= 0xDFFF;
+}
+
 bool icall_char_is_separator(char16_t c)
 {
     return c == 0x20; // ASCII space; the other Unicode separators are out of domain

@@ -68,6 +68,8 @@ char16_t icall_char_to_upper(char16_t c);
 bool icall_char_is_control(char16_t c);
 bool icall_char_is_punctuation(char16_t c);
 bool icall_char_is_surrogate(char16_t c);
+bool icall_char_is_high_surrogate(char16_t c);
+bool icall_char_is_low_surrogate(char16_t c);
 bool icall_char_is_separator(char16_t c);
 bool icall_char_is_symbol(char16_t c);
 double icall_char_get_numeric_value(char16_t c);

@@ -490,6 +490,7 @@ int main()
     Expect(icall_math_cbrt_d(-1.0) == -1.0, "cbrt(-1) == -1");
     Expect(icall_math_cbrt_d(8.0) == 2.0, "cbrt(8) == 2");
     Expect(icall_math_cbrt_d(-8.0) == -2.0, "cbrt(-8) == -2 (odd root)");
+    Expect(icall_math_cbrt_d(27.0) == 3.0, "cbrt(27) == 3 (exact; WSL-Divergence guard)");
     ExpectNear(icall_math_cbrt_d(2.0), 1.259921049894873, "cbrt(2) == 1.259921049894873");
     Expect(icall_math_cbrt_d(INFINITY) == INFINITY, "cbrt(+inf) == +inf");
     Expect(icall_math_cbrt_d(-INFINITY) == -INFINITY, "cbrt(-inf) == -inf");

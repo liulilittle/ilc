@@ -87,6 +87,7 @@ Il2CppDateTime icall_datetime_from_file_time_utc(int64_t fileTime);
 int32_t icall_datetime_get_year(Il2CppDateTime dt);
 int32_t icall_datetime_get_month(Il2CppDateTime dt);
 int32_t icall_datetime_get_day(Il2CppDateTime dt);
+int32_t icall_datetime_get_day_of_year(Il2CppDateTime dt);
 int32_t icall_datetime_get_hour(Il2CppDateTime dt);
 int32_t icall_datetime_get_minute(Il2CppDateTime dt);
 int32_t icall_datetime_get_second(Il2CppDateTime dt);

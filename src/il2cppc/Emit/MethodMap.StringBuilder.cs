@@ -91,6 +91,10 @@ public static partial class MethodRefResolver
             // buffer (int32 carrier); out-of-range -> IndexOutOfRangeException.
             case "get_Chars":
                 return I("il2cpp::runtime::icall_stringbuilder_get_chars", 1, true, false, true, new[] { "", "i" });
+            // P26 (bcldeep): set_Chars(index, c) -- the indexer WRITER (net8
+            // CoreLib setter is pure-managed; the transpiler needs the icall).
+            case "set_Chars":
+                return I("il2cpp::runtime::icall_stringbuilder_set_chars", 2, false, false, true, new[] { "", "i", "c" });
             case "get_Capacity":
                 // No capacity icall: read the runtime struct field directly.
                 return I("il2cpp::runtime::il2cpp_stringbuilder_capacity", 0, true, false, true, new[] { "fcap" });

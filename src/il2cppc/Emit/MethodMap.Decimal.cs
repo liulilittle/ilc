@@ -71,6 +71,8 @@ public static partial class MethodRefResolver
                         case 0x0C: return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "dec" }, "d");
                         case 0x08: return I("il2cpp::runtime::icall_decimal_to_int32", 1, true, false, false, new[] { "dec" });
                         case 0x0A: return I("il2cpp::runtime::icall_decimal_to_int64", 1, true, false, false, new[] { "dec" }, "l");
+                        case 0x09: return I("il2cpp::runtime::icall_decimal_to_uint32", 1, true, false, false, new[] { "dec" });
+                        case 0x0B: return I("il2cpp::runtime::icall_decimal_to_uint64", 1, true, false, false, new[] { "dec" }, "l");
                     }
                 }
                 return null;

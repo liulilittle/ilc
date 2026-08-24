@@ -1334,6 +1334,24 @@ int32_t icall_stringbuilder_get_chars(Il2CppObject* self, int32_t index)
 }
 
 //------------------------------------------------------------------------------
+// set_Chars(index, utf16) -- the indexer WRITER (P26 bcldeep): the net8
+// Chars[index] setter is Managed+InternalCall; default in .NET Core 8 to a
+// pure-managed body, so the transpiler needs the icall. Same bounds contract
+// as get_Chars (IndexOutOfRangeException); writes one UTF-16 unit.
+//------------------------------------------------------------------------------
+void icall_stringbuilder_set_chars(Il2CppObject* self, int32_t index, int32_t utf16)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (index < 0 || index >= sb->length)
+    {
+        il2cpp_throw_index_out_of_range_exception("index");
+    }
+    void* elem = il2cpp_array_get_elem_ptr(sb->chars, index);
+    *reinterpret_cast<uint16_t*>(elem) = static_cast<uint16_t>(utf16);
+}
+
+//------------------------------------------------------------------------------
 // P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal -- net48 internal helpers
 // that replace the entire StringBuilder buffer contents.
 //------------------------------------------------------------------------------

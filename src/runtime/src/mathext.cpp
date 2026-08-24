@@ -246,13 +246,34 @@ double icall_math_atanh_d(double value)
 }
 
 //------------------------------------------------------------------------------
-// Math.Cbrt: std::cbrt -- the REAL cube root (C99). Unlike pow(x, 1/3), cbrt
-// of a negative operand yields a negative root (Cbrt(-8) == -2); NaN/Inf
+// Math.Cbrt -- the REAL cube root (C99). Unlike pow(x, 1/3), cbrt of a
+// negative operand yields a negative root (Cbrt(-8) == -2); NaN/Inf
 // propagate; signed zero preserved (Cbrt(-0.0) == -0.0).
+//
+// P26 (bcldeep WSL divergence): a BARE std::cbrt is NOT correctly rounded on
+// every libm -- glibc's cbrt returns 27.0^(1/3) = 3.0 + 1ULP (while the
+// Windows/oracle run rounds to exactly 3.0), and the deviation is even
+// call-site-dependent (an -O3 caller got 3.0 exact, an -O0 caller 1ULP up).
+// One Newton iteration in LONG DOUBLE (80-bit x87 = 64-bit mantissa on both
+// MinGW and Linux/GCC) refines any within-0.5-ULP cbrt estimate to a
+// correctly-rounded result: the residual term (r^3 - x) is computed in the
+// extended precision, so the correction lands in the final ULPs and the cast
+// to double is deterministic across platforms. For perfect cubes (r3 == x
+// exactly) the iteration is a no-op and the exact integer root is preserved.
 //------------------------------------------------------------------------------
 double icall_math_cbrt_d(double value)
 {
-    return std::cbrt(value);
+    if (value == 0.0 || value != value) // signed zero (r=0 div) / NaN pass through
+        return std::cbrt(value);
+    // MSVC long double == double: on non-finite input the Newton residual is
+    // inf-inf = NaN, corrupting the result -- route all non-finite through libm.
+    if (!std::isfinite(value))
+        return std::cbrt(value);
+    long double r = std::cbrt(value);
+    const long double d = r * r * r - static_cast<long double>(value);
+    if (d != 0.0L)
+        r -= d / (3.0L * r * r);
+    return static_cast<double>(r);
 }
 
 //------------------------------------------------------------------------------

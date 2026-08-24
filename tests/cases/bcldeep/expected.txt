@@ -1,0 +1,87 @@
+True dt ctor basic
+True dt AddMonths
+True dt AddMilliseconds
+True dt AddSeconds
+True dt AddYears
+True dt DayOfYear
+True dt IsLeapYear
+True dt DaysInMonth
+True dt TimeOfDay
+True dt Date
+True dt Kind
+True dt operators
+True dt op eq/le/ge
+True dt from ticks
+True dt SpecifyKind preserves the instant (single-zone model)
+True dt filetime roundtrip
+True dt MinValue
+True ts add
+True ts FromMilliseconds
+True ts FromMinutes
+True ts FromSeconds parts
+True ts FromTicks
+True ts Duration
+True ts gt
+True ts eq
+True ts lt zero
+True ts TotalSeconds
+True dec ctor(scale) toString
+True dec ctor(double)
+True dec ctor(float) range
+True dec to double
+True dec to float
+True dec to int truncate
+True dec to uint max
+True dec divide
+True dec multiply
+True dec subtract
+True dec remainder
+True dec ops lt gt
+True dec composite eq
+True char IsControl
+True char IsPunctuation
+True char IsSeparator (ASCII-exact domain)
+True char IsSymbol
+True char surrogate
+True char GetNumericValue (ASCII-exact domain)
+True char Parse
+True math Acosh
+True math Asinh
+True math Atanh
+True math bit inc/dec
+True math Cbrt
+True math Clamp(int)
+True math Clamp(long)
+True math Clamp(double)
+True math CopySign
+True math FMA
+True math ILogB
+True math Log2
+True math max/min magnitude
+True math ReciprocalEstimate
+True math ReciprocalSqrtEstimate
+True math ScaleB
+True math Sign(double)
+True math SinCos
+True str IndexOfAny
+True str IndexOfAny start
+True str LastIndexOfAny
+True str LastIndexOfAny start
+True str Insert
+True str Remove range
+True str Remove to end
+True str Split char[]
+True str Join object[] boxed
+True str Join char + string[]
+True str ToCharArray range
+True str Contains char
+True str Compare
+True str CompareOrdinal
+True sb Clear
+True sb set Chars
+True arr IndexOf
+True arr ConvertAll
+True arr FindIndex
+True env Is64BitProcess
+True gc GetTotalMemory
+failures=0

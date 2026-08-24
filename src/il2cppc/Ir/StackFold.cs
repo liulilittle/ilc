@@ -2414,6 +2414,13 @@ public static class StackFold
                         || recvType == "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator"))
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
                         recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr, recvType);
+                // P26 (bcldeep/charconv): FINAL resolution -- no further deferral
+                // is possible after the receiver-hinted re-resolve. A phantom
+                // (generated-name fallback on an external BCL owner) can never
+                // link: reject it loud here instead of a late cmake failure. The
+                // hint-less first pass (resolved from the 2230 call) is a legal
+                // deferral -- this check runs after every remap had its chance.
+                resolved = MethodRefResolver.RequireResolvable(md, (int)ins.Operand, resolved);
 
                 // constrained. VALUE-TYPE ToString (guidcase): even with the
                 // constrained receiver hint, the Object-owner MemberRef

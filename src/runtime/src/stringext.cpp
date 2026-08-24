@@ -1181,6 +1181,26 @@ Il2CppArray* icall_string_to_char_array(Il2CppString* self)
 }
 
 //------------------------------------------------------------------------------
+// String.ToCharArray(startIndex, length) -- the RANGED form (P26 bcldeep):
+// net8 CoreLib implements it in managed code, so the transpiler needs an
+// icall. .NET semantics: ArgumentOutOfRangeException when 'startIndex' or
+// 'length' is negative OR when startIndex + length exceeds the string; the
+// result is a NEW char[] of exactly 'length' units copied out of the source.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_string_to_char_array_range(Il2CppString* self, int32_t startIndex, int32_t length)
+{
+    if (self == nullptr)
+        il2cpp_throw_argument_null_exception("self");
+    if (startIndex < 0 || length < 0 || startIndex > self->length - length)
+        il2cpp_throw_argument_out_of_range("startIndex");
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(char16_t), false, length);
+    auto* dst = reinterpret_cast<char16_t*>(il2cpp_array_get_elem_ptr(out, 0));
+    for (int32_t i = 0; i < length; ++i)
+        dst[i] = self->chars[startIndex + i];
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // net9/10 E2E campaign: IndexOfAny/LastIndexOfAny 1- and 2-arg forms --
 // thin wrappers over the ext3 range icalls with the default window
 // ([0, Length) / [startIndex, Length)). Validation lives in the range
