@@ -340,6 +340,34 @@ Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* sel
 // builder grows); they exist so the icall arity matches the IL exactly.
 void icall_interp_handler_ctor(Il2CppObject** slot, int32_t literalLength, int32_t formattedCount);
 
+// P25g (dhprobe): AppendFormatted<T> ALIGNMENT + FORMAT-SPEC overloads -- the
+// '{x,5}' field-width and '{x:D3}' format-string composite components. One
+// {T} x {w,f,wf} trio per value type: 'w' = (T, int32 width), 'f' =
+// (T, string format), 'wf' = (T, int32 width, string format). Each boxes the
+// value and delegates to icall_format_composite_item (il2cpp_format_ext.h --
+// the net48 alignment/min-width + numeric format-string engine), then appends
+// the result. NULL format = default text; width 0/-/positive per net48.
+// Returns the SAME builder (the net48 chain contract -- the transpiler's
+// handler mapping discards the return).
+Il2CppObject* icall_stringbuilder_append_i_w(Il2CppObject* self, int32_t value, int32_t width);
+Il2CppObject* icall_stringbuilder_append_i_f(Il2CppObject* self, int32_t value, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_i_wf(Il2CppObject* self, int32_t value, int32_t width, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_l_w(Il2CppObject* self, int64_t value, int32_t width);
+Il2CppObject* icall_stringbuilder_append_l_f(Il2CppObject* self, int64_t value, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_l_wf(Il2CppObject* self, int64_t value, int32_t width, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_d_w(Il2CppObject* self, double value, int32_t width);
+Il2CppObject* icall_stringbuilder_append_d_f(Il2CppObject* self, double value, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_d_wf(Il2CppObject* self, double value, int32_t width, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_b_w(Il2CppObject* self, bool value, int32_t width);
+Il2CppObject* icall_stringbuilder_append_b_f(Il2CppObject* self, bool value, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_b_wf(Il2CppObject* self, bool value, int32_t width, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_c_w(Il2CppObject* self, int32_t utf16, int32_t width);
+Il2CppObject* icall_stringbuilder_append_c_f(Il2CppObject* self, int32_t utf16, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_c_wf(Il2CppObject* self, int32_t utf16, int32_t width, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_s_w(Il2CppObject* self, Il2CppObject* value, int32_t width);
+Il2CppObject* icall_stringbuilder_append_s_f(Il2CppObject* self, Il2CppObject* value, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_s_wf(Il2CppObject* self, Il2CppObject* value, int32_t width, Il2CppObject* format);
+
 } // namespace runtime
 
 } // namespace il2cpp

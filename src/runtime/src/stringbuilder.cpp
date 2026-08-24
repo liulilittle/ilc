@@ -8,6 +8,11 @@
 // the buffer field -- the object identity never changes (observable through
 // reference equality, exactly like .NET).
 //
+
+#include "il2cpp_boxing_ext.h"    // P25g: icall_box_double / _bool / _char
+#include "il2cpp_boxing_ext2.h"   // P25g: icall_box_long
+#include "il2cpp_metadata.h"      // P25g: System_Int32_class (int32 box class)
+#include "il2cpp_format_ext.h"    // P25g: icall_format_composite_item (net48 composite)//
 // Growth policies (net48 BASELINE, empirically verified by the e2e
 // reference run and targeted probes):
 //   * Append: Grow(required) = max(required, max(Length, oldCapacity) * 2)
@@ -1395,6 +1400,102 @@ void icall_interp_handler_ctor(Il2CppObject** slot, int32_t /*literalLength*/, i
     Il2CppObject* sb = il2cpp_object_new(il2cpp_stringbuilder_class());
     icall_stringbuilder_ctor_default(sb);
     *slot = sb;
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_append_{i,l,d,b,c,s}_{w,f,wf} -- P25g (dhprobe): the
+// DefaultInterpolatedStringHandler.AppendFormatted<T> ALIGNMENT and
+// FORMAT-STRING overloads ('{x,5}' / '{x:D3}' / '{x,5:D3}'). One trio per
+// value type delegates to icall_format_composite_item (the net48 composite
+// engine -- il2cpp_format_ext.h) with the BOXED value; the resulting string
+// is appended to the builder. NULL format = default text; width = the net48
+// min-width alignment (positive right-align, negative left-align).
+//------------------------------------------------------------------------------
+static Il2CppObject* InterpAppendFormatted(Il2CppObject* self, Il2CppObject* boxed,
+                                           int32_t width, Il2CppObject* format)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&boxed));
+    Il2CppObject* text = icall_format_composite_item(boxed, format, width);
+    scope.Add(reinterpret_cast<void**>(&text));
+    const Il2CppString* s = reinterpret_cast<const Il2CppString*>(text);
+    AppendUnits(&self, s->chars, s->length);
+    return self;
+}
+
+Il2CppObject* icall_stringbuilder_append_i_w(Il2CppObject* self, int32_t value, int32_t width)
+{
+    return InterpAppendFormatted(self, il2cpp_box_int32(&System_Int32_class, value), width, nullptr);
+}
+Il2CppObject* icall_stringbuilder_append_i_f(Il2CppObject* self, int32_t value, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, il2cpp_box_int32(&System_Int32_class, value), 0, format);
+}
+Il2CppObject* icall_stringbuilder_append_i_wf(Il2CppObject* self, int32_t value, int32_t width, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, il2cpp_box_int32(&System_Int32_class, value), width, format);
+}
+Il2CppObject* icall_stringbuilder_append_l_w(Il2CppObject* self, int64_t value, int32_t width)
+{
+    return InterpAppendFormatted(self, icall_box_long(value), width, nullptr);
+}
+Il2CppObject* icall_stringbuilder_append_l_f(Il2CppObject* self, int64_t value, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_long(value), 0, format);
+}
+Il2CppObject* icall_stringbuilder_append_l_wf(Il2CppObject* self, int64_t value, int32_t width, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_long(value), width, format);
+}
+Il2CppObject* icall_stringbuilder_append_d_w(Il2CppObject* self, double value, int32_t width)
+{
+    return InterpAppendFormatted(self, icall_box_double(value), width, nullptr);
+}
+Il2CppObject* icall_stringbuilder_append_d_f(Il2CppObject* self, double value, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_double(value), 0, format);
+}
+Il2CppObject* icall_stringbuilder_append_d_wf(Il2CppObject* self, double value, int32_t width, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_double(value), width, format);
+}
+Il2CppObject* icall_stringbuilder_append_b_w(Il2CppObject* self, bool value, int32_t width)
+{
+    return InterpAppendFormatted(self, icall_box_bool(value), width, nullptr);
+}
+Il2CppObject* icall_stringbuilder_append_b_f(Il2CppObject* self, bool value, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_bool(value), 0, format);
+}
+Il2CppObject* icall_stringbuilder_append_b_wf(Il2CppObject* self, bool value, int32_t width, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_bool(value), width, format);
+}
+Il2CppObject* icall_stringbuilder_append_c_w(Il2CppObject* self, int32_t utf16, int32_t width)
+{
+    return InterpAppendFormatted(self, icall_box_char(utf16), width, nullptr);
+}
+Il2CppObject* icall_stringbuilder_append_c_f(Il2CppObject* self, int32_t utf16, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_char(utf16), 0, format);
+}
+Il2CppObject* icall_stringbuilder_append_c_wf(Il2CppObject* self, int32_t utf16, int32_t width, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, icall_box_char(utf16), width, format);
+}
+Il2CppObject* icall_stringbuilder_append_s_w(Il2CppObject* self, Il2CppObject* value, int32_t width)
+{
+    return InterpAppendFormatted(self, value, width, nullptr);
+}
+Il2CppObject* icall_stringbuilder_append_s_f(Il2CppObject* self, Il2CppObject* value, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, value, 0, format);
+}
+Il2CppObject* icall_stringbuilder_append_s_wf(Il2CppObject* self, Il2CppObject* value, int32_t width, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, value, width, format);
 }
 
 } // namespace runtime

@@ -165,6 +165,14 @@ int main()
     using il2cpp::runtime::icall_stringbuilder_append_s;
     using il2cpp::runtime::icall_stringbuilder_append_c;
     using il2cpp::runtime::icall_stringbuilder_append_i;
+using il2cpp::runtime::icall_stringbuilder_append_i_w;
+using il2cpp::runtime::icall_stringbuilder_append_i_f;
+using il2cpp::runtime::icall_stringbuilder_append_i_wf;
+using il2cpp::runtime::icall_stringbuilder_append_s_w;
+using il2cpp::runtime::icall_stringbuilder_append_l_w;
+using il2cpp::runtime::icall_stringbuilder_append_b_w;
+using il2cpp::runtime::icall_stringbuilder_append_c_w;
+using il2cpp::runtime::icall_stringbuilder_append_d_w;
     using il2cpp::runtime::icall_stringbuilder_append_o;
     using il2cpp::runtime::icall_stringbuilder_insert;
     using il2cpp::runtime::icall_stringbuilder_remove;
@@ -778,6 +786,44 @@ int main()
             il2cpp::il2cpp_string_new_from_cs("{,5}")),
             il2cpp::il2cpp_box_int32(nullptr, 42));
     }, kFe, "Format(\"{,5}\") throws FormatException (empty index)");
+
+    // --- 17. AppendFormatted alignment/format trios (P25g: dhprobe -- the
+    // net6+ DefaultInterpolatedStringHandler '{x,5}' / '{x:D3}' / '{x,5:D3}'
+    // overloads). Each trio entry delegates to icall_format_composite_item
+    // (the SAME net48 composite engine the section-15 tests pin), so these
+    // assertions verify the value-type dispatch + boxing only.
+    Il2CppStringBuilder* af = NewDefault();
+    (void)icall_stringbuilder_append_i_w(reinterpret_cast<Il2CppObject*>(af), 42, 5);
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   42",
+                 "append_i_w(42, 5) right-aligns to width 5");
+    (void)icall_stringbuilder_append_i_w(reinterpret_cast<Il2CppObject*>(af), 42, -5);
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   4242   ",
+                 "append_i_w(42, -5) left-aligns (negative width)");
+    (void)icall_stringbuilder_append_i_f(reinterpret_cast<Il2CppObject*>(af), 5,
+                                         reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("D3")));
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   4242   005",
+                 "append_i_f(5, \"D3\") applies the D3 specifier");
+    (void)icall_stringbuilder_append_i_wf(reinterpret_cast<Il2CppObject*>(af), 5, 3,
+                                          reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("D3")));
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   4242   005005",
+                 "append_i_wf(5, 3, \"D3\") width + format combine");
+    (void)icall_stringbuilder_append_s_w(reinterpret_cast<Il2CppObject*>(af),
+                                         reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("ab")), 4);
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   4242   005005  ab",
+                 "append_s_w(\"ab\", 4) right-aligns the string payload");
+    (void)icall_stringbuilder_append_l_w(reinterpret_cast<Il2CppObject*>(af), -12, 5);
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   4242   005005  ab  -12",
+                 "append_l_w(-12, 5) right-aligns the int64 payload");
+    (void)icall_stringbuilder_append_b_w(reinterpret_cast<Il2CppObject*>(af), true, 6);
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   4242   005005  ab  -12  True",
+                 "append_b_w(true, 6) right-aligns capitalized Boolean text");
+    (void)icall_stringbuilder_append_c_w(reinterpret_cast<Il2CppObject*>(af), 65, 3);
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)), "   4242   005005  ab  -12  True  A",
+                 "append_c_w(L'A', 3) right-aligns the char");
+    (void)icall_stringbuilder_append_d_w(reinterpret_cast<Il2CppObject*>(af), 1.5, 6);
+    ExpectString(icall_stringbuilder_to_string(reinterpret_cast<Il2CppObject*>(af)),
+                 "   4242   005005  ab  -12  True  A   1.5",
+                 "append_d_w(1.5, 6) right-aligns the double payload");
 
     // --- Report ---
     if (g_failures != 0)
