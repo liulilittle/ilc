@@ -633,26 +633,31 @@ Il2CppObject* icall_string_trim_start(Il2CppObject* this_)
 //------------------------------------------------------------------------------
 // icall_string_trim_start_set / icall_string_trim_end_set -- the char[]-set
 // overloads (icallwide E2E): strip every LEADING (resp. TRAILING) unit that
-// is a member of 'set'. A null/empty set returns the SAME string content
-// (.NET: an empty trim set trims nothing). The result is a fresh string
-// through the same allocation path as TrimImpl.
+// is a member of 'set'. A NULL or EMPTY set falls back to WHITESPACE trimming
+// -- the net48 params-array semantics (reference source: "if (trimChars ==
+// null || trimChars.Length == 0) return TrimStart();"), the path every
+// no-argument "  x  ".TrimStart() C# call ships (csc expands the params
+// invocation to TrimStart(char[]) with a fresh empty array). The result is a
+// fresh string through the same allocation path as TrimImpl.
 //------------------------------------------------------------------------------
 static Il2CppObject* TrimSetImpl(Il2CppObject* this_, Il2CppObject* set, bool start)
 {
     ThrowIfNullReceiver(this_);
     const Il2CppString* s = AsString(this_);
-    if (set == nullptr)
+    if (s->length == 0)
     {
-        il2cpp_throw_argument_null_exception("trimChars");
+        return this_;
+    }
+    if (set == nullptr || reinterpret_cast<const Il2CppArray*>(set)->length == 0)
+    {
+        // .NET parity (strdeep lines 199-202): a null/empty trimChars set is
+        // the params-array fallback -> TrimStart()/TrimEnd(), the WHITESPACE
+        // trim -- NOT "trim nothing" and NOT an ArgumentNullException. The
+        // whitespace predicate is TrimImpl's, identical to the no-arg icalls.
+        return TrimImpl(this_, start ? TrimMode::Start : TrimMode::End);
     }
     const auto* arr = reinterpret_cast<const Il2CppArray*>(set);
     const int32_t setLen = arr->length;
-    if (setLen == 0 || s->length == 0)
-    {
-        // .NET: an empty trim set removes nothing -> return the source
-        // (a fresh copy is unnecessary; return this_ like Trim on no-match).
-        return this_;
-    }
     const uint16_t* units = reinterpret_cast<const uint16_t*>(arr->data);
     int32_t begin = 0;
     if (start)

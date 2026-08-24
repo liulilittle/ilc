@@ -157,7 +157,8 @@ Il2CppObject* icall_string_trim_start(Il2CppObject* this_);
 
 // TrimStart/TrimEnd(char[] set): the SET-aware overloads (icallwide E2E) --
 // strip leading/trailing units that are members of 'set'; a null/empty set
-// trims nothing.
+// falls back to WHITESPACE trimming (the net48 params-array semantics -- an
+// empty "  x  ".TrimStart() expands to TrimStart(char[]) { }).
 Il2CppObject* icall_string_trim_start_set(Il2CppObject* this_, Il2CppObject* set);
 Il2CppObject* icall_string_trim_end_set(Il2CppObject* this_, Il2CppObject* set);
 

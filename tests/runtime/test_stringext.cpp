@@ -31,6 +31,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_string_ext.h"
+#include "il2cpp_array_ext2.h" // icall_array_empty_char (P25d strdeep: the params-array empty set)
 
 #include "il2cpp_exception.h"
 #include "il2cpp_gc.h"
@@ -118,6 +119,9 @@ int main()
     using il2cpp::runtime::icall_string_trim_end;
     using il2cpp::runtime::icall_string_compare_to;
     using il2cpp::runtime::icall_string_contains;
+    using il2cpp::runtime::icall_string_trim_start_set;
+    using il2cpp::runtime::icall_string_trim_end_set;
+    using il2cpp::runtime::icall_array_empty_char;
 
     const char* kAoore = "System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception";
     const char* kAne = "System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception";
@@ -241,6 +245,18 @@ int main()
     Il2CppObject* nbsp = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs(" \u00A0x\u00A0 "));
     ExpectString(icall_string_trim(nbsp), "x", "Trim() removes NBSP (U+00A0) as whitespace");
     ExpectString(icall_string_trim(empty), "", "Trim() of the empty string is the empty string");
+    // P25d strdeep root cause: a NULL or EMPTY trimChars set falls back to
+    // WHITESPACE trimming (net48 params semantics -- `"  x  ".TrimStart()`
+    // expands to TrimStart(char[]) with a fresh empty array), NOT "trim
+    // nothing". Same whitespace predicate as the no-arg icalls.
+    ExpectString(icall_string_trim_start_set(padded, icall_array_empty_char()),
+                 "trim me  ", "TrimStart(char[] {}) falls back to whitespace trimming");
+    ExpectString(icall_string_trim_end_set(padded, icall_array_empty_char()),
+                 "  trim me", "TrimEnd(char[] {}) falls back to whitespace trimming");
+    ExpectString(icall_string_trim_start_set(padded, nullptr),
+                 "trim me  ", "TrimStart(null set) falls back to whitespace trimming");
+    ExpectString(icall_string_trim_end_set(padded, nullptr),
+                 "  trim me", "TrimEnd(null set) falls back to whitespace trimming");
 
     // --- 8. CompareTo ---
     Expect(icall_string_compare_to(hello, hello) == 0, "CompareTo(self) is 0");
