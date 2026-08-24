@@ -53,7 +53,9 @@ public static partial class MethodRefResolver
             // tuning, so these are stored preferences echoed back by the getters
             // (see gcapi.cpp). GCLatencyMode / GCLargeObjectHeapCompactionMode are
             // int32 enums passed by value.
+            case "get_LatencyMode":
             case "GetGCLatencyMode": return I("il2cpp::runtime::icall_gc_get_latency_mode", 0, true, false, false);
+            case "set_LatencyMode":
             case "SetGCLatencyMode": return I("il2cpp::runtime::icall_gc_set_latency_mode", 1, false, false, false);
             case "GetLOHCompactionMode": return I("il2cpp::runtime::icall_gc_get_loh_compaction_mode", 0, true, false, false);
             case "SetLOHCompactionMode": return I("il2cpp::runtime::icall_gc_set_loh_compaction_mode", 1, false, false, false);

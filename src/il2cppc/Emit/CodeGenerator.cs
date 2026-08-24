@@ -1434,6 +1434,17 @@ public static class CodeGenerator
                     locKind[d] = "guid";
                     continue;
                 }
+                // D5 (gccase LatencyMode): a BCL ENUM-return value local
+                // (System.Runtime.GCLatencyMode, ...) declares as int32 -- the
+                // enum carrier. The generic TypeCppName fallback would emit the
+                // MANGLED fullname (`System_Runtime_GCLatencyMode`), which is
+                // never defined in generated.cpp (BCL enums have no TypeDef/SFS
+                // here) -> unknown type name at the cmake build step.
+                if (ilKind.Length > 2 && IsEnumReceiverType(ilKind[2..], types))
+                {
+                    w.Line($"int32_t {d};");
+                    continue;
+                }
                 // batch 156c (asynccase): a VALUETYPE local whose struct has
                 // REFERENCE fields (the async state machine <F>d__1 -- the
                 // builder/awaiter Il2CppObject* slots) must be ZERO-
@@ -5817,6 +5828,7 @@ public static class CodeGenerator
         new(System.StringComparer.Ordinal)
         {
             "System.DayOfWeek",
+            "System.Runtime.GCLatencyMode",
         };
     private static bool IsEnumReceiverType(string typeName, IReadOnlyList<TypeDef> types)
         => typeName == "System.Enum"

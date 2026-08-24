@@ -25,6 +25,7 @@ class P
         object o = new object();
         Console.WriteLine("i6=" + (Interlocked.CompareExchange(ref o, null, o) == null));
 Console.WriteLine("g1=" + GCSettings.IsServerGC);
+        Console.WriteLine("g2=" + (int)GCSettings.LatencyMode);
         Console.WriteLine("v1=" + Environment.Version.ToString());
     }
 }
