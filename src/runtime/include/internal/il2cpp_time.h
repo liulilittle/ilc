@@ -67,6 +67,11 @@ Il2CppDateTime icall_datetime_now();
 Il2CppDateTime icall_datetime_from_ymd(int32_t year, int32_t month, int32_t day);
 Il2CppDateTime icall_datetime_from_ymdhms(int32_t year, int32_t month, int32_t day,
                                           int32_t hour, int32_t minute, int32_t second);
+// DateTime(y,m,d,h,mi,s,ms): the 7-arg millisecond ctor (D5 cov3); the ms
+// component (0..999) composes onto the second boundary.
+Il2CppDateTime icall_datetime_from_ymdhms_ms(int32_t year, int32_t month, int32_t day,
+                                             int32_t hour, int32_t minute, int32_t second,
+                                             int32_t millisecond);
 
 //------------------------------------------------------------------------------
 // DateTime(long ticks) -- batch 151: the raw 100ns-since-0001-01-01 ticks

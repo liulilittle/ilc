@@ -305,6 +305,22 @@ Il2CppDateTime icall_datetime_from_ymdhms(int32_t year, int32_t month, int32_t d
     return Il2CppDateTime(ComposeTicks(year, month, day, hour, minute, second));
 }
 
+Il2CppDateTime icall_datetime_from_ymdhms_ms(int32_t year, int32_t month, int32_t day,
+                                             int32_t hour, int32_t minute, int32_t second,
+                                             int32_t millisecond)
+{
+    // net48 DateTime(y,m,d,h,mi,s,ms): the millisecond component composes
+    // ms * TicksPerMillisecond onto the second boundary (0..999 validated).
+    ValidateDateParts(year, month, day);
+    ValidateTimeParts(hour, minute, second);
+    if (millisecond < 0 || millisecond > 999)
+    {
+        il2cpp_throw_argument_out_of_range_exception("millisecond", nullptr);
+    }
+    return Il2CppDateTime(ComposeTicks(year, month, day, hour, minute, second) +
+                          static_cast<int64_t>(millisecond) * 10000LL);
+}
+
 //------------------------------------------------------------------------------
 // icall_datetime_from_ticks -- DateTime(long ticks) (see the header).
 //------------------------------------------------------------------------------

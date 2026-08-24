@@ -40,6 +40,12 @@ public static partial class MethodRefResolver
                 if (ps.Length == 7 && ps[6] == 0x11)
                     return I("il2cpp::runtime::icall_datetime_from_ymdhms", 7, false, false, true,
                         new[] { "", "", "", "", "", "", "", "drop" }, "dt", resultIsReceiver: true);
+                // D5 cov3: ctor(y,m,d,h,mi,s,ms) -- the 7-arg MILLISECOND form
+                // (all-int32 signature; the kind-dropping 7-arg form above has
+                // ps[6]==0x11 enum and is matched first).
+                if (ps.Length == 7)
+                    return I("il2cpp::runtime::icall_datetime_from_ymdhms_ms", 7, false, false, true,
+                        null, "dt", resultIsReceiver: true);
                 throw new NotSupportedException($"DateTime ctor with {ps.Length} arg(s) not wired in M5 (the runtime has from_ticks/from_ymd/from_ymdhms only)");
             case "get_UtcNow":
                 return I("il2cpp::runtime::icall_datetime_utc_now", 0, true, false, false, null, "dt");
@@ -48,6 +54,9 @@ public static partial class MethodRefResolver
             case "get_Year": return I("il2cpp::runtime::icall_datetime_get_year", 0, true, false, true, new[] { "deref:dt" });
             case "get_Month": return I("il2cpp::runtime::icall_datetime_get_month", 0, true, false, true, new[] { "deref:dt" });
             case "get_Day": return I("il2cpp::runtime::icall_datetime_get_day", 0, true, false, true, new[] { "deref:dt" });
+            case "get_Millisecond":
+                // D5 cov3: the sub-second remainder (0..999).
+                return I("il2cpp::runtime::icall_datetime_get_millisecond", 0, true, false, true, new[] { "deref:dt" });
             case "get_DayOfYear": return I("il2cpp::runtime::icall_datetime_get_day_of_year", 0, true, false, true, new[] { "deref:dt" });
             case "get_Hour": return I("il2cpp::runtime::icall_datetime_get_hour", 0, true, false, true, new[] { "deref:dt" });
             case "get_Minute": return I("il2cpp::runtime::icall_datetime_get_minute", 0, true, false, true, new[] { "deref:dt" });
