@@ -18,6 +18,10 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
+            // static int Size -- platform pointer width (envnf D5), same
+            // sizeof(void*) contract as IntPtr.Size.
+            case "get_Size":
+                return I("il2cpp::runtime::il2cpp_intptr_get_size", 0, true, false, false);
             // Batch 155c: UIntPtr(int32/int64/uint64) ctor -- the value is
             // the pointer carrier (the runtime ctor takes intptr_t; the
             // unsigned bit pattern passes through).

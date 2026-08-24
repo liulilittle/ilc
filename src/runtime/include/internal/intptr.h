@@ -53,6 +53,7 @@ namespace il2cpp { namespace runtime {
 // IntPtr(int32) ctor: the int32 value IS the pointer carrier (sign-extended
 // to the pointer width -- C# `new IntPtr(1)` stores value 1).
 intptr_t il2cpp_intptr_ctor(intptr_t value);
+int32_t il2cpp_intptr_get_size(void);
 
 // IntPtr.Add(IntPtr, int): pointer + sign-extended int32 offset.
 intptr_t il2cpp_intptr_add(intptr_t pointer, int32_t offset);

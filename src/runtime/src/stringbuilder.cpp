@@ -869,8 +869,24 @@ Il2CppObject* icall_string_format_0(Il2CppObject* format)
     return FormatToString(reinterpret_cast<const Il2CppString*>(format), nullptr, 0);
 }
 
+// Provider-prefixed wrappers (D5 envnf): String.Format(IFormatProvider, ...)
+// -- the runtime is invariant-culture, so the provider is ignored (the
+// explicit-culture probe contract is InvariantCulture anyway).
+Il2CppObject* icall_string_format_0_provider(Il2CppObject* provider, Il2CppObject* format)
+{
+    (void)provider;
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), nullptr, 0);
+}
+
 Il2CppObject* icall_string_format_1(Il2CppObject* format, Il2CppObject* arg0)
 {
+    Il2CppObject* args[1] = { arg0 };
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 1);
+}
+
+Il2CppObject* icall_string_format_1_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0)
+{
+    (void)provider;
     Il2CppObject* args[1] = { arg0 };
     return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 1);
 }
@@ -881,8 +897,22 @@ Il2CppObject* icall_string_format_2(Il2CppObject* format, Il2CppObject* arg0, Il
     return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 2);
 }
 
+Il2CppObject* icall_string_format_2_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    (void)provider;
+    Il2CppObject* args[2] = { arg0, arg1 };
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 2);
+}
+
 Il2CppObject* icall_string_format_3(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
 {
+    Il2CppObject* args[3] = { arg0, arg1, arg2 };
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 3);
+}
+
+Il2CppObject* icall_string_format_3_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    (void)provider;
     Il2CppObject* args[3] = { arg0, arg1, arg2 };
     return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 3);
 }
@@ -901,6 +931,13 @@ Il2CppObject* icall_string_format(Il2CppObject* format, Il2CppObject* argsArray)
     return FormatToString(reinterpret_cast<const Il2CppString*>(format),
                           reinterpret_cast<Il2CppObject* const*>(arr->data),
                           arr->length);
+}
+
+// String.Format(IFormatProvider, string, params object[]) -- provider ignored.
+Il2CppObject* icall_string_format_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* argsArray)
+{
+    (void)provider;
+    return icall_string_format(format, argsArray);
 }
 
 //------------------------------------------------------------------------------
@@ -1314,6 +1351,19 @@ int32_t icall_stringbuilder_get_length(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return AsBuilder(self)->length;
+}
+
+//------------------------------------------------------------------------------
+// get_MaxCapacity -- StringBuilder.MaxCapacity (D5 stsdeep): every builder the
+// runtime creates (StringBuilder(), (int), (string), (string,int)...) gets the
+// net48 MONO_DEFAULT_MAX_CAPACITY (int.MaxValue); the managed side never
+// changes it for these ctors, so the read is a constant contract, not a field
+// chase across a chunk the runtime does not track.
+//------------------------------------------------------------------------------
+int32_t icall_stringbuilder_get_max_capacity(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return int32_t(0x7FFFFFFF);
 }
 
 //------------------------------------------------------------------------------

@@ -22,6 +22,16 @@ intptr_t il2cpp_intptr_ctor(intptr_t value)
 }
 
 //------------------------------------------------------------------------------
+// static int IntPtr.Size / UIntPtr.Size -- platform pointer width in bytes
+// (net48: managed property; the transpiler needs an icall so the read links.
+// 8 on x64, 4 on 32-bit builds -- sizeof(void*) IS the contract).
+//------------------------------------------------------------------------------
+int32_t il2cpp_intptr_get_size()
+{
+    return static_cast<int32_t>(sizeof(void*));
+}
+
+//------------------------------------------------------------------------------
 // IntPtr.Add(IntPtr, int) -- pointer + offset.
 //
 // The offset is a SIGNED int32 and must be sign-extended to the pointer

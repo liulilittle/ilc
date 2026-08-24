@@ -244,18 +244,27 @@ Il2CppObject* icall_stringbuilder_append_format_3(Il2CppObject* self, Il2CppObje
 // FormatException. Returns the formatted string (a managed string).
 Il2CppObject* icall_string_format_0(Il2CppObject* format);
 
+// String.Format(IFormatProvider, string, ...) provider-prefixed wrappers
+// (D5 envnf): the provider is ignored (invariant culture contract).
+Il2CppObject* icall_string_format_0_provider(Il2CppObject* provider, Il2CppObject* format);
+
 // String.Format(string format, object arg0) -- see _0.
 Il2CppObject* icall_string_format_1(Il2CppObject* format, Il2CppObject* arg0);
+Il2CppObject* icall_string_format_1_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0);
 
 // String.Format(string format, object arg0, object arg1) -- see _0.
 Il2CppObject* icall_string_format_2(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+Il2CppObject* icall_string_format_2_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
 
 // String.Format(string format, object arg0, object arg1, object arg2) -- see _0.
 Il2CppObject* icall_string_format_3(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+Il2CppObject* icall_string_format_3_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
 
 // String.Format(string format, params object[] args) -- see _0. A null args
 // ARRAY -> ArgumentNullException (net48); an empty array is legal.
 Il2CppObject* icall_string_format(Il2CppObject* format, Il2CppObject* argsArray);
+// String.Format(IFormatProvider, string, params object[]) -- provider ignored.
+Il2CppObject* icall_string_format_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* argsArray);
 
 // Replace(string oldValue, string newValue): replaces EVERY occurrence of
 // oldValue with newValue (null newValue removes the occurrences). Null
@@ -318,6 +327,7 @@ Il2CppObject* icall_stringbuilder_to_string(Il2CppObject* self);
 
 // Length (getter): the current UTF-16 unit count.
 int32_t icall_stringbuilder_get_length(Il2CppObject* self);
+int32_t icall_stringbuilder_get_max_capacity(Il2CppObject* self);
 
 // get_Chars(index): the indexer -- reads one UTF-16 unit from the buffer;
 // out-of-range -> IndexOutOfRangeException.

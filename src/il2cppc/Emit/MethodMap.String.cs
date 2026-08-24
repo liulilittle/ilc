@@ -360,6 +360,25 @@ case "ReplaceLineEndings":
                 // string is a managed reference like Join/Copy.
                 if (ps.Length == 1)
                     return I("il2cpp::runtime::icall_string_format_0", 1, true, true, false, null, null, false, false, false, "System.String");
+                if (ps.Length >= 2 && (ps[0] == 0x12 || ps[0] == 0x1C) && ps[1] == 0x0E)
+                {
+                    // Format(IFormatProvider, string[, arg...]): the provider
+                    // arm -- the mscorlib IFormatProvider INTERFACE param
+                    // decodes to element byte 0x12 (CLASS type handle);
+                    // a boxed-object provider encodes 0x1C. Guarded on the
+                    // second slot being the format STRING (0x0E) so no other
+                    // Format overload matches. The provider slot passes
+                    // through VERBATIM as the leading parameter of the
+                    // *_provider runtime wrapper (invariant culture: it is
+                    // ignored). Keeps the fold slot order 1:1 -- a positional
+                    // "drop" would shift the format into slot 0 and corrupt
+                    // the call.
+                    var tail = Enumerable.Repeat("", ps.Length - 1).ToArray();
+                    var casts = new[] { "" }.Concat(tail).ToArray();
+                    if (ps.Length == 3 && ps[2] == 0x1D)
+                        return I("il2cpp::runtime::icall_string_format_provider", ps.Length, true, true, false, casts, null, false, false, false, "System.String");
+                    return I($"il2cpp::runtime::icall_string_format_{ps.Length - 2}_provider", ps.Length, true, true, false, casts, null, false, false, false, "System.String");
+                }
                 if (ps.Length == 2 && ps[1] == 0x1C)
                     return I("il2cpp::runtime::icall_string_format_1", 2, true, true, false, null, null, false, false, false, "System.String");
                 if (ps.Length == 2 && ps[1] == 0x1D)

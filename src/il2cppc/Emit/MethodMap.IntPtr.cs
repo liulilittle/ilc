@@ -21,6 +21,10 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
+            // static int Size -- platform pointer width (envnf D5): the
+            // int32_t result is sizeof(void*) via il2cpp_intptr_get_size.
+            case "get_Size":
+                return I("il2cpp::runtime::il2cpp_intptr_get_size", 0, true, false, false);
             // wf2 (winforms1): IntPtr(int32) ctor -- the int32 value IS the
             // pointer carrier (identity sign-extend to pointer width).
             // Batch 155b: IntPtr(int64) ctor -- the int64 value carries

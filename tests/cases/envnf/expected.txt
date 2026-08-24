@@ -1,0 +1,12 @@
+env1=True
+env2=True
+env3=True
+nf0=True
+nf1=True
+nf2=True
+nf4=True
+nf5=True
+nf6=True
+nf7=True
+nf8=True
+nf9=True

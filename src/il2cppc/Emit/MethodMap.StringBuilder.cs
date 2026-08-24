@@ -85,8 +85,11 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException($"StringBuilder.Replace param type 0x{ps[0]:X2} not wired in M5");
             case "ToString":
                 return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
+            // D5 stsdeep: get_MaxCapacity -- constant int.MaxValue (see runtime note).
             case "get_Length":
                 return I("il2cpp::runtime::icall_stringbuilder_get_length", 0, true, false, true);
+            case "get_MaxCapacity":
+                return I("il2cpp::runtime::icall_stringbuilder_get_max_capacity", 0, true, false, true);
             // get_Chars(index): the indexer -- one UTF-16 unit out of the
             // buffer (int32 carrier); out-of-range -> IndexOutOfRangeException.
             case "get_Chars":
