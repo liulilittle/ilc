@@ -20,10 +20,14 @@
 #include "dictsi_obj.h"
 
 #include "il2cpp_exception_ext.h" // il2cpp_throw_key_not_found_exception
+#include "il2cpp_gc.h"             // il2cpp_write_barrier
+#include "il2cpp_gcroot.h"         // GcRoot
+#include "il2cpp_object.h"         // il2cpp_object_new / il2cpp_class_register
 #include "il2cpp_string.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 namespace il2cpp {
 
@@ -92,6 +96,81 @@ Il2CppClass* il2cpp_dict_si_object_class()
 {
     EnsureDictSIObjectRegistered();
     return &System_Collections_Generic_Dictionary_2_string_int_class;
+}
+
+//------------------------------------------------------------------------------
+// The two enumeration-object descriptors (P25d, dictp25).
+//   System_Collections_Generic_Dictionary_2_Enumerator_string_int_class:
+//     instanceSize = header(8) + keys(8) + values(8) + index(4) -> 28, padded
+//     to 32; refFieldBitmap 0b110 = slots 1+2 (the two GC arrays).
+//   System_Collections_Generic_KeyValuePair_2_string_int_class:
+//     instanceSize = header(8) + key(8) + value(4) -> 20, padded to 24;
+//     refFieldBitmap 0b010 = slot 1 (the GC key).
+//------------------------------------------------------------------------------
+Il2CppClass System_Collections_Generic_Dictionary_2_Enumerator_string_int_class = {
+    "System.Collections.Generic.Dictionary`2<string,int>+Enumerator", // name
+    static_cast<int32_t>(sizeof(Il2CppDictSIEnumerator)), // instanceSize
+    0b110u,                              // refFieldBitmap: slots 1+2 (keys/values)
+    2,                                   // refFieldCount
+    nullptr,                             // baseClass
+    nullptr,                             // vtable
+    0,                                   // vtableSize
+    nullptr,                             // interfaces
+    0,                                   // interfaceCount
+};
+
+Il2CppClass System_Collections_Generic_KeyValuePair_2_string_int_class = {
+    "System.Collections.Generic.KeyValuePair`2<string,int>", // name
+    static_cast<int32_t>(sizeof(Il2CppDictKvpSI)), // instanceSize
+    0b010u,                              // refFieldBitmap: slot 1 (the key)
+    1,                                   // refFieldCount
+    nullptr,                             // baseClass
+    nullptr,                             // vtable
+    0,                                   // vtableSize
+    nullptr,                             // interfaces
+    0,                                   // interfaceCount
+};
+
+namespace {
+
+bool g_dictEnumRegistered = false;
+
+void EnsureDictEnumRegistered()
+{
+    if (g_dictEnumRegistered) return;
+    il2cpp_class_register(&System_Collections_Generic_Dictionary_2_Enumerator_string_int_class);
+    il2cpp_class_register(&System_Collections_Generic_KeyValuePair_2_string_int_class);
+    g_dictEnumRegistered = true;
+}
+
+// Content-equality (ordinal) for the array-scan Contains (same authority as
+// dictsi.cpp's KeyEquals -- equal content, equal key).
+bool StrOrdinalEqual(const Il2CppString* a, const Il2CppString* b)
+{
+    if (a == b) return true;
+    return a != nullptr && b != nullptr &&
+           a->length == b->length &&
+           std::memcmp(a->chars, b->chars,
+                       static_cast<size_t>(a->length) * sizeof(char16_t)) == 0;
+}
+
+int32_t EnumeratorLength(const Il2CppDictSIEnumerator* en)
+{
+    return en->keys != nullptr ? en->keys->length : en->values->length;
+}
+
+} // namespace
+
+Il2CppClass* il2cpp_dict_si_enumerator_class()
+{
+    EnsureDictEnumRegistered();
+    return &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class;
+}
+
+Il2CppClass* il2cpp_kvp_si_class()
+{
+    EnsureDictEnumRegistered();
+    return &System_Collections_Generic_KeyValuePair_2_string_int_class;
 }
 
 namespace runtime {
@@ -214,3 +293,199 @@ Il2CppArray* icall_dict_si_get_values(Il2CppObject* self)
 }
 
 }} // namespace il2cpp::runtime
+
+//------------------------------------------------------------------------------
+// P25d (dictp25) enumeration surface (namespace il2cpp -- the list_i4_
+// enumerator / il2cpp_ienum_* convention the transpiler emits).
+//------------------------------------------------------------------------------
+namespace il2cpp {
+
+//------------------------------------------------------------------------------
+// il2cpp_dict_si_get_enumerator -- Dictionary`2+Enumerator..ctor result: a
+// SNAPSHOT pair enumerator over the dictionary's current Keys + Values (the
+// deterministic hash-bucket order, positionally consistent -- dictsi.h). The
+// enumerator holds both arrays; a later dictionary mutation cannot affect the
+// ongoing foreach (snapshot independence -- net48 foreach semantics).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_dict_si_get_enumerator(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    EnsureDictEnumRegistered();
+    GcRoot<Il2CppObject*> root(self, "il2cpp_dict_si_get_enumerator");
+    Il2CppDictSI* d = AsDict(self);
+    Il2CppArray* keys = il2cpp_dict_si_get_keys(d);
+    GcRoot<Il2CppArray*> keysRoot(keys, "dict_enumerator_keys");
+    self = root.Get();
+    d = AsDict(self);
+    Il2CppArray* values = il2cpp_dict_si_get_values(d);
+    GcRoot<Il2CppArray*> valuesRoot(values, "dict_enumerator_values");
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(
+        il2cpp_object_new(&System_Collections_Generic_Dictionary_2_Enumerator_string_int_class));
+    keys = keysRoot.Get();
+    values = valuesRoot.Get();
+    en->keys = keys;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->keys),
+                         reinterpret_cast<Il2CppObject*>(en->keys));
+    en->values = values;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->values),
+                         reinterpret_cast<Il2CppObject*>(en->values));
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
+}
+
+int32_t il2cpp_dict_si_enumerator_move_next(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    ++en->index;
+    return en->index < EnumeratorLength(en) ? 1 : 0;
+}
+
+Il2CppObject* il2cpp_dict_si_enumerator_get_current(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    const int32_t i = en->index;
+    Il2CppObject* const* keys = reinterpret_cast<Il2CppObject* const*>(en->keys->data);
+    const int32_t* values = reinterpret_cast<const int32_t*>(en->values->data);
+    Il2CppDictKvpSI* kvp = reinterpret_cast<Il2CppDictKvpSI*>(
+        il2cpp_object_new(&System_Collections_Generic_KeyValuePair_2_string_int_class));
+    kvp->key = reinterpret_cast<Il2CppString*>(keys[i]);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&kvp->key),
+                         reinterpret_cast<Il2CppObject*>(kvp->key));
+    kvp->value = values[i];
+    return reinterpret_cast<Il2CppObject*>(kvp);
+}
+
+void il2cpp_dict_si_enumerator_dispose(Il2CppObject* self)
+{
+    // no-op (the enumerator holds snapshots; nothing to release).
+    (void)self;
+}
+
+Il2CppObject* il2cpp_kvp_string_int_get_key(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return reinterpret_cast<Il2CppObject*>(
+        reinterpret_cast<Il2CppDictKvpSI*>(self)->key);
+}
+
+int32_t il2cpp_kvp_string_int_get_value(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return reinterpret_cast<Il2CppDictKvpSI*>(self)->value;
+}
+
+//------------------------------------------------------------------------------
+// The KeyCollection / ValueCollection enumerators: the KEY / VALUE SNAPSHOT
+// ARRAY is the receiver (get_Keys/get_Values verdict + KeyCollection.Count
+// = the array length). GetEnumerator wraps it -- no copy (the array is the
+// frozen snapshot dictsi.h produces; mutating the DICTIONARY after
+// GetEnumerator cannot touch it).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_dict_si_keycollection_get_enumerator(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    EnsureDictEnumRegistered();
+    GcRoot<Il2CppObject*> root(self, "il2cpp_dict_si_keycollection_get_enumerator");
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(
+        il2cpp_object_new(&System_Collections_Generic_Dictionary_2_Enumerator_string_int_class));
+    self = root.Get();
+    en->keys = reinterpret_cast<Il2CppArray*>(self);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->keys),
+                         reinterpret_cast<Il2CppObject*>(en->keys));
+    en->values = nullptr;
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
+}
+
+int32_t il2cpp_dict_si_keycollection_enumerator_move_next(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    ++en->index;
+    return en->index < en->keys->length ? 1 : 0;
+}
+
+Il2CppObject* il2cpp_dict_si_keycollection_enumerator_get_current(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    Il2CppObject* const* keys = reinterpret_cast<Il2CppObject* const*>(en->keys->data);
+    return reinterpret_cast<Il2CppObject*>(keys[en->index]);
+}
+
+void il2cpp_dict_si_keycollection_enumerator_dispose(Il2CppObject* self)
+{
+    (void)self; // no-op (see il2cpp_dict_si_enumerator_dispose).
+}
+
+Il2CppObject* il2cpp_dict_si_valuecollection_get_enumerator(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    EnsureDictEnumRegistered();
+    GcRoot<Il2CppObject*> root(self, "il2cpp_dict_si_valuecollection_get_enumerator");
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(
+        il2cpp_object_new(&System_Collections_Generic_Dictionary_2_Enumerator_string_int_class));
+    self = root.Get();
+    en->keys = nullptr;
+    en->values = reinterpret_cast<Il2CppArray*>(self);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->values),
+                         reinterpret_cast<Il2CppObject*>(en->values));
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
+}
+
+int32_t il2cpp_dict_si_valuecollection_enumerator_move_next(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    ++en->index;
+    return en->index < en->values->length ? 1 : 0;
+}
+
+int32_t il2cpp_dict_si_valuecollection_enumerator_get_current(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    return reinterpret_cast<const int32_t*>(en->values->data)[en->index];
+}
+
+void il2cpp_dict_si_valuecollection_enumerator_dispose(Il2CppObject* self)
+{
+    (void)self; // no-op (see il2cpp_dict_si_enumerator_dispose).
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_dict_si_collection_get_count -- KeyCollection/ValueCollection/get_
+// Count: the receiver is the snapshot ARRAY (the KeyCollection is a view over
+// the keys array), so Count == the array length == the dictionary count.
+// il2cpp_dict_si_keys_contains -- ICollection<string>.Contains over the keys
+// snapshot array: an ordinal scan (equal content == the same key; net48
+// KeyCollection<string>.Contains is dictionary-lookup true, the array scan
+// returns the identical boolean).
+//------------------------------------------------------------------------------
+int32_t il2cpp_dict_si_collection_get_count(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return reinterpret_cast<Il2CppArray*>(self)->length;
+}
+
+int32_t il2cpp_dict_si_keys_contains(Il2CppObject* self, Il2CppObject* item)
+{
+    ThrowIfNullReceiver(self);
+    const Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(self);
+    const Il2CppObject* const* keys =
+        reinterpret_cast<const Il2CppObject* const*>(arr->data);
+    for (int32_t i = 0; i < arr->length; ++i)
+    {
+        if (StrOrdinalEqual(reinterpret_cast<const Il2CppString*>(keys[i]),
+                            reinterpret_cast<const Il2CppString*>(item)))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+} // namespace il2cpp

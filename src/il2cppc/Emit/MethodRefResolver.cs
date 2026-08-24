@@ -859,6 +859,25 @@ public static partial class MethodRefResolver
             case "System.Collections.Generic.IEnumerator`1":
                 return TryMapEnumIface(owner, name, count, instName);
             case "System.Collections.Generic.Dictionary`2": return TryMapDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // P25d (dictp25): the Dictionary<string,int> enumeration struct
+            // owners (Dictionary`2+Enumerator / +KeyCollection+Enumerator /
+            // +ValueCollection+Enumerator and the KeyValuePair`2 struct) -- the
+            // compiler calls their members directly on the concrete nested
+            // types (lsloca address receivers); the KeyCollection / ValueCollection
+            // class owners (views over the Keys/Values snapshot arrays) and the
+            // GENERIC interface owners (IDictionary`2 / ICollection`1 -- the
+            // receiver hint routes to the dictsi wrapper / snapshot arrays).
+            case "System.Collections.Generic.Dictionary`2+Enumerator":
+            case "System.Collections.Generic.KeyValuePair`2":
+            case "System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator":
+            case "System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator":
+                return TryMapDictEnumeration(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.Dictionary`2+KeyCollection":
+            case "System.Collections.Generic.Dictionary`2+ValueCollection":
+                return TryMapDictCollection(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.IDictionary`2":
+            case "System.Collections.Generic.ICollection`1":
+                return TryMapDictInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // hset-b23 (D-HSET-1): HashSet<string> -- the string AOT expansion
             // (MethodMap.HashSet.cs, runtime hashset.h -- a set-of-unique-
             // members wrapper over the dictsi domain). GAPS.md recorded the
@@ -939,6 +958,16 @@ public static partial class MethodRefResolver
                     // (the same shape the MoveNext/get_Current arms use).
                     if (receiverType == "System.Collections.Generic.List`1.Enumerator")
                         return I("il2cpp::il2cpp_list_i4_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // P25d (dictp25): the Dictionary<string,int> enumerator
+                    // structs implement IDisposable EXPLICITLY, so the foreach
+                    // finally's `constrained..callvirt IDisposable::Dispose`
+                    // arrives with this owner. Route the tracked enumerator
+                    // receivers to the (no-op) dict enumerator dispose.
+                    var dictEnumLike = receiverType ?? arg0Type;
+                    if (dictEnumLike is "System.Collections.Generic.Dictionary`2.Enumerator"
+                            or "System.Collections.Generic.Dictionary`2.KeyCollection.Enumerator"
+                            or "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator")
+                        return I("il2cpp::il2cpp_dict_si_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
                     if (receiverType == null && arg0Type == null)
                         // P25c: the untracked-receiver IDisposable.Dispose (the
                         // foreach isinst guard over a user enumerator / yield
@@ -1673,10 +1702,60 @@ public static partial class MethodRefResolver
                 0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
                 0x1C => "object",
                 0x1D or 0x1F => "array",
+                0x15 => ReadM3GenericArgNested(md, ref sig),
                 var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
             };
         }
         return defName + "_" + string.Join("_", args);
+    }
+
+    // A generic-argument that is ITSELF a generic instantiation
+    // (ELEMENT_TYPE_GENERICINST 0x15 -- e.g. IEnumerable`1<KeyValuePair`2
+    // <string,int>>). The nested GenericInst encoding follows the same shape
+    // as the outer one (defCLASS/VALUETYPE marker + TypeHandle + argCount +
+    // args); encode it recursively so the outer instance name carries the
+    // fully nested suffix, mirroring MetadataLoader.ReadTypeName 0x15.
+    private static string ReadM3GenericArgNested(MetadataReader md, ref BlobReader sig)
+    {
+        _ = sig.ReadByte(); // CLASS(0x12)/VALUETYPE(0x11) marker
+        EntityHandle nestedDef = sig.ReadTypeHandle();
+        string nestedName = nestedDef.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)nestedDef),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)nestedDef),
+            HandleKind.TypeSpecification => GenericInstantiationName(md, (TypeSpecificationHandle)nestedDef),
+            _ => throw new NotSupportedException($"nested generic definition kind {nestedDef.Kind} in M3"),
+        };
+        var nestedCount = sig.ReadCompressedInteger();
+        var nestedArgs = new string[nestedCount];
+        for (var j = 0; j < nestedCount; ++j)
+        {
+            var b = sig.ReadByte();
+            nestedArgs[j] = b switch
+            {
+                0x02 => "bool",
+                0x03 => "char",
+                0x04 => "sbyte",
+                0x05 => "byte",
+                0x06 => "short",
+                0x07 => "ushort",
+                0x08 => "int",
+                0x09 => "uint",
+                0x0A => "long",
+                0x0B => "ulong",
+                0x0C => "float",
+                0x0D => "double",
+                0x0E => "string",
+                0x11 => "valuetype",
+                0x12 => "class",
+                0x13 => "int",
+                0x1C => "object",
+                0x1D or 0x1F => "array",
+                0x15 => ReadM3GenericArgNested(md, ref sig),
+                var other => throw new NotSupportedException($"nested generic argument byte 0x{other:X2} in M3"),
+            };
+        }
+        return nestedName + "_" + string.Join("_", nestedArgs);
     }
 
     private static string Sanitize(string s) => string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']'));

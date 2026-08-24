@@ -1389,6 +1389,23 @@ public static class CodeGenerator
             }
             if (ilKind != null && ilKind.StartsWith("v:", StringComparison.Ordinal))
             {
+                // P25d (dictp25): a System.Collections.Generic.KeyValuePair`2
+                // IL-declared local (the `foreach (KeyValuePair<,> kvp in
+                // <IDictionary or Dictionary>)` iteration variable) is a REF
+                // CARRIER in this transpiler: the runtime gives every pair as
+                // the Il2CppDictKvpSI holder OBJECT (get_Key/get_Value are
+                // separate icalls -- there is no 16-byte pair struct). The
+                // generic TypeCppName arm would emit `System_
+                // Collections_Generic_KeyValuePair_2 loc;` (unknown type name
+                // -> cmake build FAIL); the "r" doctrine applies (declare +
+                // frame root) exactly like the asynccase awaiter slot.
+                if (ilKind[2..] == "System.Collections.Generic.KeyValuePair`2"
+                    || ilKind.StartsWith("System.Collections.Generic.KeyValuePair`2<", StringComparison.Ordinal))
+                {
+                    refLocals.Add(d);
+                    w.Line($"Il2CppObject* {d} = nullptr;");
+                    continue;
+                }
                 // guidcase (M7R2): a System.Guid IL-declared local is the
                 // 16-byte VALUE SLOT (uint8_t[16]) -- the guid.h icalls write
                 // through raw byte pointers (the "g" cast; there is NO
@@ -4913,36 +4930,54 @@ public static class CodeGenerator
         for (var i = 0; i < argCount; ++i)
         {
             var b = sig.ReadByte();
-            // M6 generic-argument expansion: the byte table must cover every
-            // primitive/ref arg the IL can carry (dictcase Dictionary<string,int>
-            // hit 0x0E, linqcase Func<int,bool> hit 0x02). The suffix feeds the
-            // generic-instance C++ name ({def}_<arg>_...); the runtime listi4/
-            // dictsi domains match these for int. Same encodings as
-            // MethodRefResolver.GenericArgTypeName / MethodSignatureCoder.
-            args[i] = b switch
-            {
-                0x02 => "bool",
-                0x03 => "char",
-                0x04 => "sbyte",
-                0x05 => "byte",
-                0x06 => "short",
-                0x07 => "ushort",
-                0x08 => "int",
-                0x09 => "uint",
-                0x0A => "long",
-                0x0B => "ulong",
-                0x0C => "float",
-                0x0D => "double",
-                0x0E => "string",
-                0x11 => "valuetype",
-                0x12 => "class",
-                0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
-                0x1C => "object",
-                0x1D or 0x1F => "array",
-                var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
-            };
+            args[i] = ReadM3Arg(md, ref sig, b);
         }
         return defName + "_" + string.Join("_", args);
+    }
+
+    // The M3 generic-ARGUMENT byte table (0x15 = a NESTED generic
+    // instantiation, e.g. IEnumerable`1<KeyValuePair`2<string,int>> --
+    // recurse so the outer instance name carries the nested suffix).
+    private static string ReadM3Arg(MetadataReader md, ref BlobReader sig, byte b) => b switch
+    {
+        0x02 => "bool",
+        0x03 => "char",
+        0x04 => "sbyte",
+        0x05 => "byte",
+        0x06 => "short",
+        0x07 => "ushort",
+        0x08 => "int",
+        0x09 => "uint",
+        0x0A => "long",
+        0x0B => "ulong",
+        0x0C => "float",
+        0x0D => "double",
+        0x0E => "string",
+        0x11 => "valuetype",
+        0x12 => "class",
+        0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
+        0x1C => "object",
+        0x1D or 0x1F => "array",
+        0x15 => ReadM3NestedGeneric(md, ref sig),
+        var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
+    };
+
+    private static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader sig)
+    {
+        _ = sig.ReadByte(); // CLASS(0x12)/VALUETYPE(0x11) marker
+        EntityHandle nestedDef = sig.ReadTypeHandle();
+        string nestedName = nestedDef.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)nestedDef),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)nestedDef),
+            HandleKind.TypeSpecification => GenericInstantiationName(md, (TypeSpecificationHandle)nestedDef),
+            _ => throw new NotSupportedException($"nested generic definition kind {nestedDef.Kind} in M3"),
+        };
+        var nestedCount = sig.ReadCompressedInteger();
+        var nestedArgs = new string[nestedCount];
+        for (var j = 0; j < nestedCount; ++j)
+            nestedArgs[j] = ReadM3Arg(md, ref sig, sig.ReadByte());
+        return nestedName + "_" + string.Join("_", nestedArgs);
     }
 
     // token -> the method's generated C++ name (MethodDef or MemberReference, including the generic-definition-name hash).

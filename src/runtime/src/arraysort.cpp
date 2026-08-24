@@ -33,6 +33,7 @@
 
 #include "arraysort.h"
 
+#include "dictsi_obj.h" // P25d: Dictionary<string,int> wrapper + snap enumerator
 #include "il2cpp_boxing_ext.h"
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception.h"
@@ -40,6 +41,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
+#include "sortedlist.h" // P25d: array snapshot enumerator re-use
 #include "typeinfo.h"
 
 #include <cstdint>
@@ -1536,6 +1538,13 @@ int32_t il2cpp_ienum_move_next(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // P25d: BCL snapshot receivers with NO typeinfo route to their concrete
+    // enumeration icalls (the SortedList/array snapshot enumerator object and
+    // the Dictionary<string,int> snapshot enumerator object).
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+        return il2cpp::runtime::il2cpp_sortedlist_enumerator_move_next(receiver);
+    if (receiver->klass == &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class)
+        return il2cpp_dict_si_enumerator_move_next(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumMoveNext, "MoveNext");
     return reinterpret_cast<IEnumFnBool>(
         RequireIEnumVtableSlot(receiver, slot, "MoveNext"))(receiver);
@@ -1583,6 +1592,13 @@ Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // P25d: the snapshot-object receivers forward to their concrete get_current
+    // (the SortedList/array enumerator yields the element ref; the Dictionary
+    // enumerator yields the per-pair KeyValuePair<string,int> object).
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+        return il2cpp::runtime::il2cpp_sortedlist_enumerator_get_current(receiver);
+    if (receiver->klass == &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class)
+        return il2cpp_dict_si_enumerator_get_current(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentRef, "get_Current");
     return reinterpret_cast<IEnumFnRef>(
         RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
@@ -1598,6 +1614,12 @@ Il2CppObject* il2cpp_ienum_get_current_obj(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // P25d: the snapshot-object receivers forward (the non-generic get_Current
+    // over a Dictionary enumerator still yields the pair object).
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+        return il2cpp::runtime::il2cpp_sortedlist_enumerator_get_current(receiver);
+    if (receiver->klass == &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class)
+        return il2cpp_dict_si_enumerator_get_current(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentObj, "get_Current");
     return reinterpret_cast<IEnumFnRef>(
         RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
@@ -1615,6 +1637,14 @@ Il2CppObject* il2cpp_ienum_get_enumerator(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // P25d: receivers with NO typeinfo route to their concrete enumerators --
+    // a snapshot ARRAY (Keys/Values snapshots, klass name "["-prefixed)
+    // becomes a snapshot array enumerator; the Dictionary<string,int> wrapper
+    // becomes the snapshot PAIR enumerator.
+    if (receiver->klass->name != nullptr && receiver->klass->name[0] == kArrayClassMarker)
+        return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(receiver);
+    if (receiver->klass == &System_Collections_Generic_Dictionary_2_string_int_class)
+        return il2cpp_dict_si_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumerator, "GetEnumerator");
     return reinterpret_cast<IEnumFnRef>(
         RequireIEnumVtableSlot(receiver, slot, "GetEnumerator"))(receiver);
@@ -1626,6 +1656,11 @@ Il2CppObject* il2cpp_ienum_get_enumerator_nongeneric(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // P25d: same concrete receivers as the generic form above.
+    if (receiver->klass->name != nullptr && receiver->klass->name[0] == kArrayClassMarker)
+        return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(receiver);
+    if (receiver->klass == &System_Collections_Generic_Dictionary_2_string_int_class)
+        return il2cpp_dict_si_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumeratorObj, "GetEnumerator");
     return reinterpret_cast<IEnumFnRef>(
         RequireIEnumVtableSlot(receiver, slot, "GetEnumerator"))(receiver);
@@ -1644,6 +1679,15 @@ void il2cpp_ienum_reset(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // P25d: the snapshot-object receivers forward to their concrete resets
+    // (the SortedList/array snapshot enumerator supports Reset).
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+    {
+        il2cpp::runtime::il2cpp_sortedlist_enumerator_reset(receiver);
+        return;
+    }
+    if (receiver->klass == &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class)
+        return; // dict enumerator resets by index -- nothing to do (idempotent)
     const int32_t slot = FindIEnumSlot(receiver, kIEnumReset, "Reset");
     reinterpret_cast<IEnumFnVoid>(
         RequireIEnumVtableSlot(receiver, slot, "Reset"))(receiver);
@@ -1655,6 +1699,18 @@ void il2cpp_ienum_dispose(Il2CppObject* receiver)
     {
         return; // null-safe: the isinst guard's null branch never calls in
                 // (mirrors the D-SL-3 sortedlist no-op contract).
+    }
+    // P25d: the snapshot-object receivers dispose as no-ops (the SortedList /
+    // Dictionary snapshot enumerators are not IDisposable).
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+    {
+        il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose(receiver);
+        return;
+    }
+    if (receiver->klass == &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class)
+    {
+        il2cpp_dict_si_enumerator_dispose(receiver);
+        return;
     }
     const int32_t slot = FindIEnumSlot(receiver, kIEnumDispose, "Dispose");
     if (slot < 0)

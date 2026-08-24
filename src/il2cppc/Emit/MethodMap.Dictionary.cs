@@ -113,8 +113,269 @@ public static partial class MethodRefResolver
                 return count == 0 && siReceiver
                     ? I("il2cpp::runtime::icall_dict_si_clear", 0, false, false, true, new[] { "" })
                     : Loud();
+            case "get_Keys":
+                // Keys: a fresh string[] SNAPSHOT array in the deterministic
+                // hash-bucket order (dictsi.h). ReturnTypeName tracks the array
+                // so ICollection`1<string> members over the snapshot dispatch
+                // on the receiver hint (MethodMap.Dictionary.TryMapDictInterface).
+                return count == 0 && siReceiver
+                    ? I("il2cpp::runtime::icall_dict_si_get_keys", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.String[]")
+                    : Loud();
+            case "get_Values":
+                // Values: a fresh int32[] SNAPSHOT array, positionally
+                // consistent with Keys.
+                return count == 0 && siReceiver
+                    ? I("il2cpp::runtime::icall_dict_si_get_values", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Int32[]")
+                    : Loud();
+            case "GetEnumerator":
+                // foreach: the snapshot PAIR enumerator object (P25d
+                // il2cpp_dict_si_get_enumerator -- the runtime walks frozen
+                // Keys+Values arrays). ReturnTypeName tracks the Enumerator
+                // pseudo-type so its struct members (MoveNext / get_Current /
+                // Dispose, owner "Dictionary`2+Enumerator") and the IDisposable
+                // arm re-resolve to the enumerator icalls.
+                return count == 0 && siReceiver
+                    ? I("il2cpp::il2cpp_dict_si_get_enumerator", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Collections.Generic.Dictionary`2.Enumerator")
+                    : Loud();
             default:
                 return null;
         }
+    }
+
+    //--------------------------------------------------------------------------
+    // TryMapDictEnumeration -- P25d (dictp25): the Dictionary<string,int>
+    // ENUMERATION STRUCT owners. The C# compiler calls the Enumerator struct
+    // members DIRECTLY on the concrete nested types (owner
+    // "System.Collections.Generic.Dictionary"2+Enumerator" etc.) and the
+    // KeyValuePair<string,int> struct members on "System.Collections.Generic.
+    // KeyValuePair"2". The receiver is the ADDRESS of the struct loc (the
+    // ldloca "deref:r" shape -- the same pattern as List`1+Enumerator), and
+    // every icall takes the managed enumerator / pair object.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapDictEnumeration(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        switch (owner)
+        {
+            case "System.Collections.Generic.Dictionary`2+Enumerator":
+                switch (name)
+                {
+                    case "MoveNext":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_enumerator_move_next", 0, true, false, true, new[] { "deref:r" })
+                            : null;
+                    case "get_Current":
+                        // The per-pair KeyValuePair<string,int> holder object.
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
+                                returnTypeName: "System.Collections.Generic.KeyValuePair`2")
+                            : null;
+                    case "Dispose":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_enumerator_dispose", 0, false, false, true, new[] { "deref:r" })
+                            : null;
+                    default:
+                        return null;
+                }
+            case "System.Collections.Generic.KeyValuePair`2":
+                switch (name)
+                {
+                    case "get_Key":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_kvp_string_int_get_key", 0, true, true, true, new[] { "deref:r" },
+                                returnTypeName: "System.String")
+                            : null;
+                    case "get_Value":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_kvp_string_int_get_value", 0, true, false, true, new[] { "deref:r" })
+                            : null;
+                    default:
+                        return null;
+                }
+            case "System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator":
+                switch (name)
+                {
+                    case "MoveNext":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_keycollection_enumerator_move_next", 0, true, false, true, new[] { "deref:r" })
+                            : null;
+                    case "get_Current":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_keycollection_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
+                                returnTypeName: "System.String")
+                            : null;
+                    case "Dispose":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_keycollection_enumerator_dispose", 0, false, false, true, new[] { "deref:r" })
+                            : null;
+                    default:
+                        return null;
+                }
+            case "System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator":
+                switch (name)
+                {
+                    case "MoveNext":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_valuecollection_enumerator_move_next", 0, true, false, true, new[] { "deref:r" })
+                            : null;
+                    case "get_Current":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_valuecollection_enumerator_get_current", 0, true, false, true, new[] { "deref:r" })
+                            : null;
+                    case "Dispose":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_valuecollection_enumerator_dispose", 0, false, false, true, new[] { "deref:r" })
+                            : null;
+                    default:
+                        return null;
+                }
+            default:
+                return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // TryMapDictCollection -- P25d: the Dictionary<string,int> KeyCollection /
+    // ValueCollection CLass receivers. The runtime verdict is that KeyCollection
+    // IS the Keys snapshot array and ValueCollection IS the Values snapshot
+    // array (get_Keys/get_Values return those arrays); GetEnumerator wraps the
+    // array and Count returns the array length.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapDictCollection(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        switch (owner)
+        {
+            case "System.Collections.Generic.Dictionary`2+KeyCollection":
+                switch (name)
+                {
+                    case "GetEnumerator":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_keycollection_get_enumerator", 0, true, true, true, new[] { "" },
+                                returnTypeName: "System.Collections.Generic.Dictionary`2.KeyCollection.Enumerator")
+                            : null;
+                    case "get_Count":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_collection_get_count", 0, true, false, true, new[] { "" })
+                            : null;
+                    default:
+                        return null;
+                }
+            case "System.Collections.Generic.Dictionary`2+ValueCollection":
+                switch (name)
+                {
+                    case "GetEnumerator":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_valuecollection_get_enumerator", 0, true, true, true, new[] { "" },
+                                returnTypeName: "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator")
+                            : null;
+                    case "get_Count":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_collection_get_count", 0, true, false, true, new[] { "" })
+                            : null;
+                    default:
+                        return null;
+                }
+            default:
+                return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // TryMapDictInterface -- P25d: the GENERIC interface receivers that alias a
+    // Dictionary<string,int> value: IDictionary`2<string,int> (the dict wrapper)
+    // and ICollection`1 (the Keys/Values snapshot ARRAYS or the dict wrapper).
+    // The receiver hint MUST be tracked -- on the first pass (receiverType==null)
+    // this DEFERS (null -> generated-name -> the receiver-aware re-resolve), the
+    // TextReader / sldeep precedent.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapDictInterface(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        const string dictReceiver = "System.Collections.Generic.Dictionary`2_string_int";
+        if (receiverType == null)
+            return null;
+
+        if (owner == "System.Collections.Generic.IDictionary`2" && receiverType == dictReceiver)
+        {
+            switch (name)
+            {
+                case "get_Count":
+                    return count == 0
+                        ? I("il2cpp::runtime::icall_dict_si_get_count", 0, true, false, true, new[] { "" })
+                        : null;
+                case "set_Item":
+                    // indexer SET -> icall_dict_si_set (insert-or-replace).
+                    return count == 2
+                        ? I("il2cpp::runtime::icall_dict_si_set", 2, false, false, true, new[] { "", "", "i" })
+                        : null;
+                case "get_Item":
+                    return count == 1
+                        ? I("il2cpp::runtime::icall_dict_si_get", 1, true, false, true, new[] { "", "" })
+                        : null;
+                case "Add":
+                    return count == 2
+                        ? I("il2cpp::runtime::icall_dict_si_add", 2, false, false, true, new[] { "", "", "i" })
+                        : null;
+                case "Remove":
+                    return count == 1
+                        ? I("il2cpp::runtime::icall_dict_si_remove", 1, true, false, true, new[] { "", "" })
+                        : null;
+                case "TryGetValue":
+                    return count == 2
+                        ? I("il2cpp::runtime::icall_dict_si_try_get_value", 2, true, false, true, new[] { "", "", "" })
+                        : null;
+                case "ContainsKey":
+                    return count == 1
+                        ? I("il2cpp::runtime::icall_dict_si_contains_key", 1, true, false, true, new[] { "", "" })
+                        : null;
+                case "get_Keys":
+                    return count == 0
+                        ? I("il2cpp::runtime::icall_dict_si_get_keys", 0, true, true, true, new[] { "" },
+                            returnTypeName: "System.String[]")
+                        : null;
+                case "get_Values":
+                    return count == 0
+                        ? I("il2cpp::runtime::icall_dict_si_get_values", 0, true, true, true, new[] { "" },
+                            returnTypeName: "System.Int32[]")
+                        : null;
+                default:
+                    return null;
+            }
+        }
+
+        if (owner == "System.Collections.Generic.ICollection`1")
+        {
+            if (receiverType == "System.String[]")
+            {
+                // The Keys snapshot array: Count = length; Contains = ordinal
+                // scan (net48 KeyCollection<string>.Contains is dictionary
+                // lookup-true -- the scan returns the identical boolean).
+                switch (name)
+                {
+                    case "get_Count":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_collection_get_count", 0, true, false, true, new[] { "" })
+                            : null;
+                    case "Contains":
+                        return count == 1
+                            ? I("il2cpp::il2cpp_dict_si_keys_contains", 1, true, false, true, new[] { "", "" })
+                            : null;
+                    default:
+                        return null;
+                }
+            }
+            if (receiverType == dictReceiver)
+            {
+                // ICollection<KeyValuePair<K,V>>.Count over the dict wrapper.
+                if (name == "get_Count" && count == 0)
+                    return I("il2cpp::runtime::icall_dict_si_get_count", 0, true, false, true, new[] { "" });
+                return null;
+            }
+        }
+        return null;
     }
 }

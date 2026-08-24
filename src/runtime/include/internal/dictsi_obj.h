@@ -61,6 +61,71 @@ struct Il2CppDictSIObject
     Il2CppDictSI* dict;  // slot 1: raw pointer (NOT in the refFieldBitmap)
 };
 
+//------------------------------------------------------------------------------
+// P25d (dictp25) enumeration objects -- the Dictionary<string,int> foreach
+// surface. Both are MANAGED objects whose reference fields are in the
+// refFieldBitmap, so the collector scans/compacts them safely while a foreach
+// runs:
+//
+//   Il2CppDictSIEnumerator { obj; keys (GC); values (GC); int32 index }
+//                          refFieldBitmap 0b110 (slots 1+2 = the two arrays)
+//   Il2CppDictKvpSI        { obj; key (GC);  int32 value }
+//                          refFieldBitmap 0b010 (slot 1 = the key)
+//
+// The enumerator wraps the TWO snapshot arrays il2cpp_dict_si_get_keys /
+// il2cpp_dict_si_get_values produce (deterministic hash-bucket order,
+// positionally consistent -- dictsi.h). get_Current allocates a fresh
+// Il2CppDictKvpSI per pair (a single allocation; the explicit-only collector
+// never interrupts it).
+//------------------------------------------------------------------------------
+struct Il2CppDictSIEnumerator
+{
+    Il2CppObject  obj;     // slot 0: object header
+    Il2CppArray*  keys;    // slot 1: keys snapshot (GC ref, bit 1)
+    Il2CppArray*  values;  // slot 2: values snapshot (GC ref, bit 2)
+    int32_t       index;   // snapshot cursor (-1 = before the first pair)
+};
+
+struct Il2CppDictKvpSI
+{
+    Il2CppObject   obj;    // slot 0: object header
+    Il2CppString*  key;    // slot 1: the pair's key (GC ref, bit 1)
+    int32_t        value;  // inline int32 (no boxing)
+};
+
+// GLOBAL-scope class descriptors for the two enumeration objects.
+extern Il2CppClass System_Collections_Generic_Dictionary_2_Enumerator_string_int_class;
+extern Il2CppClass System_Collections_Generic_KeyValuePair_2_string_int_class;
+
+// Lazy registration + descriptor accessors (no global-ctor allocation).
+Il2CppClass* il2cpp_dict_si_enumerator_class();
+Il2CppClass* il2cpp_kvp_si_class();
+
+//------------------------------------------------------------------------------
+// P25d enumeration surface -- the transpiler maps the concrete nested owners
+// (Dictionary`2+Enumerator / KeyCollection(+Enumerator) /
+// ValueCollection(+Enumerator), KeyValuePair`2) to these (namespace il2cpp,
+// the list_i4_enumerator / il2cpp_ienum_* convention). The KeyCollection /
+// ValueCollection variants receive the KEYS / VALUES SNAPSHOT ARRAY directly
+// (the get_Keys/get_Values verdict -- KeyCollection is a view over string[]).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_dict_si_get_enumerator(Il2CppObject* self);
+int32_t il2cpp_dict_si_enumerator_move_next(Il2CppObject* self);
+Il2CppObject* il2cpp_dict_si_enumerator_get_current(Il2CppObject* self);
+void il2cpp_dict_si_enumerator_dispose(Il2CppObject* self);
+Il2CppObject* il2cpp_kvp_string_int_get_key(Il2CppObject* self);
+int32_t il2cpp_kvp_string_int_get_value(Il2CppObject* self);
+Il2CppObject* il2cpp_dict_si_keycollection_get_enumerator(Il2CppObject* self);
+int32_t il2cpp_dict_si_keycollection_enumerator_move_next(Il2CppObject* self);
+Il2CppObject* il2cpp_dict_si_keycollection_enumerator_get_current(Il2CppObject* self);
+void il2cpp_dict_si_keycollection_enumerator_dispose(Il2CppObject* self);
+Il2CppObject* il2cpp_dict_si_valuecollection_get_enumerator(Il2CppObject* self);
+int32_t il2cpp_dict_si_valuecollection_enumerator_move_next(Il2CppObject* self);
+int32_t il2cpp_dict_si_valuecollection_enumerator_get_current(Il2CppObject* self);
+void il2cpp_dict_si_valuecollection_enumerator_dispose(Il2CppObject* self);
+int32_t il2cpp_dict_si_collection_get_count(Il2CppObject* self);
+int32_t il2cpp_dict_si_keys_contains(Il2CppObject* self, Il2CppObject* item);
+
 // GLOBAL scope class descriptor -- the transpiler emits
 // il2cpp_object_new(&System_Collections_Generic_Dictionary_2_string_int_class)
 // for `new Dictionary<string,int>()` (the streamio/stopwatch precedent).

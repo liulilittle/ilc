@@ -2401,7 +2401,17 @@ public static class StackFold
                         // icalls -- the first resolution (TryMapStreamIO) returns
                         // an "il2cpp::" icall, which would otherwise skip the
                         // receiver-aware re-resolve.
-                        || recvType == "System.IO.Compression.DeflateStream"))
+                        || recvType == "System.IO.Compression.DeflateStream"
+                        // P25d (dictp25): the Dictionary<string,int>.Enumerator
+                        // (and the KeyCollection/ValueCollection enumerators)
+                        // used in a foreach body push a ldloca ADDRESS receiver
+                        // (LocAddrExpr) -- the first IDisposable::Dispose pass
+                        // resolves hint-less to the ienum_dispose no-op fallback;
+                        // the tracked enumerator hint must re-resolve to the
+                        // (no-op) dict enumerator dispose with the deref:r cast.
+                        || recvType == "System.Collections.Generic.Dictionary`2.Enumerator"
+                        || recvType == "System.Collections.Generic.Dictionary`2.KeyCollection.Enumerator"
+                        || recvType == "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator"))
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
                         recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr, recvType);
 
@@ -3734,41 +3744,58 @@ public static class StackFold
             for (var i = 0; i < argCount; ++i)
             {
                 var b = sig.ReadByte();
-                // M6 generic-argument expansion (the same byte table as
-                // CodeGenerator.GenericInstantiationName): dictcase hit 0x0E
-                // (Dictionary<string,int>), linqcase hit 0x02 (Func<int,bool>)
-                // -- before the expansion every non-int32 arg threw here and
-                // the transpile died before codegen. The suffix feeds the
-                // generic-instance C++ name ({def}_<arg>_...), matching
-                // TypeEmitter's {TypeCppName}_int encoding.
-                args[i] = b switch
-                {
-                    0x02 => "bool",
-                    0x03 => "char",
-                    0x04 => "sbyte",
-                    0x05 => "byte",
-                    0x06 => "short",
-                    0x07 => "ushort",
-                    0x08 => "int", // int32 argument
-                    0x09 => "uint",
-                    0x0A => "long",
-                    0x0B => "ulong",
-                    0x0C => "float",
-                    0x0D => "double",
-                    0x0E => "string",
-                    0x11 => "valuetype",
-                    0x12 => "class",
-                    0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
-                    0x1C => "object",
-                    0x1D or 0x1F => "array",
-                    var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
-                };
+                args[i] = ReadM3Arg(md, ref sig, b);
             }
             // Definition name (incl. the arity suffix "Box`1") + args (M3:
             // int32 -> "int"). The emitter's TypeCppName sanitizes (` -> _),
             // aligning with TypeEmitter's generic instance name
             // {TypeCppName}_int ("Box`1" -> "Box_1_int").
             return defName + "_" + string.Join("_", args);
+        }
+
+        // The M3 generic-ARGUMENT byte table (0x15 = a NESTED generic
+        // instantiation, e.g. IEnumerable`1<KeyValuePair`2<string,int>> --
+        // recurse so the outer instance name carries the nested suffix).
+        static string ReadM3Arg(MetadataReader md, ref BlobReader s, byte b) => b switch
+        {
+            0x02 => "bool",
+            0x03 => "char",
+            0x04 => "sbyte",
+            0x05 => "byte",
+            0x06 => "short",
+            0x07 => "ushort",
+            0x08 => "int", // int32 argument
+            0x09 => "uint",
+            0x0A => "long",
+            0x0B => "ulong",
+            0x0C => "float",
+            0x0D => "double",
+            0x0E => "string",
+            0x11 => "valuetype",
+            0x12 => "class",
+            0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
+            0x1C => "object",
+            0x1D or 0x1F => "array",
+            0x15 => ReadM3NestedGeneric(md, ref s),
+            var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
+        };
+
+        static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader s)
+        {
+            _ = s.ReadByte(); // CLASS(0x12)/VALUETYPE(0x11) marker
+            EntityHandle nestedDef = s.ReadTypeHandle();
+            string nestedName = nestedDef.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)nestedDef),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)nestedDef),
+                HandleKind.TypeSpecification => GenericInstantiationName(md, (TypeSpecificationHandle)nestedDef),
+                _ => throw new NotSupportedException($"nested generic definition kind {nestedDef.Kind} in M3"),
+            };
+            var nestedCount = s.ReadCompressedInteger();
+            var nestedArgs = new string[nestedCount];
+            for (var j = 0; j < nestedCount; ++j)
+                nestedArgs[j] = ReadM3Arg(md, ref s, s.ReadByte());
+            return nestedName + "_" + string.Join("_", nestedArgs);
         }
 
         // Type full name -> generated struct name ("Calc.Point" -> Calc_Point).

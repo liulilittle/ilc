@@ -1,0 +1,15 @@
+fore_kv_sum=True
+fore_kv_cnt=True
+keys_len_sum=True
+vals_sum=True
+keys_cnt=True
+vals_cnt=True
+icol_foreach=True
+icol_contains=True
+idict_cnt=True
+idict_added=True
+idict_foreach_sum=True
+snap_sum=True
+snap_grew=True
+two_sum=True
+done
