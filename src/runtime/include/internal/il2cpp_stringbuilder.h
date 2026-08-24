@@ -331,6 +331,15 @@ Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, co
 // with the given ANSI byte buffer (each byte → char). Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* self, const int8_t* buffer);
 
+// P25f (dhprobe): System.Runtime.CompilerServices.DefaultInterpolatedStringHandler::.ctor
+// (the net6+ "$...{x}..." lowering). The handler is a VALUETYPE local the C#
+// compiler address-takes (ldloca); we model the handler as a StringBuilder
+// object stored in that slot. `slot` is the ADDRESS of the local (Il2CppObject**),
+// a GC frame root -- this icall creates the builder and writes it into the slot.
+// literalLength / formattedCount are compile-time capacity HINTS (ignored: the
+// builder grows); they exist so the icall arity matches the IL exactly.
+void icall_interp_handler_ctor(Il2CppObject** slot, int32_t literalLength, int32_t formattedCount);
+
 } // namespace runtime
 
 } // namespace il2cpp

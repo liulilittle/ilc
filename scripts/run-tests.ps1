@@ -97,9 +97,13 @@ foreach ($caseDir in $caseDirs) {
     if ($exp.Code -ne 0) { throw "reference run $name failed" }
 
     # 3. 转译：输入用 net48 exe PE（PEReader 不区分扩展名，与 fixtures 的 calc.dll 同 PE）
+    # P25f (dhprobe)：net8+ 用例的产物是 原生 apphost exe + 托管 dll —— 转译必须读
+    # 托管的 dll（apphost 的 exe 没有托管元数据，PEReader.GetMetadataBlock 失败）；
+    # net48 用例只产 exe（无 dll），保持原有 exe 路径。判定：out/<name>.dll 存在。
+    $transpileInput = if (Test-Path "$Root/tests/cases/$name/out/$name.dll") { "$Root/tests/cases/$name/out/$name.dll" } else { "$Root/tests/cases/$name/out/$name.exe" }
     $gen = "$Root/tests/cases/$name/gen"
     Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
-    dotnet run --project "$Root/src/il2cppc" -- "$Root/tests/cases/$name/out/$name.exe" $gen | Out-Null
+    dotnet run --project "$Root/src/il2cppc" -- $transpileInput $gen | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "transpile $name failed" }
 
     # 4. 三编译器构建 + 运行

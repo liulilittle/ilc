@@ -1,0 +1,8 @@
+a=True
+b=True
+c=True
+d=True
+e=True
+f=True
+sum=5 and hi
+empty=5

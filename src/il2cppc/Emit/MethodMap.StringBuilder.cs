@@ -101,4 +101,57 @@ public static partial class MethodRefResolver
             default: return null;
         }
     }
+
+    //--------------------------------------------------------------------------
+    // TryMapDefaultInterpHandler -- P25f (dhprobe): the net6+ string
+    // interpolation lowering. A `$"...{x}..."` compiles to an address-taken
+    // System.Runtime.CompilerServices.DefaultInterpolatedStringHandler VALUE
+    // local + a fixed sequence of instance `call`s (the ildasm shape):
+    //   .ctor(int32 literalLength, int32 formattedCount)
+    //   AppendLiteral(string) / AppendFormatted<T>(T) / AppendFormatted(string)
+    //   ToStringAndClear(): string
+    // The handler is modeled as a StringBuilder object inside the slot: the
+    // ctor writes a fresh builder into the slot ADDRESS (Il2CppObject** -- the
+    // icall_interp_handler_ctor runtime helper), the appends forward to the
+    // builder append icalls (deref:r on the receiver -- the slot holds the
+    // builder object), and ToStringAndClear reads the built string.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapDefaultInterpHandler(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        switch (name)
+        {
+            case ".ctor":
+                // (int32 literalLength, int32 formattedCount) -- capacity hints.
+                return count == 2
+                    ? I("il2cpp::runtime::icall_interp_handler_ctor", 2, false, false, true, new[] { "", "i", "i" })
+                    : null;
+            case "AppendLiteral":
+                return count == 1
+                    ? I("il2cpp::runtime::icall_stringbuilder_append_s", 1, false, false, true, new[] { "deref:r" })
+                    : null;
+            case "AppendFormatted":
+                // The generic-inst arm carries the INSTANTIATED arg in genArgs
+                // (MethodSpec decode -- AppendFormatted<int32> -> 0x08); the
+                // non-generic string overload reaches here with the string ps.
+                var vk = genArgs != null && genArgs.Length > 0 ? genArgs[0]
+                    : ps.Length > 0 ? ps[0] : (byte)0xFF;
+                return vk switch
+                {
+                    0x08 => I("il2cpp::runtime::icall_stringbuilder_append_i", 1, false, false, true, new[] { "deref:r", "i" }),
+                    0x0A => I("il2cpp::runtime::icall_stringbuilder_append_l", 1, false, false, true, new[] { "deref:r", "l" }),
+                    0x0D => I("il2cpp::runtime::icall_stringbuilder_append_d", 1, false, false, true, new[] { "deref:r", "d" }),
+                    0x02 => I("il2cpp::runtime::icall_stringbuilder_append_b", 1, false, false, true, new[] { "deref:r", "b" }),
+                    0x03 => I("il2cpp::runtime::icall_stringbuilder_append_c", 1, false, false, true, new[] { "deref:r", "c" }),
+                    _ when vk == 0x0E => I("il2cpp::runtime::icall_stringbuilder_append_s", 1, false, false, true, new[] { "deref:r" }),
+                    _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted arg 0x{vk:X2} not wired in M5"),
+                };
+            case "ToStringAndClear":
+                return count == 0
+                    ? I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true, new[] { "deref:r" }, returnTypeName: "System.String")
+                    : null;
+            default:
+                return null;
+        }
+    }
 }

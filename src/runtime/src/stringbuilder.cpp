@@ -1381,5 +1381,21 @@ Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* sel
     return self;
 }
 
+//------------------------------------------------------------------------------
+// icall_interp_handler_ctor -- DefaultInterpolatedStringHandler::.ctor (P25f
+// dhprobe). The C# `$"...{x}..."` net6+ lowering address-takes the handler
+// VALUE-type local (ldloca) and calls the ctor with (literalLength,
+// formattedCount) -- compile-time capacity hints, IGNORED here. The handler is
+// modeled as a StringBuilder object stored INTO the slot (a GC frame root --
+// &V_N is registered in the method's frame-references by the transpiler).
+// literalLength / formattedCount exist so the guard arity matches the IL.
+//------------------------------------------------------------------------------
+void icall_interp_handler_ctor(Il2CppObject** slot, int32_t /*literalLength*/, int32_t /*formattedCount*/)
+{
+    Il2CppObject* sb = il2cpp_object_new(il2cpp_stringbuilder_class());
+    icall_stringbuilder_ctor_default(sb);
+    *slot = sb;
+}
+
 } // namespace runtime
 } // namespace il2cpp

@@ -719,6 +719,12 @@ public static partial class MethodRefResolver
             case "System.IConvertible":
             case "System.Reflection.MemberInfo": return TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Text.StringBuilder": return TryMapStringBuilder(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // P25f (dhprobe): the net6+ interpolation lowering -- an
+            // address-taken DefaultInterpolatedStringHandler VALUE local + the
+            // .ctor/AppendLiteral/AppendFormatted<T>/ToStringAndClear instance
+            // calls (a StringBuilder-fold; TryMapDefaultInterpHandler).
+            case "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler":
+                return TryMapDefaultInterpHandler(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Collections.Hashtable": return TryMapHashtable(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // D-ICMP-2 (icomparedeep): System.Collections.Comparer (the
             // non-generic DEFAULT comparer -- Comparer.Default / DefaultInvariant

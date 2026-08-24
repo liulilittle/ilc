@@ -159,6 +159,62 @@ public class MethodMapStringBuilderTests
     }
 
     //--------------------------------------------------------------------------
+    // P25f (dhprobe): System.Runtime.CompilerServices.DefaultInterpolatedStringHandler
+    // -- the net6+ interpolation lowering. ctor writes a fresh StringBuilder
+    // into the address-taken handler slot; AppendLiteral / ToStringAndClear /
+    // AppendFormatted(string) forward to the builder icalls (rv FALSE for
+    // appends -- the IL members return void). The AppendFormatted<int32>
+    // GENERIC path is covered by the dhprobe e2e (a MethodSpec -- not
+    // synthesizable through these helpers).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_HandlerCtor_TwoInts_MapsToInterpCtor()
+    {
+        var resolved = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", ".ctor",
+            Sig(0x1C, 0x08, 0x08)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_interp_handler_ctor", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_HandlerAppendLiteral_String_MapsToBuilderAppend()
+    {
+        var resolved = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendLiteral",
+            Sig(0x1C, 0x0E)), "AppendLiteral");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_s", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.False(resolved.ReturnsValue); // the IL member is void
+    }
+
+    [Fact]
+    public void Resolve_HandlerAppendFormatted_String_MapsToBuilderAppend()
+    {
+        // The non-generic AppendFormatted(string) overload (the generic
+        // AppendFormatted<int32> MethodSpec route is e2e-covered).
+        var resolved = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendFormatted",
+            Sig(0x1C, 0x0E)), "AppendFormatted");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_s", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_HandlerToStringAndClear_MapsToBuilderToString()
+    {
+        var resolved = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "ToStringAndClear",
+            Sig(0x1C)), "ToStringAndClear");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_to_string", resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same harness as the other
     // MethodMapTests: real ECMA-335 assembly whose only MemberReference is
     // the member under test)

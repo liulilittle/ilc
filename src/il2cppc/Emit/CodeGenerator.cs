@@ -1406,6 +1406,19 @@ public static class CodeGenerator
                     w.Line($"Il2CppObject* {d} = nullptr;");
                     continue;
                 }
+                // P25f (dhprobe): the net6+ interpolation handler
+                // (System.Runtime.CompilerServices.DefaultInterpolatedStringHandler
+                // -- a VALUETYPE local the C# compiler address-takes). The
+                // runtime models the handler as a StringBuilder OBJECT in the
+                // slot (icall_interp_handler_ctor writes it; AppendLiteral/
+                // AppendFormatted/ToStringAndClear deref:r it). Same ref
+                // carrier + frame root as the KeyValuePair`2 branch above.
+                if (ilKind == "v:System.Runtime.CompilerServices.DefaultInterpolatedStringHandler")
+                {
+                    refLocals.Add(d);
+                    w.Line($"Il2CppObject* {d} = nullptr;");
+                    continue;
+                }
                 // guidcase (M7R2): a System.Guid IL-declared local is the
                 // 16-byte VALUE SLOT (uint8_t[16]) -- the guid.h icalls write
                 // through raw byte pointers (the "g" cast; there is NO
