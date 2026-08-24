@@ -812,6 +812,12 @@ public static class TypeEmitter
         // int64 ctor is EXPLICIT so the value form is used, not brace-init).
         w.Line("// System.TimeSpan::Zero BCL static storage (8-byte Il2CppTimeSpan, inline variable)");
         w.Line("inline il2cpp::runtime::Il2CppTimeSpan System_TimeSpan_sf_Zero = il2cpp::runtime::Il2CppTimeSpan(0);");
+        // D5 (stsdeep): System.TimeSpan::MaxValue / ::MinValue -- mscorlib
+        // static readonly fields (long.MaxValue / long.MinValue ticks). Same
+        // inline-variable doctrine as TimeSpan.Zero above.
+        w.Line("// System.TimeSpan::MaxValue/MinValue BCL static storage (8-byte Il2CppTimeSpan, inline variable)");
+        w.Line("inline il2cpp::runtime::Il2CppTimeSpan System_TimeSpan_sf_MaxValue = il2cpp::runtime::Il2CppTimeSpan(0x7FFFFFFFFFFFFFFFLL);");
+        w.Line("inline il2cpp::runtime::Il2CppTimeSpan System_TimeSpan_sf_MinValue = il2cpp::runtime::Il2CppTimeSpan(-0x7FFFFFFFFFFFFFFFLL - 1);");
         // P26 (bcldeep): System.DateTime::MinValue -- a static readonly
         // VALUETYPE field (net8: NOT const, so Roslyn cannot fold the ldsfld
         // into a literal -- the read emits &System_DateTime_sf_MinValue).

@@ -12,6 +12,14 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
+            case "Parse":
+                return ps.Length == 1
+                    ? I("il2cpp::runtime::il2cpp_timespan_parse", 1, true, false, false, new[] { "s" }, "ts")
+                    : null;
+            case "TryParse":
+                return ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11
+                    ? I("il2cpp::runtime::il2cpp_timespan_try_parse", 2, true, false, false, new[] { "s", "" })
+                    : null;
             case ".ctor":
                 if (ps.Length == 1 && ps[0] == 0x0A)
                     return I("il2cpp::runtime::icall_timespan_from_ticks", 1, false, false, true, new[] { "", "l" }, "ts", resultIsReceiver: true);

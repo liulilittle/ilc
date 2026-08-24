@@ -60,6 +60,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"
+#include "il2cpp_string.h"
 #include "il2cpp_time.h"
 
 #include <cstdint>
@@ -78,6 +79,14 @@ Il2CppDateTime il2cpp_datetime_parse_exact(Il2CppObject* input, Il2CppObject* fo
 // wired in MethodMap.TimeExt2.cs -- transpiled code reaches it once the
 // mapping lands.)
 Il2CppDateTime il2cpp_datetime_parse(Il2CppObject* input);
+
+// TimeSpan.Parse(string input) / TryParse(string, out TimeSpan): the net48
+// invariant "c" grammar (whitespace, optional sign, d.hh:mm:ss.fffffff with
+// the slash-tolerant shorter forms; a lone number is days). Parse throws
+// ArgumentNullException/FormatException/OverflowException; TryParse is the
+// no-throw twin (returns false for null/format/overflow).
+Il2CppTimeSpan il2cpp_timespan_parse(Il2CppString* input);
+bool il2cpp_timespan_try_parse(Il2CppString* input, Il2CppTimeSpan* value);
 
 // DateTime.ToString(string format) -- the ext2 entry point. Distinct from
 // the plain icall_datetime_to_string ("G"); delegates to the canonical

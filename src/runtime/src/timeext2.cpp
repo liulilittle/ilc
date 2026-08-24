@@ -590,6 +590,167 @@ const Il2CppString* AsStringOrNull(Il2CppObject* obj)
     return (s != nullptr && s->obj.klass == il2cpp_string_class()) ? s : nullptr;
 }
 
+//------------------------------------------------------------------------------
+// TimeSpan Parse core -- net48 invariant "c" grammar:
+//   [ws] [-] ["d."] h:m:s [.fffffff] [ws]
+//   * A '.'-less form may drop trailing slots one at a time ("h:m", "6");
+//     a lone number is DAYS ("6" == 6 days, net48). The days form requires
+//     the '.' then a ':' layout; "6." (a bare trailing dot) is days only.
+//   * The seconds fraction takes 1..7 digits (more -> Format). Component
+//     digit values are NOT range-capped (hours may exceed 23) but the
+//     accumulated ticks must fit int64 (else Overflow).
+//   * Returns: 0 = format error, 1 = ok, 2 = overflow.
+//------------------------------------------------------------------------------
+int32_t TryParseTimespanCore(const char16_t* s, int32_t len, Il2CppTimeSpan& outTs)
+{
+    const char16_t* p = s;
+    const char16_t* const end = s + len;
+
+    auto IsWs = [](char16_t ch) -> bool
+    {
+        return ch == u' ' || ch == u'\t' || ch == u'\r' || ch == u'\n' || ch == u'\v' || ch == u'\f' ||
+               ch == 0x00A0 || ch == 0x1680 || (ch >= 0x2000 && ch <= 0x200A) || ch == 0x2028 ||
+               ch == 0x2029 || ch == 0x202F || ch == 0x205F || ch == 0x3000;
+    };
+    auto IsDigit = [](char16_t ch) -> bool { return ch >= u'0' && ch <= u'9'; };
+
+    while (p < end && IsWs(*p)) ++p; // leading whitespace
+    bool neg = false;
+    if (p < end && *p == u'-')
+    {
+        neg = true;
+        ++p;
+    }
+
+    auto ParseNum = [&](int64_t& v) -> int32_t
+    {
+        v = 0;
+        bool any = false;
+        while (p < end && IsDigit(*p))
+        {
+            any = true;
+            int64_t d = *p - u'0';
+            if (v > (int64_t(0x7FFFFFFFFFFFFFFFLL) - d) / 10) return 2; // digit overflow
+            v = v * 10 + d;
+            ++p;
+        }
+        return any ? 0 : 1; // 1 = missing/empty
+    };
+
+    // Group-slot mapping (net48 TimeSpanParse): values separated by '.' for
+    // the first ('days') element and ':' for the rest, or colons only:
+    //   1 group  -> days        ("6" == 6 days)
+    //   2 groups -> hh:mm
+    //   3 groups -> hh:mm:ss
+    //   4 groups -> d.hh:mm:ss (introduced by a leading '.' OR a 4th ':').
+    // If a leading '.' introduces the days element ("d."), all four groups
+    // are required; the trailing-dot "d." alone is days-only.
+    int64_t groups[4];
+    int32_t gn = 0;
+    bool daysPresent = false;
+
+    int32_t r = ParseNum(groups[gn]);
+    if (r == 1) return 0;
+    if (r == 2) return 2;
+    ++gn;
+
+    if (p < end && *p == u'.')
+    {
+        ++p;
+        if (p < end && *p == u':')
+        {
+            return 0; // "d.:" is not a valid layout
+        }
+        daysPresent = true;
+        if (p < end && IsDigit(*p))
+        {
+            r = ParseNum(groups[gn]);
+            if (r == 2) return 2;
+            if (r == 1) return 0;
+            ++gn;
+        }
+        // else "6." -- days-only (validated below via the empty-digit rule).
+    }
+
+    while (p < end && *p == u':')
+    {
+        if (gn >= 4) return 0; // at most four groups
+        ++p;
+        r = ParseNum(groups[gn]);
+        if (r == 1) return 0;
+        if (r == 2) return 2;
+        ++gn;
+    }
+
+    int64_t days = 0, hours = 0, minutes = 0, seconds = 0;
+    switch (gn)
+    {
+        case 1: days = groups[0]; break;
+        case 2: hours = groups[0]; minutes = groups[1]; break;
+        case 3: hours = groups[0]; minutes = groups[1]; seconds = groups[2]; break;
+        case 4: days = groups[0]; hours = groups[1]; minutes = groups[2]; seconds = groups[3]; break;
+        default: return 0;
+    }
+    if (daysPresent && gn == 1)
+    {
+        // "6." days-only: ok.
+    }
+    else if (daysPresent && gn != 4)
+    {
+        // "d.h" / "d.h:m" fragments are not valid layouts.
+        return 0;
+    }
+
+    // Optional seconds fraction: '.' at the end of the s group.
+    int64_t fracTicks = 0;
+    if (p < end && *p == u'.')
+    {
+        ++p;
+        int32_t digits = 0;
+        int64_t frac = 0;
+        while (p < end && IsDigit(*p))
+        {
+            ++digits;
+            if (digits > 7) return 0; // more than 7 fraction digits -> Format
+            frac = frac * 10 + (*p - u'0');
+            ++p;
+        }
+        while (digits < 7) { frac *= 10; ++digits; }
+        fracTicks = frac;
+    }
+
+    while (p < end && IsWs(*p)) ++p;
+    if (p != end) return 0; // trailing garbage
+
+    // Accumulate with overflow checks (each term and the sum must fit int64).
+    const int64_t TicksPerDay = 864000000000LL;
+    const int64_t TicksPerHour = 36000000000LL;
+    const int64_t TicksPerMinute = 600000000LL;
+    const int64_t TicksPerSecond = 10000000LL;
+    if (days > int64_t(0x7FFFFFFFFFFFFFFFLL) / TicksPerDay) return 2;
+    if (hours > int64_t(0x7FFFFFFFFFFFFFFFLL) / TicksPerHour) return 2;
+    if (minutes > int64_t(0x7FFFFFFFFFFFFFFFLL) / TicksPerMinute) return 2;
+    if (seconds > int64_t(0x7FFFFFFFFFFFFFFFLL) / TicksPerSecond) return 2;
+    int64_t total = 0;
+    if (total > int64_t(0x7FFFFFFFFFFFFFFFLL) - days * TicksPerDay) return 2;
+    total += days * TicksPerDay;
+    if (total > int64_t(0x7FFFFFFFFFFFFFFFLL) - hours * TicksPerHour) return 2;
+    total += hours * TicksPerHour;
+    if (total > int64_t(0x7FFFFFFFFFFFFFFFLL) - minutes * TicksPerMinute) return 2;
+    total += minutes * TicksPerMinute;
+    if (total > int64_t(0x7FFFFFFFFFFFFFFFLL) - seconds * TicksPerSecond) return 2;
+    total += seconds * TicksPerSecond;
+if (total > int64_t(0x7FFFFFFFFFFFFFFFLL) - fracTicks) return 2;
+    total += fracTicks;
+
+    if (neg)
+    {
+        total = -total;
+    }
+    outTs = Il2CppTimeSpan(total);
+    return 1;
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -632,6 +793,49 @@ Il2CppDateTime il2cpp_datetime_parse(Il2CppObject* input)
         ThrowFormatUnrecognized();
     }
     return ComposeDateTime(fields);
+}
+
+Il2CppTimeSpan il2cpp_timespan_parse(Il2CppString* input)
+{
+    if (input == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("input");
+    }
+    Il2CppTimeSpan ts;
+    switch (TryParseTimespanCore(input->chars, input->length, ts))
+    {
+        case 1:
+            return ts;
+        case 2:
+            il2cpp_throw_overflow_exception(
+                "The TimeSpan was not parsed because the value of at least one of its numeric components is out of range.");
+            return ts;
+        default:
+            il2cpp_throw_format_exception("String was not recognized as a valid TimeSpan.");
+            return ts;
+    }
+}
+
+//------------------------------------------------------------------------------
+// System.TimeSpan -- TryParse (no-throw twin of Parse; null/format/overflow
+// all return false, exactly like net48 TimeSpan.TryParse).
+//------------------------------------------------------------------------------
+bool il2cpp_timespan_try_parse(Il2CppString* input, Il2CppTimeSpan* value)
+{
+    if (input == nullptr)
+    {
+        return false;
+    }
+    Il2CppTimeSpan ts;
+    if (TryParseTimespanCore(input->chars, input->length, ts) != 1)
+    {
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = ts;
+    }
+    return true;
 }
 
 //------------------------------------------------------------------------------
