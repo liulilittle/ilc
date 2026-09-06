@@ -303,16 +303,9 @@ public static class MethodBodyReader
             var argc = sig.ReadCompressedInteger();
             for (var i = 0; i < argc; i++)
             {
-                var ab = sig.ReadByte();
-                if (ab is 0x11 or 0x12) _ = sig.ReadTypeHandle();
-                else if (ab is 0x1D or 0x1F) _ = sig.ReadByte();
-                else if (ab is 0x13 or 0x1E) _ = sig.ReadCompressedInteger();
+                _ = LocalTypeKind(md, ref sig, name);
             }
-            return defName != null
-                && (defName.StartsWith("System.Runtime.CompilerServices.TaskAwaiter`1", StringComparison.Ordinal)
-                    || defName.StartsWith("System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1", StringComparison.Ordinal))
-                ? "r"
-                : "v";
+            return "v";
         }
         if (b is 0x13 or 0x1E)
         {
@@ -368,6 +361,71 @@ public static class MethodBodyReader
         // Remaining single-byte types (0x02 bool / 0x03 char / 0x04 i1 / 0x08 i4 /
         // 0x09 u4 / 0x17 native int / 0x18-0x19 native uint etc.) carry no trailing data.
         return "i";
+    }
+
+    // R77: decode one generic-argument byte to its instantiation-suffix
+    // name ("int", "object", "byte", "long", ...). Consumes trailing
+    // payload (CLASS/VALUETYPE handle, SZARRAY element, VAR/MVAR index,
+    // nested GenericInst args) so the next arg byte stays aligned.
+    private static string GenericArgSuffix(MetadataReader md, ref BlobReader sig, string name)
+    {
+        var b = sig.ReadByte();
+        switch (b)
+        {
+            case 0x02: return "bool";
+            case 0x03: return "char";
+            case 0x04: return "sbyte";
+            case 0x05: return "byte";
+            case 0x06: return "short";
+            case 0x07: return "ushort";
+            case 0x08: return "int";
+            case 0x09: return "uint";
+            case 0x0A: return "long";
+            case 0x0B: return "ulong";
+            case 0x0C: return "float";
+            case 0x0D: return "double";
+            case 0x0E: return "string";
+            case 0x1C: return "object";
+            case 0x11: // VALUETYPE
+            case 0x12: // CLASS
+            case 0x40: // TypeHandle
+            {
+                var th = sig.ReadTypeHandle();
+                var fullName = th.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+                    _ => null,
+                };
+                // For reference types, the suffix is "object" (the slot is
+                // Il2CppObject*). For value types, use the short name.
+                if (fullName == null) return "object";
+                var dotIdx = fullName.LastIndexOf('.');
+                return dotIdx >= 0 ? fullName[(dotIdx + 1)..] : fullName;
+            }
+            case 0x13: // VAR
+            case 0x1E: // MVAR
+                sig.ReadCompressedInteger();
+                return "int"; // default instantiation T -> int
+            case 0x1D: // SZARRAY
+            case 0x1F:
+                _ = sig.ReadByte();
+                return "object"; // arrays are references
+            case 0x15: // GENERICINST (nested)
+                sig.ReadByte(); // CLASS/VALUETYPE marker
+                _ = sig.ReadTypeHandle();
+                var n = sig.ReadCompressedInteger();
+                for (var i = 0; i < n; i++) _ = GenericArgSuffix(md, ref sig, name);
+                return "object"; // nested generic instances are references
+            case 0x14: // ARRAY (multidim)
+                _ = GenericArgSuffix(md, ref sig, name);
+                var rank = sig.ReadCompressedInteger();
+                for (var i = 0; i < rank; i++) _ = sig.ReadCompressedInteger();
+                for (var i = 0; i < rank; i++) _ = sig.ReadCompressedInteger();
+                return "object";
+            default:
+                return "int"; // fallback: treat as int32
+        }
     }
 
     // batch 156c (asynccase): the full name of a TypeSpecification -- a

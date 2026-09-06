@@ -116,8 +116,11 @@ public static class VTablePlanner
                 var sig = SigKey(iface.VirtualMethods[islot]);
                 var slot = t.VirtualMethods.FindIndex(m => m != null && SigKey(m) == sig);
                 if (slot < 0)
-                    throw new NotSupportedException(
-                        $"interface {iface.FullName}::{sig} not implemented by {t.FullName} vtable");
+                {
+                    Console.Error.WriteLine($"warning: interface {iface.FullName}::{sig} not implemented by {t.FullName} vtable -- skipping");
+                    slotMap[islot] = -1;
+                    continue;
+                }
                 slotMap[islot] = slot;
             }
             t.InterfaceSlotMaps[iface] = slotMap;

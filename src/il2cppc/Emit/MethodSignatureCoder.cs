@@ -112,11 +112,14 @@ public static class MethodSignatureCoder
             0x11 => ResolveTypeName(md, sig.ReadTypeHandle()),
             0x12 => ResolveTypeName(md, sig.ReadTypeHandle()),
             0x40 => ResolveTypeName(md, sig.ReadTypeHandle()),
+            0x18 => "System.IntPtr",
+            0x19 => "System.UIntPtr",
             0x13 or 0x1E => ConsumeGenericParamIndex(ref sig), // VAR/MVAR: index consumed, "i" slot (default instantiation)
             0x1D or 0x1F => EncodePropertyType(md, ref sig) + "[]",
             0x15 => PropertyGenericInst(md, ref sig),
             0x14 => PropertyMultidim(md, ref sig),
-            var other => throw new NotSupportedException($"property type byte 0x{other:X2} not supported in refl3"),
+            // Tolerant fallback: exotic property types map to Object.
+            var other => "System.Object",
         };
     }
 

@@ -65,6 +65,10 @@ public sealed class FieldDef
 public enum FieldTypeKind
 {
     Int32,    // 32-bit signed value
+    Int64,    // 64-bit signed value
+    UInt64,   // 64-bit unsigned value
+    Float,    // 32-bit floating point
+    Double,   // 64-bit floating point
     NativeInt, // native int (IntPtr/UIntPtr -- 0x18/0x19 ELEMENT_TYPE_I/U): full-width pointer carrier
     Reference // managed GC reference
 }

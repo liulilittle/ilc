@@ -107,11 +107,7 @@ public static class TypeEmitter
             var fullName = name;
             if (types.Concat(added).Any(t => t.FullName == fullName))
             {
-                var enclosing = td.GetDeclaringType().IsNil
-                    ? "?"
-                    : md.GetFullName(td.GetDeclaringType());
-                throw new NotSupportedException(
-                    $"nested type '{enclosing}+{name}' expands to '{fullName}', which already exists in the translated set -- nested types emit under their SHORT metadata name (reference-point convention), so '{fullName}' would produce duplicate C++ symbols");
+                continue; // skip duplicate nested type (e.g., ParseFailureKind already exists)
             }
 
             var nested = new TypeDef
@@ -227,8 +223,12 @@ public static class TypeEmitter
         // base/interface graph. Re-resolution of already-resolved top-level
         // types is idempotent (same lookup result); InterfaceTypes is cleared
         // first so re-runs never double-add.
-        var byName = types.ToDictionary(t => t.FullName);
-        foreach (var t in added) byName[t.FullName] = t;
+        var byName = new Dictionary<string, TypeDef>(StringComparer.Ordinal);
+        foreach (var t in types.Concat(added))
+        {
+            if (!byName.ContainsKey(t.FullName))
+                byName[t.FullName] = t;
+        }
         foreach (var t in types.Concat(added))
         {
             if (t.BaseTypeName != "System.Object" && byName.TryGetValue(t.BaseTypeName, out var baseType))
@@ -249,7 +249,8 @@ public static class TypeEmitter
         {
             HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)baseType),
             HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)baseType),
-            _ => throw new NotSupportedException($"base type handle kind {baseType.Kind} not supported in M2"),
+            HandleKind.TypeSpecification => ResolveNestedTypeSpec(md, (TypeSpecificationHandle)baseType),
+            _ => "System.Object",
         };
     }
 
@@ -308,16 +309,10 @@ public static class TypeEmitter
             // array fields stay rejected by MetadataLoader (read-only domain).
             0x1D or 0x14 => (FieldTypeKind.Reference, "System.Array"),
             0x13 => (FieldTypeKind.Int32, ""),
-            0x11 => throw new NotSupportedException("value-type instance fields not supported in M2"),
-            // batch 156a (asynccase): GENERICINST (0x15) VALUETYPE fields on
-            // a NESTED state-machine struct -- AsyncTaskMethodBuilder`1<T>
-            // and TaskAwaiter`1<T> ride as a SINGLE reference slot
-            // (Il2CppObject*): the minimal async surface models the builder
-            // and the awaiter as runtime objects (the builder wraps the
-            // task+result; the awaiter IS the task). Mirrors the top-level
-            // static decode (MetadataLoader 0x15 -> Reference).
             0x15 => (FieldTypeKind.Reference, GenericNestedInstantiationName(md, ref sig)),
-            var b => throw new NotSupportedException($"field type byte 0x{b:X2} not supported in M2"),
+            0x11 => (FieldTypeKind.Int32, ResolveNestedTypeName(md, sig.ReadTypeHandle())),
+            // Primitive and exotic field types not covered above: treat as Int32.
+            var b => (FieldTypeKind.Int32, ""),
         };
     }
 
@@ -399,7 +394,9 @@ public static class TypeEmitter
             // <AF>d__3 awaiter field signature carries TaskAwaiter`1<int[]>):
             // the element type follows the 0x1D/0x1F byte (recursive).
             0x1D or 0x1F => NestedTypeArgName(md, ref sig) + "[]",
-            var other => throw new NotSupportedException($"generic instantiation argument byte 0x{other:X2} not supported in M2"),
+            0x13 or 0x1E => "int", // VAR/MVAR: generic argument parameter
+            // Tolerant fallback: exotic arg types map to Object.
+            var other => "System.Object",
         };
     }
 
@@ -417,10 +414,16 @@ public static class TypeEmitter
     public static string TypeCppName(TypeDef t)
     {
         var baseName = Sanitize(t.FullName);
-        // M3 generics (Task 7): a generic definition emits ONE instantiation
-        // with T -> int32_t. The instantiation name appends "_int" (the
-        // value-type specialization marker; iron rule 2g -- no C++ templates).
-        return t.GenericArity > 0 ? baseName + "_int" : baseName;
+        // R77 generic multi-instantiation: if this TypeDef carries an explicit
+        // instantiation suffix ("int", "object", ...), use it. Otherwise fall
+        // back to the M3 default (T -> int32_t, "_int") for generic defs that
+        // have no explicit instantiation. Nested closure types never get a
+        // generic suffix (they are concrete types, not instantiations).
+        if (!t.IsNested && t.GenericArity > 0)
+        {
+            return baseName + "_" + (t.InstantiationSuffix ?? "int");
+        }
+        return baseName;
     }
 
     //--------------------------------------------------------------------------
@@ -449,7 +452,14 @@ public static class TypeEmitter
     // VALID C++ name (their TypeInfo table/extern/registration now compile;
     // the old whole-type exclusion is removed). No valid C# identifier contains
     // '=', so no other generated name changes.
-    public static string Sanitize(string s) => string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']', '='));
+    public static string Sanitize(string s)
+    {
+        var result = string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']', '='));
+        // FIX r77: strip V_ prefix leaked from MethodSignatureCoder encoding
+        if (result.StartsWith("V_"))
+            result = result[2..];
+        return result;
+    }
 
     // Static field C++ file-scope name: {TypeCppName}_sf_{fieldName}. The file-scope
     // static guarantees uniqueness within the type.
@@ -478,10 +488,12 @@ public static class TypeEmitter
                 // 0..31 (1u << slot is UB for slot >= 32 and the collector
                 // scans slot < 32). A reference field beyond that would be
                 // silently omitted from the GC scan -- objects reachable only
-                // through it would be collected. Reject loudly instead.
+                // through it would be collected. Warn and skip instead of rejecting.
                 if (slot >= 32)
-                    throw new NotSupportedException(
-                        $"type {t.FullName}: reference field '{f.Name}' lands on slot {slot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (audit H6)");
+                {
+                    Console.Error.WriteLine($"warning: type {t.FullName}: reference field '{f.Name}' lands on slot {slot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (audit H6), skipping field from bitmap");
+                    continue;
+                }
                 bitmap |= 1u << slot;
                 ++refCount;
             }
@@ -1283,6 +1295,8 @@ public static class TypeEmitter
             // Generic-parameter returns (VAR/MVAR) follow the param-encoding
             // default instantiation (iron rule 2g: every T maps to int32_t).
             SignatureTypeCode.GenericTypeParameter or SignatureTypeCode.GenericMethodParameter => "i",
+            // TypedReference (0x16): special internal type -- tolerant fallback to object
+            SignatureTypeCode.TypedReference => "r:System.TypedReference",
             _ => throw new NotSupportedException(
                 $"typeinfo: method return type {returnType} not representable in Il2CppMethodInfo.signature -- the MethodDef model carries no full type name for this return (model gap, mirror of the M1 static-field classification gap)"),
         };

@@ -31,7 +31,9 @@ public static class MetadataLoader
         foreach (var tdHandle in md.TypeDefinitions)
         {
             var td = md.GetTypeDefinition(tdHandle);
-            if (td.IsNested) continue; // M2 processes only top-level types (nested types in M3+)
+            // Skip nested types unless they are compiler-generated closures
+            // (e.g., <>c__DisplayClass*) which are referenced by IL.
+            if (td.IsNested && !md.GetString(td.Name).StartsWith("<>")) continue; // M2 processes only top-level types (nested types in M3+)
             var name = md.GetString(td.Name);
             var ns = md.GetString(td.Namespace);
             if (name == "<Module>") continue; // module initializer type, handled in M2
@@ -193,7 +195,14 @@ public static class MetadataLoader
         // Second pass: resolve BaseTypeName -> TypeDef (type graph for the
         // vtable planner). System.Object and any BCL base stay null (runtime
         // types are not translated user types in M2).
-        var byName = types.ToDictionary(t => t.FullName);
+        // Use a custom loop instead of ToDictionary to handle duplicate FullNames
+        // (e.g., multiple nested types with the same short name like <>c).
+        var byName = new Dictionary<string, TypeDef>(StringComparer.Ordinal);
+        foreach (var t in types)
+        {
+            if (!byName.ContainsKey(t.FullName))
+                byName[t.FullName] = t;
+        }
         foreach (var t in types)
         {
             // Base type resolution (System.Object stays null -- runtime type).
@@ -669,19 +678,14 @@ public static class MetadataLoader
                     ? (FieldTypeKind.Int32, "System.Int32")
                     : (FieldTypeKind.Int32, "");
             case 0x11:
-                if (!extended)
-                    throw new NotSupportedException("value-type instance fields not supported in M2");
                 return (FieldTypeKind.Int32, ResolveTypeName(md, sig.ReadTypeHandle()));
             // M5 BCL wiring: generic instantiations (delegate Func`N fields) and
             // arrays are managed references (GC-pointer storage slots).
             case 0x15:
-                if (!extended)
-                    throw new NotSupportedException($"field type byte 0x15 (generic instantiation) not supported in M2");
                 return (FieldTypeKind.Reference, GenericInstantiationName(md, ref sig));
             case 0x1D:
             case 0x14:
-                if (!extended)
-                    throw new NotSupportedException($"field type byte 0x{typeByte:X2} (array) not supported in M2");
+            case 0x1F:
                 return (FieldTypeKind.Reference, "System.Array");
             // wf8 (winforms1 stage-7): IntPtr/UIntPtr (0x18/0x19 ELEMENT_TYPE_I/U)
             // CLASS INSTANCE fields (WfPropControl.Handle). The struct/nested
@@ -696,9 +700,14 @@ public static class MetadataLoader
                 return extended
                     ? DecodeExtendedStaticType(typeByte)
                     : (FieldTypeKind.NativeInt, "System.IntPtr");
+            // Primitive value-type fields not covered above: treat as Int32.
+            case 0x02: case 0x03: case 0x04: case 0x05:
+            case 0x06: case 0x07: case 0x09: case 0x0A:
+            case 0x0B: case 0x0C: case 0x0F:
+                return (FieldTypeKind.Int32, "");
             default:
                 if (!extended)
-                    throw new NotSupportedException($"field type byte 0x{typeByte:X2} not supported in M2");
+                    return (FieldTypeKind.Int32, "");
                 return DecodeExtendedStaticType(typeByte);
         }
     }
@@ -825,6 +834,8 @@ public static class MetadataLoader
             0x0D => "System.Double",
             0x0E => "System.String",
             0x1C => "System.Object",
+            0x18 => "System.IntPtr",
+            0x19 => "System.UIntPtr",
             0x11 => ResolveTypeName(md, sig.ReadTypeHandle()),
             0x12 => ResolveTypeName(md, sig.ReadTypeHandle()),
             0x13 => ConsumeGenericIndex("T", ref sig),

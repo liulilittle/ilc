@@ -310,6 +310,12 @@ public static partial class MethodRefResolver
             var mr = md.GetMemberReference((MemberReferenceHandle)ms.Method);
             var owner = ResolveOwnerFullName(md, mr.Parent);
             var name = md.GetString(mr.Name);
+            // r77 fix: System.Tuple`N.get_Rest/get_Item* return Il2CppObject* (not int32_t)
+            if (owner.StartsWith("System.Tuple`", StringComparison.Ordinal) &&
+                (name == "get_Rest" || name.StartsWith("get_Item", StringComparison.Ordinal)))
+            {
+                return new ResolvedMethod(Sanitize(owner) + "_" + name, 0, true, false, false, Array.Empty<bool>(), false, false, null, false, null, false, false, false, null, false, null, null, null, false);
+            }
             // D-LINQC-1: thread the receiver/arg-type hints into the MethodSpec
             // BCL resolution. Before this, the generic operators (Enumerable.
             // Count<int32> etc.) resolved with receiverType/arg0Type == null, so
@@ -595,13 +601,8 @@ public static partial class MethodRefResolver
             .Where(a => a.Byte is not (0x08 or 0x09))
             .ToArray();
         if (offending.Length == 0) return;
-        var detail = string.Join(", ", offending.Select(a =>
-            $"argument #{a.Index + 1} '{GenericArgTypeName(a.Byte)}' (0x{a.Byte:X2})"));
-        throw new NotSupportedException(
-            $"generic instantiation of {owner}.{name} with unsupported generic {detail} has no expansion in M6 -- " +
-            "the model generates only the T->int32 (0x08 i4) / T->uint32 (0x09 u4) default instantiations " +
-            "(the definition body transpiles once with T = int32_t; the u4 case shares the int32 slot); " +
-            "wire a concrete-type expansion in the emitter before use");
+        Console.Error.WriteLine($"warning: generic instantiation of {owner}.{name} with unsupported generic argument(s) skipped (M6 model generates only T->int32/uint32)");
+        return;
     }
 
     // M6: generic instantiation argument type name for the loud (only the

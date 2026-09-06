@@ -107,8 +107,13 @@ public sealed class TypeDef
     // per generic definition with T mapped to int32_t (value-type
     // specialization, iron rule 2g); the instantiation name is
     // {TypeCppName}_int (the .NET type name without the arity suffix).
+    // R77: InstantiationSuffix overrides the default "int" suffix. When
+    // non-null, it is the lowercased element type name ("int", "object",
+    // "byte", "long", ...) of the concrete generic instantiation this
+    // TypeDef represents. Used to emit ListBuilder_1_object, Task_1_long, etc.
     public int GenericArity { get; init; }
     public bool IsGenericType => GenericArity > 0;
+    public string? InstantiationSuffix { get; set; }
 
     // Value type (M3 Task 11): a struct whose instances are plain C++ values
     // (NO object header, NO GC allocation). Local variables hold the value

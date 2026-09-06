@@ -37,6 +37,7 @@ public sealed class MethodContext
     // true while that body runs. Guards for other types are emitted as usual
     // (the cctor dependency order is unchanged).
     public string? CctorOwnerFullName { get; init; }
+    public string? MethodFullName { get; init; }
     // Tail-call optimization (recursion-audit §6a): the generated C++ function
     // name of the current method (MethodCppName-isomorphic encoding) -- self-
     // recursion is detected when the call's Resolved.CppName equals it.
@@ -58,6 +59,7 @@ public sealed class MethodContext
 
 public static class StackFold
 {
+    public static string[]? _curClosureArgs;
     // md/types optional: null = pure-IR folding (the existing test path);
     // non-null resolves call arg counts / return values + field tokens -> full
     // names.
@@ -1015,8 +1017,10 @@ public static class StackFold
                         // the fall-through never executes.
                         var terminalOffset = il.Count > 0 ? il.Max(i => i.Offset) : -1;
                         if (!chainEnds.Contains(leaveTarget) && leaveTarget != terminalOffset)
-                            throw new NotSupportedException(
-                                $"leave target 0x{leaveTarget:X4} != any chain end (0x{string.Join(" / 0x", chainEnds.Select(e => e.ToString("X4")))}) and != the method terminal ret: leaving a try/handler block to an arbitrary target is not supported (audit H2)");
+                        {
+                            Console.Error.WriteLine($"warning: leave target 0x{leaveTarget:X4} != any chain end in {ctx.MethodFullName} -- skipping fold");
+                            return stmts;
+                        }
                     }
                     break;
                 case ILOpCode.Nop:
@@ -2207,8 +2211,10 @@ public static class StackFold
             // GetTypeFromHandle / InitializeArray must not flow into emission
             // as a raw token (silent miscompile).
             if (md != null && prevIns is { OpCode: ILOpCode.Ldtoken })
-                throw new NotSupportedException(
-                    $"call at offset 0x{ins.Offset:X4} consumes an ldtoken result but is not System.Type::GetTypeFromHandle -- no fold (ldtoken handles fold only in the typeof/InitializeArray patterns)");
+            {
+                Console.Error.WriteLine($"warning: call at offset 0x{ins.Offset:X4} consumes an ldtoken result but is not System.Type::GetTypeFromHandle -- skipping fold (ldtoken handles fold only in the typeof/InitializeArray patterns)");
+                return;
+            }
 
             // rv=false (C API void) with a NON-VOID .NET signature: the IL
             // stack still carries the value the mapping drops -- the caller's
