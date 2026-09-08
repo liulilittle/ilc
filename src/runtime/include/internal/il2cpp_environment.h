@@ -95,6 +95,10 @@ int32_t icall_environment_get_current_managed_thread_id();
 int32_t icall_environment_get_exit_code();
 int32_t icall_environment_set_exit_code(int32_t code);
 
+// Environment.Exit(int32) -> void, does not return: persist g_exit_code
+// then terminate via std::exit (FailFast uses std::abort instead).
+void icall_environment_exit(int32_t code);
+
 // Environment.HasShutdownStarted (netcore21+ audit surface): constant false
 // -- the simplified runtime never initiates shutdown while managed code runs.
 int32_t icall_environment_get_has_shutdown_started();

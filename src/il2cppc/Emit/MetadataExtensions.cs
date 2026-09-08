@@ -20,6 +20,11 @@ public static class MetadataExtensions
         var t = md.GetTypeDefinition(h);
         var name = md.GetString(t.Name);
         var ns = md.GetString(t.Namespace);
+        // Nested types carry an empty namespace -- walk the declaring-type
+        // chain like the TypeReference overload, else nested names leak bare
+        // (e.g. "Filter" instead of "System.RuntimeType+Filter").
+        if (t.IsNested)
+            return md.GetFullName(t.GetDeclaringType()) + "+" + name;
         return string.IsNullOrEmpty(ns) ? name : ns + "." + name;
     }
 }

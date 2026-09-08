@@ -2187,6 +2187,24 @@ void icall_decimal_div(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2C
     Store(result, x);
 }
 
+void icall_decimal_fcall_addsub(Il2CppDecimal* d1, const Il2CppDecimal* d2, int32_t b)
+{
+    if ((b & 0x80) != 0)
+        icall_decimal_sub(d1, d1, d2);
+    else
+        icall_decimal_add(d1, d1, d2);
+}
+
+void icall_decimal_fcall_multiply(Il2CppDecimal* d1, const Il2CppDecimal* d2)
+{
+    icall_decimal_mul(d1, d1, d2);
+}
+
+void icall_decimal_fcall_divide(Il2CppDecimal* d1, const Il2CppDecimal* d2)
+{
+    icall_decimal_div(d1, d1, d2);
+}
+
 void icall_decimal_rem(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2CppDecimal* b)
 {
     DecCalc x, y;

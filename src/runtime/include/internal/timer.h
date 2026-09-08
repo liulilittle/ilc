@@ -59,7 +59,8 @@ extern il2cpp::Il2CppClass System_Threading_Timer_class;
 // System.Timers.Timer runtime descriptor (GLOBAL scope -- the transpiler
 // emits &System_Timers_Timer_class for newobj; defined in timer.cpp).
 // Layout: header | raw threading-timer handle | Elapsed delegate (ref) |
-// AutoReset (int32) | Interval (int32 ms).
+// AutoReset (int32) | Interval (int32 ms) | Enabled (int32) |
+// Disposed (int32) | SynchronizingObject (ref, nullable).
 //------------------------------------------------------------------------------
 extern il2cpp::Il2CppClass System_Timers_Timer_class;
 
@@ -124,5 +125,20 @@ void icall_timers_start(Il2CppObject* self);
 void icall_timers_stop(Il2CppObject* self);
 // Dispose() -- stop + join; idempotent.
 void icall_timers_dispose(Il2CppObject* self);
+// get_Interval() -- stored interval ms (double).
+double icall_timers_get_interval(Il2CppObject* self);
+// get_AutoReset() -- stored flag (0/1).
+int32_t icall_timers_get_auto_reset(Il2CppObject* self);
+// get_Enabled() -- 1 while armed (Start/set_Enabled(true)), else 0.
+int32_t icall_timers_get_enabled(Il2CppObject* self);
+// set_Enabled(bool) -- arm (nonzero) or disarm (zero).
+void icall_timers_set_enabled(Il2CppObject* self, int32_t enabled);
+// remove_Elapsed(handler) -- remove from the event chain.
+void icall_timers_remove_elapsed(Il2CppObject* self, Il2CppObject* handler);
+// Close() -- same as Dispose().
+void icall_timers_close(Il2CppObject* self);
+// get/set_SynchronizingObject() -- stored nullable ref (never invoked).
+Il2CppObject* icall_timers_get_sync(Il2CppObject* self);
+void icall_timers_set_sync(Il2CppObject* self, Il2CppObject* sync);
 
 }} // namespace il2cpp::runtime

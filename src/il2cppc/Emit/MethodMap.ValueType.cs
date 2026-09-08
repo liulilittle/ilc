@@ -317,8 +317,14 @@ public static partial class MethodRefResolver
         // hint reaches the metadata classification below. A receiver that is
         // genuinely untracked (no constrained marker) keeps the pre-existing
         // generated-name fallback (a self-identifying C++ link error).
+        // A receiver that is genuinely untracked (no constrained marker --
+        // e.g. GetHashCode on a box result) cannot classify: route to the
+        // OfPtr icall (declared in stubs.h, defined in stubs.cpp) instead of
+        // the generated-name fallback (a self-identifying C++ link error).
+        // The re-resolve override below re-routes tracked receivers to the
+        // precise per-kind icall, so this arm only survives hint-less calls.
         if (receiverType == null)
-            return null;
+            return I("il2cpp::runtime::icall_value_type_get_hash_code_of_ptr", 0, true, false, true, new[] { "" });
         var kind = ClassifyValueTypeFirstField(md, receiverType);
         return kind switch
         {

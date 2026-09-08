@@ -136,6 +136,22 @@ void icall_threadobj_ctor(Il2CppObject* self, Il2CppObject* callback);
 // (running or finished).
 void icall_threadobj_start(Il2CppObject* self);
 
+// Thread.Start(object): spawns a REAL OS thread running the
+// ParameterizedThreadStart callback with the supplied parameter (stored in
+// the handle, passed at thread entry). Already-started raises
+// ThreadStateException.
+void icall_threadobj_start_parameterized(Il2CppObject* self, Il2CppObject* parameter);
+
+// Thread.UnsafeStart() / UnsafeStart(object): no ExecutionContext in the
+// M-stage model -- identical to Start / Start(object); provided for BCL
+// API completeness.
+void icall_threadobj_unsafe_start(Il2CppObject* self);
+void icall_threadobj_unsafe_start_parameterized(Il2CppObject* self, Il2CppObject* parameter);
+
+// Thread.ThreadState getter: net48 ThreadState flags (Running=0,
+// Unstarted=8, Stopped=16 in the M-stage model).
+int32_t icall_threadobj_get_thread_state(Il2CppObject* self);
+
 // Thread.Join(): blocks until the spawned thread exits, then releases its
 // native handle (a later Join returns immediately). A ThreadStateException
 // is raised when the thread was never started or is the CURRENT thread

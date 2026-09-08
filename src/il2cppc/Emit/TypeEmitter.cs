@@ -104,10 +104,18 @@ public static class TypeEmitter
             if (!string.IsNullOrEmpty(ns))
                 throw new NotSupportedException(
                     $"nested type '{name}' has namespace '{ns}' -- nested types must emit under their short metadata name to match reference-point naming");
-            var fullName = name;
-            if (types.Concat(added).Any(t => t.FullName == fullName))
+            // r78 fix: use DeclaringTypeName+Name as the unique key so that
+            // multiple nested types with the same short name (e.g., 25 different
+            // enclosing types each have a <>c closure class) are NOT collapsed
+            // into one entry. DeclaringTypeName is "" for top-level types and
+            // the declaring chain full name ("System.Foo+Bar") for nested types.
+            var declName = td.GetDeclaringType().IsNil
+                ? ""
+                : DeclaringChainFullName(md, td.GetDeclaringType());
+            var uniqueKey = declName + "\0" + name; // '\0' separator is safe — not a valid metadata char
+            if (types.Concat(added).Any(t => (t.DeclaringTypeName + "\0" + t.Name) == uniqueKey))
             {
-                continue; // skip duplicate nested type (e.g., ParseFailureKind already exists)
+                continue; // skip duplicate nested type (same enclosing type + same short name)
             }
 
             var nested = new TypeDef
@@ -228,6 +236,15 @@ public static class TypeEmitter
         {
             if (!byName.ContainsKey(t.FullName))
                 byName[t.FullName] = t;
+            // Nested types share short FullNames (Namespace="") AND decode
+            // to '+'-qualified BaseTypeNames -- index both so base/interface
+            // resolution hits regardless of which form the reference uses.
+            if (t.IsNested)
+            {
+                var nestedKey = t.DeclaringTypeName + "+" + t.Name;
+                if (!byName.ContainsKey(nestedKey))
+                    byName[nestedKey] = t;
+            }
         }
         foreach (var t in types.Concat(added))
         {
@@ -413,7 +430,17 @@ public static class TypeEmitter
 
     public static string TypeCppName(TypeDef t)
     {
-        var baseName = Sanitize(t.FullName);
+        // r78 fix: nested types need declaring-type prefix to avoid name collisions.
+        // Multiple enclosing types can have nested types with the same short name
+        // (e.g., 25 different types each have a `<>c` nested class — all sanitize to __c).
+        // Prefix with declaring type name for uniqueness.
+        // r78b: when DeclaringTypeName is empty (defensive), use FullName to avoid
+        // collapsing all nested types into one name.
+        var baseName = t.IsNested
+            ? (!string.IsNullOrEmpty(t.DeclaringTypeName)
+                ? Sanitize(t.DeclaringTypeName) + "_" + Sanitize(t.Name)
+                : Sanitize(t.FullName))
+            : Sanitize(t.FullName);
         // R77 generic multi-instantiation: if this TypeDef carries an explicit
         // instantiation suffix ("int", "object", ...), use it. Otherwise fall
         // back to the M3 default (T -> int32_t, "_int") for generic defs that
@@ -542,7 +569,12 @@ public static class TypeEmitter
                 FieldTypeKind.Reference => ReferenceCppType(f.FieldTypeName, allTypes),
                 _ => throw new NotSupportedException($"field kind {f.TypeKind} not supported in M2"),
             };
-            w.Line($"{cppType} {Sanitize(f.Name)}; // slot {f.SlotIndex} at offset {f.SlotIndex * IntPtr.Size} ({(f.TypeKind == FieldTypeKind.Reference ? "GC reference" : "value")})");
+            // _obj guard: the object header member is named _obj; a metadata
+            // field that sanitizes to _obj (e.g. SerializationMonkey._obj)
+            // would collide -- rename the member (access sites use FieldCppName
+            // uniformly, see below).
+            var memberName = Sanitize(f.Name) == "_obj" ? "_obj_field" : Sanitize(f.Name);
+            w.Line($"{cppType} {memberName}; // slot {f.SlotIndex} at offset {f.SlotIndex * IntPtr.Size} ({(f.TypeKind == FieldTypeKind.Reference ? "GC reference" : "value")})");
         }
         // enumdeep/enumdeep2/enumops (M7R2 cmake build): an ENUM type is
         // translated as a struct whose only instance field is value__ (the
@@ -609,6 +641,38 @@ public static class TypeEmitter
         // reference slot, exactly like a System.Object field; the concrete
         // implementer's object is what the slot holds at runtime.
         _ when allTypes != null && allTypes.Any(x => x.FullName == fullName && x.IsInterface) => "Il2CppObject*",
+        // M6 Nullable<T>: a nullable field of any T has no generated C++ struct --
+        // the runtime represents it as an Il2CppObject* (null for HasValue=false,
+        // boxed T for HasValue=true). Map to Il2CppObject* like other BCL structs.
+        _ when fullName.StartsWith("System.Nullable`1", StringComparison.Ordinal) => "Il2CppObject*",
+        // r78 KeyValuePair<K,V>: a KeyValuePair<K,V> reference field has no generated
+        // C++ struct -- the runtime models every pair as the Il2CppDictKvpSI holder
+        // OBJECT (get_Key/get_Value are separate icalls -- no 16-byte pair struct).
+        // Map to Il2CppObject* so fields/current-slots declare a GC ref, not a
+        // {Sanitize(name)}* pointer to an undefined type.
+        _ when fullName.StartsWith("System.Collections.Generic.KeyValuePair`2", StringComparison.Ordinal) => "Il2CppObject*",
+        // r78 generic instantiations of BCL interfaces (IEnumerator`1<T>, IEnumerable`1<T>,
+        // ICollection`1<T>) and generic classes (ConcurrentSet`2<K,V>) that have no generated
+        // C++ struct. The runtime stamps these with the single System.Object / System.Array
+        // class, so a field/slot of such a type is a plain GC reference, exactly like a
+        // System.Object field. Without this, the fallback emits {Sanitize(name)}* pointing
+        // to an undefined type -> cmake build FAIL.
+        _ when (fullName.StartsWith("System.Collections.Generic.IEnumerator`1<", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Collections.Generic.IEnumerable`1<", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Collections.Generic.ICollection`1<", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Collections.Concurrent.ConcurrentSet`2<", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Collections.Generic.IDictionary`2<", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Collections.Generic.IReadOnlyDictionary`2<", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Collections.Generic.ISet`1<", StringComparison.Ordinal)) => "Il2CppObject*",
+        // r78 fix: generic instantiations of BCL types (e.g. ReadOnlyCollection`1<Exception>,
+        // Dictionary`2<String,Object>, Func`1<Int32>) have no generated C++ struct.
+        // Map to Il2CppObject* like other BCL reference types. Without this, the
+        // fallback emits {Sanitize(fullName)}* pointing to an undefined type -> cmake FAIL.
+        _ when fullName.Contains('`') || fullName.Contains('<') => "Il2CppObject*",
+        // r78 fix: any other BCL type not in the types list has no generated C++ struct.
+        // Map to Il2CppObject* (the runtime stamps these with System.Object/System.Array).
+        // Types in the types list get their own struct definition via EmitClassStruct.
+        _ when allTypes == null || !allTypes.Any(x => x.FullName == fullName) => "Il2CppObject*",
         _ => $"{Sanitize(fullName)}*",
     };
 
@@ -861,6 +925,8 @@ public static class TypeEmitter
     //       the M1 int32_t slot truncated a 64-bit WNDPROC/HWND value).
     //   Int64 / UInt64 -- 64-bit integer statics (0x0A/0x0B): int64_t/uint64_t
     //       storage (an int32_t slot would truncate a long value).
+    //   DateTime / TimeSpan -- 8-byte runtime value structs (ticks would be
+    //       truncated by int32_t; must agree with EmitStaticStorage).
     //   Value     -- everything else (int32_t storage).
     //
     // Resolution order: the FieldDef MODEL first (a loader that populates
@@ -875,7 +941,7 @@ public static class TypeEmitter
     // signature keeps the M1 int32_t emission -- the historical behavior, so
     // classification can only improve, never regress.
     //--------------------------------------------------------------------------
-    private enum StaticFieldSemantic { Value, Reference, Decimal, IntPtr, UIntPtr, Int64, UInt64 }
+    private enum StaticFieldSemantic { Value, Reference, Decimal, IntPtr, UIntPtr, Int64, UInt64, DateTime, TimeSpan }
 
     // Full-name -> value semantic map shared by the model and the metadata
     // signature paths (decimalcase pairing; wf16 extends it to the wide
@@ -888,6 +954,11 @@ public static class TypeEmitter
         "System.UIntPtr" => (StaticFieldSemantic.UIntPtr, "System.UIntPtr"),
         "System.Int64" => (StaticFieldSemantic.Int64, "System.Int64"),
         "System.UInt64" => (StaticFieldSemantic.UInt64, "System.UInt64"),
+        // DateTime/TimeSpan statics (Zero/MinValue/MaxValue) are 8-byte
+        // runtime value structs -- int32_t storage would truncate ticks and
+        // disagree with EmitStaticStorage's inline definitions.
+        "System.DateTime" => (StaticFieldSemantic.DateTime, "System.DateTime"),
+        "System.TimeSpan" => (StaticFieldSemantic.TimeSpan, "System.TimeSpan"),
         _ => null,
     };
 
@@ -985,6 +1056,8 @@ public static class TypeEmitter
             StaticFieldSemantic.UIntPtr => "uintptr_t",
             StaticFieldSemantic.Int64 => "int64_t",
             StaticFieldSemantic.UInt64 => "uint64_t",
+            StaticFieldSemantic.DateTime => "il2cpp::runtime::Il2CppDateTime",
+            StaticFieldSemantic.TimeSpan => "il2cpp::runtime::Il2CppTimeSpan",
             _ => "int32_t"
         };
     }

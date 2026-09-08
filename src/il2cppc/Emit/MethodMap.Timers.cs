@@ -72,6 +72,50 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return I("il2cpp::runtime::icall_timers_dispose", 0, false, false, true,
                         new[] { "" });
+                // Dispose(bool) (Component base): drop the flag, same dispose.
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_timers_dispose", 1, false, false, true,
+                        new[] { "", "drop" });
+                return null;
+            case "get_Interval":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_timers_get_interval", 0, true, false, true,
+                        new[] { "" }, "d");
+                return null;
+            case "get_AutoReset":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_timers_get_auto_reset", 0, true, false, true,
+                        new[] { "" });
+                return null;
+            case "get_Enabled":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_timers_get_enabled", 0, true, false, true,
+                        new[] { "" });
+                return null;
+            case "set_Enabled":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_timers_set_enabled", 1, false, false, true,
+                        new[] { "", "b" });
+                return null;
+            case "remove_Elapsed":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_timers_remove_elapsed", 1, false, false, true,
+                        new[] { "", "" });
+                return null;
+            case "Close":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_timers_close", 0, false, false, true,
+                        new[] { "" });
+                return null;
+            case "get_SynchronizingObject":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_timers_get_sync", 0, true, true, true,
+                        new[] { "" });
+                return null;
+            case "set_SynchronizingObject":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_timers_set_sync", 1, false, false, true,
+                        new[] { "", "" });
                 return null;
             default:
                 return null;

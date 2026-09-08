@@ -376,6 +376,17 @@ public static partial class MethodRefResolver
         if (!import.Module.IsNil)
         {
             var entry = md.GetString(import.Name);
+            // QCall short-circuit fix: same-assembly QCall callees never
+            // reach the MethodMap tables (MemberReference path only), so a
+            // mapped QCall (e.g. Environment.GetProcessorCount) would emit a
+            // naked undefined extern. Consult the map first; unmapped QCalls
+            // keep the legacy naked-decl path below.
+            var importModuleName = md.GetString(md.GetModuleReference(import.Module).Name);
+            if (importModuleName.Equals("QCall", StringComparison.Ordinal))
+            {
+                var qmap = BclResolve(md, ownerFullName, name, m.Signature, null, null, false, null, null);
+                if (qmap != null) return qmap;
+            }
             var setLastError = ((int)import.Attributes & 0x40) != 0; // MethodImportAttributes.SetLastError
             // wf2 (winforms1): CharSet decoding -- MethodImportAttributes
             // CharSet mask = 0x06: 0x02 Ansi, 0x04 Unicode, 0x06 Auto. On
@@ -404,7 +415,7 @@ public static partial class MethodRefResolver
             // silently emitting).
             return new ResolvedMethod(entry, paramCount, false,
                 returnType != SignatureTypeCode.Void, IsRefType(returnType), ParamRefFlags(paramTypes), false,
-                IsPInvoke: true, ParamTypeNames: paramTypes.Split(',').Select(p =>
+                IsPInvoke: true, ParamTypeNames: CodeGenerator.SplitTopLevel(paramTypes).Select(p =>
                     utf16Strings && p == "r:System.String" ? "u16:System.String" : PInvokeCastCode(p)).ToArray(),
                 SetLastError: setLastError,
                 // M4.5: IntPtr/UIntPtr-returning P/Invoke -> "ptr" result kind
@@ -552,7 +563,7 @@ public static partial class MethodRefResolver
         if (mrName == ".ctor" && owner2.EndsWith("Exception", StringComparison.Ordinal)
             && !knownTypes.Any(t => t.FullName == owner2))
         {
-            var drops = pt.Split(',').Select(_ => "drop").ToArray();
+            var drops = CodeGenerator.SplitTopLevel(pt).Select(_ => "drop").ToArray();
             return new ResolvedMethod("il2cpp::runtime::il2cpp_object_ctor_nop", pc, false, false, false, ParamRefFlags(pt), true,
                 ParamTypeNames: drops);
         }
@@ -601,7 +612,8 @@ public static partial class MethodRefResolver
             .Where(a => a.Byte is not (0x08 or 0x09))
             .ToArray();
         if (offending.Length == 0) return;
-        Console.Error.WriteLine($"warning: generic instantiation of {owner}.{name} with unsupported generic argument(s) skipped (M6 model generates only T->int32/uint32)");
+        var bytes = string.Join(", ", offending.Select(o => $"0x{o.Byte:X2}"));
+        Console.Error.WriteLine($"warning: generic instantiation of {owner}.{name} with unsupported generic argument(s) [{bytes}] skipped (M6 model generates only T->int32/uint32)");
         return;
     }
 
@@ -671,7 +683,7 @@ public static partial class MethodRefResolver
         return $"{owner}::{name}: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link)";
     }
 
-    private static ResolvedMethod? BclResolve(MetadataReader md, string owner, string name, BlobHandle sigHandle,
+    public static ResolvedMethod? BclResolve(MetadataReader md, string owner, string name, BlobHandle sigHandle,
         byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type = null,
         string[]? genArgNames = null, string? instName = null)
     {
@@ -838,7 +850,13 @@ public static partial class MethodRefResolver
             case "System.IO.Directory":
             case "System.IO.Path":
             case "System.IO.FileInfo": return TryMapIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Reflection.Emit.ModuleBuilder":
+            case "System.Security.Principal.Win32":
+            case "System.Security.Policy.PEFileEvidenceFactory":
+            case "System.IO.IsolatedStorage.IsolatedStorageFile":
+                return TryMapEmit(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.GC":
+                return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // netcore21/31 audit surfaces routed into the GC map (the
             // GetMemoryInfo out-fills, the Number formatting PNSE entries,
             // RhBulkMoveWithWriteBarrier, the TracingStatusChangedEventArgs
@@ -868,14 +886,15 @@ public static partial class MethodRefResolver
             case "System.MarshalByRefObject":
             case "System.MissingMemberException":
             case "System.WeakReference`1":
+                return TryMapWeakReference(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                    ?? TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.CLRConfig":
             case "System.Diagnostics.Assert":
             case "System.Diagnostics.Log":
             case "System.BaseConfigHandler":
             case "System.Security.SecurityContext":
             case "System.Security.SecurityManager":
-            case "System.Security.SecurityRuntime":
-            case "System.Security.Principal.Win32": return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Security.SecurityRuntime": return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Delegate": return TryMapDelegate(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Linq.Expressions.Expression":
             case "System.Linq.Expressions.LambdaExpression": return TryMapExprTree(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
@@ -1302,6 +1321,12 @@ var userRecvLike = receiverType ?? arg0Type;
                 if (name is "Sum" or "Min" or "Max" && genArgs == null)
                     genArgs = LinqAggregateElementByte(md, sigHandle);
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // D-LINQ-4 grouping instance surface: the REAL BCL owner of an
+            // IGrouping<TKey,TElement> instance property call (gr.Key ->
+            // get_Key). Routes to the same TryMapLinq grouping block; the
+            // owner itself proves grouping-ness when no hint flows.
+            case "System.Linq.IGrouping`2":
+                return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // Legacy LOUD family (MethodMap.Legacy.cs): System.Runtime.
             // Remoting.* / AppDomain / ArgIterator / ReaderWriterLock -- the
             // net48 audit §3/§6 LOUD rejection list (no runtime support).
@@ -1313,7 +1338,8 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Runtime.Remoting.Channels.ChannelServices":
             case "System.AppDomain":
             case "System.ArgIterator":
-            case "System.Threading.ReaderWriterLock": return TryMapLegacy(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Threading.ReaderWriterLock": return TryMapLegacy(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                ?? TryMapEmit(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // MathF domain (MethodMap.MathF.cs): System.MathF -- the corert
             // float-semantics math surface (float params 0x0C, results ride the
             // "d" double carrier -- the float-in-double M-stage model).
@@ -1338,6 +1364,7 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Reflection.Assembly":
             case "System.Resources.ResourceManager": return TryMapResources(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapResourceManager(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Reflection.RuntimeAssembly": return TryMapRuntimeAssembly(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             default: return null;
         }
         // #endregion
@@ -1490,7 +1517,7 @@ var userRecvLike = receiverType ?? arg0Type;
     private static bool[] ParamRefFlags(string paramTypes)
     {
         if (paramTypes.Length == 0) return Array.Empty<bool>();
-        return paramTypes.Split(',').Select(p => p.StartsWith("r:", StringComparison.Ordinal)).ToArray();
+        return CodeGenerator.SplitTopLevel(paramTypes).Select(p => p.StartsWith("r:", StringComparison.Ordinal)).ToArray();
     }
 
     // WF-M2 (2026-08-07): P/Invoke param encoding -> the emitter cast code.

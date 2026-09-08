@@ -105,10 +105,27 @@ public static partial class MethodRefResolver
                 // code pointer extracted; the thread is NEW until Start.
                 if (count == 1 && ps[0] == 0x12)
                     return I("il2cpp::runtime::icall_threadobj_ctor", 1, false, false, true);
+                // new Thread(ParameterizedThreadStart): same ABI (delegate as
+                // Il2CppObject*); maxStackSize is ignored (M-stage model).
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_threadobj_ctor", 2, false, false, true, new[] { "", "drop" });
                 throw new NotSupportedException($"Thread ctor with {count} param(s) not wired");
             case "Start":
                 if (count == 0)
                     return I("il2cpp::runtime::icall_threadobj_start", 0, false, false, true);
+                // Start(object): System.Object encodes as OBJECT (0x1C); the
+                // parameter rides to the ParameterizedThreadStart callback.
+                if (count == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::icall_threadobj_start_parameterized", 1, false, false, true,
+                        new[] { "", "" });
+                return null;
+            case "UnsafeStart":
+                // No ExecutionContext in the M-stage model: same as Start.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_threadobj_unsafe_start", 0, false, false, true);
+                if (count == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::icall_threadobj_unsafe_start_parameterized", 1, false, false, true,
+                        new[] { "", "" });
                 return null;
             case "Join":
                 if (count == 0)
@@ -151,6 +168,28 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return I("il2cpp::runtime::icall_threadobj_get_current_thread", 0, true, true, false,
                         returnTypeName: "System.Threading.Thread");
+                return null;
+            case "get_ThreadState":
+                // net48 ThreadState flags (Running=0/Unstarted=8/Stopped=16).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_threadobj_get_thread_state", 0, true, false, true);
+                return null;
+            case "get_Name":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_threadobj_get_name", 0, true, true, true, returnTypeName: "System.String");
+                return null;
+            case "set_Name":
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_threadobj_set_name", 1, false, false, true, new[] { "", "" });
+                return null;
+            // ApartmentState public wrappers route to the wired Native twins.
+            case "GetApartmentState":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_threadobj_get_apartment_state_native", 0, true, false, true);
+                return null;
+            case "TrySetApartmentState":
+                if (count == 1 && (ps[0] == 0x08 || ps[0] == 0x11))
+                    return I("il2cpp::runtime::icall_threadobj_set_apartment_state_native", 1, true, false, true, new[] { "", "i" });
                 return null;
             // P6: Thread internal helpers -- simplified model stubs.
             case "set_IsThreadPoolThread": return I("il2cpp::runtime::icall_threadobj_set_is_thread_pool_thread", 1, false, false, true, new[] { "", "i" });

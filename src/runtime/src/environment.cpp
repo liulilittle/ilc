@@ -449,6 +449,14 @@ int32_t icall_environment_set_exit_code(int32_t code)
     return 0; // net48's property setter never fails
 }
 
+void icall_environment_exit(int32_t code)
+{
+    // Persist first (same store as the setter), then terminate. std::exit
+    // runs atexit handlers (thread-pool shutdown); does not return.
+    g_exit_code = code;
+    std::exit(code);
+}
+
 int32_t icall_environment_get_processor_count()
 {
 #if defined(_WIN32)

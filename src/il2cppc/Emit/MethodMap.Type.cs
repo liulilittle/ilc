@@ -125,6 +125,41 @@ public static partial class MethodRefResolver
             case "GetTypeFromHandleUnsafe": return I("il2cpp::runtime::icall_type_get_type_from_handle_unsafe", 1, true, true, false, new[] { "i" });
             // P6: Type.op_Inequality (stub: returns 0).
             case "op_Inequality": return I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false);
+            // Type.GetElementType() -- instance: the element type of an array type
+            // (e.g., int[] -> int). The receiver is the Type value (name string);
+            // the runtime resolves the element type through the class descriptor.
+            case "GetElementType":
+                return I("il2cpp::runtime::il2cpp_type_get_element_type", 0, true, true, true, returnTypeName: "System.Type");
+            // Type.FullName -- instance: the full ECMA name of the type (e.g.,
+            // "System.Int32"). Contrast with get_Name (short name). The receiver
+            // is the Type value (name string); the runtime returns the full name.
+            case "get_FullName":
+                return I("il2cpp::runtime::il2cpp_type_get_full_name", 0, true, true, true, returnTypeName: "System.String");
+            // Type.IsSubclassOf(Type c) -- instance: whether this type derives
+            // from c. The receiver is this, the argument is c (both Type values).
+            case "IsSubclassOf":
+                if (ps.Length == 1 && arg0Type == "System.Type")
+                    return I("il2cpp::runtime::icall_type_is_subclass_of", 1, true, false, true, new[] { "", "" });
+                throw new NotSupportedException($"Type.IsSubclassOf with {(arg0Type == null ? "untracked" : $"non-Type argument {arg0Type}")} not wired -- only a tracked System.Type argument maps to icall_type_is_subclass_of");
+            // A-class predicates (bool Type properties backed by existing
+            // descriptor fields -- name / baseClass chain / instanceSize).
+            // Each is a 0-arg instance getter returning int32 1/0.
+            case "get_IsArray":
+                return I("il2cpp::runtime::il2cpp_type_is_array", 0, true, false, true);
+            case "get_IsEnum":
+                return I("il2cpp::runtime::il2cpp_type_is_enum", 0, true, false, true);
+            case "get_IsValueType":
+                return I("il2cpp::runtime::il2cpp_type_is_value_type", 0, true, false, true);
+            case "get_IsInterface":
+                return I("il2cpp::runtime::il2cpp_type_is_interface", 0, true, false, true);
+            case "get_IsClass":
+                return I("il2cpp::runtime::il2cpp_type_is_class", 0, true, false, true);
+            case "get_IsPrimitive":
+                return I("il2cpp::runtime::il2cpp_type_is_primitive", 0, true, false, true);
+            case "get_HasElementType":
+                return I("il2cpp::runtime::il2cpp_type_has_element_type", 0, true, false, true);
+            case "get_BaseType":
+                return I("il2cpp::runtime::il2cpp_type_get_base_type", 0, true, true, true, returnTypeName: "System.Type");
             default: return null;
         }
     }

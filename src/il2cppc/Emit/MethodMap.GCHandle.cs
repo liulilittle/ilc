@@ -75,6 +75,10 @@ public static partial class MethodRefResolver
                 // conditional runtime addition that does NOT exist -- LOUD.
                 throw new NotSupportedException(
                     "GCHandle.ToIntPtr not wired: the runtime has no icall_gchandle_to_intptr (gchandle-b23 report §4.4 lists it as a conditional addition)");
+            case "InternalGetHandleType":
+                if (count == 1 && IsIntPtrByte(ps[0]))
+                    return I("il2cpp::runtime::icall_gchandle_get_handle_type", 1, true, false, false, new[] { "" });
+                return null;
             case "FromIntPtr":
                 throw new NotSupportedException(
                     "GCHandle.FromIntPtr not wired: the runtime has no icall_gchandle_from_intptr (gchandle-b23 report §4.4 lists it as a conditional addition)");

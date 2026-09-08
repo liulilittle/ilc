@@ -104,7 +104,27 @@ struct il2cpp_thread_handle
     plat_thread_t native;       // the spawned platform thread (joined once)
     int32_t tid;                // OS thread id, set by the child at entry
     void (*fn)();               // the ThreadStart callback (zero-arg ABI)
+    Il2CppObject* parameter;    // ParameterizedThreadStart arg (nullptr for ThreadStart)
 };
+
+// ThreadTrampolineParameterized -- ParameterizedThreadStart runner: passes
+// the stored parameter to the callback, then marks the handle FINISHED.
+void ThreadTrampolineParameterized(void* arg)
+{
+    il2cpp_thread_handle* h = static_cast<il2cpp_thread_handle*>(arg);
+    h->tid = plat_thread_current_id();
+    try
+    {
+        typedef void (*ParameterizedFn)(Il2CppObject*);
+        ParameterizedFn pfn = reinterpret_cast<ParameterizedFn>(h->fn);
+        pfn(h->parameter);
+    }
+    catch (...)
+    {
+        // Dropped per the header contract (no delivery path in M-stage).
+    }
+    h->state.store(2, std::memory_order_release);
+}
 
 // The platform layer spawns void(*)(void*) trampolines. The trampoline
 // records the child's OS id, runs the ThreadStart callback, and marks the
@@ -230,6 +250,70 @@ void icall_threadobj_start(Il2CppObject* self)
     // child may finish before they land; Join/IsAlive consult the handle).
     t->handle = h;
     t->state = 1; // STARTED
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_start_parameterized -- Thread.Start(object): spawn a REAL
+// OS thread running the ParameterizedThreadStart callback with the supplied
+// parameter.
+//------------------------------------------------------------------------------
+void icall_threadobj_start_parameterized(Il2CppObject* self, Il2CppObject* parameter)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    if (t->state != 0)
+    {
+        ThrowThreadState("Thread has already been started.");
+    }
+    il2cpp_thread_handle* h = new il2cpp_thread_handle();
+    h->state.store(1, std::memory_order_relaxed);
+    h->tid = 0;
+    h->fn = reinterpret_cast<void (*)()>(t->callbackFn);
+    h->parameter = parameter;
+    h->native = plat_thread_spawn(&ThreadTrampolineParameterized, h);
+    if (h->native == nullptr)
+    {
+        delete h;
+        il2cpp_throw_new(kOutOfMemoryChain,
+                         "Insufficient memory to create a new thread.");
+    }
+    // Parent-only writes (the child reads only its handle arg) -- race-free.
+    t->handle = h;
+    t->state = 1; // STARTED
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_unsafe_start(_parameterized) -- no ExecutionContext in the
+// M-stage model: delegate to Start / Start(object).
+//------------------------------------------------------------------------------
+void icall_threadobj_unsafe_start(Il2CppObject* self)
+{
+    icall_threadobj_start(self);
+}
+
+void icall_threadobj_unsafe_start_parameterized(Il2CppObject* self, Il2CppObject* parameter)
+{
+    icall_threadobj_start_parameterized(self, parameter);
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_get_thread_state -- net48 ThreadState flags: Running=0,
+// Unstarted=8, Stopped=16 (object states: 0=NEW, 1=STARTED, 2=CURRENT).
+//------------------------------------------------------------------------------
+int32_t icall_threadobj_get_thread_state(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    const Il2CppThreadObject* t = AsThread(self);
+    if (t->state == 2)
+        return 0; // CURRENT: Running
+    if (t->state == 0)
+        return 8; // NEW: Unstarted
+    const il2cpp_thread_handle* h = static_cast<const il2cpp_thread_handle*>(t->handle);
+    if (h == nullptr)
+        return 16; // handle released by Join: Stopped
+    if (h->state.load(std::memory_order_acquire) == 2)
+        return 16; // FINISHED: Stopped
+    return 0; // RUNNING
 }
 
 //------------------------------------------------------------------------------

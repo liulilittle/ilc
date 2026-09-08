@@ -20,6 +20,12 @@ public sealed class TypeDef
     public required string Namespace { get; init; }
     public string FullName => string.IsNullOrEmpty(Namespace) ? Name : Namespace + "." + Name;
 
+    // Nested-name match: nested TypeDefs carry Namespace="" so FullName is
+    // the short name, while metadata token decodes yield the '+' form
+    // ("System.Environment+SpecialFolder"). Accept both.
+    public bool MatchesFullName(string n) =>
+        FullName == n || (IsNested && DeclaringTypeName + "+" + Name == n);
+
     // Static (class-level) fields: emitted as file-scope C++ statics named
     // {TypeCppName}_sf_{FieldName}. M1 scope: int32 only.
     public List<FieldDef> StaticFields { get; } = new();

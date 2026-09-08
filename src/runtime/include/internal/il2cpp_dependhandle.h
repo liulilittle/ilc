@@ -95,4 +95,24 @@ void icall_dependenthandle_set_primary_and_secondary(intptr_t handle,
 // Returns true on success, false for an already-freed/invalid handle.
 bool icall_dependenthandle_free(intptr_t handle);
 
+//------------------------------------------------------------------------------
+// net48 static-extern n* adapters (System.Runtime.CompilerServices.
+// DependentHandle.nInitialize / nGetPrimary / nGetPrimaryAndSecondary /
+// nFree -- FSI-decoded mscorlib signatures). The BCL spells these as VOID
+// methods writing through out-slots while the core icalls above RETURN
+// their results -- these thin adapters bridge the shapes (no new table
+// state, no new semantics). Out-slots address managed LOCALS (GC roots),
+// so no write barrier is needed. The IntPtr& handle slot is int32-sized in
+// the M-stage model; the handle (a small table index + 1) narrows to int32
+// on store.
+//------------------------------------------------------------------------------
+// nInitialize(Object, Object, IntPtr&): alloc + store the handle.
+void icall_dependenthandle_n_init(Il2CppObject* primary, Il2CppObject* secondary, int32_t* outHandle);
+// nGetPrimary(IntPtr, Object&): write the primary through the out slot.
+void icall_dependenthandle_n_get_primary(intptr_t handle, Il2CppObject** outPrimary);
+// nGetPrimaryAndSecondary(IntPtr, Object&, Object&): return-primary shape
+// bridged to two out slots.
+void icall_dependenthandle_n_get_primary_and_secondary(intptr_t handle,
+    Il2CppObject** outPrimary, Il2CppObject** outSecondary);
+
 }} // namespace il2cpp::runtime

@@ -2331,7 +2331,12 @@ public static class StackFold
                     && prevIns is { OpCode: ILOpCode.Nop, OperandKind: IlOperandKind.TypeToken } constrainedMarker)
                 {
                     var cHandle = MetadataTokens.Handle((int)constrainedMarker.Operand);
-                    if (cHandle.Kind is HandleKind.TypeReference or HandleKind.TypeDefinition)
+                    // TypeSpecification markers (generic VAR, e.g. constrained.
+                    // !0 on <>f__AnonymousType0<T>.ToString): resolve through
+                    // the M3 convention (VAR -> System.Int32) like every
+                    // other token site.
+                    if (cHandle.Kind is HandleKind.TypeReference or HandleKind.TypeDefinition
+                        or HandleKind.TypeSpecification)
                     {
                         recvType = TypeFullNameFromToken(md, (int)constrainedMarker.Operand);
                         constrainedRecvType = recvType;
@@ -2395,6 +2400,10 @@ public static class StackFold
                         // re-resolve to the domain icall.
                         || resolved.CppName.EndsWith("icall_object_get_hash_code")
                         || resolved.CppName.EndsWith("icall_object_to_string")
+                        // ValueType.GetHashCode hint-less fallback (OfPtr) --
+                        // a tracked typed receiver must re-resolve to the
+                        // precise per-kind icall.
+                        || resolved.CppName.EndsWith("icall_value_type_get_hash_code_of_ptr")
                         // P25 (listp25): the List<int>.Enumerator used in a
                         // foreach bodies ... the MoveNext/get_Current on the
                         // address-taken struct first resolve (hint-less) to the
@@ -2459,6 +2468,14 @@ public static class StackFold
                         // (MethodMap.Decimal.cs pointer ABI).
                         "System.Decimal" => new ResolvedMethod("il2cpp::runtime::icall_decimal_to_string", 0, false, true, true,
                             new[] { false }, true, ParamTypeNames: new[] { "" }),
+                        // VAR-instantiation (M3 T->int): constrained ToString
+                        // on an int32 receiver (ldobj !0 / box !0 shapes in
+                        // generic bodies compiled for int, e.g.
+                        // <>f__AnonymousType0<T>.ToString). "deref:i" reads
+                        // the int32 value through the ldloca address (the
+                        // Decimal-arm shape with a value-taking icall).
+                        "System.Int32" => new ResolvedMethod("il2cpp::runtime::icall_int32_to_string", 0, false, true, true,
+                            new[] { false }, true, ParamTypeNames: new[] { "deref:i" }),
                         // enumdeep (M7R2): constrained ToString on a USER ENUM
                         // value -- il2cpp_enum_to_string(Il2CppClass*, int64_t).
                         // PrependTypeClass injects the name-bearing enum class
@@ -3330,12 +3347,37 @@ public static class StackFold
         static bool IsObjectToString(MetadataReader md, int token)
         {
             var handle = MetadataTokens.Handle(token);
-            if (handle.Kind != HandleKind.MemberReference) return false;
-            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
-            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
-            if (md.GetFullName((TypeReferenceHandle)mr.Parent) != "System.Object") return false;
-            if (md.GetString(mr.Name) != "ToString") return false;
-            var sig = md.GetBlobReader(mr.Signature);
+            string? parentName = null;
+            string? methodName = null;
+            BlobHandle sigHandle = default;
+            if (handle.Kind == HandleKind.MemberReference)
+            {
+                var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+                // The parent is a TypeReference from user assemblies but a
+                // TypeDefinition for calls INSIDE mscorlib itself.
+                parentName = mr.Parent.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)mr.Parent),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)mr.Parent),
+                    _ => null,
+                };
+                methodName = md.GetString(mr.Name);
+                sigHandle = mr.Signature;
+            }
+            else if (handle.Kind == HandleKind.MethodDefinition)
+            {
+                // Same-assembly callvirt (Roslyn emits a MethodDef token for
+                // System.Object::ToString inside mscorlib -- the intra-
+                // mscorlib constrained-ToString gap).
+                var mdef = md.GetMethodDefinition((MethodDefinitionHandle)handle);
+                parentName = md.GetFullName(mdef.GetDeclaringType());
+                methodName = md.GetString(mdef.Name);
+                sigHandle = mdef.Signature;
+            }
+            else return false;
+            if (parentName != "System.Object") return false;
+            if (methodName != "ToString") return false;
+            var sig = md.GetBlobReader(sigHandle);
             sig.ReadSignatureHeader();
             return sig.ReadCompressedInteger() == 0;
         }
@@ -3694,15 +3736,28 @@ public static class StackFold
             {
                 HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)handle),
                 HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)handle),
-                // batch 156c (asynccase): initobj of a GENERIC-INSTANTIATION
-                // value type (TaskAwaiter`1<int32> -- the async state machine's
-                // awaiter-field clear). The emitter's initobj path handles the
-                // TypeSpecification token kind separately (null store on the
-                // reference slot); this name is only consumed by RequireTypeName's
-                // token-kind check.
-                HandleKind.TypeSpecification => "System.Runtime.CompilerServices.TaskAwaiter`1",
+                // TypeSpecification: decode the shape instead of guessing.
+                // VAR (0x13, generic type parameter) instantiates to int32
+                // under the M3 single-instantiation convention (the proven
+                // ldobj-!0 case: <>f__AnonymousType0<T>.ToString compiled for
+                // int). Every other shape keeps the legacy TaskAwaiter name
+                // (r103 behavior -- initobj's token-kind check only; the
+                // emitter re-resolves GenericInst to the legacy Object
+                // no-op, so fold/emitter judgments stay paired).
+                HandleKind.TypeSpecification => TypeSpecName(md, (TypeSpecificationHandle)handle),
                 _ => throw new NotSupportedException($"type token kind {handle.Kind} not supported in M2"),
             };
+        }
+
+        static string TypeSpecName(MetadataReader md, TypeSpecificationHandle handle)
+        {
+            var sig = md.GetBlobReader(md.GetTypeSpecification(handle).Signature);
+            if (sig.ReadByte() == 0x13)
+            {
+                _ = sig.ReadCompressedInteger(); // VAR index (single instantiation: T -> int)
+                return "System.Int32";
+            }
+            return "System.Runtime.CompilerServices.TaskAwaiter`1";
         }
 
         // newobj token -> full name of the ctor's owning type ("Calc.Point" ->
@@ -4044,8 +4099,14 @@ public static class StackFold
             };
 
         // C++ member name sanitize (same rule set as TypeEmitter.Sanitize:
-        // illegal C++ identifier characters -> '_').
-        static string SanitizeField(string name) => string.Join("_", name.Split('.', '+', '`', '<', '>', ',', '[', ']'));
+        // illegal C++ identifier characters -> '_'). A field that sanitizes
+        // to _obj is renamed to _obj_field (the object header member is named
+        // _obj -- see TypeEmitter.EmitClassStruct).
+        static string SanitizeField(string name)
+        {
+            var s = string.Join("_", name.Split('.', '+', '`', '<', '>', ',', '[', ']'));
+            return s == "_obj" ? "_obj_field" : s;
+        }
 
         // ECMA-style lowercase opcode names (Stloc_0 -> stloc.0, Ldc_i4_s ->
         // ldc.i4.s), for English IL provenance comments.

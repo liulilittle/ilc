@@ -374,6 +374,20 @@ constexpr size_t kHandleSlot = sizeof(Il2CppObject);
 constexpr size_t kElapsedSlot = sizeof(Il2CppObject) + sizeof(void*);
 constexpr size_t kAutoResetSlot = sizeof(Il2CppObject) + 2 * sizeof(void*);
 constexpr size_t kIntervalSlot = sizeof(Il2CppObject) + 3 * sizeof(void*);
+constexpr size_t kEnabledSlot = sizeof(Il2CppObject) + 4 * sizeof(void*);
+constexpr size_t kDisposedSlot = sizeof(Il2CppObject) + 5 * sizeof(void*);
+constexpr size_t kSyncSlot = sizeof(Il2CppObject) + 6 * sizeof(void*);
+
+// Word-offset pins: slot N sits at byte N * sizeof(void*) (slot 0 = header).
+// The descriptor bitmap below must mark exactly the two reference slots
+// (Elapsed = slot 2, Sync = slot 7): 0b10000100u.
+static_assert(kHandleSlot == 1 * sizeof(void*), "timers: handle must sit at slot 1");
+static_assert(kElapsedSlot == 2 * sizeof(void*), "timers: Elapsed must sit at slot 2 (bitmap bit 2)");
+static_assert(kAutoResetSlot == 3 * sizeof(void*), "timers: AutoReset must sit at slot 3");
+static_assert(kIntervalSlot == 4 * sizeof(void*), "timers: Interval must sit at slot 4");
+static_assert(kEnabledSlot == 5 * sizeof(void*), "timers: Enabled must sit at slot 5");
+static_assert(kDisposedSlot == 6 * sizeof(void*), "timers: Disposed must sit at slot 6");
+static_assert(kSyncSlot == 7 * sizeof(void*), "timers: Sync must sit at slot 7 (bitmap bit 7)");
 
 bool g_timersClassRegistered = false;
 
@@ -432,9 +446,9 @@ void TimersArm(Il2CppObject* self, bool force)
 // emits &System_Timers_Timer_class for newobj; declared in timer.h).
 il2cpp::Il2CppClass System_Timers_Timer_class = {
     "System.Timers.Timer",              // name
-    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject) + 4 * sizeof(void*)), // header + 4 slots
-    0b00010u,                           // refFieldBitmap: bit 1 = the Elapsed delegate
-    1,                                  // refFieldCount
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject) + 7 * sizeof(void*)), // header + 7 slots
+    0b10000100u,                        // refFieldBitmap: bit 2 = Elapsed, bit 7 = Sync
+    2,                                  // refFieldCount
     nullptr, nullptr, 0, nullptr, 0,
 };
 
@@ -457,6 +471,9 @@ void icall_timers_ctor(Il2CppObject* self, double intervalMs)
     int32_t ms = static_cast<int32_t>(intervalMs);
     *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kIntervalSlot) = ms <= 0 ? 1 : ms;
     *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kAutoResetSlot) = 1; // net48 default
+    *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kEnabledSlot) = 0; // disarmed
+    *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kDisposedSlot) = 0;
+    *reinterpret_cast<Il2CppObject**>(reinterpret_cast<uint8_t*>(self) + kSyncSlot) = nullptr;
 }
 
 // System.Timers.Timer() -- parameterless ctor (default Interval 100 ms).
@@ -502,19 +519,25 @@ void icall_timers_add_elapsed(Il2CppObject* self, Il2CppObject* handler)
     il2cpp_write_barrier(reinterpret_cast<void**>(slot), combined);
 }
 
-// Start() -- arm from the stored interval/autoReset.
+// Start() -- arm from the stored interval/autoReset; set Enabled.
 void icall_timers_start(Il2CppObject* self)
 {
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kEnabledSlot) = 1;
     TimersArm(self, true);
 }
 
-// Stop() -- disarm (period -1, due -1).
+// Stop() -- disarm (period -1, due -1); clear Enabled.
 void icall_timers_stop(Il2CppObject* self)
 {
     if (self == nullptr)
     {
         il2cpp::il2cpp_throw_null_reference_exception(nullptr);
     }
+    *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kEnabledSlot) = 0;
     void** hslot = reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(self) + kHandleSlot);
     il2cpp_timer* handle = reinterpret_cast<il2cpp_timer*>(*hslot);
     if (handle != nullptr)
@@ -530,6 +553,8 @@ void icall_timers_dispose(Il2CppObject* self)
     {
         il2cpp::il2cpp_throw_null_reference_exception(nullptr);
     }
+    *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kEnabledSlot) = 0;
+    *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(self) + kDisposedSlot) = 1;
     void** hslot = reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(self) + kHandleSlot);
     il2cpp_timer* handle = reinterpret_cast<il2cpp_timer*>(*hslot);
     if (handle != nullptr)
@@ -537,6 +562,100 @@ void icall_timers_dispose(Il2CppObject* self)
         il2cpp_timer_dispose(handle);
         *hslot = nullptr;
     }
+}
+
+// get_Interval() -- stored interval ms as double.
+double icall_timers_get_interval(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    return static_cast<double>(*reinterpret_cast<int32_t*>(
+        reinterpret_cast<uint8_t*>(self) + kIntervalSlot));
+}
+
+// get_AutoReset() -- stored flag.
+int32_t icall_timers_get_auto_reset(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    return *reinterpret_cast<int32_t*>(
+        reinterpret_cast<uint8_t*>(self) + kAutoResetSlot);
+}
+
+// get_Enabled() -- armed flag.
+int32_t icall_timers_get_enabled(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    return *reinterpret_cast<int32_t*>(
+        reinterpret_cast<uint8_t*>(self) + kEnabledSlot);
+}
+
+// set_Enabled(bool) -- arm (nonzero) or disarm (zero).
+void icall_timers_set_enabled(Il2CppObject* self, int32_t enabled)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    if (enabled != 0)
+    {
+        icall_timers_start(self);
+    }
+    else
+    {
+        icall_timers_stop(self);
+    }
+}
+
+// remove_Elapsed(handler) -- remove from the event chain.
+void icall_timers_remove_elapsed(Il2CppObject* self, Il2CppObject* handler)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+        reinterpret_cast<uint8_t*>(self) + kElapsedSlot);
+    Il2CppObject* removed = icall_delegate_remove(*slot, handler);
+    *slot = removed;
+    il2cpp_write_barrier(reinterpret_cast<void**>(slot), removed);
+}
+
+// Close() -- same as Dispose().
+void icall_timers_close(Il2CppObject* self)
+{
+    icall_timers_dispose(self);
+}
+
+// get_SynchronizingObject() -- stored nullable ref (never invoked).
+Il2CppObject* icall_timers_get_sync(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    return *reinterpret_cast<Il2CppObject**>(
+        reinterpret_cast<uint8_t*>(self) + kSyncSlot);
+}
+
+// set_SynchronizingObject() -- store with a write barrier.
+void icall_timers_set_sync(Il2CppObject* self, Il2CppObject* sync)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+        reinterpret_cast<uint8_t*>(self) + kSyncSlot);
+    *slot = sync;
+    il2cpp_write_barrier(reinterpret_cast<void**>(slot), sync);
 }
 
 }} // namespace il2cpp::runtime

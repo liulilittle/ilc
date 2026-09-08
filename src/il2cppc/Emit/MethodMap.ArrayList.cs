@@ -63,6 +63,39 @@ public static partial class MethodRefResolver
             // receiver passes through "" (Il2CppObject*), the value arg is a
             // reference slot (boxed by the IL box opcode before the call).
             case "Remove": return I("il2cpp::il2cpp_arraylist_remove", 1, false, false, true);
+            // ArrayList A-class (capacity read + three Is-false + SyncRoot=self).
+            case "get_Capacity": return I("il2cpp::il2cpp_arraylist_get_capacity", 0, true, false, true);
+            case "get_IsFixedSize": return I("il2cpp::il2cpp_arraylist_get_is_fixed_size", 0, true, false, true);
+            case "get_IsReadOnly": return I("il2cpp::il2cpp_arraylist_get_is_read_only", 0, true, false, true);
+            case "get_IsSynchronized": return I("il2cpp::il2cpp_arraylist_get_is_synchronized", 0, true, false, true);
+            case "get_SyncRoot": return I("il2cpp::il2cpp_arraylist_get_sync_root", 0, true, true, true);
+            // ArrayList B-class (new runtime icalls, arraylist.cpp).
+            case "set_Capacity":
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_set_capacity", 1, false, false, true, new[] { "", "i" });
+                return null;
+            case "Clone":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_arraylist_clone", 0, true, true, true);
+                return null;
+            case "CopyTo":
+                if (count == 2)
+                    return I("il2cpp::il2cpp_arraylist_copy_to", 2, false, false, true, new[] { "", "", "i" });
+                return null;
+            case "TrimToSize":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_arraylist_trim_to_size", 0, false, false, true);
+                return null;
+            case "Reverse":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_arraylist_reverse", 0, false, false, true);
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_reverse_range", 2, false, false, true, new[] { "", "i", "i" });
+                return null;
+            case "RemoveRange":
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_remove_range", 2, false, false, true, new[] { "", "i", "i" });
+                return null;
             default: return null;
         }
     }

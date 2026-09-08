@@ -150,5 +150,6 @@ int32_t il2cpp_pinvoke_struct_kind_by_name(const char* managedTypeFullName);
 //------------------------------------------------------------------------------
 void il2cpp_pinvoke_struct_to_native(Il2CppPinvokeStructKind kind, const void* managedSrc, void* nativeDst);
 void il2cpp_pinvoke_struct_from_native(Il2CppPinvokeStructKind kind, const void* nativeSrc, void* managedDst);
+void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDeleteOld);
 
 } // namespace il2cpp

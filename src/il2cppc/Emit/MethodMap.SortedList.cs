@@ -60,6 +60,7 @@ public static partial class MethodRefResolver
             case "ContainsKey": return I("il2cpp::runtime::il2cpp_sortedlist_contains_key", 1, true, false, true, new[] { "", "" });
             case "Remove": return I("il2cpp::runtime::il2cpp_sortedlist_remove_by_key", 1, false, false, true, new[] { "", "" });
             case "RemoveAt": return I("il2cpp::runtime::il2cpp_sortedlist_remove_at", 1, false, false, true, new[] { "", "i" });
+            case "SetByIndex": return I("il2cpp::runtime::il2cpp_sortedlist_set_at", 2, false, false, true, new[] { "", "i", "" });
             case "get_Count": return I("il2cpp::runtime::il2cpp_sortedlist_get_count", 0, true, false, true, new[] { "" });
             case "get_Capacity": return I("il2cpp::runtime::il2cpp_sortedlist_get_capacity", 0, true, false, true, new[] { "" });
             // D-SL-3 (sldeep): the Keys / Values snapshots are ILCollection-typed

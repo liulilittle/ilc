@@ -430,4 +430,182 @@ Il2CppObject* il2cpp_arraylist_to_array(Il2CppObject* self)
     return reinterpret_cast<Il2CppObject*>(result);
 }
 
+// ArrayList A-class: capacity read (fresh newobj lists have a null items
+// array and report 0), the three Is-* flags (always false for a plain
+// ArrayList -- only wrappers change them, and this runtime has no wrapper
+// type), and SyncRoot (the list itself, matching the lock(self) idiom).
+int32_t il2cpp_arraylist_get_capacity(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayList* list = AsList(self);
+    return list->items != nullptr ? list->items->length : 0;
+}
+
+bool il2cpp_arraylist_get_is_fixed_size(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return false;
+}
+
+bool il2cpp_arraylist_get_is_read_only(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return false;
+}
+
+bool il2cpp_arraylist_get_is_synchronized(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return false;
+}
+
+Il2CppObject* il2cpp_arraylist_get_sync_root(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return self;
+}
+
+// ArrayList B-class: capacity/reshape/clone/copy/reverse/remove-range.
+// Allocation paths root 'self' across AllocItems (compacting collection).
+void il2cpp_arraylist_set_capacity(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayList* list = AsList(self);
+    if (value < list->count)
+    {
+        il2cpp_throw_argument_out_of_range_exception("value", "Capacity was less than Count.");
+    }
+    int32_t cur = list->items != nullptr ? list->items->length : 0;
+    if (value == cur) return;
+    GcRoot<Il2CppObject*> root(self, "icall_arraylist_set_capacity");
+    Il2CppArray* fresh = AllocItems(value > 0 ? value : kMinItems);
+    self = root.Get();
+    list = AsList(self);
+    if (list->items != nullptr && list->count > 0)
+    {
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(fresh->data);
+        Il2CppObject* const* src = reinterpret_cast<Il2CppObject* const*>(list->items->data);
+        for (int32_t i = 0; i < list->count; ++i)
+        {
+            dst[i] = src[i];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), dst[i]);
+        }
+    }
+    list->items = fresh;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                         reinterpret_cast<Il2CppObject*>(list->items));
+}
+
+Il2CppObject* il2cpp_arraylist_clone(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    GcRoot<Il2CppObject*> root(self, "icall_arraylist_clone");
+    Il2CppArrayList* list = AsList(self);
+    Il2CppObject* fresh = il2cpp_arraylist_create();
+    self = root.Get();
+    list = AsList(self);
+    Il2CppArrayList* dst = AsList(fresh);
+    GcRoot<Il2CppObject*> rootDst(fresh, "icall_arraylist_clone_dst");
+    Il2CppArray* arr = AllocItems(list->count > 0 ? list->count : kMinItems);
+    fresh = rootDst.Get();
+    dst = AsList(fresh);
+    if (list->items != nullptr && list->count > 0)
+    {
+        Il2CppObject** d = reinterpret_cast<Il2CppObject**>(arr->data);
+        Il2CppObject* const* s = reinterpret_cast<Il2CppObject* const*>(list->items->data);
+        for (int32_t i = 0; i < list->count; ++i)
+        {
+            d[i] = s[i];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&d[i]), d[i]);
+        }
+    }
+    dst->items = arr;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&dst->items),
+                         reinterpret_cast<Il2CppObject*>(dst->items));
+    dst->count = list->count;
+    return fresh;
+}
+
+void il2cpp_arraylist_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t arrayIndex)
+{
+    ThrowIfNullReceiver(self);
+    if (array == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("array");
+    }
+    Il2CppArrayList* list = AsList(self);
+    Il2CppArray* dst = reinterpret_cast<Il2CppArray*>(array);
+    if (arrayIndex < 0 || arrayIndex + list->count > dst->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception("arrayIndex", kIndexOutOfRangeMessage);
+    }
+    if (list->items == nullptr || list->count == 0) return;
+    Il2CppObject** d = reinterpret_cast<Il2CppObject**>(dst->data);
+    Il2CppObject* const* s = reinterpret_cast<Il2CppObject* const*>(list->items->data);
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        d[arrayIndex + i] = s[i];
+        il2cpp_write_barrier(reinterpret_cast<void**>(&d[arrayIndex + i]), d[arrayIndex + i]);
+    }
+}
+
+void il2cpp_arraylist_trim_to_size(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayList* list = AsList(self);
+    int32_t cur = list->items != nullptr ? list->items->length : 0;
+    if (list->count == cur) return;
+    il2cpp_arraylist_set_capacity(self, list->count);
+}
+
+void il2cpp_arraylist_reverse(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayList* list = AsList(self);
+    il2cpp_arraylist_reverse_range(self, 0, list->count);
+}
+
+void il2cpp_arraylist_reverse_range(Il2CppObject* self, int32_t index, int32_t length)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayList* list = AsList(self);
+    if (index < 0 || length < 0 || index + length > list->count)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", kIndexOutOfRangeMessage);
+    }
+    if (list->items == nullptr) return;
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(list->items->data);
+    for (int32_t i = 0; i < length / 2; ++i)
+    {
+        Il2CppObject* tmp = slots[index + i];
+        slots[index + i] = slots[index + length - 1 - i];
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[index + i]), slots[index + i]);
+        slots[index + length - 1 - i] = tmp;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[index + length - 1 - i]), tmp);
+    }
+}
+
+void il2cpp_arraylist_remove_range(Il2CppObject* self, int32_t index, int32_t length)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArrayList* list = AsList(self);
+    if (index < 0 || length < 0 || index + length > list->count)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", kIndexOutOfRangeMessage);
+    }
+    if (length == 0) return;
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(list->items->data);
+    for (int32_t i = index + length; i < list->count; ++i)
+    {
+        slots[i - length] = slots[i];
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[i - length]), slots[i - length]);
+    }
+    for (int32_t i = list->count - length; i < list->count; ++i)
+    {
+        slots[i] = nullptr;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[i]), nullptr);
+    }
+    list->count -= length;
+}
+
 } // namespace il2cpp

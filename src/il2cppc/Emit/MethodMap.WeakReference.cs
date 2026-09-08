@@ -31,12 +31,29 @@ public static partial class MethodRefResolver
         switch (name)
         {
             case ".ctor":
+                // WeakReference<T> ctors (T erased to object) take precedence:
+                // the 1-param shape overlaps the non-generic arm below.
+                if (owner == "System.WeakReference`1" && count == 1)
+                    return I("il2cpp::runtime::icall_weakref_generic_ctor", 1, false, false, true, new[] { "" });
+                if (owner == "System.WeakReference`1" && count == 2 && ps[1] == 0x02)
+                    return I("il2cpp::runtime::icall_weakref_ctor_track", 2, false, false, true, new[] { "", "", "b" });
                 if (count == 1 && ps[0] == 0x1C)
                     return I("il2cpp::runtime::icall_weakref_ctor", 1, false, false, true);
                 if (count == 2 && ps[0] == 0x1C && ps[1] == 0x02)
-                    throw new NotSupportedException(
-                        "WeakReference(object, bool trackResurrection) not wired: the handle-table object model does not track resurrection");
+                    return I("il2cpp::runtime::icall_weakref_ctor_track", 2, false, false, true, new[] { "", "", "b" });
                 throw new NotSupportedException($"WeakReference ctor with {count} param(s) not wired");
+            case "get_TrackResurrection":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_weakref_get_track_resurrection", 0, true, false, true);
+                return null;
+            case "TryGetTarget":
+                if (owner == "System.WeakReference`1" && count == 1)
+                    return I("il2cpp::runtime::icall_weakref_generic_try_get_target", 1, true, false, true, new[] { "", "addr:o" });
+                return null;
+            case "SetTarget":
+                if (owner == "System.WeakReference`1" && count == 1)
+                    return I("il2cpp::runtime::icall_weakref_generic_set_target", 1, false, false, true, new[] { "" });
+                return null;
             case "get_IsAlive":
                 return I("il2cpp::runtime::icall_weakref_get_is_alive", 0, true, false, true);
             case "get_Target":

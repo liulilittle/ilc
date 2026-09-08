@@ -266,4 +266,38 @@ void icall_weakref_set_target(Il2CppObject* self, Il2CppObject* target)
     g_weakTargets[w->handle] = target;
 }
 
+// Tracked-resurrection surface (net48 trackResurrection flag): stored in
+// the object (value slot, bitmap 0); the handle-table model does not
+// distinguish long/short handles (documented simplification).
+void icall_weakref_ctor_track(Il2CppObject* self, Il2CppObject* target, bool track)
+{
+    icall_weakref_ctor(self, target);
+    AsWeakRef(self)->track = track;
+}
+
+bool icall_weakref_get_track_resurrection(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return AsWeakRef(self)->track;
+}
+
+// WeakReference<T> generics (T erased to object): same handle-table model.
+void icall_weakref_generic_ctor(Il2CppObject* self, Il2CppObject* target)
+{
+    icall_weakref_ctor(self, target);
+}
+
+bool icall_weakref_generic_try_get_target(Il2CppObject* self, Il2CppObject** outTarget)
+{
+    Il2CppObject* t = WeakRefReadTarget(self);
+    if (outTarget != nullptr)
+        *outTarget = t;
+    return t != nullptr;
+}
+
+void icall_weakref_generic_set_target(Il2CppObject* self, Il2CppObject* target)
+{
+    icall_weakref_set_target(self, target);
+}
+
 }} // namespace il2cpp::runtime

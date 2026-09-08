@@ -237,6 +237,7 @@ Il2CppPinvokeMsg il2cpp_marshal_struct_msg_load(const void* src);
 void il2cpp_marshal_struct_point_store(void* dst, const Il2CppPinvokePoint* value);
 void il2cpp_marshal_struct_rect_store(void* dst, const Il2CppPinvokeRect* value);
 void il2cpp_marshal_struct_msg_store(void* dst, const Il2CppPinvokeMsg* value);
+void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDeleteOld);
 
 //------------------------------------------------------------------------------
 // Marshal medium-priority gap batch (net48 inventory §4 line 971:

@@ -339,7 +339,34 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, true, new[] { "dec" }, "d");
                 return null;
             // P6: Decimal.FCallToInt32 (stub).
-            case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 0, true, false, false);
+            case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 1, true, false, false, new[] { "dec" });
+            // FCall in-place arithmetic family (net48 internals called by the
+            // BCL op_/named wrappers): mutate d1 in place (callers read back
+            // arg0). Overflowed twins share the core (overflow throws).
+            case "FCallAddSub":
+                if (count == 3 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_fcall_addsub", 3, false, false, false, new[] { "", "", "i" });
+                return null;
+            case "FCallAddSubOverflowed":
+                if (count == 4 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_fcall_addsub", 4, false, false, false, new[] { "", "", "i", "drop" });
+                return null;
+            case "FCallMultiply":
+                if (count == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_fcall_multiply", 2, false, false, false, new[] { "", "" });
+                return null;
+            case "FCallMultiplyOverflowed":
+                if (count == 3 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_fcall_multiply", 3, false, false, false, new[] { "", "", "drop" });
+                return null;
+            case "FCallDivide":
+                if (count == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_fcall_divide", 2, false, false, false, new[] { "", "" });
+                return null;
+            case "FCallDivideOverflowed":
+                if (count == 3 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_fcall_divide", 3, false, false, false, new[] { "", "", "drop" });
+                return null;
             default: return null;
         }
     }

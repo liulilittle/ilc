@@ -94,12 +94,12 @@ public static partial class MethodRefResolver
             case "GetLastWin32Error":
                 if (ps.Length != 0) return null;
                 return I("il2cpp::il2cpp_pinvoke_get_last_error", 0, true, false, false);
-            // void SetLastWin32Error(int): helper EXISTS in the runtime
-            // (il2cpp_marshal_set_last_win32_error, marshalext2.cpp) but
-            // il2cpp_marshal_ext2.h is NOT in the generated include chain.
+            // void SetLastWin32Error(int): the helper lives in
+            // il2cpp_marshal_ext2.h (in the generated include chain).
             case "SetLastWin32Error":
-                throw new NotSupportedException(
-                    "SetLastWin32Error not wired: il2cpp_marshal_set_last_win32_error (il2cpp_marshal_ext2.h) is not declared in the generated include chain -- wiring requires adding '#include \"il2cpp_marshal_ext2.h\"' to CodeGenerator's generated.h emission (out of the MethodMap.Marshal file domain)");
+                if (ps.Length != 1 || ps[0] != 0x08) return null;
+                return I("il2cpp::runtime::il2cpp_marshal_set_last_win32_error", 1, false, false, false,
+                    new[] { "i" });
             // string PtrToStringAnsi(IntPtr): the UTF-8 -> managed string
             // decode (il2cpp_pinvoke.h). The IntPtr arg rides in an int32
             // slot ("" cast = raw pass-through) -- see the carrier caveat.
@@ -160,13 +160,14 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_marshal_copy_from_unmanaged", 4, false, false, false,
                         new[] { "g", "a", "i", "i" });
                 return null;
-            // string StringToHGlobalAnsi(string): the ANSI helper still
-            // requires il2cpp_marshal_ext2.h in the generated include chain
-            // (out of this file's domain) -- LOUD stays.
+            // IntPtr StringToHGlobalAnsi(string): the ANSI helper lives in
+            // il2cpp_marshal_ext2.h (in the generated include chain); mirrors
+            // the Uni form (string arg via "s" cast, "ptr" result kind, freed
+            // by FreeHGlobal).
             case "StringToHGlobalAnsi":
                 if (ps.Length != 1 || ps[0] != 0x0E) return null;
-                throw new NotSupportedException(
-                    "StringToHGlobalAnsi not wired: il2cpp_marshal_string_to_hglobal_ansi (il2cpp_marshal_ext2.h) is not declared in the generated include chain -- wiring requires adding '#include \"il2cpp_marshal_ext2.h\"' to CodeGenerator's generated.h emission (out of the MethodMap.Marshal file domain)");
+                return I("il2cpp::runtime::il2cpp_marshal_string_to_hglobal_ansi", 1, true, false, false,
+                    new[] { "s" }, "ptr");
             // IntPtr StringToHGlobalUni(string): WF-M1 (2026-08-07) -- the
             // hglobal icall form now exists (il2cpp_pinvoke_ext.h:177
             // il2cpp_pinvoke_string_to_utf16_hglobal, wfm1 report §1): returns
@@ -257,10 +258,24 @@ public static partial class MethodRefResolver
             // a read-only file in this batch. The registered-struct family's
             // reachable e2e surface is SizeOf/OffsetOf (below); the
             // PtrToStructure/StructureToPtr byte round-trip is runtime-pinned.
+            // T PtrToStructure<T>(IntPtr): the byte semantics are implemented
+            // in the runtime (il2cpp_marshal_struct_*_load, marshalext3.cpp);
+            // the transpiler now carries the struct result kind (rect/point/
+            // msg) so the result temp declares the native value struct.
             case "PtrToStructure":
+                if (ps.Length == 1 && genArgNames is { Length: 1 })
+                {
+                    var sfx = MarshalStructKindSuffix(genArgNames[0]);
+                    if (sfx != null)
+                        return I($"il2cpp::runtime::il2cpp_marshal_struct_{sfx}_load", 1, true, false, false, new[] { "p" }, sfx);
+                    throw new NotSupportedException($"PtrToStructure<{genArgNames[0]}> not wired: only the registered struct family (System.Drawing.Rectangle / System.Drawing.Point / System.Windows.Forms.Message) has a load icall");
+                }
+                throw new NotSupportedException($"PtrToStructure with {ps.Length} parameter(s) not wired: only the generic PtrToStructure<T>(IntPtr) form is wired (the (IntPtr, object)/(IntPtr, Type) forms need runtime type dispatch)");
+            // void StructureToPtr(object, IntPtr, bool): runtime type dispatch
+            // selects the per-struct store icall from the object's klass->name
+            // (il2cpp_marshal_struct_store -- marshalext3.cpp). pc=3 (object+IntPtr+bool).
             case "StructureToPtr":
-                throw new NotSupportedException(
-                    $"{name} not wired: the byte semantics exist in the runtime (il2cpp_marshal_struct_*_load/store, marshalext3.cpp -- the registered struct family of il2cpp_pinvoke_struct.h), but a PtrToStructure result / ref-T StructureToPtr argument needs a STRUCT-TYPED local or result temp -- CodeGenerator's result-kind whitelist (ExprKind, line 2849) and the value-type local declaration (line 1189-1202) must learn the registered struct C++ types (il2cpp::Il2CppPinvokeRect/Point/Msg). That is the CodeGenerator TypeCppName extension (a read-only file in this batch); the runtime round-trip is unit-tested in test_marshalstruct.cpp");
+                return I("il2cpp::runtime::il2cpp_marshal_struct_store", 3, false, false, false, new[] { "", "p", "b" });
             // GetFunctionPointerForDelegate/GetDelegateForFunctionPointer:
             // deliberately UNMAPPED (return null) -- the delegatecb work item
             // (#11) pins the MethodSpec-path error "generic instantiation of

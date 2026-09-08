@@ -239,4 +239,27 @@ bool icall_dependenthandle_free(intptr_t handle)
     return true;
 }
 
+//------------------------------------------------------------------------------
+// net48 static-extern n* adapters (see the header contract): bridge the
+// BCL's void-plus-out-slot shape to the returning core icalls above.
+//------------------------------------------------------------------------------
+void icall_dependenthandle_n_init(Il2CppObject* primary, Il2CppObject* secondary, int32_t* outHandle)
+{
+    if (outHandle == nullptr) return;
+    *outHandle = static_cast<int32_t>(icall_dependenthandle_alloc(primary, secondary));
+}
+
+void icall_dependenthandle_n_get_primary(intptr_t handle, Il2CppObject** outPrimary)
+{
+    if (outPrimary == nullptr) return;
+    *outPrimary = icall_dependenthandle_get_target(handle);
+}
+
+void icall_dependenthandle_n_get_primary_and_secondary(intptr_t handle,
+    Il2CppObject** outPrimary, Il2CppObject** outSecondary)
+{
+    if (outPrimary == nullptr || outSecondary == nullptr) return;
+    *outPrimary = icall_dependenthandle_get_target_and_dependent(handle, outSecondary);
+}
+
 }} // namespace il2cpp::runtime

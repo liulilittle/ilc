@@ -6,17 +6,12 @@ namespace Il2Cpp.Transpiler.Emit;
 //
 //   BlockCopy  -> il2cpp::runtime::il2cpp_buffer_block_copy  (5 args, void)
 //   ByteLength -> il2cpp::runtime::il2cpp_buffer_byte_length (1 arg, int32)
-//   MemoryCopy -> LOUD rejection: the IL order (source, destination,
-//                 destinationSizeInBytes, sourceBytesToCopy) cannot be
-//                 positionally reordered to the runtime's memmove-ordered
-//                 il2cpp_buffer_memory_copy(dst, src, count) -- a naive
-//                 positional wiring would copy in the WRONG direction (data
-//                 corruption). The M5 emitter has no arg-reordering facility
-//                 (EmitIcallCallArgs emits in IR order), so the raw-pointer
-//                 form is unwireable until reordering exists.
-//   GetByte / SetByte -> LOUD rejection: known System.Buffer members with no
-//                 runtime icall (the runtime surface is block_copy /
-//                 byte_length / memory_copy only).
+//   MemoryCopy -> il2cpp::runtime::il2cpp_buffer_memory_copy_sized (4 args,
+//                 void): IL order (source, destination, destinationSizeInBytes,
+//                 sourceBytesToCopy) reorders to runtime (dst, src, ...) via
+//                 IcallArgOrder (CodeGenerator.cs).
+//   GetByte -> icall_buffer_get_byte (2 args, int32); SetByte -> LOUD
+//                 rejection (no runtime icall).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -39,16 +34,19 @@ public static partial class MethodRefResolver
                     new[] { "" });
             // Buffer.MemoryCopy(void* source, void* destination, long
             // destinationSizeInBytes, long sourceBytesToCopy) -- the runtime's
-            // il2cpp_buffer_memory_copy(dst, src, count) is memmove-ordered;
-            // positional IL-order emission would swap source/destination.
+            // il2cpp_buffer_memory_copy_sized(dst, src, destSize, srcBytes)
+            // takes destination FIRST; IcallArgOrder reorders IL args
+            // (source, destination, ...) into runtime (dst, src, ...) order.
             case "MemoryCopy":
-                throw new NotSupportedException(
-                    "raw-pointer form: IL order (source, destination, destinationSizeInBytes, sourceBytesToCopy) cannot map positionally to runtime il2cpp_buffer_memory_copy(dst, src, count)");
+                if (ps.Length != 4)
+                    throw new NotSupportedException($"MemoryCopy with {ps.Length} params is not the 4-arg (void*, void*, long, long) form");
+                return I("il2cpp::runtime::il2cpp_buffer_memory_copy_sized", 4, false, false, false,
+                    new[] { "", "", "", "" });
             // Known members with no runtime icall on the current surface.
             case "InternalBlockCopy":
                 // Buffer.InternalBlockCopy(Array src, int srcOffset, Array dst, int dstOffset, int count)
                 // Same as BlockCopy (the internal name).
-                return I("il2cpp::runtime::icall_buffer_internal_block_copy", 5, false, false, false,
+                return I("il2cpp::runtime::il2cpp_buffer_block_copy", 5, false, false, false,
                     new[] { "", "i", "", "i", "i" });
             case "GetByte":
                 // D5 cov2: Buffer.GetByte(Array, int) -- int32 carrier byte

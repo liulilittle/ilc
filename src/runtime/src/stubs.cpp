@@ -453,4 +453,46 @@ int32_t icall_reader_writer_lock_any_writers_since(int32_t)
     return 0;
 }
 
+// System.Number.DoubleToNumber / NumberToDouble (net48 internal formatting
+// surface): NumberBuffer is internal (user code cannot construct it) -- the
+// documented PNSE contract (see MethodMap.GC.cs DoubleToNumber).
+void icall_number_double_to_number(double, int32_t, void*)
+{
+    il2cpp_throw_not_supported_exception(
+        "System.Number formatting internals require the NumberBuffer infrastructure (not present in this runtime)");
+}
+
+double icall_number_number_to_double(void*)
+{
+    il2cpp_throw_not_supported_exception(
+        "System.Number formatting internals require the NumberBuffer infrastructure (not present in this runtime)");
+    return 0.0;
+}
+
+// RuntimeAssembly.LoadModule (net48): dynamic module emission has no runtime
+// model (AOT static compilation) -- the documented PNSE contract.
+void icall_assembly_loadmodule_unsupported()
+{
+    il2cpp_throw_not_supported_exception(
+        "RuntimeAssembly.LoadModule requires dynamic module emission (not present in this runtime)");
+}
+
+// RuntimeAssembly.GetVersion (net48): the assembly version table is not
+// carried (no version metadata model) -- the documented PNSE contract.
+void icall_assembly_get_version_unsupported()
+{
+    il2cpp_throw_not_supported_exception(
+        "RuntimeAssembly.GetVersion requires the assembly version table (not present in this runtime)");
+}
+
+// Win32.SetThreadToken (net48 QCall): thread impersonation tokens have no
+// runtime model -- the documented PNSE contract. Zero call sites in
+// mscorlib; the mapping exists to suppress the naked QCall decl, which
+// collides with the 2-param Windows SDK SetThreadToken.
+void icall_win32_set_thread_token_unsupported(int32_t)
+{
+    il2cpp_throw_not_supported_exception(
+        "Win32.SetThreadToken requires thread impersonation tokens (not present in this runtime)");
+}
+
 }} // namespace il2cpp::runtime

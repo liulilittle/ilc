@@ -37,7 +37,8 @@ public static partial class MethodRefResolver
             // P6: Environment.TickCount64 (net8+): 64-bit monotonic counter.
             // Returns int64 (ResultKind "l") -- the 64-bit millisecond count.
             case "get_TickCount64": return I("il2cpp::runtime::icall_environment_get_tick_count64", 0, true, false, false, resultKind: "l");
-            case "get_ProcessorCount": return I("il2cpp::runtime::icall_environment_get_processor_count", 0, true, false, false);
+            case "get_ProcessorCount":
+            case "GetProcessorCount": return I("il2cpp::runtime::icall_environment_get_processor_count", 0, true, false, false);
             case "get_UserName": return I("il2cpp::runtime::icall_environment_get_user_name", 0, true, true, false);
             case "get_MachineName": return I("il2cpp::runtime::icall_environment_get_machine_name", 0, true, true, false);
             case "get_OSVersion": return I("il2cpp::runtime::icall_environment_get_os_version", 0, true, true, false);
@@ -55,7 +56,15 @@ public static partial class MethodRefResolver
             // Core alias -- envdeep.cs header note). Both hit the same
             // existing icall (il2cpp_environment.h:133).
             case "get_CommandLine":
-            case "GetCommandLine": return I("il2cpp::runtime::icall_environment_get_command_line", 0, true, true, false);
+            case "GetCommandLine":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_environment_get_command_line", 0, true, true, false);
+                // The QCall stub form GetCommandLine(StringHandleOnStack):
+                // the handle out-slot is dead (the icall returns the string
+                // directly) -- drop it.
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_environment_get_command_line", 1, true, true, false, new[] { "drop" });
+                return null;
             // M7 env (2026-08-08): ExitCode get/set -- the env audit added
             // icall_environment_get_exit_code / icall_environment_set_exit_code
             // (il2cpp_environment.h:77-78, process-lifetime int32 storage,

@@ -149,5 +149,21 @@ int32_t il2cpp_type_get_typecode(Il2CppClass* klass);
 //------------------------------------------------------------------------------
 Il2CppString* il2cpp_type_get_full_name(Il2CppClass* klass);
 
+//------------------------------------------------------------------------------
+// Type predicate primitives (A-class): each answers one System.Type boolean
+// property from EXISTING descriptor fields only (name / baseClass chain /
+// instanceSize) -- no new metadata required. klass == nullptr (null receiver)
+// throws NullReferenceException (instance-member contract, mirrors
+// GetElementType). All return int32_t 1/0.
+//------------------------------------------------------------------------------
+int32_t il2cpp_type_is_array(Il2CppClass* klass);
+int32_t il2cpp_type_is_enum(Il2CppClass* klass);
+int32_t il2cpp_type_is_value_type(Il2CppClass* klass);
+int32_t il2cpp_type_is_interface(Il2CppClass* klass);
+int32_t il2cpp_type_is_class(Il2CppClass* klass);
+int32_t il2cpp_type_is_primitive(Il2CppClass* klass);
+int32_t il2cpp_type_has_element_type(Il2CppClass* klass);
+Il2CppObject* il2cpp_type_get_base_type(Il2CppClass* klass);
+
 } // namespace runtime
 } // namespace il2cpp

@@ -115,6 +115,23 @@ public static partial class MethodRefResolver
             };
         }
 
+        // D-LINQ-4 grouping surface: the GroupBy pseudo-types dispatch here.
+        // "System.Linq.IGrouping" is one per-bucket grouping (int32 keys and
+        // int32 elements only); it arrives as an arg0/receiver hint on
+        // Enumerable static calls, or as the REAL BCL owner
+        // "System.Linq.IGrouping`2" on instance get_Key (routed by
+        // MethodRefResolver). Casts are [""] -- OBJECT receivers, never
+        // int32[] (the "a" cast would read object memory as an array header).
+        // NOTE: no get_Item branch -- the BCL GroupBy result has no indexer
+        // (ILookup's this[key] is key-based with no stage-1 runtime entry);
+        // index-th bucket reads stay inside the runtime enumerator.
+        if (receiverType == "System.Linq.IGrouping" || arg0Type == "System.Linq.IGrouping"
+            || (owner == "System.Linq.IGrouping`2" && name == "get_Key"))
+        {
+            if (name == "get_Key" && count == 0)
+                return I("il2cpp::il2cpp_linq_grouping_get_key", 1, true, false, false, new[] { "" });
+        }
+
         // The generic operators (Where/Select/Count/Any/All/First/FirstOr-
         // Default/ToArray/OrderBy) all carry a MethodSpec with the int32
         // element byte. A non-int32 generic argument (or a non-generic call)
@@ -167,6 +184,12 @@ public static partial class MethodRefResolver
                 if (count < 2 && countRecv is "System.Collections.Generic.List`1"
                         or "System.Collections.Generic.List`1_int")
                     return I("il2cpp::il2cpp_list_i4_get_count", 1, true, false, false, new[] { "" });
+                // D-LINQ-4 grouping counts: per-bucket (IGrouping) and whole
+                // result (IGroupingResult). OBJECT receivers (cast [""]).
+                if (count < 2 && countRecv == "System.Linq.IGrouping")
+                    return I("il2cpp::il2cpp_linq_grouping_get_count", 1, true, false, false, new[] { "" });
+                if (count < 2 && countRecv == "System.Linq.IGroupingResult")
+                    return I("il2cpp::il2cpp_linq_grouping_result_get_count", 1, true, false, false, new[] { "" });
                 return count >= 2
                     ? I("il2cpp::il2cpp_linq_count_i4", 2, true, false, false, TwoArg)
                     : I("il2cpp::il2cpp_linq_count", 1, true, false, false, OneArg);
@@ -200,6 +223,13 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_select_i4_i4", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Int32[]");
             case "ToArray":
+                // D-LINQ-4: ToArray over one IGrouping bucket materializes an
+                // exact-size int32[] copy (get_elements contract), tracked for
+                // downstream operators.
+                var toArrRecv = receiverType ?? arg0Type;
+                if (toArrRecv == "System.Linq.IGrouping")
+                    return I("il2cpp::il2cpp_linq_grouping_get_elements", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Int32[]");
                 return I("il2cpp::il2cpp_linq_to_array", 1, true, true, false, OneArg,
                     returnTypeName: "System.Int32[]");
             case "First":

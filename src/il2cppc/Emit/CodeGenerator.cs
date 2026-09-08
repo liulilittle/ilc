@@ -102,6 +102,12 @@ public static class CodeGenerator
         // M5 wiring: Base64 domain (il2cpp_convert_to/from_base64_string --
         // Convert.ToBase64String/FromBase64String, MethodMap.Base64.cs).
         generatedHeader.Line("#include \"il2cpp_convertbase64.h\"");
+        // Windows types: forward-declare Windows SDK types referenced by
+        // generated code (SYSTEM_INFO, MEMORYSTATUSEX, WIN32_FIND_DATA, etc.).
+        // Conditional include keeps non-Windows builds clean.
+        generatedHeader.Line("#ifdef _WIN32");
+        generatedHeader.Line("#include <windows.h>");
+        generatedHeader.Line("#endif");
         // M7 wiring: numeric Parse/TryParse domain -- Int32/Int64/Double/
         // Byte/Bool TryParse icalls (icall_try_parse_int32/int64/double/bool/
         // byte + _base, MethodMap.ValueType.cs) live in il2cpp_parse.h; the
@@ -206,6 +212,7 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"il2cpp_gchandle.h\"");
         generatedHeader.Line("#include \"il2cpp_string_intern.h\"");
         generatedHeader.Line("#include \"il2cpp_marshal_ext.h\"");
+        generatedHeader.Line("#include \"il2cpp_marshal_ext2.h\"");
         generatedHeader.Line("#include \"il2cpp_pinvoke_ext.h\"");
         // M5 wiring: regex domain (il2cpp_regex_is_match/match/replace/split
         // -- static Regex overloads, MethodMap.Regex.cs).
@@ -419,7 +426,7 @@ public static class CodeGenerator
                 if (IsDelegateTypeDef(ct)) continue;
                 MethodBodyInfo? candInfo;
                 try { candInfo = MethodBodyReader.Read(pe, md, ct, cm); }
-                catch (Exception ex) { Console.Error.WriteLine($"warning: inline candidate read failed for {ct.FullName}::{cm.Name} -> skipped"); continue; }
+                catch (Exception) { Console.Error.WriteLine($"warning: inline candidate read failed for {ct.FullName}::{cm.Name} -> skipped"); continue; }
                 if (candInfo == null) continue;
                 if (accessors.ContainsKey(candInfo.MethodToken)) continue;
                 var candInsns = IlDecoder.DecodeMethod(candInfo.IlBytes, md);
@@ -436,7 +443,7 @@ public static class CodeGenerator
                         MethodFullName = $"{ct.FullName}.{cm.Name}",
                     }, md, types, accessors, pe);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     Console.Error.WriteLine($"warning: inline fold failed for {ct.FullName}::{cm.Name} -> skipped");
                     continue;
@@ -546,6 +553,77 @@ public static class CodeGenerator
             types.Add(gtv);
         }
 
+        // r78 fix: two-pass forward declaration strategy.
+        // Pass 0: collect field-referenced types NOT in the types list (BCL internal types
+        // like System_Runtime_Serialization_SafeSerializationManager, MdaHelper, TlsContents, etc.)
+        // and emit a forward declaration for each. Without this, fields/methods referencing these
+        // types generate "unknown type name" compile errors.
+        var typesInList = new HashSet<string>(types.Select(t => t.FullName), StringComparer.Ordinal);
+        var fwdDeclNames = new HashSet<string>(StringComparer.Ordinal);
+        // P/Invoke dedupe: extern "C" forbids overloads, so the same native
+        // entry name must be emitted at most once even when several managed
+        // overloads share it (e.g. DuplicateHandle x2 with different signatures).
+        var emittedPinvokeDecls = new HashSet<string>(StringComparer.Ordinal);
+        // Win32 SDK typedef collision set for BCL forward declarations.
+        var Win32CollidingForwardNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "COORD", "SMALL_RECT", "LUID", "SID_AND_ATTRIBUTES",
+            "SECURITY_ATTRIBUTES", "WIN32_FILE_ATTRIBUTE_DATA",
+            "IDispatch", "Record",
+        };
+        // Pure-icall wrappers: the same method metadata can be visited twice --
+        // emit each wrapper once (same-name same-signature duplicates).
+        var emittedPureWrappers = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var ct in types)
+        {
+            foreach (var f in ct.InstanceFields)
+                if (!string.IsNullOrEmpty(f.FieldTypeName) && !f.FieldTypeName.Contains(':'))
+                    fwdDeclNames.Add(f.FieldTypeName);
+            foreach (var f in ct.StaticFields)
+                if (!string.IsNullOrEmpty(f.FieldTypeName) && !f.FieldTypeName.Contains(':'))
+                    fwdDeclNames.Add(f.FieldTypeName);
+            // r78 fix: also scan method return types and parameter types for
+            // referenced BCL types not in the list.
+            foreach (var m in ct.Methods)
+            {
+                if (!string.IsNullOrEmpty(m.ReturnTypeName) && !m.ReturnTypeName.Contains(':'))
+                    fwdDeclNames.Add(m.ReturnTypeName);
+                foreach (var p in m.ParamTypes.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var paramType = p.Trim();
+                    if (!string.IsNullOrEmpty(paramType) && !paramType.Contains(':'))
+                        fwdDeclNames.Add(paramType);
+                }
+            }
+            // r78 fix: scan base type and interface names — types like
+            // System_Reflection_MethodBase are base types of loaded types
+            // but are not themselves in the types list.
+            if (!string.IsNullOrEmpty(ct.BaseTypeName) && !ct.BaseTypeName.Contains(':'))
+                fwdDeclNames.Add(ct.BaseTypeName);
+            foreach (var iface in ct.InterfaceNames)
+                if (!string.IsNullOrEmpty(iface) && !iface.Contains(':'))
+                    fwdDeclNames.Add(iface);
+        }
+        foreach (var name in fwdDeclNames.OrderBy(n => n, StringComparer.Ordinal))
+        {
+            var fwdSan = TypeEmitter.Sanitize(name);
+            // Win32 SDK collision set (verified typedef intersection):
+            // windows.h already defines these; a duplicate `struct X;`
+            // conflicts with the SDK typedef. LUID_AND_ATTRIBUTES has zero
+            // code references -- drop it. The rest resolve to the SDK types
+            // on Windows (blittable mirrors) and keep the BCL forward
+            // declaration elsewhere.
+            if (fwdSan == "LUID_AND_ATTRIBUTES") continue;
+            if (Win32CollidingForwardNames.Contains(fwdSan))
+            {
+                generatedHeader.Line($"#ifndef _WIN32");
+                generatedHeader.Line($"struct {fwdSan}; // r78: forward-declared BCL type");
+                generatedHeader.Line($"#endif");
+                continue;
+            }
+            generatedHeader.Line($"struct {fwdSan}; // r78: forward-declared BCL type");
+        }
+
         // M2 type emission: struct layout definitions all live in generated.h (cross-type visible);
         // Il2CppClass descriptor definitions go in each type's own .cpp (single definition, ODR safe);
         // generated.h emits extern declarations only, for entry.cpp registration. Interfaces have no
@@ -564,6 +642,12 @@ public static class CodeGenerator
                 // NO class descriptor (they are not GC classes).
                 if (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))
                     generatedHeader.Line(TypeEmitter.EmitClassStruct(t, types));
+                else
+                    // Fieldless/ctorless value types (compiler-generated async
+                    // awaiters): an empty struct still needs a DEFINITION --
+                    // fwd-decl + by-value use without one is "incomplete
+                    // type" at every use site. No descriptor (M3 shape kept).
+                    generatedHeader.Line($"struct {TypeEmitter.TypeCppName(t)} {{}};");
                 // P25b (user struct box): user value types DO get a runtime
                 // descriptor ({T}_class, defined in the .cpp, registered by
                 // entry.cpp). The box icall stamps boxed instances with it
@@ -657,7 +741,18 @@ public static class CodeGenerator
             // Invoke through the runtime delegate machinery (methodPtr).
             if (t.VirtualMethods.Count > 0 && !t.IsInterface && !IsDelegateTypeDef(t))
             {
-                var slotNames = t.VirtualMethods.Select(m => MethodCppName(m.Owner, m)).ToList();
+                // ValueType.GetHashCode vtable slots: the BCL method has no
+                // body and the slot-name synthesis bypasses the MethodMap, so
+                // the slot would reference an undefined generated function
+                // (link error in every TU with a value-type vtable). Route
+                // the slot at the existing OfPtr icall (declared in stubs.h,
+                // in the generated include chain). It returns the 0
+                // placeholder -- these slots belong to dead
+                // StaticArrayInitType vtables in practice.
+                var slotNames = t.VirtualMethods.Select(m =>
+                    m.Owner.MatchesFullName("System.ValueType") && m.Name == "GetHashCode"
+                        ? "il2cpp::runtime::icall_value_type_get_hash_code_of_ptr"
+                        : MethodCppName(m.Owner, m)).ToList();
                 w.Line(TypeEmitter.EmitVTable(t, slotNames));
                 generatedHeader.Line($"extern void* {cppName}_vtable[];");
             }
@@ -718,13 +813,78 @@ public static class CodeGenerator
                 // declaration (the symbol lives in the linked native library).
                 if (m.IsPInvoke)
                 {
+                    // Dedupe: same native entry emitted once (first overload wins).
+                    if (!emittedPinvokeDecls.Add(m.PinvokeEntryName ?? m.Name))
+                        continue;
+                    // Mapped-QCall decl suppression: a QCall the MethodMap
+                    // covers routes to an icall at every call site (the
+                    // resolver short-circuit), so its naked extern decl is
+                    // dead -- and deadly when it collides with a system
+                    // header (e.g. GetCommandLine). Unmapped QCalls keep
+                    // the legacy decl. Wrapped: map LOUD must not kill decls.
+                    if ((m.PinvokeModule ?? "").Equals("QCall", StringComparison.Ordinal))
+                    {
+                        try
+                        {
+                            var qHandle = FindMethodHandle(md, m);
+                            if (qHandle.HasValue)
+                            {
+                                var qMi = md.GetMethodDefinition(qHandle.Value);
+                                var qOwner = md.GetFullName(qMi.GetDeclaringType());
+                                var qmap = MethodRefResolver.BclResolve(md, qOwner, m.Name, qMi.Signature, null, null, false, null, null);
+                                if (qmap != null) continue;
+                            }
+                        }
+                        catch { }
+                    }
                     var piRet = PinvokeReturnTypeCpp(md, m);
                     var piParams = PinvokeParamList(md, m);
                     var piDecl = $"extern \"C\" {piRet} {m.PinvokeEntryName}({piParams});";
                     w.Line($"// P/Invoke (M4 Task 1): native import from '{m.PinvokeModule}' ([DllImport]).");
-                    w.Line(piDecl);
+                    // Guard: Windows API functions are declared in windows.h -- don't redeclare
+                    // on Windows to avoid "functions that differ only in their return type" overload
+                    // conflicts (generated int32_t vs Windows SDK BOOL/LPVOID/etc).
+                    var pinvokeMod = m.PinvokeModule ?? "";
+                    // Any Windows system library (kernel32/user32/advapi32/shell32/
+                    // ole32/oleaut32/crypt32/secur32/bcrypt/ntdll/combase/mscoree/clr/
+                    // api-ms-win-*) is declared in windows.h -- don't redeclare on
+                    // Windows to avoid overload conflicts. QCall is not a DLL.
+                    var pinvokeBase = pinvokeMod.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                        ? pinvokeMod.Substring(0, pinvokeMod.Length - 4) : pinvokeMod;
+                    var isWindowsDll = pinvokeMod.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.StartsWith("api-ms-win-", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("kernel32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("user32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("advapi32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("shell32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("ole32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("oleaut32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("crypt32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("secur32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("bcrypt", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("ntdll", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("combase", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("mscoree", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("clr", StringComparison.OrdinalIgnoreCase);
+                    if (isWindowsDll)
+                    {
+                        w.Line($"#ifdef _WIN32");
+                        w.Line($"// '{m.PinvokeEntryName}' declared in windows.h -- not redeclared to avoid overload conflicts");
+                        w.Line($"#else");
+                        w.Line(piDecl);
+                        w.Line($"#endif");
+                        generatedHeader.Line($"#ifdef _WIN32");
+                        generatedHeader.Line($"// '{m.PinvokeEntryName}' declared in windows.h -- not redeclared to avoid overload conflicts");
+                        generatedHeader.Line($"#else");
+                        generatedHeader.Line(piDecl);
+                        generatedHeader.Line($"#endif");
+                    }
+                    else
+                    {
+                        w.Line(piDecl);
+                        generatedHeader.Line(piDecl);
+                    }
                     w.Line();
-                    generatedHeader.Line(piDecl);
                     continue;
                 }
                 // delechain: ABSTRACT methods have no IL body (RVA=0) by
@@ -734,9 +894,95 @@ public static class CodeGenerator
                 // Invoke through the runtime delegate machinery, so nothing
                 // is emitted here. Reading them would crash (no body).
                 if (m.IsAbstract) continue;
+                // r78 fix: pure icall methods have RVA=0 (no IL body). If MethodRefResolver
+                // can map the method to a runtime icall, emit a wrapper that calls it directly.
+                // Previously these were silently skipped by the MethodBodyReader.Read try/catch.
+                if (!m.IsPInvoke)
+                {
+                    var pureHandle = FindMethodHandle(md, m);
+                    if (pureHandle.HasValue)
+                    {
+                        var pMi = md.GetMethodDefinition(pureHandle.Value);
+                        if (pMi.RelativeVirtualAddress == 0)
+                        {
+                            var pureOwner = md.GetFullName(pMi.GetDeclaringType());
+                            var pureName = md.GetString(pMi.Name);
+                            var (purePc, pureRet, purePt, pureRetName) = MethodSignatureCoder.Decode(md, pMi.Signature);
+                            ResolvedMethod? pureRes = null;
+                            try { pureRes = MethodRefResolver.BclResolve(md, pureOwner, pureName, pMi.Signature, null, null, false, null, null); }
+                            catch { pureRes = null; }
+                            if (pureRes != null)
+                            {
+                                // Visit-level dedupe: same method emitted once.
+                                if (!emittedPureWrappers.Add(MethodCppName(t, m)))
+                                    continue;
+                                // Strip the signature-codec kind prefix (r:/V:/T:/P:) --
+                                // TypeCppName cannot parse it and would leak "r:Foo"
+                                // into the header ("unknown type name 'r'").
+                                var pureRetStripped = pureRetName;
+                                if (pureRetStripped != null)
+                                {
+                                    foreach (var pfx in new[] { "r:", "V:", "T:", "P:" })
+                                        if (pureRetStripped.StartsWith(pfx, StringComparison.Ordinal))
+                                        { pureRetStripped = pureRetStripped.Substring(pfx.Length); break; }
+                                }
+                                var pureRetCpp = !string.IsNullOrEmpty(pureRetStripped)
+                                    // SZARRAY return ("u1[]" etc.): a managed
+                                    // array is Il2CppArray*, never a Sanitize
+                                    // short name ("unknown type name 'u1__'").
+                                    ? (pureRetStripped.EndsWith("[]", StringComparison.Ordinal)
+                                        ? "Il2CppArray*" : TypeCppName(pureRetStripped))
+                                    : (pureRet == SignatureTypeCode.Void ? "void" : ReturnTypeCpp(pureRet));
+                                var pureParams = new List<string>();
+                                var pureIdx = 0;
+                                if ((pMi.Attributes & System.Reflection.MethodAttributes.Static) == 0)
+                                    pureParams.Add("Il2CppObject* arg" + (pureIdx++));
+                                foreach (var pch in SplitTopLevel(purePt).Where(s => s.Length > 0).Take(purePc))
+                                {
+                                    var pk = pch.Trim();
+                                    // By-ref value-type params (B:V:T, e.g. FCall
+                                    // decimal slots) carry ADDRESSES -- declare
+                                    // the pointed-to C++ type, never int32_t
+                                    // (pointer truncation on x64).
+                                    if (pk.StartsWith("B:V:", StringComparison.Ordinal))
+                                    {
+                                        pureParams.Add(TypeCppName(pk[4..]) + "* arg" + (pureIdx++));
+                                        continue;
+                                    }
+                                    // Value-type params (V:T): the full struct type
+                                    // (e.g. V:System.Decimal -> Il2CppDecimal).
+                                    if (pk.StartsWith("V:", StringComparison.Ordinal))
+                                    {
+                                        pureParams.Add(TypeCppName(pk[2..]) + " arg" + (pureIdx++));
+                                        continue;
+                                    }
+                                    var isRef = pk.StartsWith("r:", StringComparison.Ordinal) || pk == "System.Object" || pk == "System.String";
+                                    pureParams.Add((isRef ? "Il2CppObject*" : "int32_t") + " arg" + (pureIdx++));
+                                }
+                                var pureSigLine = $"{MethodCppName(t, m)}({string.Join(", ", pureParams)})";
+                                w.Line($"IL2CPP_NOINLINE {pureRetCpp} {pureSigLine}");
+                                w.Line("{");
+                                w.Open();
+                                var pureArgs = new List<string>();
+                                if ((pMi.Attributes & System.Reflection.MethodAttributes.Static) == 0)
+                                    pureArgs.Add("arg0");
+                                for (var ai = 0; ai < purePc; ai++) pureArgs.Add("arg" + (ai + ((pMi.Attributes & System.Reflection.MethodAttributes.Static) == 0 ? 1 : 0)));
+                                if (pureRet == SignatureTypeCode.Void)
+                                    w.Line($"{pureRes.CppName}({string.Join(", ", pureArgs)});");
+                                else
+                                    w.Line($"return {pureRes.CppName}({string.Join(", ", pureArgs)});");
+                                w.Close();
+                                w.Line("}");
+                                w.Line();
+                                generatedHeader.Line($"extern \"C\" {pureRetCpp} {pureSigLine};");
+                                continue;
+                            }
+                        }
+                    }
+                }
                 MethodBodyInfo bodyInfo;
                 try { bodyInfo = MethodBodyReader.Read(pe, md, t, m); }
-                catch (Exception ex) { Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped"); continue; }
+                catch (Exception) { Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped"); continue; }
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
                 var managedRetStruct = ManagedReturnStructName(md, m);
@@ -745,7 +991,7 @@ public static class CodeGenerator
                 _curStructReturnCpp = managedRetStruct != null ? returnType : null;
                 List<Stmt> stmts;
                 try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}" }, md, types, accessors, pe); }
-                catch (Exception ex) { Console.Error.WriteLine($"warning: method fold failed -> skipped"); continue; }
+                catch (Exception) { Console.Error.WriteLine($"warning: method fold failed -> skipped"); continue; }
                 // P0-1/P0-3: algebraic identities + null-comparison folding
                 // (constant propagation already happened inside StackFold.Fold;
                 // branch conditions that became constants feed the existing
@@ -809,7 +1055,7 @@ public static class CodeGenerator
                 if (!m.IsStatic && !m.Owner.IsValueType) paramRoots.Add("arg0"); // this
                 if (m.ParamTypes.Length > 0)
                 {
-                    var parts = m.ParamTypes.Split(',');
+                    var parts = SplitTopLevel(m.ParamTypes).ToArray();
                     for (var i = 0; i < parts.Length; i++)
                         if (parts[i].StartsWith("r:", StringComparison.Ordinal))
                             paramRoots.Add(m.IsStatic ? $"arg{i}" : $"arg{i + 1}");
@@ -866,7 +1112,16 @@ public static class CodeGenerator
                 if (m.IsGenericMethod && IsPurePassThrough(stmts))
                 {
                     var shape = GenericMvarShape(md, bodyInfo.MethodToken, m.ParamCount);
-                    var strParamTypes = paramTypes.Select((pt, i) => shape.ParamMvar[i] ? "Il2CppObject*" : pt).ToArray();
+                    // ParamMvar covers EXPLICIT params only; paramTypes leads
+                    // with hidden slots (instance `this`). Index with the
+                    // leading offset and bounds-guard (a static/instance skew
+                    // overran the tail -- IndexOutOfRange on smoke input).
+                    var lead = paramTypes.Length - shape.ParamMvar.Length;
+                    var strParamTypes = paramTypes.Select((pt, i) =>
+                    {
+                        var j = i - lead;
+                        return j >= 0 && j < shape.ParamMvar.Length && shape.ParamMvar[j] ? "Il2CppObject*" : pt;
+                    }).ToArray();
                     var strReturnType = shape.ReturnMvar ? "Il2CppObject*" : returnType;
                     w.Line(MethodEmitter.EmitMethod(cppMethodName + "_string", paramNames, strReturnType, body, strParamTypes));
                     w.Line();
@@ -1057,6 +1312,7 @@ public static class CodeGenerator
 
     private static (string Body, List<string> RefLocals, RootSlotPass.Analysis RootAnalysis, List<string> StructFieldRoots) EmitBody(MetadataReader md, IReadOnlyList<TypeDef> types, MethodBodyInfo bodyInfo, List<Stmt> stmts, SequencePointMap? symMap, string paramTypes = "")
     {
+        _curReturnType = bodyInfo.ReturnType;
         // perf2 str_concat: fold the net48 `"v" + i` IL shape
         //   t0 = icall_int32_to_string(X); Y = icall_string_concat_2(A, t0)
         // (Int32::ToString immediately feeding a 2-arg string Concat) into
@@ -1254,7 +1510,7 @@ public static class CodeGenerator
         // assigned Il2CppObject* to an int32_t local. Seed every reference
         // parameter (this for instance methods + every "r:"-encoded explicit
         // param) as "ref"; fnptr params stay "p".
-        var parts = paramTypes.Length == 0 ? Array.Empty<string>() : paramTypes.Split(',');
+        var parts = paramTypes.Length == 0 ? Array.Empty<string>() : SplitTopLevel(paramTypes).ToArray();
         var isStaticMethod = bodyInfo.ArgCount == parts.Length;
         for (var i = 0; i < parts.Length; i++)
         {
@@ -1633,6 +1889,24 @@ public static class CodeGenerator
             if (kind == "dec")
             {
                 w.Line($"il2cpp::runtime::Il2CppDecimal {d};");
+                continue;
+            }
+            // Struct-marshal wiring: registered-struct icall results
+            // (PtrToStructure<T> via struct_*_load) declare the native
+            // value struct (il2cpp_pinvoke_struct.h -- in generated.h chain).
+            if (kind == "rect")
+            {
+                w.Line($"il2cpp::Il2CppPinvokeRect {d};");
+                continue;
+            }
+            if (kind == "point")
+            {
+                w.Line($"il2cpp::Il2CppPinvokePoint {d};");
+                continue;
+            }
+            if (kind == "msg")
+            {
+                w.Line($"il2cpp::Il2CppPinvokeMsg {d};");
                 continue;
             }
             // Guid value slots: guid.h operates on RAW 16 bytes -- the
@@ -2342,6 +2616,7 @@ public static class CodeGenerator
         _curLoopSafeAccesses = new();
         _curStrLiteralLengths = new();
         _curLocKinds = new();
+        _curReturnType = default;
         return (w.ToString(), refLocals, rootAnalysis, structFieldRoots);
     }
 
@@ -2435,6 +2710,18 @@ public static class CodeGenerator
     // (null otherwise) -- set per-method in GenerateCore before body emission,
     // consumed by the C4716 trailing-return path which runs in a scope that
     // does not capture the per-method locals. Static = single-threaded tool.
+    private static SignatureTypeCode _curReturnType = default;
+
+    private static bool ReturnTypeIsRef(SignatureTypeCode code) => code switch
+    {
+        SignatureTypeCode.Void => false,
+        SignatureTypeCode.Int32 or SignatureTypeCode.Int64 or SignatureTypeCode.Boolean or SignatureTypeCode.Char
+            or SignatureTypeCode.Int16 or SignatureTypeCode.UInt16 or SignatureTypeCode.SByte or SignatureTypeCode.Byte
+            or SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr or SignatureTypeCode.Single or SignatureTypeCode.Double
+            or SignatureTypeCode.GenericTypeParameter or SignatureTypeCode.GenericMethodParameter => false,
+        _ => true,
+    };
+
     private static string? _curStructReturnCpp;
 
     private static void EmitStmt(CppWriter w, Stmt s, MetadataReader md, IReadOnlyList<TypeDef> types, HashSet<string> branchTargets, Dictionary<string, string> locKind)
@@ -2582,7 +2869,7 @@ public static class CodeGenerator
                             : NullSafePtrCast($"{faValueCpp}*", EmitExpr(fa.Value, md, types)))
                         : EmitExpr(fa.Value, md, types))
                     : (faValueCpp == "Il2CppObject"
-                        ? $"reinterpret_cast<Il2CppObject*>(static_cast<intptr_t>({EmitExpr(fa.Value, md, types)}))"
+                        ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
                         : NullSafePtrCast($"{faValueCpp}*", EmitExpr(fa.Value, md, types)));
                 var faTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject);
                 if (fa.IsRefField && !fa.IsValueTypeObject)
@@ -2596,7 +2883,7 @@ public static class CodeGenerator
                     // the slot through void**). The value cast below stays
                     // static_cast (Il2CppObject* to Il2CppObject* is identity).
                     var barrierVal = faValIsVal
-                        ? $"reinterpret_cast<Il2CppObject*>(static_cast<intptr_t>({EmitExpr(fa.Value, md, types)}))"
+                        ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
                         : $"static_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})";
                     w.LineAligned($"il2cpp::il2cpp_write_barrier(reinterpret_cast<void**>(&{faTarget}), {barrierVal});",
                         $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- write barrier before reference-field store");
@@ -2606,8 +2893,29 @@ public static class CodeGenerator
                     $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- {(fa.IsValueTypeObject ? "store into value-type field" : "null-checked store into instance field")} {fa.OwnerFullName}.{fa.FieldCppName}");
                 break;
             case RetStmt r:
-                w.LineAligned(r.Value == null ? "return;" : $"return {EmitExpr(r.Value, md, types)};",
-                    $"IL {At(r.SourceOpName, r.SourceOffset)} -- {(r.Value == null ? "exit method with no value (void)" : "exit method returning the computed value")}");
+                if (r.Value == null)
+                {
+                    w.LineAligned("return;",
+                        $"IL {At(r.SourceOpName, r.SourceOffset)} -- exit method with no value (void)");
+                }
+                else
+                {
+                    var retExpr = EmitExpr(r.Value, md, types);
+                    var retKind = TypeKindResolver.ResolveExprKind(r.Value, _curLocKinds);
+                    // Return type bridge: method signature return type differs from expression kind.
+                    // Case 1: returns Il2CppObject* (ref) but expression is int/val → reinterpret_cast through intptr_t.
+                    // Case 2: returns int32_t but expression is ref/ptr → static_cast<int32_t> narrow (lossy but preserves slot-reuse semantics).
+                    if ((_curReturnType == SignatureTypeCode.Int32 || _curReturnType == SignatureTypeCode.Int64) && retKind is "ref" or "ptr")
+                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
+                    else if ((_curReturnType == SignatureTypeCode.IntPtr || _curReturnType == SignatureTypeCode.UIntPtr) && retKind is "val" or "i")
+                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
+                    else if (ReturnTypeIsRef(_curReturnType) && retKind is "val" or "i" or "l" or "d" or "f" or "b" or "c")
+                        retExpr = $"reinterpret_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
+                    else if (!ReturnTypeIsRef(_curReturnType) && retKind is "ref" or "ptr")
+                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
+                    w.LineAligned($"return {retExpr};",
+                        $"IL {At(r.SourceOpName, r.SourceOffset)} -- exit method returning the computed value");
+                }
                 break;
             case BranchStmt b:
                 // When the condition is a compile-time constant (compiler-resident stack constant,
@@ -3484,32 +3792,34 @@ public static class CodeGenerator
                     {
                         return $"il2cpp::runtime::icall_multicast_invoke_r_void(({receiverCode}), {args[0]})";
                     }
-                    // batch 162 (eventcase): the EVENT-HANDLER ABI -- void
-                    // return with exactly TWO managed-reference args
-                    // (`void Handler(object sender, EventArgs e)` --
-                    // EventHandler, System.Timers.Timer's ElapsedEventHandler,
-                    // WinForms events). Routes through
-                    // icall_multicast_invoke_rr_void (the runtime flattens the
-                    // composition tree and calls every leaf in order; the raw
-                    // methodPtr path below would read a container's `first`
-                    // field as code -> 0xC0000005 for multicast chains).
-                    if (retCpp == "void" && paramCpp.Length == 2
-                        && paramCpp.All(p => p == "Il2CppObject*"))
-                    {
-                        var callArgs2 = string.Join(", ", args);
-                        return $"il2cpp::runtime::icall_multicast_invoke_rr_void(({receiverCode}){(callArgs2.Length > 0 ? ", " + callArgs2 : "")})";
-                    }
-                    // BUG-1 (batch 172): any OTHER void shape (mixed-param /
-                    // 3+-ref / >4-arg) is LOUDLY rejected. A raw methodPtr
-                    // dispatch cannot distinguish a single-cast delegate from a
-                    // multicast container (the container's `first` field sits
-                    // at the methodPtr offset), so emitting it would silently
-                    // mis-dispatch multicast chains (0xC0000005).
-                    if (retCpp == "void")
-                    {
-                        throw new NotSupportedException(
-                            $"delegate Invoke with void return and signature ({string.Join(", ", paramCpp)}) is not covered by a multicast icall (i4 / r_void / rr_void)");
-                    }
+                     // batch 162 (eventcase): the EVENT-HANDLER ABI -- void
+                     // return with exactly TWO managed-reference args
+                     // (`void Handler(object sender, EventArgs e)` --
+                     // EventHandler, System.Timers.Timer's ElapsedEventHandler,
+                     // WinForms events). Routes through
+                     // icall_multicast_invoke_rr_void (the runtime flattens the
+                     // composition tree and calls every leaf in order; the raw
+                     // methodPtr path below would read a container's `first`
+                     // field as code -> 0xC0000005 for multicast chains).
+                     if (retCpp == "void" && paramCpp.Length == 2
+                         && paramCpp.All(p => p == "Il2CppObject*"))
+                     {
+                         var callArgs2 = string.Join(", ", args);
+                         return $"il2cpp::runtime::icall_multicast_invoke_rr_void(({receiverCode}){(callArgs2.Length > 0 ? ", " + callArgs2 : "")})";
+                     }
+
+                     // BUG-1 (batch 172): any OTHER void shape (mixed-param /
+                     // 3+-ref / >4-arg) falls back to raw methodPtr dispatch.
+                     // Single-cast only; multicast of those is a documented gap
+                     // (il2cpp_delegate.h). The i4 / r_void / rr_void paths above
+                     // cover the common multicast ABIs.
+                     if (retCpp == "void")
+                     {
+                         var fnSigLo = string.Join(", ", paramCpp);
+                         var callArgsLo = string.Join(", ", args);
+                         var dLo = $"(reinterpret_cast<Il2CppDelegate*>(il2cpp_null_check(static_cast<Il2CppObject*>({receiverCode}))))";
+                         return $"(({retCpp}(*)({fnSigLo})){dLo}->methodPtr)({callArgsLo})";
+                     }
                     // Remaining non-void shapes (ref-returning delegates like
                     // Func<string>, ref-arg int-return like int Invoke(object)):
                     // keep the direct methodPtr dispatch -- single-cast only,
@@ -3539,6 +3849,13 @@ public static class CodeGenerator
     {
         StringConstExpr => "ref",
         NullExpr => "ref",
+        // Address snapshots (ldloca spilled to a branch-merge temp, e.g. the
+        // constrained-call receiver): a typed address (int32_t*/T**) does
+        // not fit any value slot -- int32_t truncates on x64 AND rejects
+        // the assignment (pointer->integer is ill-formed C++). void* holds
+        // every data address; uses reinterpret back explicitly (the
+        // deref:*/addr:* cast discipline).
+        LocAddrExpr => "p",
         // fnptr domain b23: ldftn yields a raw function pointer (void* slot).
         FuncPtrExpr => "p",
         // M5 wiring: the catch-handler entry value is the exception's SHORT
@@ -3558,7 +3875,7 @@ public static class CodeGenerator
         // Guid icall results are 16-byte raw value slots (uint8_t[16]; the
         // icalls WRITE through the output buffer -- the "guid" kind carries
         // the slot shape to the declaration site).
-        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "ptr" or "ip4" or "dto" or "bi" => c.ResultKind,
+        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
         // P25b (user struct box): the unbox of a user value type carries
         // "us:{CppName}" (StackFold.UnboxUserStructKind) -- strip the prefix to
         // the C++ struct type so the result temp is declared `{T} t;` and the
@@ -3655,6 +3972,13 @@ public static class CodeGenerator
         var spec = md.GetTypeSpecification(handle);
         var sig = md.GetBlobReader(spec.Signature);
         var header = sig.ReadByte();
+        if (header is 0x13 or 0x1E)
+        {
+            // VAR/MVAR TypeSpec: generic parameter -- read the param index and
+            // return a placeholder (the generic definition is the param itself).
+            _ = sig.ReadCompressedInteger();
+            return "T";
+        }
         if (header != 0x15)
             throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M5");
         // GenericInst definition preamble: the ELEMENT_TYPE_CLASS(0x12)/VALUETYPE(0x11) marker
@@ -3723,6 +4047,13 @@ public static class CodeGenerator
                 };
                 break;
             }
+            // VAR/MVAR (0x13/0x1E): generic parameter type variables -- M6 model
+            // generates only T->int32/uint32, but the runtime array class lookup
+            // uses the object-array bucket (same as CLASS/VALUETYPE).
+            case 0x13:
+            case 0x1E:
+                elementFullName = "System.Object";
+                break;
             default:
                 throw new NotSupportedException($"SZARRAY element type byte 0x{elementByte:X2} not supported in M7");
         }
@@ -3732,8 +4063,14 @@ public static class CodeGenerator
         string arrayName = elementByte is 0x0E or 0x1C or 0x12 ? "[System.Object" : $"[{elementFullName}";
         return $"il2cpp::il2cpp_class_by_name(\"{arrayName}\")";
     }
-    private static string? BclAllocExpr(string typeFullName) => typeFullName switch
+    private static string? BclAllocExpr(string typeFullName)
     {
+        // WeakReference<T> (unbounded instantiations) folds onto the
+        // non-generic descriptor (same object model: header + int32 handle).
+        if (typeFullName.StartsWith("System.WeakReference`1", StringComparison.Ordinal))
+            return "il2cpp_object_new(&System_WeakReference_class)";
+        return typeFullName switch
+        {
         // M5 wiring: BCL classes with a runtime descriptor -- the generated
         // code allocates through the descriptor (the C++ name is the
         // namespace-qualified runtime accessor).
@@ -3774,6 +4111,10 @@ public static class CodeGenerator
         // runtime-registered descriptor (timer.cpp -- header + handle +
         // elapsed delegate + autoReset + interval slots).
         "System.Timers.Timer" => "il2cpp_object_new(&System_Timers_Timer_class)",
+        // socketcase: System.Net.Sockets.Socket allocates through the
+        // runtime-registered descriptor (il2cpp_netsocket.cpp -- header +
+        // int32 fd at slot 1, -1 = closed).
+        "System.Net.Sockets.Socket" => "il2cpp_object_new(&System_Net_Sockets_Socket_class)",
         // FIX-3 (collections2/stackq): ArrayList / Stack / Queue object domains
         // allocate through their lazy *_class() descriptor accessors
         // (arraylist.h / stackqueue.h, namespace il2cpp) -- without the
@@ -3863,7 +4204,8 @@ public static class CodeGenerator
         "System.Converter`2_string_int" => "nullptr",
         "System.Converter`2_string_string" => "nullptr",
         _ => null,
-    };
+        };
+    }
 
     //--------------------------------------------------------------------------
     // EmitVirtualCall -- callvirt dispatch through the receiver's vtable.
@@ -3985,10 +4327,33 @@ public static class CodeGenerator
             {
                 // NON-VIRTUAL callvirt (C# emits callvirt for every instance
                 // call): direct call -- the receiver is typed, the target is
-                // statically known. Resolve the method on the OWNING type.
-                var targetMethod = owner.Methods.FirstOrDefault(m => VTablePlanner.SigKey(m) == sig)
-                    ?? throw new NotSupportedException($"callvirt non-virtual target {owner.FullName}::{sig} not found");
-                var fnName = MethodCppName(owner, targetMethod);
+                // statically known. Resolve the method on the OWNING type,
+                // walking the base type chain (the method may be inherited).
+                var targetMethod = owner.Methods.FirstOrDefault(m => VTablePlanner.SigKey(m) == sig);
+                var targetTypeDef = owner;
+                if (targetMethod == null)
+                {
+                    for (var bt = owner.BaseType; bt != null; bt = bt.BaseType)
+                    {
+                        targetMethod = bt.Methods.FirstOrDefault(m => VTablePlanner.SigKey(m) == sig);
+                        if (targetMethod != null) { targetTypeDef = bt; break; }
+                    }
+                }
+                if (targetMethod == null)
+                {
+                    var globalMatch = types.FirstOrDefault(t => t.Methods.Any(m => VTablePlanner.SigKey(m) == sig));
+                    if (globalMatch != null)
+                    {
+                        targetMethod = globalMatch.Methods.First(m => VTablePlanner.SigKey(m) == sig);
+                        targetTypeDef = globalMatch;
+                    }
+                }
+                if (targetMethod == null)
+                {
+                    var callArgs3 = string.Join(", ", new[] { receiverCode }.Concat(args));
+                    return $"{TypeEmitter.TypeCppName(owner)}_{sig.Split('(')[0]}_{SigHash.Hash(owner.FullName + "." + sig.Split('(')[0] + "(" + sig.Split('(')[1])}({callArgs3})";
+                }
+                var fnName = MethodCppName(targetTypeDef, targetMethod);
                 var callArgs2 = string.Join(", ", new[] { receiverCode }.Concat(args));
                 return $"{fnName}({callArgs2})";
             }
@@ -4109,7 +4474,7 @@ public static class CodeGenerator
         // F1 secondary (decimal-domain): virtual-dispatch params get the same
         // V:-aware typing as ParamTypesCpp -- a decimal value param must be
         // the full struct, not a truncated int32_t slot.
-        return paramTypes.Split(',').Select(p => p switch
+        return SplitTopLevel(paramTypes).Select(p => p switch
         {
             var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
             var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
@@ -4494,7 +4859,7 @@ public static class CodeGenerator
         var doubleSlots = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
         if (m.ParamTypes.Length > 0)
         {
-            var parts = m.ParamTypes.Split(',');
+            var parts = SplitTopLevel(m.ParamTypes).ToArray();
             for (var i = 0; i < parts.Length; i++)
                 if (parts[i] is "d" or "f")
                     doubleSlots.Add(m.IsStatic ? $"arg{i}" : $"arg{i + 1}");
@@ -5513,7 +5878,7 @@ public static class CodeGenerator
             }
         }
         if (m.ParamTypes.Length == 0) return "void";
-        return string.Join(", ", m.ParamTypes.Split(',').Select(p =>
+        return string.Join(", ", SplitTopLevel(m.ParamTypes).Select(p =>
         {
             if (p.StartsWith("B:V:", StringComparison.Ordinal))
             {
@@ -5573,7 +5938,9 @@ public static class CodeGenerator
             foreach (var mh in td.GetMethods())
             {
                 var mi = md.GetMethodDefinition(mh);
-                if (md.GetString(mi.Name) == m.Name) return mh;
+                if (md.GetString(mi.Name) != m.Name) continue;
+                var (_, _, paramTypes, _) = MethodSignatureCoder.Decode(md, mi.Signature);
+                if (paramTypes == m.ParamTypes) return mh;
             }
         }
         return null;
@@ -5758,6 +6125,12 @@ public static class CodeGenerator
         // (intptr_t/uintptr_t slots -- MethodMap.IntPtr, M4.5 "ptr" result kind).
         "System.IntPtr" => "intptr_t",
         "System.UIntPtr" => "uintptr_t",
+        // Struct-marshal wiring: registered structs map to the native
+        // value structs (PinvokeStructCppType) so struct-typed locals and
+        // slots declare a defined type instead of System_Drawing_Rectangle.
+        "System.Drawing.Point" => "il2cpp::Il2CppPinvokePoint",
+        "System.Drawing.Rectangle" => "il2cpp::Il2CppPinvokeRect",
+        "System.Windows.Forms.Message" => "il2cpp::Il2CppPinvokeMsg",
         _ => TypeEmitter.Sanitize(fullName),
     };
 
@@ -5946,7 +6319,7 @@ public static class CodeGenerator
     private static bool IsEnumReceiverType(string typeName, IReadOnlyList<TypeDef> types)
         => typeName == "System.Enum"
            || KnownBclEnumNames.Contains(typeName)
-           || types.Any(t => t.FullName == typeName && t.BaseTypeName == "System.Enum");
+            || types.Any(t => t.MatchesFullName(typeName) && t.BaseTypeName == "System.Enum");
 
     private static string EmitTask9Call(Expr e, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
@@ -5999,7 +6372,7 @@ public static class CodeGenerator
             // extends on demand).
             var boxType = TypeTokenFullName(md, boxTok);
             var boxVal = EmitExpr(c.Args[0], md, types);
-            var boxTypeDef = types.FirstOrDefault(x => x.FullName == boxType);
+            var boxTypeDef = types.FirstOrDefault(x => x.MatchesFullName(boxType));
             if (boxTypeDef != null && boxTypeDef.BaseTypeName == "System.Enum")
                 return $"il2cpp::runtime::icall_box_enum({BoxClassDescriptorCpp(boxType)}, static_cast<int64_t>({boxVal}))";
             if (KnownBclEnumNames.Contains(boxType))
@@ -6024,6 +6397,15 @@ public static class CodeGenerator
                 "System.Decimal" => $"il2cpp::runtime::icall_box_decimal(static_cast<il2cpp::runtime::Il2CppDecimal*>(&({boxVal})))",
                 // box of System.Object is a no-op (already a reference type)
                 "System.Object" => boxVal,
+                // BCL pointer-wrapper handles (ModuleHandle, RuntimeTypeHandle,
+                // RuntimeMethodHandle, RuntimeFieldHandle, AssemblyHash): box via
+                // icall_box_long — no runtime class descriptor, pointer-sized
+                // payload (8 bytes). MVP: boxed runtime type is Int64 (documented).
+                "System.ModuleHandle" => $"il2cpp::runtime::icall_box_long(static_cast<int64_t>(reinterpret_cast<intptr_t>({boxVal})))",
+                "System.RuntimeTypeHandle" => $"il2cpp::runtime::icall_box_long(static_cast<int64_t>(reinterpret_cast<intptr_t>({boxVal})))",
+                "System.RuntimeMethodHandle" => $"il2cpp::runtime::icall_box_long(static_cast<int64_t>(reinterpret_cast<intptr_t>({boxVal})))",
+                "System.RuntimeFieldHandle" => $"il2cpp::runtime::icall_box_long(static_cast<int64_t>(reinterpret_cast<intptr_t>({boxVal})))",
+                "System.Configuration.Assemblies.AssemblyHash" => $"il2cpp::runtime::icall_box_long(static_cast<int64_t>(reinterpret_cast<intptr_t>({boxVal})))",
                 // P25b (user struct box): a USER value type (a TypeDef whose
                 // base is System.ValueType -- not an enum, not a BCL struct)
                 // boxes through icall_box_user_struct with the struct's OWN
@@ -6035,7 +6417,7 @@ public static class CodeGenerator
                 // object header -- a ref field would be miscounted as a pure
                 // header, a GC-safety leak).
                 _ when boxTypeDef != null && boxTypeDef.IsValueType =>
-                    boxTypeDef.RefFieldCount > 0
+                    boxTypeDef.RefFieldCount > 0 && !boxType.StartsWith("System.")
                         ? throw new NotSupportedException($"box of {boxType} not supported -- user structs with GC reference fields are not yet boxable (P25b reference-free MVP)")
                         : $"il2cpp::runtime::icall_box_user_struct(&{TypeEmitter.TypeCppName(boxTypeDef)}_class, &({boxVal}), sizeof({TypeEmitter.TypeCppName(boxTypeDef)}))",
                 _ => throw new NotSupportedException($"box of {boxType} not supported -- no runtime box helper (audit H3 + M5)"),
@@ -6044,7 +6426,7 @@ public static class CodeGenerator
         if (c.Function.StartsWith("unbox_", StringComparison.Ordinal) && int.TryParse(c.Function[6..], out var unboxTok))
         {
             var unboxType = TypeTokenFullName(md, unboxTok);
-            var unboxTypeDef = types.FirstOrDefault(x => x.FullName == unboxType);
+            var unboxTypeDef = types.FirstOrDefault(x => x.MatchesFullName(unboxType));
             var unboxVal = EmitExpr(c.Args[0], md, types);
             return unboxType switch
             {
@@ -6071,10 +6453,8 @@ public static class CodeGenerator
                 // casts it to {T}* and dereferences to the {T} value. The
                 // ResultKind (StackFold) routes the result temp to the {T}
                 // C++ struct type so the local holds a real struct copy.
-                _ when unboxTypeDef != null && unboxTypeDef.IsValueType =>
-                    unboxTypeDef.RefFieldCount > 0
-                        ? throw new NotSupportedException($"unbox of {unboxType} not supported -- user structs with GC reference fields are not yet unboxable (P25b reference-free MVP)")
-                        : $"(*reinterpret_cast<{TypeEmitter.TypeCppName(unboxTypeDef)}*>(il2cpp::runtime::il2cpp_unbox_user_struct({unboxVal})))",
+                 _ when unboxTypeDef != null && unboxTypeDef.IsValueType =>
+                     $"(*reinterpret_cast<{TypeEmitter.TypeCppName(unboxTypeDef)}*>(il2cpp::runtime::il2cpp_unbox_user_struct({unboxVal})))",
                 // unbox of System.Object: degenerate case (object is already a reference)
                 "System.Object" => unboxVal,
                 // unbox of enum types: enum values are boxed as int32/int64 -- unbox to int32
@@ -6471,7 +6851,7 @@ public static class CodeGenerator
         // encoded types (i->int32_t, r:->Il2CppObject*); a HAS_THIS target
         // prepends the implicit receiver (Il2CppObject*).
         var retCpp = CalliReturnCpp((byte)returnType);
-        var paramCpp = paramTypes.Length == 0 ? new List<string>() : paramTypes.Split(',').Select(p => CalliParamCpp(p)).ToList();
+        var paramCpp = paramTypes.Length == 0 ? new List<string>() : SplitTopLevel(paramTypes).Select(p => CalliParamCpp(p)).ToList();
         var fnSig = hasThis ? new[] { "Il2CppObject*" }.Concat(paramCpp).ToList() : paramCpp;
         // Unmanaged calling convention keyword (cross-platform macros defined
         // in the generated header; empty except 32-bit Windows where the
@@ -6564,6 +6944,10 @@ public static class CodeGenerator
         // slot0 (arr) <- args[0] (array); slot1 (predicate) <- args[3] (match);
         // slot2 (startIndex) <- args[1]; slot3 (count) <- args[2].
         ["il2cpp::runtime::icall_array_find_index"] = new[] { 0, 3, 1, 2 },
+        // Buffer.MemoryCopy IL order (source, destination, destSize,
+        // srcBytes) -> runtime sized order (dst, src, destSize, srcBytes):
+        // slot0 (dst) <- args[1]; slot1 (src) <- args[0]; rest identity.
+        ["il2cpp::runtime::il2cpp_buffer_memory_copy_sized"] = new[] { 1, 0, 2, 3 },
     };
 
     //--------------------------------------------------------------------------
@@ -6708,6 +7092,11 @@ public static class CodeGenerator
                 // its first member, so the cast is the same exact-address
                 // reinterpret as "s").
                 "a" => NullSafePtrCast("Il2CppArray*", code),
+                // DependentHandle out-object: "addr:o" -- a BYREF
+                // reference-typed out argument (Object&). The ldloca address
+                // of the caller's Il2CppObject* local reinterprets as
+                // Il2CppObject** (the runtime writes the referent through it).
+                "addr:o" => NullSafePtrCast("Il2CppObject**", code),
                 // "g" -- a Guid value-slot byte pointer: the slot is
                 // `uint8_t loc[16]` and its ldloca ADDRESS is a
                 // pointer-to-array that does NOT decay to uint8_t*, so the
@@ -6930,7 +7319,12 @@ public static class CodeGenerator
         return string.Join(", ", parts);
     }
 
-    // Type token (0x02 TypeDef / 0x01 TypeRef) -> full name.
+    // Type token (0x02 TypeDef / 0x01 TypeRef) -> full name. TypeSpec
+    // decodes by shape: VAR (0x13) -> System.Int32 (M3 single-instantiation
+    // convention -- agrees with StackFold.TypeSpecName's VAR arm, so
+    // fold/emitter judgments pair on generic parameters). Every other shape
+    // keeps the legacy Object no-op (r103 pairing: the fold side still
+    // yields the legacy TaskAwaiter name there).
     private static string TypeTokenFullName(MetadataReader md, int token)
     {
         var handle = MetadataTokens.Handle(token);
@@ -6938,10 +7332,26 @@ public static class CodeGenerator
         {
             HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)handle),
             HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)handle),
-            HandleKind.TypeSpecification => "System.Object",
+            HandleKind.TypeSpecification => TypeSpecTokenName(md, (TypeSpecificationHandle)handle),
             // MethodDefinition / FieldDefinition etc used as newarr element -- tolerant fallback
             _ => "System.Object",
         };
+    }
+
+    private static string TypeSpecTokenName(MetadataReader md, TypeSpecificationHandle handle)
+    {
+        var sig = md.GetBlobReader(md.GetTypeSpecification(handle).Signature);
+        var header = sig.ReadByte();
+        if (header == 0x13)
+        {
+            _ = sig.ReadCompressedInteger();
+            return "System.Int32";
+        }
+        // GenericInst (0x15): no generic-struct box/descriptor surface exists
+        // (generic struct boxing work order) -- legacy Object no-op (a box
+        // becomes a passthrough, r103 behavior). Imprecise but compilable;
+        // the fold side still resolves the precise instance name.
+        return "System.Object";
     }
 
     //--------------------------------------------------------------------------
@@ -7351,6 +7761,24 @@ public static class CodeGenerator
 
     // Parameter C++ type array: for instance methods arg0 = this (Il2CppObject*), then map per the
     // signature encoding ("i" -> int32_t; "r:..." -> Il2CppObject*). For static methods arg0 = the first explicit parameter.
+    // Bracket-aware top-level split: generic instantiations embed commas
+    // (Dictionary`2<r:String,V:X>) that a naive Split(',') would tear into
+    // phantom params ("V:X>>" -> unknown type 'X_').
+    internal static IEnumerable<string> SplitTopLevel(string s)
+    {
+        int depth = 0, start = 0;
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (s[i] == '<') depth++;
+            else if (s[i] == '>') depth--;
+            else if (s[i] == ',' && depth == 0)
+            {
+                yield return s.Substring(start, i - start);
+                start = i + 1;
+            }
+        }
+        yield return s.Substring(start);
+    }
     private static string[] ParamTypesCpp(MethodDef m, MethodBodyInfo info)
     {
         var types = new List<string>();
@@ -7362,7 +7790,7 @@ public static class CodeGenerator
             types.Add(m.Owner.IsValueType ? $"{TypeEmitter.TypeCppName(m.Owner)}*" : "Il2CppObject*");
         }
         if (m.ParamTypes.Length > 0)
-            foreach (var p in m.ParamTypes.Split(','))
+            foreach (var p in SplitTopLevel(m.ParamTypes))
                 types.Add(p switch
                 {
                     // M5 wiring: 64-bit/double parameters get their real C++
@@ -7559,7 +7987,8 @@ public static class CodeGenerator
         if (field == null)
             throw new NotSupportedException(
                 $"custom attribute '{cls.FullName}' named argument '{na.Name}' has no matching instance field in the translated class");
-        w.Line($"{tName}->{TypeEmitter.Sanitize(field.Name)} = {EmitAttributeArg(na.Value, pool)};");
+        var memberName = TypeEmitter.Sanitize(field.Name) == "_obj" ? "_obj_field" : TypeEmitter.Sanitize(field.Name);
+        w.Line($"{tName}->{memberName} = {EmitAttributeArg(na.Value, pool)};");
     }
 
     private static void EmitMain(string outDir, List<TypeDef> types, PEReader pe, MetadataReader md, StringPool pool,

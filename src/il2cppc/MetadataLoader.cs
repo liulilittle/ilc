@@ -31,9 +31,9 @@ public static class MetadataLoader
         foreach (var tdHandle in md.TypeDefinitions)
         {
             var td = md.GetTypeDefinition(tdHandle);
-            // Skip nested types unless they are compiler-generated closures
-            // (e.g., <>c__DisplayClass*) which are referenced by IL.
-            if (td.IsNested && !md.GetString(td.Name).StartsWith("<>")) continue; // M2 processes only top-level types (nested types in M3+)
+            // Skip ALL nested types — they are handled by TypeEmitter.ExpandNestedTypes
+            // which properly sets IsNested, DeclaringTypeName, and unique C++ names.
+            if (td.IsNested) continue;
             var name = md.GetString(td.Name);
             var ns = md.GetString(td.Namespace);
             if (name == "<Module>") continue; // module initializer type, handled in M2

@@ -261,5 +261,156 @@ Il2CppString* il2cpp_type_get_full_name(Il2CppClass* klass)
     return il2cpp_string_new_from_cs(name);
 }
 
+namespace {
+
+// Base-chain name probe shared by the A-class predicates below: walks
+// klass -> baseClass -> ... looking for 'target' (exact strcmp). A null
+// klass answers false (callers throw NRE on null receivers first).
+bool BaseChainContains(Il2CppClass* klass, const char* target)
+{
+    for (Il2CppClass* cur = klass; cur != nullptr; cur = cur->baseClass)
+    {
+        if (cur->name != nullptr && std::strcmp(cur->name, target) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IsValueTypeChain(Il2CppClass* klass)
+{
+    return BaseChainContains(klass, "System.ValueType");
+}
+
+// Interfaces carry instanceSize 0 (TypeEmitter:679); array descriptors are
+// excluded by the '['-prefix guard (arrays are classes, never interfaces).
+bool IsInterfaceDescriptor(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        return false;
+    }
+    const char* name = klass->name;
+    if (name != nullptr && name[0] == '[')
+    {
+        return false;
+    }
+    return klass->instanceSize == 0;
+}
+
+} // namespace
+
+// A-class predicates: each reads EXISTING descriptor fields only.
+// Null receiver -> NullReferenceException (instance-member contract).
+int32_t il2cpp_type_is_array(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return 0;
+    }
+    const char* name = klass->name;
+    return (name != nullptr && name[0] == '[') ? 1 : 0;
+}
+
+int32_t il2cpp_type_has_element_type(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return 0;
+    }
+    const char* name = klass->name;
+    return (name != nullptr && name[0] == '[') ? 1 : 0;
+}
+
+int32_t il2cpp_type_is_enum(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return 0;
+    }
+    return BaseChainContains(klass, "System.Enum") ? 1 : 0;
+}
+
+int32_t il2cpp_type_is_value_type(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return 0;
+    }
+    return IsValueTypeChain(klass) ? 1 : 0;
+}
+
+int32_t il2cpp_type_is_interface(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return 0;
+    }
+    return IsInterfaceDescriptor(klass) ? 1 : 0;
+}
+
+int32_t il2cpp_type_is_class(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return 0;
+    }
+    if (IsValueTypeChain(klass) || IsInterfaceDescriptor(klass))
+    {
+        return 0;
+    }
+    return 1;
+}
+
+int32_t il2cpp_type_is_primitive(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return 0;
+    }
+    const char* name = klass->name;
+    if (name == nullptr)
+    {
+        return 0;
+    }
+    static const char* const kPrimitives[] = {
+        "System.Boolean", "System.Byte", "System.SByte", "System.Int16",
+        "System.UInt16", "System.Int32", "System.UInt32", "System.Int64",
+        "System.UInt64", "System.IntPtr", "System.UIntPtr", "System.Char",
+        "System.Double", "System.Single",
+    };
+    for (size_t i = 0; i < sizeof(kPrimitives) / sizeof(kPrimitives[0]); ++i)
+    {
+        if (std::strcmp(name, kPrimitives[i]) == 0)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+Il2CppObject* il2cpp_type_get_base_type(Il2CppClass* klass)
+{
+    if (klass == nullptr)
+    {
+        ThrowNullReference();
+        return nullptr;
+    }
+    Il2CppClass* base = klass->baseClass;
+    if (base == nullptr || base->name == nullptr)
+    {
+        return nullptr; // net48: typeof(object).BaseType -> null
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(base->name));
+}
+
 } // namespace runtime
 } // namespace il2cpp

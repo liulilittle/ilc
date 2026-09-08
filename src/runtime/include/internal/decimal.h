@@ -78,6 +78,14 @@ void icall_decimal_mul(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2C
 void icall_decimal_div(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2CppDecimal* b);
 void icall_decimal_rem(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2CppDecimal* b);
 
+// FCall in-place family (net48 Decimal internals): the BCL op_/named
+// wrappers call FCallAddSub/FCallMultiply/FCallDivide, which mutate d1
+// in place (callers read back arg0). b: bit7 set = subtract, else add.
+// The Overflowed twins share the core (overflow already throws).
+void icall_decimal_fcall_addsub(Il2CppDecimal* d1, const Il2CppDecimal* d2, int32_t b);
+void icall_decimal_fcall_multiply(Il2CppDecimal* d1, const Il2CppDecimal* d2);
+void icall_decimal_fcall_divide(Il2CppDecimal* d1, const Il2CppDecimal* d2);
+
 // DecCalc.VarDecCmp (Decimal.cs:408-411): -1 / 0 / 1.
 int32_t icall_decimal_compare(const Il2CppDecimal* d1, const Il2CppDecimal* d2);
 

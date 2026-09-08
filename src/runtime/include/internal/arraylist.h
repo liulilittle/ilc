@@ -127,4 +127,21 @@ bool il2cpp_arraylist_contains(Il2CppObject* self, Il2CppObject* value);
 // (independent storage; the caller owns the reference).
 Il2CppObject* il2cpp_arraylist_to_array(Il2CppObject* self);
 
+// ArrayList A-class: capacity read (fresh lists report 0), the three Is-*
+// flags (always false for a plain ArrayList), and SyncRoot (the list itself).
+int32_t il2cpp_arraylist_get_capacity(Il2CppObject* self);
+bool il2cpp_arraylist_get_is_fixed_size(Il2CppObject* self);
+bool il2cpp_arraylist_get_is_read_only(Il2CppObject* self);
+bool il2cpp_arraylist_get_is_synchronized(Il2CppObject* self);
+Il2CppObject* il2cpp_arraylist_get_sync_root(Il2CppObject* self);
+
+// ArrayList B-class: reshape/clone/copy/reverse/remove-range.
+void il2cpp_arraylist_set_capacity(Il2CppObject* self, int32_t value);
+Il2CppObject* il2cpp_arraylist_clone(Il2CppObject* self);
+void il2cpp_arraylist_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t arrayIndex);
+void il2cpp_arraylist_trim_to_size(Il2CppObject* self);
+void il2cpp_arraylist_reverse(Il2CppObject* self);
+void il2cpp_arraylist_reverse_range(Il2CppObject* self, int32_t index, int32_t length);
+void il2cpp_arraylist_remove_range(Il2CppObject* self, int32_t index, int32_t length);
+
 } // namespace il2cpp

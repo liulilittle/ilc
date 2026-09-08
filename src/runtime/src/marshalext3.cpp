@@ -506,5 +506,48 @@ void il2cpp_marshal_struct_msg_store(void* dst, const Il2CppPinvokeMsg* value)
     std::memcpy(dst, value, sizeof(Il2CppPinvokeMsg));
 }
 
+//------------------------------------------------------------------------------
+// StructureToPtr runtime type dispatch: the managed struct object's TYPE
+// (read from the object header's klass->name) selects the per-struct store
+// icall. The object-typed first param of StructureToPtr(object, IntPtr, bool)
+// erases the compile-time generic argument, so the dispatch happens here at
+// runtime -- the single entry point the transpiler maps the generic
+// StructureToPtr<T> onto when T is not statically known.
+//------------------------------------------------------------------------------
+void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDeleteOld)
+{
+    if (structure == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("structure");
+    }
+    if (dst == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("ptr");
+    }
+    if (fDeleteOld)
+    {
+        std::free(dst);
+    }
+    const char* const fullName = structure->klass->name;
+    const int32_t kind = il2cpp::il2cpp_pinvoke_struct_kind_by_name(fullName);
+    const void* data = reinterpret_cast<const void*>(&structure[1]);
+    switch (kind)
+    {
+    case il2cpp::kPinvokeStructPoint:
+        il2cpp_marshal_struct_point_store(dst, static_cast<const Il2CppPinvokePoint*>(data));
+        return;
+    case il2cpp::kPinvokeStructRect:
+        il2cpp_marshal_struct_rect_store(dst, static_cast<const Il2CppPinvokeRect*>(data));
+        return;
+    case il2cpp::kPinvokeStructMsg:
+        il2cpp_marshal_struct_msg_store(dst, static_cast<const Il2CppPinvokeMsg*>(data));
+        return;
+    default:
+        il2cpp_throw_not_supported_exception(
+            "StructureToPtr: the struct type is not a registered blittable struct -- only System.Drawing.Point, System.Drawing.Rectangle and System.Windows.Forms.Message have a native layout registry");
+        return;
+    }
+}
+
 } // namespace runtime
 } // namespace il2cpp

@@ -246,6 +246,9 @@ Il2CppObject* icall_encoding_table_native_create_open_file_mapping();
 void icall_assert_show_default_assert_dialog();
 void icall_log_add_log_switch(Il2CppString* name, int32_t level);
 void icall_log_modify_log_switch(Il2CppString* name, int32_t level);
+void icall_assembly_loadmodule_unsupported();
+void icall_assembly_get_version_unsupported();
+void icall_win32_set_thread_token_unsupported(int32_t token);
 
 } // namespace runtime
 } // namespace il2cpp

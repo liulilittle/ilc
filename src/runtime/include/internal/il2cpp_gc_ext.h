@@ -44,6 +44,7 @@ struct Il2CppWeakRefObject
 {
     Il2CppObject obj;  // object header (klass pointer, offset 0)
     int32_t handle;    // index into the gcext weak-target handle table (offset 8)
+    bool track;        // trackResurrection flag (offset 12; value slot, bitmap 0)
 };
 
 // The System.WeakReference descriptor (lazily registered on first use;
@@ -104,5 +105,15 @@ Il2CppObject* icall_weakref_get_target(Il2CppObject* self);
 // Target setter: re-arms the weak handle with a new target (the collector
 // manages the new entry from the next collection on). Null value clears it.
 void icall_weakref_set_target(Il2CppObject* self, Il2CppObject* target);
+
+// Tracked-resurrection ctor + flag reader (net48 trackResurrection surface;
+// the handle-table model stores the flag, long/short distinction simplified).
+void icall_weakref_ctor_track(Il2CppObject* self, Il2CppObject* target, bool track);
+bool icall_weakref_get_track_resurrection(Il2CppObject* self);
+
+// WeakReference<T> generics (T erased to object): same handle-table model.
+void icall_weakref_generic_ctor(Il2CppObject* self, Il2CppObject* target);
+bool icall_weakref_generic_try_get_target(Il2CppObject* self, Il2CppObject** outTarget);
+void icall_weakref_generic_set_target(Il2CppObject* self, Il2CppObject* target);
 
 }} // namespace il2cpp::runtime

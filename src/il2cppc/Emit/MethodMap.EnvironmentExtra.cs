@@ -66,10 +66,16 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_environment_get_is_64bit_operating_system", 0, true, false, false);
             case "get_Is64BitProcess":
                 return I("il2cpp::runtime::icall_environment_get_is_64bit_process", 0, true, false, false);
+            case "Exit": return I("il2cpp::runtime::icall_environment_exit", 1, false, false, false, new[] { "i" });
+            // The QCall stub spelling of Exit (same-assembly InternalCall
+            // MethodDef named "_Exit"): same icall, same shape.
+            case "_Exit":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_environment_exit", 1, false, false, false, new[] { "i" });
+                return null;
             // The known-unwireable surface rejects LOUD (the arity-guarded
             // base-file overloads land here; BclResolve prefixes
             // "{owner}::{name}").
-            case "Exit":
             case "FailFast":
             case "ExpandEnvironmentVariables":
             case "GetEnvironmentVariable":
