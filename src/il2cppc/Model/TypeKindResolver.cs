@@ -89,9 +89,23 @@ public static class TypeKindResolver
             Ir.VirtualCallExpr v when v.ReturnsRef => "ref",
             Ir.DelegateInvokeExpr d when d.ReturnsRef => "ref",
             Ir.FieldExpr f when f.IsRefField => "ref",
+            Ir.StaticFieldExpr sf => StaticFieldExprKind(sf.FieldName),
             Ir.LocExpr l when locKind.TryGetValue(l.Name, out var k) => k,
             _ => "val",
         };
+
+        static string StaticFieldExprKind(string fieldName)
+        {
+            // Reference-type static fields (CultureInfo.InvariantCulture etc.) must
+            // classify as "ref" so the return-type bridge does not emit an illegal
+            // static_cast<intptr_t>(...). Value-type static fields (Decimal.Zero etc.)
+            // fall through to "val". Heuristic: known value-type prefixes -> "val",
+            // everything else -> "ref" (the overwhelming majority of static fields
+            // are reference-type singletons).
+            if (fieldName.StartsWith("System.Decimal.", StringComparison.Ordinal)) return "val";
+            if (fieldName.StartsWith("System.DateTime.", StringComparison.Ordinal)) return "val";
+            return "ref";
+        }
     }
 
     private static string SimpleCppName(string fullName) => string.Join("_", fullName.Split('.', '+', '`', '<', '>', ',', '[', ']', '=', '!', '*', '&', ':'));

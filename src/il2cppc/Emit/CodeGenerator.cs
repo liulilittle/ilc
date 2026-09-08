@@ -2882,10 +2882,11 @@ public static class CodeGenerator
                     // allowed (unrelated pointer types); reinterpret_cast is the
                     // exact re-interpretation contract (the runtime barrier reads
                     // the slot through void**). The value cast below stays
-                    // static_cast (Il2CppObject* to Il2CppObject* is identity).
+                    // reinterpret_cast: the source may be an integer constant (e.g. a token);
+                    // static_cast cannot convert an integer to a pointer, but reinterpret_cast can.
                     var barrierVal = faValIsVal
                         ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
-                        : $"static_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})";
+                        : $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})";
                     w.LineAligned($"il2cpp::il2cpp_write_barrier(reinterpret_cast<void**>(&{faTarget}), {barrierVal});",
                         $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- write barrier before reference-field store");
                 }
@@ -3222,7 +3223,7 @@ public static class CodeGenerator
                 if (resolvedStmt?.CppName.StartsWith("System_Object_ToString_", StringComparison.Ordinal) == true
                     && c.Args.Count > 0)
                 {
-                    w.LineAligned($"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(c.Args[0], md, types)}));",
+                    w.LineAligned($"static_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(c.Args[0], md, types)}));",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- Object::ToString via the runtime dispatch (boxed value / Type)");
                     break;
                 }
@@ -3276,7 +3277,7 @@ public static class CodeGenerator
                     // Converter`2 / Comparison`1), and these forms are not
                     // combined in practice; the runtime conservatively skips
                     // the Combine type check for them.
-                    w.LineAligned($"{recvCode} = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new({methodPtr}, {targetCode}, 0));",
+                    w.LineAligned($"{recvCode} = static_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new({methodPtr}, {targetCode}, 0));",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- construct BCL delegate (il2cpp_delegate_new)");
                     break;
                 }
@@ -3331,7 +3332,7 @@ public static class CodeGenerator
                     // pointer type, so the handle needs the exact reinterpret
                     // (the reference-typed call-result contract elsewhere).
                     var callResult = c.Args[0] is LocExpr && recvTarget != null
-                        ? $"reinterpret_cast<Il2CppObject*>({fnStmt}({string.Join(", ", ctorArgs2)}))"
+                        ? $"static_cast<Il2CppObject*>({fnStmt}({string.Join(", ", ctorArgs2)}))"
                         : $"{fnStmt}({string.Join(", ", ctorArgs2)})";
                     w.LineAligned($"{recvTarget} = {callResult};",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- initialize value-type instance (ldloca ctor)");
@@ -3355,7 +3356,7 @@ public static class CodeGenerator
                          && c.Args.Count > 0)
                 {
                     var recvCode = EmitExpr(c.Args[0], md, types);
-                    w.LineAligned($"{recvCode} = reinterpret_cast<Il2CppObject*>({fnStmt}({callArgsStmt}));",
+                    w.LineAligned($"{recvCode} = static_cast<Il2CppObject*>({fnStmt}({callArgsStmt}));",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- create-style string ctor (return replaces the placeholder)");
                 }
                 else if (IsMessageCarrierCppName(fnStmt))
@@ -3748,7 +3749,7 @@ public static class CodeGenerator
                 // could not name the type). The runtime stores it on the
                 // delegate and compares at Combine time (net48 ArgumentException
                 // on a heterogeneous combine).
-                return $"reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new(reinterpret_cast<void*>(&{MethodCppNameFromToken(dn.MethodToken, md, types)}), {EmitExpr(dn.Target, md, types)}, {dn.TypeId}))";
+                return $"static_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new(reinterpret_cast<void*>(&{MethodCppNameFromToken(dn.MethodToken, md, types)}), {EmitExpr(dn.Target, md, types)}, {dn.TypeId}))";
             case DelegateInvokeExpr di:
                 // delegate Invoke. int32-returning delegates with <=4 int32
                 // args route through icall_multicast_invoke_i4: the runtime
@@ -4157,7 +4158,7 @@ public static class CodeGenerator
         // il2cpp_object_new(&System_Xml_XmlWriterSettings_class) -- an
         // undefined symbol -> cmake_build FAIL). The raw struct pointer is
         // reinterpreted to Il2CppObject* (the handle-gap carrier shape).
-        "System.Xml.XmlWriterSettings" => "reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_xml_writer_settings_new())",
+        "System.Xml.XmlWriterSettings" => "static_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_xml_writer_settings_new())",
         // M7 CG-FIX (excext cmake FAIL): non-generic BCL delegates
         // (System.Action, ...) -- StackFold.IsDelegateType (read-only Ir/
         // StackFold.cs) matches generic `System.Action\`` / `System.Func\``
@@ -4257,8 +4258,8 @@ public static class CodeGenerator
                 // net48-identical). icall_object_to_string would fall through
                 // to the klass-name fallback and print "Cases.Color".
                 if (v.ReceiverTypeName != null && IsEnumReceiverType(v.ReceiverTypeName, types))
-                    return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_boxed_to_string(static_cast<Il2CppObject*>({EmitExpr(v.Args[0], md, types)})))";
-                return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(v.Args[0], md, types)}))";
+                    return $"static_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_boxed_to_string(static_cast<Il2CppObject*>({EmitExpr(v.Args[0], md, types)})))";
+                return $"static_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(v.Args[0], md, types)}))";
             }
             // M7 CG-FIX (excext cmake FAIL): a callvirt to System.Action::Invoke
             // -- StackFold.IsDelegateType (read-only Ir/StackFold.cs) matches
@@ -6395,7 +6396,7 @@ public static class CodeGenerator
                 "System.UInt16" => $"il2cpp::runtime::icall_box_ushort({boxVal})",
                 "System.UInt32" => $"il2cpp::runtime::icall_box_uint({boxVal})",
                 "System.UInt64" => $"il2cpp::runtime::icall_box_ulong({boxVal})",
-                "System.Single" => $"il2cpp::runtime::icall_box_float({boxVal})",
+                "System.Single" => $"il2cpp::runtime::icall_box_float(static_cast<double>({boxVal}))",
                 // decimal-domain T3: the 16-byte value boxes by ADDRESS (the
                 // icall copies the slot into a new System.Decimal box object).
                 // Runtime symbol lands with T1 (boxingext2 + decimal.h).
@@ -6463,7 +6464,7 @@ public static class CodeGenerator
                 // unbox of System.Object: degenerate case (object is already a reference)
                 "System.Object" => unboxVal,
                 // unbox of enum types: enum values are boxed as int32/int64 -- unbox to int32
-                var ubt when ubt.StartsWith("System.") => $"static_cast<int32_t>(reinterpret_cast<intptr_t>({unboxVal}))",
+                var ubt when ubt.StartsWith("System.") => $"il2cpp::il2cpp_unbox_int32({unboxVal})",
                 _ => throw new NotSupportedException($"unbox of {unboxType} not supported -- no runtime unbox helper (audit H3 + M5)"),
             };
         }
@@ -6508,18 +6509,18 @@ public static class CodeGenerator
                     var objCodeArr = EmitExpr(c.Args[0], md, types);
                     var klassArr = SzArrayArrayClassCpp(md, tsHandle);
                     if (c.Function.StartsWith("castclass_", StringComparison.Ordinal))
-                        return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? static_cast<Il2CppObject*>({objCodeArr}) : (({objCodeArr}) == nullptr ? static_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), static_cast<Il2CppObject*>(nullptr))))";
-                    return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? static_cast<Il2CppObject*>({objCodeArr}) : nullptr)";
+                        return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : (({objCodeArr}) == nullptr ? reinterpret_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), reinterpret_cast<Il2CppObject*>(nullptr))))";
+                    return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : nullptr)";
                 }
                 var specName = GenericTypeSpecDefinitionName(md, tsHandle);
                 if (!specName.StartsWith("System.Func`", StringComparison.Ordinal)
                     && !specName.StartsWith("System.Action`", StringComparison.Ordinal))
                 {
-                    Console.Error.WriteLine($"warning: isinst/castclass of generic instantiation {specName} not wired in M5 -- emitting static_cast<Il2CppObject*>");
-                    return $"static_cast<Il2CppObject*>({EmitExpr(c.Args[0], md, types)})";
+                    Console.Error.WriteLine($"warning: isinst/castclass of generic instantiation {specName} not wired in M5 -- emitting reinterpret_cast<Il2CppObject*>");
+                    return $"reinterpret_cast<Il2CppObject*>({EmitExpr(c.Args[0], md, types)})";
                 }
                 var objCode0 = EmitExpr(c.Args[0], md, types);
-                return $"static_cast<Il2CppObject*>({objCode0})";
+                return $"reinterpret_cast<Il2CppObject*>({objCode0})";
             }
             var typeName = TypeTokenFullName(md, isTok);
             var objCode = EmitExpr(c.Args[0], md, types);
@@ -6533,7 +6534,7 @@ public static class CodeGenerator
             // identity precedent, above). The delegate type cannot be
             // distinguished at runtime anyway -- the checker has one class.
             if (IsCustomDelegateType(typeName, types))
-                return $"static_cast<Il2CppObject*>({objCode})";
+                return $"reinterpret_cast<Il2CppObject*>({objCode})";
             // M7 CG-FIX (boxdeep2 cmake FAIL): box primitives WITHOUT a GLOBAL
             // descriptor (UInt32/Int64/UInt64/Byte/SByte/Int16/UInt16/Single/
             // Decimal -- boxingext2.cpp's g_*BoxClass are file-local, lazily
@@ -6555,9 +6556,9 @@ public static class CodeGenerator
                 // is_instance(null) is false); on the match path the input is already
                 // known non-null (is_instance implies obj != nullptr), so the expression
                 // evaluates the input at most twice.
-                return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? static_cast<Il2CppObject*>({objCode}) : (({objCode}) == nullptr ? static_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new(\"{chain}\", \"Unable to cast object to the target type.\"), static_cast<Il2CppObject*>(nullptr))))";
+                return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? reinterpret_cast<Il2CppObject*>({objCode}) : (({objCode}) == nullptr ? reinterpret_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new(\"{chain}\", \"Unable to cast object to the target type.\"), reinterpret_cast<Il2CppObject*>(nullptr))))";
             }
-            return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? static_cast<Il2CppObject*>({objCode}) : nullptr)";
+            return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? reinterpret_cast<Il2CppObject*>({objCode}) : nullptr)";
         }
         // M3 arrays: newarr/ldlen/ldelem/stelem helpers.
         if (c.Function.StartsWith("newarr_", StringComparison.Ordinal)
@@ -6795,7 +6796,7 @@ public static class CodeGenerator
         // identity -> the full name. (boxdeep2 GAP-1/GAP-2 PROBE-1/PROBE-2).
         if (resolved2?.CppName.StartsWith("System_Object_ToString_", StringComparison.Ordinal) == true
             && c.Args.Count > 0)
-            return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(c.Args[0], md, types)}))";
+            return $"static_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(c.Args[0], md, types)}))";
         var callArgs2 = resolved2 != null
             ? EmitIcallCallArgs(resolved2, c.Args, md, types)
             : string.Join(", ", c.Args.Select(a => EmitExpr(a, md, types)));
@@ -7293,7 +7294,7 @@ public static class CodeGenerator
                 // int64 carrier (unbox:l -- icall_unbox_long); the explicit
                 // Il2CppObject* wrap matches the write_line_s param type
                 // (Il2CppString* is not derived from Il2CppObject).
-                "enum:l" => $"reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(nullptr, il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))))",
+                "enum:l" => $"static_cast<il2cpp::Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(nullptr, il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))))",
                 // timezone domain (MethodMap.TimeZone.cs): "tzsec" -- the
                 // TimeZoneInfo.GetUtcOffset Local branch. The receiver
                 // expression is the folded null (no identity); the cast
