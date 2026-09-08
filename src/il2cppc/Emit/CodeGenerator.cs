@@ -2715,7 +2715,8 @@ public static class CodeGenerator
     private static bool ReturnTypeIsRef(SignatureTypeCode code) => code switch
     {
         SignatureTypeCode.Void => false,
-        SignatureTypeCode.Int32 or SignatureTypeCode.Int64 or SignatureTypeCode.Boolean or SignatureTypeCode.Char
+        SignatureTypeCode.Int32 or SignatureTypeCode.Int64 or SignatureTypeCode.UInt32 or SignatureTypeCode.UInt64
+            or SignatureTypeCode.Boolean or SignatureTypeCode.Char
             or SignatureTypeCode.Int16 or SignatureTypeCode.UInt16 or SignatureTypeCode.SByte or SignatureTypeCode.Byte
             or SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr or SignatureTypeCode.Single or SignatureTypeCode.Double
             or SignatureTypeCode.GenericTypeParameter or SignatureTypeCode.GenericMethodParameter => false,
@@ -2910,7 +2911,11 @@ public static class CodeGenerator
                     else if ((_curReturnType == SignatureTypeCode.IntPtr || _curReturnType == SignatureTypeCode.UIntPtr) && retKind is "val" or "i")
                         retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
                     else if (ReturnTypeIsRef(_curReturnType) && retKind is "val" or "i" or "l" or "d" or "f" or "b" or "c")
-                        retExpr = $"reinterpret_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
+                    {
+                        // Enum val types (System_TypeCode etc.) cannot reinterpret_cast directly
+                        // to a pointer -- first static_cast to intptr_t, then reinterpret.
+                        retExpr = $"reinterpret_cast<{ReturnTypeCpp(_curReturnType)}>(static_cast<intptr_t>({retExpr}))";
+                    }
                     else if (!ReturnTypeIsRef(_curReturnType) && retKind is "ref" or "ptr")
                         retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
                     w.LineAligned($"return {retExpr};",
