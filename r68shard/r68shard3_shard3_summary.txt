@@ -1,0 +1,37 @@
+r68 shard3 Results
+====================
+ShardFile: C:\Users\windo\AppData\Local\Temp\opencode\r68shard\shard3.txt
+Total: 1542
+SuccessEmpty (Exit0 + no output): 1063
+Fail (Exit !=0): 479
+WithOutput (warnings/errors): 479
+OkButWarn (WithOutput - Fail): 0
+ElapsedSeconds: 606.9708005
+ThrottleLimit: 8
+Command: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r68/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠)
+Log: C:\Users\windo\AppData\Local\Temp\opencode\r68shard\r68shard3_shard3.log
+ErrorLog: C:\Users\windo\AppData\Local\Temp\opencode\r68shard\r68shard3_shard3_errors.log
+CSV: C:\Users\windo\AppData\Local\Temp\opencode\r68shard\r68shard3_shard3.csv
+Generated: 2026-09-03 18:25:32
+
+Top 20 files with errors/warnings:
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_VectorToCollectionAdapter.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_VectorToCollectionAdapter.cpp:100:197: error: cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of 
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_VectorViewToReadOnlyCollectionAdapter.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_VectorViewToReadOnlyCollectionAdapter.cpp:94:201: error: cannot initialize a parameter of type 'Il2CppObject *' with an
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_VectorToListAdapter.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_VectorToListAdapter.cpp:111:12: error: no matching function for call to 'System_Runtime_InteropServices_WindowsRuntime_
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeBufferHelper.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeBufferHelper.cpp:61:29: error: no matching function for call to 'System_Runtime_CompilerServices_JitHelpe
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_EventRegistrationTokenList.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_EventRegistrationTokenList.cpp:117:118: error: cannot convert 'System_Runtime_InteropServices_Win
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_ManagedEventRegistrationImpl.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_ManagedEventRegistrationImpl.cpp:107:10: error: no viable overloaded '='
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl_MyReaderWriterLock.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl_MyReaderWriterLock.cpp:118:5: error: no matching function for
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl_EventRegistrationTokenListWithCount.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl_EventRegistrationTokenListWithCount.cpp:188:73: error: cannot
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl_TokenListCount.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl_TokenListCount.cpp:124:176: error: no viable conversion from 
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal.cpp:280:12: error: incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') 
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_NativeOrStaticEventRegistrationImpl.cpp:113:27: error: no member named 'icall_box_intptr' in name
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMetadata.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMetadata.cpp:161:10: error: no matching function for call to 'System_Runtime_CompilerServices_JitHelpers_
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_InteropServices_WindowsRuntime_WinRTClassActivator.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_InteropServices_WindowsRuntime_WinRTClassActivator.cpp:143:16: error: no matching function for call to 'System_Runtime_InteropServices_Marshal_QueryIn
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_MemoryFailPoint.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_MemoryFailPoint.cpp:487:35: error: too few arguments to function call, expected 2, have 1
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_Remoting_Activation_ActivationServices.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_Remoting_Activation_ActivationServices.cpp:523:5: error: no matching function for call to 'System_Reflection_RuntimeAssembly_GetGrantSet_90661dbc6069f
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_Remoting_Activation_RemotingXmlConfigFileParser.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_Remoting_Activation_RemotingXmlConfigFileParser.cpp:447:209: error: cannot convert 'System_Collections_DictionaryEntry' to 'int32_t' (aka 'int') witho
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_Remoting_Channels_AsyncWorkItem.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_Remoting_Channels_AsyncWorkItem.cpp:211:75: error: static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_Remoting_Channels_ChannelServices.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_Remoting_Channels_ChannelServices.cpp:443:110: error: member reference base type 'int32_t' (aka 'int') is not a structure or union
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_Remoting_Channels_CrossAppDomainChannel.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_Remoting_Channels_CrossAppDomainChannel.cpp:394:50: error: too many arguments to function call, expected 0, have 1
+- E:\il2cpp\out\mscorlib_gen_r68\src\System_Runtime_Remoting_Channels_DictionaryEnumeratorByKeys.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r68/src/System_Runtime_Remoting_Channels_DictionaryEnumeratorByKeys.cpp:181:10: error: assigning to 'int32_t' (aka 'int') from incompatible type 'System_Collections_Dictiona

@@ -1,0 +1,8 @@
+# Memory - String运行时审计 2026-08-25
+- string.cpp 1-80: System_String_class 懒注册+GC精确块分配，StringAllocSize=offsetof(chars)+len*2 非sizeof基址
+- stringext.cpp 1-80: AsString/IsWhitespace/ToUpper/ToLower/NewStringFromUnits+RootScope GC根，sizeof基址与string.cpp diverge
+- decimal_format.cpp 337-381 FormatP: scale-2 百分缩放+零归一+负零去号+invariant空格; FormatCTail invariant无关，C符号/括号在1119-1140层处理
+- 2026-08-25 string性能审计: il2cpp_string_new CALL 17(16+1)+NewStringFromUnits 14=31分配点; 空串14次GC分配待intern缓存; StringFromCharArray/vector双拷贝+Insert/Remove逐unit循环+Split O(n*m)为热点; 优化: EmptyString intern复用/零拷贝直写s->chars/快速路径合并扫描 (只读审计未改源码)
+- 2026-08-25 array性能审计: array.cpp 218行+arraysort.cpp 1726行=1944行; 入口25个(排序18/反转5/拷贝1/查找3/二分3)+icomparer3; 热点: ArrayClassForElement互斥+线性strcmp+snprintf(每次ref数组分配)、QuickSort 31处/Hoare中枢+19 while+9 for、写屏障6次/交换、get_elem_ptr 4次/比较器路径逐元素边界检查、il2cpp_box_int32 2处/比较器每次2装箱O(n log n)分配、验证链68次; 优化: (1)TL缓存+无锁双检+指针身份快路径消互斥 (2)排序根路径去逐元素边界检查+默认comparer零装箱直比+批量写屏障 (只读审计未改源码) [READ:array.cpp:92][READ:arraysort.cpp:844][BASH:cmake --build EXIT 0]
+- 2026-08-25 GC性能审计: gc.cpp 1-120 M2非移动+SideTable+64KB段+FreeBlock; 1-120设计已读; 屏障168处(src/cpp)+11头文件, 卡表4MB>>12, MarkCardForAddress+il2cpp_write_barrier线性查表; 构建0错; 优化:(1)分代过滤+卡表young-only (2)批量屏障合并 [READ:gc.cpp:4][READ:gc.cpp:284][BASH:cmake EXIT 0]
+- 2026-08-25 decimal子代理性能审计: decimal_format.cpp 335-381 FormatP热点: scaled拷贝+find_first_not_of全扫描+erase搬移(零值快路径可消)、Group3临时串+逐字符%3模+out多次+=重分配; 优化:(1)零值快路径直赋0消扫描/搬移 (2)消Group3临时分配+out预留+直写分组去模 (只读未改源码) [READ:src/runtime/src/decimal_format.cpp:337][READ:src/runtime/src/decimal_format.cpp:352][BASH:cmake --build EXIT 0]

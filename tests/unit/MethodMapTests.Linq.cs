@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Linq;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -669,6 +672,64 @@ public class MethodMapTestsLinq
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (the ArraySort-test pipeline).
     //--------------------------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // D-LINQ-4 grouping surface: per-bucket Count / whole-result Count /
+    // instance get_Key / per-bucket ToArray route to the grouping icalls
+    // (OBJECT receivers -- never the "a" array cast).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Count_GroupingReceiver_MapsToGroupingGetCount()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Count",
+                memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_get_count", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Count_GroupingResultReceiver_MapsToResultGetCount()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Count",
+                memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
+            receiverType: "System.Linq.IGroupingResult");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_result_get_count", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_GetKey_GroupingOwner_MapsToGroupingGetKey()
+    {
+        var resolved = ResolveMemberRef(SynthesizeMemberRef("System.Linq", "IGrouping`2", "get_Key",
+            new byte[] { 0x00, 0x00, 0x08 }), "get_Key");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_get_key", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_ToArray_GroupingReceiver_MapsToGroupingGetElements()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("ToArray",
+                memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x1D, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_get_elements", resolved.CppName);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+    }
+
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)
     {
         using var reader = new PEReader(pe);
@@ -703,6 +764,28 @@ public class MethodMapTestsLinq
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"), mdb.GetOrAddString("Enumerable"));
         var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(methodName), mdb.GetOrAddBlob(memberRefSignature));
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
+    }
+
+    // D-LINQ-4: instance member on a non-Enumerable owner (IGrouping`2
+    // get_Key) -- plain MemberReference, no MethodSpecification.
+    private static ResolvedMethod ResolveMemberRef(MemoryStream pe, string memberName)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>());
+    }
+
+    private static MemoryStream SynthesizeMemberRef(string ns, string typeName, string memberName, byte[] signature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
         return Serialize(mdb);
     }
 

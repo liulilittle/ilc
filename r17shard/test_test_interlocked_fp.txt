@@ -1,0 +1,8 @@
+case=test_interlocked_fp
+status=PASS
+code=0
+---stdout---
+all runtime interlocked fp tests passed (P6 float/double atomics)
+
+---stderr---
+

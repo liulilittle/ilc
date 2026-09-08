@@ -1,0 +1,76 @@
+r70 shard1 7簇分析 - 2026-09-04 03:06:56
+===============================================
+来源: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard1_shard1_errors.log
+总文件: 1543 成功空:0 失败:1543 错行总数: 59042
+
+7主簇 (按 process.md 口径 ci/nmf/nv/sc/membref/undecl/other):
+  1 cannot-init (cannot initialize) : 1250  (2.1%)
+  2 no-matching-fn (no matching function) : 987  (1.7%)
+  3 no-viable-conv (no viable) : 1526  (2.6%)
+  4 static-cast : 70  (0.1%)
+  5 membref (no member named|member reference) : 468 (simple no member named=443)  (0.8%)
+  6 undeclared (use of undeclared|unknown type) : 52979  (89.7%)
+  7 other : 1762  (3%)
+ 校验: 59042 == 59042 ? True
+
+扩展细分:
+  assigning  : 320
+  incompat   : 320
+  too-few    : 18
+  too-many   : 11
+  cannot-cast: 1146
+
+Top 20 错误首句 (去重):
+   16980 unknown type name 'v'
+   16980 unknown type name 'u1'
+   15439 unknown type name 'c'
+   3087 unknown type name 'i'
+   870 cannot cast from type 'int32_t' (aka 'int') to pointer type 'Il2CppObject *'
+   688 no viable overloaded '='
+   410 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+   292 cannot initialize a parameter of type 'Il2CppArray *' with an lvalue of type 'Il2CppObject *'
+   226 no viable conversion from 'System_Runtime_CompilerServices_TaskAwaiter_1_int' to 'Il2CppObject *'
+   145 cannot initialize return object of type 'int32_t' (aka 'int') with an rvalue of type 'Il2CppObject *'
+   114 reinterpret_cast from 'int32_t' (aka 'int') to 'intptr_t' (aka 'long long') is not allowed
+   68 cannot initialize a parameter of type 'int32_t' (aka 'int') with an lvalue of type 'Il2CppObject *'
+   68 unknown type name 'dt'
+   67 no viable conversion from 'System_Runtime_CompilerServices_TaskAwaiter_1_int' to 'int32_t' (aka 'int')
+   61 static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+   55 no member named 'icall_box_intptr' in namespace 'il2cpp::runtime'; did you mean 'icall_box_uint'?
+   52 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'intptr_t' (aka 'long long')
+   41 no viable conversion from returned value of type 'System_Collections_DictionaryEntry' to function return type 'Il2CppObj
+   41 cannot initialize a parameter of type 'Il2CppObject *' with an rvalue of type 'int32_t *' (aka 'int *')
+   40 incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'Il2CppObject *'
+
+Top 20 失败文件 (按错行数):
+  E:\il2cpp\out\mscorlib_gen_r70\src\_PrivateImplementationDetails____StaticArrayInitTypeSize_10.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/_PrivateImplementationDetails____StaticArrayInitTypeSize_10.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_string.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_string.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_object_array.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_object_array.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_long.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_long.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_int.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_int.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_WeakReference_1_object.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_WeakReference_1_object.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Tuple_2_System_Guid_int.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Tuple_2_System_Guid_int.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Tuple_2_System_Diagnostics_Tracing_EventProvider_SessionInfo_int.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Tuple_2_System_Diagnostics_Tracing_EventProvider_SessionInfo_int.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_TimeSpan.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_TimeSpan.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Threading_Tasks_ConcurrentExclusiveSchedulerPair_ProcessingMode.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Threading_Tasks_ConcurrentExclusiveSchedulerPair_ProcessingMode.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_SynchronizedList_Byte.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_SynchronizedList_Byte.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Security_Cryptography_X509Certificates_ReadOnlyMemory_1_int.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Security_Cryptography_X509Certificates_ReadOnlyMemory_1_int.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Runtime_InteropServices_WindowsRuntime_EventRegistrationToken.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Runtime_InteropServices_WindowsRuntime_EventRegistrationToken.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Runtime_InteropServices_GCHandle.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Runtime_InteropServices_GCHandle.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Reflection_MemberInfo_array.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Reflection_MemberInfo_array.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Reflection_Emit_MethodBuilder_SymCustomAttr.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Reflection_Emit_MethodBuilder_SymCustomAttr.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_IntPtr.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_IntPtr.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Diagnostics_Tracing_EventProvider_SessionInfo.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Diagnostics_Tracing_EventProvider_SessionInfo.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Guid.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Guid.cpp:7:
+  E:\il2cpp\out\mscorlib_gen_r70\src\System_Collections_Generic_List_1_Enumerator_System_Decimal.cpp Exit:1 Lines: First:In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Collections_Generic_List_1_Enumerator_System_Decimal.cpp:7:
+
+产物:
+  Log: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard1_shard1.log
+  Errors: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard1_shard1_errors.log
+  CSV: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard1_shard1.csv
+  Summary: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard1_shard1_summary.txt
+  Clusters: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard1_shard1_clusters.txt
+  Flag: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\DONE_r70shard1.flag
+  镜像: E:\il2cpp\r70shard\
+
+命令: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r70/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠, ThrottleLimit 8, 1542)

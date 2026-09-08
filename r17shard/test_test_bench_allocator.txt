@@ -1,0 +1,17 @@
+case=test_bench_allocator
+status=PASS
+code=0
+---stdout---
+fast pool :   151.96 M alloc+free/s (0.013 s for 2000000 cycles)
+malloc    :    40.08 M alloc+free/s (0.050 s for 2000000 cycles)
+speedup   :     3.79x
+stats     : allocs=2000010 frees=2000010 bytes=170400852 chunks=5 large=0
+checksum  : 21728
+  bucket  16 B: 600003 allocs, hit rate  30.0%
+  bucket  32 B: 200001 allocs, hit rate  10.0%
+  bucket  64 B: 400002 allocs, hit rate  20.0%
+  bucket 128 B: 400002 allocs, hit rate  20.0%
+  bucket 256 B: 400002 allocs, hit rate  20.0%
+
+---stderr---
+

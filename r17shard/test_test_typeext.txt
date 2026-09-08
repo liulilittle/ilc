@@ -1,0 +1,8 @@
+case=test_typeext
+status=PASS
+code=0
+---stdout---
+all runtime typeext tests passed
+
+---stderr---
+

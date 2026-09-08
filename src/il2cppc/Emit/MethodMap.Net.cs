@@ -130,32 +130,40 @@ public static partial class MethodRefResolver
 
     private static ResolvedMethod? TryMapSocket(string name, byte[] ps, int count)
     {
-        const string gap = "socket.h is a flat opaque-HANDLE API (il2cpp_socket*) with no object-typed icalls and no class descriptor: " +
-            "a managed Socket object cannot be allocated (il2cpp_object_new(&System_Net_Sockets_Socket_class) is an undefined symbol) " +
-            "and the managed receiver (Il2CppObject*) cannot be cast to il2cpp_socket* (opaque -- the StreamIO handle-gap precedent, MethodMap.StreamIO.cs:32-53). " +
-            "HANDLE-GAP CLOSURE (icall objectification, net-domain.md sections 2.3 + 4.2): the runtime must add " +
-            "il2cpp_netsocket.h icall_socket_ctor(Il2CppObject* self, int32_t family, int32_t type, int32_t protocol) / " +
-            "icall_socket_connect_host(Il2CppObject* self, Il2CppString* host, int32_t port) / icall_socket_send / icall_socket_receive / " +
-            "icall_socket_close, backed by the System_Net_Sockets_Socket_class descriptor ({ obj; int32_t fd; }); then re-dispatch this owner.";
+        // Socket object layer (il2cpp_netsocket.h/cpp): the managed Socket is
+        // a runtime-registered class ({ obj; int32_t fd; }, fd at slot 1,
+        // -1 = closed) backed by the GLOBAL System_Net_Sockets_Socket_class.
         switch (name)
         {
             case ".ctor":
                 if (ps.Length == 3)
-                    throw new NotSupportedException(
-                        "Socket(AddressFamily, SocketType, ProtocolType) ctor not wired: " + gap);
+                    return I("il2cpp::runtime::icall_socket_ctor", 3, false, false, true,
+                        new[] { "", "i", "i", "i" });
                 return null;
             case "Connect":
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x08)
-                    throw new NotSupportedException("Socket.Connect(string, int) not wired: " + gap);
+                    return I("il2cpp::runtime::icall_socket_connect_host", 2, false, false, true,
+                        new[] { "", "s", "i" });
                 return null;
             case "Send":
+                if (ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::runtime::icall_socket_send", 1, true, false, true,
+                        new[] { "", "a" });
+                if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::runtime::icall_socket_send_offset", 3, true, false, true,
+                        new[] { "", "a", "i", "i" });
+                return null;
             case "Receive":
-                if (ps.Length >= 1 && ps[0] == 0x1D)
-                    throw new NotSupportedException($"Socket.{name}(byte[], ...) not wired: " + gap);
+                if (ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::runtime::icall_socket_receive", 1, true, false, true,
+                        new[] { "", "a" });
+                if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::runtime::icall_socket_receive_offset", 3, true, false, true,
+                        new[] { "", "a", "i", "i" });
                 return null;
             case "Close":
                 if (ps.Length == 0)
-                    throw new NotSupportedException("Socket.Close() not wired: " + gap);
+                    return I("il2cpp::runtime::icall_socket_close", 0, false, false, true);
                 return null;
             default: return null;
         }

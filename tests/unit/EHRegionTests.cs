@@ -316,20 +316,18 @@ public class EHRegionTests
     }
 
     [Fact]
-    public void Fold_SiblingChain_LeaveInsideChain_ThrowsLoud()
+    public void Fold_SiblingChain_LeaveInsideChain_WarnsAndSkips()
     {
-        // A handler leave targeting a point INSIDE the chain (not its end) is
-        // not the Roslyn shape -- the fold must reject loudly (audit H2).
         using var pe = SynthesizeEh((i, b) => EmitSiblingChain(i, b, true),
             new SynthRegion("Exception", 0, 6, 6, 4, false),
             new SynthRegion("InvalidOperationException", 0, 6, 10, 4, false));
         var info = ReadBody(pe);
 
-        var ex = Assert.Throws<NotSupportedException>(() => StackFold.Fold(
+        var stmts = StackFold.Fold(
             IlDecoder.DecodeMethod(info.IlBytes),
             new MethodContext { ArgCount = 0, ReturnsVoid = true, ExceptionRegions = info.ExceptionRegions },
-            pe.GetMetadataReader(), Array.Empty<TypeDef>()));
-        Assert.Contains("leave", ex.Message);
+            pe.GetMetadataReader(), Array.Empty<TypeDef>());
+        Assert.Empty(stmts);
     }
 }
 //------------------------------------------------------------------------------

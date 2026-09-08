@@ -1,0 +1,8 @@
+case=test_gc_getters
+status=PASS
+code=0
+---stdout---
+all runtime gc getter tests passed
+
+---stderr---
+

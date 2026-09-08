@@ -1,0 +1,8 @@
+r78 shard3 Results
+====================
+Total: 1553
+SuccessEmpty: 0
+Fail: 1553
+ElapsedSeconds: 636.3921478
+ThrottleLimit: 8
+Generated: 2026-09-05 21:09:14

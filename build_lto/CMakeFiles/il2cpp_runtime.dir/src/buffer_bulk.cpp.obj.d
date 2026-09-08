@@ -1,0 +1,36 @@
+CMakeFiles/il2cpp_runtime.dir/src/buffer_bulk.cpp.obj: \
+  E:/il2cpp/src/runtime/src/buffer_bulk.cpp \
+  E:/il2cpp/src/runtime/include/internal/buffer_bulk.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/cstddef \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__assert \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__config \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__config_site \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__verbose_abort \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__availability \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/enable_if.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/integral_constant.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/is_integral.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/remove_cv.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/remove_const.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/remove_volatile.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/version \
+  C:/PROGRA~1/ming-w64/include/c++/v1/stddef.h \
+  C:/PROGRA~1/ming-w64/lib/clang/17/include/stddef.h \
+  C:/PROGRA~1/ming-w64/lib/clang/17/include/__stddef_max_align_t.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/cstdint \
+  C:/PROGRA~1/ming-w64/include/c++/v1/stdint.h \
+  C:/PROGRA~1/ming-w64/lib/clang/17/include/stdint.h \
+  C:/PROGRA~1/ming-w64/include/stdint.h \
+  C:/PROGRA~1/ming-w64/include/crtdefs.h \
+  C:/PROGRA~1/ming-w64/include/corecrt.h \
+  C:/PROGRA~1/ming-w64/include/_mingw.h \
+  C:/PROGRA~1/ming-w64/include/_mingw_mac.h \
+  C:/PROGRA~1/ming-w64/include/_mingw_secapi.h \
+  C:/PROGRA~1/ming-w64/lib/clang/17/include/vadefs.h \
+  C:/PROGRA~1/ming-w64/include/vadefs.h \
+  C:/PROGRA~1/ming-w64/include/sdks/_mingw_ddk.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/cstring \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__type_traits/is_constant_evaluated.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/string.h \
+  C:/PROGRA~1/ming-w64/include/string.h \
+  C:/PROGRA~1/ming-w64/include/sec_api/string_s.h

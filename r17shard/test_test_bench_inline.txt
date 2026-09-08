@@ -1,0 +1,24 @@
+case=test_bench_inline
+status=PASS
+code=0
+---stdout---
+--- round 1 ---
+bench get_elem_ptr          :     0.47 ns/op (0.005 s for 10000000 ops)
+bench get_length            :     0.00 ns/op (0.000 s for 10000000 ops)
+bench string_get_length     :     0.00 ns/op (0.000 s for 10000000 ops)
+bench null_check            :     0.20 ns/op (0.002 s for 10000000 ops)
+--- round 2 ---
+bench get_elem_ptr          :     0.48 ns/op (0.005 s for 10000000 ops)
+bench get_length            :     0.00 ns/op (0.000 s for 10000000 ops)
+bench string_get_length     :     0.00 ns/op (0.000 s for 10000000 ops)
+bench null_check            :     0.20 ns/op (0.002 s for 10000000 ops)
+--- round 3 ---
+bench get_elem_ptr          :     0.48 ns/op (0.005 s for 10000000 ops)
+bench get_length            :     0.00 ns/op (0.000 s for 10000000 ops)
+bench string_get_length     :     0.00 ns/op (0.000 s for 10000000 ops)
+bench null_check            :     0.20 ns/op (0.002 s for 10000000 ops)
+checksum  : 0
+all runtime bench-inline tests passed
+
+---stderr---
+

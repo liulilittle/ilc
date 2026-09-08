@@ -1,0 +1,8 @@
+case=test_waithandle
+status=PASS
+code=0
+---stdout---
+all runtime waithandle tests passed
+
+---stderr---
+

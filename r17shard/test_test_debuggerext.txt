@@ -1,0 +1,8 @@
+case=test_debuggerext
+status=PASS
+code=0
+---stdout---
+all runtime debuggerext tests passed
+
+---stderr---
+

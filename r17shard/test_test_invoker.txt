@@ -1,0 +1,8 @@
+case=test_invoker
+status=PASS
+code=0
+---stdout---
+all runtime invoker tests passed
+
+---stderr---
+

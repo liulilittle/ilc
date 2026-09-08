@@ -1,0 +1,8 @@
+case=test_parse
+status=PASS
+code=0
+---stdout---
+all runtime parse tests passed
+
+---stderr---
+

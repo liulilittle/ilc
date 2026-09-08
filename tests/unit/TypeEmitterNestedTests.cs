@@ -297,8 +297,10 @@ public class TypeEmitterNestedTests
             Assert.Equal("Cases.Recurse", node.DeclaringTypeName);
             // The net48 reflection identity: declaring chain + "+" + short name.
             Assert.Equal("Cases.Recurse+Node", TypeEmitter.ReflectionFullName(node));
-            // The C++ symbol stays the short name (reference-point convention).
-            Assert.Equal("Node", TypeEmitter.TypeCppName(node));
+            // The C++ symbol now carries the declaring-type prefix (r78 fix:
+            // multiple enclosing types can have nested types with the same short
+            // name -- the prefix disambiguates them).
+            Assert.Equal("Cases_Recurse_Node", TypeEmitter.TypeCppName(node));
         }
         finally
         {
@@ -317,7 +319,7 @@ public class TypeEmitterNestedTests
             var code = TypeEmitter.EmitTypeInfo(node);
             // The table NAME field (the registry key) is the '+' full name --
             // Type.GetType("Cases.Recurse+Node") resolves against it.
-            Assert.Contains("il2cpp::Il2CppTypeInfo Node_typeinfo = {", code);
+            Assert.Contains("il2cpp::Il2CppTypeInfo Cases_Recurse_Node_typeinfo = {", code);
             Assert.Contains("\"Cases.Recurse+Node\",", code);
             Assert.DoesNotContain("\"Node\",", code);
             // Methods carry the same declaringType identity (net48 reflection).
@@ -343,7 +345,7 @@ public class TypeEmitterNestedTests
             var (types, _) = Load(tmp, SynthesizeNested());
             var node = types.Single(t => t.FullName == "Node");
             var code = TypeEmitter.EmitClassStruct(node);
-            Assert.Contains("struct Node", code);
+            Assert.Contains("struct Cases_Recurse_Node", code);
             Assert.Contains("Il2CppObject _obj;", code); // reference type: header first
             Assert.Contains("int32_t Id;", code);
         }
@@ -364,13 +366,13 @@ public class TypeEmitterNestedTests
             var myExc2 = types.Single(t => t.FullName == "MyException2");
             // BCL base -> nullptr (System.Exception is a runtime type).
             var d1 = TypeEmitter.EmitClassDescriptor(myExc);
-            Assert.Contains("Il2CppClass MyException_class", d1);
+            Assert.Contains("Il2CppClass Cases_Recurse_MyException_class", d1);
             Assert.Contains("\"MyException\"", d1); // short name: reference-point identity
             Assert.Contains("nullptr", d1);         // baseClass (BCL root)
             // Nested user base -> the nested descriptor (same short-name mapping).
             var d2 = TypeEmitter.EmitClassDescriptor(myExc2);
-            Assert.Contains("Il2CppClass MyException2_class", d2);
-            Assert.Contains("&MyException_class", d2);
+            Assert.Contains("Il2CppClass Cases_Recurse_MyException2_class", d2);
+            Assert.Contains("&Cases_Recurse_MyException_class", d2);
         }
         finally
         {
@@ -397,7 +399,7 @@ public class TypeEmitterNestedTests
             // Definition side: the MethodCppName formula CodeGenerator uses
             // when emitting the ctor function of an expanded nested type.
             var defName = $"{TypeEmitter.TypeCppName(node)}_{TypeEmitter.Sanitize(ctor.Name)}_{SigHash.Hash(node.FullName + "." + ctor.Name + "(" + ctor.ParamTypes + ")")}";
-            Assert.Equal("Node__ctor_b3740a9592788e34", defName);
+            Assert.Equal("Cases_Recurse_Node__ctor_b3740a9592788e34", defName);
             // Call side: the resolver names the ctor call from metadata
             // (owner short name "Node") -- must be byte-identical.
             var resolved = MethodRefResolver.Resolve(md, CtorMethodToken(md, "Node"), types);
@@ -415,25 +417,7 @@ public class TypeEmitterNestedTests
     // C++ symbols. Reject loudly at transpile time (the reference-point
     // naming cannot disambiguate them).
     //--------------------------------------------------------------------------
-    [Fact]
-    public void Expand_ShortNameCollision_ThrowsLoud()
-    {
-        var tmp = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllBytes(tmp, SynthesizeCollision().ToArray());
-            var types = MetadataLoader.LoadAssembly(tmp);
-            using var fs = File.OpenRead(tmp);
-            using var per = new PEReader(fs);
-            var md = per.GetMetadataReader();
-            var ex = Assert.Throws<NotSupportedException>(() => TypeEmitter.ExpandNestedTypes(md, types));
-            Assert.Contains("duplicate C++ symbols", ex.Message);
-        }
-        finally
-        {
-            File.Delete(tmp);
-        }
-    }
+
 
     //--------------------------------------------------------------------------
     // D-GC-1 (newarrdeep): a NESTED type's INSTANCE ARRAY FIELD -- the
@@ -482,7 +466,7 @@ public class TypeEmitterNestedTests
             var (types, _) = Load(tmp, SynthesizeNestedArrayField());
             var bag = types.Single(t => t.FullName == "Bag");
             var code = TypeEmitter.EmitClassStruct(bag);
-            Assert.Contains("struct Bag", code);
+            Assert.Contains("struct Cases_Recurse_Bag", code);
             Assert.Contains("Il2CppObject* kids;", code);
             Assert.Contains("slot 1 at offset 8 (GC reference)", code);
         }

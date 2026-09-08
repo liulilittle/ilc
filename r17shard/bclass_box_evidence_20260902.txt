@@ -1,0 +1,57 @@
+B类box查表编码证据快照 2026-09-02
+========================================
+
+W3 备份
+  Copy-Item CodeGenerator.cs -> .opencode/backups/CodeGenerator.cs.20260902203941-beforeBclassBox
+  backup:E:\il2cpp\.opencode\backups\CodeGenerator.cs.20260902203941-beforeBclassBox
+  Length 589123, Lines 9132, Exists True
+  执行:Copy-Item:输出 backup:E:\il2cpp\.opencode\backups\CodeGenerator.cs.20260902203941-beforeBclassBox
+
+C0 编译
+  指令: dotnet build E:\il2cpp\src\il2cppc\il2cppc.csproj -o E:\il2cpp\temp --no-incremental
+  输出:
+适用 .NET MSBuild 版本 17.9.8+610b4d3b5
+  Determining projects to restore...
+  所有项目均是最新的，无法还原。
+E:\il2cpp\src\il2cppc\MetadataLoader.cs(761,32): warning CS8601: 可能为 null 引用赋值。
+E:\il2cpp\src\il2cppc\MetadataLoader.cs(770,32): warning CS8601: 可能为 null 引用赋值。
+E:\il2cpp\src\il2cppc\MetadataLoader.cs(834,32): warning CS8601: 可能为 null 引用赋值。
+E:\il2cpp\src\il2cppc\Emit\CodeGenerator.cs(758,46): warning CS8604: “bool HashSet<string>.Add(string item)”中的形参“item”可能为 null 引用实参。
+E:\il2cpp\src\il2cppc\Ir\StackFold.cs(4198,23): warning CS8321: 声明了本地函数“ConsumeTypeHandleAndReturn”，但从未使用过
+E:\il2cpp\src\il2cppc\Ir\StackFold.cs(4540,21): warning CS8321: 声明了本地函数“IsRefElementKind”，但从未使用过
+E:\il2cpp\src\il2cppc\Ir\StackFold.cs(4541,21): warning CS8321: 声明了本地函数“IsClosureArgReference”，但从未使用过
+  il2cppc -> E:\il2cpp\temp\il2cppc.dll
+已成功生成。
+    7 个警告
+    0 个错
+已用时间 00:00:03.85
+  证据: 执行:dotnet build:输出 已成功生成。 0 个错
+  单次bash ≤280000ms: 3.85s < 280s
+
+硬编码键集删除
+  Select-String "return boxType switch" -> 0 命中
+  Select-String "ScalarTable\.TryGet\(boxType" -> 1 命中 at 7210
+  Select-String "BoxHelper" -> 6 命中
+  Select-String "UnboxHelper" -> 3 命中 (unbox 保留，不动)
+  Select-String "NeedsAddressOf" -> 1 命中 at 7212 (box)
+  Select-String "CppType" -> 10 命中 (box NeedsAddress + TypeCppName)
+  证据: 执行:Select-String count BoxHelper 6 NeedsAddressOf 1 CppType 10 box switch 0
+
+P25b/enum/Decimal 保留
+  Select-String "P25b" -> 7 命中 at 7220,7230 等
+  Select-String "BaseTypeName == \"System.Enum\"" -> 5 命中 (含1 box enum)
+  Select-String "KnownBclEnumNames" -> 3 命中 at 7201
+  证据: 读:E:\il2cpp\src\il2cppc\Emit\CodeGenerator.cs:7199/7201/7230
+
+行数
+  backup lines 9132 -> curr lines 9125 net -7 (Get-Content)
+  python difflib adds 38 rems 39 net -1
+  box 旧 39 lines (switch 13臂 + P25b + tolerant) -> 新 38 lines (TryGet + P25b + tolerant) net -1
+  证据: 执行:python difflib net -1, Get-Content net -7 (CRLF差异)
+
+备份与产物
+  备份: .opencode/backups/CodeGenerator.cs.20260902203941-beforeBclassBox
+  产物前缀: r17shard\bclass_box_*
+  本文件: r17shard\bclass_box_evidence_20260902.txt
+  报告: r17shard\bclass_box_report_20260902.md
+  映射: r17shard\bclass_box_mapping_20260902.md

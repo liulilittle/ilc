@@ -1,0 +1,8 @@
+case=test_cultureinfo
+status=PASS
+code=0
+---stdout---
+all runtime cultureinfo tests passed
+
+---stderr---
+

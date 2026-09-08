@@ -1,0 +1,48 @@
+r18 shard3 补发 Results
+====================
+ShardFile: C:\Users\windo\AppData\Local\Temp\opencode\r18shard\shard3.txt (1541 lines)
+Total: 1541
+SuccessEmpty (Exit0 + no output): 1054
+Fail (Exit !=0): 487
+WithOutput (warnings/errors): 487
+OkButWarn (WithOutput - Fail): 0
+ThrottleLimit: 8
+Command: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r18/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠)
+Log: C:\Users\windo\AppData\Local\Temp\opencode\r18shard\r18shard补发_shard3.log
+ErrorLog: C:\Users\windo\AppData\Local\Temp\opencode\r18shard\r18shard补发_shard3_errors.log
+CSV: C:\Users\windo\AppData\Local\Temp\opencode\r18shard\r18shard补发_shard3.csv
+Generated: 2026-09-02 13:19:54
+
+Counts per part:
+ part1: 514
+ part2: 514
+ part3: 513
+
+Top 20 files with errors/warnings:
+- E:\il2cpp\out\mscorlib_gen_r18\src\__f__AnonymousType0_1_string.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/__f__AnonymousType0_1_string.cpp:182:118: error: incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'Il2CppObject *'
+- E:\il2cpp\out\mscorlib_gen_r18\src\Microsoft_Runtime_Hosting_StrongNameHelpers.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/Microsoft_Runtime_Hosting_StrongNameHelpers.cpp:94:8: error: array type 'uint8_t[16]' (aka 'unsigned char[16]') is not assignable
+- E:\il2cpp\out\mscorlib_gen_r18\src\Microsoft_Reflection_ReflectionExtensions.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/Microsoft_Reflection_ReflectionExtensions.cpp:161:54: error: cannot initialize a parameter of type 'Il2CppClass *' with an lvalue of type 'Il2CppObject *'
+- E:\il2cpp\out\mscorlib_gen_r18\src\Microsoft_Win32_SafeHandles_CriticalHandleMinusOneIsInvalid.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/Microsoft_Win32_SafeHandles_CriticalHandleMinusOneIsInvalid.cpp:103:5: error: no matching function for call to 'System_IntPtr__ctor_f665c347b98a1ea5'
+- E:\il2cpp\out\mscorlib_gen_r18\src\Microsoft_Win32_RegistryKey.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/Microsoft_Win32_RegistryKey.cpp:282:117: error: incompatible pointer types assigning to 'Microsoft_Win32_SafeHandles_SafeRegistryHandle *' from 'Il2CppObject *'
+- E:\il2cpp\out\mscorlib_gen_r18\src\Microsoft_Win32_SafeHandles_SafeHandleMinusOneIsInvalid.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/Microsoft_Win32_SafeHandles_SafeHandleMinusOneIsInvalid.cpp:101:5: error: no matching function for call to 'System_IntPtr__ctor_f665c347b98a1ea5'
+- E:\il2cpp\out\mscorlib_gen_r18\src\Microsoft_Win32_SafeHandles_SafeLsaReturnBufferHandle.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/Microsoft_Win32_SafeHandles_SafeLsaReturnBufferHandle.cpp:108:136: error: reinterpret_cast from 'uintptr_t' (aka 'unsigned long long') to 'intptr_t' (aka 'long long') is not allowed
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_ActivationContext.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_ActivationContext.cpp:373:42: error: no matching function for call to 'ParseManifest'
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_AppContextSwitches.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_AppContextSwitches.cpp:441:10: error: incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'int32_t *' (aka 'int *'); dereference with *
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_AppDomainSetup.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_AppDomainSetup.cpp:1093:196: error: static_cast from 'std::nullptr_t' to 'int32_t' (aka 'int') is not allowed
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_AppDomain.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_AppDomain.cpp:1031:8: error: no matching function for call to 'System_IntPtr_IsNull_95e8e6e12a2cd341'
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Array_SorterGenericArray.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Array_SorterGenericArray.cpp:100:18: error: incompatible pointer types assigning to 'Il2CppObject *' from 'System_Array *'
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Array.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Array.cpp:493:44: error: cannot initialize a parameter of type 'Il2CppClass *' with an lvalue of type 'int64_t' (aka 'long long')
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Boolean.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Boolean.cpp:726:5: error: no matching function for call to 'System_Convert_ToDecimal_a0a9883a59cefb6c'
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_BaseConfigHandler.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_BaseConfigHandler.cpp:110:68: error: reference to 'System_Delegate_class' is ambiguous
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Char.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Char.cpp:769:81: error: cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Buffer.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Buffer.cpp:113:12: error: incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'int32_t *' (aka 'int *'); dereference with *
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Collections_ArrayList_ReadOnlyArrayList.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Collections_ArrayList_ReadOnlyArrayList.cpp:730:52: error: cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Collections_BitArray.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Collections_BitArray.cpp:1129:42: error: cannot initialize a parameter of type 'Il2CppArray *' with an lvalue of type 'Il2CppObject *'
+- E:\il2cpp\out\mscorlib_gen_r18\src\System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_int.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r18/src/System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_int.cpp:158:626: error: no member named 'm_tables' in 'System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_int'
+
+Sample 5 success files:
+- E:\il2cpp\out\mscorlib_gen_r18\src\_PrivateImplementationDetails____StaticArrayInitTypeSize_126.cpp OK
+- E:\il2cpp\out\mscorlib_gen_r18\src\_PrivateImplementationDetails____StaticArrayInitTypeSize_288.cpp OK
+- E:\il2cpp\out\mscorlib_gen_r18\src\_PrivateImplementationDetails____StaticArrayInitTypeSize_16.cpp OK
+- E:\il2cpp\out\mscorlib_gen_r18\src\_PrivateImplementationDetails____StaticArrayInitTypeSize_14.cpp OK
+- E:\il2cpp\out\mscorlib_gen_r18\src\_PrivateImplementationDetails____StaticArrayInitTypeSize_11.cpp OK

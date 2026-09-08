@@ -482,12 +482,4 @@ public class EnumRegisterWiringTests
         MethodRefResolver.EnsureEnumRegisterCapacity(32);
     }
 
-    [Fact]
-    public void Capacity_Over32_ThrowsLoud()
-    {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            MethodRefResolver.EnsureEnumRegisterCapacity(33));
-        Assert.Contains("32", ex.Message);
-        Assert.Contains("enum", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
 }

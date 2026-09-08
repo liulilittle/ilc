@@ -1,0 +1,35 @@
+
+Count Name
+----- ----
+   70 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Sys
+   48 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Enu
+   42 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Mic
+   42 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\__S
+   36 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\__c
+   17 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Con
+   15 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\_ge
+   13 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Lis
+   11 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Syn
+   10 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Sta
+    9 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\EVE
+    8 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Key
+    8 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\_Re
+    7 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Dyn
+    7 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Cre
+    7 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Com
+    6 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Str
+    6 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\CLA
+    6 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\LSA
+    6 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Nod
+    6 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Rea
+    5 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Fil
+    5 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Int
+    5 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\SEC
+    5 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Mem
+    5 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Arr
+    5 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\_Wr
+    5 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\App
+    4 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\ASS
+    4 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Evi
+
+

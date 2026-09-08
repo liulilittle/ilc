@@ -1,0 +1,8 @@
+case=test_hash_bulk
+status=PASS
+code=0
+---stdout---
+all hash_bulk tests passed
+
+---stderr---
+

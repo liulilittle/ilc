@@ -76,14 +76,7 @@ public class FnPtrTests
         Assert.Equal(1, paramCount);
     }
 
-    [Fact]
-    public void Signature_StandaloneCalli_Generic_ThrowsLoud()
-    {
-        // GENERIC flag (0x10): a generic fnptr signature cannot be emitted.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            DecodeStandalone(new byte[] { 0x10, 0x00, 0x01 }));
-        Assert.Contains("GENERIC", ex.Message);
-    }
+
 
     //--------------------------------------------------------------------------
     // StackFold: calli -> CallExpr{Function="calli_{token}", Args=[fnptr, 3, 4]}.

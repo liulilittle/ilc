@@ -1,0 +1,8 @@
+case=test_api
+status=PASS
+code=0
+---stdout---
+all C API export surface tests passed
+
+---stderr---
+

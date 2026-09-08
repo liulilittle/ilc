@@ -1,0 +1,8 @@
+case=test_stringops_gcstress
+status=PASS
+code=0
+---stdout---
+all stringops gc-stress tests passed
+
+---stderr---
+

@@ -1,0 +1,8 @@
+case=test_stringext3
+status=PASS
+code=0
+---stdout---
+all runtime stringext3 tests passed
+
+---stderr---
+

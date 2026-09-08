@@ -1,0 +1,8 @@
+r78 shard2 Results
+====================
+Total: 0
+SuccessEmpty: -1
+Fail: 1
+ElapsedSeconds: 0.3652403
+ThrottleLimit: 8
+Generated: 2026-09-05 23:23:34

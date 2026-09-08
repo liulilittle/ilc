@@ -1,0 +1,76 @@
+r19 shard1 补发 7簇分析 - 2026-09-02 11:38:14
+===============================================
+来源: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1_errors.log
+总文件: 1542 成功空:1044 失败498 错行总数: 5593
+
+7主簇 (按 process.md 口径 ci/nmf/nv/sc/membref/undecl/other):
+  1 cannot-init (cannot initialize) : 1146  (20.5%)
+  2 no-matching-fn (no matching function) : 1509  (27%)
+  3 no-viable-conv (no viable) : 993  (17.8%)
+  4 static-cast : 121  (2.2%)
+  5 membref (no member named|member reference) : 459 (simple no member named=307)  (8.2%)
+  6 undeclared (use of undeclared|unknown type) : 293  (5.2%)
+  7 other : 1072  (19.2%)
+  校验: 5593 == 5593 ? True
+
+扩展细分:
+  assigning  : 619
+  incompat   : 619
+  too-few    : 93
+  too-many   : 44
+  cannot-cast: 98
+
+Top 20 错误首句 (去重):
+   376 no viable overloaded '='
+   238 cannot initialize a parameter of type 'int32_t' (aka 'int') with an lvalue of type 'Il2CppObject *'
+   237 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+   229 no viable conversion from 'System_Int32' to 'int32_t' (aka 'int')
+   114 cannot initialize a parameter of type 'Il2CppClass *' with an lvalue of type 'Il2CppObject *'
+    97 cannot initialize a parameter of type 'Il2CppArray *' with an lvalue of type 'Il2CppObject *'
+    94 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t *' (aka 'int 
+    92 assigning to 'int32_t' (aka 'int') from incompatible type 'System_Globalization_TimeSpanParse_TimeSp
+    89 incompatible integer to pointer conversion assigning to 'Il2CppObject *' from 'int32_t' (aka 'int')
+    87 too few arguments to function call, expected 2, have 1
+    77 no viable conversion from 'System_Runtime_CompilerServices_TaskAwaiter_1_int' to 'Il2CppObject *'
+    76 cannot cast from type 'int32_t' (aka 'int') to pointer type 'Il2CppObject *'
+    75 static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+    66 incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'Il2CppObject *'
+    58 member reference base type 'int32_t' (aka 'int') is not a structure or union
+    53 no matching function for call to 'System_Security_Cryptography_X509Certificates_ReadOnlySpan_1_int_g
+    52 member reference type 'il2cpp::runtime::Il2CppDecimal' is not a pointer; did you mean to use '.'?
+    52 cannot initialize return object of type 'int32_t' (aka 'int') with an lvalue of type 'Il2CppObject *
+    43 too many arguments to function call, expected 0, have 1
+    42 no member named 'promise' in 'System_Threading_Tasks_TaskFactory_1_int'
+
+Top 20 失败文件 (按错行数):
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Security_Cryptography_X509Certificates_AsnDecoder.cpp Exit:1 Lines:1401 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Security_Cryptography_X509Certificates_AsnDecoder.cpp:128:10: error: no matchi
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Runtime_InteropServices_WindowsRuntime_ICustomPropertyProviderProxy_2_int.cpp Exit:1 Lines:1091 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Runtime_InteropServices_WindowsRuntime_ICustomPropertyProviderProxy_2_int.cpp:
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_ValueTuple_8_int_int_int_int_int_int_int_int.cpp Exit:1 Lines:982 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_ValueTuple_8_int_int_int_int_int_int_int_int.cpp:179:17: error: no viable over
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Globalization_TimeSpanParse.cpp Exit:1 Lines:811 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Globalization_TimeSpanParse.cpp:201:5: error: unknown type name 'TimeSpanResul
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Decimal.cpp Exit:1 Lines:512 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Decimal.cpp:340:11: error: no member named 'lo' in 'il2cpp::runtime::Il2CppDec
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Runtime_Remoting_Activation_RemotingXmlConfigFileParser.cpp Exit:1 Lines:502 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Runtime_Remoting_Activation_RemotingXmlConfigFileParser.cpp:447:209: error: ca
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Security_Cryptography_X509Certificates_Pkcs12Kdf.cpp Exit:1 Lines:499 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Security_Cryptography_X509Certificates_Pkcs12Kdf.cpp:201:13: error: assigning 
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Threading_Tasks_TaskFactory_1_int.cpp Exit:1 Lines:493 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Threading_Tasks_TaskFactory_1_int.cpp:795:178: error: no member named 'asyncRe
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Threading_Tasks_TaskFactory_1_string.cpp Exit:1 Lines:402 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Threading_Tasks_TaskFactory_1_string.cpp:282:12: error: no viable conversion f
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_ValueTuple_5_int_int_int_int_int.cpp Exit:1 Lines:385 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_ValueTuple_5_int_int_int_int_int.cpp:150:17: error: no viable overloaded '='
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Tuple_7_int_int_int_int_int_int_int.cpp Exit:1 Lines:337 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Tuple_7_int_int_int_int_int_int_int.cpp:154:12: error: no viable conversion fr
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Concurrent_ConcurrentDictionary_2_System_Guid_System_Tuple_2_System_Guid_int.cpp Exit:1 Lines:331 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Concurrent_ConcurrentDictionary_2_System_Guid_System_Tuple_2_Syste
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_RuntimeTypeHandle.cpp Exit:1 Lines:322 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_RuntimeTypeHandle.cpp:333:12: error: no matching function for call to 'System_
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Generic_Dictionary_2_System_Guid_System_Guid.cpp Exit:1 Lines:316 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Generic_Dictionary_2_System_Guid_System_Guid.cpp:448:5: error: no 
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Text_UnicodeEncoding.cpp Exit:1 Lines:292 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Text_UnicodeEncoding.cpp:361:158: error: cannot initialize a parameter of type
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Concurrent_ConcurrentDictionary_2_string_object.cpp Exit:1 Lines:277 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Concurrent_ConcurrentDictionary_2_string_object.cpp:275:54: error:
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Concurrent_ConcurrentDictionary_2_object_object_array.cpp Exit:1 Lines:277 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Concurrent_ConcurrentDictionary_2_object_object_array.cpp:275:54: 
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Generic_Dictionary_2_object_System_Runtime_InteropServices_WindowsRuntime_WindowsRuntimeMarshal_EventRegistrationTokenList.cpp Exit:1 Lines:271 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Generic_Dictionary_2_object_System_Runtime_InteropServices_Windows
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Generic_Dictionary_2_object_int.cpp Exit:1 Lines:265 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Generic_Dictionary_2_object_int.cpp:448:5: error: no matching func
+  E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Generic_Dictionary_2_int_int.cpp Exit:1 Lines:265 First:E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Generic_Dictionary_2_int_int.cpp:448:5: error: no matching functio
+
+产物:
+  Log: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1.log
+  Errors: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1_errors.log
+  CSV: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1.csv
+  Summary: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1_summary.txt
+  Clusters: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1_clusters.txt
+  Flag: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\DONE_r19shard1_retry.flag
+  镜像: E:\il2cpp\r19shard\
+
+命令: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r19/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠, ThrottleLimit 8, 6分片*257合计1542)

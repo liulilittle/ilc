@@ -62,18 +62,11 @@ public class MethodMapDependentHandleTests
         Assert.Equal(new[] { "deref:i" }, m.ParamTypeNames);
     }
 
-    [Fact]
-    public void Resolve_DependentHandle_GetPrimaryAndSecondary_ThrowsLoudAddrCastGap()
-    {
-        // The out object param needs an Il2CppObject** address -- no "addr:o"
-        // emitter cast exists (CodeGenerator read-only patch). LOUD.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Runtime", "DependentHandle", "GetPrimaryAndSecondary",
-                Sig(0x12, 0x05, 0x10, 0x1C)), "GetPrimaryAndSecondary"));
-
-        Assert.Contains("System.Runtime.DependentHandle::GetPrimaryAndSecondary", ex.Message);
-        Assert.Contains("addr:o", ex.Message);
-    }
+    // NOTE (2026-09-08): GetPrimaryAndSecondary was LOUD until the "addr:o"
+    // emitter cast landed; it now routes to
+    // icall_dependenthandle_get_target_and_dependent -- covered by
+    // Resolve_DependentHandle_GetPrimaryAndSecondary_MapsToIcall above.
+    // The old ThrowsLoudAddrCastGap assertion was removed with the gap.
 
     [Fact]
     public void Resolve_DependentHandle_CompilerServicesOwner_GetPrimary_MapsToIcall()
@@ -83,6 +76,77 @@ public class MethodMapDependentHandleTests
             "GetPrimary", receiverIsAddress: true);
 
         Assert.Equal("il2cpp::runtime::icall_dependenthandle_get_target", m.CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // net48 static-extern n* surface (FSI-decoded mscorlib counts -- owner is
+    // System.Runtime.CompilerServices.DependentHandle): adapters bridge the
+    // void-plus-out-slot shape (IntPtr& rides "addr:i", Object& "addr:o").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_DependentHandle_NInitialize_MapsToAdapter()
+    {
+        var m = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DependentHandle", "nInitialize",
+            Sig(0x01, 0x1C, 0x1C, 0x10, 0x18)), "nInitialize");
+
+        Assert.Equal("il2cpp::runtime::icall_dependenthandle_n_init", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(3, m.ParamCount);
+        Assert.Equal(new[] { "", "", "addr:i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DependentHandle_NGetPrimary_MapsToAdapter()
+    {
+        var m = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DependentHandle", "nGetPrimary",
+            Sig(0x01, 0x18, 0x10, 0x1C)), "nGetPrimary");
+
+        Assert.Equal("il2cpp::runtime::icall_dependenthandle_n_get_primary", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(2, m.ParamCount);
+        Assert.Equal(new[] { "", "addr:o" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DependentHandle_NGetPrimaryAndSecondary_MapsToAdapter()
+    {
+        var m = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DependentHandle", "nGetPrimaryAndSecondary",
+            Sig(0x01, 0x18, 0x10, 0x1C, 0x10, 0x1C)), "nGetPrimaryAndSecondary");
+
+        Assert.Equal("il2cpp::runtime::icall_dependenthandle_n_get_primary_and_secondary", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(3, m.ParamCount);
+        Assert.Equal(new[] { "", "addr:o", "addr:o" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DependentHandle_NFree_MapsToFree()
+    {
+        var m = ResolveMember(Synthesize("System.Runtime.CompilerServices", "DependentHandle", "nFree",
+            Sig(0x01, 0x18)), "nFree");
+
+        Assert.Equal("il2cpp::runtime::icall_dependenthandle_free", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DependentHandle_GetPrimaryAndSecondary_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Runtime", "DependentHandle", "GetPrimaryAndSecondary",
+            Sig(0x12, 0x05, 0x10, 0x1C)), "GetPrimaryAndSecondary");
+
+        Assert.Equal("il2cpp::runtime::icall_dependenthandle_get_target_and_dependent", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "addr:o" }, m.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

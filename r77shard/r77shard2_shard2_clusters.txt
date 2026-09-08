@@ -1,0 +1,35 @@
+
+Count Name
+----- ----
+   24 cannot initialize a parameter of type 'Il2CppObject *' with 
+   22 assigning to 'int32_t' (aka 'int') from incompatible type 'S
+   13 incompatible pointer to integer conversion assigning to 'int
+   13 cannot cast from type 'int32_t' (aka 'int') to pointer type 
+   13 no matching function for call to 'System_Diagnostics_Tracing
+   11 reinterpret_cast from 'int32_t' (aka 'int') to 'intptr_t' (a
+   11 use of undeclared identifier 'System_Diagnostics_Tracing_Tra
+   11 no matching function for call to 'System_Runtime_InteropServ
+    9 array type 'uint8_t[16]' (aka 'unsigned char[16]') is not as
+    9 cannot initialize a parameter of type 'Il2CppObject **' with
+    8 cannot initialize a parameter of type 'Il2CppClass *' with a
+    6 no viable overloaded '='…
+    5 cannot cast from type 'System_Runtime_CompilerServices_Confi
+    5 static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') i
+    5 use of undeclared identifier 'System_Runtime_CompilerService
+    4 assigning to 'int32_t' (aka 'int') from incompatible type 'i
+    4 use of undeclared identifier 'array_tolerant_Get_05d667f87c7
+    4 cannot initialize return object of type 'int32_t' (aka 'int'
+    4 no matching function for call to 'System_Runtime_Serializati
+    4 use of undeclared identifier 'System_Diagnostics_Tracing_Enu
+    4 unknown type name 'V_System_Security_Cryptography_X509Certif
+    4 cannot initialize a parameter of type 'int32_t *' (aka 'int 
+    4 no matching function for call to 'System_Collections_Generic
+    3 too many arguments to function call, expected 0, have 1…
+    3 reinterpret_cast from 'uintptr_t' (aka 'unsigned long long')
+    3 no matching function for call to 'System_Threading_Volatile_
+    3 no matching function for call to 'System_Convert_ToDecimal_a
+    3 no matching function for call to 'System_IntPtr_ToPointer_6f
+    3 reinterpret_cast from 'System_Guid' to 'uint8_t *' (aka 'uns
+    3 no matching function for call to 'System_Nullable_1_int__cto
+
+

@@ -127,21 +127,27 @@ public class MethodMapTestsEnvRandom
     // Environment Extra gate -- known-unwireable members reject LOUD
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Environment_Exit_ThrowsLoud()
+    public void Resolve_Environment_Exit_MapsToExitIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Environment", "Exit", Sig(0x01, 0x08)), "Exit"));
+        // Wired: icall_environment_exit persists the code then std::exit.
+        var resolved = ResolveMember(Synthesize("System", "Environment", "Exit", Sig(0x01, 0x08)), "Exit");
 
-        Assert.Contains("System.Environment::Exit", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_environment_exit", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal("i", resolved.ParamTypeNames![0]);
     }
 
     [Fact]
-    public void Resolve_Environment_GetVersion_ThrowsLoud()
+    public void Resolve_Environment_GetVersion_MapsToVersionIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Environment", "get_Version", Sig(0x1C)), "get_Version"));
+        // Wired (D5 dscmp): returns the System.Version object.
+        var resolved = ResolveMember(Synthesize("System", "Environment", "get_Version", Sig(0x1C)), "get_Version");
 
-        Assert.Contains("System.Environment::get_Version", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_environment_get_version", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
     }
 
     [Fact]

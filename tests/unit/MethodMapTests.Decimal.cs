@@ -382,6 +382,41 @@ public class MethodMapDecimalTests
 
         Assert.Equal("il2cpp::runtime::icall_decimal_to_double", resolved.CppName);
     }
+    //--------------------------------------------------------------------------
+    // FCall in-place arithmetic family -- mutate d1, void return
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Decimal_FCallAddSub_MapsToInPlaceIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "FCallAddSub",
+            new byte[] { 0x00, 0x03, 0x01, 0x10, 0x11, 0x05, 0x10, 0x11, 0x05, 0x05 }), "FCallAddSub");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_fcall_addsub", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Decimal_FCallMultiply_MapsToInPlaceIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "FCallMultiply",
+            new byte[] { 0x00, 0x02, 0x01, 0x10, 0x11, 0x05, 0x10, 0x11, 0x05 }), "FCallMultiply");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_fcall_multiply", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Decimal_FCallDivide_MapsToInPlaceIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "FCallDivide",
+            new byte[] { 0x00, 0x02, 0x01, 0x10, 0x11, 0x05, 0x10, 0x11, 0x05 }), "FCallDivide");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_fcall_divide", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+    }
 
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as MethodMapGuidTests)

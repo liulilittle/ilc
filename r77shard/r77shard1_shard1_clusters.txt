@@ -1,0 +1,35 @@
+
+Count Name
+----- ----
+   65 no viable conversion from returned value of type 'System_Col
+   63 cannot cast from type 'int32_t' (aka 'int') to pointer type 
+   47 cannot initialize a parameter of type 'Il2CppArray *' with a
+   38 cannot initialize a parameter of type 'Il2CppObject *' with 
+   33 reinterpret_cast from 'int32_t' (aka 'int') to 'intptr_t' (a
+   29 no matching function for call to 'System_Collections_Generic
+   27 cannot initialize return object of type 'int32_t' (aka 'int'
+   16 cannot initialize a parameter of type 'int32_t' (aka 'int') 
+   12 no viable overloaded '='…
+   11 cannot initialize return object of type 'Il2CppObject *' wit
+   10 assigning to 'int32_t' (aka 'int') from incompatible type 'S
+   10 unknown type name 'V_System_Guid'; did you mean 'System_Guid
+    9 no matching function for call to 'System_Collections_Concurr
+    9 use of undeclared identifier 'System_Collections_Concurrent_
+    9 no matching function for call to 'System_Threading_Volatile_
+    8 incompatible pointer types assigning to 'System_Collections_
+    8 no member named 'icall_box_intptr' in namespace 'il2cpp::run
+    7 unknown type name 'V_System_Runtime_InteropServices_WindowsR
+    6 incompatible pointer to integer conversion assigning to 'int
+    6 assigning to 'intptr_t' (aka 'long long') from incompatible 
+    6 no viable conversion from 'int32_t' (aka 'int') to 'System_R
+    4 no viable overloaded '='…
+    4 cannot cast from type 'System_Runtime_InteropServices_Window
+    4 no viable conversion from 'int32_t' (aka 'int') to 'il2cpp::
+    4 static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') i
+    4 cannot cast from type 'System_Collections_Generic_KeyValuePa
+    4 unknown type name 'V_System_Collections_Generic_KeyValuePair
+    3 no matching function for call to 'System_IntPtr_IsNull_95e8e
+    3 use of undeclared identifier 'System_Collections_Generic_IEn
+    3 no member named 'entries' in 'System_Collections_Generic_Dic
+
+

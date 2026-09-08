@@ -1,0 +1,8 @@
+case=test_reflect_base
+status=PASS
+code=0
+---stdout---
+all runtime reflect_base tests passed
+
+---stderr---
+

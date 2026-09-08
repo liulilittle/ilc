@@ -1,0 +1,8 @@
+case=test_calendar
+status=PASS
+code=0
+---stdout---
+all runtime calendar tests passed
+
+---stderr---
+

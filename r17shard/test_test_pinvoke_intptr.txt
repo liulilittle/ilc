@@ -1,0 +1,8 @@
+case=test_pinvoke_intptr
+status=PASS
+code=0
+---stdout---
+all runtime pinvoke-intptr tests passed
+
+---stderr---
+

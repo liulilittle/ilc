@@ -1,0 +1,8 @@
+case=test_checked64
+status=PASS
+code=0
+---stdout---
+ALL PASS
+
+---stderr---
+

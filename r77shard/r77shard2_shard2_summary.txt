@@ -1,0 +1,8 @@
+r77 shard2 Results
+====================
+Total: 1543
+SuccessEmpty: 1187
+Fail: 356
+ElapsedSeconds: 724.837101
+ThrottleLimit: 8
+Generated: 2026-09-05 02:50:09

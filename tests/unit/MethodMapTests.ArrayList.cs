@@ -170,6 +170,110 @@ public class MethodMapArrayListTests
         Assert.Equal(1, resolved.ParamCount);
     }
 
+    [Fact]
+    public void Resolve_ArrayList_GetCapacity_MapsToCapacityIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", "get_Capacity", Sig(0x08)), "get_Capacity");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_get_capacity", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_IsFlags_MapToFalseIcalls()
+    {
+        foreach (var name in new[] { "get_IsFixedSize", "get_IsReadOnly", "get_IsSynchronized" })
+        {
+            var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", name, Sig(0x02)), name);
+
+            Assert.True(resolved.IsInstance);
+            Assert.True(resolved.ReturnsValue);
+            Assert.Equal(0, resolved.ParamCount);
+        }
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_GetSyncRoot_MapsToSelfIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", "get_SyncRoot", Sig(0x1C)), "get_SyncRoot");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_get_sync_root", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_SetCapacity_MapsToSetCapacityIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", "set_Capacity", Sig(0x01, 0x08)), "set_Capacity");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_set_capacity", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal("i", resolved.ParamTypeNames![1]);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_Clone_MapsToCloneIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", "Clone", Sig(0x1C)), "Clone");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_clone", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_CopyTo_MapsToCopyToIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", "CopyTo", Sig(0x01, 0x1C, 0x08)), "CopyTo");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_copy_to", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_TrimToSize_MapsToTrimIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", "TrimToSize", Sig(0x01)), "TrimToSize");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_trim_to_size", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_Reverse_MapsToReverseIcalls()
+    {
+        var plain = ResolveMember(Synthesize("System.Collections", "ArrayList", "Reverse", Sig(0x01)), "Reverse");
+        Assert.Equal("il2cpp::il2cpp_arraylist_reverse", plain.CppName);
+        Assert.Equal(0, plain.ParamCount);
+
+        var ranged = ResolveMember(Synthesize("System.Collections", "ArrayList", "Reverse", Sig(0x01, 0x08, 0x08)), "Reverse");
+        Assert.Equal("il2cpp::il2cpp_arraylist_reverse_range", ranged.CppName);
+        Assert.Equal(2, ranged.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_RemoveRange_MapsToRemoveRangeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", "RemoveRange", Sig(0x01, 0x08, 0x08)), "RemoveRange");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_remove_range", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodMapQueueStackTests).

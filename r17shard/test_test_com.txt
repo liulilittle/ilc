@@ -1,0 +1,8 @@
+case=test_com
+status=PASS
+code=0
+---stdout---
+all runtime com tests passed
+
+---stderr---
+

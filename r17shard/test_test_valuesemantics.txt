@@ -1,0 +1,8 @@
+case=test_valuesemantics
+status=PASS
+code=0
+---stdout---
+all runtime valuesemantics tests passed
+
+---stderr---
+

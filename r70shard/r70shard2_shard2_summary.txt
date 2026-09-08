@@ -1,0 +1,37 @@
+r70 shard2 Results
+====================
+ShardFile: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\shard2.txt
+Total: 1543
+SuccessEmpty (Exit0 + no output): 0
+Fail (Exit !=0): 1543
+WithOutput (warnings/errors): 1543
+OkButWarn (WithOutput - Fail): 0
+ElapsedSeconds: 822.933733
+ThrottleLimit: 8
+Command: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r70/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠)
+Log: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard2_shard2.log
+ErrorLog: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard2_shard2_errors.log
+CSV: C:\Users\windo\AppData\Local\Temp\opencode\r70shard\r70shard2_shard2.csv
+Generated: 2026-09-04 03:06:48
+
+Top 20 files with errors/warnings:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreOperationUnpinDeployment_OpFlags.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreOperationUnpinDeployment_OpFlags.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreOperationUninstallDeployment.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreOperationUninstallDeployment.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreOperationUnpinDeployment.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreOperationUnpinDeployment.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreTransaction.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreTransaction.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreSubcategoryEnumeration.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreSubcategoryEnumeration.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreTransactionData.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreTransactionData.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreTransactionOperation.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreTransactionOperation.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreOperationUnpinDeployment_Disposition.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreOperationUnpinDeployment_Disposition.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Deployment_Internal_Isolation_StoreTransactionOperationType.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Deployment_Internal_Isolation_StoreTransactionOperationType.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_Assert.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_Assert.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_AssertFilter.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_AssertFilter.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_ConditionalAttribute.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_ConditionalAttribute.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_CodeAnalysis_SuppressMessageAttribute.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_CodeAnalysis_SuppressMessageAttribute.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_Contracts_ContractAbbreviatorAttribute.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_Contracts_ContractAbbreviatorAttribute.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_AssertFilters.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_AssertFilters.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_Contracts_Contract.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_Contracts_Contract.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_Contracts_ContractArgumentValidatorAttribute.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_Contracts_ContractArgumentValidatorAttribute.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_Contracts_ContractClassAttribute.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_Contracts_ContractClassAttribute.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_Contracts_ContractClassForAttribute.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_Contracts_ContractClassForAttribute.cpp:7:
+- E:\il2cpp\out\mscorlib_gen_r70\src\System_Diagnostics_Contracts_ContractFailedEventArgs.cpp Exit:1 => In file included from E:/il2cpp/out/mscorlib_gen_r70/src/System_Diagnostics_Contracts_ContractFailedEventArgs.cpp:7:

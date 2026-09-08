@@ -1,0 +1,8 @@
+case=test_dt_calendar
+status=PASS
+code=0
+---stdout---
+all runtime dt_calendar tests passed
+
+---stderr---
+

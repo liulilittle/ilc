@@ -1,0 +1,3 @@
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E rm -f CMakeFiles\test_calendar.dir/objects.a
+C:\PROGRA~1\ming-w64\bin\X8EBEC~1.EXE qc CMakeFiles\test_calendar.dir/objects.a @CMakeFiles\test_calendar.dir\objects1.rsp
+C:\PROGRA~1\ming-w64\bin\X8E3D3~1.EXE -O2 -DNDEBUG -static-libgcc -static-libstdc++ -static-libgcc -static-libstdc++  -Wl,--whole-archive CMakeFiles\test_calendar.dir/objects.a -Wl,--no-whole-archive -o test_calendar.exe -Wl,--out-implib,libtest_calendar.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\test_calendar.dir\linklibs.rsp

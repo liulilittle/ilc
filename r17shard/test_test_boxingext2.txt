@@ -1,0 +1,8 @@
+case=test_boxingext2
+status=PASS
+code=0
+---stdout---
+all runtime boxing-ext2 tests passed
+
+---stderr---
+

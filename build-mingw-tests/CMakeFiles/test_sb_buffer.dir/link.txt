@@ -1,0 +1,3 @@
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E rm -f CMakeFiles\test_sb_buffer.dir/objects.a
+C:\PROGRA~1\ming-w64\bin\X8EBEC~1.EXE qc CMakeFiles\test_sb_buffer.dir/objects.a @CMakeFiles\test_sb_buffer.dir\objects1.rsp
+C:\PROGRA~1\ming-w64\bin\X8E3D3~1.EXE -O2 -DNDEBUG -static-libgcc -static-libstdc++ -static-libgcc -static-libstdc++  -Wl,--whole-archive CMakeFiles\test_sb_buffer.dir/objects.a -Wl,--no-whole-archive -o test_sb_buffer.exe -Wl,--out-implib,libtest_sb_buffer.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\test_sb_buffer.dir\linklibs.rsp

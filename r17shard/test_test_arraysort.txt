@@ -1,0 +1,8 @@
+case=test_arraysort
+status=PASS
+code=0
+---stdout---
+all runtime arraysort tests passed
+
+---stderr---
+

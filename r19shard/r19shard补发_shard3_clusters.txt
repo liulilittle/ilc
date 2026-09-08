@@ -1,0 +1,76 @@
+r19 shard3 补发 7簇分类 - 2026-09-02 13:36:03
+===============================================
+来源: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard3_errors.log
+总文件: 1541 成功数:1057 失败:484 错误行数: 6707
+
+7聚类 (按 process.md 语义 ci/nmf/nv/sc/membref/undecl/other):
+  1 cannot-init (cannot initialize) : 1266  (18.9%)
+  2 no-matching-fn (no matching function) : 1799  (26.8%)
+  3 no-viable-conv (no viable) : 1190  (17.7%)
+  4 static-cast : 441  (6.6%)
+  5 membref (no member named|member reference) : 657 (simple no member named=92)  (9.8%)
+  6 undeclared (use of undeclared|unknown type) : 369  (5.5%)
+  7 other : 985  (14.7%)
+ 校验: 6707 == 6707 ? True
+
+扩展细节:
+  assigning  : 534
+  incompat   : 534
+  too-few    : 113
+  too-many   : 41
+  cannot-cast: 85
+
+Top 20 错误语句 (去重):
+   572 no viable overloaded '='
+   367 static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+   280 cannot initialize a parameter of type 'int32_t' (aka 'int') with an lvalue of type 'Il2CppObject *'
+   248 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+   203 member reference type 'System_ValueTuple_8_int' is not a pointer; did you mean to use '.'?
+   180 no viable conversion from 'System_Int32' to 'int32_t' (aka 'int')
+   134 member reference base type 'int32_t' (aka 'int') is not a structure or union
+   122 cannot initialize a parameter of type 'Il2CppArray *' with an lvalue of type 'Il2CppObject *'
+    90 too few arguments to function call, expected 2, have 1
+    87 cannot initialize a parameter of type 'Il2CppClass *' with an lvalue of type 'Il2CppObject *'
+    84 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t *' (aka 'int *')
+    77 incompatible integer to pointer conversion assigning to 'Il2CppObject *' from 'int32_t' (aka 'int')
+    75 no viable conversion from 'System_Runtime_CompilerServices_TaskAwaiter_1_int' to 'Il2CppObject *'
+    73 cannot cast from type 'int32_t' (aka 'int') to pointer type 'Il2CppObject *'
+    64 cannot initialize return object of type 'int32_t' (aka 'int') with an lvalue of type 'Il2CppObject *'
+    57 member reference base type 'Il2CppObject *' is not a structure or union
+    56 no matching function for call to 'System_Tuple_8_int_get_Rest_b3ab99604a10375a'
+    54 incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'Il2CppObject *'
+    50 incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'int32_t *' (aka 'int *'); dereferenc
+    41 too many arguments to function call, expected 0, have 1
+
+Top 20 失败文件 (按错误行):
+  890 E:\il2cpp\out\mscorlib_gen_r19\src\System_TupleExtensions.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_TupleExtensions.cpp:121:45: error: no viable overloaded '='
+  216 E:\il2cpp\out\mscorlib_gen_r19\src\System_Security_Cryptography_CryptoConfig.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Security_Cryptography_CryptoConfig.cpp:165:12: error: no matching function for call to 'BCryptGetFipsAlgorithmMode'
+  169 E:\il2cpp\out\mscorlib_gen_r19\src\System_Security_Cryptography_X509Certificates_PasswordBasedEncryption.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Security_Cryptography_X509Certificates_PasswordBasedEncryption.cpp:235:12: error: no matching function for call to 'System_Security_Cryptography_X509Certifica
+  166 E:\il2cpp\out\mscorlib_gen_r19\src\System_TimeZoneInfo.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_TimeZoneInfo.cpp:401:337: error: no viable overloaded '='
+  150 E:\il2cpp\out\mscorlib_gen_r19\src\System_Globalization_CultureData.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Globalization_CultureData.cpp:567:69: error: static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+  131 E:\il2cpp\out\mscorlib_gen_r19\src\System_RuntimeType_RuntimeTypeCache_MemberInfoCache_1_int.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_RuntimeType_RuntimeTypeCache_MemberInfoCache_1_int.cpp:192:141: error: incompatible pointer types assigning to 'System_RuntimeType *' from 'Il2CppObject *'
+  108 E:\il2cpp\out\mscorlib_gen_r19\src\System_Diagnostics_Tracing_EventProvider.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Diagnostics_Tracing_EventProvider.cpp:273:16: error: no matching function for call to 'EventSetInformation'
+   92 E:\il2cpp\out\mscorlib_gen_r19\src\System_ValueTuple_6_int_int_int_int_int_int.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_ValueTuple_6_int_int_int_int_int_int.cpp:151:17: error: no viable overloaded '='
+   85 E:\il2cpp\out\mscorlib_gen_r19\src\System_Tuple_8_int_int_int_int_int_int_int_int.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Tuple_8_int_int_int_int_int_int_int_int.cpp:156:12: error: no viable conversion from returned value of type 'System_Int32' to function return type 'int32_t' (
+   80 E:\il2cpp\out\mscorlib_gen_r19\src\System_Array.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Array.cpp:493:44: error: cannot initialize a parameter of type 'Il2CppClass *' with an lvalue of type 'int64_t' (aka 'long long')
+   72 E:\il2cpp\out\mscorlib_gen_r19\src\System_Reflection_RuntimeAssembly.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Reflection_RuntimeAssembly.cpp:418:8: error: array type 'uint8_t[16]' (aka 'unsigned char[16]') is not assignable
+   72 E:\il2cpp\out\mscorlib_gen_r19\src\System_Security_Cryptography_X509Certificates_PfxAsn.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Security_Cryptography_X509Certificates_PfxAsn.cpp:153:5: error: no matching function for call to 'System_Nullable_1_System_Security_Cryptography_X509Certifica
+   72 E:\il2cpp\out\mscorlib_gen_r19\src\System_Reflection_Emit_ModuleBuilder.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Reflection_Emit_ModuleBuilder.cpp:415:212: error: static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+   71 E:\il2cpp\out\mscorlib_gen_r19\src\System_Runtime_InteropServices_WindowsRuntime_ICustomPropertyProviderProxy_2_int_int.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Runtime_InteropServices_WindowsRuntime_ICustomPropertyProviderProxy_2_int_int.cpp:364:8: error: array type 'uint8_t[16]' (aka 'unsigned char[16]') is not assi
+   71 E:\il2cpp\out\mscorlib_gen_r19\src\System_Threading_Tasks_TaskFactory_1_object.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Threading_Tasks_TaskFactory_1_object.cpp:282:12: error: no viable conversion from returned value of type 'System_Threading_CancellationToken' to function retu
+   71 E:\il2cpp\out\mscorlib_gen_r19\src\System_Threading_Tasks_TaskFactory_1_System_Threading_Tasks_VoidTaskResult.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Threading_Tasks_TaskFactory_1_System_Threading_Tasks_VoidTaskResult.cpp:282:12: error: no viable conversion from returned value of type 'System_Threading_Canc
+   64 E:\il2cpp\out\mscorlib_gen_r19\src\System_Security_Cryptography_X509Certificates_AsnReader.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Security_Cryptography_X509Certificates_AsnReader.cpp:114:42: error: no matching function for call to 'System_Security_Cryptography_X509Certificates_ReadOnlyMe
+   64 E:\il2cpp\out\mscorlib_gen_r19\src\System_Text_UTF8Encoding.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Text_UTF8Encoding.cpp:337:158: error: cannot initialize a parameter of type 'intptr_t *' (aka 'long long *') with an rvalue of type 'int32_t *' (aka 'int *')
+   62 E:\il2cpp\out\mscorlib_gen_r19\src\System_Threading_Tasks_SingleProducerSingleConsumerQueue_1_object.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Threading_Tasks_SingleProducerSingleConsumerQueue_1_object.cpp:174:173: error: member reference base type 'Il2CppObject *' is not a structure or union
+   59 E:\il2cpp\out\mscorlib_gen_r19\src\System_Security_Principal_WindowsIdentity.cpp => E:/il2cpp/out/mscorlib_gen_r19/src/System_Security_Principal_WindowsIdentity.cpp:570:5: error: no matching function for call to 'GetTokenInformation'
+
+产物:
+  Log: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard3.log
+  Errors: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard3_errors.log
+  CSV: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard3.csv
+  Summary: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard3_summary.txt
+  Clusters: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard3_clusters.txt
+  Flag: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\DONE_r19shard3_retry.flag
+  镜像: E:\il2cpp\r19shard
+
+命令: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r19/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠, ThrottleLimit 8, 3切片*514/513合计1541)

@@ -1,0 +1,8 @@
+case=test_resources
+status=PASS
+code=0
+---stdout---
+all runtime resource tests passed
+
+---stderr---
+

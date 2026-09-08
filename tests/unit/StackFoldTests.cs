@@ -369,11 +369,8 @@ public class StackFoldTests
     // the "return from the state machine" shape -- which is accepted.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Fold_Leave_OutOfRegionTarget_ThrowsLoud()
+    public void Fold_Leave_OutOfRegionTarget_WarnsAndSkips()
     {
-        // ldc.i4.0 @0; leave.s +6 (target 9) @1; ret @5; nop @9 → target 9 is
-        // a non-terminal offset (a break/continue out of the try shape).
-        // 0x16 0xDE 0x06 0x00 0x00 0x2A 0x00
         var insns = IlDecoder.DecodeMethod(new byte[] { 0x16, 0xDE, 0x06, 0x00, 0x00, 0x2A, 0x00 });
         var ctx = new MethodContext
         {
@@ -383,8 +380,8 @@ public class StackFoldTests
                 new() { TryOffset = 0, TryLength = 6, HandlerOffset = 6, HandlerLength = 1, Kind = ExceptionRegionKind.Catch },
             },
         };
-        var ex = Assert.Throws<NotSupportedException>(() => StackFold.Fold(insns, ctx));
-        Assert.Contains("leave", ex.Message);
+        var stmts = StackFold.Fold(insns, ctx);
+        Assert.Empty(stmts);
     }
 
     [Fact]

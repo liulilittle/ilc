@@ -1,0 +1,8 @@
+case=test_exceptionext
+status=PASS
+code=0
+---stdout---
+all runtime exceptionext tests passed
+
+---stderr---
+

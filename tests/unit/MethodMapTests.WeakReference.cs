@@ -89,31 +89,63 @@ public class MethodMapWeakReferenceTests
     }
 
     //--------------------------------------------------------------------------
-    // ctor(object, bool trackResurrection) -> LOUD not wired (net48 has the
-    // overload; the object model wires only the 1-arg ctor -- the handle table
-    // does not track resurrection)
+    // ctor(object, bool trackResurrection) -> tracked ctor icall
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_WeakReference_CtorObjectBool_ThrowsLoudNotWired()
+    public void Resolve_WeakReference_CtorObjectBool_MapsToTrackIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "WeakReference", ".ctor", Sig(0x01, 0x1C, 0x02)), ".ctor"));
+        var m = ResolveMember(Synthesize("System", "WeakReference", ".ctor", Sig(0x01, 0x1C, 0x02)), ".ctor");
 
-        Assert.StartsWith("System.WeakReference::.ctor: ", ex.Message);
-        Assert.Contains("not wired", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_weakref_ctor_track", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(2, m.ParamCount);
     }
 
     //--------------------------------------------------------------------------
-    // get_TrackResurrection -> LOUD not wired
+    // get_TrackResurrection -> flag reader icall
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_WeakReference_TrackResurrection_ThrowsLoudNotWired()
+    public void Resolve_WeakReference_TrackResurrection_MapsToIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "WeakReference", "get_TrackResurrection", Sig(0x02)), "get_TrackResurrection"));
+        var m = ResolveMember(Synthesize("System", "WeakReference", "get_TrackResurrection", Sig(0x02)), "get_TrackResurrection");
 
-        Assert.StartsWith("System.WeakReference::get_TrackResurrection: ", ex.Message);
-        Assert.Contains("member not wired", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_weakref_get_track_resurrection", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(0, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_WeakReference_GenericCtor_MapsToGenericIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "WeakReference`1", ".ctor", Sig(0x01, 0x1C)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_weakref_generic_ctor", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_WeakReference_GenericTryGetTarget_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "WeakReference`1", "TryGetTarget", Sig(0x02, 0x1C)), "TryGetTarget");
+
+        Assert.Equal("il2cpp::runtime::icall_weakref_generic_try_get_target", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(1, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_WeakReference_GenericSetTarget_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "WeakReference`1", "SetTarget", Sig(0x01, 0x1C)), "SetTarget");
+
+        Assert.Equal("il2cpp::runtime::icall_weakref_generic_set_target", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(1, m.ParamCount);
     }
 
     //--------------------------------------------------------------------------

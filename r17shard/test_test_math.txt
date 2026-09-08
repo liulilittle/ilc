@@ -1,0 +1,8 @@
+case=test_math
+status=PASS
+code=0
+---stdout---
+all runtime math tests passed
+
+---stderr---
+

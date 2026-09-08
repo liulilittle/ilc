@@ -1,0 +1,8 @@
+case=test_stringbuilder_gcstress
+status=PASS
+code=0
+---stdout---
+all stringbuilder gc-stress tests passed
+
+---stderr---
+

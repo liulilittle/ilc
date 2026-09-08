@@ -1,0 +1,3 @@
+D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E rm -f CMakeFiles\test_sortedlist.dir/objects.a
+C:\PROGRA~1\ming-w64\bin\X8EBEC~1.EXE qc CMakeFiles\test_sortedlist.dir/objects.a @CMakeFiles\test_sortedlist.dir\objects1.rsp
+C:\PROGRA~1\ming-w64\bin\X8E3D3~1.EXE -O2 -DNDEBUG -static-libgcc -static-libstdc++ -static-libgcc -static-libstdc++  -Wl,--whole-archive CMakeFiles\test_sortedlist.dir/objects.a -Wl,--no-whole-archive -o test_sortedlist.exe -Wl,--out-implib,libtest_sortedlist.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\test_sortedlist.dir\linklibs.rsp

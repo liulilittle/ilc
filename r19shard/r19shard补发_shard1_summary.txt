@@ -1,0 +1,37 @@
+r19 shard1 补发 Results
+====================
+ShardFile: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\shard1.txt
+Total: 1542
+SuccessEmpty (Exit0 + no output): 1044
+Fail (Exit !=0): 498
+WithOutput (warnings/errors): 498
+OkButWarn (WithOutput - Fail): 0
+ElapsedSeconds: 605.84
+ThrottleLimit: 8
+Command: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r19/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠)
+Log: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1.log
+ErrorLog: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1_errors.log
+CSV: C:\Users\windo\AppData\Local\Temp\opencode\r19shard\r19shard补发_shard1.csv
+Generated: 2026-09-02 11:37:32
+
+Top 20 files with errors/warnings:
+- E:\il2cpp\out\mscorlib_gen_r19\src\Microsoft_Win32_Fusion.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/Microsoft_Win32_Fusion.cpp:77:10: error: no matching function for call to 'CreateAssemblyNameObject'
+- E:\il2cpp\out\mscorlib_gen_r19\src\Microsoft_Win32_SafeHandles_CriticalHandleZeroOrMinusOneIsInvalid.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/Microsoft_Win32_SafeHandles_CriticalHandleZeroOrMinusOneIsInvalid.cpp:119:8: error: no matching function for call to 'System_IntPtr_IsNull_95e8e6e12a2cd341'
+- E:\il2cpp\out\mscorlib_gen_r19\src\Microsoft_Win32_SafeHandles_SafeHandleZeroOrMinusOneIsInvalid.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/Microsoft_Win32_SafeHandles_SafeHandleZeroOrMinusOneIsInvalid.cpp:112:8: error: no matching function for call to 'System_IntPtr_IsNull_95e8e6e12a2cd341'
+- E:\il2cpp\out\mscorlib_gen_r19\src\Microsoft_Win32_SafeHandles_SafeLsaMemoryHandle.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/Microsoft_Win32_SafeHandles_SafeLsaMemoryHandle.cpp:108:136: error: reinterpret_cast from 'uintptr_t' (aka 'unsigned long long') to 'intptr_t' (aka 'long long') is n
+- E:\il2cpp\out\mscorlib_gen_r19\src\Microsoft_Win32_UnsafeNativeMethods_ManifestEtw.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/Microsoft_Win32_UnsafeNativeMethods_ManifestEtw.cpp:83:12: error: no matching function for call to 'EventWriteTransfer'
+- E:\il2cpp\out\mscorlib_gen_r19\src\Microsoft_Win32_Win32Native_OSVERSIONINFO.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/Microsoft_Win32_Win32Native_OSVERSIONINFO.cpp:81:35: error: too few arguments to function call, expected 2, have 1
+- E:\il2cpp\out\mscorlib_gen_r19\src\Microsoft_Win32_Win32Native.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/Microsoft_Win32_Win32Native.cpp:570:12: error: no matching function for call to 'FormatMessage'
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_AppContext.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_AppContext.cpp:192:9: error: no matching function for call to 'System_AppContextDefaultValues_ParseTargetFrameworkName_916abb97dda69a30'
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Array_ArrayEnumerator.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Array_ArrayEnumerator.cpp:126:119: error: incompatible pointer types assigning to 'Il2CppObject *' from 'System_Array *'
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_ArraySegment_1_ArraySegmentEnumerator_int.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_ArraySegment_1_ArraySegmentEnumerator_int.cpp:110:342: error: cannot cast from type 'System_ArraySegment_1_int' to pointer type 'Il2CppObject *'
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Attribute.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Attribute.cpp:679:52: error: static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_BCLDebug.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_BCLDebug.cpp:147:72: error: too many arguments to function call, expected 0, have 1
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Byte.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Byte.cpp:788:5: error: no matching function for call to 'System_Convert_ToDecimal_06e60d2629136106'
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_ArrayList_FixedSizeArrayList.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_ArrayList_FixedSizeArrayList.cpp:724:52: error: cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int'
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_ArrayList_IListWrapper.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_ArrayList_IListWrapper.cpp:656:42: error: cannot initialize a parameter of type 'Il2CppArray *' with an lvalue of type 'Il2CppObject *'
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_ArrayList.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_ArrayList.cpp:1285:55: error: cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_int_int.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_int_int.cpp:164:262: error: no matching function for call to 'System_Threading_Volatile_Rea
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_object_object_array.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_object_object_array.cpp:164:274: error: no matching function for call to 'System_Threading_
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_string_object.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_string_object.cpp:164:268: error: no matching function for call to 'System_Threading_Volati
+- E:\il2cpp\out\mscorlib_gen_r19\src\System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_System_Guid_System_Tuple_2_System_Guid_int.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r19/src/System_Collections_Concurrent_ConcurrentDictionary_2__GetEnumerator_d__34_System_Guid_System_Tuple_2_System_Guid_int.cpp:164:297: error: no matching function for cal

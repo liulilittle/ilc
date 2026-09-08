@@ -1,0 +1,4 @@
+# Memory - String运行时审计 2026-08-25
+- string.cpp 1-80: System_String_class 懒注册+GC精确块分配，StringAllocSize=offsetof(chars)+len*2 非sizeof基址
+- stringext.cpp 1-80: AsString/IsWhitespace/ToUpper/ToLower/NewStringFromUnits+RootScope GC根，sizeof基址与string.cpp diverge
+- decimal_format.cpp 337-381 FormatP: scale-2 百分缩放+零归一+负零去号+invariant空格; FormatCTail invariant无关，C符号/括号在1119-1140层处理

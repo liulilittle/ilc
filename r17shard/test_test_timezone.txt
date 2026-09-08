@@ -1,0 +1,8 @@
+case=test_timezone
+status=PASS
+code=0
+---stdout---
+test_timezone: all checks passed
+
+---stderr---
+

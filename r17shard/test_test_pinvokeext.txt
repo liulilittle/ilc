@@ -1,0 +1,8 @@
+case=test_pinvokeext
+status=PASS
+code=0
+---stdout---
+all runtime pinvokeext tests passed
+
+---stderr---
+

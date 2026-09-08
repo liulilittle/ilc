@@ -1,0 +1,12 @@
+case=test_frame_audit
+status=PASS
+code=0
+---stdout---
+all runtime frame-audit tests passed
+
+---stderr---
+il2cpp_frame_push: null frame
+il2cpp_frame_pop: null frame
+il2cpp_frame_pop: frame 000000cdc80fead0 is not the current top (000000cdc80ffba0)
+il2cpp_frame_push: frame 0000002f0a91e850 is already on the frame stack (1:1 pairing violated)
+

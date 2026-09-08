@@ -1,0 +1,8 @@
+case=test_decimal_format
+status=PASS
+code=0
+---stdout---
+all decimal format tests passed
+
+---stderr---
+

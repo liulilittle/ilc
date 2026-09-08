@@ -168,13 +168,17 @@ public class MethodMapMarshalTests
     // guidance (the BclResolve wrapper prefixes "System...::name: ").
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Marshal_SetLastWin32Error_ThrowsLoudIncludeGap()
+    public void Resolve_Marshal_SetLastWin32Error_MapsToExt2Icall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "SetLastWin32Error", Sig(Ret(0x01), 0x08)), "SetLastWin32Error"));
+        // Wired: il2cpp_marshal_ext2.h joined the generated include chain,
+        // so the LOUD include-gap rejection became a direct mapping.
+        var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "SetLastWin32Error", Sig(Ret(0x01), 0x08)), "SetLastWin32Error");
 
-        Assert.StartsWith("System.Runtime.InteropServices.Marshal::SetLastWin32Error: ", ex.Message);
-        Assert.Contains("il2cpp_marshal_ext2.h", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_marshal_set_last_win32_error", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "i" }, m.ParamTypeNames);
     }
 
     [Fact]
@@ -216,7 +220,7 @@ public class MethodMapMarshalTests
     // (WF-M1, 2026-08-07): the hglobal icall form returns intptr_t (IntPtr.Zero
     // on null) -- "ptr" result kind, so the result temp is intptr_t with no
     // emitter return cast. The string reaches the Il2CppString* param via "s".
-    // StringToHGlobalAnsi stays LOUD (il2cpp_marshal_ext2.h include gap).
+    // StringToHGlobalAnsi wired via il2cpp_marshal_ext2.h (in the chain).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Marshal_StringToHGlobalUni_MapsToUtf16HglobalIcall()
@@ -234,14 +238,21 @@ public class MethodMapMarshalTests
     }
 
     [Fact]
-    public void Resolve_Marshal_StringToHGlobalAnsi_StillThrowsLoud()
+    public void Resolve_Marshal_StringToHGlobalAnsi_MapsToAnsiHglobalIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "StringToHGlobalAnsi",
-                Sig(Ret(0x11, 0x05), 0x0E)), "StringToHGlobalAnsi"));
+        // Wired: il2cpp_marshal_ext2.h joined the generated include chain --
+        // mirrors the Uni form (string via "s", "ptr" result, freed by
+        // FreeHGlobal).
+        var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "StringToHGlobalAnsi",
+            Sig(Ret(0x11, 0x05), 0x0E)), "StringToHGlobalAnsi");
 
-        Assert.StartsWith("System.Runtime.InteropServices.Marshal::StringToHGlobalAnsi: ", ex.Message);
-        Assert.Contains("il2cpp_marshal_ext2.h", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_marshal_string_to_hglobal_ansi", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.ReturnsRef);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal("ptr", m.ResultKind);
+        Assert.Equal(new[] { "s" }, m.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

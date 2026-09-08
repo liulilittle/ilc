@@ -1,0 +1,32 @@
+# Memory
+- ILC e2e regression verification workflow (reproducible):
+  1. dotnet build tests\cases\<n>\<n>.csproj -c Release -o tests\cases\<n>\out
+  2. run <n>.exe -> expected.txt (exit!=0 => SKIP)
+  3. rm gen + build_mingw; il2cppc.dll <n>.exe gen (never rebuild transpiler)
+  4. cmake -S gen -B build_mingw -G "MinGW Makefiles"
+  5. cmake --build build_mingw --parallel 16
+  6. run build_mingw\il2cpp_gen_exe.exe -> actual.txt
+  7. Compare-Object expected vs actual; both must be non-empty; PASS iff empty diff
+- Env facts: dotnet 8.0.205; cmake 3.22.1; mingw gcc at C:\Program Files\ming-w64\bin (in PATH, mingw32-make.exe present); il2cppc.dll at E:\il2cpp\src\il2cppc\bin\Release\net8.0\il2cppc.dll.
+- Shared runner script at C:\Users\windo\AppData\Local\Temp\opencode\run_case.ps1; invoke with -Name <case>.
+- Encoding must be set to UTF8 before run to keep expected/actual stable.
+- Fresh cmake runtime build (il2cpp_runtime static lib + gen + host) takes ~75-110s with --parallel 16; each full case ~80-160s.
+- Case output files (expected.txt/actual.txt) are typically UNTRACKED; cleanup = delete untracked, or git checkout HEAD -- if tracked.
+## 2026-08-15 e2e 回归（strpath/strproc/strreader2/strreplace，本代理）
+- **4/4 PASS 0 diff**（59/74/10/65 行 byte-exact，双非空 Compare-Object），全链路 0 error，无 SKIP，无超时/续建（130.3/128.1/158.4/43.6s 单调用）。
+- 新增良性告警：strreplace 生成代码 -Wself-assign（il2cppc 生成 brfalse 临时自赋值），非失败。
+- 清理：strreplace tracked expected 被 oracle 覆盖（M）-> git checkout HEAD 恢复（git diff HEAD 0 行）；strpath/strproc/strreplace actual + strreader2 expected（untracked）删除；4 目录 git clean。未 commit；未碰 src/**、winforms1、build/runtime_full、tests/unit。
+
+## e2e regression (stringsort/stringsplit/stringtrim/strjoin) 2026-08-15 20:56:21
+- **4/4 PASS 0 diff**; 64/38/29/30 lines byte-exact (dual non-empty Compare-Object); full path 0 error; no SKIP; no timeouts.
+- Elapsed 123.2s / 146.4s / 144.1s / 106.7s (each bash call <9min). cmake --parallel 16. Known warnings only: regex_parse.cpp:232 unused 'p', task.cpp:153 return-type, gen C# self-assign warnings.
+- Cleanup: all 4 expected.txt tracked & byte-identical to HEAD (stringtrim was M -> checkout; others never showed M); 4 untracked actual.txt + gen/build_mingw removed; git status clean for 4 dirs; no commit; did not touch src/**, winforms1, build/runtime_full, tests/unit.
+
+## e2e 回归（streamchain/streamdeep2/streamops/streampos，本代理 2026-08-15）
+- 结果 **4/4 PASS 0 diff**（24/37/16/63 行 byte-exact，双非空 Compare-Object），全链路 0 error，无 SKIP（105.8/151.5/135.3/120.6s）。streampos tempslot 184 最大。
+- 清理：4 tracked expected 与 HEAD blob hash byte-exact 未动；4 untracked actual.txt + out/gen/build_mingw 已删；4 目录 git clean。未 commit；未碰 src/**、winforms1、build/runtime_full、tests/unit。
+
+## e2e regression (string/string2b/stringbuild2/stringbuilddeep, this agent 2026-08-15)
+- 4/4 PASS 0 diff (6/58/46/49 lines byte-exact; double non-empty check then Compare-Object). Full chain 0 error, no SKIP, no timeout (61/111/152/130s, single bash call <9min each).
+- stringbuild2 transpile 275 temp slots (largest this batch); string 6. Known benign warnings regex_parse.cpp:232 / task.cpp:153 as usual, non-fatal.
+- Cleanup: expected.txt for all 4 cases tracked and byte-identical to HEAD after fresh oracle write (git porcelain showed NO ' M' entries) -> no checkout needed; 5 untracked files (string/expected.txt + 4 actual.txt) deleted; out/gen/build_mingw gitignored removed; 4 dirs git status clean. No commit; src/winforms1/build/runtime_full/tests/unit untouched.

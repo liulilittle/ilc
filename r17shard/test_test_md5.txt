@@ -1,0 +1,8 @@
+case=test_md5
+status=PASS
+code=0
+---stdout---
+ALL PASS (md5)
+
+---stderr---
+

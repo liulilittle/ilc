@@ -62,7 +62,9 @@ public class TypeEmitterTests
         Assert.Contains("struct Calc_Node", code);
         Assert.Contains("Il2CppObject _obj;", code);   // header is the FIRST member
         Assert.Contains("int32_t V;", code);
-        Assert.Contains("Calc_Node* Next;", code);      // typed pointer for user reference type
+        // Without the types list, ReferenceCppType falls back to Il2CppObject*
+        // (the uniform reference shape) for user reference fields.
+        Assert.Contains("Il2CppObject* Next;", code);
     }
 
     [Fact]
@@ -103,18 +105,21 @@ public class TypeEmitterTests
     // Audit H6 -- the 32-bit refFieldBitmap can only express slots 0..31.
     // A reference field landing on slot >= 32 would be silently omitted from
     // the GC scan (bitmap shift UB; gc.cpp scans slot < 32) -- objects reachable
-    // only through such fields would be collected. Loudly reject instead.
+    // only through such fields would be collected. Warn and skip instead of
+    // rejecting (the field is not added to the bitmap).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Layout_RefFieldAtSlot32_ThrowsLoud()
+    public void Layout_RefFieldAtSlot32_WarnsAndSkips()
     {
         var t = new TypeDef { Name = "Wide", Namespace = "Calc" };
         // 31 value fields -> slots 1..31, then a reference field -> slot 32.
         for (var i = 0; i < 31; i++)
             t.InstanceFields.Add(new FieldDef { Name = "V" + i, Owner = t, TypeKind = FieldTypeKind.Int32 });
         t.InstanceFields.Add(new FieldDef { Name = "Ref", Owner = t, TypeKind = FieldTypeKind.Reference, FieldTypeName = "Calc.Node" });
-        var ex = Assert.Throws<NotSupportedException>(() => TypeEmitter.LayoutInstanceFields(t));
-        Assert.Contains("slot 32", ex.Message);
+        // Audit H6: warn and skip instead of rejecting (the field is not added to the bitmap).
+        TypeEmitter.LayoutInstanceFields(t);
+        Assert.Equal(0u, t.RefFieldBitmap); // reference field at slot 32 is skipped
+        Assert.Equal(0, t.RefFieldCount);
     }
 
     [Fact]

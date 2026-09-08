@@ -206,6 +206,61 @@ public class MethodMapThreadTests
     }
 
     [Fact]
+    public void Resolve_Thread_GetName_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "get_Name",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_Name");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_get_name", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Thread_SetName_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "set_Name",
+            new byte[] { 0x00, 0x01, 0x01, 0x0E }), "set_Name");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_set_name", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Thread_CtorParameterized_MapsToCtorIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", ".ctor",
+            new byte[] { 0x00, 0x02, 0x01, 0x12, 0x05, 0x08 }), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_ctor", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(2, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Thread_GetApartmentState_MapsToNativeIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "GetApartmentState", Sig(0x08)), "GetApartmentState");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_get_apartment_state_native", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Thread_TrySetApartmentState_MapsToNativeIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "TrySetApartmentState", Sig(0x08, 0x08)), "TrySetApartmentState");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_set_apartment_state_native", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+    }
+
+    [Fact]
     public void Resolve_Thread_CurrentThread_MapsToIcall()
     {
         // get_CurrentThread: CLASS return (0x12 + the TypeDefOrRef coded
@@ -219,6 +274,63 @@ public class MethodMapThreadTests
         Assert.True(m.ReturnsValue);
         Assert.True(m.ReturnsRef); // returns a Thread object
         Assert.Equal("System.Threading.Thread", m.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // Thread startup three-piece: Start(object)/UnsafeStart()/UnsafeStart(object)/get_ThreadState
+    //--------------------------------------------------------------------------
+
+    [Fact]
+    public void Resolve_Thread_StartParameterized_MapsToIcall()
+    {
+        // Start(object): one OBJECT parameter (0x1C, System.Object -- not 0x12
+        // CLASS which needs a TypeDefOrRef coded index; see MethodMap.WeakReference.cs:40).
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "Start",
+            new byte[] { 0x00, 0x01, 0x01, 0x1C }), "Start");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_start_parameterized", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Thread_UnsafeStart_MapsToIcall()
+    {
+        // UnsafeStart(): no params, void return. M-stage no EC, delegates to Start.
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "UnsafeStart",
+            Sig(0x01)), "UnsafeStart");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_unsafe_start", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Thread_UnsafeStartParameterized_MapsToIcall()
+    {
+        // UnsafeStart(object): one OBJECT parameter (0x1C).
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "UnsafeStart",
+            new byte[] { 0x00, 0x01, 0x01, 0x1C }), "UnsafeStart");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_unsafe_start_parameterized", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Thread_GetThreadState_MapsToIcall()
+    {
+        // get_ThreadState(): returns int32 (0x8) ThreadState flags.
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "get_ThreadState",
+            Sig(0x08)), "get_ThreadState");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_get_thread_state", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
     }
 
     //--------------------------------------------------------------------------

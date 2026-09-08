@@ -1,0 +1,8 @@
+case=test_delegate_cb
+status=PASS
+code=0
+---stdout---
+all runtime delegate-cb tests passed
+
+---stderr---
+

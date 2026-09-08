@@ -79,12 +79,16 @@ public class MethodMapBufferTests
     // message text of either layer.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Buffer_MemoryCopy_ThrowsLoud()
+    public void Resolve_Buffer_MemoryCopy_MapsToSizedIcall()
     {
-        // void* params (0x1E PTR + 0x01 target byte), long size/count (0x0A)
-        _ = Assert.Throws<NotSupportedException>(() =>
-            ResolveBuffer("MemoryCopy",
-                new byte[] { 0x00, 0x04, 0x01, 0x1E, 0x01, 0x1E, 0x01, 0x0A, 0x0A }));
+        // void* params (0x0F PTR + 0x01 VOID target), long size/count (0x0A);
+        // IL order (source, destination, ...) reorders via IcallArgOrder.
+        var resolved = ResolveBuffer("MemoryCopy",
+            new byte[] { 0x00, 0x04, 0x01, 0x0F, 0x01, 0x0F, 0x01, 0x0A, 0x0A });
+
+        Assert.Equal("il2cpp::runtime::il2cpp_buffer_memory_copy_sized", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(4, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
@@ -92,14 +96,17 @@ public class MethodMapBufferTests
     // on the current surface (block_copy/byte_length/memory_copy only).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Buffer_GetByte_ThrowsLoud()
+    public void Resolve_Buffer_GetByte_MapsToGetByteIcall()
     {
+        // Wired (D5 cov2): GetByte(Array, int) -> int32 carrier.
         var (_, arr) = Synthesize("GetByte", new byte[] { 0x00, 0x02, 0x03, 0x12, 0x00, 0x08 });
 
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveBuffer("GetByte", new byte[] { 0x00, 0x02, 0x03, 0x12, arr, 0x08 }));
+        var resolved = ResolveBuffer("GetByte", new byte[] { 0x00, 0x02, 0x03, 0x12, arr, 0x08 });
 
-        Assert.Contains("System.Buffer::GetByte", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_buffer_get_byte", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

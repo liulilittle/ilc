@@ -1,0 +1,8 @@
+case=test_pinvokecb
+status=PASS
+code=0
+---stdout---
+all runtime pinvoke-cb tests passed
+
+---stderr---
+

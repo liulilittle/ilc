@@ -1,0 +1,8 @@
+case=test_stringalloc
+status=PASS
+code=0
+---stdout---
+all runtime stringalloc tests passed
+
+---stderr---
+

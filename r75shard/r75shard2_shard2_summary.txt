@@ -1,0 +1,37 @@
+r75 shard2 Results
+====================
+ShardFile: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\shard2.txt
+Total: 1542
+SuccessEmpty (Exit0 + no output): 1186
+Fail (Exit !=0): 356
+WithOutput (warnings/errors): 356
+OkButWarn (WithOutput - Fail): 0
+ElapsedSeconds: 978.7226094
+ThrottleLimit: 8
+Command: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r75/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠)
+Log: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard2_shard2.log
+ErrorLog: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard2_shard2_errors.log
+CSV: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard2_shard2.csv
+Generated: 2026-09-04 18:31:27
+
+Top 20 files with errors/warnings:
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Deployment_Internal_Isolation_StoreSubcategoryEnumeration.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Deployment_Internal_Isolation_StoreSubcategoryEnumeration.cpp:166:10: error: assigning to 'int32_t' (aka 'int') from incompatible type 'System_Deployment_Inte
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Contracts_ContractException.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Contracts_ContractException.cpp:265:5: error: no matching function for call to 'System_Runtime_Serialization_SerializationInfo_AddValue_2d96a31b7e
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_StackFrameHelper.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_StackFrameHelper.cpp:235:163: error: too few arguments to function call, expected 3, have 2
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_SymbolStore_SymDocumentType.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_SymbolStore_SymDocumentType.cpp:114:8: error: array type 'uint8_t[16]' (aka 'unsigned char[16]') is not assignable
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ActivityFilter___c__DisplayClass11_0.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ActivityFilter___c__DisplayClass11_0.cpp:94:10: error: no matching function for call to 'System_Collections_Concurrent_ConcurrentDictionar
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ActivityFilter.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ActivityFilter.cpp:141:35: error: reinterpret_cast from 'System_Guid' to 'uint8_t *' (aka 'unsigned char *') is not allowed
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_SymbolStore_SymLanguageVendor.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_SymbolStore_SymLanguageVendor.cpp:114:8: error: array type 'uint8_t[16]' (aka 'unsigned char[16]') is not assignable
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_SymbolStore_SymLanguageType.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_SymbolStore_SymLanguageType.cpp:144:8: error: array type 'uint8_t[16]' (aka 'unsigned char[16]') is not assignable
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ActivityFilter__GetFilterAsTuple_d__7.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ActivityFilter__GetFilterAsTuple_d__7.cpp:182:35: error: reinterpret_cast from 'System_Guid' to 'uint8_t *' (aka 'unsigned char *') is not
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ActivityTracker_ActivityInfo.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ActivityTracker_ActivityInfo.cpp:268:52: error: too many arguments to function call, expected 0, have 1
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ArrayTypeInfo_1_int.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ArrayTypeInfo_1_int.cpp:151:477: error: cannot initialize a parameter of type 'Il2CppObject **' with an rvalue of type 'int32_t *' (aka 'i
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ActivityTracker.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ActivityTracker.cpp:177:42: error: no matching function for call to 'System_Diagnostics_Tracing_ActivityTracker_ActivityInfo_LiveActivitie
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ClassPropertyWriter_2_int_long.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ClassPropertyWriter_2_int_long.cpp:135:503: error: cannot initialize a parameter of type 'Il2CppObject **' with an rvalue of type 'int64_t
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ClassPropertyWriter_2_int_string.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ClassPropertyWriter_2_int_string.cpp:128:8: error: no viable overloaded '='
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ConcurrentSet_2_EventTags_object.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ConcurrentSet_2_EventTags_object.cpp:99:10: error: no viable overloaded '='
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ClassPropertyWriter_2_int_int.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ClassPropertyWriter_2_int_int.cpp:135:501: error: cannot initialize a parameter of type 'Il2CppObject **' with an rvalue of type 'int32_t 
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ClassPropertyWriter_2_int.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ClassPropertyWriter_2_int.cpp:135:493: error: cannot initialize a parameter of type 'Il2CppObject **' with an rvalue of type 'int32_t *' (
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_ConcurrentSet_2_System_Collections_Generic_KeyValuePair_2_string_System_Diagnostics_Tracing_EventTags_object.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_ConcurrentSet_2_System_Collections_Generic_KeyValuePair_2_string_System_Diagnostics_Tracing_EventTags_object.cpp:99:10: error: no viable o
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_DataCollector.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_DataCollector.cpp:249:10: error: no matching function for call to 'System_IntPtr_op_Explicit_b87f01d65c5fb32c'
+- E:\il2cpp\out\mscorlib_gen_r75\src\System_Diagnostics_Tracing_DateTimeOffsetTypeInfo.cpp Exit:1 => E:/il2cpp/out/mscorlib_gen_r75/src/System_Diagnostics_Tracing_DateTimeOffsetTypeInfo.cpp:117:5: error: unknown type name 'ts'

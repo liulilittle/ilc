@@ -1,0 +1,8 @@
+case=test_encodingconv
+status=PASS
+code=0
+---stdout---
+all runtime encodingconv tests passed
+
+---stderr---
+

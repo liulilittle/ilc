@@ -1,0 +1,22 @@
+CMakeFiles/il2cpp_runtime.dir/src/char.cpp.obj: \
+  E:/il2cpp/src/runtime/src/char.cpp \
+  E:/il2cpp/src/runtime/include/internal/il2cpp_char.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/cstdint \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__assert \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__config \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__config_site \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__verbose_abort \
+  C:/PROGRA~1/ming-w64/include/c++/v1/__availability \
+  C:/PROGRA~1/ming-w64/include/c++/v1/stdint.h \
+  C:/PROGRA~1/ming-w64/lib/clang/17/include/stdint.h \
+  C:/PROGRA~1/ming-w64/include/stdint.h \
+  C:/PROGRA~1/ming-w64/include/crtdefs.h \
+  C:/PROGRA~1/ming-w64/include/corecrt.h \
+  C:/PROGRA~1/ming-w64/include/_mingw.h \
+  C:/PROGRA~1/ming-w64/include/_mingw_mac.h \
+  C:/PROGRA~1/ming-w64/include/_mingw_secapi.h \
+  C:/PROGRA~1/ming-w64/lib/clang/17/include/vadefs.h \
+  C:/PROGRA~1/ming-w64/include/vadefs.h \
+  C:/PROGRA~1/ming-w64/include/sdks/_mingw_ddk.h \
+  C:/PROGRA~1/ming-w64/include/c++/v1/stddef.h \
+  C:/PROGRA~1/ming-w64/lib/clang/17/include/stddef.h

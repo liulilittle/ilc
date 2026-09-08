@@ -245,7 +245,7 @@ public class TypeEmitterTypeInfoTests
     }
 
     [Fact]
-    public void EmitTypeInfo_RefReturnType_ThrowsLoud()
+    public void EmitTypeInfo_RefReturnType_ThrowsForUnsupportedType()
     {
         var t = MakeNode();
         t.Methods.Add(new MethodDef
@@ -253,8 +253,10 @@ public class TypeEmitterTypeInfoTests
             Name = "GetNext", Owner = t, IsPublic = true,
             ParamCount = 0, ParamTypes = "", ReturnType = SignatureTypeCode.TypeHandle,
         });
+        // TypeHandle return type is not representable in Il2CppMethodInfo.signature
+        // (model gap, mirror of the M1 static-field classification gap).
         var ex = Assert.Throws<NotSupportedException>(() => TypeEmitter.EmitTypeInfo(t));
-        Assert.Contains("return type", ex.Message);
+        Assert.Contains("TypeHandle", ex.Message);
     }
 
     //--------------------------------------------------------------------------

@@ -1,0 +1,8 @@
+case=test_string
+status=PASS
+code=0
+---stdout---
+all runtime string tests passed
+
+---stderr---
+

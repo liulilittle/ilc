@@ -1,0 +1,76 @@
+r75 shard1 7簇分析 - 2026-09-04 18:31:34
+===============================================
+来源: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard1_shard1_errors.log
+总文件: 1542 成功空:941 失败:601 错行总数: 6596
+
+7主簇 (按 process.md 口径 ci/nmf/nv/sc/membref/undecl/other):
+  1 cannot-init (cannot initialize) : 1245  (18.9%)
+  2 no-matching-fn (no matching function) : 993  (15.1%)
+  3 no-viable-conv (no viable) : 1526  (23.1%)
+  4 static-cast : 88  (1.3%)
+  5 membref (no member named|member reference) : 468 (simple no member named=443)  (7.1%)
+  6 undeclared (use of undeclared|unknown type) : 507  (7.7%)
+  7 other : 1769  (26.8%)
+ 校验: 6596 == 6596 ? True
+
+扩展细分:
+  assigning  : 320
+  incompat   : 320
+  too-few    : 18
+  too-many   : 14
+  cannot-cast: 1146
+
+Top 20 错误首句 (去重):
+   870 cannot cast from type 'int32_t' (aka 'int') to pointer type 'Il2CppObject *'
+   688 no viable overloaded '='
+   409 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+   292 cannot initialize a parameter of type 'Il2CppArray *' with an lvalue of type 'Il2CppObject *'
+   226 no viable conversion from 'System_Runtime_CompilerServices_TaskAwaiter_1_int' to 'Il2CppObject *'
+   145 cannot initialize return object of type 'int32_t' (aka 'int') with an rvalue of type 'Il2CppObject *'
+   114 reinterpret_cast from 'int32_t' (aka 'int') to 'intptr_t' (aka 'long long') is not allowed
+   68 unknown type name 'dt'
+   68 cannot initialize a parameter of type 'int32_t' (aka 'int') with an lvalue of type 'Il2CppObject *'
+   67 no viable conversion from 'System_Runtime_CompilerServices_TaskAwaiter_1_int' to 'int32_t' (aka 'int')
+   61 static_cast from 'Il2CppObject *' to 'int32_t' (aka 'int') is not allowed
+   55 no member named 'icall_box_intptr' in namespace 'il2cpp::runtime'; did you mean 'icall_box_uint'?
+   52 cannot initialize a parameter of type 'Il2CppObject *' with an lvalue of type 'intptr_t' (aka 'long long')
+   41 cannot initialize a parameter of type 'Il2CppObject *' with an rvalue of type 'int32_t *' (aka 'int *')
+   41 no viable conversion from returned value of type 'System_Collections_DictionaryEntry' to function return type 'Il2CppObj
+   40 incompatible pointer to integer conversion assigning to 'int32_t' (aka 'int') from 'Il2CppObject *'
+   39 cannot initialize a parameter of type 'Il2CppObject *' with an rvalue of type 'Il2CppObject **'
+   36 cannot initialize return object of type 'Il2CppObject *' with an lvalue of type 'int32_t' (aka 'int')
+   35 cannot initialize a parameter of type 'int32_t' (aka 'int') with an rvalue of type 'Il2CppObject *'
+   34 no matching function for call to 'System_Runtime_CompilerServices_ConditionalWeakTable_2_int_Add_4c5943bc1de1c7d1'
+
+Top 20 失败文件 (按错行数):
+  E:\il2cpp\out\mscorlib_gen_r75\src\__f__AnonymousType0_1_string.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/__f__AnonymousType0_1_string.cpp:191:10: error: incompatible pointer to integer conversion assigning to 'intptr_t' (aka 'long long') from 'Il2Cpp
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_IEnumerable_1_object.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_IEnumerable_1_object.cpp:155:21: error: cannot cast from type 'int32_t' (
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_KeyValuePair_2_object_object.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_KeyValuePair_2_object_object.cpp:155:21: error: incompatible pointer type
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_DateTime.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_DateTime.cpp:155:38: error: unknown type name 'V_System_DateTime'; did you mean 'System_DateT
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Decimal.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Decimal.cpp:155:38: error: unknown type name 'V_System_Decimal'; did you mean 'System_Decimal
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Guid.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Guid.cpp:155:38: error: unknown type name 'V_System_Guid'; did you mean 'System_Guid'?
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_KeyValuePair_2_int_object.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_KeyValuePair_2_int_object.cpp:155:21: error: incompatible pointer types a
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Collections_DictionaryEntry.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Collections_DictionaryEntry.cpp:155:38: error: unknown type name 'V_System_Collections_Dictio
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_IntPtr.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_IntPtr.cpp:155:21: error: reinterpret_cast from 'int32_t' (aka 'int') to 'intptr_t' (aka 'lon
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Diagnostics_Tracing_EventProvider_SessionInfo.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Diagnostics_Tracing_EventProvider_SessionInfo.cpp:155:38: error: unknown type name 'V_System_
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Reflection_Emit_MethodBuilder_SymCustomAttr.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Reflection_Emit_MethodBuilder_SymCustomAttr.cpp:155:38: error: unknown type name 'V_System_Re
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Reflection_MemberInfo_array.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Reflection_MemberInfo_array.cpp:155:21: error: cannot cast from type 'int32_t' (aka 'int') to
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Security_Cryptography_X509Certificates_AttributeAsn.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Security_Cryptography_X509Certificates_AttributeAsn.cpp:155:38: error: unknown type name 'V_S
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Security_Cryptography_X509Certificates_ReadOnlyMemory_1_int.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Security_Cryptography_X509Certificates_ReadOnlyMemory_1_int.cpp:155:21: error: incompatible p
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_TimeSpan.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_TimeSpan.cpp:155:38: error: unknown type name 'V_System_TimeSpan'; did you mean 'System_TimeS
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_DateTimeOffset.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_DateTimeOffset.cpp:155:38: error: unknown type name 'V_System_DateTimeOffset'; did you mean '
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_string.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_string.cpp:155:21: error: cannot cast from type 'int32_t' (aka 'int') to pointer type 'Il2CppObject 
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_Dictionary_2_object_System_Collections_Generic_Dictionary_2_object_System_Runtime_Intero_888baff0cb41.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_System_Collections_Generic_Dictionary_2_object_System_Collections_Generic_Dictionary_2_object_System
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_List_1_Enumerator_object.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_List_1_Enumerator_object.cpp:155:38: error: unknown type name 'V_System_Collections_Generic_KeyValuePair_2_int'; did y
+  E:\il2cpp\out\mscorlib_gen_r75\src\System_Collections_Generic_KeyValuePair_2_string_System_Resources_ResourceLocator.cpp Exit:1 Lines: First:E:/il2cpp/out/mscorlib_gen_r75/src/System_Collections_Generic_KeyValuePair_2_string_System_Resources_ResourceLocator.cpp:80:17: error: cannot cast from type 'int32_t' (aka 'int') t
+
+产物:
+  Log: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard1_shard1.log
+  Errors: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard1_shard1_errors.log
+  CSV: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard1_shard1.csv
+  Summary: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard1_shard1_summary.txt
+  Clusters: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\r75shard1_shard1_clusters.txt
+  Flag: C:\Users\windo\AppData\Local\Temp\opencode\r75shard\DONE_r75shard1.flag
+  镜像: E:\il2cpp\r75shard\
+
+命令: g++ -fsyntax-only -std=c++17 -fexceptions -fpermissive -ferror-limit=0 -I E:/il2cpp/out/mscorlib_gen_r75/include/internal -I E:/il2cpp/src/runtime/include/internal <file> (正斜杠, ThrottleLimit 8, 1542)

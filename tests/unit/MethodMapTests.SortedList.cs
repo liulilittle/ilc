@@ -195,6 +195,19 @@ public class MethodMapTestsSortedList
         Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
     }
 
+    [Fact]
+    public void Resolve_SortedList_SetByIndex_MapsToSortedListSetAt()
+    {
+        // void SetByIndex(int32, object): 20 02 01 08 1C
+        var resolved = ResolveMember(Synthesize("SetByIndex", Blob(0x20, 0x02, 0x01, 0x08, 0x1C)), "SetByIndex");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_sortedlist_set_at", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i", "" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // SortedList -- parameterless members (Count / Capacity / Keys / Values / Clear)
     //--------------------------------------------------------------------------
