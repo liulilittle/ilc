@@ -551,6 +551,7 @@ void* icall_delegate_get_invoke_method(Il2CppObject* d)
 
 Il2CppObject* icall_delegate_find_method_handle(Il2CppObject* d)
 {
+    (void)d;
     return nullptr; // no method handle in the simplified model
 }
 
@@ -561,6 +562,7 @@ bool icall_delegate_internal_equal_method_handles(Il2CppObject* d1, Il2CppObject
 
 Il2CppObject* icall_delegate_adjust_target(Il2CppObject* d, Il2CppObject* target)
 {
+    (void)target;
     return d; // identity: no target adjustment needed
 }
 

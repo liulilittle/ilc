@@ -565,11 +565,13 @@ Il2CppObject* icall_threadobj_get_current_thread()
 
 void icall_threadobj_set_app_domain_stack(Il2CppObject* self, int32_t stackSize)
 {
+    (void)self; (void)stackSize;
     // no-op: AppDomain not supported in ILC model
 }
 
 void icall_threadobj_restore_app_domain_stack(Il2CppObject* self)
 {
+    (void)self;
     // no-op: AppDomain not supported in ILC model
 }
 
@@ -580,26 +582,31 @@ Il2CppObject* icall_threadobj_internal_get_current_thread()
 
 Il2CppObject* icall_threadobj_get_context_internal(Il2CppObject* self)
 {
+    (void)self;
     return nullptr; // no context in simplified model
 }
 
 Il2CppObject* icall_threadobj_internal_cross_context_callback(int32_t contextId, Il2CppObject* callback)
 {
+    (void)contextId; (void)callback;
     return nullptr; // no cross-context callback in simplified model
 }
 
 void icall_threadobj_set_abort_reason(Il2CppObject* self, Il2CppObject* reason)
 {
+    (void)self; (void)reason;
     // no-op: abort not supported in simplified model
 }
 
 Il2CppObject* icall_threadobj_get_abort_reason(Il2CppObject* self)
 {
+    (void)self;
     return nullptr; // no abort reason in simplified model
 }
 
 void icall_threadobj_clear_abort_reason(Il2CppObject* self)
 {
+    (void)self;
     // no-op: abort not supported in simplified model
 }
 
@@ -607,26 +614,31 @@ void icall_threadobj_clear_abort_reason(Il2CppObject* self)
 
 void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)
 {
+    (void)self; (void)value;
     // no-op: simplified model
 }
 
 int32_t icall_threadobj_get_apartment_state_native(Il2CppObject* self)
 {
+    (void)self;
     return 0; // MTA
 }
 
 bool icall_threadobj_set_apartment_state_native(Il2CppObject* self, int32_t state)
 {
+    (void)self; (void)state;
     return true; // always succeeds
 }
 
 void icall_threadobj_interrupt(Il2CppObject* self)
 {
+    (void)self;
     // no-op: simplified model, no thread interruption
 }
 
 int32_t icall_threadobj_get_optimal_max_spin_waits(Il2CppObject* self)
 {
+    (void)self;
     return 1; // default spin count
 }
 
