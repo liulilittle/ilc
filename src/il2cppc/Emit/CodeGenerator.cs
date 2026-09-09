@@ -2908,17 +2908,17 @@ public static class CodeGenerator
                     // Case 1: returns Il2CppObject* (ref) but expression is int/val → reinterpret_cast through intptr_t.
                     // Case 2: returns int32_t but expression is ref/ptr → static_cast<int32_t> narrow (lossy but preserves slot-reuse semantics).
                     if ((_curReturnType == SignatureTypeCode.Int32 || _curReturnType == SignatureTypeCode.Int64) && retKind is "ref" or "ptr")
-                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
+                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>(reinterpret_cast<intptr_t>({retExpr}))";
                     else if ((_curReturnType == SignatureTypeCode.IntPtr || _curReturnType == SignatureTypeCode.UIntPtr) && retKind is "val" or "i")
                         retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
                     else if (ReturnTypeIsRef(_curReturnType) && retKind is "val" or "i" or "l" or "d" or "f" or "b" or "c")
                     {
-                        // Enum val types (System_TypeCode etc.) cannot reinterpret_cast directly
-                        // to a pointer -- first static_cast to intptr_t, then reinterpret.
-                        retExpr = $"reinterpret_cast<{ReturnTypeCpp(_curReturnType)}>(static_cast<intptr_t>({retExpr}))";
+                        // Enum val types (System_TypeCode etc.) must be boxed to Il2CppObject* --
+                        // reinterpret_cast through intptr_t is UB (enum is not a pointer).
+                        retExpr = $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({retExpr}))";
                     }
                     else if (!ReturnTypeIsRef(_curReturnType) && retKind is "ref" or "ptr")
-                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
+                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>(reinterpret_cast<intptr_t>({retExpr}))";
                     w.LineAligned($"return {retExpr};",
                         $"IL {At(r.SourceOpName, r.SourceOffset)} -- exit method returning the computed value");
                 }
@@ -6509,7 +6509,7 @@ public static class CodeGenerator
                     var objCodeArr = EmitExpr(c.Args[0], md, types);
                     var klassArr = SzArrayArrayClassCpp(md, tsHandle);
                     if (c.Function.StartsWith("castclass_", StringComparison.Ordinal))
-                        return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : (({objCodeArr}) == nullptr ? reinterpret_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), reinterpret_cast<Il2CppObject*>(nullptr))))";
+                        return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : (({objCodeArr}) == nullptr ? nullptr : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), nullptr)))";
                     return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : nullptr)";
                 }
                 var specName = GenericTypeSpecDefinitionName(md, tsHandle);
@@ -6556,7 +6556,7 @@ public static class CodeGenerator
                 // is_instance(null) is false); on the match path the input is already
                 // known non-null (is_instance implies obj != nullptr), so the expression
                 // evaluates the input at most twice.
-                return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? reinterpret_cast<Il2CppObject*>({objCode}) : (({objCode}) == nullptr ? reinterpret_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new(\"{chain}\", \"Unable to cast object to the target type.\"), reinterpret_cast<Il2CppObject*>(nullptr))))";
+                return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? reinterpret_cast<Il2CppObject*>({objCode}) : (({objCode}) == nullptr ? nullptr : (il2cpp::il2cpp_throw_new(\"{chain}\", \"Unable to cast object to the target type.\"), nullptr)))";
             }
             return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? reinterpret_cast<Il2CppObject*>({objCode}) : nullptr)";
         }
