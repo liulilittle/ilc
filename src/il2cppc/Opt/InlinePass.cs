@@ -984,6 +984,7 @@ public static class InlinePass
             foreach (var m in t.Methods)
             {
                 if (m.IsPInvoke || m.IsAbstract) continue;
+                if (!MethodBodyReader.HasBody(md, t, m)) continue;
                 var bodyInfo = MethodBodyReader.Read(pe, md, t, m);
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var stmts = FoldBody(pe, md, t, m, bodyInfo, types, accessors);
@@ -1013,6 +1014,7 @@ public static class InlinePass
             foreach (var m in t.Methods)
             {
                 if (m.IsPInvoke || m.IsAbstract) continue;
+                if (!MethodBodyReader.HasBody(md, t, m)) continue;
                 var bodyInfo = MethodBodyReader.Read(pe, md, t, m);
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var stmts = FoldBody(pe, md, t, m, bodyInfo, types, accessors);

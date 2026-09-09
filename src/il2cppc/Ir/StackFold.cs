@@ -3695,7 +3695,11 @@ public static class StackFold
                 || fullName.StartsWith("System.Comparison`", StringComparison.Ordinal))
                 return true;
             if (types == null) return false;
-            var cur = types.FirstOrDefault(t => t.FullName == fullName);
+            // Nested-name match: nested TypeDefs carry Namespace="" (FullName is
+            // the short name), but metadata queries use the '+' full name
+            // ("Cases.Outer+ChainFn") -- MatchesFullName covers both forms, so
+            // custom delegates nested in user classes are recognized.
+            var cur = types.FirstOrDefault(t => t.MatchesFullName(fullName));
             while (cur != null)
             {
                 if (cur.BaseTypeName == "System.MulticastDelegate" || cur.BaseTypeName == "System.Delegate")

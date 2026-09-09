@@ -460,6 +460,7 @@ public static class LicmPass
             foreach (var m in t.Methods)
             {
                 if (m.IsPInvoke) continue;
+                if (!MethodBodyReader.HasBody(md, t, m)) continue;
                 var bodyInfo = MethodBodyReader.Read(pe, md, t, m);
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);

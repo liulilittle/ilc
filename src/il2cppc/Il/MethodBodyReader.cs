@@ -75,6 +75,30 @@ public static class MethodBodyReader
         throw new InvalidOperationException($"method {typeDef.FullName}.{methodDef.Name} not found in metadata");
     }
 
+    // Bodyless probe for diagnostic passes (Inline/Licm/TempSlot ScanAssembly):
+    // bodyless methods (abstract/PInvoke/runtime/delegate ctors, RVA=0) are
+    // by-contract skips, not anomalies -- callers `continue` silently instead
+    // of tripping Read's throw and printing a spurious "pre-scan skipped"
+    // warning (zero-warning rule). Unmatched methods still throw, exactly
+    // like Read (model/metadata skew stays loud).
+    public static bool HasBody(MetadataReader md, TypeDef typeDef, MethodDef methodDef)
+    {
+        foreach (var tdh in md.TypeDefinitions)
+        {
+            var td = md.GetTypeDefinition(tdh);
+            if (md.GetString(td.Namespace) != typeDef.Namespace || md.GetString(td.Name) != typeDef.Name) continue;
+            foreach (var mh in td.GetMethods())
+            {
+                var m = md.GetMethodDefinition(mh);
+                if (md.GetString(m.Name) != methodDef.Name) continue;
+                var (paramCount, _, paramTypes, _) = MethodSignatureCoder.Decode(md, m.Signature);
+                if (paramCount != methodDef.ParamCount || paramTypes != methodDef.ParamTypes) continue;
+                return m.RelativeVirtualAddress != 0;
+            }
+        }
+        throw new InvalidOperationException($"method {typeDef.FullName}.{methodDef.Name} not found in metadata");
+    }
+
     private static MethodBodyInfo Read(PEReader pe, MetadataReader md, MethodDefinition m, int token)
     {
         if (m.RelativeVirtualAddress == 0)

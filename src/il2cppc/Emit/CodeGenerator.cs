@@ -3305,7 +3305,11 @@ public static class CodeGenerator
                     // Converter`2 / Comparison`1), and these forms are not
                     // combined in practice; the runtime conservatively skips
                     // the Combine type check for them.
-                    w.LineAligned($"{recvCode} = static_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new({methodPtr}, {targetCode}, 0));",
+                    // Delegate->object uses reinterpret_cast: Il2CppDelegate embeds
+                    // Il2CppObject as its first member (composition, never
+                    // inheritance -- same rule as Il2CppArray/String); static_cast
+                    // is ill-formed here.
+                    w.LineAligned($"{recvCode} = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new({methodPtr}, {targetCode}, 0));",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- construct BCL delegate (il2cpp_delegate_new)");
                     break;
                 }
@@ -3696,10 +3700,14 @@ public static class CodeGenerator
                     var rightIsPtr = IsPtrExpr(b.Right);
                     var leftIsInt = IsIntExpr(b.Left);
                     var rightIsInt = IsIntExpr(b.Right);
+                    // static_cast is used on BOTH sides (never reinterpret): a
+                    // pointer operand converts to intptr_t identically, while an
+                    // integer operand misclassified as ptr (e.g. a static int32
+                    // field) would make reinterpret_cast ill-formed C++.
                     if (leftIsPtr && rightIsInt)
-                        return $"(reinterpret_cast<intptr_t>({EmitExpr(b.Left, md, types)}) {OpSymbol(b.Op)} static_cast<intptr_t>({EmitExpr(b.Right, md, types)}))";
+                        return $"(static_cast<intptr_t>({EmitExpr(b.Left, md, types)}) {OpSymbol(b.Op)} static_cast<intptr_t>({EmitExpr(b.Right, md, types)}))";
                     if (rightIsPtr && leftIsInt)
-                        return $"(static_cast<intptr_t>({EmitExpr(b.Left, md, types)}) {OpSymbol(b.Op)} reinterpret_cast<intptr_t>({EmitExpr(b.Right, md, types)}))";
+                        return $"(static_cast<intptr_t>({EmitExpr(b.Left, md, types)}) {OpSymbol(b.Op)} static_cast<intptr_t>({EmitExpr(b.Right, md, types)}))";
                 }
                 return $"({EmitExpr(b.Left, md, types)} {OpSymbol(b.Op)} {EmitExpr(b.Right, md, types)})";
             case UnaryExpr u:
@@ -3777,7 +3785,7 @@ public static class CodeGenerator
                 // could not name the type). The runtime stores it on the
                 // delegate and compares at Combine time (net48 ArgumentException
                 // on a heterogeneous combine).
-                return $"static_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new(reinterpret_cast<void*>(&{MethodCppNameFromToken(dn.MethodToken, md, types)}), {EmitExpr(dn.Target, md, types)}, {dn.TypeId}))";
+                return $"reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_delegate_new(reinterpret_cast<void*>(&{MethodCppNameFromToken(dn.MethodToken, md, types)}), {EmitExpr(dn.Target, md, types)}, {dn.TypeId}))";
             case DelegateInvokeExpr di:
                 // delegate Invoke. int32-returning delegates with <=4 int32
                 // args route through icall_multicast_invoke_i4: the runtime
@@ -7582,7 +7590,10 @@ public static class CodeGenerator
     // delegate type -- IntFn/Cb have no runtime descriptor).
     private static bool IsCustomDelegateType(string fullName, IReadOnlyList<TypeDef> types)
     {
-        var t = types.FirstOrDefault(x => x.FullName == fullName);
+        // Nested-name match (delegatechain): nested TypeDefs carry the short
+        // FullName, metadata queries use the '+' form -- MatchesFullName covers
+        // both, same fix as StackFold.IsDelegateType.
+        var t = types.FirstOrDefault(x => x.MatchesFullName(fullName));
         if (t != null && IsDelegateTypeDef(t)) return true;
         // batch 162 (eventcase): BCL delegates (System.EventHandler etc.) are
         // runtime Il2CppDelegate objects with no generated struct -- the
