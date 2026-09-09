@@ -380,12 +380,12 @@ public class TypeEmitterNestedTests
         }
     }
 
-    //--------------------------------------------------------------------------
     // Ctor name consistency -- the definition side (CodeGenerator.MethodCppName
     // over the expanded model) and the call side (MethodRefResolver.Resolve on
     // the metadata ctor token) must produce the SAME C++ name. The hash is
     // verified against the real recurse gen output:
-    //   Node__ctor_b3740a9592788e34   (SigHash("Node..ctor()"))
+    //   Node__ctor_b55523c5f2fc0cf3   (SigHash("Cases.Recurse+Node..ctor()") --
+    //   '+' canonical owner key, same input the resolver hashes)
     //--------------------------------------------------------------------------
     [Fact]
     public void CtorCppName_MatchesReferencePointNaming()
@@ -397,12 +397,13 @@ public class TypeEmitterNestedTests
             var node = types.Single(t => t.FullName == "Node");
             var ctor = node.Methods.Single(m => m.Name == ".ctor");
             // Definition side: the MethodCppName formula CodeGenerator uses
-            // when emitting the ctor function of an expanded nested type.
-            var defName = $"{TypeEmitter.TypeCppName(node)}_{TypeEmitter.Sanitize(ctor.Name)}_{SigHash.Hash(node.FullName + "." + ctor.Name + "(" + ctor.ParamTypes + ")")}";
-            Assert.Equal("Cases_Recurse_Node__ctor_b3740a9592788e34", defName);
+            // when emitting the ctor function of an expanded nested type
+            // (hash input is the '+' canonical owner key "Cases.Recurse+Node").
+            var defName = $"{TypeEmitter.TypeCppName(node)}_{TypeEmitter.Sanitize(ctor.Name)}_{SigHash.Hash(TypeEmitter.ReflectionFullName(node) + "." + ctor.Name + "(" + ctor.ParamTypes + ")")}";
+            Assert.Equal("Cases_Recurse_Node__ctor_b55523c5f2fc0cf3", defName);
             // Call side: the resolver names the ctor call from metadata
-            // (owner short name "Node") -- must be byte-identical.
-            var resolved = MethodRefResolver.Resolve(md, CtorMethodToken(md, "Node"), types);
+            // (owner '+' canonical name) -- must be byte-identical.
+            var resolved = MethodRefResolver.Resolve(md, CtorMethodToken(md, "Cases.Recurse+Node"), types);
             Assert.Equal(defName, resolved.CppName);
         }
         finally

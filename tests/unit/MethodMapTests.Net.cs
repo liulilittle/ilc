@@ -92,44 +92,44 @@ public class MethodMapNetTests
     [Fact]
     public void Resolve_Socket_Ctor_ThrowsHandleGap()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Net.Sockets", "Socket", ".ctor",
-                Sig(0x01, 0x11, 0x05, 0x11, 0x05, 0x11, 0x05)), ".ctor"));
+        // Socket object layer is WIRED (il2cpp_netsocket.h): the ctor maps to
+        // the object icall, not a LOUD handle-gap rejection.
+        var m = ResolveMember(Synthesize("System.Net.Sockets", "Socket", ".ctor",
+                Sig(0x01, 0x11, 0x05, 0x11, 0x05, 0x11, 0x05)), ".ctor");
 
-        Assert.Contains("opaque-HANDLE API", ex.Message);
-        Assert.Contains("icall_socket_ctor", ex.Message);
-        Assert.Contains("System_Net_Sockets_Socket_class", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_socket_ctor", m.CppName);
+        Assert.True(m.IsInstance);
     }
 
     [Fact]
     public void Resolve_Socket_Connect_ThrowsHandleGap()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Net.Sockets", "Socket", "Connect",
-                Sig(0x01, 0x0E, 0x08)), "Connect"));
+        var m = ResolveMember(Synthesize("System.Net.Sockets", "Socket", "Connect",
+                Sig(0x01, 0x0E, 0x08)), "Connect");
 
-        Assert.Contains("icall_socket_connect_host", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_socket_connect_host", m.CppName);
+        Assert.True(m.IsInstance);
     }
 
     [Theory]
-    [InlineData("Send")]
-    [InlineData("Receive")]
-    public void Resolve_Socket_SendReceive_ThrowsHandleGap(string name)
+    [InlineData("Send", "il2cpp::runtime::icall_socket_send")]
+    [InlineData("Receive", "il2cpp::runtime::icall_socket_receive")]
+    public void Resolve_Socket_SendReceive_ThrowsHandleGap(string name, string expected)
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Net.Sockets", "Socket", name,
-                Sig(0x08, 0x1D, 0x07)), name));
+        var m = ResolveMember(Synthesize("System.Net.Sockets", "Socket", name,
+                Sig(0x08, 0x1D, 0x07)), name);
 
-        Assert.Contains($"Socket.{name}(byte[], ...) not wired", ex.Message);
+        Assert.Equal(expected, m.CppName);
+        Assert.True(m.IsInstance);
     }
 
     [Fact]
     public void Resolve_Socket_Close_ThrowsHandleGap()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Net.Sockets", "Socket", "Close", Sig(0x01)), "Close"));
+        var m = ResolveMember(Synthesize("System.Net.Sockets", "Socket", "Close", Sig(0x01)), "Close");
 
-        Assert.Contains("icall_socket_close", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_socket_close", m.CppName);
+        Assert.True(m.IsInstance);
     }
 
     //--------------------------------------------------------------------------

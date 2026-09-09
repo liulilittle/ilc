@@ -1623,7 +1623,7 @@ public class CodeGeneratorTests
             // D-TYPG-1: the newarr passes the ELEMENT class (WeakReference /
             // the nested Payload class) for the element-aware descriptor.
             Assert.Contains("il2cpp_array_new(&System_WeakReference_class, 8, true, static_cast<int32_t>(3LL))", cpp);
-            Assert.Contains("il2cpp_array_new(&Payload_class, 8, true, static_cast<int32_t>(3LL))", cpp);
+            Assert.Contains("il2cpp_array_new(&Cases_Gcstress3_Payload_class, 8, true, static_cast<int32_t>(3LL))", cpp);
             Assert.Contains("stelem.ref", cpp);
             Assert.Contains("ldelem.ref", cpp);
             // The enumerated value arms are untouched: byte[] (1,false) and
@@ -1663,7 +1663,7 @@ public class CodeGeneratorTests
         }
         // D-GC-2: BCL reference type and nested user class -> reference elements.
         Assert.Equal((8, true), found["System.WeakReference"]);
-        Assert.Equal((8, true), found["Payload"]);
+        Assert.Equal((8, true), found["Cases.Gcstress3+Payload"]);
         // The enumerated value arms keep their sizes.
         Assert.Equal((4, false), found["System.Int32"]);
         Assert.Equal((1, false), found["System.Byte"]);
@@ -2112,8 +2112,9 @@ public class CodeGeneratorTests
             var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_HashtableDeep.cpp"));
             // The guard must be present at least once, and EVERY castclass throw
             // site must be guarded (a bare `is_instance ? cast : throw` is the
-            // D-CAST-NULL regression).
-            var guard = "== nullptr ? static_cast<Il2CppObject*>(nullptr) : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException";
+            // D-CAST-NULL regression). The null arm emits bare `nullptr`
+            // (implicitly converts to Il2CppObject*).
+            var guard = "== nullptr ? nullptr : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException";
             var throwSites = Regex.Matches(cpp, Regex.Escape("il2cpp::il2cpp_throw_new(\"System.InvalidCastException"));
             var guardedSites = Regex.Matches(cpp, Regex.Escape(guard));
             Assert.True(throwSites.Count > 0, "hashtabledeep must contain castclass sites");

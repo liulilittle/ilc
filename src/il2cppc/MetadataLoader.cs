@@ -678,6 +678,8 @@ public static class MetadataLoader
                     ? (FieldTypeKind.Int32, "System.Int32")
                     : (FieldTypeKind.Int32, "");
             case 0x11:
+                if (!extended)
+                    throw new NotSupportedException("value-type instance fields not supported in M2");
                 return (FieldTypeKind.Int32, ResolveTypeName(md, sig.ReadTypeHandle()));
             // M5 BCL wiring: generic instantiations (delegate Func`N fields) and
             // arrays are managed references (GC-pointer storage slots).
@@ -701,9 +703,12 @@ public static class MetadataLoader
                     ? DecodeExtendedStaticType(typeByte)
                     : (FieldTypeKind.NativeInt, "System.IntPtr");
             // Primitive value-type fields not covered above: treat as Int32.
+            // Static (extended) fields keep the System name for the
+            // reflection/static-classifier surface.
             case 0x02: case 0x03: case 0x04: case 0x05:
             case 0x06: case 0x07: case 0x09: case 0x0A:
             case 0x0B: case 0x0C: case 0x0F:
+                if (extended) return DecodeExtendedStaticType(typeByte);
                 return (FieldTypeKind.Int32, "");
             default:
                 if (!extended)

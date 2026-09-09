@@ -32,19 +32,21 @@ public class ProgramNestedWiringTests
 
             // The nested type must emit its own translation unit with the
             // descriptor definition (previously: referenced, never defined).
-            var nodeCpp = File.ReadAllText(Path.Combine(dir, "src", "Node.cpp"));
-            Assert.Contains("Il2CppClass Node_class", nodeCpp);
+            // Nested C++ names carry the declaring-type prefix
+            // (TypeCppName: Cases_Recurse_Node).
+            var nodeCpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_Recurse_Node.cpp"));
+            Assert.Contains("Il2CppClass Cases_Recurse_Node_class", nodeCpp);
 
             // Struct layout + descriptor declaration must reach generated.h
             // (cross-TU visibility for field-access casts and entry.cpp).
             var generatedH = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
-            Assert.Contains("struct Node", generatedH);
+            Assert.Contains("struct Cases_Recurse_Node", generatedH);
             Assert.Contains("int32_t Id;", generatedH);
-            Assert.Contains("extern Il2CppClass Node_class;", generatedH);
+            Assert.Contains("extern Il2CppClass Cases_Recurse_Node_class;", generatedH);
 
             // entry.cpp registers the descriptor so the runtime/GC see the type.
             var entry = File.ReadAllText(Path.Combine(dir, "src", "entry.cpp"));
-            Assert.Contains("il2cpp_class_register(&Node_class);", entry);
+            Assert.Contains("il2cpp_class_register(&Cases_Recurse_Node_class);", entry);
         }
         finally
         {

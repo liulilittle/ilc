@@ -1174,7 +1174,7 @@ public class StackFoldTests
         var alloc = Assert.IsType<AssignStmt>(stmts[0]);
         Assert.Equal("t0", alloc.Target);
         var newObj = Assert.IsType<NewObjExpr>(alloc.Value);
-        Assert.Equal("<>c__DisplayClass3_0", newObj.TypeFullName);
+        Assert.Equal("Cases.Delecb2+<>c__DisplayClass3_0", newObj.TypeFullName);
 
         // 2) the captured parameter is stored into the display-class field n
         var cap = Assert.IsType<FieldAssignStmt>(stmts[2]);

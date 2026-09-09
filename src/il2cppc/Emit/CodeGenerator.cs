@@ -441,6 +441,7 @@ public static class CodeGenerator
                         ReturnsVoid = candInfo.ReturnsVoid,
                         ExceptionRegions = candInfo.ExceptionRegions,
                         MethodFullName = $"{ct.FullName}.{cm.Name}",
+                        CctorOwnerFullName = cm.Name == ".cctor" ? TypeEmitter.ReflectionFullName(ct) : null,
                     }, md, types, accessors, pe);
                 }
                 catch (Exception)
@@ -1011,7 +1012,7 @@ public static class CodeGenerator
                 var returnType = managedRetStruct != null ? TypeCppName(managedRetStruct) : ReturnTypeCpp(bodyInfo.ReturnType);
                 _curStructReturnCpp = managedRetStruct != null ? returnType : null;
                 List<Stmt> stmts;
-                try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}" }, md, types, accessors, pe); }
+                try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}", CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null }, md, types, accessors, pe); }
                 catch (Exception) { Console.Error.WriteLine($"warning: method fold failed -> skipped"); continue; }
                 // P0-1/P0-3: algebraic identities + null-comparison folding
                 // (constant propagation already happened inside StackFold.Fold;
@@ -4393,7 +4394,7 @@ public static class CodeGenerator
                 if (targetMethod == null)
                 {
                     var callArgs3 = string.Join(", ", new[] { receiverCode }.Concat(args));
-                    return $"{TypeEmitter.TypeCppName(owner)}_{sig.Split('(')[0]}_{SigHash.Hash(owner.FullName + "." + sig.Split('(')[0] + "(" + sig.Split('(')[1])}({callArgs3})";
+                    return $"{TypeEmitter.TypeCppName(owner)}_{sig.Split('(')[0]}_{SigHash.Hash(TypeEmitter.ReflectionFullName(owner) + "." + sig.Split('(')[0] + "(" + sig.Split('(')[1])}({callArgs3})";
                 }
                 var fnName = MethodCppName(targetTypeDef, targetMethod);
                 var callArgs2 = string.Join(", ", new[] { receiverCode }.Concat(args));
@@ -6552,8 +6553,7 @@ public static class CodeGenerator
                 if (!specName.StartsWith("System.Func`", StringComparison.Ordinal)
                     && !specName.StartsWith("System.Action`", StringComparison.Ordinal))
                 {
-                    Console.Error.WriteLine($"warning: isinst/castclass of generic instantiation {specName} not wired in M5 -- emitting reinterpret_cast<Il2CppObject*>");
-                    return $"reinterpret_cast<Il2CppObject*>({EmitExpr(c.Args[0], md, types)})";
+                    throw new NotSupportedException($"isinst/castclass of generic instantiation {specName} not wired in M5");
                 }
                 var objCode0 = EmitExpr(c.Args[0], md, types);
                 return $"reinterpret_cast<Il2CppObject*>({objCode0})";
@@ -7883,8 +7883,14 @@ public static class CodeGenerator
     // MethodDef token -> CppName) for consistent naming. Note: the prefix MUST be TypeCppName(t) (generic
     // definition Box`1 -> "Box_1_int"), not Sanitize(t.FullName) ("Box_1") -- the generic-instance call
     // side (MethodRefResolver TypeSpec path) prefixes with GenericInstantiationName (Box_1_int__ctor_...), and a declaration-name fork = the matrix4 generics regression.
+    // Definition-side method C++ name. The hash input uses the '+' canonical
+    // owner key (ReflectionFullName == FullName for top-level types, zero
+    // churn there) so nested types hash EXACTLY like the call side
+    // (MethodRefResolver ownerFullName is md.GetFullName, '+'-form). Hashing
+    // the short nested FullName instead produced names no call site references
+    // (arrayext2: <>c lambda methods undefined).
     private static string MethodCppName(TypeDef t, MethodDef m) =>
-        $"{TypeEmitter.TypeCppName(t)}_{TypeEmitter.Sanitize(m.Name)}_{SigHash.Hash(t.FullName + "." + m.Name + "(" + m.ParamTypes + ")")}";
+        $"{TypeEmitter.TypeCppName(t)}_{TypeEmitter.Sanitize(m.Name)}_{SigHash.Hash(TypeEmitter.ReflectionFullName(t) + "." + m.Name + "(" + m.ParamTypes + ")")}";
 
     // entry.cpp: il2cpp_entry_main -> runtime_init + type registration + .cctor + Main. When Main is void, return 0 after the call.
 

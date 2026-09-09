@@ -1334,8 +1334,10 @@ public static class TypeEmitter
     // The transpiler-emitted C++ function name of a method -- the SAME
     // symbol call sites resolve (CodeGenerator.MethodCppName; the prefix is
     // TypeCppName so generic instantiations get their _int suffix).
+    // Hash input is the '+' canonical owner key (ReflectionFullName), exactly
+    // like CodeGenerator.MethodCppName, so nested types agree on both sides.
     private static string MethodSymbolName(TypeDef t, MethodDef m)
-        => $"{TypeCppName(t)}_{Sanitize(m.Name)}_{SigHash.Hash(t.FullName + "." + m.Name + "(" + m.ParamTypes + ")")}";
+        => $"{TypeCppName(t)}_{Sanitize(m.Name)}_{SigHash.Hash(ReflectionFullName(t) + "." + m.Name + "(" + m.ParamTypes + ")")}";
 
     // Return-type encoding for Il2CppMethodInfo.signature (MethodSignatureCoder
     // style, shared with the runtime). Nameful returns carry their FULL encoded

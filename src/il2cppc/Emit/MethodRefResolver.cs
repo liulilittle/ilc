@@ -483,6 +483,25 @@ public static partial class MethodRefResolver
         var owner2 = ResolveOwnerFullName(md, mr2.Parent);
         var (pc, retType, pt, _) = MethodSignatureCoder.Decode(md, mr2.Signature);
 
+        // Tuple Rest/Item chain (8-tuple long chains): get_Rest always yields
+        // a Tuple receiver (reference slot); get_ItemK yields the K-th
+        // instantiation arg (int -> value, string/object/class -> reference).
+        // The signature carries VAR (0x13) so the return kind cannot come
+        // from retType -- decode the parent TypeSpec args instead.
+        if (owner2.StartsWith("System.Tuple`", StringComparison.Ordinal) &&
+            (mrName == "get_Rest" || mrName.StartsWith("get_Item", StringComparison.Ordinal)))
+        {
+            var isRef = true;
+            if (mrName.StartsWith("get_Item", StringComparison.Ordinal) &&
+                mr2.Parent.Kind == HandleKind.TypeSpecification &&
+                int.TryParse(mrName["get_Item".Length..], out var itemK) && itemK >= 1)
+            {
+                isRef = TupleItemIsReference(md, (TypeSpecificationHandle)mr2.Parent, itemK);
+            }
+            return new ResolvedMethod($"{Sanitize(cppPrefixForTuple(md, mr2.Parent, owner2))}_{Sanitize(mrName)}",
+                0, false, true, isRef, Array.Empty<bool>(), true);
+        }
+
         // D-ICMP-1 (icomparedeep): a callvirt whose declaring owner is the
         // mscorlib IComparable / IComparer INTERFACE. The interface has no
         // translated TypeDef (VirtualTarget / il2cpp_interface_dispatch cannot
@@ -613,8 +632,8 @@ public static partial class MethodRefResolver
             .ToArray();
         if (offending.Length == 0) return;
         var bytes = string.Join(", ", offending.Select(o => $"0x{o.Byte:X2}"));
-        Console.Error.WriteLine($"warning: generic instantiation of {owner}.{name} with unsupported generic argument(s) [{bytes}] skipped (M6 model generates only T->int32/uint32)");
-        return;
+        var kinds = string.Join(", ", offending.Select(o => $"argument #{o.Index + 1} {GenericArgTypeName(o.Byte)} ({bytes})"));
+        throw new NotSupportedException($"no BCL mapping: generic instantiation of {owner}.{name} with unsupported generic argument(s) [{bytes}] ({kinds}; M6 model generates only T->int32/uint32)");
     }
 
     // M6: generic instantiation argument type name for the loud (only the
@@ -1796,6 +1815,62 @@ var userRecvLike = receiverType ?? arg0Type;
             HandleKind.TypeSpecification => GenericDefinitionName(md, (TypeSpecificationHandle)defHandle),
             _ => throw new NotSupportedException($"generic definition kind {defHandle.Kind} in M3"),
         };
+    }
+
+    private static string cppPrefixForTuple(MetadataReader md, EntityHandle parent, string ownerDef)
+    {
+        if (parent.Kind == HandleKind.TypeSpecification)
+        {
+            try { return GenericInstantiationName(md, (TypeSpecificationHandle)parent); }
+            catch { return ownerDef; }
+        }
+        return ownerDef;
+    }
+
+    private static bool TupleItemIsReference(MetadataReader md, TypeSpecificationHandle parent, int itemK)
+    {
+        try
+        {
+            var spec = md.GetTypeSpecification(parent);
+            var sig = md.GetBlobReader(spec.Signature);
+            if (sig.ReadByte() != 0x15) return false;
+            _ = sig.ReadByte();
+            _ = sig.ReadTypeHandle();
+            var argCount = sig.ReadCompressedInteger();
+            if (itemK < 1 || itemK > argCount) return itemK > argCount;
+            for (var i = 1; i <= argCount; i++)
+            {
+                var b = sig.ReadByte();
+                // Nested generic-inst arg (0x15) carries extra bytes; skip via helper.
+                if (b == 0x15)
+                {
+                    _ = sig.ReadByte();
+                    _ = sig.ReadTypeHandle();
+                    var nc = sig.ReadCompressedInteger();
+                    for (var j = 0; j < nc; j++) _ = sig.ReadByte();
+                    if (i == itemK) return true;
+                    continue;
+                }
+                // SZARRAY/ARRAY carry an element byte.
+                if (b is 0x1D or 0x1F)
+                {
+                    _ = sig.ReadByte();
+                    if (i == itemK) return true;
+                    continue;
+                }
+                // CLASS/VALUETYPE carry a coded index.
+                if (b is 0x11 or 0x12)
+                {
+                    _ = sig.ReadCompressedInteger();
+                    if (i == itemK) return true;
+                    continue;
+                }
+                if (i == itemK)
+                    return b is 0x0E or 0x1C or 0x12;
+            }
+        }
+        catch { }
+        return false;
     }
 
     // TypeSpec → generic INSTANTIATION name (same encoding as StackFold:

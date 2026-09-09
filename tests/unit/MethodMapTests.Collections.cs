@@ -51,19 +51,31 @@ public class MethodMapTestsCollections
         Assert.Equal(0, resolved.ParamCount);
     }
 
+    [Fact]
+    public void Resolve_ICollectionGetCount_NullReceiver_FallsThrough()
+    {
+        // A null receiver (first-pass deferral) has no interface mapping --
+        // it must fall to the generated-name path, not be silently
+        // mis-mapped to the snapshot count.
+        var resolved = ResolveInterface("System.Collections.ICollection", "get_Count",
+            Blob(0x20, 0x00, 0x08), null);
+
+        Assert.StartsWith("System_Collections_ICollection_get_Count_", resolved.CppName);
+    }
+
     [Theory]
-    [InlineData(null)]
     [InlineData("System.Collections.SortedList.Enumerator")]
     [InlineData("System.IO.StreamWriter")]
     public void Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(string receiverType)
     {
-        // A null receiver (first-pass deferral) or a non-snapshot receiver has
-        // no interface mapping -- it must fall to the generated-name path, not
-        // be silently mis-mapped to the snapshot count.
-        var resolved = ResolveInterface("System.Collections.ICollection", "get_Count",
-            Blob(0x20, 0x00, 0x08), receiverType);
+        // A non-snapshot TRACKED receiver is a phantom generated-name call
+        // (the input assembly never defines System.Collections.ICollection),
+        // so the P26 final-resolution guard rejects it LOUDLY instead of
+        // emitting an undeclared identifier.
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveInterface("System.Collections.ICollection", "get_Count",
+            Blob(0x20, 0x00, 0x08), receiverType));
 
-        Assert.StartsWith("System_Collections_ICollection_get_Count_", resolved.CppName);
+        Assert.Contains("not wired in M5", ex.Message);
     }
 
     //--------------------------------------------------------------------------

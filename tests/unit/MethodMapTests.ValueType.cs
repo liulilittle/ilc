@@ -166,19 +166,18 @@ public class MethodMapValueTypeTests
     }
 
     //--------------------------------------------------------------------------
-    // An untracked receiver defers to the generated-name fallback -- the fold
-    // resolves the callvirt TWICE (a hint-less first pass, then a re-resolve
-    // with the constrained receiver type; StackFold.cs:1366/1501), so the
-    // hint-less pass MUST return null (never throw) or every constrained call
-    // breaks. The generated-name shape is the pre-existing untracked-receiver
-    // behavior (a self-identifying C++ link error downstream).
+    // An untracked receiver routes to the OfPtr icall -- the fold resolves
+    // the callvirt TWICE (hint-less first pass, then re-resolve with the
+    // constrained receiver type), so the hint-less pass must not throw.
+    // The OfPtr icall (stubs.h/cpp) hashes by pointer instead of the
+    // generated-name fallback (a self-identifying C++ link error).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_ValueType_GetHashCode_UntrackedReceiver_DefersToGeneratedName()
     {
         var resolved = ResolveStructGetHashCode("Calc", "Pt", new[] { FieldSig(0x08) }, receiverType: null);
 
-        Assert.StartsWith("System_ValueType_GetHashCode_", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_value_type_get_hash_code_of_ptr", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------

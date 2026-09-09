@@ -114,10 +114,11 @@ namespace Il2Cpp.Transpiler.Emit
                     case "Start":
                         if (genArgNames is { Length: 1 } && genArgNames[0] is { Length: > 0 } smName)
                         {
-                            var shortName = smName.Contains('+')
-                                ? smName[(smName.LastIndexOf('+') + 1)..]
-                                : smName;
-                            var moveNext = $"{Sanitize(shortName)}_MoveNext_{SigHash.Hash(shortName + ".MoveNext()")}";
+                            // Hash/prefix use the '+' canonical full name so the
+                            // symbol matches TypeEmitter.MethodSymbolName, which
+                            // hashes ReflectionFullName (Sanitize maps '+'/'.
+                            // to '_' so the prefix still equals TypeCppName).
+                            var moveNext = $"{Sanitize(smName)}_MoveNext_{SigHash.Hash(smName + ".MoveNext()")}";
                             return I(moveNext, 1, false, false, true,
                                 new[] { "drop", "" });
                         }

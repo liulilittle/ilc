@@ -2212,8 +2212,7 @@ public static class StackFold
             // as a raw token (silent miscompile).
             if (md != null && prevIns is { OpCode: ILOpCode.Ldtoken })
             {
-                Console.Error.WriteLine($"warning: call at offset 0x{ins.Offset:X4} consumes an ldtoken result but is not System.Type::GetTypeFromHandle -- skipping fold (ldtoken handles fold only in the typeof/InitializeArray patterns)");
-                return;
+                throw new NotSupportedException($"ldtoken at offset 0x{ins.Offset:X4}: no fold for this consumer (ldtoken handles fold only in the typeof/InitializeArray patterns)");
             }
 
             // rv=false (C API void) with a NON-VOID .NET signature: the IL
@@ -3994,9 +3993,13 @@ public static class StackFold
             if (handle.Kind == HandleKind.FieldDefinition)
             {
                 var fd = md.GetFieldDefinition((FieldDefinitionHandle)handle);
-                var td = md.GetTypeDefinition(fd.GetDeclaringType());
-                var ns = md.GetString(td.Namespace);
-                var owner = string.IsNullOrEmpty(ns) ? md.GetString(td.Name) : ns + "." + md.GetString(td.Name);
+                // Nested-owner fix (arrayext2): nested TypeDefs carry an empty
+                // namespace, so ns+"."+name degrades to the SHORT name ("<>c")
+                // while the definition side uses DeclaringTypeName+Name
+                // ("ArrayExt2Demo___c") -- static-field stores then reference an
+                // undeclared symbol. md.GetFullName walks the declaring chain
+                // ("A.<>c"), exactly like the MemberReference path below.
+                var owner = md.GetFullName(fd.GetDeclaringType());
                 return (md.GetString(fd.Name), owner, md.GetBlobBytes(fd.Signature).Length > 0 ? string.Join("", md.GetBlobBytes(fd.Signature).Select(b => b.ToString("X2"))) : "");
             }
             if (handle.Kind == HandleKind.MemberReference)
