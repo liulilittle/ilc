@@ -1,4 +1,0 @@
-FAIL: broadcast: Advise past capacity -> CONNECT_E_ADVISELIMIT
-FAIL: broadcast: Unadvise(cookie 4) releases the capacity sink
-FAIL: broadcast: all kEventIid sinks unadvised -> fire returns S_FALSE
-3 com assertion(s) failed

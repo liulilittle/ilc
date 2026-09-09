@@ -1,9 +1,0 @@
-p43f_colcount=3
-p43f_fresh_get_ret=True;o0=0;o1=1;o2=2
-p43f_set1_set_ret=True
-p43f_after1_get_ret=True;o0=2;o1=0;o2=1
-p43f_col0_text=Name
-p43f_reset_set_ret=True
-p43f_afterreset_get_ret=True;o0=0;o1=1;o2=2
-p43f_destroyed=True
-p43f_parent_destroyed=True

@@ -1,7 +1,0 @@
-E:/il2cpp/tmp/icallcase/build_net9/CMakeFiles/il2cpp_gen.dir
-E:/il2cpp/tmp/icallcase/build_net9/CMakeFiles/il2cpp_gen_exe.dir
-E:/il2cpp/tmp/icallcase/build_net9/CMakeFiles/edit_cache.dir
-E:/il2cpp/tmp/icallcase/build_net9/CMakeFiles/rebuild_cache.dir
-E:/il2cpp/tmp/icallcase/build_net9/runtime/CMakeFiles/il2cpp_runtime.dir
-E:/il2cpp/tmp/icallcase/build_net9/runtime/CMakeFiles/edit_cache.dir
-E:/il2cpp/tmp/icallcase/build_net9/runtime/CMakeFiles/rebuild_cache.dir

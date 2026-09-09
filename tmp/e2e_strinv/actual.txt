@@ -1,7 +1,0 @@
-PASS ToUpperInvariant abc->ABC
-PASS ToLowerInvariant ABC->abc
-PASS InsertRemove chain=acdef
-PASS SplitJoin roundtrip=a,b,c
-PASS Pad left=007 right=7..
-PASS Contains ordinal present=True caseSensitive=True
-ALL-PASS

@@ -1,3 +1,0 @@
-module_nonzero=True
-sm_cxscreen=True
-sm_cyscreen=True

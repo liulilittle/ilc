@@ -1,7 +1,0 @@
-/mnt/e/il2cpp/tmp/icallwide/build_linux_net8/CMakeFiles/il2cpp_gen.dir
-/mnt/e/il2cpp/tmp/icallwide/build_linux_net8/CMakeFiles/il2cpp_gen_exe.dir
-/mnt/e/il2cpp/tmp/icallwide/build_linux_net8/CMakeFiles/edit_cache.dir
-/mnt/e/il2cpp/tmp/icallwide/build_linux_net8/CMakeFiles/rebuild_cache.dir
-/mnt/e/il2cpp/tmp/icallwide/build_linux_net8/runtime/CMakeFiles/il2cpp_runtime.dir
-/mnt/e/il2cpp/tmp/icallwide/build_linux_net8/runtime/CMakeFiles/edit_cache.dir
-/mnt/e/il2cpp/tmp/icallwide/build_linux_net8/runtime/CMakeFiles/rebuild_cache.dir

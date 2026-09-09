@@ -1,6 +1,0 @@
-7
-ABCbase
-10
-xyxyxybase
-6
-endABC

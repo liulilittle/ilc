@@ -1,8 +1,0 @@
-symbols: 261 method(s) mapped from Portable PDB -> #line C# line directives
-string pool: 915 distinct literal(s) from 1159 site(s) across 279 method(s) (0 constant concat(s) folded, 244 duplicate site(s) deduped)
-string pool table: g_strPool[915] -> include/internal/string-pool.h
-resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
-il2cppc warning: licm pre-scan skipped: method .ctor has no body (RVA=0)
-il2cppc warning: inline pre-scan skipped: method .ctor has no body (RVA=0)
-il2cppc warning: tempslot pre-scan skipped: method .ctor has no body (RVA=0)
-generated 27 type(s) -> E:\il2cpp/tests/cases/winforms1/gen

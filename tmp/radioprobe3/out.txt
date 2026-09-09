@@ -1,3 +1,0 @@
-cmdCount=0
-states=0,0
-managedGroup=0,0

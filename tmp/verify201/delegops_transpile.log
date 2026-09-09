@@ -1,8 +1,0 @@
-symbols: 7 method(s) mapped from Portable PDB -> #line C# line directives
-string pool: 31 distinct literal(s) from 36 site(s) across 9 method(s) (0 constant concat(s) folded, 5 duplicate site(s) deduped)
-string pool table: g_strPool[31] -> include/internal/string-pool.h
-resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
-licm: 0 invariant length read(s) hoistable across 9 method(s)
-inline: 3 simple call site(s) inlineable across 9 method(s)
-tempslot: 88 temp slot(s) -> 13 with reuse across 9 method(s)
-generated 3 type(s) -> E:\il2cpp/tests/cases/delegops/gen

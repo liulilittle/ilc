@@ -1,2 +1,0 @@
-C:\PROGRA~1\ming-w64\bin\llvm-ar.exe qc libbenchlib.a CMakeFiles/benchlib.dir/benchlib.cpp.obj
-C:\PROGRA~1\ming-w64\bin\LLVM-R~1.EXE libbenchlib.a

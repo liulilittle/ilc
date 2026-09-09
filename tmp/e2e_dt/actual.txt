@@ -1,6 +1,0 @@
-PASS IsLeapYear(2024)=true IsLeapYear(2023)=false
-PASS DaysInMonth(2024,2)=29
-PASS Jan31+1d=2024-02-01
-PASS FromMinutes(90).TotalHours=1.5
-PASS Ticks dayDelta=864000000000 dayHours=24
-ALL-PASS

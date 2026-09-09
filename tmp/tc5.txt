@@ -1,4 +1,0 @@
-FAIL: second Advise -> CONNECT_E_ADVISELIMIT
-FAIL: Unadvise(cookie) releases the sink reference
-FAIL: re-Advise after Unadvise returns the next cookie (monotonic)
-3 com assertion(s) failed

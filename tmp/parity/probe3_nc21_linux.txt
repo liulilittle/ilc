@@ -1,8 +1,0 @@
-PASS p3.interp
-PASS p3.interp2
-PASS p3.exc.nested
-PASS p3.exc.custom
-PASS p3.exc.finally.order
-PASS p3.delegate.invoke
-PASS p3.sb.chain
-ALL-PASS

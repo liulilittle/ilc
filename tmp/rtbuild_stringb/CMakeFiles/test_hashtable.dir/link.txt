@@ -1,3 +1,0 @@
-D:\android\sdk\cmake\3.22.1\bin\cmake.exe -E rm -f CMakeFiles\test_hashtable.dir/objects.a
-C:\PROGRA~1\ming-w64\bin\llvm-ar.exe qc CMakeFiles\test_hashtable.dir/objects.a @CMakeFiles\test_hashtable.dir\objects1.rsp
-C:\PROGRA~1\ming-w64\bin\G__~1.EXE -Wl,--whole-archive CMakeFiles\test_hashtable.dir/objects.a -Wl,--no-whole-archive -o test_hashtable.exe -Wl,--out-implib,libtest_hashtable.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\test_hashtable.dir\linklibs.rsp

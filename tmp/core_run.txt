@@ -1,6 +1,0 @@
-arr_sum
-82
-arr_write
-196
-str_len
-35

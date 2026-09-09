@@ -1,3 +1,0 @@
-E:/il2cpp/build-mingw/CMakeFiles/il2cpp_runtime.dir
-E:/il2cpp/build-mingw/CMakeFiles/edit_cache.dir
-E:/il2cpp/build-mingw/CMakeFiles/rebuild_cache.dir

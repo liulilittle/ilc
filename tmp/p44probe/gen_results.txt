@@ -1,9 +1,0 @@
-p44_class=True
-p44_created=True
-p44_mc10=0;0;0;0;0;0;200;150;640;480
-p44_ret=True
-p44_loop=0;0;0;0;0;0;200;150;640;480
-p44_track=1
-p44_guard0=0;0;0;0
-p44_track_after_guard=1
-p44_destroyed=True

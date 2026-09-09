@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/il2cpp_gen_exe.dir/src/host.cpp.o -o il2cpp_gen_exe  libil2cpp_gen.a runtime/libil2cpp_runtime.a -ldl 

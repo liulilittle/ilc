@@ -1,2 +1,0 @@
-C:\PROGRA~1\ming-w64\bin\llvm-ar.exe qc libil2cpp_gen.a CMakeFiles/il2cpp_gen.dir/src/E2eGcMemProbe_Program.cpp.obj CMakeFiles/il2cpp_gen.dir/src/entry.cpp.obj
-C:\PROGRA~1\ming-w64\bin\LLVM-R~1.EXE libil2cpp_gen.a

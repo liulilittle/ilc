@@ -1,2 +1,0 @@
-/usr/bin/ar qc libil2cpp_gen.a CMakeFiles/il2cpp_gen.dir/src/Microsoft_CodeAnalysis_EmbeddedAttribute.cpp.o CMakeFiles/il2cpp_gen.dir/src/System_Runtime_CompilerServices_RefSafetyRulesAttribute.cpp.o CMakeFiles/il2cpp_gen.dir/src/Program.cpp.o CMakeFiles/il2cpp_gen.dir/src/Person.cpp.o CMakeFiles/il2cpp_gen.dir/src/MyException.cpp.o CMakeFiles/il2cpp_gen.dir/src/__O.cpp.o CMakeFiles/il2cpp_gen.dir/src/__c.cpp.o CMakeFiles/il2cpp_gen.dir/src/entry.cpp.o
-/usr/bin/ranlib libil2cpp_gen.a

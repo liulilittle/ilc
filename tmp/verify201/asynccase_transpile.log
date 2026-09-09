@@ -1,8 +1,0 @@
-symbols: 22 method(s) mapped from Portable PDB -> #line C# line directives
-string pool: 10 distinct literal(s) from 14 site(s) across 63 method(s) (0 constant concat(s) folded, 4 duplicate site(s) deduped)
-string pool table: g_strPool[10] -> include/internal/string-pool.h
-resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
-licm: 0 invariant length read(s) hoistable across 63 method(s)
-inline: 0 simple call site(s) inlineable across 63 method(s)
-tempslot: 134 temp slot(s) -> 73 with reuse across 63 method(s)
-generated 24 type(s) -> E:\il2cpp/tests/cases/asynccase/gen

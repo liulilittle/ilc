@@ -1,8 +1,0 @@
-edit_created=True
-em_seteventmask_ret=0
-em_geteventmask=0
-cmd_after_set=0
-cmd_after_char_undo=5
-cmd_seq=id0/n256;id0/n1024;id0/n768;id0/n1024;id0/n768;
-destroy=True
-destroy_parent=True

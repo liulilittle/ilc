@@ -1,5 +1,0 @@
-before reg
-after reg
-created
-clicking r2...
-click done, state=0

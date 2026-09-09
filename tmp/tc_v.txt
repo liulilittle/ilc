@@ -1,1 +1,0 @@
-all runtime com tests passed

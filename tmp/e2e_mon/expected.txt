@@ -1,5 +1,0 @@
-PASS lock(obj){shared=5} shared=5
-PASS Monitor.Enter(gate,ref)/Exit entered=True
-PASS-skip Monitor.IsEntered (not wired in MethodMap.Monitor.cs / monitor.h)
-PASS nested lock same-object depth2 shared=15
-ALL-PASS

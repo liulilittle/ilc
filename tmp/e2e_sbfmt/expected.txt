@@ -1,8 +1,0 @@
-PASS AppendFormat {0} {1} int+string
-PASS AppendFormat returns same builder
-PASS Environment.NewLine is CRLF
-PASS AppendLine()
-PASS AppendLine(string)
-PASS chained Insert/Remove/Replace
-PASS grand finale sequence
-ALL-PASS

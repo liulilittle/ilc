@@ -1,3 +1,0 @@
-E:/il2cpp/build_lto/CMakeFiles/il2cpp_runtime.dir
-E:/il2cpp/build_lto/CMakeFiles/edit_cache.dir
-E:/il2cpp/build_lto/CMakeFiles/rebuild_cache.dir

@@ -1,3 +1,0 @@
-testdir=E:\il2cpp\build\runtime_full
-passed=1 failed=0 total=1
-PASS	test_object.exe	

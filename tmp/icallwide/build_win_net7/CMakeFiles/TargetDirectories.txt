@@ -1,7 +1,0 @@
-E:/il2cpp/tmp/icallwide/build_win_net7/CMakeFiles/il2cpp_gen.dir
-E:/il2cpp/tmp/icallwide/build_win_net7/CMakeFiles/il2cpp_gen_exe.dir
-E:/il2cpp/tmp/icallwide/build_win_net7/CMakeFiles/edit_cache.dir
-E:/il2cpp/tmp/icallwide/build_win_net7/CMakeFiles/rebuild_cache.dir
-E:/il2cpp/tmp/icallwide/build_win_net7/runtime/CMakeFiles/il2cpp_runtime.dir
-E:/il2cpp/tmp/icallwide/build_win_net7/runtime/CMakeFiles/edit_cache.dir
-E:/il2cpp/tmp/icallwide/build_win_net7/runtime/CMakeFiles/rebuild_cache.dir

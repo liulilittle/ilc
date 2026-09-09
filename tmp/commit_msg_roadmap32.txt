@@ -1,9 +1,0 @@
-docs: roadmap v32 - deep-testing campaign + write-barrier consistency + audit
-
-Documents the 2026-08-19 deep-testing campaign (7 GC-stress runtime tests
-covering every major allocation-heavy path under forced full collections,
-all committed and passing), the write-barrier consistency fix closing the
-documented #114 risk point (d7ce50b), and the comprehensive write-barrier /
-rooting audit (no real bugs found; full-heap collection means missing
-barriers are consistency improvements, not bugs). Verification: runtime
-146/146, unit 1807/1807, 7-case e2e set + 47-case targeted sweep all PASS.

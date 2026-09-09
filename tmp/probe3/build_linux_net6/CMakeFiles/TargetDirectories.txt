@@ -1,7 +1,0 @@
-/mnt/e/il2cpp/tmp/probe3/build_linux_net6/CMakeFiles/il2cpp_gen.dir
-/mnt/e/il2cpp/tmp/probe3/build_linux_net6/CMakeFiles/il2cpp_gen_exe.dir
-/mnt/e/il2cpp/tmp/probe3/build_linux_net6/CMakeFiles/edit_cache.dir
-/mnt/e/il2cpp/tmp/probe3/build_linux_net6/CMakeFiles/rebuild_cache.dir
-/mnt/e/il2cpp/tmp/probe3/build_linux_net6/runtime/CMakeFiles/il2cpp_runtime.dir
-/mnt/e/il2cpp/tmp/probe3/build_linux_net6/runtime/CMakeFiles/edit_cache.dir
-/mnt/e/il2cpp/tmp/probe3/build_linux_net6/runtime/CMakeFiles/rebuild_cache.dir

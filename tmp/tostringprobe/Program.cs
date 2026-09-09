@@ -1,1 +1,0 @@
-using System; class P { static void Main() { var dto = new DateTimeOffset(new DateTime(2000, 2, 29, 12, 0, 0), new TimeSpan(8, 0, 0)); Console.WriteLine("[" + dto.ToString() + "]"); Console.WriteLine("[" + dto.ToString("MM/dd/yyyy HH:mm:ss zzz") + "]"); Console.WriteLine("[" + new DateTime(2000,2,29,12,0,0).ToString() + "]"); } }

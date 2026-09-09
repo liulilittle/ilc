@@ -1,9 +1,0 @@
-P7: cross-platform mathf.cpp fix (GCC/Linux compatibility)
-
-Replace std::sqrtf/fabsf/sinf/cosf/tanf/etc. (C99 functions not in
-std:: on GCC/Linux) with std::sqrt/fabs/sin/cos/tan (C++ overloads
-that handle float via implicit conversion). Fix icall_mathf_modf_f
-(float ip -> double ip for std::modf compatibility).
-
-Verified: Windows (MinGW) + Linux (WSL Ubuntu2404) both build and
-pass all tests (154/154 PASS).
