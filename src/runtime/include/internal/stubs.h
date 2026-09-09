@@ -4,6 +4,7 @@
 // from ANY including TU -- generated code lives outside src/runtime).
 
 #include "../il2cpp_api.h"
+#include "il2cpp_time.h"
 
 #include <cstdint>
 
