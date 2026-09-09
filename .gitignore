@@ -96,3 +96,4 @@ cmpgrid.txt
 # historical shard/probe/dump outputs (never committed)
 /r*shard/
 /dump_*/
+*.bak*
