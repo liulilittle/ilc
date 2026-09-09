@@ -607,6 +607,13 @@ public static class CodeGenerator
         foreach (var name in fwdDeclNames.OrderBy(n => n, StringComparer.Ordinal))
         {
             var fwdSan = TypeEmitter.Sanitize(name);
+            // r79 fix: strip trailing underscore from generic instantiations
+            // (Sanitize splits on '<' and '>' and joins with '_', so
+            // "List`1<int>" -> "List_1_int_"; the struct definition uses
+            // TypeCppName which emits "List_1_int" -- the forward declaration
+            // must match or the linker sees two different type names).
+            if (fwdSan.EndsWith("_"))
+                fwdSan = fwdSan[..^1];
             // Win32 SDK collision set (verified typedef intersection):
             // windows.h already defines these; a duplicate `struct X;`
             // conflicts with the SDK typedef. LUID_AND_ATTRIBUTES has zero
