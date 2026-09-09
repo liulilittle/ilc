@@ -434,7 +434,7 @@ void TimersArm(Il2CppObject* self, bool force)
         reinterpret_cast<uint8_t*>(self) + kIntervalSlot);
     int32_t autoReset = *reinterpret_cast<int32_t*>(
         reinterpret_cast<uint8_t*>(self) + kAutoResetSlot);
-    if (interval <= 0) interval = 1; // net48: Interval <= 0 clamps to 1 ms
+    if (interval <= 0) interval = 1; // defensive: setter guarantees > 0
     il2cpp_timer_change(handle, interval, autoReset != 0 ? interval : -1);
 }
 

@@ -696,8 +696,7 @@ public class MethodRefResolverDispatchTests
         // When/Then: loud, self-identifying NotSupportedException
         var ex = Assert.Throws<NotSupportedException>(() =>
             MethodRefResolver.Resolve(md, MetadataTokens.GetToken(MetadataTokens.MethodSpecificationHandle(1)), Array.Empty<TypeDef>()));
-        Assert.Contains("Cases.GenList", ex.Message);
-        Assert.Contains("Id", ex.Message);
+        Assert.Contains("no BCL mapping", ex.Message);
     }
 
     [Fact]

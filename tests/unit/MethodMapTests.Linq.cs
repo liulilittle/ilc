@@ -717,6 +717,34 @@ public class MethodMapTestsLinq
         Assert.False(resolved.ReturnsRef);
     }
 
+    //--------------------------------------------------------------------------
+    // D-LINQ-4 array return: a method returning SZARRAY (int[]) must carry
+    // ReturnsRef=true (the array is a managed reference, Il2CppArray*).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ArrayReturn_HasReturnsRefTrue()
+    {
+        // int[] GetArray() -- parameterless, returns SZARRAY of int32.
+        // Signature: 0x00 (no hasThis) 0x00 (param count 0) 0x1D (SZARRAY) 0x08 (int32 element).
+        var resolved = ResolveMemberRef(SynthesizeMemberRef("System.Linq", "Enumerable", "GetArray",
+            new byte[] { 0x00, 0x00, 0x1D, 0x08 }), "GetArray");
+
+        Assert.True(resolved.ReturnsValue, "array return must return a value");
+        Assert.True(resolved.ReturnsRef, "SZARRAY return must be classified as reference (Il2CppArray*)");
+    }
+
+    [Fact]
+    public void Resolve_StringArrayReturn_HasReturnsRefTrue()
+    {
+        // string[] GetStringArray() -- parameterless, returns SZARRAY of string.
+        // Signature: 0x00 (no hasThis) 0x00 (param count 0) 0x1D (SZARRAY) 0x0E (string element).
+        var resolved = ResolveMemberRef(SynthesizeMemberRef("System.Linq", "Enumerable", "GetStringArray",
+            new byte[] { 0x00, 0x00, 0x1D, 0x0E }), "GetStringArray");
+
+        Assert.True(resolved.ReturnsValue, "string array return must return a value");
+        Assert.True(resolved.ReturnsRef, "SZARRAY of string return must be classified as reference (Il2CppArray*)");
+    }
+
     [Fact]
     public void Resolve_ToArray_GroupingReceiver_MapsToGroupingGetElements()
     {

@@ -76,18 +76,21 @@ public class GuidSlotWiringTests
         // DEC-GAP (batch 106): the OptimizeTemps rule-3 inlining now SKIPS
         // value-slot icalls (dec/guid/ip4 ResultKinds), so the call no
         // longer reaches the expression position. The generated method is
-        // still rejected -- at the F2 RETURN-TYPE gate: a by-value Guid
-        // RETURN has no carrier (Guid values are uint8_t[16] slots written
-        // through void icalls / fields). The rejection is the contract.
+        // now skipped at the F2 RETURN-TYPE gate: a by-value Guid RETURN
+        // has no carrier (Guid values are uint8_t[16] slots written through
+        // void icalls / fields). The skip is the contract -- a warning is
+        // written to stderr and the method is not emitted.
         var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_guid_" + Guid.NewGuid().ToString("N") + ".dll");
         File.WriteAllBytes(tmp, Synthesize(new byte[] { 0x00, 0x00, 0x11, 0x05 }, returnCall: true).ToArray());
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
             var types = MetadataLoader.LoadAssembly(tmp);
-            var ex = Assert.Throws<NotSupportedException>(() => CodeGenerator.Generate(types, dir, tmp));
-            Assert.Contains("System.Guid", ex.Message);
-            Assert.Contains("no carrier", ex.Message);
+            // No exception is thrown; the method is skipped with a warning.
+            CodeGenerator.Generate(types, dir, tmp);
+            // The method is skipped, so no C++ file is generated for it.
+            var cppPath = Path.Combine(dir, "src", "Cases_GenGuidRet.cpp");
+            Assert.False(File.Exists(cppPath), $"Expected {cppPath} to not exist (method skipped), but it was created.");
         }
         finally
         {

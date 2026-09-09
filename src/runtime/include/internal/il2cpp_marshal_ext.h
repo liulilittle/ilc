@@ -253,7 +253,7 @@ void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDelet
 //   ptr == 0                 -> ArgumentNullException("ptr")
 //   structureType == nullptr -> ArgumentNullException("structuretype")
 //   structureType is not a Type-name string -> ArgumentException
-void icall_marshal_destroy_structure(intptr_t ptr, Il2CppObject* structureType);
+void icall_marshal_destroy_structure(intptr_t ptr, Il2CppString* structureType);
 
 // Marshal.SizeOf(object) / SizeOf<T>(T): the marshal size of a boxed value's
 // runtime type. net48: null -> ArgumentNullException("structure"); the value
@@ -278,6 +278,17 @@ int32_t icall_marshal_size_of_object(Il2CppObject* structure);
 //   from_unmanaged: the mirror (null src/array, same range/type checks).
 void icall_marshal_copy_to_unmanaged_elem(Il2CppArray* array, int32_t startIndex, void* destination, int32_t length);
 void icall_marshal_copy_from_unmanaged_elem(void* source, Il2CppArray* array, int32_t startIndex, int32_t length);
+
+//------------------------------------------------------------------------------
+// Marshal COM ProgID resolution + activation (r127 PNSE stubs -- Windows-only
+// surface). ILC has no COM runtime, so both stubs throw PlatformNotSupportedException
+// on every platform. The MethodMap routes GetTypeFromProgID/CreateObject here.
+//   GetTypeFromProgID: resolve ProgID -> CLSID (returns HRESULT -- stub throws).
+//   CreateObject: CoCreateInstance by ProgID wrapped into an RCW (stub throws).
+//------------------------------------------------------------------------------
+int32_t icall_marshal_get_type_from_prog_id(Il2CppString* progId);
+Il2CppObject* icall_marshal_create_object(Il2CppString* progId);
+
 
 //------------------------------------------------------------------------------
 // Marshal VARIANT + COM-identity gap batch (net48 inventory §3 Marshal rows:

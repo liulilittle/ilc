@@ -1,3 +1,0 @@
-GAP	Microsoft.Win32.InternetSecurityManager..ctor
-GAP	System.Net.Mail.MSAdminBase..ctor
-SUMMARY	total=2	mapped=0	receiverMapped=0	mappedGeneric=0	realGap=2	realErr=0	internalGap=0	internalErr=0	C:\Windows\Microsoft.NET\Framework\v4.0.30319\System.dll

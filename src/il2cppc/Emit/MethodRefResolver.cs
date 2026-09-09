@@ -1365,6 +1365,9 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Resources.ResourceManager": return TryMapResources(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapResourceManager(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Reflection.RuntimeAssembly": return TryMapRuntimeAssembly(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // ReflectionExtensions domain (MethodMap.ReflectionExtensions.cs): the
+            // Microsoft.Reflection.ReflectionExtensions typecode primitive wrapper.
+            case "Microsoft.Reflection.ReflectionExtensions": return TryMapReflectionExtensions(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             default: return null;
         }
         // #endregion
@@ -1758,7 +1761,7 @@ var userRecvLike = receiverType ?? arg0Type;
     private static bool IsRefType(SignatureTypeCode code)
     {
         var b = (byte)code;
-        return b is 0x0E or 0x12 or 0x1C or 0x40 or 0x15;
+        return b is 0x0E or 0x12 or 0x1C or 0x40 or 0x15 or 0x1D or 0x1F;
     }
 
     private static string ResolveOwnerFullName(MetadataReader md, EntityHandle parent) =>

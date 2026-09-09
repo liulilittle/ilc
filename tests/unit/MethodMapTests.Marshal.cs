@@ -128,8 +128,11 @@ public class MethodMapMarshalTests
     }
 
     //--------------------------------------------------------------------------
-    // Copy(Array, int, IntPtr, int) -> icall_marshal_copy_to_unmanaged
-    // Copy(IntPtr, Array, int, int) -> icall_marshal_copy_from_unmanaged
+    // Copy(Array, int, IntPtr, int) -> icall_marshal_copy_to_unmanaged_elem
+    // Copy(IntPtr, Array, int, int) -> icall_marshal_copy_from_unmanaged_elem
+    // (r127: elem-width variants dispatch on arr->elemSize, handling all
+    // primitive element kinds -- the old int32-stride icalls only handle
+    // elemSize==4).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Marshal_Copy_ArrayToNative_IsStaticMappedToCopyToUnmanaged()
@@ -137,7 +140,7 @@ public class MethodMapMarshalTests
         var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "Copy",
             Sig(Ret(0x01), 0x1D, 0x08, 0x08, 0x18, 0x08)), "Copy");
 
-        Assert.Equal("il2cpp::runtime::icall_marshal_copy_to_unmanaged", m.CppName);
+        Assert.Equal("il2cpp::runtime::icall_marshal_copy_to_unmanaged_elem", m.CppName);
         Assert.False(m.IsInstance);
         Assert.False(m.ReturnsValue);
         Assert.Equal(4, m.ParamCount);
@@ -153,7 +156,7 @@ public class MethodMapMarshalTests
         var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "Copy",
             Sig(Ret(0x01), 0x18, 0x1D, 0x08, 0x08, 0x08)), "Copy");
 
-        Assert.Equal("il2cpp::runtime::icall_marshal_copy_from_unmanaged", m.CppName);
+        Assert.Equal("il2cpp::runtime::icall_marshal_copy_from_unmanaged_elem", m.CppName);
         Assert.False(m.IsInstance);
         Assert.False(m.ReturnsValue);
         Assert.Equal(4, m.ParamCount);

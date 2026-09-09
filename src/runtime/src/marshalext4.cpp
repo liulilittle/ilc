@@ -121,7 +121,7 @@ int32_t TypeCodeOfBoxName(const char* name)
 // otherwise a documented no-op (the memory block itself is untouched; freeing
 // the block is Marshal.FreeHGlobal's job, never DestroyStructure's).
 //------------------------------------------------------------------------------
-void icall_marshal_destroy_structure(intptr_t ptr, Il2CppObject* structureType)
+void icall_marshal_destroy_structure(intptr_t ptr, Il2CppString* structureType)
 {
     if (ptr == 0)
     {
@@ -131,15 +131,10 @@ void icall_marshal_destroy_structure(intptr_t ptr, Il2CppObject* structureType)
     {
         il2cpp_throw_argument_null_exception("structuretype");
     }
-    // The ILC Type VALUE is the type's full-name string. A non-string object
-    // is a malformed Type argument (net48: "type must be a runtime type").
-    if (structureType->klass != il2cpp_string_class())
-    {
-        il2cpp_throw_argument_exception(
-            "structuretype must be a runtime Type (the type-name string)");
-    }
     // Documented no-op: ILC M4 structs are all-int32 byte buffers with no
     // embedded substructures to free (no COM / BSTR / delegate marshalling).
+    // The Type argument is the type-name string (folded by StackFold); no
+    // further validation is needed.
 }
 
 //------------------------------------------------------------------------------
@@ -260,5 +255,21 @@ void icall_marshal_copy_from_unmanaged_elem(void* source, Il2CppArray* array,
                 byteCount);
 }
 
+//------------------------------------------------------------------------------
+// r127 PNSE stubs: GetTypeFromProgID / CreateObject. ILC has no COM runtime,
+// so both throw PlatformNotSupportedException. Windows-only surface.
+//------------------------------------------------------------------------------
+int32_t icall_marshal_get_type_from_prog_id(Il2CppString* /*progId*/)
+{
+    il2cpp_throw_not_supported_exception(
+        "Marshal.GetTypeFromProgID: ILC has no COM runtime (Windows-only surface)");
+    return 0; // unreachable
+}
+Il2CppObject* icall_marshal_create_object(Il2CppString* /*progId*/)
+{
+    il2cpp_throw_not_supported_exception(
+        "Marshal.CreateObject: ILC has no COM runtime (Windows-only surface)");
+    return nullptr; // unreachable
+}
 } // namespace runtime
 } // namespace il2cpp

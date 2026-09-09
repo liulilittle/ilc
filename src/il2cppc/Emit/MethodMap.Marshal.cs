@@ -147,19 +147,30 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_marshal_realloc_hglobal", 2, true, false, false,
                     new[] { "n", "n" }, resultKind: "ptr");
             // Copy: two 4-arg directions dispatch on arg order (array first
-            // = managed -> native, IntPtr first = native -> managed). The M4
-            // icalls implement the int32 stride (runtime.cpp) -- the array
-            // ELEMENT kind is not distinguishable in ps (0x1D for every
-            // array), the element-type matrix is a runtime contract note.
+            // = managed -> native, IntPtr first = native -> managed). The
+            // elem-width icalls (marshalext4.cpp) dispatch on arr->elemSize,
+            // handling byte/short/char/int/long/float/double/IntPtr arrays
+            // (the old int32-stride icalls in runtime.cpp only handle
+            // elemSize==4). The array ELEMENT kind is not distinguishable in
+            // ps (0x1D for every array) -- the runtime dispatches by elemSize.
             case "Copy":
                 if (ps.Length != 4) return null;
                 if (ps[0] == 0x1D)
-                    return I("il2cpp::runtime::icall_marshal_copy_to_unmanaged", 4, false, false, false,
+                    return I("il2cpp::runtime::icall_marshal_copy_to_unmanaged_elem", 4, false, false, false,
                         new[] { "a", "i", "g", "i" });
                 if (IsIntPtrByte(ps[0]))
-                    return I("il2cpp::runtime::icall_marshal_copy_from_unmanaged", 4, false, false, false,
+                    return I("il2cpp::runtime::icall_marshal_copy_from_unmanaged_elem", 4, false, false, false,
                         new[] { "g", "a", "i", "i" });
                 return null;
+            // void DestroyStructure(IntPtr, Type): D-MAR-2 (r127) maps to the
+            // runtime icall (marshalext4.cpp:124 -- documented no-op: ILC has
+            // no COM/BSTR marshalling and the M4 struct is an all-int32 byte
+            // buffer with no embedded substructures to free). The Type arg
+            // crosses as the type-name string (folded by StackFold) via "s".
+            case "DestroyStructure":
+                if (ps.Length != 2 || !IsIntPtrByte(ps[0]) || ps[1] is not (0x11 or 0x12 or 0x40)) return null;
+                return I("il2cpp::runtime::icall_marshal_destroy_structure", 2, false, false, false,
+                    new[] { "n", "s" });
             // IntPtr StringToHGlobalAnsi(string): the ANSI helper lives in
             // il2cpp_marshal_ext2.h (in the generated include chain); mirrors
             // the Uni form (string arg via "s" cast, "ptr" result kind, freed
@@ -399,6 +410,20 @@ public static partial class MethodRefResolver
                 if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
                 return I("il2cpp::runtime::icall_com_release_com_object", 1, true, false, false,
                     new[] { "" });
+            // ---- com6: GetTypeFromProgID / CreateObject (r127 PNSE stubs) --
+            //   int GetTypeFromProgID(string progID): resolve ProgID -> CLSID.
+            //   The stub (marshalext4.cpp) throws PlatformNotSupportedException
+            //   (ILC has no COM runtime). Windows-only surface.
+            case "GetTypeFromProgID":
+                if (ps.Length != 1 || ps[0] != 0x0E) return null;
+                return I("il2cpp::runtime::icall_marshal_get_type_from_prog_id", 1, true, false, false,
+                    new[] { "s" });
+            //   object CreateObject(string progID): CoCreateInstance by ProgID
+            //   wrapped into an RCW. The stub throws PNSE (no COM runtime).
+            case "CreateObject":
+                if (ps.Length != 1 || ps[0] != 0x0E) return null;
+                return I("il2cpp::runtime::icall_marshal_create_object", 1, true, true, false,
+                    new[] { "s" });
             // int GetExceptionCode(): x86-only SEH query -- ILC has no SEH in
             // the fully managed context, the runtime always returns 0.
             case "GetExceptionCode":

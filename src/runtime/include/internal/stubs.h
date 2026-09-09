@@ -250,5 +250,19 @@ void icall_assembly_loadmodule_unsupported();
 void icall_assembly_get_version_unsupported();
 void icall_win32_set_thread_token_unsupported(int32_t token);
 
+// Security domain stubs (r126 Security residual - missing icall declarations)
+void System_Reflection_SecurityContextFrame_Push_6486941fdb5c9d56(Il2CppObject* arg0);
+void System_Reflection_SecurityContextFrame_Pop_0e14d38423f93423();
+void System_Runtime_CompilerServices_RuntimeHelpers_ProbeForSufficientStack_822160b172e6de22();
+void System_Guid_NewGuid_03c02fe8f2eb79a9(Il2CppDateTime* ret);
+void System_Runtime_InteropServices_Marshal_CopyToManaged_462fd10303ea5155(Il2CppObject* arg0, int32_t arg1, Il2CppObject* arg2, Il2CppObject* arg3);
+
+// Security P/Invoke stubs (declared in windows.h but not visible across TUs)
+extern "C" int32_t ConvertSecurityDescriptorToStringSecurityDescriptorW(int32_t, int32_t, int32_t, int32_t, int32_t);
+extern "C" int32_t GetNamedSecurityInfoW(const char16_t*, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+extern "C" int32_t GetSecurityInfo(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+extern "C" int32_t SetNamedSecurityInfoW(const char16_t*, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+extern "C" int32_t SetSecurityInfo(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+
 } // namespace runtime
 } // namespace il2cpp

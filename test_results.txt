@@ -1,12 +1,6 @@
+  Determining projects to restore...
+  鎵€鏈夐」鐩潎鏄渶鏂扮殑锛屾棤娉曡繕鍘熴€?
   il2cppc -> E:\il2cpp\src\il2cppc\bin\Debug\net8.0\il2cppc.dll
-E:\il2cpp\tests\unit\GuidSlotWiringTests.cs(164,19): warning CS8604: 鈥淢anagedPEBuilder.ManagedPEBuilder(PEHeaderBuilder header, MetadataRootBuilder metadataRootBuilder, BlobBuilder ilStream, BlobBuilder? mappedFieldData = null, BlobBuilder? managedResources = null, ResourceSectionBuilder? nativeResources = null, DebugDirectoryBuilder? debugDirectoryBuilder = null, int strongNameSignatureSize = 128, MethodDefinitionHandle entryPoint = default(MethodDefinitionHandle), CorFlags flags = CorFlags.ILOnly, Func<IEnumerable<Blob>, BlobContentId>? deterministicIdProvider = null)鈥濅腑鐨勫舰鍙傗€渋lStream鈥濆彲鑳戒紶鍏?null 寮曠敤瀹炲弬銆?[E:\il2cpp\tests\unit\unit.csproj]
-E:\il2cpp\tests\unit\CodeGeneratorTests.cs(1686,37): warning CS8602: 瑙ｅ紩鐢ㄥ彲鑳藉嚭鐜扮┖寮曠敤銆?[E:\il2cpp\tests\unit\unit.csproj]
-E:\il2cpp\tests\unit\MethodMapTests.Collections.cs(55,17): warning xUnit1012: Null should not be used for type parameter 'receiverType' of type 'string'. Use a non-null value, or convert the parameter to a nullable type. (https://xunit.net/xunit.analyzers/rules/xUnit1012) [E:\il2cpp\tests\unit\unit.csproj]
-E:\il2cpp\tests\unit\MethodMapTests.Base64.cs(131,57): warning xUnit1012: Null should not be used for type parameter 'resultKind' of type 'string'. Use a non-null value, or convert the parameter to a nullable type. (https://xunit.net/xunit.analyzers/rules/xUnit1012) [E:\il2cpp\tests\unit\unit.csproj]
-E:\il2cpp\tests\unit\MethodMapTests.Base64.cs(132,57): warning xUnit1012: Null should not be used for type parameter 'resultKind' of type 'string'. Use a non-null value, or convert the parameter to a nullable type. (https://xunit.net/xunit.analyzers/rules/xUnit1012) [E:\il2cpp\tests\unit\unit.csproj]
-E:\il2cpp\tests\unit\MethodMapTests.Base64.cs(133,58): warning xUnit1012: Null should not be used for type parameter 'resultKind' of type 'string'. Use a non-null value, or convert the parameter to a nullable type. (https://xunit.net/xunit.analyzers/rules/xUnit1012) [E:\il2cpp\tests\unit\unit.csproj]
-E:\il2cpp\tests\unit\MethodMapTests.Base64.cs(134,58): warning xUnit1012: Null should not be used for type parameter 'resultKind' of type 'string'. Use a non-null value, or convert the parameter to a nullable type. (https://xunit.net/xunit.analyzers/rules/xUnit1012) [E:\il2cpp\tests\unit\unit.csproj]
-E:\il2cpp\tests\unit\StackFoldTests.TypeChain.cs(277,9): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [E:\il2cpp\tests\unit\unit.csproj]
   unit -> E:\il2cpp\tests\unit\bin\Debug\net8.0\unit.dll
 E:\il2cpp\tests\unit\bin\Debug\net8.0\unit.dll (.NETCoreApp,Version=v8.0)鐨勬祴璇曡繍琛?
 Microsoft (R) 娴嬭瘯鎵ц鍛戒护琛屽伐鍏风増鏈?17.9.0 (x64)
@@ -14,137 +8,31 @@ Microsoft (R) 娴嬭瘯鎵ц鍛戒护琛屽伐鍏风増鏈?17.9.0 (x64)
 
 姝ｅ湪鍚姩娴嬭瘯鎵ц锛岃绋嶅€?..
 鎬诲叡 1 涓祴璇曟枃浠朵笌鎸囧畾妯″紡鐩稿尮閰嶃€?
-symbols: 3 method(s) mapped from Portable PDB -> #line C# line directives
-[xUnit.net 00:00:00.32]     MethodMapValueTypeTests.Resolve_ValueType_GetHashCode_UntrackedReceiver_DefersToGeneratedName [FAIL]
-[xUnit.net 00:00:00.32]     MethodMapNetTests.Resolve_Socket_Connect_ThrowsHandleGap [FAIL]
 symbols: no Portable PDB found -> no #line C# line directives
-[xUnit.net 00:00:00.32]     MethodMapSocketTests.Resolve_Socket_Ctor_MapsToIcall [FAIL]
-[xUnit.net 00:00:00.32]     StackFoldTestsLdtoken.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [FAIL]
-  澶辫触 MethodMapValueTypeTests.Resolve_ValueType_GetHashCode_UntrackedReceiver_DefersToGeneratedName [3 ms]
-  閿欒娑堟伅:
-   Assert.StartsWith() Failure: String start does not match
-String:         "il2cpp::runtime::icall_value_type_get_has"路路路
-Expected start: "System_ValueType_GetHashCode_"
-  鍫嗘爤璺熻釜:
-     at MethodMapValueTypeTests.Resolve_ValueType_GetHashCode_UntrackedReceiver_DefersToGeneratedName() in E:\il2cpp\tests\unit\MethodMapTests.ValueType.cs:line 181
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-  澶辫触 MethodMapNetTests.Resolve_Socket_Connect_ThrowsHandleGap [2 ms]
+symbols: 3 method(s) mapped from Portable PDB -> #line C# line directives
+[xUnit.net 00:00:00.29]     MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeTwoParams_ThrowsLoud [FAIL]
+  澶辫触 MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeTwoParams_ThrowsLoud [13 ms]
   閿欒娑堟伅:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(System.NotSupportedException)
   鍫嗘爤璺熻釜:
-     at MethodMapNetTests.Resolve_Socket_Connect_ThrowsHandleGap() in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 107
+     at MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeTwoParams_ThrowsLoud() in E:\il2cpp\tests\unit\MethodMapTests.TypeGetTypeCode.cs:line 86
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-  澶辫触 MethodMapSocketTests.Resolve_Socket_Ctor_MapsToIcall [< 1 ms]
+[xUnit.net 00:00:00.29]     MethodMapDecimalMissingTests.Resolve_Decimal_FCallToInt32_MapsToFCallIcall [FAIL]
+  澶辫触 MethodMapDecimalMissingTests.Resolve_Decimal_FCallToInt32_MapsToFCallIcall [15 ms]
   閿欒娑堟伅:
-   Assert.True() Failure
-Expected: True
-Actual:   False
+   Assert.Equal() Failure: Collections differ
+           鈫?(pos 0)
+Expected: [""]
+Actual:   ["dec"]
+           鈫?(pos 0)
   鍫嗘爤璺熻釜:
-     at MethodMapSocketTests.Resolve_Socket_Ctor_MapsToIcall() in E:\il2cpp\tests\unit\MethodMapTests.Socket.cs:line 37
+     at MethodMapDecimalMissingTests.Resolve_Decimal_FCallToInt32_MapsToFCallIcall() in E:\il2cpp\tests\unit\MethodMapTests.DecimalMissing.cs:line 29
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-  澶辫触 StackFoldTestsLdtoken.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [3 ms]
-  閿欒娑堟伅:
-   Assert.Throws() Failure: No exception was thrown
-Expected: typeof(System.NotSupportedException)
-  鍫嗘爤璺熻釜:
-     at StackFoldTestsLdtoken.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud() in E:\il2cpp\tests\unit\StackFoldTests.Ldtoken.cs:line 65
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.33]     StackFoldTestsLdtoken.Fold_Ldtoken_NonGetTypeFromHandleConsumer_ThrowsLoud [FAIL]
-  澶辫触 StackFoldTestsLdtoken.Fold_Ldtoken_NonGetTypeFromHandleConsumer_ThrowsLoud [5 ms]
-  閿欒娑堟伅:
-   Assert.Throws() Failure: No exception was thrown
-Expected: typeof(System.NotSupportedException)
-  鍫嗘爤璺熻釜:
-     at StackFoldTestsLdtoken.Fold_Ldtoken_NonGetTypeFromHandleConsumer_ThrowsLoud() in E:\il2cpp\tests\unit\StackFoldTests.Ldtoken.cs:line 106
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.33]     MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Send") [FAIL]
-  澶辫触 MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Send") [5 ms]
-  閿欒娑堟伅:
-   Assert.Throws() Failure: No exception was thrown
-Expected: typeof(System.NotSupportedException)
-  鍫嗘爤璺熻釜:
-     at MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(String name) in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 119
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.33]     MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Receive") [FAIL]
-  澶辫触 MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Receive") [< 1 ms]
-  閿欒娑堟伅:
-   Assert.Throws() Failure: No exception was thrown
-Expected: typeof(System.NotSupportedException)
-  鍫嗘爤璺熻釜:
-     at MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(String name) in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 119
-   at InvokeStub_MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(Object, Span`1)
-   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
-[xUnit.net 00:00:00.34]     MethodRefResolverDispatchTests.Resolve_GC_CollectParameterless_MapsToCollectIcall [FAIL]
-  澶辫触 MethodRefResolverDispatchTests.Resolve_GC_CollectParameterless_MapsToCollectIcall [5 ms]
-  閿欒娑堟伅:
-   System.NotSupportedException : System.GC::Collect: System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target (see il2cpp_gc_ext.h)
-  鍫嗘爤璺熻釜:
-     at Il2Cpp.Transpiler.Emit.MethodRefResolver.BclResolve(MetadataReader md, String owner, String name, BlobHandle sigHandle, Byte[] genArgs, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, String[] genArgNames, String instName) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 719
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.ResolveMemberReference(MetadataReader md, MemberReferenceHandle handle, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, Nullable`1 isStaticOverride) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 534
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 343
-   at MethodRefResolverDispatchTests.ResolveMember(MemoryStream pe, String memberName, String receiverType, String arg0Type) in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 934
-   at MethodRefResolverDispatchTests.Resolve_GC_CollectParameterless_MapsToCollectIcall() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 517
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.34]     MethodRefResolverDispatchTests.Resolve_GC_WaitForPendingFinalizers_MapsToFinalizeTriggerIcall [FAIL]
-  澶辫触 MethodRefResolverDispatchTests.Resolve_GC_WaitForPendingFinalizers_MapsToFinalizeTriggerIcall [< 1 ms]
-  閿欒娑堟伅:
-   System.NotSupportedException : System.GC::WaitForPendingFinalizers: System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target (see il2cpp_gc_ext.h)
-  鍫嗘爤璺熻釜:
-     at Il2Cpp.Transpiler.Emit.MethodRefResolver.BclResolve(MetadataReader md, String owner, String name, BlobHandle sigHandle, Byte[] genArgs, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, String[] genArgNames, String instName) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 719
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.ResolveMemberReference(MetadataReader md, MemberReferenceHandle handle, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, Nullable`1 isStaticOverride) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 534
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 343
-   at MethodRefResolverDispatchTests.ResolveMember(MemoryStream pe, String memberName, String receiverType, String arg0Type) in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 934
-   at MethodRefResolverDispatchTests.Resolve_GC_WaitForPendingFinalizers_MapsToFinalizeTriggerIcall() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 561
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.35]     MethodMapNetTests.Resolve_Socket_Ctor_ThrowsHandleGap [FAIL]
-  澶辫触 MethodMapNetTests.Resolve_Socket_Ctor_ThrowsHandleGap [< 1 ms]
-  閿欒娑堟伅:
-   Assert.Throws() Failure: No exception was thrown
-Expected: typeof(System.NotSupportedException)
-  鍫嗘爤璺熻釜:
-     at MethodMapNetTests.Resolve_Socket_Ctor_ThrowsHandleGap() in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 95
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.35]     MethodMapNetTests.Resolve_Socket_Close_ThrowsHandleGap [FAIL]
-  澶辫触 MethodMapNetTests.Resolve_Socket_Close_ThrowsHandleGap [< 1 ms]
-  閿欒娑堟伅:
-   Assert.Throws() Failure: No exception was thrown
-Expected: typeof(System.NotSupportedException)
-  鍫嗘爤璺熻釜:
-     at MethodMapNetTests.Resolve_Socket_Close_ThrowsHandleGap() in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 129
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.35]     TupleRestChainTests.Resolve_TupleIntString_Item2_IsReference [FAIL]
-  澶辫触 TupleRestChainTests.Resolve_TupleIntString_Item2_IsReference [2 ms]
-  閿欒娑堟伅:
-   Assert.True() Failure
-Expected: True
-Actual:   False
-  鍫嗘爤璺熻釜:
-     at TupleRestChainTests.Resolve_TupleIntString_Item2_IsReference() in E:\il2cpp\tests\unit\TupleRestChainTests.cs:line 39
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.36]     TupleRestChainTests.Resolve_Tuple8Int_Rest_IsReference [FAIL]
-  澶辫触 TupleRestChainTests.Resolve_Tuple8Int_Rest_IsReference [< 1 ms]
-  閿欒娑堟伅:
-   Assert.True() Failure
-Expected: True
-Actual:   False
-  鍫嗘爤璺熻釜:
-     at TupleRestChainTests.Resolve_Tuple8Int_Rest_IsReference() in E:\il2cpp\tests\unit\TupleRestChainTests.cs:line 51
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.36]     MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(receiverType: "System.Collections.SortedList.Enumerator") [FAIL]
-  澶辫触 MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(receiverType: "System.Collections.SortedList.Enumerator") [5 ms]
+[xUnit.net 00:00:00.29]     MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(receiverType: "System.Collections.SortedList.Enumerator") [FAIL]
+  澶辫触 MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(receiverType: "System.Collections.SortedList.Enumerator") [< 1 ms]
   閿欒娑堟伅:
    System.NotSupportedException : System.Collections.ICollection::get_Count: System.Collections.ICollection::get_Count: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link; receiverType='System.Collections.SortedList.Enumerator' arg0Type='<null>')
   鍫嗘爤璺熻釜:
@@ -155,7 +43,55 @@ Actual:   False
    at MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(String receiverType) in E:\il2cpp\tests\unit\MethodMapTests.Collections.cs:line 63
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.36]     MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(receiverType: "System.IO.StreamWriter") [FAIL]
+[xUnit.net 00:00:00.30]     TupleRestChainTests.Resolve_TupleIntString_Item2_IsReference [FAIL]
+  澶辫触 TupleRestChainTests.Resolve_TupleIntString_Item2_IsReference [1 ms]
+  閿欒娑堟伅:
+   Assert.True() Failure
+Expected: True
+Actual:   False
+  鍫嗘爤璺熻釜:
+     at TupleRestChainTests.Resolve_TupleIntString_Item2_IsReference() in E:\il2cpp\tests\unit\TupleRestChainTests.cs:line 39
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.30]     StackFoldTestsInitializeArray.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [FAIL]
+  澶辫触 StackFoldTestsInitializeArray.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [3 ms]
+  閿欒娑堟伅:
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.NotSupportedException)
+  鍫嗘爤璺熻釜:
+     at StackFoldTestsInitializeArray.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud() in E:\il2cpp\tests\unit\StackFoldTests.InitializeArray.cs:line 147
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.30]     MethodMapNetTests.Resolve_Socket_Connect_ThrowsHandleGap [FAIL]
+  澶辫触 MethodMapNetTests.Resolve_Socket_Connect_ThrowsHandleGap [1 ms]
+  閿欒娑堟伅:
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.NotSupportedException)
+  鍫嗘爤璺熻釜:
+     at MethodMapNetTests.Resolve_Socket_Connect_ThrowsHandleGap() in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 107
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.30]     TupleRestChainTests.Resolve_Tuple8Int_Rest_IsReference [FAIL]
+  澶辫触 TupleRestChainTests.Resolve_Tuple8Int_Rest_IsReference [< 1 ms]
+  閿欒娑堟伅:
+   Assert.True() Failure
+Expected: True
+Actual:   False
+  鍫嗘爤璺熻釜:
+     at TupleRestChainTests.Resolve_Tuple8Int_Rest_IsReference() in E:\il2cpp\tests\unit\TupleRestChainTests.cs:line 51
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.30]     MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Send") [FAIL]
+  澶辫触 MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Send") [< 1 ms]
+  閿欒娑堟伅:
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.NotSupportedException)
+  鍫嗘爤璺熻釜:
+     at MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(String name) in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 119
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.30]     MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(receiverType: "System.IO.StreamWriter") [FAIL]
+[xUnit.net 00:00:00.31]     MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Receive") [FAIL]
   澶辫触 MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(receiverType: "System.IO.StreamWriter") [< 1 ms]
   閿欒娑堟伅:
    System.NotSupportedException : System.Collections.ICollection::get_Count: System.Collections.ICollection::get_Count: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link; receiverType='System.IO.StreamWriter' arg0Type='<null>')
@@ -167,85 +103,212 @@ Actual:   False
    at MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(String receiverType) in E:\il2cpp\tests\unit\MethodMapTests.Collections.cs:line 63
    at InvokeStub_MethodMapTestsCollections.Resolve_ICollectionGetCount_NonSnapshot_FallsThrough(Object, Span`1)
    at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
-[xUnit.net 00:00:00.38]     MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecNonInt32Arg_ThrowsLoud [FAIL]
-  澶辫触 MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecNonInt32Arg_ThrowsLoud [11 ms]
+  澶辫触 MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(name: "Receive") [< 1 ms]
   閿欒娑堟伅:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(System.NotSupportedException)
   鍫嗘爤璺熻釜:
-     at MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecNonInt32Arg_ThrowsLoud() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 697
+     at MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(String name) in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 119
+   at InvokeStub_MethodMapNetTests.Resolve_Socket_SendReceive_ThrowsHandleGap(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:00.31]     MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeType_MapsToTypeCodeIcall [FAIL]
+  澶辫触 MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeType_MapsToTypeCodeIcall [6 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Strings differ
+           鈫?(pos 0)
+Expected: "il2cpp::runtime::il2cpp_type_get_typecode"
+Actual:   "Microsoft_Reflection_ReflectionExtensions"路路路
+           鈫?(pos 0)
+  鍫嗘爤璺熻釜:
+     at MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeType_MapsToTypeCodeIcall() in E:\il2cpp\tests\unit\MethodMapTests.TypeGetTypeCode.cs:line 24
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.39]     TypeEmitterTests.Layout_RefFieldAtSlot32_ThrowsLoud [FAIL]
-  澶辫触 TypeEmitterTests.Layout_RefFieldAtSlot32_ThrowsLoud [1 ms]
+[xUnit.net 00:00:00.31]     MethodMapNetTests.Resolve_Socket_Ctor_ThrowsHandleGap [FAIL]
+  澶辫触 MethodMapNetTests.Resolve_Socket_Ctor_ThrowsHandleGap [< 1 ms]
   閿欒娑堟伅:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(System.NotSupportedException)
   鍫嗘爤璺熻釜:
-     at TypeEmitterTests.Layout_RefFieldAtSlot32_ThrowsLoud() in E:\il2cpp\tests\unit\TypeEmitterTests.cs:line 116
+     at MethodMapNetTests.Resolve_Socket_Ctor_ThrowsHandleGap() in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 95
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.39]     TypeEmitterTests.EmitClassStruct_EmbedsObjectHeaderFirst [FAIL]
-  澶辫触 TypeEmitterTests.EmitClassStruct_EmbedsObjectHeaderFirst [1 ms]
-  閿欒娑堟伅:
-   Assert.Contains() Failure: Sub-string not found
-String:    "//---------------------------------------"路路路
-Not found: "Calc_Node* Next;"
-  鍫嗘爤璺熻釜:
-     at TypeEmitterTests.EmitClassStruct_EmbedsObjectHeaderFirst() in E:\il2cpp\tests\unit\TypeEmitterTests.cs:line 65
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.40]     StackFoldTestsInitializeArray.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [FAIL]
-  澶辫触 StackFoldTestsInitializeArray.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [5 ms]
+[xUnit.net 00:00:00.31]     MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeNoParams_ThrowsLoud [FAIL]
+  澶辫触 MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeNoParams_ThrowsLoud [< 1 ms]
   閿欒娑堟伅:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(System.NotSupportedException)
   鍫嗘爤璺熻釜:
-     at StackFoldTestsInitializeArray.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud() in E:\il2cpp\tests\unit\StackFoldTests.InitializeArray.cs:line 147
+     at MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeNoParams_ThrowsLoud() in E:\il2cpp\tests\unit\MethodMapTests.TypeGetTypeCode.cs:line 60
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.40]     MethodRefResolverDispatchTests.Resolve_GC_CollectWithGeneration_DropsInt32GenerationParam [FAIL]
-  澶辫触 MethodRefResolverDispatchTests.Resolve_GC_CollectWithGeneration_DropsInt32GenerationParam [< 1 ms]
-  閿欒娑堟伅:
-   System.NotSupportedException : System.GC::Collect: System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target (see il2cpp_gc_ext.h)
-  鍫嗘爤璺熻釜:
-     at Il2Cpp.Transpiler.Emit.MethodRefResolver.BclResolve(MetadataReader md, String owner, String name, BlobHandle sigHandle, Byte[] genArgs, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, String[] genArgNames, String instName) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 719
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.ResolveMemberReference(MetadataReader md, MemberReferenceHandle handle, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, Nullable`1 isStaticOverride) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 534
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 343
-   at MethodRefResolverDispatchTests.ResolveMember(MemoryStream pe, String memberName, String receiverType, String arg0Type) in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 934
-   at MethodRefResolverDispatchTests.Resolve_GC_CollectWithGeneration_DropsInt32GenerationParam() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 533
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.41]     EHRegionTests.Fold_SiblingChain_LeaveInsideChain_ThrowsLoud [FAIL]
-  澶辫触 EHRegionTests.Fold_SiblingChain_LeaveInsideChain_ThrowsLoud [< 1 ms]
+[xUnit.net 00:00:00.31]     MethodMapNetTests.Resolve_Socket_Close_ThrowsHandleGap [FAIL]
+  澶辫触 MethodMapNetTests.Resolve_Socket_Close_ThrowsHandleGap [< 1 ms]
   閿欒娑堟伅:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(System.NotSupportedException)
   鍫嗘爤璺熻釜:
-     at EHRegionTests.Fold_SiblingChain_LeaveInsideChain_ThrowsLoud() in E:\il2cpp\tests\unit\EHRegionTests.cs:line 328
+     at MethodMapNetTests.Resolve_Socket_Close_ThrowsHandleGap() in E:\il2cpp\tests\unit\MethodMapTests.Net.cs:line 129
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-string pool: 0 distinct literal(s) from 0 site(s) across 3 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
-resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
-licm: 0 invariant length read(s) hoistable across 3 method(s)
-inline: 0 simple call site(s) inlineable across 3 method(s)
-tempslot: 0 temp slot(s) -> 0 with reuse across 3 method(s)
-generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_1afa13147d9c45c1ba40c3035273bf29
-symbols: 1 method(s) mapped from Portable PDB -> #line C# line directives
-[xUnit.net 00:00:00.42]     MethodRefResolverDispatchTests.Resolve_GC_GetTotalMemory_ReturnsLongResult [FAIL]
-  澶辫触 MethodRefResolverDispatchTests.Resolve_GC_GetTotalMemory_ReturnsLongResult [< 1 ms]
+[xUnit.net 00:00:00.31]     MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeStringArg_ThrowsLoud [FAIL]
+  澶辫触 MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeStringArg_ThrowsLoud [< 1 ms]
   閿欒娑堟伅:
-   System.NotSupportedException : System.GC::GetTotalMemory: System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target (see il2cpp_gc_ext.h)
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.NotSupportedException)
   鍫嗘爤璺熻釜:
-     at Il2Cpp.Transpiler.Emit.MethodRefResolver.BclResolve(MetadataReader md, String owner, String name, BlobHandle sigHandle, Byte[] genArgs, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, String[] genArgNames, String instName) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 719
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.ResolveMemberReference(MetadataReader md, MemberReferenceHandle handle, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type, Nullable`1 isStaticOverride) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 534
-   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 343
-   at MethodRefResolverDispatchTests.ResolveMember(MemoryStream pe, String memberName, String receiverType, String arg0Type) in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 934
-   at MethodRefResolverDispatchTests.Resolve_GC_GetTotalMemory_ReturnsLongResult() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 543
+     at MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeStringArg_ThrowsLoud() in E:\il2cpp\tests\unit\MethodMapTests.TypeGetTypeCode.cs:line 73
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.42]     StackFoldTests.Fold_ClosureReturn_MakeAdder_BindsDisplayClassAsDelegateTarget [FAIL]
-  澶辫触 StackFoldTests.Fold_ClosureReturn_MakeAdder_BindsDisplayClassAsDelegateTarget [9 ms]
+[xUnit.net 00:00:00.31]     MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeType_HasKlassCast [FAIL]
+  澶辫触 MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeType_HasKlassCast [< 1 ms]
+  閿欒娑堟伅:
+   Assert.NotNull() Failure: Value is null
+  鍫嗘爤璺熻釜:
+     at MethodMapTestsTypeGetTypeCode.Resolve_ReflectionExtensions_GetTypeCodeType_HasKlassCast() in E:\il2cpp\tests\unit\MethodMapTests.TypeGetTypeCode.cs:line 47
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.33]     MethodMapValueTypeTests.Resolve_ValueType_GetHashCode_UntrackedReceiver_DefersToGeneratedName [FAIL]
+  澶辫触 MethodMapValueTypeTests.Resolve_ValueType_GetHashCode_UntrackedReceiver_DefersToGeneratedName [< 1 ms]
+  閿欒娑堟伅:
+   Assert.StartsWith() Failure: String start does not match
+String:         "il2cpp::runtime::icall_value_type_get_has"路路路
+Expected start: "System_ValueType_GetHashCode_"
+  鍫嗘爤璺熻釜:
+     at MethodMapValueTypeTests.Resolve_ValueType_GetHashCode_UntrackedReceiver_DefersToGeneratedName() in E:\il2cpp\tests\unit\MethodMapTests.ValueType.cs:line 181
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.34]     MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecOnMemberRef_ExpandsToDefinitionName [FAIL]
+  澶辫触 MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecOnMemberRef_ExpandsToDefinitionName [< 1 ms]
+  閿欒娑堟伅:
+   System.NotSupportedException : generic instantiation signature byte 0x0B not GENERICINST(0x0A) in M5
+  鍫嗘爤璺熻釜:
+     at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 271
+   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 243
+   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 230
+   at MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecOnMemberRef_ExpandsToDefinitionName() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 743
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.35]     StackFoldTestsLdtoken.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [FAIL]
+  澶辫触 StackFoldTestsLdtoken.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud [4 ms]
+  閿欒娑堟伅:
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.NotSupportedException)
+  鍫嗘爤璺熻釜:
+     at StackFoldTestsLdtoken.Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud() in E:\il2cpp\tests\unit\StackFoldTests.Ldtoken.cs:line 65
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.35]     StackFoldTestsLdtoken.Fold_Ldtoken_NonGetTypeFromHandleConsumer_ThrowsLoud [FAIL]
+  澶辫触 StackFoldTestsLdtoken.Fold_Ldtoken_NonGetTypeFromHandleConsumer_ThrowsLoud [< 1 ms]
+  閿欒娑堟伅:
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.NotSupportedException)
+  鍫嗘爤璺熻釜:
+     at StackFoldTestsLdtoken.Fold_Ldtoken_NonGetTypeFromHandleConsumer_ThrowsLoud() in E:\il2cpp\tests\unit\StackFoldTests.Ldtoken.cs:line 106
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.35]     MethodRefResolverDispatchTests.Resolve_UserGenericMethod_IdString_MapsToStringVariant [FAIL]
+  澶辫触 MethodRefResolverDispatchTests.Resolve_UserGenericMethod_IdString_MapsToStringVariant [< 1 ms]
+  閿欒娑堟伅:
+   System.NotSupportedException : generic instantiation signature byte 0x0B not GENERICINST(0x0A) in M5
+  鍫嗘爤璺熻釜:
+     at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 271
+   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 243
+   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 230
+   at MethodRefResolverDispatchTests.Resolve_UserGenericMethod_IdString_MapsToStringVariant() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 714
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.36]     MethodMapMarshalMissingTests.Resolve_Marshal_Copy_ArrayToNative_MapsToElemWidthIcall [FAIL]
+  澶辫触 MethodMapMarshalMissingTests.Resolve_Marshal_Copy_ArrayToNative_MapsToElemWidthIcall [1 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Strings differ
+                                                  鈫?(pos 48)
+Expected: 路路路"ime::icall_marshal_copy_to_unmanaged_elem"
+Actual:   路路路":runtime::icall_marshal_copy_to_unmanaged"
+  鍫嗘爤璺熻釜:
+     at MethodMapMarshalMissingTests.Resolve_Marshal_Copy_ArrayToNative_MapsToElemWidthIcall() in E:\il2cpp\tests\unit\MethodMapTests.MarshalMissing.cs:line 57
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.36]     MethodMapMarshalMissingTests.Resolve_Marshal_Copy_NativeToArray_MapsToElemWidthIcall [FAIL]
+  澶辫触 MethodMapMarshalMissingTests.Resolve_Marshal_Copy_NativeToArray_MapsToElemWidthIcall [< 1 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Strings differ
+                                                  鈫?(pos 50)
+Expected: 路路路"e::icall_marshal_copy_from_unmanaged_elem"
+Actual:   路路路"untime::icall_marshal_copy_from_unmanaged"
+  鍫嗘爤璺熻釜:
+     at MethodMapMarshalMissingTests.Resolve_Marshal_Copy_NativeToArray_MapsToElemWidthIcall() in E:\il2cpp\tests\unit\MethodMapTests.MarshalMissing.cs:line 70
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.36]     MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecOnMethodDef_ExpandsToDefinitionName [FAIL]
+  澶辫触 MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecOnMethodDef_ExpandsToDefinitionName [< 1 ms]
+  閿欒娑堟伅:
+   System.NotSupportedException : generic instantiation signature byte 0x0B not GENERICINST(0x0A) in M5
+  鍫嗘爤璺熻釜:
+     at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type, String arg1Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 271
+   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes, String receiverType, Boolean receiverIsAddress, String arg0Type) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 243
+   at Il2Cpp.Transpiler.Emit.MethodRefResolver.Resolve(MetadataReader md, Int32 token, IReadOnlyList`1 knownTypes) in E:\il2cpp\src\il2cppc\Emit\MethodRefResolver.cs:line 230
+   at MethodRefResolverDispatchTests.Resolve_UserGenericMethod_MethodSpecOnMethodDef_ExpandsToDefinitionName() in E:\il2cpp\tests\unit\MethodRefResolverDispatchTests.cs:line 672
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.36]     MethodMapMarshalMissingTests.Resolve_Marshal_GetTypeFromProgID_MapsToStubIcall [FAIL]
+  澶辫触 MethodMapMarshalMissingTests.Resolve_Marshal_GetTypeFromProgID_MapsToStubIcall [< 1 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Strings differ
+           鈫?(pos 0)
+Expected: "il2cpp::runtime::icall_marshal_get_type_f"路路路
+Actual:   "System_Runtime_InteropServices_Marshal_Ge"路路路
+           鈫?(pos 0)
+  鍫嗘爤璺熻釜:
+     at MethodMapMarshalMissingTests.Resolve_Marshal_GetTypeFromProgID_MapsToStubIcall() in E:\il2cpp\tests\unit\MethodMapTests.MarshalMissing.cs:line 89
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.36]     MethodMapMarshalMissingTests.Resolve_Marshal_DestroyStructure_MapsToIcall [FAIL]
+  澶辫触 MethodMapMarshalMissingTests.Resolve_Marshal_DestroyStructure_MapsToIcall [< 1 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Strings differ
+           鈫?(pos 0)
+Expected: "il2cpp::runtime::icall_marshal_destroy_st"路路路
+Actual:   "System_Runtime_InteropServices_Marshal_De"路路路
+           鈫?(pos 0)
+  鍫嗘爤璺熻釜:
+     at MethodMapMarshalMissingTests.Resolve_Marshal_DestroyStructure_MapsToIcall() in E:\il2cpp\tests\unit\MethodMapTests.MarshalMissing.cs:line 26
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.36]     MethodMapMarshalMissingTests.Resolve_Marshal_CreateObject_MapsToStubIcall [FAIL]
+  澶辫触 MethodMapMarshalMissingTests.Resolve_Marshal_CreateObject_MapsToStubIcall [< 1 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Strings differ
+           鈫?(pos 0)
+Expected: "il2cpp::runtime::icall_marshal_create_obj"路路路
+Actual:   "System_Runtime_InteropServices_Marshal_Cr"路路路
+           鈫?(pos 0)
+  鍫嗘爤璺熻釜:
+     at MethodMapMarshalMissingTests.Resolve_Marshal_CreateObject_MapsToStubIcall() in E:\il2cpp\tests\unit\MethodMapTests.MarshalMissing.cs:line 103
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.36]     MethodMapMarshalMissingTests.Resolve_Marshal_DestroyStructure_ValuetypeTypeParam_MapsToIcall [FAIL]
+  澶辫触 MethodMapMarshalMissingTests.Resolve_Marshal_DestroyStructure_ValuetypeTypeParam_MapsToIcall [< 1 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Strings differ
+           鈫?(pos 0)
+Expected: "il2cpp::runtime::icall_marshal_destroy_st"路路路
+Actual:   "System_Runtime_InteropServices_Marshal_De"路路路
+           鈫?(pos 0)
+  鍫嗘爤璺熻釜:
+     at MethodMapMarshalMissingTests.Resolve_Marshal_DestroyStructure_ValuetypeTypeParam_MapsToIcall() in E:\il2cpp\tests\unit\MethodMapTests.MarshalMissing.cs:line 40
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.37]     TypeEmitterNestedTests.CtorCppName_MatchesReferencePointNaming [FAIL]
+  澶辫触 TypeEmitterNestedTests.CtorCppName_MatchesReferencePointNaming [33 ms]
+  閿欒娑堟伅:
+   ctor of 'Node' not found
+  鍫嗘爤璺熻釜:
+     at TypeEmitterNestedTests.CtorMethodToken(MetadataReader md, String ownerFullName) in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 198
+   at TypeEmitterNestedTests.CtorCppName_MatchesReferencePointNaming() in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 405
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.37]     StackFoldTests.Fold_ClosureReturn_MakeAdder_BindsDisplayClassAsDelegateTarget [FAIL]
+  澶辫触 StackFoldTests.Fold_ClosureReturn_MakeAdder_BindsDisplayClassAsDelegateTarget [2 ms]
   閿欒娑堟伅:
    Assert.Equal() Failure: Strings differ
            鈫?(pos 0)
@@ -256,20 +319,8 @@ Actual:   "Cases.Delecb2+<>c__DisplayClass3_0"
      at StackFoldTests.Fold_ClosureReturn_MakeAdder_BindsDisplayClassAsDelegateTarget() in E:\il2cpp\tests\unit\StackFoldTests.cs:line 1177
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.43]     TypeEmitterNestedTests.CtorCppName_MatchesReferencePointNaming [FAIL]
-  澶辫触 TypeEmitterNestedTests.CtorCppName_MatchesReferencePointNaming [31 ms]
-  閿欒娑堟伅:
-   Assert.Equal() Failure: Strings differ
-           鈫?(pos 0)
-Expected: "Node__ctor_b3740a9592788e34"
-Actual:   "Cases_Recurse_Node__ctor_b3740a9592788e34"
-           鈫?(pos 0)
-  鍫嗘爤璺熻釜:
-     at TypeEmitterNestedTests.CtorCppName_MatchesReferencePointNaming() in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 400
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.43]     MetadataLoaderAuditTests.StaticField_PrimitiveWidths_KeepValueSlotWithSystemName [FAIL]
-  澶辫触 MetadataLoaderAuditTests.StaticField_PrimitiveWidths_KeepValueSlotWithSystemName [25 ms]
+[xUnit.net 00:00:00.37]     MetadataLoaderAuditTests.StaticField_PrimitiveWidths_KeepValueSlotWithSystemName [FAIL]
+  澶辫触 MetadataLoaderAuditTests.StaticField_PrimitiveWidths_KeepValueSlotWithSystemName [21 ms]
   閿欒娑堟伅:
    Assert.Equal() Failure: Strings differ
            鈫?(pos 0)
@@ -279,38 +330,8 @@ Actual:   ""
      at MetadataLoaderAuditTests.StaticField_PrimitiveWidths_KeepValueSlotWithSystemName() in E:\il2cpp\tests\unit\MetadataLoaderTests.Audit.cs:line 81
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.43]     TypeEmitterNestedTests.EmitTypeInfo_NestedType_RegistryKeyIsPlusFullName [FAIL]
-  澶辫触 TypeEmitterNestedTests.EmitTypeInfo_NestedType_RegistryKeyIsPlusFullName [18 ms]
-  閿欒娑堟伅:
-   Assert.Contains() Failure: Sub-string not found
-String:    "// Reflection metadata for Node (M5.5 typ"路路路
-Not found: "il2cpp::Il2CppTypeInfo Node_typeinfo = {"
-  鍫嗘爤璺熻釜:
-     at TypeEmitterNestedTests.EmitTypeInfo_NestedType_RegistryKeyIsPlusFullName() in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 320
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.43]     TypeEmitterNestedTests.EmitClassStruct_NestedType_FlatTopLevelStruct [FAIL]
-  澶辫触 TypeEmitterNestedTests.EmitClassStruct_NestedType_FlatTopLevelStruct [19 ms]
-  閿欒娑堟伅:
-   Assert.Contains() Failure: Sub-string not found
-String:    "//---------------------------------------"路路路
-Not found: "struct Node"
-  鍫嗘爤璺熻釜:
-     at TypeEmitterNestedTests.EmitClassStruct_NestedType_FlatTopLevelStruct() in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 346
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.43]     MetadataLoaderAuditTests.InstanceField_ValueType_StillThrows [FAIL]
-  澶辫触 MetadataLoaderAuditTests.InstanceField_ValueType_StillThrows [19 ms]
-  閿欒娑堟伅:
-   Assert.Throws() Failure: No exception was thrown
-Expected: typeof(System.NotSupportedException)
-  鍫嗘爤璺熻釜:
-     at MetadataLoaderAuditTests.InstanceField_ValueType_StillThrows() in E:\il2cpp\tests\unit\MetadataLoaderTests.Audit.cs:line 90
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.43]     GuidSlotWiringTests.Generate_ExpressionPositionGuidCall_IsHandledViaSlot [FAIL]
-[xUnit.net 00:00:00.43]     TypeEmitterNestedTests.EmitClassStruct_NestedType_ArrayField_EmitsIl2CppObjectPtr [FAIL]
-  澶辫触 GuidSlotWiringTests.Generate_ExpressionPositionGuidCall_IsHandledViaSlot [208 ms]
+[xUnit.net 00:00:00.37]     GuidSlotWiringTests.Generate_ExpressionPositionGuidCall_IsHandledViaSlot [FAIL]
+  澶辫触 GuidSlotWiringTests.Generate_ExpressionPositionGuidCall_IsHandledViaSlot [107 ms]
   閿欒娑堟伅:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(System.NotSupportedException)
@@ -318,36 +339,24 @@ Expected: typeof(System.NotSupportedException)
      at GuidSlotWiringTests.Generate_ExpressionPositionGuidCall_IsHandledViaSlot() in E:\il2cpp\tests\unit\GuidSlotWiringTests.cs:line 88
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-  澶辫触 TypeEmitterNestedTests.EmitClassStruct_NestedType_ArrayField_EmitsIl2CppObjectPtr [21 ms]
-  閿欒娑堟伅:
-   Assert.Contains() Failure: Sub-string not found
-String:    "//---------------------------------------"路路路
-Not found: "struct Bag"
-  鍫嗘爤璺熻釜:
-     at TypeEmitterNestedTests.EmitClassStruct_NestedType_ArrayField_EmitsIl2CppObjectPtr() in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 467
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.43]     TypeEmitterNestedTests.EmitClassDescriptor_NestedType_WiresNestedBaseClass [FAIL]
-  澶辫触 TypeEmitterNestedTests.EmitClassDescriptor_NestedType_WiresNestedBaseClass [20 ms]
-  閿欒娑堟伅:
-   Assert.Contains() Failure: Sub-string not found
-String:    "// Runtime type descriptor for MyExceptio"路路路
-Not found: "Il2CppClass MyException_class"
-  鍫嗘爤璺熻釜:
-     at TypeEmitterNestedTests.EmitClassDescriptor_NestedType_WiresNestedBaseClass() in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 367
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
 string pool: 0 distinct literal(s) from 0 site(s) across 2 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
 resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
 licm: 0 invariant length read(s) hoistable across 2 method(s)
 inline: 0 simple call site(s) inlineable across 2 method(s)
 tempslot: 0 temp slot(s) -> 0 with reuse across 2 method(s)
-generated 2 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_nested_4a7dfef68e9c4de48101e7767ed205e0
-[xUnit.net 00:00:00.47]     ProgramNestedWiringTests.RunMain_NestedType_EmitsNodeClassDefinition [FAIL]
-[xUnit.net 00:00:00.47]     TypeEmitterNestedTests.Expand_NestedType_RecordsNestingIdentity [FAIL]
-  澶辫触 ProgramNestedWiringTests.RunMain_NestedType_EmitsNodeClassDefinition [169 ms]
+generated 2 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_nested_613d6ea07aeb48cabd9e6e5a8a73acbf
+string pool: 0 distinct literal(s) from 0 site(s) across 3 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
+resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
+licm: 0 invariant length read(s) hoistable across 3 method(s)
+inline: 0 simple call site(s) inlineable across 3 method(s)
+tempslot: 0 temp slot(s) -> 0 with reuse across 3 method(s)
+generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_5f04020505a142eca496340120f35177
+[xUnit.net 00:00:00.40]     ProgramNestedWiringTests.RunMain_NestedType_EmitsNodeClassDefinition [FAIL]
+[xUnit.net 00:00:00.40]     MetadataLoaderAuditTests.InstanceField_ValueType_StillThrows [FAIL]
+symbols: 1 method(s) mapped from Portable PDB -> #line C# line directives
+  澶辫触 ProgramNestedWiringTests.RunMain_NestedType_EmitsNodeClassDefinition [154 ms]
   閿欒娑堟伅:
-   System.IO.FileNotFoundException : Could not find file 'C:\Users\windo\AppData\Local\Temp\il2cpp_nested_4a7dfef68e9c4de48101e7767ed205e0\src\Node.cpp'.
+   System.IO.FileNotFoundException : Could not find file 'C:\Users\windo\AppData\Local\Temp\il2cpp_nested_613d6ea07aeb48cabd9e6e5a8a73acbf\src\Node.cpp'.
   鍫嗘爤璺熻釜:
      at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options)
    at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
@@ -358,41 +367,30 @@ generated 2 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_nested_4a7dfef68
    at ProgramNestedWiringTests.RunMain_NestedType_EmitsNodeClassDefinition() in E:\il2cpp\tests\unit\ProgramNestedWiringTests.cs:line 35
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-  澶辫触 TypeEmitterNestedTests.Expand_NestedType_RecordsNestingIdentity [18 ms]
+  澶辫触 MetadataLoaderAuditTests.InstanceField_ValueType_StillThrows [22 ms]
   閿欒娑堟伅:
-   Assert.Equal() Failure: Strings differ
-           鈫?(pos 0)
-Expected: "Node"
-Actual:   "Cases_Recurse_Node"
-           鈫?(pos 0)
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.NotSupportedException)
   鍫嗘爤璺熻釜:
-     at TypeEmitterNestedTests.Expand_NestedType_RecordsNestingIdentity() in E:\il2cpp\tests\unit\TypeEmitterNestedTests.cs:line 301
+     at MetadataLoaderAuditTests.InstanceField_ValueType_StillThrows() in E:\il2cpp\tests\unit\MetadataLoaderTests.Audit.cs:line 90
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:00.49]     TypeEmitterTypeInfoTests.EmitTypeInfo_RefReturnType_NoLongerThrows [FAIL]
-  澶辫触 TypeEmitterTypeInfoTests.EmitTypeInfo_RefReturnType_NoLongerThrows [2 ms]
+[xUnit.net 00:00:00.43]     SecurityStubTests.Generate_Exception_GetObjectData_Link [FAIL]
+  澶辫触 SecurityStubTests.Generate_Exception_GetObjectData_Link [140 ms]
   閿欒娑堟伅:
-   Assert.Null() Failure: Value is not null
-Expected: null
-Actual:   System.NotSupportedException: typeinfo: method return type TypeHandle not representable in Il2CppMethodInfo.signature -- the MethodDef model carries no full type name for this return (model gap, mirror of the M1 static-field classification gap)
-   at Il2Cpp.Transpiler.Emit.TypeEmitter.EncodeReturnType(SignatureTypeCode returnType, String returnTypeName) in E:\il2cpp\src\il2cppc\Emit\TypeEmitter.cs:line 1373
-   at Il2Cpp.Transpiler.Emit.TypeEmitter.EmitTypeInfo(TypeDef t, IReadOnlyCollection`1 reflectedNames, MetadataReader md, IReadOnlySet`1 foldedAccessorNames) in E:\il2cpp\src\il2cppc\Emit\TypeEmitter.cs:line 1192
-   at TypeEmitterTypeInfoTests.<>c__DisplayClass15_0.<EmitTypeInfo_RefReturnType_NoLongerThrows>b__0() in E:\il2cpp\tests\unit\TypeEmitterTypeInfoTests.cs:line 256
-   at Xunit.Record.Exception(Func`1 testCode) in /_/src/xunit.core/Record.cs:line 47
+   System.IO.FileNotFoundException : Could not find file 'C:\Users\windo\AppData\Local\Temp\il2cpp_gen_017e84845ae445e39f23dc83e5ca2efa\src\System_Exception.cpp'.
   鍫嗘爤璺熻釜:
-     at TypeEmitterTypeInfoTests.EmitTypeInfo_RefReturnType_NoLongerThrows() in E:\il2cpp\tests\unit\TypeEmitterTypeInfoTests.cs:line 257
+     at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.FileStreamHelpers.ChooseStrategyCore(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.StreamReader.ValidateArgsAndOpenPath(String path, Encoding encoding, Int32 bufferSize)
+   at System.IO.File.ReadAllText(String path, Encoding encoding)
+   at SecurityStubTests.Generate_Exception_GetObjectData_Link() in E:\il2cpp\tests\unit\SecurityStubTests.cs:line 138
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-string pool: 3 distinct literal(s) from 3 site(s) across 1 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
-string pool table: g_strPool[3] -> include/internal/string-pool.h
-resources: 2 embedded manifest resource(s) -> include/internal/resource-pool.h
-licm: 0 invariant length read(s) hoistable across 1 method(s)
-inline: 0 simple call site(s) inlineable across 1 method(s)
-tempslot: 3 temp slot(s) -> 2 with reuse across 1 method(s)
-generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_0555f1ac7f3b46efac765e9fe6d10748
-symbols: 1 method(s) mapped from Portable PDB -> #line C# line directives
-[xUnit.net 00:00:00.56]     GenericsSignatureTests.Generate_IsinstGenericTypeSpec_RejectsLoudlyNotCrash [FAIL]
-  澶辫触 GenericsSignatureTests.Generate_IsinstGenericTypeSpec_RejectsLoudlyNotCrash [81 ms]
+[xUnit.net 00:00:00.49]     GenericsSignatureTests.Generate_IsinstGenericTypeSpec_RejectsLoudlyNotCrash [FAIL]
+  澶辫触 GenericsSignatureTests.Generate_IsinstGenericTypeSpec_RejectsLoudlyNotCrash [148 ms]
   閿欒娑堟伅:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(System.NotSupportedException)
@@ -406,30 +404,87 @@ resources: 2 embedded manifest resource(s) -> include/internal/resource-pool.h
 licm: 0 invariant length read(s) hoistable across 1 method(s)
 inline: 0 simple call site(s) inlineable across 1 method(s)
 tempslot: 3 temp slot(s) -> 2 with reuse across 1 method(s)
-generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_56504ab4804841eca776af6df5693ad6
+generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_af378d287b4b42c7bd84e6e3e69191cb
+symbols: 1 method(s) mapped from Portable PDB -> #line C# line directives
+[xUnit.net 00:00:00.54]     SecurityStubTests.Generate_SecurityContextFrame_Push_Pop_Link [FAIL]
+  澶辫触 SecurityStubTests.Generate_SecurityContextFrame_Push_Pop_Link [114 ms]
+  閿欒娑堟伅:
+   Assert.Contains() Failure: Sub-string not found
+String:    "#pragma once\r\n// generated by il2cppc - d"路路路
+Not found: "struct System_Reflection_SecurityContextF"路路路
+  鍫嗘爤璺熻釜:
+     at SecurityStubTests.Generate_SecurityContextFrame_Push_Pop_Link() in E:\il2cpp\tests\unit\SecurityStubTests.cs:line 39
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+string pool: 3 distinct literal(s) from 3 site(s) across 1 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
+string pool table: g_strPool[3] -> include/internal/string-pool.h
+resources: 2 embedded manifest resource(s) -> include/internal/resource-pool.h
+licm: 0 invariant length read(s) hoistable across 1 method(s)
+inline: 0 simple call site(s) inlineable across 1 method(s)
+tempslot: 3 temp slot(s) -> 2 with reuse across 1 method(s)
+generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_cf4a173898c34ec185be8f78bcade0d5
 symbols: 3 method(s) mapped from Portable PDB -> #line C# line directives
+[xUnit.net 00:00:00.64]     SecurityStubTests.Generate_Security_PInvoke_Link [FAIL]
+  澶辫触 SecurityStubTests.Generate_Security_PInvoke_Link [99 ms]
+  閿欒娑堟伅:
+   System.IO.FileNotFoundException : Could not find file 'C:\Users\windo\AppData\Local\Temp\il2cpp_gen_5173da71dd2745f4b16d006bf1ffb11a\src\System_Security_AccessControl_Win32.cpp'.
+  鍫嗘爤璺熻釜:
+     at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.FileStreamHelpers.ChooseStrategyCore(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.StreamReader.ValidateArgsAndOpenPath(String path, Encoding encoding, Int32 bufferSize)
+   at System.IO.File.ReadAllText(String path, Encoding encoding)
+   at SecurityStubTests.Generate_Security_PInvoke_Link() in E:\il2cpp\tests\unit\SecurityStubTests.cs:line 118
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
 reflection manifest: 1 type(s) in scope, 0 entry(ies) dropped
 string pool: 0 distinct literal(s) from 0 site(s) across 3 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
 resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
 licm: 0 invariant length read(s) hoistable across 3 method(s)
 inline: 0 simple call site(s) inlineable across 3 method(s)
 tempslot: 0 temp slot(s) -> 0 with reuse across 3 method(s)
-generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_fce36c03b2314b2092ff42dfc001c675
+generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_51f971016ba24709920b30a90e1dd452
+[xUnit.net 00:00:00.70]     SecurityStubTests.Generate_Guid_NewGuid_Link [FAIL]
+  澶辫触 SecurityStubTests.Generate_Guid_NewGuid_Link [61 ms]
+  閿欒娑堟伅:
+   System.IO.FileNotFoundException : Could not find file 'C:\Users\windo\AppData\Local\Temp\il2cpp_gen_9cf35c2d021e40d4bfca00b30c23f5b3\src\System_Guid.cpp'.
+  鍫嗘爤璺熻釜:
+     at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.FileStreamHelpers.ChooseStrategyCore(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.StreamReader.ValidateArgsAndOpenPath(String path, Encoding encoding, Int32 bufferSize)
+   at System.IO.File.ReadAllText(String path, Encoding encoding)
+   at SecurityStubTests.Generate_Guid_NewGuid_Link() in E:\il2cpp\tests\unit\SecurityStubTests.cs:line 78
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
 symbols: 3 method(s) mapped from Portable PDB -> #line C# line directives
+[xUnit.net 00:00:14.68]     SecurityStubTests.Generate_Marshal_CopyToManaged_Link [FAIL]
+  澶辫触 SecurityStubTests.Generate_Marshal_CopyToManaged_Link [13 s]
+  閿欒娑堟伅:
+   Assert.Contains() Failure: Sub-string not found
+String:    "#include "generated.h"\r\n\r\n// BCL attribut"路路路
+Not found: "System_Runtime_InteropServices_Marshal_Co"路路路
+  鍫嗘爤璺熻釜:
+     at SecurityStubTests.Generate_Marshal_CopyToManaged_Link() in E:\il2cpp\tests\unit\SecurityStubTests.cs:line 99
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
 string pool: 0 distinct literal(s) from 0 site(s) across 3 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
 resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
 licm: 0 invariant length read(s) hoistable across 3 method(s)
 inline: 0 simple call site(s) inlineable across 3 method(s)
 tempslot: 0 temp slot(s) -> 0 with reuse across 3 method(s)
-generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_b61e0dd5c6ee4ae7821b2c906ae040d9
+generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_9fa9d4b1d7594612a881e5a5528ef2bc
 symbols: 3 method(s) mapped from Portable PDB -> #line C# line directives
+[xUnit.net 00:00:14.72]     SecurityStubTests.Generate_RuntimeHelpers_ProbeForSufficientStack_Link [FAIL]
 reflection manifest: 1 type(s) in scope, 2 entry(ies) dropped
 string pool: 0 distinct literal(s) from 0 site(s) across 3 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
 resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
 licm: 0 invariant length read(s) hoistable across 3 method(s)
 inline: 0 simple call site(s) inlineable across 3 method(s)
 tempslot: 0 temp slot(s) -> 0 with reuse across 3 method(s)
-generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_557850277c9144e58077f810bb73c626
+generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_c3570972e9364e108112ce9fcaf26a5e
 symbols: 3 method(s) mapped from Portable PDB -> #line C# line directives
 reflection manifest: 1 type(s) in scope, 1 entry(ies) dropped
 string pool: 0 distinct literal(s) from 0 site(s) across 3 method(s) (0 constant concat(s) folded, 0 duplicate site(s) deduped)
@@ -437,10 +492,18 @@ resources: 0 embedded manifest resource(s) -> include/internal/resource-pool.h
 licm: 0 invariant length read(s) hoistable across 3 method(s)
 inline: 0 simple call site(s) inlineable across 3 method(s)
 tempslot: 0 temp slot(s) -> 0 with reuse across 3 method(s)
-generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_2173c887092046bdbb95b6b0d0b7d881
-[xUnit.net 00:00:16.73]     CodeGeneratorTests.Generate_Delegate2_CustomDelegateHasNoDescriptorReference [FAIL]
-[xUnit.net 00:00:16.87]     CodeGeneratorTests.Generate_CctorGuard_NoGuardInsideOwnCctor [FAIL]
-  澶辫触 CodeGeneratorTests.Generate_Delegate2_CustomDelegateHasNoDescriptorReference [27 ms]
+generated 1 type(s) -> C:\Users\windo\AppData\Local\Temp\il2cpp_cli_801fd05348da4c308488d5372fa15003
+  澶辫触 SecurityStubTests.Generate_RuntimeHelpers_ProbeForSufficientStack_Link [39 ms]
+  閿欒娑堟伅:
+   Assert.Contains() Failure: Sub-string not found
+String:    "#include "generated.h"\r\n\r\n// BCL attribut"路路路
+Not found: "System_Runtime_CompilerServices_RuntimeHe"路路路
+  鍫嗘爤璺熻釜:
+     at SecurityStubTests.Generate_RuntimeHelpers_ProbeForSufficientStack_Link() in E:\il2cpp\tests\unit\SecurityStubTests.cs:line 59
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:15.08]     CodeGeneratorTests.Generate_Delegate2_CustomDelegateHasNoDescriptorReference [FAIL]
+  澶辫触 CodeGeneratorTests.Generate_Delegate2_CustomDelegateHasNoDescriptorReference [29 ms]
   閿欒娑堟伅:
    Assert.DoesNotContain() Failure: Sub-string found
                                 鈫?(pos 14416)
@@ -450,7 +513,8 @@ Found:  "IntFn_class"
      at CodeGeneratorTests.Generate_Delegate2_CustomDelegateHasNoDescriptorReference() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 1819
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-  澶辫触 CodeGeneratorTests.Generate_CctorGuard_NoGuardInsideOwnCctor [9 ms]
+[xUnit.net 00:00:15.24]     CodeGeneratorTests.Generate_CctorGuard_NoGuardInsideOwnCctor [FAIL]
+  澶辫触 CodeGeneratorTests.Generate_CctorGuard_NoGuardInsideOwnCctor [11 ms]
   閿欒娑堟伅:
    Assert.DoesNotContain() Failure: Sub-string found
                                 鈫?(pos 578)
@@ -460,7 +524,7 @@ Found:  "ensure_cctor_Calc_Program"
      at CodeGeneratorTests.Generate_CctorGuard_NoGuardInsideOwnCctor() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 607
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:17.28]     CodeGeneratorTests.ArrayElementType_Gcstress3_ClassifiesEveryNewarrToken [FAIL]
+[xUnit.net 00:00:15.70]     CodeGeneratorTests.ArrayElementType_Gcstress3_ClassifiesEveryNewarrToken [FAIL]
   澶辫触 CodeGeneratorTests.ArrayElementType_Gcstress3_ClassifiesEveryNewarrToken [4 ms]
   閿欒娑堟伅:
    System.Collections.Generic.KeyNotFoundException : The given key 'Payload' was not present in the dictionary.
@@ -469,28 +533,18 @@ Found:  "ensure_cctor_Calc_Program"
    at CodeGeneratorTests.ArrayElementType_Gcstress3_ClassifiesEveryNewarrToken() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 1666
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:17.32]     CodeGeneratorTests.Generate_DelegateCb_IntPtrPInvokeParam_DeclaresIntptrT [FAIL]
-  澶辫触 CodeGeneratorTests.Generate_DelegateCb_IntPtrPInvokeParam_DeclaresIntptrT [13 ms]
+[xUnit.net 00:00:16.00]     CodeGeneratorTests.Generate_Gcstress3_WeakRefAndUserClassArrays_AllocateRefElements [FAIL]
+  澶辫触 CodeGeneratorTests.Generate_Gcstress3_WeakRefAndUserClassArrays_AllocateRefElements [24 ms]
   閿欒娑堟伅:
    Assert.Contains() Failure: Sub-string not found
 String:    "//---------------------------------------"路路路
-Not found: "reinterpret_cast<intptr_t>(il2cpp::runtim"路路路
+Not found: "il2cpp_array_new(&Payload_class, 8, true,"路路路
   鍫嗘爤璺熻釜:
-     at CodeGeneratorTests.Generate_DelegateCb_IntPtrPInvokeParam_DeclaresIntptrT() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 1845
+     at CodeGeneratorTests.Generate_Gcstress3_WeakRefAndUserClassArrays_AllocateRefElements() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 1626
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:17.56]     CodeGeneratorTests.Generate_Gcstress3_WeakRefAndUserClassArrays_AllocateRefElements [FAIL]
-  澶辫触 CodeGeneratorTests.Generate_Gcstress3_WeakRefAndUserClassArrays_AllocateRefElements [15 ms]
-  閿欒娑堟伅:
-   Assert.Contains() Failure: Sub-string not found
-String:    "//---------------------------------------"路路路
-Not found: "il2cpp_array_new(&System_WeakReference_cl"路路路
-  鍫嗘爤璺熻釜:
-     at CodeGeneratorTests.Generate_Gcstress3_WeakRefAndUserClassArrays_AllocateRefElements() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 1625
-   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
-   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
-[xUnit.net 00:00:31.90]     CodeGeneratorTests.Generate_Winforms1_ClickHandlerInvokes_RouteThroughMulticastI4 [FAIL]
-  澶辫触 CodeGeneratorTests.Generate_Winforms1_ClickHandlerInvokes_RouteThroughMulticastI4 [14 s]
+[xUnit.net 00:00:29.98]     CodeGeneratorTests.Generate_Winforms1_ClickHandlerInvokes_RouteThroughMulticastI4 [FAIL]
+  澶辫触 CodeGeneratorTests.Generate_Winforms1_ClickHandlerInvokes_RouteThroughMulticastI4 [13 s]
   閿欒娑堟伅:
    Assert.Contains() Failure: Sub-string not found
 String:    "//---------------------------------------"路路路
@@ -499,5 +553,15 @@ Not found: "icall_multicast_invoke_i4((Cases_Winforms"路路路
      at CodeGeneratorTests.Generate_Winforms1_ClickHandlerInvokes_RouteThroughMulticastI4() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 2211
    at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
    at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:30.21]     CodeGeneratorTests.Generate_CastclassNullReference_EmitsNullShortCircuit [FAIL]
+  澶辫触 CodeGeneratorTests.Generate_CastclassNullReference_EmitsNullShortCircuit [90 ms]
+  閿欒娑堟伅:
+   Assert.Equal() Failure: Values differ
+Expected: 24
+Actual:   0
+  鍫嗘爤璺熻釜:
+     at CodeGeneratorTests.Generate_CastclassNullReference_EmitsNullShortCircuit() in E:\il2cpp\tests\unit\CodeGeneratorTests.cs:line 2120
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
 
-澶辫触!  - 澶辫触:    41锛岄€氳繃:  1842锛屽凡璺宠繃:     0锛屾€昏:  1883锛屾寔缁椂闂? 32 s - unit.dll (net8.0)
+澶辫触!  - 澶辫触:    47锛岄€氳繃:  1874锛屽凡璺宠繃:     0锛屾€昏:  1921锛屾寔缁椂闂? 30 s - unit.dll (net8.0)

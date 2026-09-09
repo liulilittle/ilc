@@ -67,8 +67,8 @@ public static partial class MethodRefResolver
                 {
                     switch (ret)
                     {
-                        case 0x0D: return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, false, new[] { "dec" }, "d");
-                        case 0x0C: return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "dec" }, "d");
+                        case 0x0D: return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, false, new[] { "" }, "d");
+                        case 0x0C: return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "" }, "d");
                         case 0x08: return I("il2cpp::runtime::icall_decimal_to_int32", 1, true, false, false, new[] { "dec" });
                         case 0x0A: return I("il2cpp::runtime::icall_decimal_to_int64", 1, true, false, false, new[] { "dec" }, "l");
                         case 0x09: return I("il2cpp::runtime::icall_decimal_to_uint32", 1, true, false, false, new[] { "dec" });
@@ -130,9 +130,9 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0B)
                     return I("il2cpp::runtime::icall_decimal_ctor_uint64", 1, true, false, false, null, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0C)
-                    return I("il2cpp::runtime::icall_decimal_ctor_float", 1, true, false, false, null, "dec");
+                    return I("il2cpp::runtime::icall_decimal_ctor_float", 1, true, false, false, new[] { "" }, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0D)
-                    return I("il2cpp::runtime::icall_decimal_ctor_double", 1, true, false, false, null, "dec");
+                    return I("il2cpp::runtime::icall_decimal_ctor_double", 1, true, false, false, new[] { "" }, "dec");
                 return null;
             // Ordering comparisons: the emitter formats calls as
             // {CppName}({args}) -- a SUFFIX cannot stack on the compare icall,
@@ -208,7 +208,7 @@ public static partial class MethodRefResolver
                 return null;
             case "GetHashCode":
                 if (ps.Length == 0)
-                    return I("il2cpp::runtime::icall_decimal_get_hash_code", 0, true, false, true, new[] { "dec" });
+                    return I("il2cpp::runtime::icall_decimal_get_hash_code", 0, true, false, true, new[] { "" });
                 return null;
             // string ToString(): receiver address uncast (the icall's const
             // Il2CppDecimal* input). ToString(format) routes through
@@ -322,24 +322,24 @@ public static partial class MethodRefResolver
                 if (ps.Length == 5)
                     return I("il2cpp::runtime::icall_decimal_ctor_5", 5, false, false, true, null, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0C)
-                    return I("il2cpp::runtime::icall_decimal_ctor_float", 1, false, false, true, null, "dec");
+                    return I("il2cpp::runtime::icall_decimal_ctor_float", 1, false, false, true, new[] { "" }, "dec");
                 if (ps.Length == 1 && ps[0] == 0x0D)
-                    return I("il2cpp::runtime::icall_decimal_ctor_double", 1, false, false, true, null, "dec");
+                    return I("il2cpp::runtime::icall_decimal_ctor_double", 1, false, false, true, new[] { "" }, "dec");
                 return null;
             // ToDouble/ToSingle -- the VarR4/R8FromDec conversions (the
             // netcore21+ audit closure; decimal.cpp exact decomposition).
             case "ToDouble":
                 if (ps.Length == 1 && ps[0] == 0x11)
-                    return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, true, new[] { "dec" }, "d");
+                    return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, true, new[] { "" }, "d");
                 return null;
             case "ToSingle":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     // float rides the double carrier (the M-stage
                     // float-in-double convention; no separate "f" kind).
-                    return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, true, new[] { "dec" }, "d");
+                    return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, true, new[] { "" }, "d");
                 return null;
             // P6: Decimal.FCallToInt32 (stub).
-            case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 1, true, false, false, new[] { "dec" });
+            case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 1, true, false, false, new[] { "" });
             // FCall in-place arithmetic family (net48 internals called by the
             // BCL op_/named wrappers): mutate d1 in place (callers read back
             // arg0). Overflowed twins share the core (overflow throws).

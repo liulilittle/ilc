@@ -43,6 +43,7 @@
 // passthrough like WNDCLASS.
 //------------------------------------------------------------------------------
 
+#include "il2cpp_object.h"  // Il2CppObject
 #include <cstdint>
 
 namespace il2cpp {

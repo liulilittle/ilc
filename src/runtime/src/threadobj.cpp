@@ -29,6 +29,7 @@
 #include "il2cpp_exception_ext.h"// il2cpp_throw_argument_null_exception
 #include "il2cpp_runtime.h"      // il2cpp_object_new / il2cpp_class_register
 #include "platform.h"            // plat_thread_spawn / join / current_id
+#include "il2cpp_time.h"       // Il2CppTimeSpan
 
 #include <atomic>
 #include <cstdint>
@@ -627,6 +628,47 @@ void icall_threadobj_interrupt(Il2CppObject* self)
 int32_t icall_threadobj_get_optimal_max_spin_waits(Il2CppObject* self)
 {
     return 1; // default spin count
+}
+
+//------------------------------------------------------------------------------
+// icall_threadobj_join_timespan -- Thread.Join(TimeSpan): convert TimeSpan to
+// milliseconds and delegate to icall_threadobj_join_timeout.
+//------------------------------------------------------------------------------
+bool icall_threadobj_join_timespan(Il2CppObject* self, Il2CppTimeSpan timeout)
+{
+    // Timeout.Infinite (-10000 ticks) maps to -1 (infinite wait).
+    if (timeout.ticks == -10000LL)
+    {
+        return icall_threadobj_join_timeout(self, -1);
+    }
+    // Convert ticks (100ns units) to milliseconds, checking overflow.
+    int64_t ms = timeout.ticks / 10000LL; // 10000 ticks per millisecond
+    if (ms > static_cast<int64_t>(INT32_MAX) || ms < static_cast<int64_t>(INT32_MIN))
+    {
+        il2cpp_throw_argument_out_of_range_exception("timeout", nullptr);
+    }
+    return icall_threadobj_join_timeout(self, static_cast<int32_t>(ms));
+}
+
+//------------------------------------------------------------------------------
+// icall_thread_sleep_timespan -- Thread.Sleep(TimeSpan): convert TimeSpan to
+// milliseconds and delegate to plat_thread_sleep.
+//------------------------------------------------------------------------------
+void icall_thread_sleep_timespan(Il2CppTimeSpan ts)
+{
+    // Timeout.Infinite (-10000 ticks) maps to -1 (infinite sleep).
+    if (ts.ticks == -10000LL)
+    {
+        plat_thread_sleep(-1);
+        return;
+    }
+    // Convert ticks (100ns units) to milliseconds, checking overflow.
+    int64_t ms = ts.ticks / 10000LL; // 10000 ticks per millisecond
+    if (ms > static_cast<int64_t>(INT32_MAX) || ms < static_cast<int64_t>(INT32_MIN))
+    {
+        il2cpp_throw_argument_out_of_range_exception("timeout", nullptr);
+    }
+    plat_thread_sleep(static_cast<int32_t>(ms));
 }
 
 }} // namespace il2cpp::runtime
