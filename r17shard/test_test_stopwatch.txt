@@ -1,8 +1,0 @@
-case=test_stopwatch
-status=PASS
-code=0
----stdout---
-all runtime stopwatch tests passed
-
----stderr---
-

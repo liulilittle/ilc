@@ -1,8 +1,0 @@
-case=test_linq_map
-status=PASS
-code=0
----stdout---
-all runtime linq-map tests passed
-
----stderr---
-

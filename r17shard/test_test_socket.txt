@@ -1,8 +1,0 @@
-case=test_socket
-status=PASS
-code=0
----stdout---
-all runtime socket tests passed
-
----stderr---
-

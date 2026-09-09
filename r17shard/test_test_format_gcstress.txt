@@ -1,8 +1,0 @@
-case=test_format_gcstress
-status=PASS
-code=0
----stdout---
-all format gc-stress tests passed
-
----stderr---
-

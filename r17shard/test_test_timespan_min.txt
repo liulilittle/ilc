@@ -1,8 +1,0 @@
-case=test_timespan_min
-status=PASS
-code=0
----stdout---
-all runtime timespan_min tests passed
-
----stderr---
-

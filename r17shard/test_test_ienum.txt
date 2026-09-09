@@ -1,8 +1,0 @@
-case=test_ienum
-status=PASS
-code=0
----stdout---
-all runtime ienum tests passed
-
----stderr---
-

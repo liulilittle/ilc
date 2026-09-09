@@ -1,9 +1,0 @@
-case=test_gcstress
-status=PASS
-code=0
----stdout---
-gc stress suite finished in 8158.2 ms
-all gc stress tests passed
-
----stderr---
-

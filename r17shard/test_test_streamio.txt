@@ -1,8 +1,0 @@
-case=test_streamio
-status=PASS
-code=0
----stdout---
-all runtime streamio tests passed
-
----stderr---
-

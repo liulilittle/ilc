@@ -1,8 +1,0 @@
-case=test_deflate
-status=PASS
-code=0
----stdout---
-all runtime deflate tests passed
-
----stderr---
-

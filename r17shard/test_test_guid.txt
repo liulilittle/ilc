@@ -1,8 +1,0 @@
-case=test_guid
-status=PASS
-code=0
----stdout---
-all runtime guid tests passed
-
----stderr---
-

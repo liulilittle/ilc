@@ -1,8 +1,0 @@
-case=test_timer
-status=PASS
-code=0
----stdout---
-all runtime timer tests passed
-
----stderr---
-

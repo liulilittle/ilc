@@ -1,8 +1,0 @@
-case=test_string_ascii
-status=PASS
-code=0
----stdout---
-all string_ascii tests passed
-
----stderr---
-

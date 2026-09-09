@@ -1,8 +1,0 @@
-case=test_str_insrem
-status=PASS
-code=0
----stdout---
-all runtime str_insrem tests passed
-
----stderr---
-

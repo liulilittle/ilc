@@ -1,8 +1,0 @@
-case=test_dtoffset
-status=PASS
-code=0
----stdout---
-all runtime dtoffset tests passed
-
----stderr---
-

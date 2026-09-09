@@ -1,8 +1,0 @@
-case=test_marshalext4
-status=PASS
-code=0
----stdout---
-all runtime marshalext4 tests passed
-
----stderr---
-

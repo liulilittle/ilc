@@ -1,8 +1,0 @@
-case=test_array_find
-status=PASS
-code=0
----stdout---
-all array_find tests passed
-
----stderr---
-

@@ -1,8 +1,0 @@
-case=test_formatext
-status=PASS
-code=0
----stdout---
-all runtime formatext tests passed
-
----stderr---
-

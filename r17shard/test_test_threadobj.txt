@@ -1,8 +1,0 @@
-case=test_threadobj
-status=PASS
-code=0
----stdout---
-ALL PASS
-
----stderr---
-

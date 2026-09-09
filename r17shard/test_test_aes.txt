@@ -1,8 +1,0 @@
-case=test_aes
-status=PASS
-code=0
----stdout---
-all runtime aes tests passed
-
----stderr---
-

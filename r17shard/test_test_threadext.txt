@@ -1,8 +1,0 @@
-case=test_threadext
-status=PASS
-code=0
----stdout---
-all runtime threadext tests passed
-
----stderr---
-

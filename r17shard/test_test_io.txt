@@ -1,8 +1,0 @@
-case=test_io
-status=PASS
-code=0
----stdout---
-all runtime io tests passed
-
----stderr---
-

@@ -1,8 +1,0 @@
-case=test_listi4
-status=PASS
-code=0
----stdout---
-all runtime listi4 tests passed
-
----stderr---
-

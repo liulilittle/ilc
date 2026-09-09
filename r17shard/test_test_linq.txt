@@ -1,8 +1,0 @@
-case=test_linq
-status=PASS
-code=0
----stdout---
-all runtime linq T1 tests passed
-
----stderr---
-

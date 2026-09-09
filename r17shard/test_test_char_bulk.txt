@@ -1,8 +1,0 @@
-case=test_char_bulk
-status=PASS
-code=0
----stdout---
-all char_bulk tests passed
-
----stderr---
-

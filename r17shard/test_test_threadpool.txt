@@ -1,8 +1,0 @@
-case=test_threadpool
-status=PASS
-code=0
----stdout---
-all runtime threadpool tests passed
-
----stderr---
-

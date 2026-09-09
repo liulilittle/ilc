@@ -1,8 +1,0 @@
-case=test_stringrw
-status=PASS
-code=0
----stdout---
-all runtime stringrw tests passed
-
----stderr---
-

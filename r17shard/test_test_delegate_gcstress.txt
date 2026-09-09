@@ -1,8 +1,0 @@
-case=test_delegate_gcstress
-status=PASS
-code=0
----stdout---
-all delegate gc-stress tests passed
-
----stderr---
-

@@ -1,8 +1,0 @@
-case=test_environment
-status=PASS
-code=0
----stdout---
-all runtime environment tests passed
-
----stderr---
-

@@ -1,9 +1,0 @@
-case=test_sha1
-status=PASS
-code=0
----stdout---
-test_sha1: SHA-1 (FIPS 180-4) domain tests
-test_sha1: ALL PASS
-
----stderr---
-

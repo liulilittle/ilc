@@ -1,8 +1,0 @@
-case=test_concat
-status=PASS
-code=0
----stdout---
-all runtime concat tests passed
-
----stderr---
-

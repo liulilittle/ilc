@@ -1,8 +1,0 @@
-case=test_reflecthandle
-status=PASS
-code=0
----stdout---
-all runtime reflecthandle tests passed
-
----stderr---
-

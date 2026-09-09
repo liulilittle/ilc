@@ -1,8 +1,0 @@
-case=test_array
-status=PASS
-code=0
----stdout---
-all runtime array tests passed
-
----stderr---
-

@@ -1,8 +1,0 @@
-case=test_linq_sort
-status=PASS
-code=0
----stdout---
-all runtime linq_sort tests passed
-
----stderr---
-

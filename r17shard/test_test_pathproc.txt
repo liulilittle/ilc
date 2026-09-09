@@ -1,8 +1,0 @@
-case=test_pathproc
-status=PASS
-code=0
----stdout---
-all runtime pathproc tests passed
-
----stderr---
-

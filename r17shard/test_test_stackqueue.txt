@@ -1,8 +1,0 @@
-case=test_stackqueue
-status=PASS
-code=0
----stdout---
-all runtime stackqueue tests passed
-
----stderr---
-

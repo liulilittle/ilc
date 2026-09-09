@@ -1,8 +1,0 @@
-case=test_typeinfo
-status=PASS
-code=0
----stdout---
-all runtime typeinfo tests passed
-
----stderr---
-

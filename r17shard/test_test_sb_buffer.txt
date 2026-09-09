@@ -1,8 +1,0 @@
-case=test_sb_buffer
-status=PASS
-code=0
----stdout---
-all sb_buffer tests passed
-
----stderr---
-

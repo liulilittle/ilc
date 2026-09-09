@@ -1,8 +1,0 @@
-case=test_string_encode
-status=PASS
-code=0
----stdout---
-all string_encode tests passed
-
----stderr---
-

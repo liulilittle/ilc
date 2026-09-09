@@ -1,8 +1,0 @@
-case=test_arraybounds
-status=PASS
-code=0
----stdout---
-all runtime arraybounds tests passed
-
----stderr---
-

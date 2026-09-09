@@ -1,8 +1,0 @@
-case=test_tp_stubs
-status=PASS
-code=0
----stdout---
-all threadpool stub tests passed
-
----stderr---
-

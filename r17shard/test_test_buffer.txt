@@ -1,8 +1,0 @@
-case=test_buffer
-status=PASS
-code=0
----stdout---
-all runtime buffer tests passed
-
----stderr---
-

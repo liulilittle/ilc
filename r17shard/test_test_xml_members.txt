@@ -1,8 +1,0 @@
-case=test_xml_members
-status=PASS
-code=0
----stdout---
-ALL PASS
-
----stderr---
-

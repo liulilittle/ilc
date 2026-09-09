@@ -1,8 +1,0 @@
-case=test_attribute
-status=PASS
-code=0
----stdout---
-all runtime attribute tests passed
-
----stderr---
-

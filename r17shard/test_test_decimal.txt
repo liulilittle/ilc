@@ -1,8 +1,0 @@
-case=test_decimal
-status=PASS
-code=0
----stdout---
-all decimal arithmetic tests passed
-
----stderr---
-

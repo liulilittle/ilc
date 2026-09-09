@@ -1,8 +1,0 @@
-case=test_string_utf8
-status=PASS
-code=0
----stdout---
-all runtime utf8 string tests passed
-
----stderr---
-

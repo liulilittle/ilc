@@ -1,8 +1,0 @@
-case=test_pinvoke_utf16
-status=PASS
-code=0
----stdout---
-all runtime pinvoke_utf16 tests passed
-
----stderr---
-

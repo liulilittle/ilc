@@ -92,3 +92,7 @@ cmpgrid.txt
 
 # scratch probes (tmp/ is throwaway analysis scratch, not source)
 /tmp/
+
+# historical shard/probe/dump outputs (never committed)
+/r*shard/
+/dump_*/

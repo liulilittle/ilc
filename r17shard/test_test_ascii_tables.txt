@@ -1,8 +1,0 @@
-case=test_ascii_tables
-status=PASS
-code=0
----stdout---
-all ascii_tables tests passed
-
----stderr---
-

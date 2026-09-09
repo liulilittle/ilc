@@ -1,8 +1,0 @@
-case=test_boxedtostring
-status=PASS
-code=0
----stdout---
-all runtime boxed-tostring tests passed
-
----stderr---
-

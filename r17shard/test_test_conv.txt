@@ -1,8 +1,0 @@
-case=test_conv
-status=PASS
-code=0
----stdout---
-all runtime conv tests passed
-
----stderr---
-

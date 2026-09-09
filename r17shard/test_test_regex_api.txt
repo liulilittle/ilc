@@ -1,8 +1,0 @@
-case=test_regex_api
-status=PASS
-code=0
----stdout---
-test_regex_api: all checks passed
-
----stderr---
-

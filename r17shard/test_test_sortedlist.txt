@@ -1,8 +1,0 @@
-case=test_sortedlist
-status=PASS
-code=0
----stdout---
-all runtime sortedlist tests passed
-
----stderr---
-

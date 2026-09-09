@@ -1,8 +1,0 @@
-case=test_arrayext2
-status=PASS
-code=0
----stdout---
-all runtime arrayext2 tests passed
-
----stderr---
-

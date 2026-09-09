@@ -1,8 +1,0 @@
-case=test_frame_deep
-status=PASS
-code=0
----stdout---
-all runtime frame-deep tests passed
-
----stderr---
-

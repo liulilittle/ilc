@@ -1,8 +1,0 @@
-case=test_timeext2
-status=PASS
-code=0
----stdout---
-all runtime timeext2 tests passed
-
----stderr---
-

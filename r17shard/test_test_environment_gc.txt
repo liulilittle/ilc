@@ -1,8 +1,0 @@
-case=test_environment_gc
-status=PASS
-code=0
----stdout---
-all runtime environment/gc tests passed
-
----stderr---
-

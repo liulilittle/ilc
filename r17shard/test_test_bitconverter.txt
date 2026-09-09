@@ -1,8 +1,0 @@
-case=test_bitconverter
-status=PASS
-code=0
----stdout---
-all runtime bitconverter tests passed
-
----stderr---
-

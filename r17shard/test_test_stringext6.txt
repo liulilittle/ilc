@@ -1,8 +1,0 @@
-case=test_stringext6
-status=PASS
-code=0
----stdout---
-all runtime stringext6 tests passed
-
----stderr---
-

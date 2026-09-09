@@ -1,8 +1,0 @@
-case=test_math_extra
-status=PASS
-code=0
----stdout---
-all runtime math_extra tests passed (net48 precision, tol 1e-15)
-
----stderr---
-

@@ -1,8 +1,0 @@
-case=test_enumext
-status=PASS
-code=0
----stdout---
-all runtime enumext tests passed
-
----stderr---
-

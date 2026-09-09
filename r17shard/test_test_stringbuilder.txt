@@ -1,8 +1,0 @@
-case=test_stringbuilder
-status=PASS
-code=0
----stdout---
-all stringbuilder tests passed
-
----stderr---
-

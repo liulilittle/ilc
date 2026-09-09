@@ -1,8 +1,0 @@
-case=test_format
-status=PASS
-code=0
----stdout---
-all runtime format tests passed
-
----stderr---
-

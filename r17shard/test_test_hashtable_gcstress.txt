@@ -1,8 +1,0 @@
-case=test_hashtable_gcstress
-status=PASS
-code=0
----stdout---
-all hashtable gc-stress tests passed
-
----stderr---
-

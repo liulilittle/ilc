@@ -1,8 +1,0 @@
-case=test_arraylist
-status=PASS
-code=0
----stdout---
-all runtime arraylist tests passed
-
----stderr---
-

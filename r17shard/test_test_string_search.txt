@@ -1,8 +1,0 @@
-case=test_string_search
-status=PASS
-code=0
----stdout---
-all string_search tests passed
-
----stderr---
-

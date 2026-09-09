@@ -1,8 +1,0 @@
-case=test_icallb
-status=PASS
-code=0
----stdout---
-all runtime icallb tests passed
-
----stderr---
-

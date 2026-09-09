@@ -1,8 +1,0 @@
-case=test_pinvokestruct
-status=PASS
-code=0
----stdout---
-all runtime pinvokestruct tests passed
-
----stderr---
-

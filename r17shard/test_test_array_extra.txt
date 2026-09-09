@@ -1,8 +1,0 @@
-case=test_array_extra
-status=PASS
-code=0
----stdout---
-all runtime arrayextra tests passed
-
----stderr---
-

@@ -1,8 +1,0 @@
-case=test_string_compare
-status=PASS
-code=0
----stdout---
-all string_compare tests passed
-
----stderr---
-

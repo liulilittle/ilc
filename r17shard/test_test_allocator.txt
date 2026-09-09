@@ -1,8 +1,0 @@
-case=test_allocator
-status=PASS
-code=0
----stdout---
-all runtime allocator tests passed
-
----stderr---
-

@@ -1,8 +1,0 @@
-case=test_stringintern
-status=PASS
-code=0
----stdout---
-all runtime string intern tests passed
-
----stderr---
-

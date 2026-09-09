@@ -1,8 +1,0 @@
-case=test_stringext
-status=PASS
-code=0
----stdout---
-all string extension tests passed
-
----stderr---
-

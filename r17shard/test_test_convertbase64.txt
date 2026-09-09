@@ -1,8 +1,0 @@
-case=test_convertbase64
-status=PASS
-code=0
----stdout---
-PASS: test_convertbase64 (base64 encode/decode + ToChar spot)
-
----stderr---
-

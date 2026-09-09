@@ -1,6 +1,0 @@
-task要求 165/165 PASS, 实测 175/175 PASS (2026-08-25 175基线, 含新增 bulk/hash等10用例)
-证据: E:\il2cpp\r17shard\test_summary.txt => passed=175 failed=0 total=175
-分片: test_runtime_shard1_4.txt .. test_runtime_shard4_4.txt 按 i%4 分片, 各 ~44 用例, 均 0 失败
-e2e分片: test_e2e_shard1_4.txt .. test_e2e_shard4_4.txt 502 cases 按 i%4 分片, 各 ~125-126 用例, 已验证 shard 解析逻辑
-run-tests.ps1 已新增 -Shard 'N/M' 参数 [READ:scripts/run-tests.ps1:5][READ:scripts/run-tests.ps1:66]
-165基线已包含于175, 无回归

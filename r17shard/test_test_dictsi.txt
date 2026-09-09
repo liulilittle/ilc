@@ -1,8 +1,0 @@
-case=test_dictsi
-status=PASS
-code=0
----stdout---
-all runtime dictsi tests passed
-
----stderr---
-

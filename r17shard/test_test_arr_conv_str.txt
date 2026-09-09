@@ -1,8 +1,0 @@
-case=test_arr_conv_str
-status=PASS
-code=0
----stdout---
-test_arr_conv_str: all checks passed
-
----stderr---
-

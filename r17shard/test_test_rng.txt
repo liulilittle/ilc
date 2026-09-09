@@ -1,8 +1,0 @@
-case=test_rng
-status=PASS
-code=0
----stdout---
-all runtime rng tests passed
-
----stderr---
-

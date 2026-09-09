@@ -1,8 +1,0 @@
-case=test_intptr
-status=PASS
-code=0
----stdout---
-all runtime intptr tests passed
-
----stderr---
-

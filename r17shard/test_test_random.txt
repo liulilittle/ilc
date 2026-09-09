@@ -1,8 +1,0 @@
-case=test_random
-status=PASS
-code=0
----stdout---
-all runtime random tests passed
-
----stderr---
-

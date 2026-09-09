@@ -1,8 +1,0 @@
-case=test_stringext2
-status=PASS
-code=0
----stdout---
-all runtime stringext2 tests passed
-
----stderr---
-

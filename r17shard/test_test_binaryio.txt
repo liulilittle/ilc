@@ -1,8 +1,0 @@
-case=test_binaryio
-status=PASS
-code=0
----stdout---
-all runtime binaryio tests passed
-
----stderr---
-

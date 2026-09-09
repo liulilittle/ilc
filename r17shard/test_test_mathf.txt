@@ -1,8 +1,0 @@
-case=test_mathf
-status=PASS
-code=0
----stdout---
-all runtime mathf tests passed (corert MathF semantics)
-
----stderr---
-

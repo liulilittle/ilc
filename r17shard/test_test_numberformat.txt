@@ -1,8 +1,0 @@
-case=test_numberformat
-status=PASS
-code=0
----stdout---
-all runtime numberformat tests passed
-
----stderr---
-

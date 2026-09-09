@@ -1,8 +1,0 @@
-case=test_buffer_bulk
-status=PASS
-code=0
----stdout---
-all buffer_bulk tests passed
-
----stderr---
-

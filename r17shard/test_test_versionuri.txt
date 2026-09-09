@@ -1,8 +1,0 @@
-case=test_versionuri
-status=PASS
-code=0
----stdout---
-all runtime version/uri tests passed
-
----stderr---
-

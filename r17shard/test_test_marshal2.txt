@@ -1,8 +1,0 @@
-case=test_marshal2
-status=PASS
-code=0
----stdout---
-all runtime marshal2 tests passed
-
----stderr---
-

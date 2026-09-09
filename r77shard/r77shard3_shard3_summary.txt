@@ -1,8 +1,0 @@
-r77 shard3 Results
-====================
-Total: 1542
-SuccessEmpty: 1058
-Fail: 484
-ElapsedSeconds: 715.5670881
-ThrottleLimit: 8
-Generated: 2026-09-05 02:50:00

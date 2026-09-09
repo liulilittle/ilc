@@ -1,8 +1,0 @@
-case=test_encoding
-status=PASS
-code=0
----stdout---
-test_encoding: all checks passed
-
----stderr---
-

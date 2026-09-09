@@ -1,8 +1,0 @@
-case=test_platform
-status=PASS
-code=0
----stdout---
-all checks passed
-
----stderr---
-

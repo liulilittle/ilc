@@ -1,8 +1,0 @@
-case=test_hashtable
-status=PASS
-code=0
----stdout---
-all runtime hashtable tests passed
-
----stderr---
-

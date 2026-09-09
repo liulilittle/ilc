@@ -1,9 +1,0 @@
-
-Count Name
------ ----
- 1543 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Sys
-    8 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Win
-    1 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Tab
-    1 In file included from E:\il2cpp\out\mscorlib_gen_r78\src\Thi
-
-

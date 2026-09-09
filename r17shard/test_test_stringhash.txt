@@ -1,8 +1,0 @@
-case=test_stringhash
-status=PASS
-code=0
----stdout---
-all runtime stringhash tests passed
-
----stderr---
-

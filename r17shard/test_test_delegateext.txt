@@ -1,8 +1,0 @@
-case=test_delegateext
-status=PASS
-code=0
----stdout---
-all runtime delegate-ext tests passed
-
----stderr---
-

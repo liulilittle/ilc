@@ -1,8 +1,0 @@
-case=test_convert
-status=PASS
-code=0
----stdout---
-all runtime convert tests passed
-
----stderr---
-

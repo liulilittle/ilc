@@ -1,8 +1,0 @@
-case=test_hashset
-status=PASS
-code=0
----stdout---
-PASS: test_hashset
-
----stderr---
-

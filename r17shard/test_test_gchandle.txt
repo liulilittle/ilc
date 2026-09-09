@@ -1,8 +1,0 @@
-case=test_gchandle
-status=PASS
-code=0
----stdout---
-all runtime gchandle tests passed
-
----stderr---
-
