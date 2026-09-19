@@ -36,6 +36,11 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
+            // DateTimeOffset.UtcNow: static, offset ZERO (net48 oracle
+            // dtaudit4: "00:00:00"). Mirrors the DateTime.get_UtcNow mapping
+            // shape with result kind "dto".
+            case "get_UtcNow":
+                return I("il2cpp::runtime::icall_dtoffset_utc_now", 0, true, false, false, null, "dto");
             // .ctor(DateTime, TimeSpan) / .ctor(int, int, int, int, int, int,
             // TimeSpan): the result slot is prepended by the vctor path (the
             // icall writes the slot -- the decimal ctor precedent). The
@@ -102,10 +107,39 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x1C)
                     throw new NotSupportedException("Equals(object) not wired: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall");
                 return null;
-            // string ToString(): "MM/dd/yyyy HH:mm:ss zzz".
+            // string ToString(): the parameterless overload keeps its own
+            // runtime entry (culture "G" pattern + " zzz", delegating to the
+            // format icall); ToString(string) / ToString(string,
+            // IFormatProvider) reuse the shared DateTime formatting engine
+            // (il2cpp_time_fmt.h) with the DateTimeOffset offset semantics.
             case "ToString":
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_dtoffset_to_string", 0, true, true, true, new[] { "deref:dto" });
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    // ToString(string format): the runtime ABI takes a
+                    // trailing IFormatProvider slot; the IL call has none, so
+                    // append the nullptr literal (host default zh-CN) -- the
+                    // DateTime appendLiterals precedent.
+                    return I("il2cpp::runtime::icall_dtoffset_to_string_format", 1, true, true, true,
+                        new[] { "deref:dto", "" }, appendLiterals: new[] { "nullptr" });
+                if (ps.Length == 2)
+                    // ToString(string, IFormatProvider): the provider carrier
+                    // PASSES THROUGH (ProviderCulture; the DateTime
+                    // cultureprobe precedent) instead of being dropped. The
+                    // runtime resolves: empty name (InvariantCulture) ->
+                    // invariant patterns, "zh-CN" -> zh-CN, nullptr -> host
+                    // default, unknown -> invariant fallback.
+                    return I("il2cpp::runtime::icall_dtoffset_to_string_format", 2, true, true, true,
+                        new[] { "deref:dto", "", "drop" }, providerCulture: true);
+                if (ps.Length == 1 && ps[0] == 0x12)
+                    // ToString(IFormatProvider): provider-only (the single
+                    // arg is a CLASS -- the interface marker). The runtime
+                    // ABI takes (dto, format, provider); the ArgOrder
+                    // [0,-1,1] places the provider in the TRAILING slot with
+                    // a null-format literal (-1), so the provider never lands
+                    // in the format slot. B4 (dtoprobe).
+                    return I("il2cpp::runtime::icall_dtoffset_to_string_format", 1, true, true, true,
+                        new[] { "deref:dto", "", "drop" }, providerCulture: true, argOrder: new[] { 0, -1, 1 });
                 return null;
             default: return null;
         }

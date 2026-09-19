@@ -165,6 +165,17 @@ void il2cpp_queue_clear(Il2CppObject* self);
 Il2CppObject* il2cpp_queue_to_array(Il2CppObject* self);
 
 //------------------------------------------------------------------------------
+// G4: generic-domain membership (Queue<T>/Stack<T>.Contains). Equality over
+// the element slots is Object.Equals value semantics for the AOT domains in
+// use (the ArrayList.Contains convention): pointer identity, ordinal string
+// content, boxed Int32/Int64/Double payload. The scan order matches the
+// enumeration contract (Queue front-first, Stack top-first); membership is
+// order-independent.
+//------------------------------------------------------------------------------
+bool il2cpp_queue_contains(Il2CppObject* self, Il2CppObject* item);
+bool il2cpp_stack_contains(Il2CppObject* self, Il2CppObject* item);
+
+//------------------------------------------------------------------------------
 // Snapshot enumerator surface (C42 sqenum-b23 -- GetEnumerator / foreach;
 // D-STK-1 -- version-checked like net48).
 // The enumerator object (Il2CppStackQueueEnumerator) wraps the CONTAINER (a GC

@@ -9,7 +9,9 @@
 // same value test_time.cpp pins via the construction icalls.
 //
 // Coverage:
-//   1. Standard single-letter formats (d/D/t/T/f/F) -- invariant patterns.
+//   1. Standard single-letter formats (d/D/t/T/f/F) -- PROVIDER-AWARE: the
+//      invariant family via the empty-name carrier (the default in this
+//      file), the zh-CN host-default family via nullptr/"zh-CN" (section 10).
 //   2. null / empty / non-string format -> General "G" default.
 //   3. Custom tokens: y (1/2/3/4/5 lengths incl. last-two-digit "yy"),
 //      M/d numeric + MMM/MMMM/ddd/dddd names, H/h/m/s padding rules
@@ -31,6 +33,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -109,13 +112,46 @@ bool StrEquals(const il2cpp::Il2CppString* a, const il2cpp::Il2CppString* b)
     return true;
 }
 
-// Formats dt with an ASCII format string (the e2e/production call path).
-il2cpp::Il2CppString* Fmt(il2cpp::runtime::Il2CppDateTime dt, const char* asciiFormat)
+// True iff the managed string's payload equals the UTF-16 literal.
+bool StrEqualsUtf16(const il2cpp::Il2CppString* s, const char16_t* text)
+{
+    if (s == nullptr)
+    {
+        return false;
+    }
+    int32_t len = 0;
+    while (text[len] != 0)
+    {
+        ++len;
+    }
+    if (s->length != len)
+    {
+        return false;
+    }
+    for (int32_t i = 0; i < len; ++i)
+    {
+        if (s->chars[i] != text[i])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Formats dt with an ASCII format string and an optional culture carrier:
+// "" (default) = the INVARIANT carrier (this file's pinned net48 oracle),
+// nullptr = host default (zh-CN), "zh-CN" = the zh-CN family, any other
+// name = unknown -> invariant fallback (+ optional log).
+il2cpp::Il2CppString* Fmt(il2cpp::runtime::Il2CppDateTime dt, const char* asciiFormat,
+                          const char* providerName = "")
 {
     il2cpp::Il2CppString* fs = il2cpp::il2cpp_string_new_from_cs(asciiFormat);
+    il2cpp::Il2CppObject* provider = providerName == nullptr
+        ? nullptr
+        : reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs(providerName));
     return reinterpret_cast<il2cpp::Il2CppString*>(
         il2cpp::runtime::icall_datetime_to_string_format(
-            dt, reinterpret_cast<il2cpp::Il2CppObject*>(fs)));
+            dt, reinterpret_cast<il2cpp::Il2CppObject*>(fs), provider));
 }
 
 // 2020-06-15 13:45:30 as raw ticks (fixed value; see the header comment).
@@ -149,15 +185,17 @@ int main()
 
     // 2. null / empty / non-string format -> General "G" (existing default).
     Expect(StrEquals(reinterpret_cast<il2cpp::Il2CppString*>(
-                         icall_datetime_to_string_format(dt2020, nullptr)),
+                         icall_datetime_to_string_format(dt2020, nullptr,
+                             reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("")))),
                      "06/15/2020 13:45:30"),
-           "null format == General 'G' default");
+           "null format + invariant carrier == invariant General 'G'");
     Expect(StrEquals(Fmt(dt2020, ""), "06/15/2020 13:45:30"),
            "empty format == General 'G' (net48 rule)");
     il2cpp::Il2CppObject fakeObj; // non-string object: defensive path
     fakeObj.klass = nullptr;      // never dereferenced (klass mismatch short-circuits)
     Expect(StrEquals(reinterpret_cast<il2cpp::Il2CppString*>(
-                         icall_datetime_to_string_format(dt2020, &fakeObj)),
+                         icall_datetime_to_string_format(dt2020, &fakeObj,
+                             reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("")))),
                      "06/15/2020 13:45:30"),
            "non-string format object -> General 'G' default");
 
@@ -241,13 +279,13 @@ int main()
 
     // 7. Error path: unknown single-LETTER formats -> FormatException
     // (net48 contract; single 'h' is not a standard specifier either).
-    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "H"))); },
+    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "H")), nullptr); },
                           "System.FormatException"),
            "single 'H' throws FormatException");
-    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "q"))); },
+    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "q")), nullptr); },
                           "System.FormatException"),
            "single 'q' throws FormatException");
-    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "h"))); },
+    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "h")), nullptr); },
                           "System.FormatException"),
            "single 'h' throws FormatException (not a standard specifier)");
 
@@ -299,13 +337,13 @@ int main()
            "backslash escape \\- == literal '-'");
     Expect(StrEquals(Fmt(dt2020, "a\\b"), "ab"),
            "backslash escape \\b == literal 'b'");
-    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "'unterminated"))); },
+    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "'unterminated")), nullptr); },
                           "System.FormatException"),
            "unterminated quote throws FormatException");
-    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "\"unterminated"))); },
+    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "\"unterminated")), nullptr); },
                           "System.FormatException"),
            "unterminated double quote throws FormatException");
-    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "abc\\"))); },
+    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "abc\\")), nullptr); },
                           "System.FormatException"),
            "trailing backslash throws FormatException");
 
@@ -344,9 +382,73 @@ int main()
     Expect(StrEquals(Fmt(frac7, "fff"), "123"), "fff truncates past 3 digits");
     Expect(StrEquals(Fmt(dt2020, "fff"), "000"), "fff on .000 s zero-pads");
     Expect(StrEquals(Fmt(dt2020, "FFF"), ""), "FFF on .000 s is empty");
-    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "ffffffff"))); },
+    Expect(ThrowsWithType([&] { (void)icall_datetime_to_string_format(dt2020, reinterpret_cast<il2cpp::Il2CppObject*>(Fmt(dt2020, "ffffffff")), nullptr); },
                           "System.FormatException"),
            "8 fraction digits throws FormatException");
+
+    // 10. Provider routing (cultureprobe regression fix): nullptr = host
+    // default zh-CN (saudit5), "" = invariant (sections 1-9), "zh-CN" =
+    // explicit current culture, unknown = invariant fallback + optional log.
+    auto NullFmt = [&](const char* providerName) {
+        il2cpp::Il2CppObject* provider = providerName == nullptr
+            ? nullptr
+            : reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs(providerName));
+        return reinterpret_cast<il2cpp::Il2CppString*>(
+            icall_datetime_to_string_format(dt2020, nullptr, provider));
+    };
+    Expect(StrEquals(NullFmt(""), "06/15/2020 13:45:30"),
+           "null format + invariant carrier == invariant G");
+    Expect(StrEquals(NullFmt(nullptr), "2020/6/15 13:45:30"),
+           "null format + null provider == zh-CN G (host default)");
+    Expect(StrEquals(Fmt(dt2020, "d", nullptr), "2020/6/15"), "zh default 'd' == yyyy/M/d");
+    Expect(StrEquals(Fmt(dt2020, "t", nullptr), "13:45"), "zh default 't' == H:mm");
+    Expect(StrEquals(Fmt(dt2020, "T", nullptr), "13:45:30"), "zh default 'T' == H:mm:ss");
+    Expect(StrEquals(Fmt(dt2020, "g", nullptr), "2020/6/15 13:45"), "zh default 'g' == yyyy/M/d H:mm");
+    Expect(StrEquals(Fmt(dt2020, "G", nullptr), "2020/6/15 13:45:30"), "zh default 'G' == yyyy/M/d H:mm:ss");
+    Expect(StrEquals(Fmt(dt2020, "", nullptr), "2020/6/15 13:45:30"),
+           "zh default empty format == zh G");
+    Expect(StrEqualsUtf16(Fmt(dt2020, "D", nullptr), u"2020\u5E746\u670815\u65E5"),
+           "zh default 'D' == yyyy\u5E74M\u6708d\u65E5");
+    Expect(StrEqualsUtf16(Fmt(dt2020, "f", nullptr), u"2020\u5E746\u670815\u65E5 13:45"),
+           "zh default 'f' == yyyy\u5E74M\u6708d\u65E5 H:mm");
+    Expect(StrEqualsUtf16(Fmt(dt2020, "F", nullptr), u"2020\u5E746\u670815\u65E5 13:45:30"),
+           "zh default 'F' == yyyy\u5E74M\u6708d\u65E5 H:mm:ss");
+    Expect(StrEqualsUtf16(Fmt(dt2020, "m", nullptr), u"6\u670815\u65E5"),
+           "zh default 'm' == M\u6708d\u65E5");
+    Expect(StrEqualsUtf16(Fmt(dt2020, "y", nullptr), u"2020\u5E746\u6708"),
+           "zh default 'y' == yyyy\u5E74M\u6708");
+    Expect(StrEquals(Fmt(dt2020, "d", "zh-CN"), "2020/6/15"),
+           "explicit zh-CN carrier == host default");
+    Expect(StrEquals(Fmt(dt2020, "d", "xx-YY"), "06/15/2020"),
+           "unknown provider -> invariant 'd' fallback");
+    // Unknown-name log (env-gated; NO stdout/stderr traffic -- the harness
+    // byte-diffs both streams).
+    std::remove("timeext_provider_probe.log");
+#ifdef _WIN32
+    _putenv_s("IL2CPP_CULTURE_PROVIDER_LOG", "timeext_provider_probe.log");
+#else
+    setenv("IL2CPP_CULTURE_PROVIDER_LOG", "timeext_provider_probe.log", 1);
+#endif
+    Expect(StrEquals(Fmt(dt2020, "d", "xx-YY"), "06/15/2020"),
+           "unknown provider still invariant (logged run)");
+    bool logged = false;
+    std::FILE* lf = std::fopen("timeext_provider_probe.log", "rb");
+    if (lf != nullptr)
+    {
+        char buf[256];
+        const size_t n = std::fread(buf, 1, sizeof(buf) - 1, lf);
+        buf[n] = '\0';
+        logged = std::strstr(buf, "xx-YY") != nullptr
+            && std::strstr(buf, "invariant fallback") != nullptr;
+        std::fclose(lf);
+    }
+    Expect(logged, "unknown provider name appended to IL2CPP_CULTURE_PROVIDER_LOG");
+#ifdef _WIN32
+    _putenv_s("IL2CPP_CULTURE_PROVIDER_LOG", "");
+#else
+    unsetenv("IL2CPP_CULTURE_PROVIDER_LOG");
+#endif
+    std::remove("timeext_provider_probe.log");
 
     if (g_failures == 0)
     {

@@ -12,7 +12,7 @@
 //   4. A nullptr message yields a non-empty .NET standard default message
 //      (checked by an expected substring).
 //   5. ArgumentNullException / ArgumentOutOfRangeException compose a message
-//      in the .NET Framework two-line format (base text + "\n" +
+//      in the .NET Framework two-line format (base text + "\r\n" +
 //      "参数名: <name>", zh-CN host net48 oracle); a nullptr/empty paramName
 //      still yields a non-empty default message.
 //   6. An unrelated caught type never matches (no false positives).
@@ -308,7 +308,7 @@ int main()
         Expect(composedMsg != nullptr, "composed get_Message carrier read returns a managed string");
         Expect(ManagedStringIs(composedMsg,
                                "\xE5\x80\xBC\xE4\xB8\x8D\xE8\x83\xBD\xE4\xB8\xBA\x20\x6E\x75\x6C\x6C"
-                               "\xE3\x80\x82\n\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20"
+                               "\xE3\x80\x82\r\n\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20"
                                "carrierParam"),
                "get_Message carrier: composed paramName message interns to the net48 zh-CN text");
 

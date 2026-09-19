@@ -87,10 +87,15 @@ void icall_waithandle_event_ctor(Il2CppObject* self, bool initialState,
 // --- wait / signal ----------------------------------------------------------
 
 // WaitOne(): blocks until the handle is signaled, then returns true (net48
-// success semantics; the timeout overloads are out of scope). For a
-// semaphore, decrements the count; for an auto-reset event, clears the
-// signal; for a mutex, acquires it.
+// success semantics). For a semaphore, decrements the count; for an
+// auto-reset event, clears the signal; for a mutex, acquires it.
 bool icall_waithandle_wait_one(Il2CppObject* self);
+
+// WaitOne(int millisecondsTimeout): the net48 timeout overload. 0 is a
+// single non-blocking probe, -1 is Timeout.Infinite (block forever), a value
+// < -1 throws ArgumentOutOfRangeException("millisecondsTimeout"); returns
+// false when the timeout expires before the handle is signaled.
+bool icall_waithandle_wait_one_timeout(Il2CppObject* self, int32_t millisecondsTimeout);
 
 // Semaphore.Release(): increments the count (bounded by maximumCount;
 // exceeding throws SemaphoreFullException) and returns the PREVIOUS count.

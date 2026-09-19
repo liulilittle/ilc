@@ -105,6 +105,15 @@ public sealed class MethodDef
     // surfaced); the default instantiation maps every T to int32_t (iron rule 2g).
     public int GenericArity { get; init; }
     public bool IsGenericMethod => GenericArity > 0;
+
+    // R2b P2 (parallel VAR channel): which signature slots are generic
+    // parameters (0x13 VAR / 0x1E MVAR). ParamTypes/ReturnTypeName KEEP the
+    // raw "i"/"" encoding (the hash channel -- A3 C3: MethodCppName and the
+    // call-side SigHash must not drift); these flags are the OTHER channel a
+    // closed clone consumes to render T as its concrete C++ type
+    // (Il2CppObject* for reference instantiations).
+    public bool[]? ParamIsVar { get; init; }
+    public bool ReturnIsVar { get; init; }
 }
 
 //------------------------------------------------------------------------------

@@ -36,9 +36,13 @@ public static class VTablePlanner
     public static void PlanAll(IReadOnlyList<TypeDef> types)
     {
         // Topological order: bases before deriveds (stable by FullName for
-        // determinism -- generation must be reproducible).
+        // determinism -- generation must be reproducible). R2b: the dedup key
+        // is InstantiationKey (FullName of the DEFINITION + "|" + suffix for
+        // closed clones) -- a clone shares the definition's FullName (the
+        // C++ symbol/hash channels key on the definition name), so FullName
+        // alone would make the planner skip it.
         var planned = new HashSet<string>();
-        foreach (var t in types.OrderBy(t => t.FullName))
+        foreach (var t in types.OrderBy(t => t.InstantiationKey))
             Plan(t, planned);
 
         // Task 8: interface dispatch maps -- for each CONCRETE type, resolve
@@ -129,7 +133,7 @@ public static class VTablePlanner
 
     private static void Plan(TypeDef t, HashSet<string> planned)
     {
-        if (!planned.Add(t.FullName)) return; // already planned (idempotent)
+        if (!planned.Add(t.InstantiationKey)) return; // already planned (idempotent)
 
         // Recurse into the base chain first (base slots precede derived slots).
         if (t.BaseType != null) Plan(t.BaseType, planned);
@@ -165,7 +169,7 @@ public static class VTablePlanner
         foreach (var m in slotCandidates)
         {
             var sig = SigKey(m);
-            var existing = slots.FindIndex(s => s != null && SigKey(s) == sig);
+            var existing = slots.FindIndex(s => s != null && SigMatchesSlot(s, m, sig));
             if (existing >= 0)
             {
                 // Signature match on an inherited slot: derived implementation
@@ -188,4 +192,33 @@ public static class VTablePlanner
     // Slot-identity key: (Name, ParamTypes) -- identical to the method-name
     // hash input, so override pairs are recognized consistently.
     internal static string SigKey(MethodDef m) => $"{m.Name}({m.ParamTypes})";
+
+    // R2b P2 (closed clone override): a reference instantiation's VAR slots
+    // carry the managed-reference ABI (Il2CppObject*) while the metadata
+    // signature keeps the definition's "i" encoding (the hash channel is
+    // untouched). A derived override's decoded argument ("r:System.String")
+    // must match such a slot; exact keys always win, and a clone VAR slot
+    // matches any "r:" argument. Non-clone slots keep exact matching only.
+    private static bool SigMatchesSlot(MethodDef slot, MethodDef derived, string derivedKey)
+    {
+        if (SigKey(slot) == derivedKey) return true;
+        if (slot.Name != derived.Name) return false;
+        var suffix = slot.Owner.InstantiationSuffix;
+        if (suffix == null || suffix == "int") return false;
+        var sp = slot.ParamTypes.Length == 0
+            ? Array.Empty<string>()
+            : CodeGenerator.SplitTopLevel(slot.ParamTypes).ToArray();
+        var dp = derived.ParamTypes.Length == 0
+            ? Array.Empty<string>()
+            : CodeGenerator.SplitTopLevel(derived.ParamTypes).ToArray();
+        if (sp.Length != dp.Length || sp.Length == 0) return false;
+        for (var i = 0; i < sp.Length; i++)
+        {
+            if (sp[i] == dp[i]) continue;
+            var isVar = slot.ParamIsVar is { } piv && i < piv.Length && piv[i];
+            if (isVar && dp[i].StartsWith("r:", StringComparison.Ordinal)) continue;
+            return false;
+        }
+        return true;
+    }
 }

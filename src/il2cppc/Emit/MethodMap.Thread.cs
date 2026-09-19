@@ -153,7 +153,13 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_threadobj_get_priority", 0, true, false, true);
                 return null;
             case "set_Priority":
-                if (count == 1 && ps[0] == 0x08)
+                // ThreadPriority is a managed ENUM: the IL signature encodes
+                // the parameter as ELEMENT_TYPE_VALUETYPE (0x11), not I4
+                // (0x08). Both ride the int32 slot, so the same icall serves
+                // either encoding (the 0x08 arm stays for synthesized/unboxed
+                // shapes; diffthread001's Thread.CurrentThread.Priority = enum
+                // arrives as 0x11 and previously fell to the phantom path).
+                if (count == 1 && (ps[0] == 0x08 || ps[0] == 0x11))
                     return I("il2cpp::runtime::icall_threadobj_set_priority", 1, false, false, true);
                 return null;
             case "get_IsBackground":
@@ -179,8 +185,14 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_threadobj_get_name", 0, true, true, true, returnTypeName: "System.String");
                 return null;
             case "set_Name":
+                // The runtime signature is icall_threadobj_set_name(Il2CppObject*,
+                // Il2CppString*); the IL string argument carries the IR's
+                // Il2CppObject* shape, so the "s" cast (Il2CppString*) is
+                // REQUIRED -- without it the emitted call passes Il2CppObject*
+                // where Il2CppString* is expected (hard compile failure,
+                // Cases_Prog.cpp diffthread001).
                 if (count == 1 && ps[0] == 0x0E)
-                    return I("il2cpp::runtime::icall_threadobj_set_name", 1, false, false, true, new[] { "", "" });
+                    return I("il2cpp::runtime::icall_threadobj_set_name", 1, false, false, true, new[] { "", "s" });
                 return null;
             // ApartmentState public wrappers route to the wired Native twins.
             case "GetApartmentState":

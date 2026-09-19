@@ -31,6 +31,12 @@
 //                    thread's id lives in its handle)
 //        isBackground  the IsBackground flag (plain stored value, no
 //                    process-lifetime coupling in the M-stage model)
+//        managedId   ManagedThreadId: ctor-assigned PROCESS-WIDE monotonic id
+//                    (net48 contract -- main = 1, first user Thread = 3, never
+//                    reused, stable across Start/Join). Assigned at
+//                    CONSTRUCTION even for a never-started Thread; the spawned
+//                    thread publishes it to TLS so CurrentThread inside the
+//                    callback reads the same value.
 //        name        the Thread.Name string (a managed GC reference, null
 //                    until set)
 //   GC reference fields: exactly ONE -- the `name` string, stored at slot 5
@@ -70,9 +76,9 @@
 // own race-prone Join/IsAlive pair).
 //
 // net48 deviations (documented next to each entry):
-//   * ManagedThreadId is the OS thread id (like the statics' current-id
-//     probe), 0 until Start -- net48 assigns sequential managed ids at
-//     construction.
+//   * ManagedThreadId: IMPLEMENTED per net48 (ctor-assigned monotonic id,
+//     main = 1, first user Thread = 3, never reused -- see the managedId
+//     field and the runtime allocator).
 //   * Joining the CURRENT thread throws ThreadStateException immediately --
 //     net48 would block forever on a self-join.
 //   * Priority is pinned to Normal (2 -- the net48 enum value): the setter
@@ -114,7 +120,21 @@ struct Il2CppThreadObject
     int32_t state;          // 0 NEW / 1 STARTED / 2 CURRENT
     int32_t tid;            // OS thread id (CURRENT object only)
     bool isBackground;      // IsBackground flag (default false = foreground)
+    // net48 ManagedThreadId: assigned by the GLOBAL monotonic allocator at
+    // CONSTRUCTION time (not Start), never reused, and stable across
+    // Start/Join. The process main thread reads as 1 (the allocator starts at
+    // 3 -- id 2 is the runtime-reserved slot, per the net48 boundary spec).
+    // This is a plain int32 (NOT a GC reference), so the descriptor's
+    // refFieldBitmap is unchanged; it fills the alignment padding before the
+    // 8-byte-aligned `name` slot, keeping name at slot 5 (offset 40).
+    int32_t managedId;
     Il2CppString* name;     // Thread.Name (GC reference -- see the header)
+    // The ThreadStart delegate's TARGET (null for a static-method delegate, the
+    // compiler-generated display class for a closure/lambda). A GC reference:
+    // the descriptor's refFieldBitmap marks this slot too (bit 6), so a rooted
+    // Thread keeps its captured state alive. Invoked as the `this` argument of
+    // the generated instance ABI.
+    Il2CppObject* callbackTarget;
 };
 
 // The System.Threading.Thread descriptor (lazily registered on first use;
@@ -174,9 +194,9 @@ bool icall_threadobj_join_timeout(Il2CppObject* self, int32_t millisecondsTimeou
 // finished threads report false; the CURRENT thread reports true).
 bool icall_threadobj_get_is_alive(Il2CppObject* self);
 
-// Thread.ManagedThreadId (SIMPLIFIED): the OS thread id (see the header
-// comment) -- 0 until Start for a spawned thread, the current OS id for the
-// CURRENT object.
+// Thread.ManagedThreadId: the ctor-assigned managed id (net48 semantics --
+// main = 1, first user Thread = 3, monotonic, never reused, stable across
+// Start/Join). See the managedId field and the runtime allocator.
 int32_t icall_threadobj_get_managed_thread_id(Il2CppObject* self);
 
 // Thread.Priority getter: always 2 = ThreadPriority.Normal (the net48 enum
@@ -213,6 +233,18 @@ void icall_threadobj_set_name(Il2CppObject* self, Il2CppString* name);
 // thread (state CURRENT, ManagedThreadId = the current OS id, IsAlive
 // true). Returns a FRESH object per call (documented deviation).
 Il2CppObject* icall_threadobj_get_current_thread();
+
+// ThreadPool worker registration (net48 MTID contract, A1 F50B348A item 5):
+// a pool worker thread shares the SAME process-wide managed-id space as
+// explicit Thread objects, and a worker REUSES its id across every work item
+// it serves (the id is assigned ONCE per worker thread, not per work item).
+// The pool worker entry points call this exactly once at thread start: it
+// allocates the next id from the shared monotonic counter and publishes it to
+// the calling thread's TLS, so Thread.CurrentThread.ManagedThreadId inside a
+// work item reports the worker's id (not the main-thread default 1).
+// Idempotent per thread: a second call on the same thread is a no-op (the
+// worker keeps its id).
+void il2cpp_threadobj_register_pool_worker();
 
 // P6: Thread internal helpers -- the BCL calls these but the ILC has a
 // simplified single-threaded model. Stubs return sensible defaults.

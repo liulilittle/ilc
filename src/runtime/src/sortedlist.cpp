@@ -227,12 +227,39 @@ bool IsBoxedInt32Key(const Il2CppObject* key)
     return key->klass != nullptr && std::strcmp(key->klass->name, "System.Int32") == 0;
 }
 
+bool IsBoxedInt64Key(const Il2CppObject* key)
+{
+    return key->klass != nullptr && std::strcmp(key->klass->name, "System.Int64") == 0;
+}
+
+bool IsBoxedDoubleKey(const Il2CppObject* key)
+{
+    return key->klass != nullptr &&
+        (std::strcmp(key->klass->name, "System.Double") == 0 ||
+         std::strcmp(key->klass->name, "System.Single") == 0);
+}
+
+bool IsBoxedUInt32Key(const Il2CppObject* key)
+{
+    return key->klass != nullptr && std::strcmp(key->klass->name, "System.UInt32") == 0;
+}
+
 // Read the boxed int32 payload at byte offset 8 -- the documented M2 box
 // layout (klass at 0, aligned value slot at 8, see boxing.cpp). Only called
 // after IsBoxedInt32Key, so the klass is the Int32 box class.
 int32_t BoxedInt32Value(const Il2CppObject* boxed)
 {
     return *reinterpret_cast<const int32_t*>(reinterpret_cast<const char*>(boxed) + 8);
+}
+
+int64_t BoxedInt64Value(const Il2CppObject* boxed)
+{
+    return *reinterpret_cast<const int64_t*>(reinterpret_cast<const char*>(boxed) + 8);
+}
+
+double BoxedDoubleValue(const Il2CppObject* boxed)
+{
+    return *reinterpret_cast<const double*>(reinterpret_cast<const char*>(boxed) + 8);
 }
 
 //------------------------------------------------------------------------------
@@ -271,6 +298,35 @@ int32_t CompareKeys(const Il2CppObject* a, const Il2CppObject* b)
     {
         const int32_t av = BoxedInt32Value(a);
         const int32_t bv = BoxedInt32Value(b);
+        return av < bv ? -1 : av > bv ? 1 : 0;
+    }
+    const bool aI64 = IsBoxedInt64Key(a);
+    const bool bI64 = IsBoxedInt64Key(b);
+    const bool aDbl = IsBoxedDoubleKey(a);
+    const bool bDbl = IsBoxedDoubleKey(b);
+    const bool aU32 = IsBoxedUInt32Key(a);
+    const bool bU32 = IsBoxedUInt32Key(b);
+    if (aI64 && bI64)
+    {
+        const int64_t av = BoxedInt64Value(a);
+        const int64_t bv = BoxedInt64Value(b);
+        return av < bv ? -1 : av > bv ? 1 : 0;
+    }
+    if (aDbl && bDbl)
+    {
+        const double av = BoxedDoubleValue(a);
+        const double bv = BoxedDoubleValue(b);
+        const bool aNaN = av != av;
+        const bool bNaN = bv != bv;
+        if (aNaN && bNaN) return 0;
+        if (aNaN) return 1;
+        if (bNaN) return -1;
+        return av < bv ? -1 : av > bv ? 1 : 0;
+    }
+    if (aU32 && bU32)
+    {
+        const uint32_t av = static_cast<uint32_t>(BoxedInt32Value(a));
+        const uint32_t bv = static_cast<uint32_t>(BoxedInt32Value(b));
         return av < bv ? -1 : av > bv ? 1 : 0;
     }
     if (aStr && bStr)

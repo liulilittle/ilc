@@ -104,7 +104,7 @@ bool StreamEquals(Il2CppObject* stream, const uint8_t* expected, int32_t expecte
         return false;
     }
     // ToArray() copy matches the payload too (position-independent).
-    return BytesEqual(il2cpp::runtime::icall_stream_memory_to_array(stream),
+    return BytesEqual(reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_stream_memory_to_array(stream)),
                       expected, expectedLen);
 }
 

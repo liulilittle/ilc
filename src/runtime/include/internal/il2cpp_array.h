@@ -58,6 +58,12 @@ struct Il2CppArray
 // Returns a GC reference; the caller must keep it reachable.
 Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement, int32_t length);
 
+int32_t il2cpp_array_index_of_i4(const Il2CppArray* arr, int32_t value, int32_t start) noexcept;
+int32_t il2cpp_array_last_index_of_i4(const Il2CppArray* arr, int32_t value, int32_t start) noexcept;
+bool il2cpp_array_contains_i4(const Il2CppArray* arr, int32_t value) noexcept;
+int32_t il2cpp_array_count_i4(const Il2CppArray* arr, int32_t value, int32_t start, int32_t count) noexcept;
+bool il2cpp_array_try_bulk_copy_i4(Il2CppArray* dst, int32_t dstIndex, const Il2CppArray* src, int32_t srcIndex, int32_t count) noexcept;
+
 //------------------------------------------------------------------------------
 // Hot-path helpers (generated-code audit Top 1): INLINE definitions so the
 // C++ compiler sees the fast path -- the bounds test becomes a register

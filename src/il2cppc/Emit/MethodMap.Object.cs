@@ -25,6 +25,13 @@ public static partial class MethodRefResolver
                     // boxed-value path below (reference equality would be wrong).
                     if (receiverType == "System.Delegate")
                         return I("il2cpp::runtime::icall_delegate_equals", 1, true, false, true);
+                    // URI-FIX P1: Object::Equals on a tracked Uri receiver --
+                    // value equality over the absolute form (versionuri.cpp
+                    // icall_uri_equals), not reference identity (diffuri001
+                    // uri.equals.same; evidence gen Cases_Prog.cpp:379 takes
+                    // the boxed path today).
+                    if (receiverType == "System.Uri")
+                        return I("il2cpp::runtime::icall_uri_equals", 1, true, false, true);
                     // .NET object.Equals -- the runtime boxed-value equality dispatches
                     // on the box classes (bool/char/int/double/long/...) and falls back
                     // to reference equality, mirroring Object.Equals semantics.
@@ -47,6 +54,21 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_timespan_get_hash_code", 0, true, false, true, new[] { "deref:ts" });
                 if (name == "GetHashCode" && receiverType == "System.Version")
                     return I("il2cpp::runtime::icall_version_get_hash_code", 0, true, false, true);
+                // URI-FIX P3: Object::GetHashCode on a tracked Uri receiver
+                // (Roslyn emits callvirt Object::GetHashCode for the
+                // override, like Equals in P1b) -- route to the deterministic
+                // ordinal contract hash (versionuri.cpp
+                // icall_uri_get_hash_code), not the identity default arm.
+                if (name == "GetHashCode" && receiverType == "System.Uri")
+                    return I("il2cpp::runtime::icall_uri_get_hash_code", 0, true, false, true);
+                // B4 (dtoprobe [hc]): Object::GetHashCode on a tracked
+                // DateTimeOffset receiver (Roslyn emits callvirt
+                // Object::GetHashCode for the override, the Uri precedent
+                // above) -- net48 returns UtcDateTime.GetHashCode()
+                // (referencesource datetimeoffset.cs), i.e. the ticks-fold
+                // of the UTC instant (no offset component).
+                if (name == "GetHashCode" && receiverType == "System.DateTimeOffset")
+                    return I("il2cpp::runtime::icall_dtoffset_get_hash_code", 0, true, false, true, new[] { "deref:dto" });
                 if (name == "ToString" && receiverType == "System.Text.StringBuilder")
                     return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
                 if (name == "ToString" && receiverType == "System.Version")

@@ -68,8 +68,44 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_string.h"
+#include "il2cpp_metadata.h"   // Il2CppClass (the encoding object descriptors)
 
 #include <cstdint>
+
+//------------------------------------------------------------------------------
+// P2(5) A1 (2026-09-19): System.Text.Encoding OBJECT MODEL.
+//
+// net48 Encoding is a real object (identity, GetPreamble). The earlier
+// null-fold made `Encoding.UTF8` an opaque tag; the StreamWriter/StreamReader
+// encoding overloads and `new UTF8Encoding(bool)` need a real instance
+// carrying the code page + the encoder preamble flag. The descriptor set
+// below mirrors the stream classes: the transpiler emits
+// `il2cpp_object_new(&System_Text_UTF8Encoding_class)` for `new
+// UTF8Encoding(...)`; the singleton getters return cached instances.
+//
+//   struct Il2CppEncodingObject { Il2CppObject obj; int32 page; int32 emitBom; }
+//
+// page: the .NET code-page number (65001 utf8 / 1200 unicode / 20127 ascii).
+// emitBom: the encoder preamble flag (UTF8Encoding(true) -> BOM).
+//------------------------------------------------------------------------------
+extern ::il2cpp::Il2CppClass System_Text_Encoding_class;
+extern ::il2cpp::Il2CppClass System_Text_UTF8Encoding_class;
+extern ::il2cpp::Il2CppClass System_Text_UnicodeEncoding_class;
+extern ::il2cpp::Il2CppClass System_Text_ASCIIEncoding_class;
+
+namespace il2cpp {
+
+// Managed System.Text.Encoding layout: object header + code page + preamble
+// flag. NO GC reference fields (refFieldBitmap 0), so compaction copies stay
+// valid without fixups.
+struct Il2CppEncodingObject
+{
+    Il2CppObject obj;    // object header (klass pointer, offset 0)
+    int32_t     page;    // .NET code-page number
+    int32_t     emitBom; // 1 = write the encoder preamble before the first byte
+};
+
+} // namespace il2cpp
 
 namespace il2cpp { namespace runtime {
 
@@ -166,5 +202,42 @@ Il2CppArray* il2cpp_encoding_utf8_get_chars(Il2CppArray* bytes, int32_t index, i
 Il2CppArray* il2cpp_encoding_unicode_get_chars(Il2CppArray* bytes, int32_t index, int32_t count);
 Il2CppArray* il2cpp_encoding_unicodebe_get_chars(Il2CppArray* bytes, int32_t index, int32_t count);
 Il2CppArray* il2cpp_encoding_ascii_get_chars(Il2CppArray* bytes, int32_t index, int32_t count);
+
+//------------------------------------------------------------------------------
+// P2(5) A1: the OBJECT model surface.
+//
+// il2cpp_encoding_register_classes -- register the four descriptors
+//   (idempotent; call before any newobj/isinst targeting an encoding type).
+// icall_encoding_get_UTF8/Unicode/ASCII -- the static singleton getters: a
+//   cached instance (page 65001/1200/20127; UTF8 emitBom=1, the net48
+//   Encoding.UTF8 = UTF8Encoding(true)).
+// icall_encoding_ctor_utf8/unicode/ascii -- the `new XEncoding(bool[,bool])`
+//   instance ctors: set page + emitBom on the fresh object.
+// icall_encoding_get_preamble -- GetPreamble() -> byte[] (the BOM bytes for
+//   the receiver's page/emitBom; empty array when emitBom=0).
+//
+// The object-based get_bytes/get_string/get_chars dispatch on the RECEIVER
+// object's page (self != null). The legacy per-page entries (page baked into
+// the NAME) stay for the null-folded callers -- the compatibility shim.
+//------------------------------------------------------------------------------
+void il2cpp_encoding_register_classes();
+
+Il2CppObject* icall_encoding_get_UTF8();
+Il2CppObject* icall_encoding_get_Unicode();
+Il2CppObject* icall_encoding_get_UnicodeBE();
+Il2CppObject* icall_encoding_get_ASCII();
+
+void icall_encoding_ctor_utf8(Il2CppObject* self, int32_t emitBom);
+void icall_encoding_ctor_utf8_2(Il2CppObject* self, int32_t emitBom, int32_t throwOnInvalid);
+void icall_encoding_ctor_unicode(Il2CppObject* self, int32_t bigEndian, int32_t byteOrderMark);
+void icall_encoding_ctor_ascii(Il2CppObject* self);
+
+Il2CppArray* icall_encoding_get_preamble(Il2CppObject* self);
+
+// Object-receiver conversions (self != null -> page/emitBom from the object).
+Il2CppArray* icall_encoding_get_bytes(Il2CppObject* self, Il2CppString* text);
+Il2CppString* icall_encoding_get_string(Il2CppObject* self, Il2CppArray* bytes);
+Il2CppArray* icall_encoding_get_chars(Il2CppObject* self, Il2CppArray* bytes, int32_t index, int32_t count);
+Il2CppArray* icall_encoding_get_chars_all(Il2CppObject* self, Il2CppArray* bytes);
 
 }} // namespace il2cpp::runtime

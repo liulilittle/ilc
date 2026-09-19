@@ -8,12 +8,11 @@
 // this file covers the REST of the TimeSpan family with the same
 // ticks-exact discipline. Implementation contracts (src/runtime/src/
 // time.cpp, timeext2.cpp):
-//   * FromHours/Days/Seconds share FromMinutes' validated double-product
-//     shape (ticks = units * scale, range-checked against
-//     [kMinTotalSeconds, kMaxTotalSeconds] * TicksPerSecond, half away
-//     from zero); NaN fails the guard -> ArgumentOutOfRangeException.
-//     FromMilliseconds has NO range gate (direct composition) -- only
-//     in-range exactness is asserted for it.
+//   * FromMinutes/Hours/Days/Seconds/Milliseconds share the net48
+//     Interval() contract: millis = units * scale + (units >= 0 ? +0.5 :
+//     -0.5); |millis| > 922337203685477.0 -> OverflowException; NaN ->
+//     ArgumentException; result = (int64)millis * TicksPerMillisecond.
+//     net48-oracle verified (probe2 / tspanprobe, 2026-09-13).
 //   * FromTicks/FromTicksExact are the identity (no validation).
 //   * from_hms/dhms/dhmsm compose int64 totalSeconds (TimeToTicks) with a
 //     checked total range; out-of-range totals throw
@@ -129,8 +128,9 @@ int main()
            "FromSeconds(-90) mirrors positive");
     Expect(icall_timespan_from_milliseconds(1500.0).ticks == 15000000LL,
            "FromMilliseconds(1500) == 15000000 ticks");
-    Expect(icall_timespan_from_milliseconds(0.5).ticks == 5000LL,
-           "FromMilliseconds(0.5) == 5000 ticks");
+    Expect(icall_timespan_from_milliseconds(0.5).ticks == 10000LL,
+           "FromMilliseconds(0.5) == 10000 ticks (0.5 ms rounds half away "
+           "from zero to 1 ms; net48 oracle)");
     Expect(icall_timespan_from_milliseconds(-1500.0).ticks == -15000000LL,
            "FromMilliseconds(-1500) mirrors positive");
     // Cross-family agreement: 1.5h == 90min == 5400s.
@@ -143,16 +143,16 @@ int main()
     Expect(icall_timespan_get_ticks(icall_timespan_from_hours(1.5)) == 54000000000LL,
            "get_Ticks round-trips FromHours(1.5)");
 
-    // --- 2. FromHours/FromDays/FromSeconds range gates (FromMinutes shape) ---
+    // --- 2. FromHours/FromDays/FromSeconds range gates (net48 Interval) ---
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_hours(1e300); },
-                          "System.ArgumentOutOfRangeException"),
-           "FromHours(1e300) throws ArgumentOutOfRange");
+                          "System.OverflowException"),
+           "FromHours(1e300) throws Overflow");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_days(-1e300); },
-                          "System.ArgumentOutOfRangeException"),
-           "FromDays(-1e300) throws ArgumentOutOfRange");
+                          "System.OverflowException"),
+           "FromDays(-1e300) throws Overflow");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_seconds(1e300); },
-                          "System.ArgumentOutOfRangeException"),
-           "FromSeconds(1e300) throws ArgumentOutOfRange");
+                          "System.OverflowException"),
+           "FromSeconds(1e300) throws Overflow");
 
     // --- 3. FromTicks / FromTicksExact identity (no validation) ---
     Expect(icall_timespan_from_ticks(0).ticks == 0, "FromTicks(0) == 0");

@@ -77,13 +77,23 @@ bool ThrowsManaged(il2cpp::Il2CppObject* (*fn)(il2cpp::Il2CppObject*),
 // emits per reflected type (design 2.1, same shape as test_typeinfo.cpp).
 //------------------------------------------------------------------------------
 
+// The raudit2 activator contract: a registered type is instantiated by
+// RUNNING its parameterless .ctor (the TypeEmitter-generated method table
+// carries the .ctor entry with fnPtr). The fixture must therefore expose the
+// same shape, or CreateInstance correctly throws MissingMethodException.
+void WidgetCtor(il2cpp::Il2CppObject*) {}
+
+il2cpp::Il2CppMethodInfo widgetMethods[1] = {
+    {".ctor", "V:System.Void", 0, 4, -1, "T.Widget", reinterpret_cast<void*>(&WidgetCtor)},
+};
+
 il2cpp::Il2CppClass widgetClass = {
     "T.Widget", 16, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
 };
 
 il2cpp::Il2CppTypeInfo widgetInfo = {
     "T.Widget", &widgetClass, nullptr, nullptr, 0,
-    nullptr, 0, nullptr, 0, nullptr, 0,
+    nullptr, 0, widgetMethods, 1, nullptr, 0,
 };
 
 // Registered but with NO class descriptor (klass == nullptr) -- the

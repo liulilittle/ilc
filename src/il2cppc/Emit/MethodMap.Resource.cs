@@ -17,8 +17,9 @@ namespace Il2Cpp.Transpiler.Emit;
 //   .ctor(string baseName, Assembly assembly)
 //       -> il2cpp_resource_manager_ctor_resolve(baseName, assembly)
 //          (ResultIsReceiver: the blob lands in the receiver local; the
-//          assembly arg is DROPPED -- the single-assembly registry IS the
-//          manifest)
+//          assembly arg is PASSED THROUGH -- the runtime signature takes two
+//          parameters and ignores the assembly internally, the single-
+//          assembly registry IS the manifest)
 //   GetString(string, CultureInfo)
 //       -> il2cpp_resource_manager_get_string(receiver, name)
 //          (2-arg overload: the culture arg is DROPPED -- ILC pins the
@@ -52,12 +53,13 @@ public static partial class MethodRefResolver
                 {
                     // new ResourceManager(baseName, assembly): resolve the
                     // invariant blob (ResultIsReceiver -- the blob replaces the
-                    // receiver local; the assembly arg passes through to the
-                    // runtime which ignores it).
+                    // receiver local). The assembly argument is PASSED THROUGH
+                    // (the runtime signature takes two parameters; the runtime
+                    // ignores the assembly internally).
                     case ".ctor":
                         if (count == 2 && ps[0] == 0x0E)
                             return I("il2cpp::il2cpp_resource_manager_ctor_resolve", 2, true, true, true,
-                                new[] { "", "", "drop" }, resultIsReceiver: true,
+                                new[] { "", "", "" }, resultIsReceiver: true,
                                 returnTypeName: "System.Resources.ResourceManager");
                         return null;
                     // GetString(string, CultureInfo): invariant-pinned model --

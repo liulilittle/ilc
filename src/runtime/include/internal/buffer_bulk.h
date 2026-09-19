@@ -1,3 +1,7 @@
+#if defined(__arm__) || defined(_M_ARM) || defined(__i386__) || defined(_M_IX86)
+#error "il2cpp runtime: 32-bit targets are not supported in phase 1 (arm64-v8a/x86_64 only)"
+#endif
+
 #pragma once
 // buffer_bulk.h -- Bulk buffer primitives (GC-free, noexcept).
 // Provides 8x-unrolled memset/memcpy/memcmp/is_zero with early-exit.

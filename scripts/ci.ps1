@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 # 以脚本位置为基准解析仓库根，避免 -File 模式下 CWD 不确定导致相对路径失效
 $Root = Split-Path -Parent $PSScriptRoot
 

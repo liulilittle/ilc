@@ -135,7 +135,7 @@ public class MethodMapBase64Tests
     [InlineData("ToUInt64", "icall_conv_ovf_u8_i4", "i", "l")]
     [InlineData("ToSingle", "icall_conv_r4_i4", "i", "d")]
     public void Resolve_Convert_NarrowingFamily_IntSource_Wires(
-        string member, string icall, string cast, string resultKind)
+        string member, string icall, string cast, string? resultKind)
     {
         var resolved = ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, 0x08 });
 

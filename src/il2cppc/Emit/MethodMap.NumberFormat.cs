@@ -61,26 +61,34 @@ public static partial class MethodRefResolver
             case "System.Globalization.NumberFormatInfo":
                 switch (name)
                 {
-                    // Static culture factories fold to null -- the runtime
-                    // has no culture object (see CultureInfo domain).
+                    // Static culture factories follow the CultureInfo
+                    // handle-gap model: the value IS the culture NAME string
+                    // ("zh-CN" / "" -- MethodMap.CultureInfo.cs:21-38). The
+                    // instance getters below dispatch on it at run time.
                     case "get_CurrentInfo":
+                        return I("il2cpp::runtime::il2cpp_culture_get_current", 0, true, true, false,
+                            returnTypeName: "System.String");
                     case "get_InvariantInfo":
-                        return new ResolvedMethod(ResolvedMethod.NullMarker, 0, false, true, true, Array.Empty<bool>(), false);
+                        return I("il2cpp::runtime::il2cpp_culture_get_invariant", 0, true, true, false,
+                            returnTypeName: "System.String");
                     // Instance getters fold to the invariant-culture literal
                     // strings (numberformat.h baseline); the receiver is
                     // discarded by the fold.
                     case "get_NumberDecimalSeparator": return Literal(".");
                     case "get_NumberGroupSeparator": return Literal(",");
                     case "get_PercentSymbol": return Literal("%");
-                    // D-CUL-1 (culturefmt, 2026-08-12): the zh-CN currency
-                    // symbol U+00A5 '¥' -- the SAME spelling formatext.cpp's C
-                    // format emits, so the getter and ToString("C") agree.
-                    // The null-folded receiver (get_CurrentInfo/get_InvariantInfo)
-                    // is dropped by the "drop" cast (the TextInfo.ToLower
-                    // precedent); the icall takes no arguments.
+                    // saudit4: the culture-name receiver selects the symbol
+                    // ("" -> U+00A4 invariant, else U+00A5 zh-CN).
                     case "get_CurrencySymbol":
+                        // culturefmt fix (2026-09-13): VALUE receivers (a static
+                        // get_CurrentInfo call result -- the culture NAME string)
+                        // must pass through as the helper argument; the
+                        // rr=true/inst=true shape only built the arg for
+                        // ldloca-shaped receivers, so `CurrentInfo.CurrencySymbol`
+                        // desynced StackFold (culturefmt IL_0F16 stack 0). Same
+                        // value shape as the BigInteger helpers (1,true,false,false).
                         return I("il2cpp::runtime::il2cpp_number_format_currency_symbol", 0, true, true, true,
-                            new[] { "drop" }, returnTypeName: "System.String");
+                            new[] { "" }, returnTypeName: "System.String");
                     case "get_PercentDecimalSeparator": return Literal(".");
                     case "get_PercentGroupSeparator": return Literal(",");
                     case "get_PositiveSign": return Literal("+");
@@ -90,8 +98,14 @@ public static partial class MethodRefResolver
                     // are reachable here (numeric ToString(format) owners stay
                     // on the zh-CN format_ext domain, see the status header).
                     case "get_NaNSymbol": return Literal("NaN");
-                    case "get_PositiveInfinitySymbol": return Literal("Infinity");
-                    case "get_NegativeInfinitySymbol": return Literal("-Infinity");
+                    // saudit1: same culture-name dispatch as the currency
+                    // symbol ("" -> "Infinity"/"-Infinity"; else U+221E).
+                    case "get_PositiveInfinitySymbol":
+                        return I("il2cpp::runtime::il2cpp_number_format_positive_infinity_symbol", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.String");
+                    case "get_NegativeInfinitySymbol":
+                        return I("il2cpp::runtime::il2cpp_number_format_negative_infinity_symbol", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.String");
                     default: return null;
                 }
             case "System.Globalization.TextInfo":

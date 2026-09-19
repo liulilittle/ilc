@@ -841,13 +841,13 @@ Il2CppObject* icall_datatable_select(Il2CppObject* self, Il2CppObject* filter)
     // the optional second is [andPos + 3, flen).
     const int32_t andPos = FindAndSeparator(f, flen);
     const int32_t seg1End = andPos < 0 ? flen : andPos;
-    SelectCond c1;
+    SelectCond c1{};
     const bool hasC1 = flen > 0; // an empty filter matches every row (net48)
     if (hasC1 && !c1.Parse(f, 0, seg1End, t))
     {
         il2cpp_throw_argument_exception("Unsupported filter expression.");
     }
-    SelectCond c2;
+    SelectCond c2{};
     const bool hasC2 = andPos >= 0;
     if (hasC2 && !c2.Parse(f, andPos + 3, flen, t))
     {
@@ -1094,7 +1094,7 @@ Il2CppObject* icall_datatable_compute(Il2CppObject* self, Il2CppObject* expressi
     int32_t colEnd = flen - 1;
     while (colStart < colEnd && (f[colStart] == u' ' || f[colStart] == u'\t')) ++colStart;
     while (colEnd > colStart && (f[colEnd - 1] == u' ' || f[colEnd - 1] == u'\t')) --colEnd;
-    enum AggKind { kSum, kCount, kAvg, kMin, kMax } kind;
+    enum AggKind { kSum, kCount, kAvg, kMin, kMax } kind = kSum;
     const int32_t fnLen = fnEnd - fnStart;
     if (fnLen == 3 && (f[fnStart] | 0x20) == u's' && (f[fnStart + 1] | 0x20) == u'u' && (f[fnStart + 2] | 0x20) == u'm')
     {
@@ -1151,7 +1151,7 @@ Il2CppObject* icall_datatable_compute(Il2CppObject* self, Il2CppObject* expressi
     // Parse the optional filter (the Select AND grammar). The filter chars
     // pointer stays valid for the row loop (no allocation happens between
     // the parse and the loop, so no collection can move the filter string).
-    SelectCond cond;
+    SelectCond cond{};
     bool hasCond = false;
     const char16_t* ff = nullptr;
     if (filter != nullptr)

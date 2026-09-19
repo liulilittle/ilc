@@ -32,6 +32,7 @@
 
 #include "il2cpp_delegate_ext.h"  // icall_delegate_get_fn_ptr (unwrap)
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception
+#include "threadobj.h"            // il2cpp_threadobj_register_pool_worker (MTID)
 
 #include <atomic>
 #include <cstdint>
@@ -42,7 +43,9 @@
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #ifndef _WIN32_WINNT
         #define _WIN32_WINNT 0x0600 // CONDITION_VARIABLE (Vista+)
     #endif
@@ -92,6 +95,12 @@ thread_local bool g_isPoolWorker = false;
 void mark_pool_worker()
 {
     g_isPoolWorker = true;
+    // MTID (net48 contract, A1 F50B348A item 5): a pool worker shares the
+    // process-wide managed-id space with explicit Thread objects and REUSES
+    // its id across every work item it serves. Register ONCE at thread start
+    // (idempotent per thread) so Thread.CurrentThread.ManagedThreadId inside a
+    // work item reports the worker's id, not the main-thread default 1.
+    il2cpp::runtime::il2cpp_threadobj_register_pool_worker();
 }
 
 // Fixed worker count: min(CPU core count, 4), never below 1.

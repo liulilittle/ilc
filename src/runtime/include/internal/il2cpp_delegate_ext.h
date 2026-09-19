@@ -200,6 +200,9 @@ void icall_multicast_invoke_rr_void(Il2CppObject* list, Il2CppObject* a0, Il2Cpp
 // custom 1-ref void delegates). Per-leaf static/instance dispatch like the i4
 // variant.
 void icall_multicast_invoke_r_void(Il2CppObject* list, Il2CppObject* a0);
+// rlaudit4: ref-returning ZERO-arg multicast invoke (Func<string>, ...); the
+// LAST leaf's result wins (see the i4 variant for the per-leaf dispatch).
+Il2CppObject* icall_multicast_invoke_r(Il2CppObject* list);
 
 // Delegate -> native function pointer (delegatecb domain): the address the
 // transpiler passes when a managed delegate is handed to a native function
@@ -217,6 +220,28 @@ void icall_multicast_invoke_r_void(Il2CppObject* list, Il2CppObject* a0);
 //     callback to bind -- calling it would corrupt the call).
 // Only a static-method single-cast delegate yields a pointer.
 void* icall_delegate_get_fn_ptr(Il2CppObject* d);
+
+// Delegate -> (methodPtr, target) for the THREADING domain: unlike
+// icall_delegate_get_fn_ptr this ALSO accepts an INSTANCE-method delegate
+// (target != null) -- a spawned Thread's ThreadStart callback may be an
+// instance-method delegate (a closure / lambda over captured state, whose
+// target is the compiler-generated display class). The methodPtr is the
+// generated INSTANCE ABI entry (void(*)(Il2CppObject* this)); the caller
+// invokes it with the returned target in the `this` slot. Still LOUDLY
+// rejects null (NullReferenceException) and multicast containers
+// (InvalidOperationException) -- a Thread callback must be single-cast.
+// *outTarget receives the leaf's target (null for a static method).
+void* icall_delegate_get_fn_ptr_target(Il2CppObject* d, Il2CppObject** outTarget);
+
+// Delegate -> (methodPtr, target) for the ThreadStart ctor path (instance
+// method delegates -- closure/lambda captures). Unlike icall_delegate_get_fn_ptr
+// this ACCEPTS an instance-bound delegate (target != null) and returns its
+// target through *outTarget, so the caller can invoke the generated instance
+// ABI `void M(Il2CppObject* this)` with the target in the `this` slot. null
+// input raises a NullReferenceException; a MULTICAST container raises an
+// InvalidOperationException (ThreadStart must be single-cast). *outTarget is
+// set to null for a static-method delegate.
+void* icall_delegate_unwrap(Il2CppObject* d, Il2CppObject** outTarget);
 
 // Delegate -> named callback table entry (delegatecb domain): registers the
 // delegate's methodPtr in the P/Invoke callback registry (pinvokeext) under

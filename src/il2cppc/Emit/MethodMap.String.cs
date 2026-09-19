@@ -329,6 +329,15 @@ case "ReplaceLineEndings":
                         0x11 => I("il2cpp::runtime::icall_string_equals_culture", 2, true, false, true, new[] { "", "", "i" }),
                         _ => throw new NotSupportedException($"String.Equals 2-arg param type 0x{ps[1]:X2} not wired in M5"),
                     };
+                // dscmp: STATIC Equals(string a, string b, StringComparison)
+                // -- no receiver; the mode-aware runtime primitive takes
+                // (this_=a, value=b, mode) and folds the culture modes to
+                // ordinal (il2cpp_string_ext2.h:96). ParamCount = IL arity 3;
+                // the 0x11 enum signature carries the trailing TypeHandle.
+                if (ps.Length == 3 && ps[2] == 0x11)
+                    return I("il2cpp::runtime::icall_string_equals_culture", 3, true, false, false, new[] { "", "", "i" });
+                if (ps.Length == 3 && ps[2] == 0x02)
+                    throw new NotSupportedException($"String.{name}(string, string, bool ignoreCase) not wired (no mode-aware static equals icall; dropping the flag would silently ignore ignoreCase=true)");
                 throw new NotSupportedException($"String.Equals with {ps.Length} arg(s) not wired in M5");
             case "op_Equality":
                 // string == string: ORDINAL CONTENT equality (the runtime's

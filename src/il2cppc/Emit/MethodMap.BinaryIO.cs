@@ -23,8 +23,10 @@ namespace Il2Cpp.Transpiler.Emit;
 //     the fixed-width set above -- routing Write(byte) through write_int32
 //     would emit 4 bytes instead of 1 (protocol corruption).
 //   * Write(decimal)/Write(byte[])/Write(char[]): no runtime icall.
-//   * ReadByte: il2cpp_binary_read_bool normalizes to 0/1, while .NET
-//     ReadByte returns the raw byte (0x02 reads back as 2, not 1).
+//   * ReadByte is WIRED (WAVE2): the RAW-byte icall
+//     il2cpp_binary_read_byte returns the 0..255 byte. It must NOT route
+//     through il2cpp_binary_read_bool (whose 0/1 normalization is only right
+//     for ReadBoolean).
 //   * ReadSByte/ReadInt16/ReadUInt16/ReadUInt64/ReadChar/ReadDecimal: no
 //     runtime icall for the 1/2/8-byte and decimal widths.
 //   * .ctor(Stream)/get_BaseStream: the RUNTIME object surface EXISTS
@@ -100,7 +102,10 @@ public static partial class MethodRefResolver
                     case "ReadBoolean": return I("il2cpp::runtime::icall_binary_read_bool", 0, true, false, true);
                     case "ReadString": return I("il2cpp::runtime::icall_binary_read_string", 0, true, true, true, null, null, false, false, false, "System.String");
                     case "ReadByte":
-                        throw new NotSupportedException("ReadByte: il2cpp_binary_read_bool normalizes to 0/1, .NET ReadByte returns the raw byte 0..255");
+                        // WAVE2: the RAW next byte (0..255). NOT the bool
+                        // icall: il2cpp_binary_read_bool normalizes to 0/1,
+                        // which is only correct for ReadBoolean.
+                        return I("il2cpp::runtime::icall_binary_read_byte", 0, true, false, true);
                     case "ReadSByte":
                     case "ReadInt16":
                     case "ReadUInt16":

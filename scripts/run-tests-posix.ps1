@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$TestDir = "",
     [string]$Filter = "",
     [int]$TimeoutSec = 120,

@@ -17,10 +17,12 @@
         #define _WIN32_WINNT 0x0600
     #endif
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <winsock2.h>
     #include <ws2tcpip.h>
-    #if defined(_MSC_VER) || (defined(__MINGW32__) && !defined(__clang__))
+    #if defined(_MSC_VER)
         #pragma comment(lib, "ws2_32.lib")
     #endif
     #include <mutex>

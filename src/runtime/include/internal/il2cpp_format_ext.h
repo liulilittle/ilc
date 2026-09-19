@@ -7,9 +7,9 @@
 // System.Double.ToString(string)) to these runtime helpers -- the same icall
 // pattern as il2cpp_format.h:
 //
-//   icall_format_int32_custom(int32_t value, Il2CppObject* format)
-//   icall_format_int64_custom(int64_t value, Il2CppObject* format)
-//   icall_format_double_custom(double value, Il2CppObject* format)
+//   icall_format_int32_custom(int32_t value, Il2CppObject* format, Il2CppObject* provider = nullptr)
+//   icall_format_int64_custom(int64_t value, Il2CppObject* format, Il2CppObject* provider = nullptr)
+//   icall_format_double_custom(double value, Il2CppObject* format, Il2CppObject* provider)
 //
 // 'format' is a System.String object (null is legal); the return value is the
 // formatted System.String (Il2CppObject* carrier). SEMANTIC BASELINE: .NET
@@ -96,15 +96,29 @@ namespace il2cpp { namespace runtime {
 
 // int32/uint32 -> formatted string per the subset above. 'format' == null or
 // "" selects "G". Unknown format -> FormatException.
-Il2CppObject* icall_format_int32_custom(int32_t value, Il2CppObject* format);
+// cultureprobe (saudit4): 'provider' mirrors the double formatter contract --
+// nullptr / non-empty name -> the zh-CN host layout (byte-identical to the
+// pre-provider behavior); the empty-name (invariant) provider -> invariant
+// C ("(¤n)-negatives", U+00A4) / P ("n %") layouts. Defaulted so every
+// pre-existing 2-arg call site stays ABI- and byte-compatible.
+Il2CppObject* icall_format_int32_custom(int32_t value, Il2CppObject* format,
+                                        Il2CppObject* provider = nullptr);
 
 // int64 -> formatted string per the subset above (hex is 16-digit
-// two's-complement for negatives).
-Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format);
+// two's-complement for negatives). Provider semantics as int32 (above).
+Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format,
+                                        Il2CppObject* provider = nullptr);
 
 // double -> formatted string per the subset above (F/N/E/G/P + simplified
 // '0'/'.' custom formats). Unknown format -> FormatException.
-Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format);
+// cultureprobe: 'provider' is the optional IFormatProvider (the 2-arg
+// ToString(string, IFormatProvider) overload passes it through; the 1-arg
+// form and the composite engine pass nullptr). nullptr / non-empty name ->
+// the zh-CN host layout (byte-identical to the pre-provider behavior); an
+// empty-name (invariant) provider -> the invariant P ("n %") / C (U+00A4,
+// "(¤n)") layouts.
+Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
+                                         Il2CppObject* provider);
 
 //------------------------------------------------------------------------------
 // icall_format_composite_item -- format ONE composite-format argument (the
@@ -117,6 +131,9 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format);
 //   alignment : the net48 field-width specifier (0 = none; positive =
 //               right-align to |alignment|; negative = left-align; the width
 //               is a MINIMUM -- a longer formatted text is never truncated).
+//   provider  : the IFormatProvider of the enclosing String.Format /
+//               AppendFormat call (saudit4; nullptr for the provider-less
+//               overloads -> zh-CN layout, invariant name -> invariant).
 //
 // Dispatch (net48 composite semantics): boxed Int32/Int64/Double/Single route
 // through the icall_format_*_custom engine (so "f2"/"x"/"X"/... work); boxed
@@ -125,6 +142,7 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format);
 // any other object prints its plain ToString() text (specifier ignored). The
 // result is then space-padded to the alignment width. Returns a fresh string.
 //------------------------------------------------------------------------------
-Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* format, int32_t alignment);
+Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* format, int32_t alignment,
+                                          Il2CppObject* provider = nullptr);
 
 }} // namespace il2cpp::runtime

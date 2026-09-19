@@ -27,7 +27,7 @@ public class MethodMapTestsTypeGetTypeCode
         Assert.False(resolved.IsInstance);
         Assert.Equal(1, resolved.ParamCount);
         // Verify the Type object -> klass conversion cast is applied
-        Assert.Equal("klass", resolved.ParamTypeNames[0]);
+        Assert.Equal("klass", resolved.ParamTypeNames![0]);
     }
 
     //--------------------------------------------------------------------------

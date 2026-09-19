@@ -121,15 +121,16 @@ public static partial class MethodRefResolver
     }
 
     // ToT(byte[]) -- offset-free form; ToT(byte[], int) -- the startIndex is
-    // DROPPED (the runtime simplified form reads from index 0, bitconverter.h).
-    // The byte[] param carries the "a" array cast in both forms (the icalls
-    // declare Il2CppArray*, not Il2CppObject*).
+    // PASSED to the runtime _offset icall (D-A/D-B fix, 2026-09-19: it used to
+    // be DROPPED, so a negative index returned a value instead of throwing and
+    // a positive index was ignored). The byte[] param carries the "a" array
+    // cast (the icalls declare Il2CppArray*, not Il2CppObject*).
     private static ResolvedMethod? MapToT(string icall, byte[] ps, string? resultKind = null)
         => ps.Length switch
         {
             1 => I(icall, 1, true, false, false, new[] { "a" }, resultKind),
             2 => ps[1] == 0x08
-                ? I(icall, 2, true, false, false, new[] { "a", "drop" }, resultKind)
+                ? I(icall + "_offset", 2, true, false, false, new[] { "a", "i" }, resultKind)
                 : throw new NotSupportedException($"BitConverter.ToT startIndex param type 0x{ps[1]:X2} not wired (int32 form only)"),
             _ => throw new NotSupportedException($"BitConverter.ToT arity {ps.Length} not wired (offset-free and startIndex forms only)"),
         };

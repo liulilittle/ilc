@@ -81,6 +81,44 @@ public class BclAllocExprTests
         return BuildMainBody(mdb, ctor);
     }
 
+    [Fact]
+    public void Generate_NewListException_AllocatesThroughListObjClass()
+    {
+        // new List<System.Exception> (parent TypeSpec List`1 + 0x12
+        // System.Exception): the dotted user-class instantiation rides the
+        // shared listobj descriptor (A5/B1/B6).
+        var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_bclalloc_" + Guid.NewGuid().ToString("N") + ".dll");
+        File.WriteAllBytes(tmp, SynthesizeNewListException().ToArray());
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var types = MetadataLoader.LoadAssembly(tmp);
+            CodeGenerator.Generate(types, dir, tmp);
+            var generated = File.ReadAllText(Path.Combine(dir, "src", "Cases_GenList.cpp"));
+            Assert.Contains("il2cpp_object_new(il2cpp::il2cpp_list_obj_class())", generated);
+        }
+        finally
+        {
+            File.Delete(tmp);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    // TypeRefs: Object (row 1), List`1 (row 2 -> coded 0x09), Exception
+    // (row 3 -> coded 0x0D); TypeSpec List<Exception>
+    // [15 12 09 01 12 0D]; ctor MemberRef (parent = TypeSpec, sig 20 00 01).
+    private static MemoryStream SynthesizeNewListException()
+    {
+        var mdb = NewBuilder();
+        var objRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var listRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb),
+            mdb.GetOrAddString("System.Collections.Generic"), mdb.GetOrAddString("List`1"));
+        var excRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("Exception"));
+        var typeSpec = mdb.AddTypeSpecification(mdb.GetOrAddBlob(new byte[] { 0x15, 0x12, 0x09, 0x01, 0x12, 0x0D }));
+        var ctor = mdb.AddMemberReference(typeSpec, mdb.GetOrAddString(".ctor"), mdb.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }));
+        return BuildMainBody(mdb, ctor);
+    }
+
     // System.Object::.ctor MemberRef (parent = the Object TypeRef, sig
     // 20 00 01); Main body does newobj <0A000001>; pop; ret.
     private static MemoryStream SynthesizeNewObject()

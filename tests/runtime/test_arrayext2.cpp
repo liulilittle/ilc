@@ -483,13 +483,13 @@ int main()
         ExpectI32(il2cpp::runtime::icall_array_binary_search_int32(AsObject(even), 2), ~1,
                   "binary_search_int32 even-length miss returns ~insertion point");
 
-        // Duplicates: any match is a valid index; this implementation returns
-        // the FIRST occurrence (lower-bound).
+        // Duplicates: net48 probes the MIDPOINT and returns that equality hit
+        // (not necessarily the first); {1,2,2,2,3} with 2 -> index 2.
         il2cpp::Il2CppArray* dup = NewInt32Array(5);
         const int32_t dupVals[5] = { 1, 2, 2, 2, 3 };
         FillInt32(dup, dupVals, 5);
-        ExpectI32(il2cpp::runtime::icall_array_binary_search_int32(AsObject(dup), 2), 1,
-                  "binary_search_int32 with duplicates returns the first match");
+        ExpectI32(il2cpp::runtime::icall_array_binary_search_int32(AsObject(dup), 2), 2,
+                  "binary_search_int32 with duplicates returns the midpoint hit (net48)");
 
         il2cpp::Il2CppArray* neg = NewInt32Array(3);
         const int32_t negVals[3] = { -5, -3, -1 };

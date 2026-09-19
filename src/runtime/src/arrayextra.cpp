@@ -205,6 +205,18 @@ void il2cpp_array_reverse_int64(Il2CppArray* arr)
     }
 }
 
+// W7: the double 1-arg reverser (8-byte slot reversal, same contract as
+// the int64 twin above).
+void il2cpp_array_reverse_double(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, sizeof(double));
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<double*>(a->data), a->length);
+    }
+}
+
 //------------------------------------------------------------------------------
 // il2cpp_array_reverse_string/object -- Array.Reverse(T[]) reference variants
 // (see header). In-place reversal of the Il2CppObject* slots (identity --

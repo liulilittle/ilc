@@ -14,11 +14,16 @@
 //   5. icall_dtoffset_compare / equals: two offsets of the SAME UTC instant
 //      compare equal and are equal (net48 semantics); different instants
 //      order by UTC.
-//   6. icall_dtoffset_to_string: the "MM/dd/yyyy HH:mm:ss zzz" shape
-//      ("02/29/2000 12:00:00 +08:00", "-05:30" for a negative offset).
+//   6. icall_dtoffset_to_string: the net48 default -- the selected
+//      culture's General "G" pattern plus " zzz" (host-default zh-CN
+//      "2000/2/29 12:00:00 +08:00", "-05:30" for a negative offset).
 //   7. Offset validation errors: a non-whole-minute offset and an offset
 //      outside [-14:00, +14:00] throw ArgumentOutOfRangeException; the
 //      boundary offsets (+14:00 / -14:00) are accepted.
+//   8. icall_dtoffset_to_string_format: invariant/zh-CN standard patterns,
+//      explicit "G" without the offset, o/O round trip, u/r UTC conversion,
+//      "U"/unknown-letter FormatException, custom z/zz/zzz/K and '%' tokens,
+//      null/empty format + provider carriers (the dtoffsetfmt oracle).
 //
 // Like the other runtime tests: a plain executable with a minimal assertion
 // harness -- any failed Expect() prints FAIL and bumps the counter; the
@@ -95,6 +100,20 @@ bool TextEquals(il2cpp::Il2CppObject* s, const char* expected)
         }
     }
     return true;
+}
+
+// ToString(format, provider) with ASCII carriers (nullptr = absent).
+il2cpp::Il2CppObject* Fmt(const il2cpp::runtime::Il2CppDateTimeOffset& dto,
+                          const char* format, const char* provider)
+{
+    return il2cpp::runtime::icall_dtoffset_to_string_format(
+        dto,
+        format == nullptr ? nullptr
+                          : reinterpret_cast<il2cpp::Il2CppObject*>(
+                                il2cpp::il2cpp_string_new_from_cs(format)),
+        provider == nullptr ? nullptr
+                            : reinterpret_cast<il2cpp::Il2CppObject*>(
+                                  il2cpp::il2cpp_string_new_from_cs(provider)));
 }
 
 } // namespace
@@ -207,19 +226,24 @@ int main()
                "different UTC instants are not equal");
     }
 
-    // --- 6. ToString: "MM/dd/yyyy HH:mm:ss zzz" ---
+    // --- 6. ToString: the net48 default (culture General + " zzz") ---
     {
         Il2CppDateTimeOffset dto;
         il2cpp::runtime::icall_dtoffset_ctor(
             &dto, MakeDate(2000, 2, 29, 12, 0, 0), MakeSpan(8, 0));
         Expect(TextEquals(il2cpp::runtime::icall_dtoffset_to_string(dto),
-                          "02/29/2000 12:00:00 +08:00"),
-               "ToString formats local time + positive offset");
+                          "2000/2/29 12:00:00 +08:00"),
+               "ToString formats the host-default zh-CN G pattern + positive offset");
         il2cpp::runtime::icall_dtoffset_ctor(
             &dto, MakeDate(2000, 2, 29, 12, 0, 0), MakeSpan(-5, -30));
         Expect(TextEquals(il2cpp::runtime::icall_dtoffset_to_string(dto),
-                          "02/29/2000 12:00:00 -05:30"),
+                          "2000/2/29 12:00:00 -05:30"),
                "ToString formats a negative offset");
+        il2cpp::runtime::icall_dtoffset_ctor(
+            &dto, MakeDate(2000, 2, 29, 12, 0, 0), MakeSpan(0, 0));
+        Expect(TextEquals(il2cpp::runtime::icall_dtoffset_to_string(dto),
+                          "2000/2/29 12:00:00 +00:00"),
+               "ToString formats a zero offset as +00:00");
     }
 
     // --- 7. Offset validation errors ---
@@ -258,6 +282,76 @@ int main()
             Expect(il2cpp::runtime::icall_dtoffset_get_hour(dto) == 12,
                    "-14:00 boundary offset is accepted");
         }
+    }
+
+    // --- 8. ToString(format[, provider]): the net48 DateTimeOffset contract ---
+    {
+        Il2CppDateTimeOffset p8;
+        Il2CppDateTimeOffset m530;
+        il2cpp::runtime::icall_dtoffset_ctor(
+            &p8, MakeDate(2000, 2, 29, 12, 0, 0), MakeSpan(8, 0));
+        il2cpp::runtime::icall_dtoffset_ctor(
+            &m530, MakeDate(2000, 2, 29, 12, 0, 0), MakeSpan(-5, -30));
+
+        // Standard specifiers: invariant (empty-name carrier) vs zh-CN.
+        Expect(TextEquals(Fmt(p8, "d", ""), "02/29/2000"),
+               "invariant 'd' short date");
+        Expect(TextEquals(Fmt(p8, "d", "zh-CN"), "2000/2/29"),
+               "zh-CN 'd' short date");
+        Expect(TextEquals(Fmt(p8, "D", ""), "Tuesday, 29 February 2000"),
+               "invariant 'D' long date");
+        Expect(TextEquals(Fmt(p8, "G", ""), "02/29/2000 12:00:00"),
+               "explicit 'G' has NO offset (net48)");
+        Expect(TextEquals(Fmt(p8, "g", "zh-CN"), "2000/2/29 12:00"),
+               "zh-CN 'g' general short");
+        Expect(TextEquals(Fmt(p8, "o", ""), "2000-02-29T12:00:00.0000000+08:00"),
+               "'o' round trip: local + 7 fraction digits + offset");
+        Expect(TextEquals(Fmt(p8, "O", ""), "2000-02-29T12:00:00.0000000+08:00"),
+               "'O' round trip");
+        Expect(TextEquals(Fmt(p8, "r", ""), "Tue, 29 Feb 2000 04:00:00 GMT"),
+               "'r' formats the UTC instant (12:00+08 -> 04:00Z)");
+        Expect(TextEquals(Fmt(p8, "R", ""), "Tue, 29 Feb 2000 04:00:00 GMT"),
+               "'R' formats the UTC instant");
+        Expect(TextEquals(Fmt(p8, "u", ""), "2000-02-29 04:00:00Z"),
+               "'u' formats the UTC instant");
+        Expect(ThrowsWithType([&] { (void)Fmt(p8, "U", ""); },
+                              "System.FormatException"),
+               "DateTimeOffset 'U' throws FormatException (net48)");
+        Expect(ThrowsWithType([&] { (void)Fmt(p8, "q", ""); },
+                              "System.FormatException"),
+               "unknown standard letter throws FormatException");
+        Expect(ThrowsWithType([&] { (void)Fmt(p8, "K", ""); },
+                              "System.FormatException"),
+               "single-letter 'K' is a standard lookup -> FormatException");
+        Expect(ThrowsWithType([&] { (void)Fmt(p8, "z", ""); },
+                              "System.FormatException"),
+               "single-letter 'z' is a standard lookup -> FormatException");
+
+        // Custom offset tokens and the '%' escape (net48 oracle).
+        Expect(TextEquals(Fmt(p8, "yyyy-MM-dd HH:mm:ss zzz", ""),
+                          "2000-02-29 12:00:00 +08:00"),
+               "custom zzz = +HH:mm");
+        Expect(TextEquals(Fmt(m530, "yyyy-MM-dd HH:mm:ss zzz", ""),
+                          "2000-02-29 12:00:00 -05:30"),
+               "custom zzz for a negative half-hour offset");
+        Expect(TextEquals(Fmt(p8, "H:mm z", ""), "12:00 +8"),
+               "custom z = unpadded hours");
+        Expect(TextEquals(Fmt(p8, "H:mm zz", ""), "12:00 +08"),
+               "custom zz = 2-digit hours");
+        Expect(TextEquals(Fmt(p8, "yyyy K", ""), "2000 +08:00"),
+               "custom K = the full +HH:mm offset");
+        Expect(TextEquals(Fmt(p8, "%z", ""), "+8"),
+               "'%z' forces the custom z token");
+        Expect(TextEquals(Fmt(p8, "%K", ""), "+08:00"),
+               "'%K' forces the custom K token");
+
+        // Null/empty format + provider selection (the parameterless path).
+        Expect(TextEquals(Fmt(p8, nullptr, ""), "02/29/2000 12:00:00 +08:00"),
+               "null format + invariant carrier = invariant G + zzz");
+        Expect(TextEquals(Fmt(p8, "", ""), "02/29/2000 12:00:00 +08:00"),
+               "empty format + invariant carrier = invariant G + zzz");
+        Expect(TextEquals(Fmt(p8, nullptr, nullptr), "2000/2/29 12:00:00 +08:00"),
+               "null provider selects the host default zh-CN");
     }
 
     // --- Report ---

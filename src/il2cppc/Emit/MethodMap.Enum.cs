@@ -212,8 +212,17 @@ public static partial class MethodRefResolver
             // named-value path becomes reachable once typeof/ldtoken emits a
             // name-bearing descriptor (REGISTER WIRING REPORT e.1-e.2).
             case "GetUnderlyingType":
-                return I("il2cpp::runtime::il2cpp_enum_get_underlying_type", 1, true, true, false,
-                    new[] { "drop" }, null, false, true, false, "System.String");
+                // raudit4: the runtime resolves the registered enum metadata by
+                // the folded typeof NAME string (the descriptor variant stays
+                // for internal callers). Returns "System.Int64" for a
+                // long-backed enum.
+                // VERIFY-FIX (pre-apply verification): prependZero must be FALSE --
+                // the runtime by_type_name variant takes exactly ONE parameter
+                // (Il2CppObject* typeName, enumext.cpp); the patch's
+                // prependZero=true emitted `(0, name)` (2 args) and broke the
+                // generated-C++ compile.
+                return I("il2cpp::runtime::il2cpp_enum_get_underlying_type_by_type_name", 1, true, true, false,
+                    new[] { "" }, null, false, false, false, "System.String");
             // object Parse(Type, string[, bool]): WIRED for the 2-arg
             // overload (enumface, D-STREN-2, 2026-08-12) and the 3-arg
             // ignoreCase overload (batch 148: il2cpp_enum_parse_boxed_ic,
@@ -446,9 +455,29 @@ public static partial class MethodRefResolver
             return false;
         }
         var literals = t.StaticFields.Where(f => f.IsLiteral).ToList();
+        // raudit4: the underlying width comes from the compiler-generated
+        // `value__` instance field (System.Int64 for `enum LE : long`); the
+        // old hard-coded Int32 truncated 64-bit members at registration.
+        var underlying = UnderlyingInt32;
+        var valueField = t.InstanceFields.FirstOrDefault(f => f.Name == "value__");
+        if (valueField != null)
+        {
+            underlying = valueField.FieldTypeName switch
+            {
+                "System.SByte"  => 5,
+                "System.Byte"   => 6,
+                "System.Int16"  => 7,
+                "System.UInt16" => 8,
+                "System.Int32"  => UnderlyingInt32,
+                "System.UInt32" => 10,
+                "System.Int64"  => 11,
+                "System.UInt64" => 12,
+                _ => UnderlyingInt32,
+            };
+        }
         info = new EnumRegisterInfo(
-            t.FullName,
-            UnderlyingInt32,
+            TypeEmitter.ReflectionFullName(t),
+            underlying,
             literals.Select(f => f.Name).ToArray(),
             literals.Select(f => long.TryParse(f.ConstantValue, out var v) ? v : 0L).ToArray());
         return true;

@@ -48,6 +48,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace il2cpp { namespace runtime {
@@ -159,61 +160,23 @@ struct MatchSpan
     std::vector<RegexGroupCapture> groups;
 };
 
-// True when the AST contains a ^ anchor in any form (Start without
-// Multiline, LineStart with Multiline). Only such patterns can produce the
-// slice-0 phantom described in the header note.
-bool HasStartAnchor(const RegexNode* node)
-{
-    if (node == nullptr)
-    {
-        return false;
-    }
-    if (node->kind == RegexNodeKind::Anchor &&
-        (node->anchor == AnchorKind::Start || node->anchor == AnchorKind::LineStart))
-    {
-        return true;
-    }
-    if (node->child != nullptr && HasStartAnchor(node->child))
-    {
-        return true;
-    }
-    for (int32_t i = 0; i < node->childCount; ++i)
-    {
-        if (HasStartAnchor(node->children[i]))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 // Collect every match in input[0..textLen) per docs §2.5: non-overlapping
 // (next search from the match end), empty matches advance the search one
-// unit (no dead loop). Start-anchored patterns: a match at the slice
-// position 0 that the anchor would not accept at its absolute position is a
-// suffix-call phantom -- skipped by advancing the search one unit.
+// unit (no dead loop). Anchor positions are ABSOLUTE (RegexMatchAt), so the
+// suffix scan cannot re-anchor and no phantom filter is needed.
 void CollectMatches(const RegexAst* ast, const char16_t* text, int32_t textLen,
                     std::vector<MatchSpan>& spans)
 {
-    const bool anchored = HasStartAnchor(ast->root);
-    const bool multiline = (ast->options & kRegexOptionsMultiline) != 0;
     int32_t pos = 0;
     for (;;)
     {
         MatchResult m;
-        const bool ok = il2cpp_regex_match(ast, text + pos, textLen - pos, &m);
+        const bool ok = RegexMatchAt(ast, text + pos, textLen - pos, pos, &m);
         if (!ok || !m.success)
         {
             break;
         }
         const int32_t absStart = pos + m.start;
-        const bool phantom = anchored && m.start == 0 && absStart != 0 &&
-                             !(multiline && text[absStart - 1] == u'\n');
-        if (phantom)
-        {
-            ++pos; // the anchor does not hold here; scan from the next unit
-            continue;
-        }
         MatchSpan span;
         span.start = absStart;
         span.length = m.matchedLength;

@@ -1,3 +1,7 @@
+#if defined(__arm__) || defined(_M_ARM) || defined(__i386__) || defined(_M_IX86)
+#error "il2cpp runtime: 32-bit targets are not supported in phase 1 (arm64-v8a/x86_64 only)"
+#endif
+
 #pragma once
 //------------------------------------------------------------------------------
 // il2cpp_char.h -- System.Char STATIC surface runtime support (D-CHA-2).

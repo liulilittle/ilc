@@ -323,17 +323,17 @@ Il2CppObject* il2cpp_string_intern(Il2CppObject* str)
 // skipped by the M3 transcoder, so only the created string is a faithful
 // key). On a miss, the created string is inserted and returned.
 //------------------------------------------------------------------------------
-Il2CppObject* il2cpp_string_intern_literal(const char* utf8)
+Il2CppObject* il2cpp_string_intern_literal_n(const char* utf8, int32_t byteLen)
 {
     std::lock_guard<std::recursive_mutex> lock(g_internMutex);
     EnsureInternTable();
-    if (utf8 == nullptr)
+    if (utf8 == nullptr || byteLen <= 0)
     {
         return il2cpp_string_intern(reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0))); // defensive: empty string
     }
-    const size_t byteLen = std::strlen(utf8);
+    const size_t n = static_cast<size_t>(byteLen);
     bool ascii = true;
-    for (size_t i = 0; i < byteLen; ++i)
+    for (size_t i = 0; i < n; ++i)
     {
         if (static_cast<unsigned char>(utf8[i]) >= 0x80)
         {
@@ -343,7 +343,7 @@ Il2CppObject* il2cpp_string_intern_literal(const char* utf8)
     }
     if (ascii)
     {
-        const int32_t length = static_cast<int32_t>(byteLen);
+        const int32_t length = byteLen;
         Il2CppArray* table = g_internSlots;
         const int32_t mask = table->length - 1;
         uint32_t idx = HashAsciiBytes(utf8, length) & static_cast<uint32_t>(mask);
@@ -361,7 +361,13 @@ Il2CppObject* il2cpp_string_intern_literal(const char* utf8)
             idx = (idx + 1) & static_cast<uint32_t>(mask);
         }
     }
-    return InternInsert(reinterpret_cast<Il2CppString*>(il2cpp_string_new_from_utf8(utf8)));
+    return InternInsert(reinterpret_cast<Il2CppString*>(il2cpp_string_new_from_utf8_n(utf8, byteLen)));
+}
+
+Il2CppObject* il2cpp_string_intern_literal(const char* utf8)
+{
+    return il2cpp_string_intern_literal_n(
+        utf8, utf8 != nullptr ? static_cast<int32_t>(std::strlen(utf8)) : 0);
 }
 
 } // namespace il2cpp

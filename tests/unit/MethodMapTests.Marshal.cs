@@ -97,6 +97,10 @@ public class MethodMapMarshalTests
         Assert.True(m.ReturnsValue);
         Assert.Equal(1, m.ParamCount);
         Assert.Equal("i", m.ParamTypeNames![0]);
+        // R2b (strictalias): the helper returns intptr_t; the 0x11 VALUETYPE
+        // signature here is NOT rescued by the raw-0x18 signature fallback
+        // (StackFold.UserCallResultKind), so the mapping must carry "ptr".
+        Assert.Equal("ptr", m.ResultKind);
     }
 
     [Fact]
@@ -107,6 +111,7 @@ public class MethodMapMarshalTests
         Assert.Equal("il2cpp::runtime::icall_marshal_alloc_hglobal", m.CppName);
         Assert.False(m.IsInstance);
         Assert.Equal(1, m.ParamCount);
+        Assert.Equal("ptr", m.ResultKind);
     }
 
     //--------------------------------------------------------------------------

@@ -91,5 +91,73 @@ int32_t icall_hashset_string_get_count(Il2CppObject* self);
 // Clear(): count -> 0; the set stays reusable.
 void icall_hashset_string_clear(Il2CppObject* self);
 
+//------------------------------------------------------------------------------
+// G4: HashSet<int> -- the int-member expansion. It REUSES the non-generic
+// hashtable object model (il2cpp_hashtable.h) with BOXED int32 members: the
+// hashtable's boxed-primitive key contract (value hash + value equality)
+// gives net48 HashSet<int> membership for free, and its entries root every
+// stored key (no dictsi-style caller-rooting contract). The receiver is the
+// same hashtable object (the transpiler allocates it through
+// il2cpp_hashtable_class()).
+//
+//   Add(item)     -> bool: true when ADDED; false when already present.
+//   Remove(item)  -> bool: true when present (removed).
+//   Contains(item)-> bool: membership by value equality.
+//   Count         -> the number of members.
+//   Clear()       -> count -> 0; reusable.
+//------------------------------------------------------------------------------
+void icall_hashset_int_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_int_add(Il2CppObject* self, int32_t item);
+bool icall_hashset_int_remove(Il2CppObject* self, int32_t item);
+bool icall_hashset_int_contains(Il2CppObject* self, int32_t item);
+int32_t icall_hashset_int_get_count(Il2CppObject* self);
+void icall_hashset_int_clear(Il2CppObject* self);
+int32_t icall_hashset_int_enumerator_get_current(Il2CppObject* self);
+// T2 W3: long/double/uint/ref families (hashset.cpp).
+void icall_hashset_long_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_long_add(Il2CppObject* self, int64_t item);
+bool icall_hashset_long_remove(Il2CppObject* self, int64_t item);
+bool icall_hashset_long_contains(Il2CppObject* self, int64_t item);
+int32_t icall_hashset_long_get_count(Il2CppObject* self);
+void icall_hashset_long_clear(Il2CppObject* self);
+int64_t icall_hashset_long_enumerator_get_current(Il2CppObject* self);
+void icall_hashset_double_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_double_add(Il2CppObject* self, double item);
+bool icall_hashset_double_remove(Il2CppObject* self, double item);
+bool icall_hashset_double_contains(Il2CppObject* self, double item);
+int32_t icall_hashset_double_get_count(Il2CppObject* self);
+void icall_hashset_double_clear(Il2CppObject* self);
+double icall_hashset_double_enumerator_get_current(Il2CppObject* self);
+void icall_hashset_uint_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_uint_add(Il2CppObject* self, int32_t item);
+bool icall_hashset_uint_remove(Il2CppObject* self, int32_t item);
+bool icall_hashset_uint_contains(Il2CppObject* self, int32_t item);
+int32_t icall_hashset_uint_get_count(Il2CppObject* self);
+void icall_hashset_uint_clear(Il2CppObject* self);
+int32_t icall_hashset_uint_enumerator_get_current(Il2CppObject* self);
+void icall_hashset_ref_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_ref_add(Il2CppObject* self, Il2CppObject* item);
+bool icall_hashset_ref_remove(Il2CppObject* self, Il2CppObject* item);
+bool icall_hashset_ref_contains(Il2CppObject* self, Il2CppObject* item);
+int32_t icall_hashset_ref_get_count(Il2CppObject* self);
+void icall_hashset_ref_clear(Il2CppObject* self);
+
 } // namespace runtime
+
+// G4 enumeration surface (namespace il2cpp, the dict_si_keycollection
+// convention): the boxed-int KEYS snapshot (il2cpp_hashtable_get_keys)
+// wrapped in the dictsi keycollection enumerator object; the element
+// get_Current (runtime namespace, above) unboxes the int32 value.
+Il2CppObject* il2cpp_hashset_int_get_enumerator(Il2CppObject* self);
+Il2CppObject* il2cpp_hashset_long_get_enumerator(Il2CppObject* self);
+Il2CppObject* il2cpp_hashset_double_get_enumerator(Il2CppObject* self);
+Il2CppObject* il2cpp_hashset_uint_get_enumerator(Il2CppObject* self);
+Il2CppObject* il2cpp_hashset_ref_get_enumerator(Il2CppObject* self);
+
+// G4 B2 (b2b8): the HashSet<string> enumeration surface -- the string KEYS
+// snapshot (il2cpp_dict_si_get_keys) wrapped in the same dictsi keycollection
+// enumerator object; the element get_Current passes the string reference
+// through (resolver: il2cpp_dict_si_keycollection_enumerator_get_current).
+Il2CppObject* il2cpp_hashset_string_get_enumerator(Il2CppObject* self);
+
 } // namespace il2cpp

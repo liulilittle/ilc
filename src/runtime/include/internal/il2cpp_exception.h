@@ -1,3 +1,7 @@
+#if defined(__arm__) || defined(_M_ARM) || defined(__i386__) || defined(_M_IX86)
+#error "il2cpp runtime: 32-bit targets are not supported in phase 1 (arm64-v8a/x86_64 only)"
+#endif
+
 #pragma once
 //------------------------------------------------------------------------------
 // il2cpp_exception.h -- managed exception transport (M3 Task 6).
@@ -62,7 +66,14 @@ private:
 // Throw a managed exception of 'typeName' with 'message' (see header).
 // Both strings must be stable (static literals; generated code passes
 // compile-time constants).
-void il2cpp_throw_new(const char* typeName, const char* message);
+// [[noreturn]]: the implementation is a single `throw DotNetException` and
+// NEVER returns. The annotation lets the compiler see the true control flow
+// of the transpiler's try/finally restructuring (a finally-protected return
+// carries its value in a local assigned inside the matching catch -- without
+// noreturn GCC assumes the inner try body can fall out and flags the local
+// as maybe-uninitialized at the merged `return loc0`, the exdeep
+// -Wuninitialized false positive).
+[[noreturn]] void il2cpp_throw_new(const char* typeName, const char* message);
 
 // Type-conformance test for catch matching:
 //   caught  : the catch clause's exception type ("System.Exception")

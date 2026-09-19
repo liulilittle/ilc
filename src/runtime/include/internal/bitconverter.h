@@ -88,6 +88,21 @@ uint16_t il2cpp_bitconverter_to_uint16(Il2CppArray* value);
 // null -> ArgumentNullException, length < 4 -> ArgumentException.
 int32_t il2cpp_bitconverter_to_int32(Il2CppArray* value);
 
+// ToT(byte[] value, int startIndex) -- the offset forms (D-A/D-B fix,
+// 2026-09-19). net48 validation: null value -> ArgumentNullException;
+// startIndex outside [0, length - sizeof(T)] -> ArgumentOutOfRangeException
+// (derives from ArgumentException).
+bool     il2cpp_bitconverter_to_bool_offset(Il2CppArray* value, int32_t startIndex);
+char16_t il2cpp_bitconverter_to_char_offset(Il2CppArray* value, int32_t startIndex);
+int16_t  il2cpp_bitconverter_to_int16_offset(Il2CppArray* value, int32_t startIndex);
+uint16_t il2cpp_bitconverter_to_uint16_offset(Il2CppArray* value, int32_t startIndex);
+int32_t  il2cpp_bitconverter_to_int32_offset(Il2CppArray* value, int32_t startIndex);
+uint32_t il2cpp_bitconverter_to_uint32_offset(Il2CppArray* value, int32_t startIndex);
+int64_t  il2cpp_bitconverter_to_int64_offset(Il2CppArray* value, int32_t startIndex);
+uint64_t il2cpp_bitconverter_to_uint64_offset(Il2CppArray* value, int32_t startIndex);
+float    il2cpp_bitconverter_to_single_offset(Il2CppArray* value, int32_t startIndex);
+double   il2cpp_bitconverter_to_double_offset(Il2CppArray* value, int32_t startIndex);
+
 // BitConverter.ToUInt32(byte[]): little-endian uint32 from the first 4 bytes;
 // null -> ArgumentNullException, length < 4 -> ArgumentException.
 uint32_t il2cpp_bitconverter_to_uint32(Il2CppArray* value);

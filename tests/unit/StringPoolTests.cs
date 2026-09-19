@@ -301,7 +301,7 @@ public class StringPoolTests
     //--------------------------------------------------------------------------
     // Layer ③ -- static table emission (design §2.3): RenderPoolHeader renders
     // the pool data file (include/internal/string-pool.h): the g_strPool[N]
-    // inline variable + the eager fill (intern_literal per row). Row order
+    // inline variable + the eager fill (intern_literal_n per row). Row order
     // MUST be pool id order (C8: row i == LiteralAt(i)) so the future ldstr
     // emission maps id -> g_strPool[id] trivially.
     //--------------------------------------------------------------------------
@@ -325,7 +325,7 @@ public class StringPoolTests
 
         Assert.Contains("inline Il2CppObject* g_strPool[1];", header);
         Assert.Contains("il2cpp_string_pool_fill", header);
-        Assert.Contains("g_strPool[0] = il2cpp_string_intern_literal(\"hello\");", header);
+        Assert.Contains("g_strPool[0] = il2cpp_string_intern_literal_n(\"hello\", 5);", header);
     }
 
     [Fact]
@@ -334,8 +334,8 @@ public class StringPoolTests
         var header = StringPoolPass.RenderPoolHeader(PoolOf("alpha", "beta"));
 
         Assert.Contains("inline Il2CppObject* g_strPool[2];", header);
-        var alphaRow = header.IndexOf("g_strPool[0] = il2cpp_string_intern_literal(\"alpha\");", StringComparison.Ordinal);
-        var betaRow = header.IndexOf("g_strPool[1] = il2cpp_string_intern_literal(\"beta\");", StringComparison.Ordinal);
+        var alphaRow = header.IndexOf("g_strPool[0] = il2cpp_string_intern_literal_n(\"alpha\", 5);", StringComparison.Ordinal);
+        var betaRow = header.IndexOf("g_strPool[1] = il2cpp_string_intern_literal_n(\"beta\", 4);", StringComparison.Ordinal);
         Assert.True(alphaRow >= 0 && betaRow >= 0 && alphaRow < betaRow);
     }
 
@@ -353,7 +353,7 @@ public class StringPoolTests
     {
         var header = StringPoolPass.RenderPoolHeader(PoolOf("a\"b\\c"));
 
-        Assert.Contains("g_strPool[0] = il2cpp_string_intern_literal(\"a\\\"b\\\\c\");", header);
+        Assert.Contains("g_strPool[0] = il2cpp_string_intern_literal_n(\"a\\\"b\\\\c\", 5);", header);
     }
 
     [Fact]
@@ -361,7 +361,7 @@ public class StringPoolTests
     {
         var header = StringPoolPass.RenderPoolHeader(PoolOf("l1\nl2\tl3\rl4"));
 
-        Assert.Contains("g_strPool[0] = il2cpp_string_intern_literal(\"l1\\nl2\\tl3\\rl4\");", header);
+        Assert.Contains("g_strPool[0] = il2cpp_string_intern_literal_n(\"l1\\nl2\\tl3\\rl4\", 11);", header);
     }
 
     [Fact]
@@ -530,7 +530,7 @@ public class StringPoolTests
 
             var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "string-pool.h"));
             Assert.Contains("g_strPool[1]", header);
-            Assert.Contains("intern_literal(\"boom\")", header);
+            Assert.Contains("intern_literal_n(\"boom\", 4)", header);
         }
         finally
         {
@@ -581,6 +581,8 @@ public class StringPoolTests
             Assert.Contains("il2cpp::g_strPool[1]", program);
             Assert.DoesNotContain("il2cpp_string_intern_literal(\"hello\")", program);
             Assert.DoesNotContain("il2cpp_string_intern_literal(\"world\")", program);
+            Assert.DoesNotContain("il2cpp_string_intern_literal_n(\"hello\"", program);
+            Assert.DoesNotContain("il2cpp_string_intern_literal_n(\"world\"", program);
         }
         finally
         {

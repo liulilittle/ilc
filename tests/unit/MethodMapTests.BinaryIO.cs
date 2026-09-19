@@ -207,16 +207,20 @@ public class MethodMapBinaryIOTests
 
     //--------------------------------------------------------------------------
     // BinaryReader -- LOUD rejection of close-but-wrong / unwired members
-    // (ReadByte MUST NOT route through read_bool: that icall normalizes to
-    // 0/1 while .NET ReadByte returns the raw byte 0..255).
+    // (ReadByte routes to the WAVE2 RAW-byte icall below, NOT through
+    // read_bool: that icall normalizes to 0/1 while .NET ReadByte returns the
+    // raw byte 0..255).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_BinaryReader_ReadByte_ThrowsLoud()
+    public void Resolve_BinaryReader_ReadByte_MapsToReadByteIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "BinaryReader", "ReadByte", Sig(0x05)), "ReadByte"));
+        // WAVE2: ReadByte() is wired to the RAW-byte icall; byte return 0x05.
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryReader", "ReadByte", Sig(0x05)), "ReadByte");
 
-        Assert.Contains("System.IO.BinaryReader::ReadByte", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_binary_read_byte", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(0, resolved.ParamCount);
     }
 
     [Fact]

@@ -65,6 +65,16 @@ constexpr int32_t kMaxItems = 1 << 30;
 constexpr const char* kIndexOutOfRangeMessage =
     "Index was out of range. Must be non-negative and less than the size of the collection.";
 
+// net48 ArgumentOutOfRangeException message for a negative index/count
+// (ArgumentOutOfRange_NeedNonNegNum).
+constexpr const char* kNeedNonNegMessage = "Non-negative number required.";
+
+// net48 ArgumentException message for an out-of-bounds offset/length pair
+// (Argument_InvalidOffLen).
+constexpr const char* kOffLenMessage =
+    "Offset and length were out of bounds for the array or count is greater "
+    "than the number of elements from index to the end of the source collection.";
+
 // The System.Collections.ArrayList runtime descriptor. Registered lazily
 // (constraint #12: no global-constructor allocation), exactly like the
 // stack/queue/hashtable classes.
@@ -164,6 +174,10 @@ void GrowList(Il2CppArrayList* list)
         list->items = arr;
         il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
                              reinterpret_cast<Il2CppObject*>(list->items));
+        // The kMinItems ensure IS this grow pass: falling through would
+        // double it to 8 on the very first Add (net48 Capacity == 4 after
+        // the first Add from an empty list).
+        return;
     }
     const int32_t oldLength = list->items->length;
     const int32_t newLength = NextLength(oldLength);
@@ -218,15 +232,9 @@ Il2CppObject* il2cpp_arraylist_create()
 {
     EnsureArrayListRegistered();
     Il2CppArrayList* list = reinterpret_cast<Il2CppArrayList*>(il2cpp_object_new(&g_arrayListClass));
-    // AllocItems below may compact and MOVE the fresh object (only reachable
-    // through this icall's local until it is returned): re-read before
-    // publishing (stackqueue.cpp create precedent).
-    GcRoot<Il2CppArrayList*> root(list, "icall_arraylist_create");
-    Il2CppArray* arr = AllocItems(kMinItems);
-    list = root.Get();
-    list->items = arr;
-    il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
-                         reinterpret_cast<Il2CppObject*>(list->items));
+    // net48 ArrayList() keeps emptyArray: items stays null and Capacity reads
+    // 0; the first Add goes through GrowList's null-items branch (kMinItems).
+    list->items = nullptr;
     list->count = 0;
     return reinterpret_cast<Il2CppObject*>(list);
 }
@@ -478,7 +486,7 @@ void il2cpp_arraylist_set_capacity(Il2CppObject* self, int32_t value)
     int32_t cur = list->items != nullptr ? list->items->length : 0;
     if (value == cur) return;
     GcRoot<Il2CppObject*> root(self, "icall_arraylist_set_capacity");
-    Il2CppArray* fresh = AllocItems(value > 0 ? value : kMinItems);
+    Il2CppArray* fresh = value > 0 ? AllocItems(value) : nullptr;
     self = root.Get();
     list = AsList(self);
     if (list->items != nullptr && list->count > 0)
@@ -506,7 +514,7 @@ Il2CppObject* il2cpp_arraylist_clone(Il2CppObject* self)
     list = AsList(self);
     Il2CppArrayList* dst = AsList(fresh);
     GcRoot<Il2CppObject*> rootDst(fresh, "icall_arraylist_clone_dst");
-    Il2CppArray* arr = AllocItems(list->count > 0 ? list->count : kMinItems);
+    Il2CppArray* arr = list->count > 0 ? AllocItems(list->count) : nullptr;
     fresh = rootDst.Get();
     dst = AsList(fresh);
     if (list->items != nullptr && list->count > 0)
@@ -535,9 +543,13 @@ void il2cpp_arraylist_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t a
     }
     Il2CppArrayList* list = AsList(self);
     Il2CppArray* dst = reinterpret_cast<Il2CppArray*>(array);
-    if (arrayIndex < 0 || arrayIndex + list->count > dst->length)
+    if (arrayIndex < 0)
     {
-        il2cpp_throw_argument_out_of_range_exception("arrayIndex", kIndexOutOfRangeMessage);
+        il2cpp_throw_argument_out_of_range_exception("arrayIndex", kNeedNonNegMessage);
+    }
+    if (static_cast<int64_t>(dst->length) - arrayIndex < list->count)
+    {
+        il2cpp_throw_argument_exception(kOffLenMessage);
     }
     if (list->items == nullptr || list->count == 0) return;
     Il2CppObject** d = reinterpret_cast<Il2CppObject**>(dst->data);
@@ -569,9 +581,17 @@ void il2cpp_arraylist_reverse_range(Il2CppObject* self, int32_t index, int32_t l
 {
     ThrowIfNullReceiver(self);
     Il2CppArrayList* list = AsList(self);
-    if (index < 0 || length < 0 || index + length > list->count)
+    if (index < 0)
     {
-        il2cpp_throw_argument_out_of_range_exception("index", kIndexOutOfRangeMessage);
+        il2cpp_throw_argument_out_of_range_exception("index", kNeedNonNegMessage);
+    }
+    if (length < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", kNeedNonNegMessage);
+    }
+    if (static_cast<int64_t>(list->count) - index < length)
+    {
+        il2cpp_throw_argument_exception(kOffLenMessage);
     }
     if (list->items == nullptr) return;
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(list->items->data);
@@ -589,9 +609,17 @@ void il2cpp_arraylist_remove_range(Il2CppObject* self, int32_t index, int32_t le
 {
     ThrowIfNullReceiver(self);
     Il2CppArrayList* list = AsList(self);
-    if (index < 0 || length < 0 || index + length > list->count)
+    if (index < 0)
     {
-        il2cpp_throw_argument_out_of_range_exception("index", kIndexOutOfRangeMessage);
+        il2cpp_throw_argument_out_of_range_exception("index", kNeedNonNegMessage);
+    }
+    if (length < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", kNeedNonNegMessage);
+    }
+    if (static_cast<int64_t>(list->count) - index < length)
+    {
+        il2cpp_throw_argument_exception(kOffLenMessage);
     }
     if (length == 0) return;
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(list->items->data);

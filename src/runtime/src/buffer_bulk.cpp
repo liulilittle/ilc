@@ -19,8 +19,14 @@ bool il2cpp_buffer_is_zero_bulk(const void* src, size_t bytes) noexcept
         const uint8_t c0 = p[i+0], c1=p[i+1], c2=p[i+2], c3=p[i+3], c4=p[i+4], c5=p[i+5], c6=p[i+6], c7=p[i+7];
         if ((c0|c1|c2|c3|c4|c5|c6|c7)!=0) 
         {
-            if (c0) return false; if (c1) return false; if (c2) return false; if (c3) return false;
-            if (c4) return false; if (c5) return false; if (c6) return false; return false;
+            if (c0) return false;
+            if (c1) return false;
+            if (c2) return false;
+            if (c3) return false;
+            if (c4) return false;
+            if (c5) return false;
+            if (c6) return false;
+            return false;
         }
     }
     for (; i < bytes; ++i) if (p[i])  return false;

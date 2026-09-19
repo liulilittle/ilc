@@ -1106,16 +1106,43 @@ Il2CppObject* il2cpp_number_format_custom_double(double value, Il2CppObject* for
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(out, len));
 }
 
-// D-CUL-1 (batch 118): the numberformat-domain CurrencySymbol getter -- the
-// CURRENT-culture (zh-CN) NumberFormatInfo.CurrencySymbol path, U+00A5 '¥'
-// (the verification host's net48 current culture; formatext.cpp's C-format
-// prefix symbol and test_numberformat.cpp's D-CUL-1 assertion agree -- the
-// invariant culture uses U+00A4, which stays in cultureinfo.cpp).
-// Il2CppString is NOT a derived Il2CppObject here (unrelated structs), so
-// the reference slot requires the explicit cast.
-Il2CppObject* il2cpp_number_format_currency_symbol()
+// saudit1/4: the culture-name dispatch shared by the value-dependent
+// NumberFormatInfo getters. "" = invariant (net48 U+00A4 '¤' and
+// "Infinity"/"-Infinity"); any other name = the pinned current culture
+// (zh-CN: U+00A5 '¥' and U+221E '∞'). The value IS the culture name string
+// (CultureInfo handle-gap model).
+bool IsInvariantCultureName(Il2CppObject* cultureName)
 {
-    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"\u00A5", 1));
+    if (cultureName == nullptr)
+    {
+        return false;
+    }
+    const Il2CppString* name = reinterpret_cast<const Il2CppString*>(cultureName);
+    return name->length == 0;
+}
+
+Il2CppObject* il2cpp_number_format_currency_symbol(Il2CppObject* cultureName)
+{
+    return reinterpret_cast<Il2CppObject*>(
+        IsInvariantCultureName(cultureName)
+            ? il2cpp_string_new(u"\u00A4", 1)
+            : il2cpp_string_new(u"\u00A5", 1));
+}
+
+Il2CppObject* il2cpp_number_format_positive_infinity_symbol(Il2CppObject* cultureName)
+{
+    return reinterpret_cast<Il2CppObject*>(
+        IsInvariantCultureName(cultureName)
+            ? il2cpp_string_new_from_cs("Infinity")
+            : il2cpp_string_new(u"\u221E", 1));
+}
+
+Il2CppObject* il2cpp_number_format_negative_infinity_symbol(Il2CppObject* cultureName)
+{
+    return reinterpret_cast<Il2CppObject*>(
+        IsInvariantCultureName(cultureName)
+            ? il2cpp_string_new_from_cs("-Infinity")
+            : il2cpp_string_new(u"-\u221E", 2));
 }
 
 }} // namespace il2cpp::runtime

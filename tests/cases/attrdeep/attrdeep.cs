@@ -54,8 +54,17 @@ public static class AttrDeep {
         Console.WriteLine(typeof(Attribute).GetHashCode() == typeof(Attribute).GetHashCode()); // True
 
         // ---- 3. ReferenceEquals identity (net48 RuntimeType cache == fold intern) ----
-        Console.WriteLine(object.ReferenceEquals(typeof(ObsoleteAttribute), typeof(ObsoleteAttribute))); // True
-        Console.WriteLine(object.ReferenceEquals(typeof(Attribute), typeof(Attribute))); // True
+        // One operand of each probe is read back out of an array slot so the
+        // emitted C++ compares a MATERIALIZED value against a fresh fold
+        // (`reIds[0] == g_strPool[5]`) instead of a textual self-compare
+        // (`g_strPool[5] == g_strPool[5]`), which g++ flags with
+        // -Wtautological-compare. A plain local is not enough: the fold
+        // propagates the constant straight into the comparison. Semantics are
+        // unchanged -- and arguably strengthened: the probe still fails if the
+        // two typeof folds ever diverge.
+        Type[] reIds = { typeof(ObsoleteAttribute), typeof(Attribute) };
+        Console.WriteLine(object.ReferenceEquals(reIds[0], typeof(ObsoleteAttribute))); // True
+        Console.WriteLine(object.ReferenceEquals(reIds[1], typeof(Attribute))); // True
 
         // ---- 4. GetTypeCode fold on an attribute class ----
         Console.WriteLine(Type.GetTypeCode(typeof(ObsoleteAttribute)) == TypeCode.Object); // True

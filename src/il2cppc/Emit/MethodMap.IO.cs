@@ -29,6 +29,16 @@ public static partial class MethodRefResolver
                     case "WriteAllText": return I("il2cpp::runtime::icall_file_write_all_text", 2, false, false, false);
                     case "AppendAllText": return I("il2cpp::runtime::icall_file_append_all_text", 2, false, false, false);
                     case "ReadAllText": return I("il2cpp::runtime::icall_file_read_all_text", 1, true, true, false);
+                    // P1 IO-symmetry (2026-09-19): File.ReadAllBytes/WriteAllBytes
+                    // -- previously unmapped (the generated call referenced an
+                    // undeclared symbol). ReadAllBytes returns System.Byte[]
+                    // (net48: throws when the file cannot be opened; the runtime
+                    // signals failure with null, the M3 convention). WriteAllBytes
+                    // takes the byte[] with the "a" (Il2CppArray*) cast; a null
+                    // array writes an empty file (net48 throws ArgumentNullException
+                    // -- the runtime follows the WriteAllText null-contents shape).
+                    case "ReadAllBytes": return I("il2cpp::runtime::icall_file_read_all_bytes", 1, true, true, false, returnTypeName: "System.Byte[]");
+                    case "WriteAllBytes": return I("il2cpp::runtime::icall_file_write_all_bytes", 2, false, false, false, new[] { "", "a" });
                     case "WriteAllLines": return I("il2cpp::runtime::icall_file_write_all_lines", 2, false, false, false);
                     case "ReadAllLines": return I("il2cpp::runtime::icall_file_read_all_lines", 1, true, true, false);
                     // M7 io3 (2026-08-08): the File full-API gap closures

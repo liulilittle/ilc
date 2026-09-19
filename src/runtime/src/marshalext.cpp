@@ -315,5 +315,111 @@ intptr_t icall_marshal_realloc_hglobal(intptr_t ptr, intptr_t size)
     return reinterpret_cast<intptr_t>(pNew);
 }
 
+//------------------------------------------------------------------------------
+// Marshal.Read/Write primitive family (marshalrw, 2026-09-13) -- see
+// il2cpp_marshal_ext.h for the contract (direct LE access at base + offset,
+// no bounds checks, no exception paths; net48 unchecked semantics). The
+// offset-0 forms are the 2-arg write / 1-arg read IL overloads.
+//------------------------------------------------------------------------------
+void il2cpp_marshal_write_byte(uint8_t* base, int32_t offset, int32_t value)
+{
+    *reinterpret_cast<uint8_t*>(base + offset) = static_cast<uint8_t>(value);
+}
+
+void il2cpp_marshal_write_byte(uint8_t* base, int32_t value)
+{
+    il2cpp_marshal_write_byte(base, 0, value);
+}
+
+void il2cpp_marshal_write_int16(uint8_t* base, int32_t offset, int32_t value)
+{
+    *reinterpret_cast<int16_t*>(base + offset) = static_cast<int16_t>(value);
+}
+
+void il2cpp_marshal_write_int16(uint8_t* base, int32_t value)
+{
+    il2cpp_marshal_write_int16(base, 0, value);
+}
+
+void il2cpp_marshal_write_int32(uint8_t* base, int32_t offset, int32_t value)
+{
+    *reinterpret_cast<int32_t*>(base + offset) = value;
+}
+
+void il2cpp_marshal_write_int32(uint8_t* base, int32_t value)
+{
+    il2cpp_marshal_write_int32(base, 0, value);
+}
+
+void il2cpp_marshal_write_int64(uint8_t* base, int32_t offset, int64_t value)
+{
+    *reinterpret_cast<int64_t*>(base + offset) = value;
+}
+
+void il2cpp_marshal_write_int64(uint8_t* base, int64_t value)
+{
+    il2cpp_marshal_write_int64(base, 0, value);
+}
+
+void il2cpp_marshal_write_intptr(uint8_t* base, int32_t offset, intptr_t value)
+{
+    *reinterpret_cast<intptr_t*>(base + offset) = value;
+}
+
+void il2cpp_marshal_write_intptr(uint8_t* base, intptr_t value)
+{
+    il2cpp_marshal_write_intptr(base, 0, value);
+}
+
+int32_t il2cpp_marshal_read_byte(const uint8_t* base, int32_t offset)
+{
+    return *reinterpret_cast<const uint8_t*>(base + offset);
+}
+
+int32_t il2cpp_marshal_read_byte(const uint8_t* base)
+{
+    return il2cpp_marshal_read_byte(base, 0);
+}
+
+int32_t il2cpp_marshal_read_int16(const uint8_t* base, int32_t offset)
+{
+    return *reinterpret_cast<const int16_t*>(base + offset);
+}
+
+int32_t il2cpp_marshal_read_int16(const uint8_t* base)
+{
+    return il2cpp_marshal_read_int16(base, 0);
+}
+
+int32_t il2cpp_marshal_read_int32(const uint8_t* base, int32_t offset)
+{
+    return *reinterpret_cast<const int32_t*>(base + offset);
+}
+
+int32_t il2cpp_marshal_read_int32(const uint8_t* base)
+{
+    return il2cpp_marshal_read_int32(base, 0);
+}
+
+int64_t il2cpp_marshal_read_int64(const uint8_t* base, int32_t offset)
+{
+    return *reinterpret_cast<const int64_t*>(base + offset);
+}
+
+int64_t il2cpp_marshal_read_int64(const uint8_t* base)
+{
+    return il2cpp_marshal_read_int64(base, 0);
+}
+
+intptr_t il2cpp_marshal_read_intptr(const uint8_t* base, int32_t offset)
+{
+    return *reinterpret_cast<const intptr_t*>(base + offset);
+}
+
+intptr_t il2cpp_marshal_read_intptr(const uint8_t* base)
+{
+    return il2cpp_marshal_read_intptr(base, 0);
+}
+
 } // namespace runtime
 } // namespace il2cpp

@@ -417,6 +417,18 @@ public class TypeEmitterTypeInfoTests
     }
 
     [Fact]
+    public void TypeCppName_DottedInstantiationSuffix_SanitizesToValidCppIdentifier()
+    {
+        // myIList interim609: a user-generic closed suffix is a dotted full
+        // name ("System.Exception") -- the raw append produced
+        // `struct Cases_MyList_1_System.Exception` (generated.h:170,
+        // "expected unqualified-id before '.' token").
+        var t = new TypeDef { Name = "MyList`1", Namespace = "Cases", GenericArity = 1, InstantiationSuffix = "System.Exception" };
+        var cppName = TypeEmitter.TypeCppName(t);
+        Assert.Equal("Cases_MyList_1_System_Exception", cppName);
+    }
+
+    [Fact]
     public void EmitTypeInfoRegistration_EmitsRegisterCall()
     {
         var t = MakeNode();
@@ -477,6 +489,20 @@ public class TypeEmitterTypeInfoTests
         t.StaticFields.Add(new FieldDef { Name = "Version", Owner = t, IsStatic = true, IsLiteral = true, ConstantValue = "42" });
         var code = TypeEmitter.EmitStaticStorage(t);
         Assert.DoesNotContain("Calc_Node_sf_Version", code);
+    }
+
+    [Fact]
+    public void EmitStaticStorage_DateTimeOffsetMinMax_Emits16ByteImage()
+    {
+        // B4 (dtoprobe): DateTimeOffset.MinValue/MaxValue are BCL static
+        // readonly VALUETYPE fields (Roslyn cannot fold the ldsfld) --
+        // without storage the read hits "use of undeclared identifier".
+        // MinValue = {utcTicks 0, offset 0}; MaxValue = {DateTime.MaxTicks,
+        // offset 0} (net48: 9999-12-31 +00:00).
+        var t = MakeNode();
+        var code = TypeEmitter.EmitStaticStorage(t);
+        Assert.Contains("System_DateTimeOffset_sf_MinValue = { 0, 0 };", code);
+        Assert.Contains("System_DateTimeOffset_sf_MaxValue = { 3155378975999999999LL, 0 };", code);
     }
 
     [Fact]
@@ -543,7 +569,7 @@ public class TypeEmitterTypeInfoTests
             Assert.Contains("il2cpp::runtime::Il2CppDecimal Acme_Util_sf_Rate = { 0, 0, 0 }; // 16-byte decimal value", code);
             Assert.DoesNotContain("int32_t Acme_Util_sf_Rate", code);
             var tinfo = TypeEmitter.EmitTypeInfo(util, md: md);
-            Assert.Contains("{ \"Rate\", \"System.Decimal\", -1, 0, &Acme_Util_sf_Rate, 2 },", tinfo);
+            Assert.Contains("{ \"Rate\", \"System.Decimal\", -1, 0, &Acme_Util_sf_Rate, 3 },", tinfo);
         }
         finally
         {
@@ -655,8 +681,8 @@ public class TypeEmitterTypeInfoTests
             // The reflection field table mirrors the classification: the wide
             // statics get their real type name (not the Int32 fallback).
             var tinfo = TypeEmitter.EmitTypeInfo(util, md: md);
-            Assert.Contains("{ \"Handle\", \"System.IntPtr\", -1, 0, &Acme_Util_sf_Handle, 2 },", tinfo);
-            Assert.Contains("{ \"Wide\", \"System.Int64\", -1, 0, &Acme_Util_sf_Wide, 2 },", tinfo);
+            Assert.Contains("{ \"Handle\", \"System.IntPtr\", -1, 0, &Acme_Util_sf_Handle, 3 },", tinfo);
+            Assert.Contains("{ \"Wide\", \"System.Int64\", -1, 0, &Acme_Util_sf_Wide, 3 },", tinfo);
         }
         finally
         {
@@ -683,8 +709,8 @@ public class TypeEmitterTypeInfoTests
             Assert.Contains("\"Acme.Util\",", code);
             Assert.Contains("&Acme_Base_typeinfo,", code);        // user base resolved
             Assert.Contains("&Acme_Iface_typeinfo,", code);       // interface wired
-            Assert.Contains("{ \"X\", \"System.Int32\", 8, 0, nullptr, 0 },", code);
-            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 2 },", code);
+            Assert.Contains("{ \"X\", \"System.Int32\", 8, 0, nullptr, 1 },", code);
+            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 3 },", code);
             var hash = SigHash.Hash("Acme.Util.Add(i,i)");
             Assert.Contains("&Acme_Util_Add_" + hash + ")", code);
             Assert.Equal("il2cpp::il2cpp_typeinfo_register(&Acme_Util_typeinfo);", TypeEmitter.EmitTypeInfoRegistration(util));
@@ -823,8 +849,8 @@ public class TypeEmitterTypeInfoTests
             // The reflection field table mirrors the classification: the
             // static reference field gets its type name + the GC-reference flag.
             var tinfo = TypeEmitter.EmitTypeInfo(util, md: md);
-            Assert.Contains("{ \"Label\", \"System.String\", -1, 1, &Acme_Util_sf_Label, 2 },", tinfo);
-            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 2 },", tinfo);
+            Assert.Contains("{ \"Label\", \"System.String\", -1, 1, &Acme_Util_sf_Label, 3 },", tinfo);
+            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 3 },", tinfo);
         }
         finally
         {

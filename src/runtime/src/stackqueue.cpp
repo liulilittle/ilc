@@ -30,9 +30,13 @@
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gcroot.h"
 #include "il2cpp_runtime.h"
+#include "il2cpp_string.h"
+#include "string_compare.h" // il2cpp_string_equals_ordinal
+#include "il2cpp_value_semantics.h" // runtime::icall_object_equals (Contains fallback)
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 //------------------------------------------------------------------------------
 // The System.Collections.Stack / System.Collections.Queue runtime descriptors.
@@ -784,6 +788,69 @@ void il2cpp_queue_enumerator_reset(Il2CppObject* self)
         il2cpp_throw_invalid_operation_exception(kEnumFailedVersionMessage);
     }
     en->index = -1;
+}
+
+//------------------------------------------------------------------------------
+// G4: generic-domain membership -- Object.Equals value semantics over the
+// element slots (pointer, ordinal string content, boxed Int32/Int64/Double
+// payload; the ArrayList.Contains convention). The boxed payload sits at
+// offset 8 (header + klass), the runtime-wide kBoxPayloadOffset. Every
+// other shape (the remaining primitive boxes, user types) falls back to
+// runtime::icall_object_equals -- the runtime-wide equality choke point.
+//------------------------------------------------------------------------------
+static bool SeqElementEquals(Il2CppObject* a, Il2CppObject* b)
+{
+    if (a == b) return true;
+    if (a == nullptr || b == nullptr) return false;
+    const Il2CppClass* ka = a->klass;
+    const Il2CppClass* kb = b->klass;
+    if (ka == nullptr || kb == nullptr || ka->name == nullptr || kb->name == nullptr) return false;
+    if (std::strcmp(ka->name, "System.String") == 0 && std::strcmp(kb->name, "System.String") == 0)
+        return il2cpp_string_equals_ordinal(reinterpret_cast<const Il2CppString*>(a),
+                                            reinterpret_cast<const Il2CppString*>(b));
+    constexpr int32_t kPayload = 8;
+    if (std::strcmp(ka->name, "System.Int32") == 0 && std::strcmp(kb->name, "System.Int32") == 0)
+        return *reinterpret_cast<const int32_t*>(reinterpret_cast<const char*>(a) + kPayload)
+            == *reinterpret_cast<const int32_t*>(reinterpret_cast<const char*>(b) + kPayload);
+    if (std::strcmp(ka->name, "System.Int64") == 0 && std::strcmp(kb->name, "System.Int64") == 0)
+        return *reinterpret_cast<const int64_t*>(reinterpret_cast<const char*>(a) + kPayload)
+            == *reinterpret_cast<const int64_t*>(reinterpret_cast<const char*>(b) + kPayload);
+    if (std::strcmp(ka->name, "System.Double") == 0 && std::strcmp(kb->name, "System.Double") == 0)
+        return *reinterpret_cast<const double*>(reinterpret_cast<const char*>(a) + kPayload)
+            == *reinterpret_cast<const double*>(reinterpret_cast<const char*>(b) + kPayload);
+    // G4 B8 (b2b8): every other element shape (the remaining boxed primitive
+    // klasses, two boxes of a user type; null was handled above) rides the
+    // runtime-wide Object.Equals choke point -- BoxedValueEquals covers all
+    // primitive boxes, and the user virtual-Equals fallback lands with
+    // PATCH-object-equals (P1.6).
+    return runtime::icall_object_equals(a, b);
+}
+
+bool il2cpp_stack_contains(Il2CppObject* self, Il2CppObject* item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppStack* st = AsStack(self);
+    if (st->items == nullptr || st->count <= 0) return false;
+    Il2CppObject* const* slots = reinterpret_cast<Il2CppObject* const*>(st->items->data);
+    for (int32_t i = 0; i < st->count; ++i)
+    {
+        if (SeqElementEquals(slots[i], item)) return true;
+    }
+    return false;
+}
+
+bool il2cpp_queue_contains(Il2CppObject* self, Il2CppObject* item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppQueue* q = AsQueue(self);
+    if (q->items == nullptr || q->count <= 0) return false;
+    Il2CppObject* const* slots = reinterpret_cast<Il2CppObject* const*>(q->items->data);
+    const int32_t length = q->items->length;
+    for (int32_t i = 0; i < q->count; ++i)
+    {
+        if (SeqElementEquals(slots[RingIndex(q->head, i, length)], item)) return true;
+    }
+    return false;
 }
 
 } // namespace il2cpp

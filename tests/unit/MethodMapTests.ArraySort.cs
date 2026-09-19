@@ -146,13 +146,15 @@ public class MethodMapArraySortTests
     }
 
     [Fact]
-    public void Resolve_Array_EmptyInt64_MethodSpec_ThrowsLoud_Gap()
+    public void Resolve_Array_EmptyInt64_MethodSpec_ResolvesToEmptyLongIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Empty",
-                new byte[] { 0x00, 0x00, 0x1D, 0x0A }, new byte[] { 0x0A, 0x01, 0x0A })));
+        // W7 (T2): Array.Empty<long> is wired (icall_array_empty_long) -- the
+        // former LOUD gap is now a mapping (spec-change/test-sync rule).
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Empty",
+            new byte[] { 0x00, 0x00, 0x1D, 0x0A }, new byte[] { 0x0A, 0x01, 0x0A }));
 
-        Assert.Contains("System.Array::Empty", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_array_empty_long", resolved.CppName);
+        Assert.False(resolved.IsInstance);
     }
 
     [Fact]

@@ -74,11 +74,13 @@ public class MethodMapFormatExtTests
     }
 
     //--------------------------------------------------------------------------
-    // ToString(string, IFormatProvider) -- two args; the provider is dropped
-    // at emission (cast "drop"), the FOLD pops the IL arity (ParamCount 2).
+    // ToString(string, IFormatProvider) -- two args; saudit4: the provider
+    // PASSES THROUGH (ProviderCulture) so the runtime honors the invariant
+    // culture; the cast list keeps the unit-pinned "drop" SHAPE (the emitter
+    // emits the provider expression for the flagged icall).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Int32_ToStringWithFormatAndProvider_DropsCulture()
+    public void Resolve_Int32_ToStringWithFormatAndProvider_PassesCulture()
     {
         // string ToString(string format, IFormatProvider provider): 0x0E, then
         // 0x12 CLASS + TypeRef row 1 coded index (0x05) -- discarded by RawSignature.
@@ -87,46 +89,79 @@ public class MethodMapFormatExtTests
 
         Assert.Equal("il2cpp::runtime::icall_format_int32_custom", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ProviderCulture);
         Assert.Equal(new[] { "unbox:i", "", "drop" }, resolved.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_Int64_ToStringWithFormatAndProvider_DropsCulture()
+    public void Resolve_Int64_ToStringWithFormatAndProvider_PassesCulture()
     {
         var resolved = ResolveMember(Synthesize("System", "Int64", "ToString",
             new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString");
 
         Assert.Equal("il2cpp::runtime::icall_format_int64_custom", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ProviderCulture);
         Assert.Equal(new[] { "unbox:l", "", "drop" }, resolved.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_Double_ToStringWithFormatAndProvider_DropsCulture()
+    public void Resolve_Double_ToStringWithFormatAndProvider_PassesCulture()
     {
         var resolved = ResolveMember(Synthesize("System", "Double", "ToString",
             new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString");
 
         Assert.Equal("il2cpp::runtime::icall_format_double_custom", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ProviderCulture);
         Assert.Equal(new[] { "unbox:d", "", "drop" }, resolved.ParamTypeNames);
     }
 
+    [Fact]
+    public void Resolve_Double_ToStringProviderOnly_MapsToDefaultFormatter()
+    {
+        // double ToString(IFormatProvider): real blob 00 01 0E 12 05 -- the
+        // single param is a CLASS ref (0x12), NOT a format string, so the
+        // provider is dropped and the receiver routes to the DEFAULT
+        // formatter (the culture is fixed by the runtime).
+        var resolved = ResolveMember(Synthesize("System", "Double", "ToString",
+            new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_double_to_string", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "unbox:d", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Single_ToStringProviderOnly_MapsToDefaultFormatter()
+    {
+        // Single reuses the double default formatter (the runtime promotes to
+        // double before formatting; net48 G7 for Single).
+        var resolved = ResolveMember(Synthesize("System", "Single", "ToString",
+            new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_double_to_string", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "unbox:d", "drop" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
-    // ToString(IFormatProvider) alone -- known-but-unwireable: the icall takes
-    // a format STRING and the M-stage emitter cannot inject a null format.
-    // The wiring manual requires LOUD rejection, not the previous silent
-    // route-through (which handed the provider object to the format slot).
+    // ToString(IFormatProvider) alone: the provider is dropped and the
+    // receiver routes to the DEFAULT formatter with the IL arity preserved
+    // (the fold pops the provider; "drop" keeps it out of the C++ call).
+    // The culture is fixed by the runtime, so the rendered value matches the
+    // net48 output for the oracle culture.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Int32_ToStringProviderOnly_ThrowsLoud()
+    public void Resolve_Int32_ToStringProviderOnly_DropsProviderToDefault()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Int32", "ToString",
-                new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString"));
+        var resolved = ResolveMember(Synthesize("System", "Int32", "ToString",
+            new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString");
 
-        Assert.Contains("System.Int32::ToString", ex.Message);
-        Assert.Contains("IFormatProvider", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_int32_to_string", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "unbox:i", "drop" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -230,17 +265,6 @@ public class MethodMapFormatExtTests
 
         Assert.Equal("il2cpp::runtime::icall_double_to_string", resolved.CppName);
         Assert.Equal(new[] { "unbox:d" }, resolved.ParamTypeNames);
-    }
-
-    [Fact]
-    public void Resolve_Single_ToStringProviderOnly_ThrowsLoud()
-    {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Single", "ToString",
-                new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString"));
-
-        Assert.Contains("System.Single::ToString", ex.Message);
-        Assert.Contains("IFormatProvider", ex.Message);
     }
 
     //--------------------------------------------------------------------------

@@ -24,8 +24,8 @@
 //         first fire.
 //   * change(timer, dueTimeMs, periodMs): re-arms the timer FROM NOW with
 //     the new due/period; a timer created with dueTimeMs == -1 starts
-//     firing. NOTE (simplified): changing a one-shot timer AFTER it has
-//     fired is a no-op -- its thread already exited.
+//     firing. A one-shot timer stays armed after it fires: its worker
+//     thread waits for a later change() (net48 re-schedules; thaudit4).
 //   * dispose(timer): stops the timer, JOINS its thread (no callback may be
 //     running when dispose returns), releases resources and frees the
 //     handle. The handle is invalid after dispose; disposing twice is
@@ -82,7 +82,7 @@ il2cpp_timer* il2cpp_timer_create(il2cpp_timer_callback callback,
                                   int32_t periodMs);
 
 // Re-arm the timer from now; timers created with dueTimeMs == -1 start
-// firing. See the header comment for the post-fire one-shot limitation.
+// firing, and a fired one-shot can be re-armed (thaudit4).
 void il2cpp_timer_change(il2cpp_timer* timer, int32_t dueTimeMs, int32_t periodMs);
 
 // Stop the timer (joins its thread -- no callback may be running when this

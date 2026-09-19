@@ -377,7 +377,7 @@ int main()
     // --- 15. currency symbol (D-CUL-1: NumberFormatInfo.CurrencySymbol) ---
     // The zh-CN currency symbol U+00A5 '¥' -- the SAME spelling formatext.cpp's
     // C format emits (get_CurrencySymbol == ToString("C")'s prefix symbol).
-    ExpectStrU(il2cpp::runtime::il2cpp_number_format_currency_symbol(),
+    ExpectStrU(il2cpp::runtime::il2cpp_number_format_currency_symbol(reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("zh-CN"))),
                u"\u00A5", 1, "get_CurrencySymbol: zh-CN U+00A5 '¥'");
 
     // --- Report ---

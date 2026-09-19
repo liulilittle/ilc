@@ -161,11 +161,11 @@ int main()
         for (int32_t i = 0; i < 20; ++i)
         {
             il2cpp::il2cpp_gc_collect();
-            ExpectString(icall_format_double_custom(0.00123, fmtE2), "1.23E-003",
+            ExpectString(icall_format_double_custom(0.00123, fmtE2, nullptr), "1.23E-003",
                          "double E2 content survives collections");
-            ExpectString(icall_format_double_custom(-0.00123, fmtE2), "-1.23E-003",
+            ExpectString(icall_format_double_custom(-0.00123, fmtE2, nullptr), "-1.23E-003",
                          "double negative E2 content survives collections");
-            ExpectString(icall_format_double_custom(1234.5678, fmtF2), "1234.57",
+            ExpectString(icall_format_double_custom(1234.5678, fmtF2, nullptr), "1234.57",
                          "double F2 content survives collections");
         }
         il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&fmtF2));
@@ -231,7 +231,7 @@ int main()
             }
             else if (op == 2)
             {
-                ExpectString(icall_format_double_custom(0.00123, fmtE2), "1.23E-003",
+                ExpectString(icall_format_double_custom(0.00123, fmtE2, nullptr), "1.23E-003",
                              "churn double E2");
             }
             else

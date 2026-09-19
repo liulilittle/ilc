@@ -45,6 +45,12 @@ struct Il2CppDateTimeOffset
     int32_t offsetMinutes; // the offset from UTC in whole minutes
 };
 
+// DateTimeOffset.GetHashCode (B4 dtoprobe [hc]): net48 returns
+// UtcDateTime.GetHashCode() (referencesource mscorlib/system/
+// datetimeoffset.cs, mirrored by mono) -- the ticks-fold of the UTC
+// instant. Oracle: 2020-01-01 UTC -> -2085908915.
+int32_t icall_dtoffset_get_hash_code(Il2CppDateTimeOffset dto);
+
 // --- construction -----------------------------------------------------------
 
 // DateTimeOffset(DateTime localTime, TimeSpan offset): the UTC instant is
@@ -63,6 +69,9 @@ void icall_dtoffset_ctor_ymd(Il2CppDateTimeOffset* out, int32_t year,
                              int32_t month, int32_t day, int32_t hour,
                              int32_t minute, int32_t second,
                              Il2CppTimeSpan offset);
+
+// DateTimeOffset.UtcNow (offset zero; the UTC instant).
+Il2CppDateTimeOffset icall_dtoffset_utc_now();
 
 // --- accessors --------------------------------------------------------------
 
@@ -94,9 +103,29 @@ bool icall_dtoffset_equals(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
 
 // --- formatting -------------------------------------------------------------
 
-// ToString(): the net48 default "MM/dd/yyyy HH:mm:ss zzz" shape -- the local
-// time formatted like DateTime.ToString() plus the offset as "+HH:mm" /
-// "-HH:mm" (e.g. "02/29/2000 12:00:00 +08:00").
+// ToString(): the net48 parameterless default -- the SELECTED culture's
+// General "G" pattern plus " zzz" (the offset), e.g. host-default zh-CN
+// "2020/6/15 13:45:30 +08:00" (the dtoffsetfmt oracle). Delegates to the
+// format icall with a null format and provider.
 Il2CppObject* icall_dtoffset_to_string(Il2CppDateTimeOffset dto);
+
+// ToString(string format[, IFormatProvider]): the net48 DateTimeOffset
+// contract (pinned by the dtoffsetfmt oracle, tests/cases/dtoffsetfmt):
+//   * null / empty format -> the provider-selected culture's General "G"
+//     pattern plus " zzz" (the parameterless ToString path);
+//   * standard specifiers d/D/t/T/f/F/g/G/m/M/y/Y -> the culture pattern
+//     WITHOUT the offset; s -> local sortable; u/r/R -> the UTC instant;
+//     o/O -> local round-trip "yyyy-MM-ddTHH:mm:ss.fffffff" plus the
+//     always-numeric offset ("+00:00" at zero);
+//   * "U" throws FormatException (net48 DateTimeOffset does not support it),
+//     as does any unknown single-letter specifier;
+//   * custom formats expand the offset tokens z -> "+8", zz -> "+08",
+//     zzz -> "+08:00" and K -> "+08:00" (plus the net48 '%' single-character
+//     escape); every other character is a literal.
+// The provider argument follows the DateTime routing (nullptr -> host
+// default zh-CN, empty culture name -> invariant, "zh-CN" -> zh-CN, other ->
+// invariant fallback). Throws FormatException for invalid formats.
+Il2CppObject* icall_dtoffset_to_string_format(Il2CppDateTimeOffset dto, Il2CppObject* format,
+                                              Il2CppObject* provider);
 
 }} // namespace il2cpp::runtime

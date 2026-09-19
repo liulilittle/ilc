@@ -190,8 +190,8 @@ int main()
         il2cpp_xml_writer_write_end_element(w);
         il2cpp_xml_writer_write_end_document(w);
         il2cpp_xml_writer_close(w);
-        Expect(BuilderText(sb) == "<doc><a></a><empty></empty></doc>",
-               "WriteEndDocument closes all elements; empty elements render <e></e>");
+        Expect(BuilderText(sb) == "<doc><a /><empty /></doc>",
+               "WriteEndDocument closes all elements; empty elements render <e />");
     }
 
     // --- 5. Flush appends + clears; a second Flush does not duplicate ---
@@ -216,7 +216,7 @@ int main()
         il2cpp_xml_writer_write_start_element(w, Str("r"));
         il2cpp_xml_writer_write_end_element(w);
         il2cpp_xml_writer_close(w);
-        Expect(BuilderText(sb) == "<?xml version=\"1.0\" encoding=\"utf-16\"?><r></r>",
+        Expect(BuilderText(sb) == "<?xml version=\"1.0\" encoding=\"utf-16\"?><r />",
                "null settings = default settings (declaration emitted)");
     }
 

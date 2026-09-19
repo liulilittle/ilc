@@ -62,6 +62,13 @@ const int kMaxBuffer = 512;
 // header and docs/audit/number-conformance.md.
 const int kBaseDigits = 15;
 
+// D-DBLF-1b (dblfmt_r R ladder): the wide base for sigDigits > kBaseDigits
+// (net48 "G16"/"G17" and the R round-trip fallback). 17 significant digits
+// always round-trip a double; snprintf("%.16e") is correctly rounded at this
+// width (an exact tie at the 18th digit is not representable in a 53-bit
+// mantissa).
+const int kWideDigits = 17;
+
 // The fixed currency symbol: U+00A5 '¥' -- the verification host's net48
 // default culture (zh-CN). See the header's CULTURE FIXING divergence note.
 const char16_t kCurrencySymbol = u'\u00A5';
@@ -113,6 +120,18 @@ Il2CppObject* MakeSpecialString(double value)
     }
     units[o++] = kInfinitySymbol;
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(units, o));
+}
+
+// saudit1: the INVARIANT special spelling ("Infinity"/"-Infinity", ASCII);
+// NaN is "NaN" in every culture. The zh-CN path stays MakeSpecialString.
+Il2CppObject* MakeSpecialStringInvariant(double value)
+{
+    if (std::isnan(value))
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("NaN"));
+    }
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp_string_new_from_cs(value < 0 ? "-Infinity" : "Infinity"));
 }
 
 // Decimal digits of 'value' (no sign for non-negative) into 'out' (24 chars).
@@ -744,51 +763,53 @@ int EmitExponent(char* out, int e, char expChar, int minDigits)
 // scientific (scale > sigDigits or scale - 1 < -4) with the min-2-digit
 // exponent (net48: G2 of 1234567.89 -> "1.2E+06", G7 -> "1234568",
 // G2 of 0.000123 -> "0.00012", G1 of 1e-6 -> "1E-06").
-int FormatGeneralDouble(double value, int sigDigits, char expChar, char* out)
+// The shared G body over a correctly rounded base of 'baseDigits' digits
+// (d[] is a mutable copy -- the half-away-from-zero rounding at sigDigits
+// rewrites it). The net48 semantics are those documented above.
+int FormatGeneralFromDigits(char* d, int baseDigits, int exp10, bool neg,
+                            int sigDigits, char expChar, char* out)
 {
-    DoubleDigits dg;
-    GetDoubleDigits(value, dg);
-    int scale = dg.exp10 + 1;
-    int count = kBaseDigits;
-    if (sigDigits > 0 && sigDigits < kBaseDigits)
+    int scale = exp10 + 1;
+    int count = baseDigits;
+    if (sigDigits > 0 && sigDigits < baseDigits)
     {
-        if (dg.d[sigDigits] >= '5')
+        if (d[sigDigits] >= '5')
         {
             int i = sigDigits - 1;
-            while (i >= 0 && dg.d[i] == '9')
+            while (i >= 0 && d[i] == '9')
             {
-                dg.d[i] = '0';
+                d[i] = '0';
                 --i;
             }
             if (i < 0)
             {
-                dg.d[0] = '1';
+                d[0] = '1';
                 ++scale;
             }
             else
             {
-                ++dg.d[i];
+                ++d[i];
             }
         }
         count = sigDigits;
     }
-    while (count > 1 && dg.d[count - 1] == '0')
+    while (count > 1 && d[count - 1] == '0')
     {
         --count;
     }
-    const bool allZero = (count == 1 && dg.d[0] == '0');
+    const bool allZero = (count == 1 && d[0] == '0');
     int o = 0;
-    if (dg.neg && !allZero)
+    if (neg && !allZero)
     {
         out[o++] = '-';
     }
     if (scale > sigDigits || scale < -3)
     {
-        out[o++] = dg.d[0];
+        out[o++] = d[0];
         if (count > 1)
         {
             out[o++] = '.';
-            std::memcpy(out + o, dg.d + 1, static_cast<size_t>(count - 1));
+            std::memcpy(out + o, d + 1, static_cast<size_t>(count - 1));
             o += count - 1;
         }
         o += EmitExponent(out + o, scale - 1, expChar, 2);
@@ -798,7 +819,7 @@ int FormatGeneralDouble(double value, int sigDigits, char expChar, char* out)
     {
         for (int i = 0; i < scale; ++i)
         {
-            out[o++] = (i < count) ? dg.d[i] : '0';
+            out[o++] = (i < count) ? d[i] : '0';
         }
     }
     else
@@ -817,10 +838,39 @@ int FormatGeneralDouble(double value, int sigDigits, char expChar, char* out)
         }
         for (int i = (scale > 0 ? scale : 0); i < count; ++i)
         {
-            out[o++] = dg.d[i];
+            out[o++] = d[i];
         }
     }
     return o;
+}
+
+int FormatGeneralDouble(double value, int sigDigits, char expChar, char* out)
+{
+    if (sigDigits > kBaseDigits)
+    {
+        // D-DBLF-1b (dblfmt_r): the R ladder's G17 step and user "G16"/"G17"
+        // need 16-17 significant digits; the 15-digit base cannot express
+        // them, so "G17" previously re-emitted the G15 text and R never
+        // round-tripped (0.1+0.2 -> "0.3" instead of "0.30000000000000004").
+        // Generate the wide base and run the same G body.
+        char d[kWideDigits];
+        char tmp[40];
+        std::snprintf(tmp, sizeof tmp, "%.16e", value);
+        const bool neg = (tmp[0] == '-');
+        const char* p = tmp + (neg ? 1 : 0);
+        d[0] = *p++;
+        ++p; // '.'
+        for (int i = 1; i < kWideDigits; ++i)
+        {
+            d[i] = *p++;
+        }
+        return FormatGeneralFromDigits(d, kWideDigits, std::atoi(p + 1), neg,
+                                       sigDigits, expChar, out);
+    }
+    DoubleDigits dg;
+    GetDoubleDigits(value, dg);
+    return FormatGeneralFromDigits(dg.d, kBaseDigits, dg.exp10, dg.neg,
+                                   sigDigits, expChar, out);
 }
 
 // N on an integer: grouped integer part + '.' + 'precision' zeros (the same
@@ -1154,10 +1204,38 @@ Il2CppObject* MakeCurrencyString(const char* tail, int tailLen)
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(units, o));
 }
 
+// cultureprobe (provider routing): the invariant culture is the EMPTY name
+// (cultureinfo.cpp il2cpp_culture_get_invariant -> Intern("")); nullptr and
+// any non-empty name (incl. "zh-CN") keep the zh-CN host layout, so every
+// pre-provider call site stays byte-identical.
+bool IsInvariantProvider(Il2CppObject* provider)
+{
+    if (provider == nullptr) return false;
+    const Il2CppString* s = reinterpret_cast<const Il2CppString*>(provider);
+    return s->length == 0;
+}
+
+// Invariant currency pattern 0: U+00A4 symbol, negatives wrapped in parens
+// with the symbol INSIDE ("(¤1,234.50)"; net48 invariant).
+Il2CppObject* MakeCurrencyStringInvariant(const char* tail, int tailLen)
+{
+    char16_t units[kMaxBuffer + 8];
+    int o = 0;
+    const bool neg = (tailLen > 0 && tail[0] == '-');
+    if (neg) units[o++] = u'(';
+    units[o++] = u'\u00A4';
+    for (int i = neg ? 1 : 0; i < tailLen; ++i)
+    {
+        units[o++] = static_cast<char16_t>(static_cast<unsigned char>(tail[i]));
+    }
+    if (neg) units[o++] = u')';
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(units, o));
+}
+
 //------------------------------------------------------------------------------
 // Shared int dispatcher (int32/int64 differ only in the hex width).
 //------------------------------------------------------------------------------
-Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format)
+Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format, bool inv)
 {
     char spec = 'G';
     int precision = -1;
@@ -1209,7 +1287,10 @@ Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format
         {
             char tail[kMaxBuffer];
             const int t = FormatNumberInt(tail, value, precision < 0 ? 2 : precision);
-            return MakeCurrencyString(tail, t);
+            // saudit4: provider routing -- invariant uses U+00A4 and the
+            // "(¤n)" negative pattern (MakeCurrencyStringInvariant), nullptr /
+            // any non-empty name keeps the zh-CN U+00A5 "¥-n" layout.
+            return inv ? MakeCurrencyStringInvariant(tail, t) : MakeCurrencyString(tail, t);
         }
         case 'E':
             len = FormatSciInt(buf, value, precision < 0 ? 6 : precision, expChar);
@@ -1219,8 +1300,10 @@ Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format
             break;
         case 'P':
         {
-            const int t = FormatPercentInt(buf, value, precision < 0 ? 2 : precision);
-            buf[t] = '%'; // zh-CN "n%" layout (no space)
+            const int t0 = FormatPercentInt(buf, value, precision < 0 ? 2 : precision);
+            int t = t0;
+            if (inv) buf[t++] = ' '; // invariant "n %" (space before '%', saudit4)
+            buf[t] = '%';            // zh-CN "n%" layout (no space)
             len = t + 1;
             break;
         }
@@ -1243,35 +1326,52 @@ Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format
 } // namespace
 
 //------------------------------------------------------------------------------
-// icall_format_int32_custom -- int32 ToString(format).
+// icall_format_int32_custom -- int32 ToString(format[, provider]).
+// provider semantics: see il2cpp_format_ext.h (nullptr/non-empty -> zh-CN,
+// invariant name -> invariant C/P; saudit4).
 //------------------------------------------------------------------------------
-Il2CppObject* icall_format_int32_custom(int32_t value, Il2CppObject* format)
+Il2CppObject* icall_format_int32_custom(int32_t value, Il2CppObject* format,
+                                        Il2CppObject* provider)
 {
     // Hex is 32-bit two's-complement: -123 -> "FFFFFF85" (not 16 digits).
     return ToStringInt(static_cast<int64_t>(value),
                        static_cast<uint64_t>(static_cast<uint32_t>(value)),
-                       format);
+                       format, IsInvariantProvider(provider));
 }
 
 //------------------------------------------------------------------------------
-// icall_format_int64_custom -- int64 ToString(format).
+// icall_format_int64_custom -- int64 ToString(format[, provider]).
 //------------------------------------------------------------------------------
-Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format)
+Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format,
+                                        Il2CppObject* provider)
 {
-    return ToStringInt(value, static_cast<uint64_t>(value), format);
+    return ToStringInt(value, static_cast<uint64_t>(value), format,
+                       IsInvariantProvider(provider));
 }
 
 //------------------------------------------------------------------------------
-// icall_format_double_custom -- double ToString(format).
+// icall_format_double_custom -- double ToString(format[, provider]).
+// cultureprobe: 'provider' (the optional 3rd icall param, nullptr for the
+// 1-arg ToString(format) shape and the composite-format engine) routes the
+// P/C layouts: nullptr/non-empty name -> zh-CN ("n%", U+00A5, "¥-n");
+// the invariant name -> "n %" and U+00A4 with "(¤n)" negatives.
 //------------------------------------------------------------------------------
-Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format)
+Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
+                                         Il2CppObject* provider)
 {
+    const bool inv = IsInvariantProvider(provider);
+    // saudit1: non-finite values take the PROVIDER's spelling (oracle:
+    // ToString("G", InvariantCulture) == "Infinity").
+    const auto special = [inv](double v) -> Il2CppObject*
+    {
+        return inv ? MakeSpecialStringInvariant(v) : MakeSpecialString(v);
+    };
     // net48: non-finite values return the culture symbol BEFORE any format
     // work -- even an invalid format specifier (probe9: NaN with "Q" ->
     // "NaN", +Inf with "Q" -> U+221E).
     if (IsSpecial(value))
     {
-        return MakeSpecialString(value);
+        return special(value);
     }
     char buf[kMaxBuffer + 8];
     char spec = 'G';
@@ -1333,7 +1433,7 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format)
         {
             if (IsSpecial(value))
             {
-                return MakeSpecialString(value);
+                return special(value);
             }
             if (precision < 1)
             {
@@ -1347,21 +1447,21 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format)
         case 'F':
             if (IsSpecial(value))
             {
-                return MakeSpecialString(value);
+                return special(value);
             }
             len = FormatFinite(value, precision < 0 ? 2 : precision, buf);
             break;
         case 'N':
             if (IsSpecial(value))
             {
-                return MakeSpecialString(value);
+                return special(value);
             }
             len = FormatGroupedFinite(value, precision < 0 ? 2 : precision, buf);
             break;
         case 'E':
             if (IsSpecial(value))
             {
-                return MakeSpecialString(value);
+                return special(value);
             }
             len = FormatSciFinite(value, precision < 0 ? 6 : precision, buf, expChar);
             break;
@@ -1369,22 +1469,37 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format)
         {
             if (IsSpecial(value))
             {
-                return MakeSpecialString(value);
+                return special(value);
             }
             char tail[kMaxBuffer];
             const int t = FormatGroupedFinite(value, precision < 0 ? 2 : precision, tail);
-            return MakeCurrencyString(tail, t);
+            return inv ? MakeCurrencyStringInvariant(tail, t) : MakeCurrencyString(tail, t);
         }
         case 'P':
         {
             if (IsSpecial(value))
             {
-                return MakeSpecialString(value);
+                return special(value);
             }
             // net48's double P scales the VALUE by 100.0 in double (the
             // double rounding of the product is observable -- probe4).
             len = FormatGroupedFinite(value * 100.0, precision < 0 ? 2 : precision, buf);
+            if (inv) buf[len++] = ' '; // invariant "n %" (space before '%')
             buf[len++] = '%'; // zh-CN "n%" layout (no space)
+            break;
+        }
+        case 'R':
+        {
+            // D-DBLF-1 (dblfmt_r): net48 R = G15 when it round-trips, else
+            // G17 (Number.FormatDouble's precision ladder). Specials were
+            // already routed through special() above.
+            len = FormatGeneralDouble(value, 15, expChar, buf);
+            buf[len] = '\0';
+            if (std::strtod(buf, nullptr) == value)
+            {
+                break;
+            }
+            len = FormatGeneralDouble(value, 17, expChar, buf);
             break;
         }
         default:
@@ -1403,8 +1518,13 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format)
 // index, alignment and format-string components and calls this engine with
 // the BOXED argument; the box is opened here by klass name (the numeric box
 // payloads sit at byte offset 8 -- the valuesemantics.cpp contract).
+// 'provider' (saudit4) is the IFormatProvider of the enclosing String.Format
+// call: it is threaded to the numeric custom formatters so the invariant
+// culture is honored inside composite items too; nullptr keeps the zh-CN
+// host layout.
 //------------------------------------------------------------------------------
-Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* format, int32_t alignment)
+Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* format, int32_t alignment,
+                                          Il2CppObject* provider)
 {
     // net48 composite formatting: null -> the empty string; a string arg
     // returns its payload unchanged (System.String is not IFormattable, so a
@@ -1426,13 +1546,13 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
         {
             const int32_t v = *reinterpret_cast<const int32_t*>(
                 reinterpret_cast<const char*>(boxed) + 8);
-            text = reinterpret_cast<Il2CppString*>(icall_format_int32_custom(v, format));
+            text = reinterpret_cast<Il2CppString*>(icall_format_int32_custom(v, format, provider));
         }
         else if (name != nullptr && std::strcmp(name, "System.Int64") == 0)
         {
             const int64_t v = *reinterpret_cast<const int64_t*>(
                 reinterpret_cast<const char*>(boxed) + 8);
-            text = reinterpret_cast<Il2CppString*>(icall_format_int64_custom(v, format));
+            text = reinterpret_cast<Il2CppString*>(icall_format_int64_custom(v, format, provider));
         }
         else if (name != nullptr && (std::strcmp(name, "System.Double") == 0 ||
                                      std::strcmp(name, "System.Single") == 0))
@@ -1440,14 +1560,14 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
             // float widens to double in the box (boxingext2.h contract).
             const double v = *reinterpret_cast<const double*>(
                 reinterpret_cast<const char*>(boxed) + 8);
-            text = reinterpret_cast<Il2CppString*>(icall_format_double_custom(v, format));
+            text = reinterpret_cast<Il2CppString*>(icall_format_double_custom(v, format, provider));
         }
         else if (name != nullptr && std::strcmp(name, "System.Decimal") == 0)
         {
             // 16-byte decimal payload at byte offset 8 (the decimal box).
             Il2CppDecimal dec;
             std::memcpy(&dec, reinterpret_cast<const char*>(boxed) + 8, sizeof(dec));
-            text = icall_decimal_to_string_custom(&dec, reinterpret_cast<Il2CppString*>(format));
+            text = icall_decimal_to_string_custom(&dec, reinterpret_cast<Il2CppString*>(format), provider);
         }
         else
         {

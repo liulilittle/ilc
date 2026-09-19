@@ -91,21 +91,22 @@ public class MethodMapBitConverterTests
     }
 
     //--------------------------------------------------------------------------
-    // ToT(byte[], int) -- the startIndex form: same icall, arg DROPPED
+    // ToT(byte[], int) -- the startIndex form: PASSES the index to the
+    // runtime _offset icall (D-A/D-B fix, 2026-09-19; was DROPPED before).
     //--------------------------------------------------------------------------
     [Theory]
     [InlineData("ToBoolean", 0x02, "il2cpp::runtime::il2cpp_bitconverter_to_bool")]
     [InlineData("ToInt32", 0x08, "il2cpp::runtime::il2cpp_bitconverter_to_int32")]
     [InlineData("ToDouble", 0x0D, "il2cpp::runtime::il2cpp_bitconverter_to_double")]
-    public void Resolve_BitConverter_ToTWithStartIndex_DropsTheIndex(string member, byte ret, string icall)
+    public void Resolve_BitConverter_ToTWithStartIndex_PassesTheIndex(string member, byte ret, string icall)
     {
         // <ret> ToX(byte[], int): SZARRAY param + element, int32 param.
         var resolved = ResolveMember(Synthesize("System", "BitConverter", member,
             new byte[] { 0x00, 0x02, ret, 0x1D, 0x05, 0x08 }), member);
 
-        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(icall + "_offset", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
-        Assert.Equal(new[] { "a", "drop" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "a", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]

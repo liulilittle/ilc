@@ -194,29 +194,61 @@ public static class StringPoolPass
         // three digits each means a following literal digit can never be
         // absorbed into the escape (the \xNN hazard).
         var sb = new System.Text.StringBuilder(s.Length + 16);
-        foreach (var ch in s)
+        // msvc C4125 (parseint): a 3-digit octal escape followed by a RAW
+        // decimal digit ("\01342") makes MSVC warn "decimal digit terminates
+        // octal escape sequence" (the value is correct, the style is not).
+        // When the next character after an octal run is a digit, close and
+        // reopen the C++ literal ("\013" "42") -- adjacent-literal
+        // concatenation is byte-identical at runtime and visibly terminates
+        // the escape. (The comment above still holds: the 3-digit form already
+        // prevents ABSORPTION; this split additionally silences the warning.)
+        var lastWasOctal = false;
+        // charconv/charstr (surrogate-pair fix): a UTF-16 supplementary
+        // character ("\uD83D\uDE00" = U+1F600) is encoded as ONE code point.
+        // The old per-char walk fed each surrogate HALF separately to
+        // Encoding.UTF8.GetBytes -> the encoder replaced each unpaired half
+        // with U+FFFD, emitting EF BF BD EF BF BD instead of F0 9F 98 80.
+        // Index-based loop: a high+low pair is encoded together, everything
+        // else keeps the per-unit path (a LONE surrogate still degrades to
+        // U+FFFD -- invalid UTF-16 has no faithful UTF-8 form).
+        for (var i = 0; i < s.Length; i++)
         {
+            var ch = s[i];
             switch (ch)
             {
-                case '\\': sb.Append("\\\\"); break;
-                case '"': sb.Append("\\\""); break;
-                case '\n': sb.Append("\\n"); break;
-                case '\r': sb.Append("\\r"); break;
-                case '\t': sb.Append("\\t"); break;
+                case '\\': sb.Append("\\\\"); lastWasOctal = false; break;
+                case '"': sb.Append("\\\""); lastWasOctal = false; break;
+                case '\n': sb.Append("\\n"); lastWasOctal = false; break;
+                case '\r': sb.Append("\\r"); lastWasOctal = false; break;
+                case '\t': sb.Append("\\t"); lastWasOctal = false; break;
                 default:
                     if (ch >= 0x20 && ch < 0x7F)
                     {
+                        if (lastWasOctal && ch >= '0' && ch <= '9')
+                            sb.Append("\" \""); // C4125: a raw digit after an octal escape needs the literal split
                         sb.Append(ch);
+                        lastWasOctal = false;
                     }
                     else
                     {
-                        foreach (var b in System.Text.Encoding.UTF8.GetBytes(ch.ToString()))
+                        string unit;
+                        if (char.IsHighSurrogate(ch) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+                        {
+                            unit = s.Substring(i, 2);
+                            i++;
+                        }
+                        else
+                        {
+                            unit = ch.ToString();
+                        }
+                        foreach (var b in System.Text.Encoding.UTF8.GetBytes(unit))
                         {
                             sb.Append('\\');
                             sb.Append((char)('0' + ((b >> 6) & 7)));
                             sb.Append((char)('0' + ((b >> 3) & 7)));
                             sb.Append((char)('0' + (b & 7)));
                         }
+                        lastWasOctal = true;
                     }
                     break;
             }
@@ -240,7 +272,7 @@ public static class StringPoolPass
         w.Line($"inline Il2CppObject* g_strPool[{pool.LiteralCount}];");
         w.Line("inline void il2cpp_string_pool_fill() {");
         for (var i = 0; i < pool.LiteralCount; i++)
-            w.Line($"    g_strPool[{i}] = il2cpp_string_intern_literal(\"{EscapeCppLiteral(pool.LiteralAt(i))}\");");
+            w.Line($"    g_strPool[{i}] = il2cpp_string_intern_literal_n(\"{EscapeCppLiteral(pool.LiteralAt(i))}\", {System.Text.Encoding.UTF8.GetByteCount(pool.LiteralAt(i))});");
         w.Line("}");
         w.Line("} // namespace il2cpp");
         return w.ToString();

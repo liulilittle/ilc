@@ -119,7 +119,93 @@ public sealed class TypeDef
     // TypeDef represents. Used to emit ListBuilder_1_object, Task_1_long, etc.
     public int GenericArity { get; init; }
     public bool IsGenericType => GenericArity > 0;
+
+    // where-clause constraints (GenericParamConstraint table), per generic
+    // parameter index. Read for the first time by MetadataLoader -- the
+    // transpiler previously never decoded this table at all, which forced every
+    // unconstrained T to be treated as int32.
+    //
+    // Semantics per the project's generics doctrine (see .opencode/memory.md:
+    // "泛型实现的总纲"): a `where T : X` constraint is one of three equivalent
+    // signals that tell us "T is at least X here" (the other two being an
+    // explicit `as X` and a cast `(X)`). So the T-bearing call site is emitted
+    // against X. An entry that is absent (or empty) means T is UNCONSTRAINED,
+    // i.e. T is exactly System.Object at the IL level (value-type arguments
+    // arrive boxed) -- NOT int32.
+    //
+    // Key = generic parameter index (0-based, matching the VAR index that
+    // follows ELEMENT_TYPE_VAR 0x13 in a signature blob).
+    // Value = the constraint type's full name, e.g. "System.IDisposable".
+    // A parameter may have several constraints (e.g. `where T : A, new()`),
+    // hence a list. `new()` (DefaultConstructorConstraint) carries no type and
+    // is not represented here.
+    public List<string>[]? GenericConstraints { get; init; }
+
+    /// Constraint names for one generic parameter index, or null when that
+    /// parameter is unconstrained (or constraints were never decoded).
+    public List<string>? ConstraintsFor(int genericParamIndex)
+        => GenericConstraints is { } all
+           && (uint)genericParamIndex < (uint)all.Length
+            ? all[genericParamIndex]
+            : null;
+
+    /// <summary>
+    /// Nested (not a sibling) so it cannot break the enclosing class's braces.
+    /// Decodes the GenericParamConstraint table (ECMA-335 II.22.21).
+/// This table had never been read anywhere in the transpiler before, which is
+/// why every unconstrained `T` was forced into an int32 slot.
+/// </summary>
+public static class GenericConstraintReader
+{
+    /// Reads the where-clauses of a generic type/method definition.
+    /// Result is indexed by generic parameter index; a null/empty entry means
+    /// that parameter is unconstrained (T == System.Object at the IL level).
+    // `resolve` is supplied by the caller (MetadataLoader.ResolveTypeName) so this
+    // helper stays independent of whatever TypeDefOrRef resolution the loader uses.
+    public static List<string>[]? Read(
+        System.Reflection.Metadata.MetadataReader md,
+        System.Reflection.Metadata.GenericParameterHandleCollection handles,
+        System.Func<System.Reflection.Metadata.EntityHandle, string> resolve)
+    {
+        var count = handles.Count;
+        if (count == 0) return null;
+
+        var result = new List<string>[count];
+        var any = false;
+
+        foreach (var h in handles)
+        {
+            var gp = md.GetGenericParameter(h);
+            var index = gp.Index;
+            if ((uint)index >= (uint)count) continue;
+
+            var names = new List<string>();
+            foreach (var ch in gp.GetConstraints())
+            {
+                // A constraint row is (Owner GenericParam, Type TypeDefOrRef).
+                // `new()` (DefaultConstructorConstraint) has no type entry, so it
+                // simply contributes nothing here -- that is correct.
+                var c = md.GetGenericParameterConstraint(ch);
+                var name = resolve(c.Type);
+                if (!string.IsNullOrEmpty(name)) names.Add(name);
+            }
+
+            if (names.Count > 0) { result[index] = names; any = true; }
+        }
+
+        return any ? result : null;
+    }
+}
+
     public string? InstantiationSuffix { get; set; }
+
+    // R2b (R77 clone identity): a synthetic closed instantiation shares the
+    // DEFINITION's FullName (the C++ symbol/hash channels key on the
+    // definition name -- see R1/R2b design), so FullName cannot serve as the
+    // planner's dedup key. InstantiationKey disambiguates: the default
+    // (definition / int) instantiation is FullName, a closed clone is
+    // FullName + "|" + suffix.
+    public string InstantiationKey => InstantiationSuffix == null ? FullName : FullName + "|" + InstantiationSuffix;
 
     // Value type (M3 Task 11): a struct whose instances are plain C++ values
     // (NO object header, NO GC allocation). Local variables hold the value

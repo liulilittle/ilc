@@ -15,10 +15,10 @@
 //     signature; the result arrays are built by the runtime itself
 //     (il2cpp_array_new) -- the result side is not restricted by the
 //     transpiler's newarr limits (e.g. int32[] -> string[] works).
-//   * Where runs TWO passes (count matching elements, then fill an exact-size
-//     result): the predicate runs twice per element -- a documented stage-1
-//     deviation (observable only for side-effecting predicates, accepted by
-//     the design).
+//   * Where runs the predicate exactly ONCE per element (net48 lazy
+//     enumeration + ToArray semantics; rlaudit3). The single pass fills a
+//     src-length scratch, then the exact-size result is copied out (or the
+//     scratch returned directly when every element matched).
 //
 // GC SAFETY (physical contract, il2cpp_gc.h): the collector COMPACTS the
 // young generation, so any allocation can move every live object. The
@@ -420,27 +420,30 @@ Il2CppArray* il2cpp_linq_where_i4(Il2CppArray* src, Il2CppObject* pred)
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
 
-    // Pass 1: count the matches (the predicate may allocate -> the source
-    // array is rooted and re-read through the slot every iteration).
-    int32_t count = 0;
-    for (int32_t i = 0; i < src->length; ++i)
-    {
-        if (InvokePredI4(d, I4At(src, i))) ++count;
-    }
-
-    Il2CppArray* out = il2cpp_array_new(nullptr, 4, false, count);
-    roots.Add(reinterpret_cast<void**>(&out));
-
-    // Pass 2: fill the exact-size result.
+    // SINGLE predicate pass (rlaudit3): fill a src-length scratch.
+    Il2CppArray* scratch = il2cpp_array_new(nullptr, 4, false, src->length);
+    roots.Add(reinterpret_cast<void**>(&scratch));
     int32_t w = 0;
     for (int32_t i = 0; i < src->length; ++i)
     {
-        int32_t v = I4At(src, i);
+        const int32_t v = I4At(src, i);
         if (InvokePredI4(d, v))
         {
-            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, w)) = v;
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(scratch, w)) = v;
             ++w;
         }
+    }
+    if (w == src->length)
+    {
+        return scratch; // already exact
+    }
+    // Exact-size result (net48 ToArray).
+    Il2CppArray* out = il2cpp_array_new(nullptr, 4, false, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(scratch, i));
     }
     return out;
 }
@@ -455,28 +458,27 @@ Il2CppArray* il2cpp_linq_where_ref(Il2CppArray* src, Il2CppObject* pred)
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
 
-    int32_t count = 0;
-    for (int32_t i = 0; i < src->length; ++i)
-    {
-        if (InvokePredRef(d, RefAt(src, i))) ++count;
-    }
-
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, count);
-    roots.Add(reinterpret_cast<void**>(&out));
-
+    Il2CppArray* scratch = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+    roots.Add(reinterpret_cast<void**>(&scratch));
     int32_t w = 0;
     for (int32_t i = 0; i < src->length; ++i)
     {
-        // The element is re-read AFTER the callback: a pointer cached across
-        // the callback could be stale if a collection moved the element.
-        // The re-read and the store are separated by no allocation.
         if (InvokePredRef(d, RefAt(src, i)))
         {
             Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
-                il2cpp_array_get_elem_ptr(out, w));
+                il2cpp_array_get_elem_ptr(scratch, w));
             *slot = RefAt(src, i);
             ++w;
         }
+    }
+    if (w == src->length) return scratch;
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(out, i));
+        *dst = *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(scratch, i));
     }
     return out;
 }

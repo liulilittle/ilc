@@ -42,79 +42,80 @@ using Xunit;
 public class MethodMapEncodingTests
 {
     //--------------------------------------------------------------------------
-    // Static encoding getters -- fold to null + record the concrete type
+    // Static encoding getters -- P2(5) A1: return REAL encoding objects
+    // (identity/GetPreamble); the concrete type rides ReturnTypeName.
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData("get_UTF8", "System.Text.UTF8Encoding")]
-    [InlineData("get_Unicode", "System.Text.UnicodeEncoding")]
-    [InlineData("get_ASCII", "System.Text.ASCIIEncoding")]
-    public void Resolve_Encoding_StaticGetter_FoldsToNullWithType(string name, string typeName)
+    [InlineData("get_UTF8", "il2cpp::runtime::icall_encoding_get_UTF8", "System.Text.UTF8Encoding")]
+    [InlineData("get_Unicode", "il2cpp::runtime::icall_encoding_get_Unicode", "System.Text.UnicodeEncoding")]
+    [InlineData("get_ASCII", "il2cpp::runtime::icall_encoding_get_ASCII", "System.Text.ASCIIEncoding")]
+    public void Resolve_Encoding_StaticGetter_ReturnsEncodingObject(string name, string icall, string typeName)
     {
         // static Encoding get_X(): ret class Encoding (0x12 + TypeRef coded
         // index 0x05 -- TypeDefOrRef tag TypeRef=1, row 1 -> (1 << 2) | 1),
         // zero params.
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", name, SigEx(0x12, new byte[] { 0x05 }, 0)), name);
 
-        Assert.Equal(ResolvedMethod.NullMarker, resolved.CppName);
+        Assert.Equal(icall, resolved.CppName);
         Assert.False(resolved.IsInstance);
         Assert.True(resolved.ReturnsValue);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(0, resolved.ParamCount);
-        // The concrete encoding type feeds the folded null's receiver hint.
+        // The concrete encoding type feeds the object-receiver dispatch.
         Assert.Equal(typeName, resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------
-    // GetBytes(string) / GetString(byte[]) -- allocating per-page icalls,
-    // dispatched by the receiver's tracked encoding type
+    // GetBytes(string) / GetString(byte[]) -- P2(5) A1: the object-receiver
+    // icalls (page/emitBom read from the real Encoding object at runtime).
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData("System.Text.UTF8Encoding", "il2cpp::runtime::il2cpp_encoding_utf8_get_bytes")]
-    [InlineData("System.Text.UnicodeEncoding", "il2cpp::runtime::il2cpp_encoding_unicode_get_bytes")]
-    [InlineData("System.Text.ASCIIEncoding", "il2cpp::runtime::il2cpp_encoding_ascii_get_bytes")]
-    public void Resolve_Encoding_GetBytes_WithEncodingReceiver_MapsToPageIcall(string receiverType, string icall)
+    [InlineData("System.Text.UTF8Encoding")]
+    [InlineData("System.Text.UnicodeEncoding")]
+    [InlineData("System.Text.ASCIIEncoding")]
+    public void Resolve_Encoding_GetBytes_WithEncodingReceiver_MapsToObjectIcall(string receiverType)
     {
         // instance byte[] GetBytes(string): ret SZARRAY byte (element byte
         // 0x05 is the return payload), 1 param string.
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
             SigEx(0x1D, new byte[] { 0x05 }, 1, 0x0E)), "GetBytes", receiverType);
 
-        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_bytes", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.True(resolved.ReturnsRef);
         Assert.True(resolved.ReturnsValue);
         Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
-        // The null-folded receiver is dropped; the string takes the "s" cast.
-        Assert.Equal(new[] { "drop", "s" }, resolved.ParamTypeNames);
+        // The object receiver passes through; the string takes the "s" cast.
+        Assert.Equal(new[] { "", "s" }, resolved.ParamTypeNames);
     }
 
     [Theory]
-    [InlineData("System.Text.UTF8Encoding", "il2cpp::runtime::il2cpp_encoding_utf8_get_string")]
-    [InlineData("System.Text.UnicodeEncoding", "il2cpp::runtime::il2cpp_encoding_unicode_get_string")]
-    [InlineData("System.Text.ASCIIEncoding", "il2cpp::runtime::il2cpp_encoding_ascii_get_string")]
-    public void Resolve_Encoding_GetString_WithEncodingReceiver_MapsToPageIcall(string receiverType, string icall)
+    [InlineData("System.Text.UTF8Encoding")]
+    [InlineData("System.Text.UnicodeEncoding")]
+    [InlineData("System.Text.ASCIIEncoding")]
+    public void Resolve_Encoding_GetString_WithEncodingReceiver_MapsToObjectIcall(string receiverType)
     {
         // instance string GetString(byte[]): ret string, 1 param SZARRAY byte
         // (marker 0x1D + element 0x05).
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetString",
             SigEx(0x0E, Array.Empty<byte>(), 1, 0x1D, 0x05)), "GetString", receiverType);
 
-        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_string", resolved.CppName);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal("System.String", resolved.ReturnTypeName);
-        // The byte[] argument takes the "a" cast (Il2CppObject* -> Il2CppArray*).
-        Assert.Equal(new[] { "drop", "a" }, resolved.ParamTypeNames);
+        // The object receiver passes through; the byte[] takes the "a" cast.
+        Assert.Equal(new[] { "", "a" }, resolved.ParamTypeNames);
     }
 
     // The derived-owner route is the same map (UTF8Encoding-typed receivers
     // may arrive via a UTF8Encoding-declared MemberRef).
     [Fact]
-    public void Resolve_UTF8Encoding_GetBytes_WithReceiver_MapsToUtf8Icall()
+    public void Resolve_UTF8Encoding_GetBytes_WithReceiver_MapsToObjectIcall()
     {
         var resolved = ResolveMember(Synthesize("System.Text", "UTF8Encoding", "GetBytes",
             SigEx(0x1D, new byte[] { 0x05 }, 1, 0x0E)), "GetBytes", "System.Text.UTF8Encoding");
 
-        Assert.Equal("il2cpp::runtime::il2cpp_encoding_utf8_get_bytes", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_bytes", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -141,17 +142,19 @@ public class MethodMapEncodingTests
 
     //--------------------------------------------------------------------------
     // Unwired shapes -- LOUD with the {owner}::{name} prefix from BclResolve's
-    // wrap
+    // wrap. P2(5) A1: the page no longer dispatches by receiver type (the
+    // object carries it), so any Encoding subtype receiver maps to the object
+    // icall; the LOUD rejection applies to the unwired ARITY/shape only.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Encoding_GetBytes_UnknownReceiver_ThrowsLoud()
+    public void Resolve_Encoding_GetBytes_CustomReceiver_MapsToObjectIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
-                SigEx(0x1D, new byte[] { 0x05 }, 1, 0x0E)), "GetBytes", "System.Text.Latin1Encoding"));
+        // A custom Encoding subclass receiver now maps to the object icall
+        // (the runtime reads page/emitBom from the object).
+        var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
+            SigEx(0x1D, new byte[] { 0x05 }, 1, 0x0E)), "GetBytes", "System.Text.Latin1Encoding");
 
-        Assert.Contains("System.Text.Encoding::GetBytes", ex.Message);
-        Assert.Contains("Latin1Encoding", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_bytes", resolved.CppName);
     }
 
     [Fact]
@@ -181,24 +184,24 @@ public class MethodMapEncodingTests
     }
 
     //--------------------------------------------------------------------------
-    // GetChars(byte[]) -> char[] -- the M5 UTF8 page is wired
-    // (il2cpp_encoding_utf8_get_chars); the no-hint first resolution defers
-    // to the receiver-aware re-resolve like GetBytes/GetString.
+    // GetChars(byte[]) -> char[] -- P2(5) A1: the object-receiver whole-array
+    // icall; the no-hint first resolution defers to the receiver-aware
+    // re-resolve like GetBytes/GetString.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Encoding_GetChars_UTF8Receiver_MapsToUtf8Icall()
+    public void Resolve_Encoding_GetChars_WithReceiver_MapsToObjectIcall()
     {
         // instance char[] GetChars(byte[]): ret SZARRAY char (element byte
         // 0x03 is the return payload), 1 param SZARRAY byte.
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetChars",
             SigEx(0x1D, new byte[] { 0x03 }, 1, 0x1D, 0x05)), "GetChars", "System.Text.UTF8Encoding");
 
-        Assert.Equal("il2cpp::runtime::il2cpp_encoding_utf8_get_chars", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_chars_all", resolved.CppName);
         Assert.True(resolved.ReturnsValue);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal("System.Char[]", resolved.ReturnTypeName);
-        // The null-folded receiver is dropped; the byte[] argument carries "a".
-        Assert.Equal(new[] { "drop", "a" }, resolved.ParamTypeNames);
+        // The receiver object passes; the byte[] argument carries "a".
+        Assert.Equal(new[] { "", "a" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -214,26 +217,26 @@ public class MethodMapEncodingTests
     }
 
     //--------------------------------------------------------------------------
-    // enc-b23: the ranged GetChars(byte[], int, int) allocating form on ALL
-    // three pages (il2cpp_encoding_<page>_get_chars 3-arg overloads).
+    // enc-b23 + P2(5) A1: the ranged GetChars(byte[], int, int) allocating
+    // form -- now the object-receiver icall (page read from the object).
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData("System.Text.UTF8Encoding", "utf8")]
-    [InlineData("System.Text.UnicodeEncoding", "unicode")]
-    [InlineData("System.Text.ASCIIEncoding", "ascii")]
-    public void Resolve_Encoding_GetChars_Ranged_WithReceiver_MapsToPageIcall(string receiverType, string page)
+    [InlineData("System.Text.UTF8Encoding")]
+    [InlineData("System.Text.UnicodeEncoding")]
+    [InlineData("System.Text.ASCIIEncoding")]
+    public void Resolve_Encoding_GetChars_Ranged_WithReceiver_MapsToObjectIcall(string receiverType)
     {
         // instance char[] GetChars(byte[] bytes, int32 index, int32 count):
         // ret SZARRAY char, 3 params byte[] + int32 + int32.
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetChars",
             SigEx(0x1D, new byte[] { 0x03 }, 3, 0x1D, 0x05, 0x08, 0x08)), "GetChars", receiverType);
 
-        Assert.Equal($"il2cpp::runtime::il2cpp_encoding_{page}_get_chars", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_chars", resolved.CppName);
         Assert.True(resolved.ReturnsValue);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal("System.Char[]", resolved.ReturnTypeName);
-        // Null-folded receiver dropped; byte[] "a"; index/count int32 "".
-        Assert.Equal(new[] { "drop", "a", "i", "i" }, resolved.ParamTypeNames);
+        // Object receiver passes; byte[] "a"; index/count int32 "i".
+        Assert.Equal(new[] { "", "a", "i", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -255,6 +258,34 @@ public class MethodMapEncodingTests
 
         Assert.StartsWith("System_Text_Encoding_GetHashCode_", resolved.CppName);
         Assert.Matches("^[A-Za-z_][A-Za-z0-9_]*$", resolved.CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // P2(5) A1: `new UTF8Encoding(bool emitBom)` and GetPreamble.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_UTF8Encoding_Ctor_Bool_MapsToCtorIcall()
+    {
+        // instance void .ctor(bool): ret void, 1 param bool (0x02).
+        var resolved = ResolveMember(Synthesize("System.Text", "UTF8Encoding", ".ctor",
+            Sig(0x01, 0x02)), ".ctor", "System.Text.UTF8Encoding");
+
+        Assert.Equal("il2cpp::runtime::icall_encoding_ctor_utf8", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Encoding_GetPreamble_MapsToPreambleIcall()
+    {
+        // instance byte[] GetPreamble(): ret SZARRAY byte, 0 params.
+        var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetPreamble",
+            SigEx(0x1D, new byte[] { 0x05 }, 0)), "GetPreamble", "System.Text.UTF8Encoding");
+
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_preamble", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------

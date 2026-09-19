@@ -9,21 +9,33 @@
 //     helper -- time.cpp's functions live in an anonymous namespace and are
 //     deliberately not shared; the two copies are pinned against each other
 //     by the fixed-tick unit tests).
-//   * Standard single-letter formats are mapped onto their invariant-culture
-//     patterns and formatted through the SAME custom engine (DRY).
-//   * null / empty format -> General "G" (net48 rule): delegates to the
-//     existing culture-neutral default formatter icall_datetime_to_string
-//     (time.cpp), which outputs exactly invariant "G".
+//   * The provider -> culture mapping and the custom-format engine are
+//     exported through il2cpp_time_fmt.h so the DateTimeOffset formatter
+//     (dtoffset.cpp) reuses them (offset-aware z / zz / zzz / K tokens and
+//     the " zzz" default suffix).
+//   * Standard single-letter formats are PROVIDER-AWARE (cultureprobe
+//     regression fix): the trailing IFormatProvider slot selects the pattern
+//     family -- nullptr => host default zh-CN (saudit5), the empty culture
+//     name => invariant (culturedeep/timeformat/datetime2 pass
+//     CultureInfo.InvariantCulture), "zh-CN" => zh-CN, an unknown name =>
+//     invariant fallback (+ optional log). Both families format through the
+//     SAME custom engine (DRY).
+//   * null / empty format -> General "G" (net48 rule) in the SELECTED
+//     culture: zh-CN "yyyy/M/d H:mm:ss" (host default, saudit5) vs invariant
+//     "MM/dd/yyyy HH:mm:ss" (empty-name carrier).
 //   * Unknown single LETTER format -> FormatException (net48: unknown
 //     standard specifier). Custom strings treat every character outside the
 //     y/M/d/H/h/m/s/f/F/t subset as a literal (net48 would interpret
 //     timezone specifiers -- reported divergence; the AM/PM 't' token IS
-//     implemented, pinned by the net48 oracle).
+//     implemented, pinned by the net48 oracle). '%' forces the NEXT character
+//     to be read as a single custom specifier (net48: "%d" -> day digits);
+//     the timezone letters stay literal for DateTime.
 //   * f/F tokens format the fractional second: the first N digits of the
 //     7-digit sub-second tick count, zero-padded ('f') or with trailing
 //     zeros trimmed ('F'); N > 7 throws FormatException (net48 oracle).
 //     "G" is a standard specifier mapping to the same pattern as the
-//     default ToString() (net48 oracle: invariant "MM/dd/yyyy HH:mm:ss").
+//     default ToString() within the selected culture (net48 oracle: zh-CN
+//     "yyyy/M/d H:mm:ss" on the host, invariant "MM/dd/yyyy HH:mm:ss").
 //   * Output is built in a std::u16string and allocated with ONE
 //     il2cpp_string_new call (no intermediate allocations, no GC window).
 //------------------------------------------------------------------------------
@@ -32,9 +44,12 @@
 
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_string.h"
+#include "il2cpp_time_fmt.h"
 #include "timezone.h" // il2cpp_datetime_from_local (standard "U" universal format)
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace il2cpp {
@@ -60,18 +75,6 @@ const char* kDayNamesFull[7] = {"Sunday",   "Monday", "Tuesday", "Wednesday",
                                 "Thursday", "Friday", "Saturday"};
 const char* kDayNamesAbbr[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
-// Civil components of a DateTime (valid dates have non-negative ticks).
-struct CivilTime
-{
-    int32_t year;
-    int32_t month;
-    int32_t day;
-    int32_t hour;
-    int32_t minute;
-    int32_t second;
-    int32_t fraction; // sub-second ticks, 0..9999999 (7 fraction digits)
-};
-
 // Hinnant's civil_from_days on the .NET epoch day count (see time.cpp
 // header comment; the constant pair is the Unix/.NET epoch offset).
 void CivilFromNetDays(int64_t days, int32_t* year, int32_t* month, int32_t* day)
@@ -90,24 +93,29 @@ void CivilFromNetDays(int64_t days, int32_t* year, int32_t* month, int32_t* day)
     *day = static_cast<int32_t>(d);
 }
 
-CivilTime GetCivilTime(Il2CppDateTime dt)
+// Optional diagnostic: appends the unknown provider name to the file named
+// by IL2CPP_CULTURE_PROVIDER_LOG. NO stdout/stderr traffic (the e2e harness
+// byte-diffs both streams); unset -> silent deterministic fallback.
+void LogUnknownProvider(const Il2CppString* name)
 {
-    const int64_t days = dt.ticks / kTicksPerDay;
-    const int64_t timeTicks = dt.ticks % kTicksPerDay; // 0..TicksPerDay-1 for valid dates
-    CivilTime result;
-    CivilFromNetDays(days, &result.year, &result.month, &result.day);
-    result.hour = static_cast<int32_t>(timeTicks / kTicksPerHour);
-    result.minute = static_cast<int32_t>((timeTicks % kTicksPerHour) / kTicksPerMinute);
-    result.second = static_cast<int32_t>((timeTicks % kTicksPerMinute) / kTicksPerSecond);
-    result.fraction = static_cast<int32_t>(timeTicks % kTicksPerSecond);
-    return result;
-}
-
-// .NET DayOfWeek: (days since 0001-01-01 + 1) % 7 (Sunday = 0; 0001-01-01
-// was a Monday) -- same formula as time.cpp's icall_datetime_get_dayofweek.
-int32_t DayOfWeek(Il2CppDateTime dt)
-{
-    return static_cast<int32_t>((dt.ticks / kTicksPerDay + 1) % 7);
+    const char* path = std::getenv("IL2CPP_CULTURE_PROVIDER_LOG");
+    if (path == nullptr || path[0] == '\0')
+    {
+        return;
+    }
+    std::FILE* f = std::fopen(path, "ab");
+    if (f == nullptr)
+    {
+        return;
+    }
+    std::fputs("datetime-to-string: unknown IFormatProvider culture '", f);
+    for (int32_t i = 0; i < name->length; ++i)
+    {
+        const char16_t c = name->chars[i];
+        std::fputc(c < 0x80 ? static_cast<char>(c) : '?', f);
+    }
+    std::fputs("' -> invariant fallback\n", f);
+    std::fclose(f);
 }
 
 //------------------------------------------------------------------------------
@@ -152,10 +160,40 @@ bool IsTokenLetter(char16_t c)
         || c == u't';
 }
 
+// DateTimeOffset-only custom tokens (only reachable when the caller passed
+// offset minutes; DateTime keeps them as literals).
+bool IsOffsetToken(char16_t c)
+{
+    return c == u'z' || c == u'K';
+}
+
+// net48 custom offset token body, 'count' repetitions of z (or K, which is
+// the full "+HH:mm" form):
+//   z   -> "+8"      (hours, no zero padding)
+//   zz  -> "+08"     (hours, 2-digit)
+//   zzz -> "+08:00"  (hours + minutes; zzzz+ keep the same HH:mm form)
+// A zero offset is "+0" / "+00" / "+00:00" (the sign is always present).
+void AppendOffsetZToken(std::u16string& out, int32_t offsetMinutes, int32_t count)
+{
+    const int32_t abs = offsetMinutes < 0 ? -offsetMinutes : offsetMinutes;
+    out.push_back(offsetMinutes < 0 ? u'-' : u'+');
+    if (count >= 3)
+    {
+        AppendInt(out, abs / 60, 2);
+        out.push_back(u':');
+        AppendInt(out, abs % 60, 2);
+    }
+    else
+    {
+        AppendInt(out, abs / 60, count == 2 ? 2 : 1);
+    }
+}
+
 // One custom-format token: 'count' consecutive copies of 'spec' (net48
-// repeat semantics, pinned by the timeext e2e oracle).
+// repeat semantics, pinned by the timeext e2e oracle). 'offsetMinutes' is
+// non-null only for the DateTimeOffset formatter (z / K token expansion).
 void AppendToken(std::u16string& out, const CivilTime& t, int32_t dow,
-                 char16_t spec, int32_t count)
+                 char16_t spec, int32_t count, const int32_t* offsetMinutes)
 {
     switch (spec)
     {
@@ -242,29 +280,168 @@ void AppendToken(std::u16string& out, const CivilTime& t, int32_t dow,
         {
             frac /= 10;
         }
+        const size_t start = out.size();
         AppendInt(out, frac, count);
         if (spec == u'F')
         {
-            // 'F' is 'f' with trailing zeros trimmed (net48: FFF on
-            // .000 s is the empty string).
-            while (!out.empty() && out.back() == u'0')
+            // 'F' is 'f' with trailing zeros trimmed; ONLY the digits this
+            // token appended are trimmed (a literal '0' before the token must
+            // survive). When the whole fraction trims away, a preceding '.'
+            // is removed too (net48 oracle: "ss.FFF" on .000 -> "30",
+            // "ss'.'FFF" -> "30" too -- the rule is output-adjacent -- while
+            // "ss-FFF" -> "30-" keeps the '-').
+            while (out.size() > start && out.back() == u'0')
+            {
+                out.pop_back();
+            }
+            if (out.size() == start && start > 0 && out[start - 1] == u'.')
             {
                 out.pop_back();
             }
         }
         break;
     }
+    case u'z':
+        // DateTimeOffset numeric offset ("+8"/"+08"/"+08:00"); DateTime
+        // never reaches this arm (see IsOffsetToken).
+        if (offsetMinutes != nullptr)
+        {
+            AppendOffsetZToken(out, *offsetMinutes, count);
+        }
+        break;
+    case u'K':
+        // net48 DateTimeOffset custom "K" is the full "+HH:mm" offset, once
+        // per K in the run ("KK" -> "+08:00+08:00"). (A single-character "K"
+        // format never reaches the custom engine -- it is a
+        // standard-specifier lookup that throws, like "z".)
+        if (offsetMinutes != nullptr)
+        {
+            for (int32_t k = 0; k < count; ++k)
+            {
+                AppendOffsetZToken(out, *offsetMinutes, 3);
+            }
+        }
+        break;
     }
 }
 
-// Custom-format engine: token letters (y/M/d/H/h/m/s/f/F/t) expand per
-// AppendToken; quoted literal groups ('...' / "...", net48 strips the quote
-// characters) and backslash escapes ('\x' -> literal x) emit verbatim;
-// every other character is emitted literally. Unterminated quotes / a
-// trailing backslash are invalid formats (net48 FormatException). 'fmt'/'len'
-// are UTF-16 units.
-std::u16string FormatCustom(const CivilTime& t, int32_t dow,
-                            const char16_t* fmt, int32_t len)
+} // namespace
+
+//------------------------------------------------------------------------------
+// Shared civil-time helpers (il2cpp_time_fmt.h).
+//------------------------------------------------------------------------------
+
+CivilTime CivilTimeFromTicks(Il2CppDateTime dt)
+{
+    const int64_t days = dt.ticks / kTicksPerDay;
+    const int64_t timeTicks = dt.ticks % kTicksPerDay; // 0..TicksPerDay-1 for valid dates
+    CivilTime result;
+    CivilFromNetDays(days, &result.year, &result.month, &result.day);
+    result.hour = static_cast<int32_t>(timeTicks / kTicksPerHour);
+    result.minute = static_cast<int32_t>((timeTicks % kTicksPerHour) / kTicksPerMinute);
+    result.second = static_cast<int32_t>((timeTicks % kTicksPerMinute) / kTicksPerSecond);
+    result.fraction = static_cast<int32_t>(timeTicks % kTicksPerSecond);
+    return result;
+}
+
+int32_t WeekdayFromTicks(Il2CppDateTime dt)
+{
+    // .NET DayOfWeek: (days since 0001-01-01 + 1) % 7 (Sunday = 0;
+    // 0001-01-01 was a Monday) -- same formula as time.cpp's
+    // icall_datetime_get_dayofweek.
+    return static_cast<int32_t>((dt.ticks / kTicksPerDay + 1) % 7);
+}
+
+// Resolves the provider carrier to a pattern family (see the header banner):
+//   nullptr                       -> ZhCn (host default: saudit5)
+//   non-string object (defensive) -> ZhCn (same as a null provider)
+//   empty culture name            -> Invariant (the InvariantCulture carrier)
+//   "zh-CN"                       -> ZhCn (explicit current-culture call)
+//   any other name                -> Invariant fallback + optional log
+DateCulture ResolveProviderCulture(Il2CppObject* provider)
+{
+    if (provider == nullptr)
+    {
+        return DateCulture::ZhCn;
+    }
+    const Il2CppString* name = reinterpret_cast<const Il2CppString*>(provider);
+    if (name->obj.klass != il2cpp_string_class())
+    {
+        return DateCulture::ZhCn;
+    }
+    if (name->length == 0)
+    {
+        return DateCulture::Invariant;
+    }
+    static const char16_t kZhCn[5] = {u'z', u'h', u'-', u'C', u'N'};
+    if (name->length == 5)
+    {
+        bool same = true;
+        for (int32_t i = 0; i < 5; ++i)
+        {
+            if (name->chars[i] != kZhCn[i])
+            {
+                same = false;
+                break;
+            }
+        }
+        if (same)
+        {
+            return DateCulture::ZhCn;
+        }
+    }
+    LogUnknownProvider(name);
+    return DateCulture::Invariant;
+}
+
+// net48 standard single-letter pattern table. PROVIDER-AWARE: zh-CN (host
+// default, the saudit5 oracle) vs invariant (the empty-name carrier and the
+// unknown-name fallback). "s"/"u"/"O"/"R"/"r" are culture-invariant by the
+// net48 contract. "U" (universal full) resolves to the FullDateTime pattern;
+// the caller decides the conversion ('U' throws for DateTimeOffset).
+const char16_t* LookupStandardPattern(char16_t spec, DateCulture culture)
+{
+    const bool zh = (culture == DateCulture::ZhCn);
+    switch (spec)
+    {
+    case u'd': return zh ? u"yyyy/M/d" : u"MM/dd/yyyy";
+    case u'D': return zh ? u"yyyy\u5E74M\u6708d\u65E5" : u"dddd, dd MMMM yyyy";
+    case u't': return zh ? u"H:mm" : u"HH:mm";
+    case u'T': return zh ? u"H:mm:ss" : u"HH:mm:ss";
+    case u'f': return zh ? u"yyyy\u5E74M\u6708d\u65E5 H:mm" : u"dddd, dd MMMM yyyy HH:mm";
+    case u'F': return zh ? u"yyyy\u5E74M\u6708d\u65E5 H:mm:ss" : u"dddd, dd MMMM yyyy HH:mm:ss";
+    case u'U': return zh ? u"yyyy\u5E74M\u6708d\u65E5 H:mm:ss" : u"dddd, dd MMMM yyyy HH:mm:ss";
+    case u'G': return zh ? u"yyyy/M/d H:mm:ss" : u"MM/dd/yyyy HH:mm:ss";
+    case u'g': return zh ? u"yyyy/M/d H:mm" : u"MM/dd/yyyy HH:mm";
+    case u'm':
+    case u'M': return zh ? u"M\u6708d\u65E5" : u"MMMM dd";
+    case u'y':
+    case u'Y': return zh ? u"yyyy\u5E74M\u6708" : u"yyyy MMMM";
+    case u's': return u"yyyy-MM-ddTHH:mm:ss";
+    case u'u': return u"yyyy-MM-dd HH:mm:ss'Z'";
+    case u'o':
+    case u'O': return u"yyyy-MM-ddTHH:mm:ss.fffffff";
+    case u'r':
+    case u'R': return u"ddd, dd MMM yyyy HH:mm:ss 'GMT'";
+    default: return nullptr;
+    }
+}
+
+void AppendOffsetZzz(std::u16string& out, int32_t offsetMinutes)
+{
+    AppendOffsetZToken(out, offsetMinutes, 3);
+}
+
+// Custom-format engine: token letters (y/M/d/H/h/m/s/f/F/t, plus z/K when
+// offsetMinutes is non-null) expand per AppendToken; quoted literal groups
+// ('...' / "...", net48 strips the quote characters) and backslash escapes
+// ('\x' -> literal x) emit verbatim; '%' makes the next character a single
+// custom specifier (net48: "%d" -> day digits, "%z" -> "+8"); every other
+// character is emitted literally. Unterminated quotes / a trailing backslash
+// are invalid formats (net48 FormatException). 'fmt'/'len' are UTF-16 units.
+std::u16string FormatPattern(const CivilTime& t, int32_t dow,
+                             const char16_t* fmt, int32_t len,
+                             const int32_t* offsetMinutes)
 {
     std::u16string out;
     int32_t i = 0;
@@ -311,14 +488,34 @@ std::u16string FormatCustom(const CivilTime& t, int32_t dow,
             out.push_back(fmt[i + 1]);
             i += 2;
         }
-        else if (IsTokenLetter(c))
+        else if (c == u'%')
+        {
+            // net48 '%' escape: the NEXT character is read as a single
+            // custom specifier ("%d" -> day digits; "%z" -> offset hours).
+            // A character this engine does not expand keeps the literal '%'
+            // (DateTime: the timezone letters stay literals).
+            if (i + 1 < len
+                && (IsTokenLetter(fmt[i + 1])
+                    || (offsetMinutes != nullptr && IsOffsetToken(fmt[i + 1]))))
+            {
+                AppendToken(out, t, dow, fmt[i + 1], 1, offsetMinutes);
+                i += 2;
+            }
+            else
+            {
+                out.push_back(c);
+                ++i;
+            }
+        }
+        else if (IsTokenLetter(c)
+                 || (offsetMinutes != nullptr && IsOffsetToken(c)))
         {
             int32_t run = 1;
             while (i + run < len && fmt[i + run] == c)
             {
                 ++run;
             }
-            AppendToken(out, t, dow, c, run);
+            AppendToken(out, t, dow, c, run, offsetMinutes);
             i += run;
         }
         else
@@ -330,83 +527,63 @@ std::u16string FormatCustom(const CivilTime& t, int32_t dow,
     return out;
 }
 
-// Formats an ASCII pattern through the custom engine (used for the standard
-// single-letter patterns, which are literal invariant strings).
-std::u16string FormatAsciiPattern(const CivilTime& t, int32_t dow, const char* pattern)
-{
-    char16_t buf[64];
-    int32_t n = 0;
-    for (const char* p = pattern; *p != '\0' && n < 63; ++p)
-    {
-        buf[n++] = static_cast<char16_t>(*p);
-    }
-    return FormatCustom(t, dow, buf, n);
-}
-
-} // namespace
-
 //------------------------------------------------------------------------------
 // System.DateTime -- ToString(format).
 //------------------------------------------------------------------------------
-Il2CppObject* icall_datetime_to_string_format(Il2CppDateTime dt, Il2CppObject* format)
+Il2CppObject* icall_datetime_to_string_format(Il2CppDateTime dt, Il2CppObject* format,
+                                              Il2CppObject* provider)
 {
     const Il2CppString* fs = reinterpret_cast<const Il2CppString*>(format);
 
+    // Provider-aware culture selection: the trailing slot carries the IL
+    // IFormatProvider when the call site has one (the transpiler passes the
+    // culture carrier through; the format-only/parameterless paths pass
+    // nullptr). See ResolveProviderCulture for the mapping.
+    const DateCulture culture = ResolveProviderCulture(provider);
+
+    const CivilTime t = CivilTimeFromTicks(dt);
+    const int32_t dow = WeekdayFromTicks(dt);
+    std::u16string out;
+
     // null, non-string, or empty -> General "G" (net48: empty is treated as
-    // "G" too). Reuses the existing culture-neutral default formatter, whose
-    // fixed "MM/dd/yyyy HH:mm:ss" output IS the invariant "G" pattern.
+    // "G" too) in the SELECTED culture: host default zh-CN (saudit5) vs
+    // invariant for the empty-name carrier (culturedeep/timeformat/datetime2).
     if (fs == nullptr || fs->obj.klass != il2cpp_string_class() || fs->length == 0)
     {
-        return icall_datetime_to_string(dt);
+        const char16_t* pattern = LookupStandardPattern(u'G', culture);
+        out = FormatPattern(t, dow, pattern,
+            static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)), nullptr);
+        return reinterpret_cast<Il2CppObject*>(
+            il2cpp_string_new(out.data(), static_cast<int32_t>(out.size())));
     }
-
-    const CivilTime t = GetCivilTime(dt);
-    const int32_t dow = DayOfWeek(dt);
-    std::u16string out;
 
     if (fs->length == 1)
     {
         const char16_t c = fs->chars[0];
         const bool isLetter = (c >= u'a' && c <= u'z') || (c >= u'A' && c <= u'Z');
-        const char* pattern = nullptr;
         if (isLetter)
         {
-            switch (c)
+            if (c == u'U')
             {
-            case u'd': pattern = "MM/dd/yyyy"; break;
-            case u'D': pattern = "dddd, dd MMMM yyyy"; break;
-            case u't': pattern = "HH:mm"; break;
-            case u'T': pattern = "HH:mm:ss"; break;
-            case u'f': pattern = "dddd, dd MMMM yyyy HH:mm"; break;
-            case u'F': pattern = "dddd, dd MMMM yyyy HH:mm:ss"; break;
-            case u'G': pattern = "MM/dd/yyyy HH:mm:ss"; break;
-            case u'g': pattern = "MM/dd/yyyy HH:mm"; break;
-            case u'm': pattern = "MMMM dd"; break;
-            case u'y': pattern = "yyyy MMMM"; break;
-            case u's': pattern = "yyyy-MM-ddTHH:mm:ss"; break;
-            case u'O': pattern = "yyyy-MM-ddTHH:mm:ss.fffffff"; break;
-            case u'R':
-            case u'r': pattern = "ddd, dd MMM yyyy HH:mm:ss 'GMT'"; break;
-            case u'u': pattern = "yyyy-MM-dd HH:mm:ss'Z'"; break;
-            case u'U':
-                // Universal full: the UTC-converted value, then the full
-                // date/time pattern (net48 oracle: the net48-invariant U on
-                // an Unspecified DateTime converts to UTC first -- same as
-                // ToUniversalTime on this machine).
-                {
-                    const Il2CppDateTime utc = il2cpp_datetime_from_local(dt);
-                    out = FormatAsciiPattern(GetCivilTime(utc), DayOfWeek(utc),
-                                             "dddd, dd MMMM yyyy HH:mm:ss");
-                }
-                break;
-            default:
-                // net48: an unknown single-letter standard specifier throws
-                // FormatException.
-                il2cpp_throw_format_exception("Format specifier was invalid.");
+                // net48 universal full: the LOCAL value converted to UTC
+                // (il2cpp_datetime_from_local, host timezone) formatted with
+                // the culture FullDateTime pattern.
+                const Il2CppDateTime utc = il2cpp_datetime_from_local(dt);
+                const char16_t* pattern = LookupStandardPattern(u'U', culture);
+                out = FormatPattern(CivilTimeFromTicks(utc), WeekdayFromTicks(utc), pattern,
+                    static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)), nullptr);
             }
-            if (pattern != nullptr)
+            else
             {
-                out = FormatAsciiPattern(t, dow, pattern);
+                const char16_t* pattern = LookupStandardPattern(c, culture);
+                if (pattern == nullptr)
+                {
+                    // net48: an unknown single-letter standard specifier
+                    // throws FormatException.
+                    il2cpp_throw_format_exception("Format specifier was invalid.");
+                }
+                out = FormatPattern(t, dow, pattern,
+                    static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)), nullptr);
             }
         }
         else
@@ -417,7 +594,7 @@ Il2CppObject* icall_datetime_to_string_format(Il2CppDateTime dt, Il2CppObject* f
     }
     else
     {
-        out = FormatCustom(t, dow, fs->chars, fs->length);
+        out = FormatPattern(t, dow, fs->chars, fs->length, nullptr);
     }
 
     return reinterpret_cast<Il2CppObject*>(

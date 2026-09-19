@@ -59,22 +59,51 @@ public static partial class MethodRefResolver
             case "get_Unicode":
             case "get_ASCII":
             case "get_BigEndianUnicode":
-                // No Encoding object exists in the runtime carrier model; the
-                // fold keeps the value deterministic (null) and never
-                // dereferenced by any wired consumer. ReturnTypeName records
-                // the concrete encoding type on the folded null -- the
-                // GetBytes/GetString page dispatch keys on it. BigEndianUnicode
-                // uses the pseudo-type "System.Text.UnicodeEncodingBE" (the
-                // .NET type is UnicodeEncoding for both LE and BE, so the
-                // pseudo-type disambiguates the page).
-                return new ResolvedMethod(ResolvedMethod.NullMarker, 0, false, true, true, Array.Empty<bool>(), false,
-                    ReturnTypeName: name switch
+                // P2(5) A1 (2026-09-19): the static singletons now return REAL
+                // encoding objects (identity/GetPreamble/instance state). The
+                // object icall allocates + caches per page; ReturnTypeName
+                // records the concrete type so the object-receiver GetBytes/
+                // GetString/GetChars dispatch (and `new UTF8Encoding(bool)`
+                // chains) resolve. BigEndianUnicode uses the pseudo-type
+                // "System.Text.UnicodeEncodingBE" (the .NET type is
+                // UnicodeEncoding for both LE and BE).
+                return I(name switch
+                {
+                    "get_UTF8" => "il2cpp::runtime::icall_encoding_get_UTF8",
+                    "get_Unicode" => "il2cpp::runtime::icall_encoding_get_Unicode",
+                    "get_BigEndianUnicode" => "il2cpp::runtime::icall_encoding_get_UnicodeBE",
+                    _ => "il2cpp::runtime::icall_encoding_get_ASCII",
+                }, 0, true, true, false,
+                    returnTypeName: name switch
                     {
                         "get_UTF8" => "System.Text.UTF8Encoding",
                         "get_Unicode" => "System.Text.UnicodeEncoding",
                         "get_BigEndianUnicode" => "System.Text.UnicodeEncodingBE",
                         _ => "System.Text.ASCIIEncoding",
                     });
+            case ".ctor":
+                // P2(5) A1: `new UTF8Encoding(bool emitBom[, bool throwOnInvalid])`,
+                // `new UnicodeEncoding(bool bigEndian, bool byteOrderMark)` and
+                // `new ASCIIEncoding()`. The instance ctor sets page + emitBom
+                // on the fresh object.
+                if (owner == "System.Text.UTF8Encoding" && count == 1 && ps[0] == 0x02)
+                    return I("il2cpp::runtime::icall_encoding_ctor_utf8", 1, false, false, true,
+                        new[] { "", "i" });
+                if (owner == "System.Text.UTF8Encoding" && count == 2 && ps[0] == 0x02 && ps[1] == 0x02)
+                    return I("il2cpp::runtime::icall_encoding_ctor_utf8_2", 2, false, false, true,
+                        new[] { "", "i", "i" });
+                if (owner == "System.Text.UnicodeEncoding" && count == 2 && ps[0] == 0x02 && ps[1] == 0x02)
+                    return I("il2cpp::runtime::icall_encoding_ctor_unicode", 2, false, false, true,
+                        new[] { "", "i", "i" });
+                if (owner == "System.Text.ASCIIEncoding" && count == 0)
+                    return I("il2cpp::runtime::icall_encoding_ctor_ascii", 0, false, false, true);
+                return null; // other Encoding ctors -> generated-name path
+            case "GetPreamble":
+                // byte[] GetPreamble() -- the BOM bytes for the receiver's
+                // page/emitBom (empty array when emitBom=0).
+                if (receiverType == null) return null;
+                return I("il2cpp::runtime::icall_encoding_get_preamble", 0, true, true, true,
+                    returnTypeName: "System.Byte[]");
             case "GetBytes":
                 // Allocating form only: Encoding.GetBytes(string) -> byte[].
                 // receiverType == null is the fold's FIRST resolution (the
@@ -85,40 +114,44 @@ public static partial class MethodRefResolver
                         $"Encoding.GetBytes overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
                         "(allocating single-string form only)");
                 if (receiverType == null) return null;
-                return EncodingAllocIcall(receiverType, name, "get_bytes", new[] { "drop", "s" }, "System.Byte[]");
+                return ObjectEncodingIcall("icall_encoding_get_bytes", "get_bytes",
+                    new[] { "", "s" }, "System.Byte[]");
             case "GetString":
                 if (count != 1 || ps[0] != 0x1D)
                     throw new NotSupportedException(
                         $"Encoding.GetString overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
                         "(allocating single-byte[] form only)");
                 if (receiverType == null) return null;
-                return EncodingAllocIcall(receiverType, name, "get_string", new[] { "drop", "a" }, "System.String");
+                return ObjectEncodingIcall("icall_encoding_get_string", "get_string",
+                    new[] { "", "a" }, "System.String");
             case "GetChars":
                 // Allocating forms only:
                 //   GetChars(byte[])            -> char[]  (single-array form)
                 //   GetChars(byte[], int, int)  -> char[]  (ranged form)
-                // The page is baked into the icall NAME, chosen from the
-                // receiver's tracked encoding type -- so a receiverType == null
-                // FIRST resolution defers (return null -> receiver-aware
-                // re-resolve). M5 wired the UTF8 page's single-array form;
-                // enc-b23 added the ranged (byte[],index,count) allocating
-                // form on ALL three pages (il2cpp_encoding_<page>_get_chars
-                // 3-arg overloads, il2cpp_encoding.h:152-154).
                 if (receiverType == null) return null;
                 if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
-                    return I($"il2cpp::runtime::il2cpp_encoding_{EncodingPage(receiverType, "GetChars")}_get_chars",
-                        3, true, true, true, new[] { "drop", "a", "i", "i" }, returnTypeName: "System.Char[]");
-                // M5 legacy: the single-array form ships on the UTF8 page only
-                // (il2cpp_encoding_utf8_get_chars(Il2CppArray*)); the ascii/
-                // unicode pages have the 3-arg ranged form only.
+                    return ObjectEncodingIcall("icall_encoding_get_chars", "get_chars",
+                        new[] { "", "a", "i", "i" }, "System.Char[]");
                 if (count == 1 && ps[0] == 0x1D)
-                    return I("il2cpp::runtime::il2cpp_encoding_utf8_get_chars", 1, true, true, true,
-                        new[] { "drop", "a" }, returnTypeName: "System.Char[]");
+                    return ObjectEncodingIcall("icall_encoding_get_chars_all", "get_chars",
+                        new[] { "", "a" }, "System.Char[]");
                 throw new NotSupportedException(
                     $"Encoding.GetChars overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired in M5 " +
-                    "(allocating single-byte[] and ranged (byte[],int,int) forms only)");
+                    "(allocating single-byte[] and ranged (byte,int,int) forms only)");
             default: return null;
         }
+    }
+
+    // P2(5) A1: the object-receiver allocating icall. The receiver is a REAL
+    // Encoding object (page/emitBom read at runtime); the page no longer rides
+    // the icall name. `member` names the managed member for the LOUD receiver
+    // check. ASCII/UTF8/Unicode/BE receiver types are all accepted (the object
+    // carries the page).
+    private static ResolvedMethod ObjectEncodingIcall(string cpp, string member,
+        string[] casts, string resultType)
+    {
+        return I($"il2cpp::runtime::{cpp}", casts.Length - 1, true, true, true, casts,
+            returnTypeName: resultType);
     }
 
     // Page dispatch for the allocating GetBytes/GetString/GetChars icalls: the

@@ -62,6 +62,13 @@ public static class MetadataLoader
                 IsValueType = DecodeBaseType(md, td.BaseType) == "System.ValueType",
                 // Generic type definitions (M3 Task 7): GetGenericParameters count = arity.
                 GenericArity = td.GetGenericParameters().Count,
+                // where-clause constraints -- the first decode of the GenericParamConstraint
+                // table in this transpiler. Until now the table was never read, which is why
+                // every unconstrained `T` was forced into an int32 slot even though at the
+                // IL level an unconstrained T is System.Object (value-type args arrive boxed).
+                // A null/empty entry per index means "unconstrained".
+                GenericConstraints = TypeDef.GenericConstraintReader.Read(
+                    md, td.GetGenericParameters(), h => ResolveTypeName(md, h)),
             };
 
             // Interface implementations (Task 8): the InterfaceImpl table's (class, interface)
@@ -97,15 +104,38 @@ public static class MetadataLoader
                 // storage, and the model is what EmitStaticStorage /
                 // EmitTypeInfo classify from).
                 var (kind, typeName) = DecodeFieldSignature(md, fd.Signature, extended: isStatic);
+                // raudit4: an enum's compiler-generated value__ instance field
+                // carries the enum's REAL underlying primitive (System.Int64
+                // for `enum LE : long`), but the instance decode returns an
+                // untyped int32 slot (the M3 contract), so the enum metadata
+                // registration (TryGetUserEnumRegisterInfo) always saw Int32.
+                // Re-decode THIS field with the extended name table -- the
+                // Kind/layout stays the int32 slot; only the reflected name
+                // (and thus the registered underlying TypeCode) is fixed.
+                if (!isStatic && fName == "value__" && typeDef.BaseTypeName == "System.Enum")
+                {
+                    (kind, typeName) = DecodeFieldSignature(md, fd.Signature, extended: true);
+                }
+                // R2b P2: VAR/MVAR field (generic parameter) -- parallel flag,
+                // the M3 default kind/name above stays for definitions.
+                bool fieldIsVar;
+                {
+                    var fsig = md.GetBlobReader(fd.Signature);
+                    _ = fsig.ReadByte(); // FIELD (0x06)
+                    var fb = fsig.ReadByte();
+                    fieldIsVar = fb is 0x13 or 0x1E;
+                }
                 var field = new FieldDef
                 {
                     Name = fName,
                     Owner = typeDef,
                     IsStatic = isStatic,
                     IsLiteral = (fd.Attributes & FieldAttributes.Literal) != 0,
+                    IsPublic = (fd.Attributes & FieldAttributes.Public) != 0,
                     ConstantValue = TryReadConstant(md, fd),
                     TypeKind = kind,
                     FieldTypeName = typeName,
+                    IsGenericVar = fieldIsVar,
                 };
                 if (isStatic)
                     typeDef.StaticFields.Add(field);
@@ -118,6 +148,9 @@ public static class MetadataLoader
                 var mdInfo = md.GetMethodDefinition(mh);
                 var mName = md.GetString(mdInfo.Name);
                 var (paramCount, returnType, paramTypes, returnTypeName) = MethodSignatureCoder.Decode(md, mdInfo.Signature);
+                // R2b P2: parallel VAR channel (0x13/0x1E positions) -- the raw
+                // encodings above stay untouched (hash contract).
+                var (returnIsVar, paramIsVars) = MethodSignatureCoder.DecodeVarFlags(md, mdInfo.Signature);
                 var attrs = mdInfo.Attributes;
                 // P/Invoke (M4 Task 1): the ImplMap entry names the native
                 // library + imported symbol ([DllImport] in source).
@@ -159,6 +192,9 @@ public static class MetadataLoader
                     // skips the generic parameter count of generic signatures,
                     // so it is read here from the raw signature header.
                     GenericArity = mdInfo.GetGenericParameters().Count,
+                    // R2b P2: parallel VAR channel for closed clones.
+                    ParamIsVar = paramIsVars,
+                    ReturnIsVar = returnIsVar,
                 });
             }
 
@@ -209,9 +245,24 @@ public static class MetadataLoader
             if (t.BaseTypeName != "System.Object" && byName.TryGetValue(t.BaseTypeName, out var baseType))
                 t.BaseType = baseType;
             // Interface resolution: every type's InterfaceNames -> TypeDef.
+            // F1 (R2b P2): a generic-instantiation interface records its
+            // canonical angle-bracket name ("Cases.IMyList`1<T>" from
+            // TypeSpec/GenericInst -- VAR args decode to "T") or a VAR->int
+            // suffix name; the definition FullName is the substring before
+            // '<' / the "_" prefix. Lookup order mirrors
+            // ResolveInstantiationOwner: exact -> '<' strip -> prefix.
             foreach (var ifaceName in t.InterfaceNames)
                 if (byName.TryGetValue(ifaceName, out var ifaceType))
                     t.InterfaceTypes.Add(ifaceType);
+                else
+                {
+                    var lt = ifaceName.IndexOf('<');
+                    if (lt > 0 && byName.TryGetValue(ifaceName[..lt], out var ifaceDef))
+                        t.InterfaceTypes.Add(ifaceDef);
+                    else if (types.FirstOrDefault(x => x.GenericArity > 0
+                        && ifaceName.StartsWith(x.FullName + "_", StringComparison.Ordinal)) is { } ifacePrefix)
+                        t.InterfaceTypes.Add(ifacePrefix);
+                }
         }
         return types;
     }
@@ -657,7 +708,10 @@ public static class MetadataLoader
         var header = sig.ReadByte();
         if (header != 0x06)
             throw new NotSupportedException($"field signature must start with FIELD(0x06), got 0x{header:X2}");
-        var typeByte = sig.ReadByte();
+        // ECMA-335 II.23.1.16: volatile fields carry CMOD_REQD(IsVolatile)
+        // (e.g. `static volatile int` = 06 1F 09 08) -- strip custom
+        // modifiers and classify the REAL field type.
+        var typeByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         switch (typeByte)
         {
             case 0x0E:

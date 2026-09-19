@@ -34,8 +34,9 @@
 //     Windows (a 4-component Version with the revision component -- net48
 //     probe-pinned "Microsoft Windows NT 6.2.9200.0"), "Unix <release>"
 //     elsewhere.
-//   * GetFolderPath is simplified to three ids -- Desktop (0),
-//     MyDocuments (5), LocalApplicationData (28) -- resolved through the
+//   * GetFolderPath is simplified to four ids -- Desktop (0),
+//     MyDocuments (5), Windows (36, via GetSystemWindowsDirectoryW),
+//     LocalApplicationData (28) -- resolved through the
 //     shell known-folder API on Windows (SHGetFolderPathW, so OneDrive-redirected
 //     Desktop/MyDocuments and the real LocalApplicationData match net48
 //     byte-for-byte) and standard environment variables (HOME / XDG_DATA_HOME)
@@ -107,6 +108,12 @@ int32_t icall_environment_get_has_shutdown_started();
 // (>= 1; the OS-reported count on Windows, hardware_concurrency elsewhere
 // with a fallback of 1 when the platform cannot report it).
 int32_t icall_environment_get_processor_count();
+
+// Environment.WorkingSet (D2 diffenv001 env.workingset) -> int64. The
+// current process working set in bytes (net48: physical memory currently
+// mapped): Windows GetProcessMemoryInfo, Linux /proc/self/statm resident
+// pages, else getrusage peak RSS.
+int64_t icall_environment_get_working_set();
 
 // Environment.UserName -> string | null (null = cannot determine the
 // current user).

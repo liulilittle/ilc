@@ -234,49 +234,64 @@ bool TryParseInteger(const char16_t* p, const char16_t* end, int base, bool allo
 // matched on the UTF-16 text in TryParseDoubleCore BEFORE the projection.
 // Replica of format.cpp's IsValidDoubleText minus the Infinity family; hex
 // floats, abbreviated "inf"/"nan" and "+Infinity"/"-NaN" are also rejected.
-bool IsValidDoubleText(const char* s)
+// AllowThousands: ',' separators between integral digits (saudit2).
+bool IsValidDoubleText(const char* s, char* cleaned)
 {
     const char* p = s;
+    char* out = cleaned;
     while (IsAsciiWhitespaceAscii(*p))
     {
-        ++p;
+        *out++ = *p++;
     }
     const char* spec = nullptr;
     if (std::strncmp(p, "NaN", 3) == 0)
     {
         spec = p + 3;
     }
-    // "Infinity"/"-Infinity" intentionally NOT matched here: net48's
-    // special words are culture-dependent, so the ASCII spelling must
-    // fall through to the decimal-literal path below and fail.
     if (spec != nullptr)
     {
-        p = spec;
+        while (p != spec)
+        {
+            *out++ = *p++;
+        }
         while (IsAsciiWhitespaceAscii(*p))
         {
-            ++p;
+            *out++ = *p++;
         }
+        *out = '\0';
         return *p == '\0';
     }
     if (*p == '+' || *p == '-')
     {
-        ++p;
+        *out++ = *p++;
     }
+    // saudit2: the integral run accepts the zh-CN thousands separator ','
+    // between two digits (net48 default NumberStyles Float|AllowThousands).
     int before = 0;
-    while (*p >= '0' && *p <= '9')
+    for (;;)
     {
-        ++before;
-        ++p;
+        if (*p >= '0' && *p <= '9')
+        {
+            ++before;
+            *out++ = *p++;
+            continue;
+        }
+        if (*p == ',' && before > 0 && p[1] >= '0' && p[1] <= '9')
+        {
+            ++p; // group separator: validated, NOT copied
+            continue;
+        }
+        break;
     }
     if (*p == '.')
     {
-        ++p;
+        *out++ = *p++;
     }
     int after = 0;
     while (*p >= '0' && *p <= '9')
     {
         ++after;
-        ++p;
+        *out++ = *p++;
     }
     if (before + after == 0)
     {
@@ -284,16 +299,16 @@ bool IsValidDoubleText(const char* s)
     }
     if (*p == 'e' || *p == 'E')
     {
-        ++p;
+        *out++ = *p++;
         if (*p == '+' || *p == '-')
         {
-            ++p;
+            *out++ = *p++;
         }
         int expDigits = 0;
         while (*p >= '0' && *p <= '9')
         {
             ++expDigits;
-            ++p;
+            *out++ = *p++;
         }
         if (expDigits == 0)
         {
@@ -302,8 +317,9 @@ bool IsValidDoubleText(const char* s)
     }
     while (IsAsciiWhitespaceAscii(*p))
     {
-        ++p;
+        *out++ = *p++;
     }
+    *out = '\0';
     return *p == '\0';
 }
 
@@ -368,8 +384,11 @@ bool TryParseDoubleCore(const char16_t* p, int32_t len, double* out)
         }
     }
     char stackBuf[256];
+    char stackClean[256];
     std::unique_ptr<char, void (*)(void*)> ownedBuf(nullptr, &std::free);
+    std::unique_ptr<char, void (*)(void*)> ownedClean(nullptr, &std::free);
     char* buf = stackBuf;
+    char* clean = stackClean;
     if (len >= static_cast<int32_t>(sizeof(stackBuf)))
     {
         ownedBuf.reset(static_cast<char*>(std::malloc(static_cast<size_t>(len) + 1)));
@@ -377,7 +396,13 @@ bool TryParseDoubleCore(const char16_t* p, int32_t len, double* out)
         {
             return false; // TryParse never throws: allocation failure -> 0
         }
+        ownedClean.reset(static_cast<char*>(std::malloc(static_cast<size_t>(len) + 1)));
+        if (ownedClean == nullptr)
+        {
+            return false;
+        }
         buf = ownedBuf.get();
+        clean = ownedClean.get();
     }
     for (int32_t i = 0; i < len; ++i)
     {
@@ -389,13 +414,13 @@ bool TryParseDoubleCore(const char16_t* p, int32_t len, double* out)
         buf[i] = static_cast<char>(c);
     }
     buf[len] = '\0';
-    if (!IsValidDoubleText(buf))
+    if (!IsValidDoubleText(buf, clean))
     {
         return false;
     }
     errno = 0;
     char* end = nullptr;
-    const double result = std::strtod(buf, &end);
+    const double result = std::strtod(clean, &end);
     (void)end; // the validator guarantees the full buffer was consumed
     if (errno == ERANGE && std::isinf(result))
     {

@@ -57,6 +57,11 @@ Il2CppString* il2cpp_string_new(const char16_t* chars, int32_t length);
 // generated yet; such input is truncated to its ASCII prefix defensively).
 Il2CppString* il2cpp_string_new_from_utf8(const char* utf8);
 
+// Explicit-length variant: 'byteLen' bytes are decoded (embedded NULs are
+// content). byteLen <= 0 (or a null pointer) yields the empty string. The
+// null-terminated form above is a strlen() wrapper over this one.
+Il2CppString* il2cpp_string_new_from_utf8_n(const char* utf8, int32_t byteLen);
+
 // Allocate a managed string from a null-terminated ASCII literal (generated
 // code path for ldstr of a compile-time constant). 'ascii' must contain only
 // bytes 0x00-0x7F; each byte becomes one UTF-16 unit.

@@ -256,6 +256,15 @@ std::string FormatN(const DecimalParts& p, int prec)
     return out;
 }
 
+// cultureprobe (provider routing): the invariant culture is the EMPTY name
+// (cultureinfo.cpp Intern("")); nullptr / non-empty -> zh-CN (unchanged).
+bool IsInvariantProvider(Il2CppObject* provider)
+{
+    if (provider == nullptr) return false;
+    const Il2CppString* s = reinterpret_cast<const Il2CppString*>(provider);
+    return s->length == 0;
+}
+
 // C body: sign + grouped integer + fraction (no symbol -- the fixed '¥'
 // is prepended at the UTF-16 level; il2cpp_string_new_from_utf8 drops
 // multi-byte sequences, formatext.cpp MakeCurrencyString precedent).
@@ -331,8 +340,9 @@ std::string FormatE(const DecimalParts& p, int prec, char letter)
 
 // P: percent -- value x 100, N-style grouped integer + 'prec' fraction
 // digits, then a trailing '%' (zh-CN "n%" layout, no space; net48 default
-// precision 2: 1234.5678m "P" -> "123,456.78%").
-std::string FormatP(const DecimalParts& p, int prec)
+// precision 2: 1234.5678m "P" -> "123,456.78%"). cultureprobe: the invariant
+// provider uses the "n %" layout (space before '%').
+std::string FormatP(const DecimalParts& p, int prec, bool invariant)
 {
     DecimalParts scaled = p;
     const int32_t ns = p.scale - 2;
@@ -370,6 +380,7 @@ std::string FormatP(const DecimalParts& p, int prec)
         out += '.';
         out += frac;
     }
+    if (invariant) out += ' ';
     out += '%';
     return out;
 }
@@ -1062,8 +1073,10 @@ Il2CppString* icall_decimal_to_string(const Il2CppDecimal* value)
 }
 
 Il2CppString* icall_decimal_to_string_custom(const Il2CppDecimal* value,
-                                             Il2CppString* format)
+                                             Il2CppString* format,
+                                             Il2CppObject* provider)
 {
+    const bool inv = IsInvariantProvider(provider);
     FormatSpec spec;
     if (!TryParseFormat(format, spec))
     {
@@ -1099,18 +1112,22 @@ Il2CppString* icall_decimal_to_string_custom(const Il2CppDecimal* value,
     case 'E':
         return ToManaged(FormatE(p, DefaultPrec(spec, 6), spec.rawLetter));
     case 'P':
-        return ToManaged(FormatP(p, DefaultPrec(spec, 2)));
+        return ToManaged(FormatP(p, DefaultPrec(spec, 2), inv));
     case 'C':
     {
-        // fixed '¥' symbol + ASCII tail, composed at the UTF-16 level
+        // zh-CN: fixed '¥' symbol + ASCII tail; invariant: U+00A4 with the
+        // negative wrapped in parens (pattern 0 -- "(¤1,234.50)").
         const std::string tail = FormatCTail(p, DefaultPrec(spec, 2));
         std::vector<char16_t> units;
-        units.reserve(tail.size() + 1);
-        units.push_back(u'\u00A5');
-        for (size_t i = 0; i < tail.size(); ++i)
+        units.reserve(tail.size() + 3);
+        const bool neg = (inv && !tail.empty() && tail[0] == '-');
+        if (neg) units.push_back(u'(');
+        units.push_back(inv ? u'\u00A4' : u'\u00A5');
+        for (size_t i = neg ? 1 : 0; i < tail.size(); ++i)
         {
             units.push_back(static_cast<char16_t>(static_cast<unsigned char>(tail[i])));
         }
+        if (neg) units.push_back(u')');
         return il2cpp_string_new(units.data(), static_cast<int32_t>(units.size()));
     }
     default:

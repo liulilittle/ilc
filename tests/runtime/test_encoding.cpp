@@ -356,8 +356,8 @@ int main()
         il2cpp::Il2CppString* s = il2cpp::runtime::il2cpp_encoding_get_chars(
             mixed, 3, il2cpp::runtime::il2cpp_encoding_code_page::ascii);
         Expect(StrLen(s) == 3 && s->chars[0] == 'A' &&
-               s->chars[1] == 0xFFFD && s->chars[2] == 'B',
-               "get_chars(ascii): byte 0xFF decodes to U+FFFD");
+               s->chars[1] == 0x3F && s->chars[2] == 'B',
+               "get_chars(ascii): byte 0xFF decodes to '?' (net48 ASCII fallback)");
     }
     {
         il2cpp::Il2CppString* s = il2cpp::runtime::il2cpp_encoding_get_chars(
@@ -466,8 +466,8 @@ int main()
         il2cpp::Il2CppArray* bad = il2cpp::il2cpp_array_new(nullptr, 1, false, 1);
         *reinterpret_cast<uint8_t*>(il2cpp::il2cpp_array_get_elem_ptr(bad, 0)) = hi[0];
         il2cpp::Il2CppString* badStr = il2cpp::runtime::il2cpp_encoding_ascii_get_string(bad);
-        Expect(StrLen(badStr) == 1 && badStr->chars[0] == 0xFFFD,
-               "ascii_get_string: byte 0xFF decodes to U+FFFD");
+        Expect(StrLen(badStr) == 1 && badStr->chars[0] == 0x3F,
+               "ascii_get_string: byte 0xFF decodes to '?' (net48 ASCII fallback)");
     }
     {
         // Unicode page: UTF-16LE passthrough bytes (2D 4E for U+4E2D).
@@ -620,8 +620,8 @@ int main()
         p[2] = 'B';
         il2cpp::Il2CppArray* c = il2cpp::runtime::il2cpp_encoding_ascii_get_chars(a, 0, 3);
         Expect(ArrLen(c) == 3 && CharAt(c, 0) == 'A' &&
-               CharAt(c, 1) == 0xFFFD && CharAt(c, 2) == 'B',
-               "ascii_get_chars(bytes,0,3): 0xFF -> U+FFFD");
+               CharAt(c, 1) == 0x3F && CharAt(c, 2) == 'B',
+               "ascii_get_chars(bytes,0,3): 0xFF -> '?' (net48 ASCII fallback)");
     }
     {
         // ASCII page: sub-range slice decodes only the requested bytes.

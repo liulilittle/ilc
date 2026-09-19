@@ -133,7 +133,7 @@ int main()
                "<root>a &amp; b &lt;c&gt;</root>",
            "text entities round-trip");
     Expect(RoundTrip("<root a=\"x&quot;y&amp;z\"/>") ==
-               "<root a=\"x&quot;y&amp;z\"/>",
+               "<root a=\"x&quot;y&amp;z\" />",
            "attribute entities round-trip");
 
     // --- 1d. CDATA preserved verbatim ---
@@ -142,7 +142,7 @@ int main()
            "CDATA round-trips verbatim");
 
     // --- 1e. Self-closing and empty elements normalize ---
-    Expect(RoundTrip("<root><a/><b></b></root>") == "<root><a/><b/></root>",
+    Expect(RoundTrip("<root><a/><b></b></root>") == "<root><a /><b /></root>",
            "empty elements normalize to self-closing form");
 
     // --- 1f. Comments are dropped (documented simplification) ---
@@ -150,7 +150,7 @@ int main()
            "comments dropped and round-trip is stable");
 
     // --- 1g. Leading XML declaration is skipped ---
-    Expect(RoundTrip("<?xml version=\"1.0\"?><root/>") == "<root/>",
+    Expect(RoundTrip("<?xml version=\"1.0\"?><root/>") == "<root />",
            "XML declaration accepted and not serialized");
 
     // --- 1h. Numeric character references decode ---
@@ -196,7 +196,7 @@ int main()
     }
 
     // --- 1j. Whitespace text is preserved verbatim ---
-    Expect(RoundTrip("<root>  <a/> </root>") == "<root>  <a/> </root>",
+    Expect(RoundTrip("<root>  <a/> </root>") == "<root>  <a /> </root>",
            "whitespace text preserved");
 
     // --- 2. Empty document ---

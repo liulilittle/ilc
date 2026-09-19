@@ -63,4 +63,11 @@ struct MatchResult {
 bool il2cpp_regex_match(const RegexAst* pattern, const char16_t* input,
                         int32_t inputLength, MatchResult* outResult);
 
+// Base-aware variant: 'input' is a slice of a longer text whose absolute
+// start is 'baseOffset' (the anchors see absolute positions -- the Collect
+// suffix scan contract). il2cpp_regex_match == RegexMatchAt(..., 0, ...).
+bool RegexMatchAt(const RegexAst* pattern, const char16_t* input,
+                  int32_t inputLength, int32_t baseOffset,
+                  MatchResult* outResult);
+
 } } // namespace il2cpp::runtime

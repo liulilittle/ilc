@@ -210,19 +210,16 @@ void* il2cpp_pinvoke_cb_bind_wndproc(Il2CppObject* delegate, const char* name)
     {
         il2cpp_throw_new("System.NullReferenceException,System.Exception",
                          "Object reference not set to an instance of an object.");
-        return nullptr; // unreachable (il2cpp_throw_new never returns)
     }
     if (IsMulticastContainer(delegate))
     {
         il2cpp_throw_new("System.InvalidOperationException,System.Exception",
                          "A multicast delegate has no single native callback.");
-        return nullptr;
     }
     if (!IsSingleCastDelegate(delegate))
     {
         il2cpp_throw_new("System.InvalidOperationException,System.Exception",
                          "The object is not a single-cast delegate.");
-        return nullptr;
     }
 
     // Re-bind an existing name in place (stable thunk address); otherwise

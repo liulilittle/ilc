@@ -28,6 +28,29 @@
 namespace il2cpp { namespace runtime {
 
 //------------------------------------------------------------------------------
+// NormalizeNaN -- .NET NaN bit-pattern normalization (msvc UCRT divergence).
+// net48 / GCC produce the NEGATIVE quiet NaN 0xFFF8000000000000 for the
+// double NaN constant; MSVC's UCRT std::remainder(3.0, +/-0.0) produces the
+// POSITIVE quiet NaN 0x7FF8000000000000. .NET's per-operation NaN is
+// unspecified at the bit level, but the project's oracle contract (and the
+// existing Double.NaN constant / icall_double_to_string spelling) is the
+// 0xFFF8... pattern -- so any library-computed NaN result is normalized to
+// it (bit-exact via memcpy, never a platform double expression).
+// Only NaN payloads are touched; every finite/Inf result passes through.
+//------------------------------------------------------------------------------
+double NormalizeNaN(double v)
+{
+    if (v != v) // NaN
+    {
+        const uint64_t kNetNaN = 0xFFF8000000000000ULL;
+        double nn;
+        std::memcpy(&nn, &kNetNaN, sizeof(nn));
+        return nn;
+    }
+    return v;
+}
+
+//------------------------------------------------------------------------------
 // Math.Sin / Math.Cos / Math.Tan: direct libm delegation. IEEE-754
 // conformant: NaN inputs -> NaN, infinities -> NaN (net48 never throws for
 // these inputs). Lattice values are exact for correctly-rounded libm
@@ -202,7 +225,7 @@ double icall_math_tanh_d(double value)
 //------------------------------------------------------------------------------
 double icall_math_ieee_remainder_d(double x, double y)
 {
-    return std::remainder(x, y);
+    return NormalizeNaN(std::remainder(x, y));
 }
 
 //------------------------------------------------------------------------------
@@ -217,7 +240,7 @@ double icall_math_ieee_remainder_d(double x, double y)
 //------------------------------------------------------------------------------
 double icall_math_fmod_d(double x, double y)
 {
-    return std::fmod(x, y);
+    return NormalizeNaN(std::fmod(x, y));
 }
 
 //------------------------------------------------------------------------------

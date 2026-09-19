@@ -1,53 +1,249 @@
 namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
-// MethodMap.Queue -- System.Collections.Queue icall mappings (stackqueue.h).
-// Owners: System.Collections.Queue
+// MethodMap.Queue -- System.Collections.Queue + System.Collections.Generic.
+// Queue`1 icall mappings (stackqueue.h / queueint_obj.h). Owners:
+// System.Collections.Queue, System.Collections.Generic.Queue`1
 //
 // NAMESPACE: the stackqueue.h/.cpp icalls are declared in PLAIN namespace
 // il2cpp (unlike most BCL icall families under il2cpp::runtime) -- the
-// CppNames below must stay "il2cpp::il2cpp_queue_*" or the generated code
-// will fail to link.
+// non-generic CppNames below must stay "il2cpp::il2cpp_queue_*". The G4
+// Queue<int> wrappers (queueint_obj.h) live in il2cpp::runtime
+// ("il2cpp::runtime::icall_queue_int_*").
 //
-// Elements are Il2CppObject* slots: the IL `box` opcode already boxes value
-// arguments before Enqueue (box wiring), and Dequeue/Peek results stay
-// Il2CppObject* -- the CALLER's castclass/unbox turns them back into values.
-// No cast codes are therefore needed on the argument/result slots.
+// NON-GENERIC: elements are Il2CppObject* slots (the IL `box` opcode boxes
+// value arguments before Enqueue; Dequeue/Peek results stay Il2CppObject*).
 //
-// .ctor: the runtime create icall takes NO self and RETURNS the new object
-// (unlike the Hashtable self-mutating ctor). The newobj temp is passed as
-// the call's first argument by the fold, so it must be DROPPED ("drop") to
-// keep the emitted call arity correct. Capacity ctors have no runtime
-// icall -> LOUD.
+// G4 GENERIC Queue<int>: the int member rides the same object through the
+// boxing/unboxing wrappers; ToArray materialises a real int32[] so the
+// tracked System.Int32[] loads with ldelem.i4. instName is AUTHORITATIVE
+// (the List/Dictionary/HashSet precedent); a null tag keeps the historical
+// non-generic mapping.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapQueue(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null)
     {
+        var instTag = instName ?? receiverType;
+        var intReceiver = instTag is "System.Collections.Generic.Queue`1_int";
+        // T2 W4: typed value elements ride box/unbox forwarders (queueint_obj).
+        var longReceiver = instTag is "System.Collections.Generic.Queue`1_long";
+        var doubleReceiver = instTag is "System.Collections.Generic.Queue`1_double";
+        // G4 W1: the reference-element instantiations (string/object/class)
+        // share the Il2CppObject* slot ABI with the non-generic queue; their
+        // members ride the same il2cpp_queue_* icalls (no runtime entry).
+        var refReceiver = instTag is "System.Collections.Generic.Queue`1_string"
+            or "System.Collections.Generic.Queue`1_object"
+            or "System.Collections.Generic.Queue`1_class"
+            || IsQueueDottedRefTag(instTag);
+        var nonGeneric = instTag is null or "System.Collections.Queue";
+
         switch (name)
         {
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::il2cpp_queue_create", 0, true, true, true, new[] { "drop" });
                 throw new NotSupportedException($"Queue ctor with {count} arg(s) not wired (the runtime has only the parameterless create icall)");
-            case "Enqueue": return I("il2cpp::il2cpp_queue_enqueue", 1, false, false, true);
-            case "Dequeue": return I("il2cpp::il2cpp_queue_dequeue", 0, true, true, true);
-            case "Peek": return I("il2cpp::il2cpp_queue_peek", 0, true, true, true);
-            case "get_Count": return I("il2cpp::il2cpp_queue_get_count", 0, true, false, true);
-            case "Clear": return I("il2cpp::il2cpp_queue_clear", 0, false, false, true);
-            // M7 stkq (2026-08-08): Queue.ToArray -- the runtime
-            // il2cpp_queue_to_array (stackqueue.h:149, stkq audit GAP-1)
-            // returns an EXACT-LENGTH object[] in HEAD-FIRST ring-aware order
-            // (result[i] = slots[RingIndex(head,i,len)]); empty queue ->
-            // length-0 array. The result is a reference array.
-            case "ToArray": return I("il2cpp::il2cpp_queue_to_array", 0, true, true, true);
-            // C42 sqenum-b23: GetEnumerator -> the snapshot enumerator object
-            // (ReturnTypeName tracks it so the IEnumerator member dispatch in
-            // MethodMap.Collections.cs resolves MoveNext/get_Current/Reset).
+            case "Enqueue":
+                if (intReceiver)
+                    return I("il2cpp::runtime::icall_queue_int_enqueue", 1, false, false, true, new[] { "", "i" });
+                if (longReceiver)
+                    return I("il2cpp::runtime::icall_queue_long_enqueue", 1, false, false, true, new[] { "", "l" });
+                if (doubleReceiver)
+                    return I("il2cpp::runtime::icall_queue_double_enqueue", 1, false, false, true, new[] { "", "d" });
+                return nonGeneric || refReceiver
+                    ? I("il2cpp::il2cpp_queue_enqueue", 1, false, false, true)
+                    : null;
+            case "Dequeue":
+                if (intReceiver)
+                    return I("il2cpp::runtime::icall_queue_int_dequeue", 0, true, false, true, null, "i");
+                if (longReceiver)
+                    return I("il2cpp::runtime::icall_queue_long_dequeue", 0, true, false, true, null, "l");
+                if (doubleReceiver)
+                    return I("il2cpp::runtime::icall_queue_double_dequeue", 0, true, false, true, null, "d");
+                return nonGeneric || refReceiver
+                    ? I("il2cpp::il2cpp_queue_dequeue", 0, true, true, true)
+                    : null;
+            case "Peek":
+                if (intReceiver)
+                    return I("il2cpp::runtime::icall_queue_int_peek", 0, true, false, true, null, "i");
+                if (longReceiver)
+                    return I("il2cpp::runtime::icall_queue_long_peek", 0, true, false, true, null, "l");
+                if (doubleReceiver)
+                    return I("il2cpp::runtime::icall_queue_double_peek", 0, true, false, true, null, "d");
+                return nonGeneric || refReceiver
+                    ? I("il2cpp::il2cpp_queue_peek", 0, true, true, true)
+                    : null;
+            case "Contains":
+                if (intReceiver)
+                    return I("il2cpp::runtime::icall_queue_int_contains", 1, true, false, true, new[] { "", "i" });
+                if (longReceiver)
+                    return I("il2cpp::runtime::icall_queue_long_contains", 1, true, false, true, new[] { "", "l" });
+                if (doubleReceiver)
+                    return I("il2cpp::runtime::icall_queue_double_contains", 1, true, false, true, new[] { "", "d" });
+                return nonGeneric || refReceiver
+                    ? I("il2cpp::il2cpp_queue_contains", 1, true, false, true, new[] { "", "" })
+                    : null;
+            case "get_Count":
+                return I("il2cpp::il2cpp_queue_get_count", 0, true, false, true);
+            case "Clear":
+                return I("il2cpp::il2cpp_queue_clear", 0, false, false, true);
+            case "ToArray":
+                // G4: the int expansion materialises an int32[] (HEAD-first);
+                // the non-generic domain keeps the object[] snapshot.
+                // W1: the reference instantiations track the element array
+                // (string[]/object[]); the `_class` form has NO recoverable
+                // element type (the suffix collapses to "class") so it stays
+                // LOUD (null -> phantom rejection) rather than mis-tracking.
+                if (intReceiver)
+                    return I("il2cpp::runtime::icall_queue_int_to_array", 0, true, true, true,
+                        returnTypeName: "System.Int32[]");
+                if (longReceiver)
+                    return I("il2cpp::runtime::icall_queue_long_to_array", 0, true, true, true,
+                        returnTypeName: "System.Int64[]");
+                if (doubleReceiver)
+                    return I("il2cpp::runtime::icall_queue_double_to_array", 0, true, true, true,
+                        returnTypeName: "System.Double[]");
+                if (refReceiver)
+                {
+                    var arrElemType = QueueArrayElementType(instTag);
+                    return arrElemType == null
+                        ? null
+                        : I("il2cpp::il2cpp_queue_to_array", 0, true, true, true, returnTypeName: arrElemType);
+                }
+                return nonGeneric
+                    ? I("il2cpp::il2cpp_queue_to_array", 0, true, true, true)
+                    : null;
             case "GetEnumerator":
-                return I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
-                    returnTypeName: "System.Collections.Queue.Enumerator");
+                if (intReceiver)
+                    return I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Collections.Generic.Queue`1.Enumerator_int");
+                if (longReceiver)
+                    return I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Collections.Generic.Queue`1.Enumerator_long");
+                if (doubleReceiver)
+                    return I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Collections.Generic.Queue`1.Enumerator_double");
+                return refReceiver
+                        ? I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
+                            returnTypeName: QueueEnumeratorTrackedType(instTag))
+                        : nonGeneric
+                            ? I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
+                                returnTypeName: "System.Collections.Queue.Enumerator")
+                            : null;
+            default: return null;
+        }
+    }
+
+    // W1: the ToArray element-array tracking for a reference-element Queue`1
+    // instantiation. The `_class` form is deliberately null (LOUD): the
+    // generic-instantiation suffix collapses every class element to the literal
+    // "class" (GenericInstantiationName), so the concrete element type cannot
+    // be recovered -- emitting System.Object[] would be a wrong element type
+    // for a downstream typed consumer. string/object are exact (net48:
+    // string[]/object[]).
+    private static string? QueueArrayElementType(string? instTag) => instTag switch
+    {
+        "System.Collections.Generic.Queue`1_string" => "System.String[]",
+        "System.Collections.Generic.Queue`1_object" => "System.Object[]",
+        _ => IsQueueDottedRefTag(instTag) ? QueueDottedElemName(instTag!) + "[]" : null,
+    };
+
+    // W1: the enumerator receiver pseudo-type for a reference-element
+    // instantiation (the List`1.Enumerator_<elem> precedent). The member
+    // dispatch (TryMapQueueEnumerator) reads the suffix to pick the reference
+    // get_Current; the runtime object is the shared non-generic snapshot
+    // enumerator (stackqueue.h).
+    // URI-FIX (diffuri001): a dotted class-element instantiation (Queue<Uri>
+    // -> "Queue`1_System.Uri", the GenericInstantiationName CLASS-arg form)
+    // rides the same Il2CppObject* slots; the remainder is namespace-qualified
+    // (contains '.'), unlike the short primitive suffixes.
+    private static bool IsQueueDottedRefTag(string? instTag)
+    {
+        const string prefix = "System.Collections.Generic.Queue`1_";
+        return instTag != null
+            && instTag.StartsWith(prefix, StringComparison.Ordinal)
+            && instTag.Substring(prefix.Length).Contains('.');
+    }
+
+    private static string QueueDottedElemName(string instTag)
+    {
+        const string prefix = "System.Collections.Generic.Queue`1_";
+        return instTag.Substring(prefix.Length);
+    }
+
+    private static string? QueueEnumeratorTrackedType(string? instTag) => instTag switch
+    {
+        "System.Collections.Generic.Queue`1_string" => "System.Collections.Generic.Queue`1.Enumerator_string",
+        "System.Collections.Generic.Queue`1_object" => "System.Collections.Generic.Queue`1.Enumerator_object",
+        "System.Collections.Generic.Queue`1_class" => "System.Collections.Generic.Queue`1.Enumerator_class",
+        "System.Collections.Generic.Queue`1_long" => "System.Collections.Generic.Queue`1.Enumerator_long",
+        "System.Collections.Generic.Queue`1_double" => "System.Collections.Generic.Queue`1.Enumerator_double",
+        _ => IsQueueDottedRefTag(instTag)
+            ? "System.Collections.Generic.Queue`1.Enumerator_" + QueueDottedElemName(instTag!)
+            : null,
+    };
+
+    // W1: the get_Current result tracking for a reference-element enumerator.
+    // `_class` tracks System.Object (the concrete class name is not recoverable
+    // from the suffix; a downstream `(T)o` is a normal reference castclass).
+    private static string? QueueElemTypeName(string? enumeratorToken) => enumeratorToken switch
+    {
+        "System.Collections.Generic.Queue`1.Enumerator_string" => "System.String",
+        "System.Collections.Generic.Queue`1.Enumerator_object" => "System.Object",
+        "System.Collections.Generic.Queue`1.Enumerator_class" => "System.Object",
+        _ => null,
+    };
+
+    //--------------------------------------------------------------------------
+    // TryMapQueueEnumerator -- G4 B2 (b2b8): the Queue<int>+Enumerator STRUCT
+    // members. The runtime object is the non-generic snapshot enumerator over
+    // the boxed-int slots; get_Current unboxes, MoveNext/Reset/Dispose reuse
+    // the shared enumerator surface (Dispose is the null-safe shared no-op).
+    // W1: the reference-element instantiations track their own token
+    // ("...Enumerator_<elem>"); get_Current then returns the Il2CppObject*
+    // element directly (no unbox) instead of the int32 payload.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapQueueEnumerator(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        switch (name)
+        {
+            case "MoveNext":
+                return count == 0
+                    ? I("il2cpp::il2cpp_queue_enumerator_move_next", 0, true, false, true, new[] { "deref:r" })
+                    : null;
+            case "get_Current":
+                if (count != 0) return null;
+                if (receiverType == "System.Collections.Generic.Queue`1.Enumerator_long")
+                    return I("il2cpp::runtime::icall_queue_long_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
+                if (receiverType == "System.Collections.Generic.Queue`1.Enumerator_double")
+                    return I("il2cpp::runtime::icall_queue_double_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
+                // URI-FIX: dotted-element enumerators pass the reference through
+                // with the exact element type (Queue<Uri> Current -> System.Uri).
+                if (receiverType != null
+                    && receiverType.StartsWith("System.Collections.Generic.Queue`1.Enumerator_", StringComparison.Ordinal)
+                    && QueueElemTypeName(receiverType) is null)
+                {
+                    const string eprefix = "System.Collections.Generic.Queue`1.Enumerator_";
+                    var elem = receiverType.Substring(eprefix.Length);
+                    if (elem.Contains('.'))
+                        return I("il2cpp::il2cpp_queue_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
+                            returnTypeName: elem);
+                }
+                return QueueElemTypeName(receiverType) is { } refElem
+                    ? I("il2cpp::il2cpp_queue_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
+                        returnTypeName: refElem)
+                    : I("il2cpp::runtime::icall_queue_int_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
+            case "Reset":
+                return count == 0
+                    ? I("il2cpp::il2cpp_queue_enumerator_reset", 0, false, false, true, new[] { "deref:r" })
+                    : null;
+            case "Dispose":
+                return count == 0
+                    ? I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true, new[] { "deref:r" })
+                    : null;
             default: return null;
         }
     }

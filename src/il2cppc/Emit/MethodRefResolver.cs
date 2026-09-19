@@ -177,7 +177,22 @@ public sealed record ResolvedMethod(
     // receiver-hinted re-resolve): a hint-less first pass is a DEFERRAL (the
     // Encoding/Data/Hash/TimeZone/ValueType mappers re-resolve with the
     // receiver), so the throw lives in StackFold, not inside BclResolve.
-    bool IsFictionalBclFallback = false)
+    bool IsFictionalBclFallback = false,
+    // cultureprobe (provider routing): the 2-arg ToString(string,
+    // IFormatProvider) overload of the double/decimal custom formatters.
+    // The cast list still carries "drop" for the provider slot (the mapping
+    // shape is unit-pinned), but the runtime ABI now takes the provider as a
+    // trailing Il2CppObject*: this flag tells the emitter to PASS the dropped
+    // argument through instead of skipping it. false everywhere else (the
+    // "drop" skip contract is untouched).
+    bool ProviderCulture = false,
+    // B4 (dtoprobe): per-resolution icall argument order -- slot j takes
+    // IL argument ArgOrder[j]; -1 emits the nullptr literal (a slot with
+    // no IL source, e.g. the null format before a provider-only
+    // argument). Null = the IcallArgOrder table, then identity. The CG7
+    // table stays untouched (it keys shared icalls globally; a
+    // per-resolution order would collide shapes there).
+    int[]? ArgOrder = null)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -845,6 +860,18 @@ public static partial class MethodRefResolver
             case "System.Object":
             case "System.IConvertible":
             case "System.Reflection.MemberInfo": return TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // raudit3 (2026-09-13): the MemberInfo-derived reflection objects
+            // emit the BASE ==/!= operator (csc never calls the derived
+            // overload); the runtime models a member value as its name string
+            // (Type.GetField -> il2cpp_typeinfo_get_field, P1.32), so the
+            // family maps to ordinal string (in)equality -- the Type operator
+            // precedent. Other members on these owners keep the LOUD default.
+            case "System.Reflection.FieldInfo":
+            case "System.Reflection.PropertyInfo":
+            case "System.Reflection.MethodInfo":
+            case "System.Reflection.ConstructorInfo":
+            case "System.Reflection.EventInfo":
+                return TryMapReflectionMember(name, ps);
             case "System.Text.StringBuilder": return TryMapStringBuilder(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // P25f (dhprobe): the net6+ interpolation lowering -- an
             // address-taken DefaultInterpolatedStringHandler VALUE local + the
@@ -861,6 +888,14 @@ public static partial class MethodRefResolver
             // "System.Collections.Comparer" so the later Compare callvirt
             // resolves on the receiver hint.
             case "System.Collections.Comparer": return TryMapComparer(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // a5reds (strsort_ordinal): System.StringComparer static getters
+            // (Ordinal / OrdinalIgnoreCase) -> the runtime singleton comparers
+            // (arraysort.h il2cpp_string_comparer_*); the result is tracked
+            // under the klass name so the Array.Sort<T> arm can route it to
+            // the comparer sort instead of the delegate sort.
+            case "System.StringComparer": return TryMapStringComparer(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.EqualityComparer`1": return TryMapGenericEqualityComparer(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.Comparer`1": return TryMapGenericComparer(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
             case "System.Random": return TryMapRandom(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapRandomExtra(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Environment": return TryMapEnvironment(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
@@ -875,6 +910,14 @@ public static partial class MethodRefResolver
             case "System.IO.IsolatedStorage.IsolatedStorageFile":
                 return TryMapEmit(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.GC":
+            // GCSettings (System.Runtime.GCSettings) owns only GC properties
+            // (get_IsServerGC/get_LatencyMode/set_LatencyMode). It must NOT
+            // ride the WeakReference bucket below: TryMapWeakReference THROWS
+            // on foreign members (only WeakReference* owners belong there), so
+            // the `?? TryMapGC` fallback never ran and GCSettings.IsServerGC
+            // died as a phantom (dscmp fold-skip). Dispatch it to the GC map
+            // directly.
+            case "System.Runtime.GCSettings":
                 return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // netcore21/31 audit surfaces routed into the GC map (the
             // GetMemoryInfo out-fills, the Number formatting PNSE entries,
@@ -882,7 +925,6 @@ public static partial class MethodRefResolver
             // ETW payload -- see MethodMap.GC.cs tail).
             case "System.Runtime.RuntimeImports":
             case "Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs":
-            case "System.Runtime.GCSettings":
             case "System.Runtime.GCFrameRegistration":
             case "System.ComAwareWeakReference":
             case "System.Runtime.JitInfo":
@@ -915,6 +957,15 @@ public static partial class MethodRefResolver
             case "System.Security.SecurityManager":
             case "System.Security.SecurityRuntime": return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Delegate": return TryMapDelegate(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // excext (fold-skip family): the NON-generic System.Action (the
+            // parameterless BCL delegate, no `1 arity marker) fell to the P26
+            // phantom guard -> the whole Run() body fold died. Its Invoke
+            // resolves to the delegate-invoke fold marker (NOT an "il2cpp::"
+            // name -- IsRuntimeDirect must not short-circuit; the emitter's
+            // DelegateInvokeExpr multicast ABIs own the actual call).
+            // ReturnsValue follows the signature (Action.Invoke -> void).
+            case "System.Action":
+                return name == "Invoke" ? I("System.Delegate_Invoke", 0, ret != 0x01, false, true) : null;
             case "System.Linq.Expressions.Expression":
             case "System.Linq.Expressions.LambdaExpression": return TryMapExprTree(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Array": return TryMapArray(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
@@ -975,7 +1026,7 @@ public static partial class MethodRefResolver
             // (get_IsCompleted/GetResult/OnCompleted/UnsafeOnCompleted).
             case "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Runtime.CompilerServices.TaskAwaiter`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
-            case "System.Collections.Generic.List`1": return TryMapList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.List`1": return TryMapList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
             // P25 (listp25): the List<int>.Enumerator STRUCT is address-taken
             // by the C# compiler (ldloca), so foreach over List<int> calls
             // MoveNext/get_Current DIRECTLY on the concrete nested type
@@ -997,8 +1048,12 @@ public static partial class MethodRefResolver
             // generic INSTANTIATION name and selects the get_Current carrier.
             case "System.Collections.Generic.IEnumerable`1":
             case "System.Collections.Generic.IEnumerator`1":
-                return TryMapEnumIface(owner, name, count, instName);
-            case "System.Collections.Generic.Dictionary`2": return TryMapDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                // P3-extra: the SortedList<string,int>.Values view enumerator
+                // (tracked "System.Collections.SortedList.Enumerator") pre-
+                // checks here; unknown receivers keep the interface dispatch.
+                return TryMapSortedListSiView(owner, name, count, receiverType)
+                    ?? TryMapEnumIface(owner, name, count, instName);
+            case "System.Collections.Generic.Dictionary`2": return TryMapDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
             // P25d (dictp25): the Dictionary<string,int> enumeration struct
             // owners (Dictionary`2+Enumerator / +KeyCollection+Enumerator /
             // +ValueCollection+Enumerator and the KeyValuePair`2 struct) -- the
@@ -1014,10 +1069,29 @@ public static partial class MethodRefResolver
                 return TryMapDictEnumeration(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Collections.Generic.Dictionary`2+KeyCollection":
             case "System.Collections.Generic.Dictionary`2+ValueCollection":
-                return TryMapDictCollection(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                return TryMapDictCollection(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
             case "System.Collections.Generic.IDictionary`2":
             case "System.Collections.Generic.ICollection`1":
-                return TryMapDictInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                // ilistException: ICollection`1 with a tracked List receiver
+                // (Count on an interface-typed list) routes to the List
+                // interface arms first; dict/snapshot receivers fall through
+                // to the dict arms unchanged. P3-extra: the SortedList`2
+                // Values view (tracked pseudo-type) pre-checks to the live
+                // get_Count before both.
+                return TryMapSortedListSiView(owner, name, count, receiverType)
+                    ?? TryMapListInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                    ?? TryMapDictInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.IList`1":
+                // ilistException: `ilist[i]` on an interface-typed List --
+                // the declaring owner is the interface, so the concrete
+                // List`1 arms never see it. Receiver-gated like ICollection`1.
+                // P3-extra: the SortedList`2 Values indexer pre-checks to the
+                // live by-index icall.
+                // G4 residual: IList`1.get_Item on the Keys String[] snapshot
+                // (the tracked P3 get_Keys receiver) reads the array slot.
+                return TryMapSortedListSiView(owner, name, count, receiverType)
+                    ?? TryMapSnapshotArrayInterface(owner, name, count, receiverType)
+                    ?? TryMapListInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // hset-b23 (D-HSET-1): HashSet<string> -- the string AOT expansion
             // (MethodMap.HashSet.cs, runtime hashset.h -- a set-of-unique-
             // members wrapper over the dictsi domain). GAPS.md recorded the
@@ -1025,15 +1099,35 @@ public static partial class MethodRefResolver
             // &System_Collections_Generic_HashSet_1_string_class + generated-
             // name member calls (undefined symbols). Now the members map to
             // icall_hashset_string_*.
-            case "System.Collections.Generic.HashSet`1": return TryMapHashSet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.HashSet`1": return TryMapHashSet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            // G4: the HashSet<int> enumerator STRUCT members (the tracked
+            // pseudo-type routes them; the runtime object is the dictsi
+            // keycollection wrapper over the boxed-int snapshot).
+            case "System.Collections.Generic.HashSet`1+Enumerator":
+                return TryMapHashSetEnumerator(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // G4 B2 (b2b8): the generic Queue`1<int> / Stack`1<string> struct
+            // enumerators (owner-direct nested-type calls; the finally Dispose
+            // arrives through the IDisposable arm below with the tracked
+            // "...Enumerator_int/_string" receiver hint).
+            case "System.Collections.Generic.Queue`1+Enumerator":
+                return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.Stack`1+Enumerator":
+                return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Diagnostics.Stopwatch": return TryMapStopwatch(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.Interlocked": return TryMapInterlocked(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.IntPtr": return TryMapIntPtr(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.UIntPtr": return TryMapUIntPtr(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.IntPtr": return TryMapIntPtr(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, ret);
+            case "System.UIntPtr": return TryMapUIntPtr(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, ret);
             case "System.Collections.Queue": return TryMapQueue(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapStackQueue(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Collections.Stack": return TryMapStack(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapStackQueue(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // G4: the generic Queue`1<int> / Stack`1<string> expansions ride
+            // the same runtime objects through the receiver-aware arms.
+            case "System.Collections.Generic.Queue`1": return TryMapQueue(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.Stack`1": return TryMapStack(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.SortedSet`1": return TryMapSortedSet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.SortedSet`1+Enumerator":
+                return TryMapSortedSetEnumerator(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.IO.Stream":
             case "System.IO.FileStream":
             case "System.IO.MemoryStream":
@@ -1098,15 +1192,64 @@ public static partial class MethodRefResolver
                     // (the same shape the MoveNext/get_Current arms use).
                     if (receiverType == "System.Collections.Generic.List`1.Enumerator")
                         return I("il2cpp::il2cpp_list_i4_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // listrefdeep: the reference-element expansions track
+                    // "...List`1.Enumerator_<element>" (ListEnumeratorTrackedType)
+                    // -- route to the listobj enumerator dispose.
+                    if (receiverType != null && receiverType.StartsWith("System.Collections.Generic.List`1.Enumerator_", StringComparison.Ordinal))
+                        return I("il2cpp::il2cpp_list_obj_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // G4 B2 (b2b8): the generic Queue<int> / Stack<string>
+                    // struct enumerators (the GetEnumerator ReturnTypeName
+                    // tokens). The runtime Dispose is a no-op, so the shared
+                    // null-safe il2cpp_ienum_dispose is the mapping (the
+                    // containers have no reflected Dispose slot).
+                    // W1: the reference-element expansions track
+                    // "...Enumerator_<elem>" (QueueEnumeratorTrackedType /
+                    // StackEnumeratorTrackedType), so the gate is a PREFIX match
+                    // (the List`1.Enumerator_<elem> precedent at :1191).
+                    if (receiverType != null
+                        && (receiverType.StartsWith("System.Collections.Generic.Queue`1.Enumerator_", StringComparison.Ordinal)
+                            || receiverType.StartsWith("System.Collections.Generic.Stack`1.Enumerator_", StringComparison.Ordinal)))
+                        return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true, new[] { "deref:r" });
                     // P25d (dictp25): the Dictionary<string,int> enumerator
                     // structs implement IDisposable EXPLICITLY, so the foreach
                     // finally's `constrained..callvirt IDisposable::Dispose`
                     // arrives with this owner. Route the tracked enumerator
                     // receivers to the (no-op) dict enumerator dispose.
+                    // P3-extra: the SortedList`2 Values enumerator (tracked
+                    // "System.Collections.SortedList.Enumerator") maps to the
+                    // core (no-op) snapshot enumerator dispose.
                     var dictEnumLike = receiverType ?? arg0Type;
+                    // G4 residual (g4sorteddict): the SortedDictionary
+                    // KeyCollection enumerator (tracked pseudo-type, see
+                    // TryMapSortedDictionaryKeyCollection) is a struct-local
+                    // address receiver -- deref:r (the P25b List<int>.Enumerator
+                    // shape) lands the snapshot enumerator object.
+                    if (receiverType is "System.Collections.Generic.SortedDictionary`2+KeyCollection.Enumerator"
+                            || arg0Type is "System.Collections.Generic.SortedDictionary`2+KeyCollection.Enumerator")
+                        return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    if (receiverType is "System.Collections.SortedList.Enumerator"
+                            || arg0Type is "System.Collections.SortedList.Enumerator")
+                        return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true, new[] { "" });
                     if (dictEnumLike is "System.Collections.Generic.Dictionary`2.Enumerator"
                             or "System.Collections.Generic.Dictionary`2.KeyCollection.Enumerator"
-                            or "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator")
+                            or "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator"
+                            or "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator_string"
+                            or "System.Collections.Generic.HashSet`1.Enumerator_int"
+                            or "System.Collections.Generic.HashSet`1.Enumerator_string")
+                        return I("il2cpp::il2cpp_dict_si_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // Phase-1 dictgen: the int_string snapshot enumerator
+                    // (tracked "...Dictionary`2.Enumerator_int_string") hits
+                    // the same foreach-finally route -- same no-op dispose,
+                    // own family, same address-receiver deref.
+                    if (dictEnumLike is "System.Collections.Generic.Dictionary`2.Enumerator_int_string")
+                        return I("il2cpp::il2cpp_dict_gen_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // T2 W2/W3: the SortedSet/HashSet long/double/uint/ref struct
+                    // enumerator tokens ride the same dictsi keycollection wrapper
+                    // object -- the foreach-finally Dispose is the same no-op
+                    // with the deref:r cast (the G4 int precedent above).
+                    if (dictEnumLike != null
+                        && (dictEnumLike.StartsWith("System.Collections.Generic.HashSet`1.Enumerator_", StringComparison.Ordinal)
+                            || dictEnumLike.StartsWith("System.Collections.Generic.SortedSet`1.Enumerator_", StringComparison.Ordinal)))
                         return I("il2cpp::il2cpp_dict_si_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
                     // P26 (yieldprobe): a TRACKED receiver that is a USER enumerator OR the
                     // GENERIC-INTERFACE shuttle -- the foreach-finally isinst
@@ -1265,6 +1408,14 @@ var userRecvLike = receiverType ?? arg0Type;
             // il2cpp_sortedlist_set_by_key); the remaining surface is listed
             // in MethodMap.SortedList.cs for follow-up wiring agents.
             case "System.Collections.SortedList": return TryMapSortedList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Collections.Generic.SortedList`2": return TryMapSortedList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.SortedDictionary`2": return TryMapSortedDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            // G4 residual (g4sorteddict): the SortedDictionary KeyCollection
+            // enumeration pattern (nested owners; the frozen String[] Keys
+            // snapshot enumerator -- see TryMapSortedDictionaryKeyCollection).
+            case "System.Collections.Generic.SortedDictionary`2+KeyCollection":
+            case "System.Collections.Generic.SortedDictionary`2+KeyCollection+Enumerator":
+                return TryMapSortedDictionaryKeyCollection(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Runtime.InteropServices.Marshal": return TryMapMarshal(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames);
             case "System.Runtime.InteropServices.SafeHandle": return TryMapSafeHandle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Security.Cryptography.MD5":
@@ -1307,6 +1458,10 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Xml.XmlDocument":
             case "System.Xml.XmlNode":
             case "System.Xml.XmlElement": return TryMapXml(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // xmaudit2 (codegen-decl): the XmlNodeList that SelectNodes
+            // returns (the hit object[] tracked as XmlNodeList) needs its
+            // Count / indexer members on the same handle-gap surface.
+            case "System.Xml.XmlNodeList": return TryMapXml(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // XmlWriter minimal write surface (D-XMLW-1, MethodMap.Xml.cs
             // TryMapXmlWriter): System.Xml.XmlWriter / XmlWriterSettings route
             // to the xml_write.h handle-gap domain (Create -> the writer handle,
@@ -1486,6 +1641,11 @@ var userRecvLike = receiverType ?? arg0Type;
                             || instName?.Contains("_class", StringComparison.Ordinal) == true
                             || instName?.Contains("_array", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true);
+                        // B6 (ilistException): a dotted user-class element
+                        // ("IEnumerator`1_System.Exception") rides the same
+                        // reference arm (the DottedRefArg kind rule).
+                        if (DottedRefArg(instName) != null)
+                            return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true);
                         // int32-slot primitives (int/bool/char/sbyte/byte/
                         // short/ushort/uint) and unknown instantiations.
                         return I("il2cpp::il2cpp_ienum_get_current_i4", 0, true, false, true);
@@ -1523,7 +1683,7 @@ var userRecvLike = receiverType ?? arg0Type;
         string[]? casts = null, string? resultKind = null, bool prependCount = false, bool prependZero = false,
         bool isConsole = false, string? returnTypeName = null, bool resultIsReceiver = false,
         bool appendZero = false, string[]? appendLiterals = null,
-        string[]? tupleReturnFields = null)
+        string[]? tupleReturnFields = null, bool providerCulture = false, int[]? argOrder = null)
     {
         var refs = casts == null
             ? Enumerable.Repeat(rr, pc).ToArray() // placeholder, replaced below
@@ -1533,7 +1693,8 @@ var userRecvLike = receiverType ?? arg0Type;
             PrependCountArg: prependCount, PrependZeroArg: prependZero,
             ReturnTypeName: returnTypeName, ResultIsReceiver: resultIsReceiver,
             AppendZeroArg: appendZero, AppendLiterals: appendLiterals,
-            TupleReturnFields: tupleReturnFields);
+            TupleReturnFields: tupleReturnFields, ProviderCulture: providerCulture,
+            ArgOrder: argOrder);
     }
 
     private static bool[] ParamRefFlags(string paramTypes)
@@ -1577,7 +1738,9 @@ var userRecvLike = receiverType ?? arg0Type;
         var hdr = sig.ReadSignatureHeader();
         if (hdr.IsGeneric) _ = sig.ReadCompressedInteger(); // GenericParameterCount
         var count = sig.ReadCompressedInteger();
-        var ret = sig.ReadByte();
+        // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) on the
+        // return type before dispatch (volatile-like modreq/IsReadOnly).
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         // P5: GENERICINST (0x15) return types (e.g. Math.SinCos -> ValueTuple)
         // require full consumption of marker + TypeDefOrRef + arg count + elements
         // (ReadParamByte logic, line 1270-1280). ReadTypeHandle() does NOT consume
@@ -1598,12 +1761,12 @@ var userRecvLike = receiverType ?? arg0Type;
         // generic Interlocked gate (ps[0]==0x13) never matched. Same
         // consumption ReadParamByte applies to VAR/MVAR params.
         else if (ret is 0x13 or 0x1E) _ = sig.ReadCompressedInteger();
-        // G2 (bitconvcase): an SZARRAY return (0x1D/0x1F, e.g. BitConverter.GetBytes
+        // G2 (bitconvcase): an SZARRAY return (0x1D, e.g. BitConverter.GetBytes
         // → byte[]) is followed by its element byte -- not consuming it leaks the
         // element byte into ps[0] and every GetBytes overload resolves to the same
         // indistinguishable shape. Consume recursively (the element itself may carry
         // trailing data).
-        else if (ret is 0x1D or 0x1F) _ = ReadParamByte(md, ref sig);
+        else if (ret is 0x1D) _ = ReadParamByte(md, ref sig);
         var ps = new byte[count];
         for (var i = 0; i < count; i++) ps[i] = ReadParamByte(md, ref sig);
         return (count, ret, ps);
@@ -1624,10 +1787,10 @@ var userRecvLike = receiverType ?? arg0Type;
         sig.ReadSignatureHeader();
         var count = sig.ReadCompressedInteger();
         if (count < 1) return null;
-        var ret = sig.ReadByte();
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         if (ret is 0x11 or 0x12 or 0x40) _ = sig.ReadTypeHandle();
-        else if (ret is 0x1D or 0x1F) _ = ReadParamByte(md, ref sig);
-        var first = sig.ReadByte();
+        else if (ret is 0x1D) _ = ReadParamByte(md, ref sig);
+        var first = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         if (first != 0x15) return null; // not a GenericInst source parameter
         var marker = sig.ReadByte();    // 0x12 CLASS / 0x11 VALUETYPE
         if (marker is not (0x12 or 0x11)) return null;
@@ -1655,7 +1818,7 @@ var userRecvLike = receiverType ?? arg0Type;
         if (hdr.IsGeneric) _ = sig.ReadCompressedInteger(); // GenericParameterCount
         var count = sig.ReadCompressedInteger();
         if (count < 2) return 0;
-        var ret = sig.ReadByte();
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         // NOTE: the return type of the LINQ operators is IEnumerable<T> -- a
         // GenericInst (0x15) whose CLASS/VALUETYPE marker + type handle +
         // arg count + args follow the 0x15 byte. It MUST be consumed before
@@ -1691,7 +1854,10 @@ var userRecvLike = receiverType ?? arg0Type;
     // the ldloca LocAddrExpr shape, unrelated to ps).
     private static byte ReadParamByte(MetadataReader md, ref BlobReader sig)
     {
-        var b = sig.ReadByte();
+        // ECMA-335 II.23.1.16: custom modifiers (0x1F CMOD_REQD / 0x20
+        // CMOD_OPT) precede the modified type -- strip and dispatch on the
+        // real byte (SZARRAY is 0x1D only).
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         switch (b)
         {
             case 0x10: return ReadParamByte(md, ref sig); // BYREF: element follows, ps carries it
@@ -1703,7 +1869,7 @@ var userRecvLike = receiverType ?? arg0Type;
             // char* -> 0x03, sbyte* -> 0x04 (no plain-char ctor shape collides).
             case 0x0F: return ReadParamByte(md, ref sig);
             case 0x11 or 0x12 or 0x40: _ = sig.ReadTypeHandle(); break;
-            case 0x1D or 0x1F: _ = ReadParamByte(md, ref sig); break; // SZARRAY: element follows
+            case 0x1D: _ = ReadParamByte(md, ref sig); break; // SZARRAY: element follows
             case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); break; // VAR/MVAR: index follows
             case 0x15:                                                // GenericInst
                 // CLASS/VALUETYPE marker byte precedes the definition index
@@ -1875,6 +2041,17 @@ var userRecvLike = receiverType ?? arg0Type;
 
     // TypeSpec → generic INSTANTIATION name (same encoding as StackFold:
     // "Box`1<int>" → "Box`1_int").
+    // R2b P2 (closed generic clone context): while a closed instantiation's
+    // method body is folded/emitted, a VAR (0x13) generic argument in an
+    // inner TypeSpec denotes THAT instantiation's T -- not the metadata
+    // definition's M3 default ("int"). CodeGenerator sets this to the
+    // current type's InstantiationSuffix (null for definitions) around the
+    // body pass. Consumers: GenericInstantiationName's 0x13 arm (below) and
+    // StackFold's ReadM3Arg (field owners / newobj type names). Callers
+    // outside a body pass (load time, non-generic contexts) see null and
+    // keep the historical "int" encoding.
+    public static string? InstantiationSuffixHint { get; set; }
+
     private static string GenericInstantiationName(MetadataReader md, TypeSpecificationHandle handle)
     {
         var spec = md.GetTypeSpecification(handle);
@@ -1899,7 +2076,8 @@ var userRecvLike = receiverType ?? arg0Type;
         var args = new string[argCount];
         for (var i = 0; i < argCount; ++i)
         {
-            var b = sig.ReadByte();
+            // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) first.
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             // M6 generic-argument expansion (the same byte table as
             // StackFold.cs GenericInstantiationName / CodeGenerator.cs
             // GenericInstantiationName): dictcase hit 0x0E
@@ -1923,16 +2101,30 @@ var userRecvLike = receiverType ?? arg0Type;
                 0x0C => "float",
                 0x0D => "double",
                 0x0E => "string",
-                0x11 => "valuetype",
-                0x12 => "class",
-                0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
+                 0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+                 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                 0x1C => "object",
-                0x1D or 0x1F => "array",
+                0x1D => "array", // SZARRAY (0x1F is CMOD_REQD per ECMA, stripped above)
                 0x15 => ReadM3GenericArgNested(md, ref sig),
+                // B2/B5 family (boxunbox/generics; MyList<T> definition
+                // bodies): an OPEN TypeSpec arg (VAR 0x13 + index) denotes
+                // the enclosing closed clone's T -- the R2b P2
+                // InstantiationSuffixHint mechanism (the nested arm above is
+                // the precedent; the 2031-2039 comment documents this arm as
+                // intended). Outside a body pass the hint is null and the
+                // historical "int" encoding holds.
+                0x13 => ReadM3VarArg(ref sig),
                 var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
             };
         }
         return defName + "_" + string.Join("_", args);
+    }
+
+    // VAR (0x13) generic-argument consumption: the index byte follows.
+    private static string ReadM3VarArg(ref BlobReader sig)
+    {
+        sig.ReadCompressedInteger();
+        return InstantiationSuffixHint ?? "int";
     }
 
     // A generic-argument that is ITSELF a generic instantiation
@@ -1956,7 +2148,7 @@ var userRecvLike = receiverType ?? arg0Type;
         var nestedArgs = new string[nestedCount];
         for (var j = 0; j < nestedCount; ++j)
         {
-            var b = sig.ReadByte();
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             nestedArgs[j] = b switch
             {
                 0x02 => "bool",
@@ -1972,11 +2164,11 @@ var userRecvLike = receiverType ?? arg0Type;
                 0x0C => "float",
                 0x0D => "double",
                 0x0E => "string",
-                0x11 => "valuetype",
-                0x12 => "class",
-                0x13 => "int",
+                 0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+                 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+                 0x13 => InstantiationSuffixHint ?? "int", // nested VAR argument: the enclosing clone's closed suffix (C2n closure -- replaces the stubbed "int")
                 0x1C => "object",
-                0x1D or 0x1F => "array",
+                0x1D => "array",
                 0x15 => ReadM3GenericArgNested(md, ref sig),
                 var other => throw new NotSupportedException($"nested generic argument byte 0x{other:X2} in M3"),
             };
@@ -1985,4 +2177,46 @@ var userRecvLike = receiverType ?? arg0Type;
     }
 
     private static string Sanitize(string s) => string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']'));
+
+    // Dotted reference-element rule (A5/B1/B6 myIList/baudit2/
+    // ilistException; A1 Task<Point>): the suffix after the LAST "`1_" of a
+    // generic instantiation name. A dotted full name with no arity marker
+    // (e.g. "System.Exception", "Cases.Baudit2+P") names a
+    // namespace-qualified type and rides the family reference domain (the
+    // Queue queueDottedAlloc precedent). BCL value-type full names and
+    // nested generic instantiations (backtick) are excluded and stay LOUD.
+    // Returns the element suffix, or null when the rule does not apply.
+    // Residual hazard: user STRUCTS also match (the 0x11/0x12 marker is
+    // dropped by the M3 full-name encoding); they fail loudly at g++ with
+    // a C++ type mismatch -- the same visibility as today's
+    // transpile-LOUD. The pool carries no List/Task<user-struct> case
+    // (verified 2026-09-19).
+    internal static string? DottedRefArg(string? instTag) =>
+        DottedSuffix(instTag) is string s && !IsKnownValueTypeName(s) ? s : null;
+
+    // Raw dotted suffix (dot, no backtick) after the last "`1_", or null.
+    internal static string? DottedSuffix(string? instTag)
+    {
+        if (instTag == null) return null;
+        var li = instTag.LastIndexOf("`1_", StringComparison.Ordinal);
+        if (li < 0) return null;
+        var suffix = instTag[(li + 3)..];
+        if (!suffix.Contains('.') || suffix.Contains('`')) return null;
+        return suffix;
+    }
+
+    // Closed BCL struct full names: must never ride a reference domain
+    // (no per-type box domain exists). User structs are NOT listed (open
+    // set -- the documented residual hazard above).
+    internal static bool IsKnownValueTypeName(string suffix) => suffix switch
+    {
+        "System.DateTime" => true,
+        "System.Guid" => true,
+        "System.Decimal" => true,
+        "System.TimeSpan" => true,
+        "System.DateTimeOffset" => true,
+        "System.IntPtr" => true,
+        "System.UIntPtr" => true,
+        _ => false,
+    };
 }

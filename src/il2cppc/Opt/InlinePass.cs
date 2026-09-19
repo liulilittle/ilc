@@ -92,6 +92,10 @@ public sealed class InlineCandidate
     // Reference results (string/object/array...) → conservatively not inlined (the
     // result temp's type would be uncertain).
     public required bool ReturnsRef { get; init; }
+    // Callee local kinds (MethodBodyReader LocalKinds, index-aligned with
+    // loc{i}) -- the struct-local gate below needs them. Empty for legacy
+    // and test candidates (gate allows).
+    public string[] LocalKinds { get; init; } = Array.Empty<string>();
     public required bool HasExceptionRegions { get; init; }
     // Virtual methods are NEVER inlined: a callvirt receiver could dispatch to an
     // override at runtime, so the compile-time body is not the executed one. The
@@ -293,8 +297,17 @@ public static class InlinePass
     {
         if (candidate.HasExceptionRegions) return false;   // no EH
         if (candidate.IsVirtual) return false;             // callvirt may dispatch to an override
-        if (candidate.ReturnsRef) return false;            // int32/void results
+        if (candidate.ReturnsRef) return false; // int32/void results
         if (!BodyWithinThreshold(candidate)) return false; // conservative threshold
+        // D1 (diffdt001 dt.hash): bodies DEFINING a struct-typed local must
+        // not inline -- the emitter declares inline temps from expression
+        // kinds (int32 default for user calls), so a callee DateTime local
+        // renamed to a fresh temp misdeclares as int32_t (HashProbe's
+        // `loc0 = D6()` became `inl1 = D6()` with `int32_t inl1`). Non-void
+        // struct returns are already excluded by the ReturnsRef gate above;
+        // this covers struct traffic through locals in void (or
+        // int-returning) bodies.
+        if (DefinesStructLocal(candidate)) return false;
         if (args.Count != candidate.ParamCount) return false;
         if (voidPosition != candidate.ReturnsVoid) return false; // position must match void-ness
         if (args.Any(a => a is LocAddrExpr)) return false;  // byref args rejected
@@ -326,6 +339,50 @@ public static class InlinePass
             if (!candidate.ReturnsVoid && ret.Value == null) return false;
         }
         return retCount > 0 || candidate.ReturnsVoid;
+    }
+
+    // D1 gate helper: does the body define (stloc) a struct-typed local?
+    // Such a definition becomes a fresh-temp definition at the call site,
+    // where the emitter would declare it int32_t (see IsInlineable).
+    // LocalKinds index-aligns with loc{i}; absent kinds allow (legacy and
+    // test candidates carry none).
+    private static bool DefinesStructLocal(InlineCandidate candidate)
+    {
+        var kinds = candidate.LocalKinds;
+        if (kinds == null || kinds.Length == 0) return false;
+        foreach (var b in candidate.Body)
+        {
+            if (b is AssignStmt a && LocIndex(a.Target) is int li
+                && li >= 0 && li < kinds.Length && IsStructLocalKind(kinds[li]))
+                return true;
+        }
+        return false;
+    }
+
+    private static int? LocIndex(string name)
+    {
+        if (!name.StartsWith("loc", StringComparison.Ordinal)) return null;
+        return int.TryParse(name[3..], out var i) ? i : (int?)null;
+    }
+
+    // Struct-typed local kinds: "v:" value-type structs (except the KVP
+    // ref-carrier forms the emitter declares Il2CppObject* -- the same two
+    // shapes CodeGenerator.cs:2197 special-cases) and "g:"
+    // generic-instance locals (the declaration is per-suffix; a renamed
+    // temp loses it -- conservative, perf-only over-block for the int/ref
+    // suffixes).
+    private static bool IsStructLocalKind(string kind)
+    {
+        if (kind.StartsWith("v:", StringComparison.Ordinal))
+        {
+            var inner = kind[2..];
+            if (inner == "System.Collections.Generic.KeyValuePair`2"
+                || inner.StartsWith("System.Collections.Generic.KeyValuePair`2<", StringComparison.Ordinal))
+                return false;
+            return true;
+        }
+        if (kind.StartsWith("g:", StringComparison.Ordinal)) return true;
+        return false;
     }
 
     // Threshold: bodies with branches/labels (control-flow merge at the end

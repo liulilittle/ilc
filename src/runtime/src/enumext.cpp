@@ -1052,7 +1052,9 @@ int32_t il2cpp_enum_is_defined(Il2CppObject* typeName, Il2CppObject* value)
     const Il2CppEnumInfo* info = FindInfoByName(name);
     if (info == nullptr)
     {
-        return 0; // unregistered type: nothing can be a member (defensive)
+        // raudit4: net48 IsDefined(non-enum Type, ...) throws ArgumentException
+        // ("Type provided must be an Enum."), it does not return false.
+        il2cpp_throw_argument_exception("Type provided must be an Enum.");
     }
     int64_t v = 0;
     if (!ResolveQueryValue(info, value, &v))
@@ -1101,28 +1103,68 @@ Il2CppObject* il2cpp_enum_format(Il2CppObject* typeName, Il2CppObject* value,
 //------------------------------------------------------------------------------
 // il2cpp_enum_get_values_by_type_name -- Enum.GetValues(Type) (see header):
 // an int32[] of the member values in declaration order (the Int32
-// no-metadata assumption -- kEnumUnderlyingInt32). Non-reference array, so
+// no-metadata assumption -- kEnumUnderlyingInt32), matching the transpiler
+// contract (MethodMap.Enum.cs GetValues arm: ReturnTypeName "System.Int32[]",
+// so `(int[])Enum.GetValues(t)` castclass conformance holds by klass
+// identity and ldelem reads raw int32 values). Non-reference array, so
 // no rooting is needed during the fill (the collector never scans it).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_enum_get_values_by_type_name(Il2CppObject* typeName)
 {
     const Il2CppEnumInfo* info = FindInfoByName(CsToUtf8Name(typeName));
     const int32_t count = (info != nullptr) ? info->valueCount : 0;
-    // .NET GetValues returns a T[] whose elements are the enum VALUES -- the
-    // model represents each element as a BOXED ENUM (il2cpp_enum_to_object
-    // with the same type name), so GetValue(i).Equals(managedValue) does the
-    // registry payload compare and returns true (icallwide E2E contract; the
-    // historical int32[] raw-value array made every Equals false because the
-    // element box klass was System.Int32, not the enum).
-    Il2CppArray* result = il2cpp_array_new(nullptr, sizeof(Il2CppObject*), true, count);
+    // .NET GetValues returns a T[] whose elements compare equal to the enum
+    // VALUES as ints -- the e2e surface (`(int[])Enum.GetValues(t)` +
+    // int indexing/comparison) needs raw int32 payload, and the int[]
+    // klass stamp is what makes the managed castclass succeed.
+    // raudit4: a 64-bit underlying (long/ulong) is different -- net48 returns
+    // the ENUM array, so Array.GetValue(1) yields the value BOXED AS THE ENUM
+    // and Console.WriteLine prints the member NAME ("B"), not the numeric.
+    // Build an object[] of pre-boxed enum values (the generated startup block
+    // registers the enum klass before any call reaches here); the int64[]
+    // fallback below stays for the no-descriptor defensive path.
+    const bool wide = info != nullptr
+        && (info->underlying == kEnumUnderlyingInt64
+            || info->underlying == kEnumUnderlyingUInt64);
+    if (wide)
+    {
+        Il2CppClass* enumClass = il2cpp_class_by_name(CsToUtf8Name(typeName).c_str());
+        if (enumClass != nullptr)
+        {
+            Il2CppArray* boxed = il2cpp_array_new(nullptr, sizeof(void*), true, count);
+            if (count <= 0)
+            {
+                return boxed;
+            }
+            il2cpp_gc_add_static_root(reinterpret_cast<void**>(&boxed));
+            Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(boxed->data);
+            for (int32_t i = 0; i < count; ++i)
+            {
+                slots[i] = icall_box_enum(enumClass, info->values[i]);
+            }
+            il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&boxed));
+            return boxed;
+        }
+    }
+    Il2CppArray* result = il2cpp_array_new(nullptr,
+        wide ? static_cast<int32_t>(sizeof(int64_t)) : static_cast<int32_t>(sizeof(int32_t)),
+        false, count);
     if (count <= 0)
     {
         return result;
     }
     for (int32_t i = 0; i < count; ++i)
     {
-        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(result, i)) =
-            il2cpp_enum_to_object(typeName, info->values[i]);
+        if (wide)
+        {
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(result, i)) =
+                info->values[i];
+        }
+        else
+        {
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(result, i)) =
+                static_cast<int32_t>(info->values[i]);
+        }
     }
     return result;
 }
@@ -1180,6 +1222,24 @@ int32_t il2cpp_enum_compare_to(int64_t selfValue, Il2CppObject* other)
 Il2CppString* il2cpp_enum_get_underlying_type(Il2CppClass* enumClass)
 {
     const Il2CppEnumInfo* info = FindInfo(enumClass);
+    const int32_t underlying = (info != nullptr)
+        ? info->underlying
+        : kEnumUnderlyingInt32;
+    return il2cpp_string_new_from_cs(UnderlyingName(underlying));
+}
+
+//------------------------------------------------------------------------------
+// raudit4: the NAME variant of GetUnderlyingType (the transpiler passes the
+// folded typeof type-name string). Same Int32 no-metadata fallback as the
+// class form for unregistered names.
+//------------------------------------------------------------------------------
+Il2CppString* il2cpp_enum_get_underlying_type_by_type_name(Il2CppObject* typeName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("enumType");
+    }
+    const Il2CppEnumInfo* info = FindInfoByName(CsToUtf8Name(typeName));
     const int32_t underlying = (info != nullptr)
         ? info->underlying
         : kEnumUnderlyingInt32;

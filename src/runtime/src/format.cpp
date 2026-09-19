@@ -238,12 +238,14 @@ bool TryMatchInfinityWord(const char16_t* p, const char16_t* end, double* out)
 // ASCII spelling must fall through to the decimal-literal path and fail.
 // Hex floats ("0x1p3"), abbreviated "inf"/"nan" and "+Infinity"/"-NaN" are
 // also rejected -- they are NOT legal .NET double text.
-bool IsValidDoubleText(const char* s)
+// AllowThousands: ',' separators between integral digits (saudit2).
+bool IsValidDoubleText(const char* s, char* cleaned)
 {
     const char* p = s;
+    char* out = cleaned;
     while (IsAsciiWhitespaceAscii(*p))
     {
-        ++p;
+        *out++ = *p++;
     }
     const char* spec = nullptr;
     if (std::strncmp(p, "NaN", 3) == 0)
@@ -252,32 +254,48 @@ bool IsValidDoubleText(const char* s)
     }
     if (spec != nullptr)
     {
-        p = spec;
+        while (p != spec)
+        {
+            *out++ = *p++;
+        }
         while (IsAsciiWhitespaceAscii(*p))
         {
-            ++p;
+            *out++ = *p++;
         }
+        *out = '\0';
         return *p == '\0';
     }
     if (*p == '+' || *p == '-')
     {
-        ++p;
+        *out++ = *p++;
     }
+    // saudit2: the integral run accepts the zh-CN thousands separator ','
+    // between two digits (net48 default NumberStyles Float|AllowThousands).
     int before = 0;
-    while (*p >= '0' && *p <= '9')
+    for (;;)
     {
-        ++before;
-        ++p;
+        if (*p >= '0' && *p <= '9')
+        {
+            ++before;
+            *out++ = *p++;
+            continue;
+        }
+        if (*p == ',' && before > 0 && p[1] >= '0' && p[1] <= '9')
+        {
+            ++p; // group separator: validated, NOT copied
+            continue;
+        }
+        break;
     }
     if (*p == '.')
     {
-        ++p;
+        *out++ = *p++;
     }
     int after = 0;
     while (*p >= '0' && *p <= '9')
     {
         ++after;
-        ++p;
+        *out++ = *p++;
     }
     if (before + after == 0)
     {
@@ -285,16 +303,16 @@ bool IsValidDoubleText(const char* s)
     }
     if (*p == 'e' || *p == 'E')
     {
-        ++p;
+        *out++ = *p++;
         if (*p == '+' || *p == '-')
         {
-            ++p;
+            *out++ = *p++;
         }
         int expDigits = 0;
         while (*p >= '0' && *p <= '9')
         {
             ++expDigits;
-            ++p;
+            *out++ = *p++;
         }
         if (expDigits == 0)
         {
@@ -303,8 +321,9 @@ bool IsValidDoubleText(const char* s)
     }
     while (IsAsciiWhitespaceAscii(*p))
     {
-        ++p;
+        *out++ = *p++;
     }
+    *out = '\0';
     return *p == '\0';
 }
 
@@ -671,7 +690,15 @@ double icall_string_parse_double(Il2CppString* text)
         il2cpp_throw_new("System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
                          "Insufficient memory to continue the execution of the program.");
     }
+    std::unique_ptr<char, void (*)(void*)> ownedClean(
+        static_cast<char*>(std::malloc(byteLen)), &std::free);
+    if (ownedClean == nullptr)
+    {
+        il2cpp_throw_new("System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                         "Insufficient memory to continue the execution of the program.");
+    }
     char* const buf = ownedBuf.get();
+    char* const clean = ownedClean.get();
     for (int32_t i = 0; i < text->length; ++i)
     {
         const char16_t c = text->chars[i];
@@ -683,13 +710,13 @@ double icall_string_parse_double(Il2CppString* text)
         buf[i] = static_cast<char>(c);
     }
     buf[text->length] = '\0';
-    if (!IsValidDoubleText(buf))
+    if (!IsValidDoubleText(buf, clean))
     {
         il2cpp_throw_format_exception("Input string was not in a correct format.");
     }
     errno = 0;
     char* end = nullptr;
-    const double result = std::strtod(buf, &end);
+    const double result = std::strtod(clean, &end);
     (void)end; // the validator guarantees the full buffer was consumed
     if (errno == ERANGE && std::isinf(result))
     {

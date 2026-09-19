@@ -131,7 +131,7 @@ il2cpp::Il2CppMethodInfo baseMethods[3] = {
 
 il2cpp::Il2CppFieldInfo baseFields[2] = {
     {"x", "System.Int32", 0, 0, nullptr, 1},
-    {"_s", "System.String", -1, 1, &g_baseStaticSlot, 2},
+    {"_s", "System.String", -1, 1, &g_baseStaticSlot, 3}, // public|static (raudit3 visibility filter)
 };
 
 il2cpp::Il2CppPropertyInfo baseProperties[2] = {

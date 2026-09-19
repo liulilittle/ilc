@@ -24,12 +24,15 @@
 
 #include "xml_write.h"
 
+#include "il2cpp_exception_ext.h" // il2cpp_throw_invalid_operation_exception
 #include "il2cpp_gc.h"           // il2cpp_gc_add_root_range / remove (target root)
 #include "il2cpp_object.h"       // il2cpp_null_check (NRE baseline)
 #include "il2cpp_string.h"       // il2cpp_string_new (flush output string)
 #include "il2cpp_stringbuilder.h" // icall_stringbuilder_append_s (target append)
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -59,6 +62,7 @@ struct XmlWriterImpl
     bool indent = false;
     bool wrote_decl = false;
     bool start_tag_open = false;       // the top frame emitted `<name` but not yet '>'
+    bool closed = false;               // Close ran: Write*/Flush throw, Close is a no-op
     std::u16string out;                // accumulated UTF-16 output
     std::vector<XmlWriterFrame> stack; // open element frames
 };
@@ -66,6 +70,24 @@ struct XmlWriterImpl
 XmlWriterImpl* AsWriter(il2cpp::Il2CppObject* writer)
 {
     return reinterpret_cast<XmlWriterImpl*>(il2cpp::il2cpp_null_check(writer));
+}
+
+// Closed-writer guard. net48: every Write*/Flush on a closed writer throws
+// InvalidOperationException ("The Writer is closed or in error state.");
+// Close itself is idempotent -- see il2cpp_xml_writer_close.
+[[noreturn]] void ThrowWriterClosed()
+{
+    il2cpp::il2cpp_throw_invalid_operation_exception(
+        "The Writer is closed or in error state.");
+    std::abort(); // defensive backstop (il2cpp_throw_... never returns)
+}
+
+void ThrowIfClosed(XmlWriterImpl* w)
+{
+    if (w->closed)
+    {
+        ThrowWriterClosed();
+    }
 }
 
 void AppendName(std::u16string& out, const il2cpp::Il2CppString* name)
@@ -76,7 +98,8 @@ void AppendName(std::u16string& out, const il2cpp::Il2CppString* name)
     }
 }
 
-// Text content: escape & < > so a re-parse yields the identical text.
+// Text content: escape & < > (plus C0 control characters other than
+// tab/LF/CR, which net48 re-escapes as &#xN;).
 void AppendEscapedText(std::u16string& out, const char16_t* chars, int32_t length)
 {
     for (int32_t i = 0; i < length; ++i)
@@ -93,6 +116,15 @@ void AppendEscapedText(std::u16string& out, const char16_t* chars, int32_t lengt
         else if (c == u'>')
         {
             out += u"&gt;";
+        }
+        else if (c < 0x20 && c != u'\t' && c != u'\n' && c != u'\r')
+        {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "&#x%X;", static_cast<unsigned>(c));
+            for (const char* p = buf; *p != '\0'; ++p)
+            {
+                out.push_back(static_cast<char16_t>(*p));
+            }
         }
         else
         {
@@ -215,6 +247,7 @@ Il2CppObject* il2cpp_xml_writer_create_s(Il2CppObject* target, Il2CppObject* set
 void il2cpp_xml_writer_write_start_element(Il2CppObject* writer, Il2CppString* name)
 {
     XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
     // The declaration is emitted before the FIRST element (net48 lazy emit).
     if (!w->wrote_decl && !w->omit_declaration)
     {
@@ -240,6 +273,7 @@ void il2cpp_xml_writer_write_attribute_string(Il2CppObject* writer, Il2CppString
                                               Il2CppString* value)
 {
     XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
     w->out.push_back(u' ');
     AppendName(w->out, name);
     w->out += u"=\"";
@@ -261,16 +295,22 @@ void il2cpp_xml_writer_write_element_string(Il2CppObject* writer, Il2CppString* 
 void il2cpp_xml_writer_write_string(Il2CppObject* writer, Il2CppString* text)
 {
     XmlWriterImpl* w = AsWriter(writer);
-    CloseStartTag(w);
-    if (text != nullptr)
+    ThrowIfClosed(w);
+    if (text == nullptr || text->length <= 0)
     {
-        AppendEscapedText(w->out, text->chars, text->length);
+        // net48 oracle: WriteString("") / WriteString(null) is a NO-OP -- the
+        // start tag stays open, so WriteElementString(name, "") still emits
+        // the self-closing form `<name />` (xw_empty probe).
+        return;
     }
+    CloseStartTag(w);
+    AppendEscapedText(w->out, text->chars, text->length);
 }
 
 void il2cpp_xml_writer_write_end_element(Il2CppObject* writer)
 {
     XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
     if (w->stack.empty())
     {
         return; // net48 would throw InvalidOperationException; minimal face no-ops
@@ -279,11 +319,10 @@ void il2cpp_xml_writer_write_end_element(Il2CppObject* writer)
     w->stack.pop_back();
     if (w->start_tag_open)
     {
-        // No content was written after the start tag -> `<name></name>`
-        // (the start tag's '>' was never emitted -- close it first).
+        // No content was written after the start tag -> self-closing
+        // `<name />` (net48 shape: a space before the slash).
         w->start_tag_open = false;
-        w->out.push_back(u'>');
-        EmitEndTag(w, frame.name);
+        w->out += u" />";
     }
     else if (frame.has_child_element && w->indent)
     {
@@ -302,6 +341,7 @@ void il2cpp_xml_writer_write_end_element(Il2CppObject* writer)
 void il2cpp_xml_writer_write_end_document(Il2CppObject* writer)
 {
     XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
     while (!w->stack.empty())
     {
         il2cpp_xml_writer_write_end_element(writer);
@@ -311,6 +351,7 @@ void il2cpp_xml_writer_write_end_document(Il2CppObject* writer)
 void il2cpp_xml_writer_flush(Il2CppObject* writer)
 {
     XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
     if (w->out.empty())
     {
         return;
@@ -327,6 +368,10 @@ void il2cpp_xml_writer_flush(Il2CppObject* writer)
 void il2cpp_xml_writer_close(Il2CppObject* writer)
 {
     XmlWriterImpl* w = AsWriter(writer);
+    if (w->closed)
+    {
+        return; // net48: Close is idempotent (the second call is a no-op)
+    }
     while (!w->stack.empty())
     {
         il2cpp_xml_writer_write_end_element(writer);
@@ -337,7 +382,12 @@ void il2cpp_xml_writer_close(Il2CppObject* writer)
         il2cpp_gc_remove_root_range(reinterpret_cast<void**>(&w->target));
         w->root_registered = false;
     }
-    delete w;
+    // The struct is NOT deleted: the handle must stay dereferenceable so a
+    // second Close (no-op) or a use-after-Close Write* (InvalidOperationException)
+    // can be classified instead of touching freed memory (xmaudit4: the old
+    // delete-on-Close was a double-free -> 0xC0000374). The dormant closed
+    // writer is a small process-lifetime allocation (handle-gap contract).
+    w->closed = true;
 }
 
 }} // namespace il2cpp::runtime

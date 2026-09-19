@@ -1,4 +1,5 @@
 #pragma once
+#include "il2cpp_array.h" // Il2CppArray (File.ReadAllBytes/WriteAllBytes ABI)
 //------------------------------------------------------------------------------
 // il2cpp_io.h -- System.IO base icalls (File / Path / Directory subset +
 // FileInfo object closure).
@@ -93,9 +94,19 @@ int32_t icall_file_write_all_text(Il2CppObject* path, Il2CppObject* contents);
 // non-zero on failure (null path / unopenable target).
 int32_t icall_file_append_all_text(Il2CppObject* path, Il2CppObject* contents);
 
-// File.ReadAllText(path): the file content as a managed string (UTF-8
-// decoded). Null when the file cannot be opened (missing path, null path).
-Il2CppObject* icall_file_read_all_text(Il2CppObject* path);
+  // File.ReadAllText(path): the file content as a managed string (UTF-8
+  // decoded). Null when the file cannot be opened (missing path, null path).
+  Il2CppObject* icall_file_read_all_text(Il2CppObject* path);
+  
+  // File.ReadAllBytes(path): the raw file content as a managed byte[].
+  // Null when the file cannot be opened (missing path, null path) -- the M3
+  // failure signal (net48 throws FileNotFoundException instead).
+  Il2CppArray* icall_file_read_all_bytes(Il2CppObject* path);
+  
+  // File.WriteAllBytes(path, bytes): creates/truncates the file and writes the
+  // raw bytes (embedded NULs preserved). 0 on success, non-zero on failure
+  // (null path / unopenable target). A null 'bytes' writes an empty file.
+  int32_t icall_file_write_all_bytes(Il2CppObject* path, Il2CppArray* bytes);
 
 // File.WriteAllLines(path, lines): writes each string element as a UTF-8
 // line terminated with CRLF. 0 on success; non-zero on failure (null path,

@@ -49,6 +49,54 @@ il2cpp::Il2CppString* il2cpp_xml_outer_xml(const il2cpp::XmlNode* node);
 Il2CppArray* il2cpp_xml_select_nodes(const il2cpp::XmlNode* root,
                                      il2cpp::Il2CppString* path);
 
+// xmaudit2 (codegen-decl): XmlNodeList indexer -- the SelectNodes hit list
+// is an object[] whose slots are XmlNode* handles. A null list throws
+// NullReferenceException; an index outside [0, Count) yields nullptr (the
+// net48 XPathNodeList.Item contract for SelectNodes lists -- verified by
+// the xmlnodelistops oracle, NOT ArgumentOutOfRangeException).
+Il2CppObject* il2cpp_xml_nodelist_get_item(Il2CppObject* list, int32_t index);
+
+// xmlenum: XmlNodeList enumeration (foreach over SelectNodes). The list is
+// the managed object[] of node handles (see get_item above); the enumerator
+// is a snapshot object wrapping that array:
+//
+//   struct Il2CppXmlNodeListEnumerator { obj; nodes (GC); int32 index }
+//
+// net48 reference semantics (xmlenum net48 oracle -- see LANDING-XMLENUM.md):
+//   * document order; each GetEnumerator returns a fresh cursor over the
+//     frozen hit array;
+//   * get_Current before the first MoveNext / after the end yields NULL (NOT
+//     InvalidOperationException -- System.Xml.XmlNodeListEnumerator);
+//   * Reset rewinds the cursor (net48 Reset is supported);
+//   * the enumerator is NOT IDisposable (foreach over the non-generic
+//     IEnumerator emits no Dispose).
+// The net48 lazy-materialization timing (a document mutation between
+// SelectNodes and the first enumeration access becomes visible) is NOT
+// reproducible here: the ilc xml domain has no document-mutation surface and
+// the query array is frozen when SelectNodes runs (documented limitation).
+struct Il2CppXmlNodeListEnumerator
+{
+    Il2CppObject obj;     // slot 0: object header
+    Il2CppArray*  nodes;  // slot 1: SelectNodes hit array (GC ref, bitmap bit 1)
+    int32_t       index;  // cursor: -1 = before the first element
+};
+
+// XmlNodeList.GetEnumerator() -> the snapshot enumerator object (allocated
+// through il2cpp_object_new; null list throws NullReferenceException).
+Il2CppObject* il2cpp_xml_nodelist_get_enumerator(Il2CppObject* list);
+
+// IEnumerator::MoveNext on the snapshot enumerator: advances the cursor,
+// true while it is inside the array (int32 bool carrier).
+int32_t il2cpp_xml_nodelist_enumerator_move_next(Il2CppObject* self);
+
+// IEnumerator::get_Current: the node handle at the cursor, or nullptr when
+// the cursor is before the first element / past the end (net48
+// XmlNodeListEnumerator contract -- verified by the xmlenumops oracle).
+Il2CppObject* il2cpp_xml_nodelist_enumerator_get_current(Il2CppObject* self);
+
+// IEnumerator::Reset: rewinds the cursor to before the first element.
+void il2cpp_xml_nodelist_enumerator_reset(Il2CppObject* self);
+
 // SelectSingleNode(root, path): the FIRST hit of SelectNodes, or nullptr
 // when nothing matches (net48 SelectSingleNode returns null on a miss).
 // Element/text/cdata hits are tree pointers; an attribute hit is a
@@ -85,3 +133,12 @@ Il2CppObject* il2cpp_xml_get_inner_xml(const il2cpp::XmlNode* node);
 void il2cpp_xml_node_free(il2cpp::XmlNode* root);
 
 }} // namespace il2cpp::runtime
+
+//------------------------------------------------------------------------------
+// GLOBAL-scope class descriptor for the XmlNodeList snapshot enumerator
+// (xmlenum). Same contract as System_Collections_Stack_Enumerator_class
+// (stackqueue.h): defined at global scope in xml_doc.cpp with external
+// linkage, lazily registered by il2cpp_xml_nodelist_get_enumerator. The
+// descriptor describes Il2CppXmlNodeListEnumerator (bitmap bit 1 = nodes).
+//------------------------------------------------------------------------------
+extern il2cpp::Il2CppClass System_Xml_XmlNodeListEnumerator_class;

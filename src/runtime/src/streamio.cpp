@@ -30,7 +30,9 @@
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_* / not_supported
 #include "il2cpp_metadata.h"      // System_Object_class (descriptor bases)
 #include "il2cpp_runtime.h"       // il2cpp_class_register
+#include "platform.h"             // plat_path_is_file (exclusive-create probe)
 #include "il2cpp_streamio.h"      // the object model (this file's surface)
+#include "il2cpp_encoding.h"      // P2(5) A1: the Encoding object (page/emitBom)
 #include "il2cpp_string.h"
 
 #include <cstdint>
@@ -85,6 +87,17 @@ struct StreamState
                               // write placement differs, "ab" writes land at EOF)
     int32_t        refCount;  // live handles over this state (reader/writer wrappers share it)
     bool           closed;    // close ran: fp/buf released; further ops fail cleanly
+    int32_t        pending[4];   // line-reader pushback ring (CRLF lookahead + BOM peek)
+    int32_t        pendingCount; // valid entries at the FRONT of pending[]
+    int32_t        textEncoding; // 0=UTF8 (default), 1=UTF16LE, 2=UTF16BE (reader BOM)
+    bool           appendMode;  // kFile opened "ab": append-start guards live
+    int64_t        appendStart; // the EOF position captured at open
+    // P2(5) StreamWriter(path,bool,Encoding): the TEXT encoder the writer
+    // applies to Write(string)/WriteLine(string) -- 0=UTF-8, 1=UTF-16LE,
+    // 2=ASCII. Independent of textEncoding (which is the READER's BOM/encoding
+    // detection result). Default 0 == the historical UTF-8 behaviour.
+    int32_t        writerEncoding;
+    bool           writerBomPending; // emit the encoding preamble before the first text write (net48: only when the target starts at position 0)
 };
 
 namespace {
@@ -264,6 +277,16 @@ bool MemoryEnsure(StreamState* s, int64_t need)
 // backend so read_line is shared between file and memory streams.
 int StreamGetByte(StreamState* s)
 {
+    if (s->pendingCount > 0)
+    {
+        const int32_t b = s->pending[0];
+        for (int32_t i = 1; i < s->pendingCount; ++i)
+        {
+            s->pending[i - 1] = s->pending[i];
+        }
+        --s->pendingCount;
+        return b;
+    }
     if (s->kind == StreamState::kFile)
     {
         // Write->read mode reset (C11 7.21.5.3) -- see il2cpp_stream_read.
@@ -286,6 +309,26 @@ int StreamGetByte(StreamState* s)
         return -1;
     }
     return s->buf[s->pos++];
+}
+
+// Push bytes back in front of the stream (replayed in the given ORDER). The
+// ring holds at most 4 entries; callers never exceed that (CRLF lookahead
+// pushes 1, the BOM peek pushes at most 3 when the ring is empty).
+void StreamUnread(StreamState* s, const int32_t* bytes, int32_t count)
+{
+    for (int32_t i = count - 1; i >= 0; --i)
+    {
+        if (s->pendingCount >= 4)
+        {
+            break; // defensive: never overrun the ring
+        }
+        for (int32_t j = s->pendingCount; j > 0; --j)
+        {
+            s->pending[j] = s->pending[j - 1];
+        }
+        s->pending[0] = bytes[i];
+        ++s->pendingCount;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -338,9 +381,26 @@ void StreamCloseHandle(StreamState* s)
 
 il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
 {
-    if (path == nullptr || mode < 0 || mode > 4)
+    if (path == nullptr || mode < 0 || mode > 9)
     {
         return nullptr;
+    }
+    // net48 FileMode fidelity (ioaudit2): modes 5/8 are EXCLUSIVE creates,
+    // 6 never creates, 7 truncates an existing file (missing -> fail),
+    // 9 seeds an empty file before a read-only open.
+    const bool exclusiveCreate = (mode == 5 || mode == 8);
+    const bool allowCreate = (mode != 6 && mode != 7);
+    const bool truncateExisting = (mode == 7);
+    const bool createEmptyFirst = (mode == 9);
+    const int32_t baseMode = (mode == 5) ? 1
+        : (mode == 8) ? 4
+        : (mode == 6 || mode == 7) ? 3
+        : (mode == 9) ? 0
+        : mode;
+    const std::string utf8 = CsToUtf8(path);
+    if (exclusiveCreate && plat_path_is_file(utf8.c_str()))
+    {
+        return nullptr; // already exists (the ctor raises IOException)
     }
     FILE* fp = nullptr;
 #if defined(_WIN32)
@@ -352,19 +412,36 @@ il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
         wpath[static_cast<size_t>(i)] = static_cast<wchar_t>(str->chars[i]);
     }
     wpath[static_cast<size_t>(str->length)] = 0;
+    if (createEmptyFirst && !plat_path_is_file(utf8.c_str()))
+    {
+        FILE* seed = nullptr;
+#if defined(_MSC_VER)
+        if (::_wfopen_s(&seed, wpath.data(), L"wb") != 0)
+        {
+            seed = nullptr;
+        }
+#else
+        seed = ::_wfopen(wpath.data(), L"wb");
+#endif
+        if (seed != nullptr)
+        {
+            std::fclose(seed);
+        }
+    }
     static const wchar_t* kModes[5] = { L"rb", L"wb", L"ab", L"r+b", L"w+b" };
 #if defined(_MSC_VER)
-    if (::_wfopen_s(&fp, wpath.data(), kModes[mode]) != 0)
+    if (::_wfopen_s(&fp, wpath.data(), kModes[baseMode]) != 0)
     {
         fp = nullptr;
     }
 #else
-    fp = ::_wfopen(wpath.data(), kModes[mode]);
+    fp = ::_wfopen(wpath.data(), kModes[baseMode]);
 #endif
-    if (fp == nullptr && mode == 3)
+    if (fp == nullptr && allowCreate && baseMode == 3)
     {
         // Read-write on a file that does not exist yet: "r+b" fails, so
         // fall back to "w+b" -- nothing existed, so nothing is truncated.
+        // (Only the OpenOrCreate mode reaches here: 6/7 disallow creation.)
 #if defined(_MSC_VER)
         if (::_wfopen_s(&fp, wpath.data(), L"w+b") != 0)
         {
@@ -375,10 +452,18 @@ il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
 #endif
     }
 #else
-    const std::string p = CsToUtf8(path);
+    const std::string& p = utf8;
+    if (createEmptyFirst && !plat_path_is_file(p.c_str()))
+    {
+        FILE* seed = std::fopen(p.c_str(), "wb");
+        if (seed != nullptr)
+        {
+            std::fclose(seed);
+        }
+    }
     static const char* kModes[5] = { "rb", "wb", "ab", "r+b", "w+b" };
-    fp = std::fopen(p.c_str(), kModes[mode]);
-    if (fp == nullptr && mode == 3)
+    fp = std::fopen(p.c_str(), kModes[baseMode]);
+    if (fp == nullptr && allowCreate && baseMode == 3)
     {
         fp = std::fopen(p.c_str(), "w+b");
     }
@@ -387,6 +472,26 @@ il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
     {
         return nullptr;
     }
+    if (truncateExisting)
+    {
+#if defined(_WIN32)
+        ::_chsize_s(::_fileno(fp), 0);
+#else
+        ::ftruncate(::fileno(fp), 0);
+#endif
+    }
+    int64_t appendStart = 0;
+    if (mode == 2)
+    {
+        // net48 Append: the stream opens AT EOF (Position == old length);
+        // record the append start for the seek/setlength guards.
+        if (std::fseek(fp, 0, SEEK_END) != 0)
+        {
+            std::fclose(fp);
+            return nullptr;
+        }
+        appendStart = static_cast<int64_t>(STREAM_FTELL(fp));
+    }
     StreamState* s = new StreamState;
     s->kind = StreamState::kFile;
     s->fp = fp;
@@ -394,13 +499,19 @@ il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
     s->pos = 0;
     s->length = 0;
     s->capacity = 0;
-    s->canRead = (mode == 0 || mode == 3 || mode == 4);
-    s->canWrite = (mode != 0);
+    s->canRead = (baseMode == 0 || baseMode == 3 || baseMode == 4);
+    s->canWrite = (baseMode != 0);
     s->canSeek = true; // net48 probe: even append-mode FileStream reports
                        // CanSeek=true (only write placement differs -- "ab"
                        // writes land at end-of-file regardless of the position)
     s->refCount = 1;
     s->closed = false;
+    s->pendingCount = 0;
+    s->textEncoding = 0;
+    s->appendMode = (mode == 2);
+    s->appendStart = appendStart;
+    s->writerEncoding = 0;
+    s->writerBomPending = false;
     return s;
 }
 
@@ -423,14 +534,39 @@ int32_t il2cpp_stream_read(il2cpp_stream_t stream, void* buffer, int32_t count)
     {
         return -1;
     }
+    // The pushback ring holds bytes peeked by a text-reader ctor (BOM
+    // detection). net48's detection seeks the underlying stream back, so a
+    // raw Read after the probe observes those bytes; the shared StreamState
+    // must replay the ring first or mixing readers reorders/drops bytes
+    // (a1ringx: StreamReader ctor -> BinaryReader.ReadInt32 -> ReadToEnd).
+    char* out = static_cast<char*>(buffer);
+    int32_t drained = 0;
+    while (drained < count && s->pendingCount > 0)
+    {
+        const int b = StreamGetByte(s);
+        if (b < 0)
+        {
+            break;
+        }
+        out[drained++] = static_cast<char>(b);
+    }
+    if (drained == count)
+    {
+        return drained;
+    }
+    const int32_t remaining = count - drained;
 #if defined(_WIN32)
     if (s->kind == StreamState::kCom)
     {
         // Stage-12 kCom delegation: IStream::Read (the ABI-safe helper).
         uint32_t got = 0;
         const int32_t hr = il2cpp_com_stream_read(
-            reinterpret_cast<intptr_t>(s->iStream), buffer, count, &got);
-        return (hr == kComHrOk) ? static_cast<int32_t>(got) : -1;
+            reinterpret_cast<intptr_t>(s->iStream), out + drained, remaining, &got);
+        if (hr != kComHrOk)
+        {
+            return (drained > 0) ? drained : -1;
+        }
+        return drained + static_cast<int32_t>(got);
     }
 #endif
     if (s->kind == StreamState::kFile)
@@ -440,19 +576,26 @@ int32_t il2cpp_stream_read(il2cpp_stream_t stream, void* buffer, int32_t count)
         // ReadByte/WriteByte freely (Win32 handles), so the stdio backend must
         // reset the mode with an identity seek before every file write.
         (void)STREAM_FSEEK(s->fp, 0, SEEK_CUR);
-        return static_cast<int32_t>(std::fread(buffer, 1, static_cast<size_t>(count), s->fp));
+        return drained + static_cast<int32_t>(
+            std::fread(out + drained, 1, static_cast<size_t>(remaining), s->fp));
     }
     if (s->pos >= s->length)
     {
-        return 0; // end-of-stream
+        return drained; // end-of-stream (ring-only reads already returned)
     }
     const int64_t avail = s->length - s->pos;
-    const size_t n = (static_cast<int64_t>(count) < avail)
-        ? static_cast<size_t>(count) : static_cast<size_t>(avail);
-    std::memcpy(buffer, s->buf + s->pos, n);
+    const size_t n = (static_cast<int64_t>(remaining) < avail)
+        ? static_cast<size_t>(remaining) : static_cast<size_t>(avail);
+    std::memcpy(out + drained, s->buf + s->pos, n);
     s->pos += static_cast<int64_t>(n);
-    return static_cast<int32_t>(n);
+    return drained + static_cast<int32_t>(n);
 }
+
+// net48 append-mode write guard chain (IO_SeekAppendOverwrite): FileStream
+// opened with FileMode.Append rejects a WRITE at a position before the
+// open-time EOF; Seek itself is allowed (the guard lives in the write path).
+const char kStreamIOExceptionChain[] =
+    "System.IO.IOException,System.IO.IOException,System.SystemException,System.Exception";
 
 int32_t il2cpp_stream_write(il2cpp_stream_t stream, const void* buffer, int32_t count)
 {
@@ -485,6 +628,14 @@ int32_t il2cpp_stream_write(il2cpp_stream_t stream, const void* buffer, int32_t 
 #endif
     if (s->kind == StreamState::kFile)
     {
+        if (s->appendMode && il2cpp_stream_get_position(s) < s->appendStart)
+        {
+            // net48 FileStream.Write in append mode throws IOException when
+            // the position is before the open-time EOF (IO_SeekAppendOverwrite).
+            // Seek is unaffected (see il2cpp_stream_seek).
+            il2cpp_throw_new(kStreamIOExceptionChain,
+                "Unable to overwrite data that existed at open time.");
+        }
         // Read->write mode reset (C11 7.21.5.3) -- see il2cpp_stream_read.
         (void)STREAM_FSEEK(s->fp, 0, SEEK_CUR);
         return static_cast<int32_t>(std::fwrite(buffer, 1, static_cast<size_t>(count), s->fp));
@@ -548,21 +699,29 @@ int64_t il2cpp_stream_get_position(il2cpp_stream_t stream)
     {
         return -1;
     }
+    // Logical position: net48 exposes no hidden pushback, so ring bytes that
+    // were peeked (BOM detection / CRLF lookahead) but not logically consumed
+    // must not count (a6seek: Position right after the reader ctor is 0, not
+    // the physical 3).
 #if defined(_WIN32)
     if (s->kind == StreamState::kCom)
     {
         // Stage-12 kCom delegation: IStream::Seek(0, STREAM_SEEK_CUR) -> the
         // current position (no move).
         int64_t pos = 0;
-        return (il2cpp_com_stream_seek(reinterpret_cast<intptr_t>(s->iStream), 0, 1, &pos) == kComHrOk)
-            ? pos : -1;
+        if (il2cpp_com_stream_seek(reinterpret_cast<intptr_t>(s->iStream), 0, 1, &pos) != kComHrOk || pos < 0)
+        {
+            return -1;
+        }
+        return pos - s->pendingCount;
     }
 #endif
     if (s->kind == StreamState::kMemory)
     {
-        return s->pos;
+        return s->pos - s->pendingCount;
     }
-    return static_cast<int64_t>(STREAM_FTELL(s->fp)); // -1 on error
+    const int64_t physical = static_cast<int64_t>(STREAM_FTELL(s->fp)); // -1 on error
+    return physical < 0 ? physical : physical - s->pendingCount;
 }
 
 int32_t il2cpp_stream_set_position(il2cpp_stream_t stream, int64_t position)
@@ -577,16 +736,26 @@ int32_t il2cpp_stream_set_position(il2cpp_stream_t stream, int64_t position)
     {
         // Stage-12 kCom delegation: IStream::Seek(position, STREAM_SEEK_SET).
         int64_t out = 0;
-        return (il2cpp_com_stream_seek(reinterpret_cast<intptr_t>(s->iStream), position, 0, &out) == kComHrOk)
-            ? 0 : -1;
+        if (il2cpp_com_stream_seek(reinterpret_cast<intptr_t>(s->iStream), position, 0, &out) != kComHrOk)
+        {
+            return -1; // position unchanged on failure
+        }
+        s->pendingCount = 0; // explicit reposition discards the pushback ring
+        return 0;
     }
 #endif
     if (s->kind == StreamState::kMemory)
     {
         s->pos = position; // seeking past the end is allowed; writes extend
+        s->pendingCount = 0;
         return 0;
     }
-    return STREAM_FSEEK(s->fp, position, SEEK_SET) == 0 ? 0 : -1;
+    if (STREAM_FSEEK(s->fp, position, SEEK_SET) != 0)
+    {
+        return -1; // position unchanged on failure
+    }
+    s->pendingCount = 0;
+    return 0;
 }
 
 Il2CppObject* il2cpp_stream_read_line(il2cpp_stream_t stream)
@@ -595,6 +764,72 @@ Il2CppObject* il2cpp_stream_read_line(il2cpp_stream_t stream)
     if (s == nullptr || s->closed || !s->canRead)
     {
         return nullptr;
+    }
+    if (s->textEncoding != 0)
+    {
+        // UTF-16 text stream (BOM-detected at reader construction): read
+        // 16-bit units; '\r', '\n' and "\r\n" terminate at the unit level.
+        std::vector<char16_t> units;
+        bool sawUnit = false;
+        for (;;)
+        {
+            const int lo = StreamGetByte(s);
+            if (lo < 0)
+            {
+                break;
+            }
+            const int hi = StreamGetByte(s);
+            if (hi < 0)
+            {
+                units.push_back(static_cast<char16_t>(lo)); // lone trailing byte
+                sawUnit = true;
+                break;
+            }
+            sawUnit = true;
+            const char16_t unit = (s->textEncoding == 1)
+                ? static_cast<char16_t>(lo | (hi << 8))
+                : static_cast<char16_t>((lo << 8) | hi);
+            if (unit == u'\n')
+            {
+                break;
+            }
+            if (unit == u'\r')
+            {
+                const int lo2 = StreamGetByte(s);
+                if (lo2 >= 0)
+                {
+                    const int hi2 = StreamGetByte(s);
+                    const char16_t next = (hi2 < 0)
+                        ? static_cast<char16_t>(lo2)
+                        : (s->textEncoding == 1
+                            ? static_cast<char16_t>(lo2 | (hi2 << 8))
+                            : static_cast<char16_t>((lo2 << 8) | hi2));
+                    if (next != u'\n')
+                    {
+                        // Not a CRLF pair: restore the peeked unit.
+                        if (hi2 >= 0)
+                        {
+                            const int32_t put[2] = { lo2, hi2 };
+                            StreamUnread(s, put, 2);
+                        }
+                        else
+                        {
+                            const int32_t put = lo2;
+                            StreamUnread(s, &put, 1);
+                        }
+                    }
+                }
+                break;
+            }
+            units.push_back(unit);
+        }
+        if (!sawUnit)
+        {
+            return nullptr;
+        }
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
+            reinterpret_cast<const char16_t*>(units.data()),
+            static_cast<int32_t>(units.size())));
     }
 #if defined(_WIN32)
     if (s->kind == StreamState::kCom)
@@ -619,17 +854,89 @@ Il2CppObject* il2cpp_stream_read_line(il2cpp_stream_t stream)
         {
             break;
         }
+        if (c == '\r')
+        {
+            // net48: '\r', '\n' and "\r\n" all terminate a line. A '\r'
+            // peeks the next byte: '\n' completes the CRLF pair, anything
+            // else (including EOF) is pushed back for the next read.
+            const int next = StreamGetByte(s);
+            if (next >= 0 && next != '\n')
+            {
+                const int32_t put = next;
+                StreamUnread(s, &put, 1);
+            }
+            break;
+        }
         bytes.push_back(static_cast<char>(c));
     }
     if (!sawByte)
     {
         return nullptr; // end-of-stream without a line start
     }
-    if (!bytes.empty() && bytes.back() == '\r')
-    {
-        bytes.pop_back(); // strip the CR of a CRLF pair
-    }
     return Utf8ToCs(bytes.data(), bytes.size());
+}
+
+// P2(5) A1: encode 'text' with the writer's selected encoding (writerEncoding
+// 0=UTF-8, 1=UTF-16LE, 2=ASCII) and write it, emitting the encoding preamble
+// first when writerBomPending (the first text write after a truncating open).
+// A null text emits nothing (net48 Write(null) no-op). Returns 0 on success,
+// -1 on a short write.
+int32_t WriterEncodeAndWrite(StreamState* s, Il2CppObject* text)
+{
+    if (text == nullptr)
+    {
+        return 0; // net48: Write(null) emits nothing
+    }
+    if (s->writerBomPending)
+    {
+        s->writerBomPending = false;
+        const uint8_t* bom = nullptr;
+        int32_t bomLen = 0;
+        if (s->writerEncoding == 0) { static const uint8_t k[3] = { 0xEF, 0xBB, 0xBF }; bom = k; bomLen = 3; }
+        if (s->writerEncoding == 1) { static const uint8_t k[2] = { 0xFF, 0xFE }; bom = k; bomLen = 2; }
+        if (bomLen > 0)
+        {
+            if (il2cpp_stream_write(s, bom, bomLen) != bomLen)
+            {
+                return -1;
+            }
+        }
+    }
+    const Il2CppString* str = reinterpret_cast<const Il2CppString*>(text);
+    if (s->writerEncoding == 1)
+    {
+        // UTF-16LE: the units' little-endian bytes (G12 little-endian host).
+        const int32_t bytes = str->length * 2;
+        if (bytes == 0)
+        {
+            return 0;
+        }
+        return il2cpp_stream_write(s, str->chars, bytes) == bytes ? 0 : -1;
+    }
+    if (s->writerEncoding == 2)
+    {
+        // ASCII: units above 0x7F encode as '?' (net48 ASCIIEncoding fallback).
+        std::string ascii;
+        ascii.reserve(static_cast<size_t>(str->length));
+        for (int32_t i = 0; i < str->length; ++i)
+        {
+            const char16_t c = str->chars[i];
+            ascii.push_back(c <= 0x7F ? static_cast<char>(c) : '?');
+        }
+        if (ascii.empty())
+        {
+            return 0;
+        }
+        return il2cpp_stream_write(s, ascii.data(), static_cast<int32_t>(ascii.size()))
+            == static_cast<int32_t>(ascii.size()) ? 0 : -1;
+    }
+    const std::string utf8 = CsToUtf8(text);
+    if (utf8.empty())
+    {
+        return 0;
+    }
+    return il2cpp_stream_write(s, utf8.data(), static_cast<int32_t>(utf8.size()))
+        == static_cast<int32_t>(utf8.size()) ? 0 : -1;
 }
 
 int32_t il2cpp_stream_write_line(il2cpp_stream_t stream, Il2CppObject* line)
@@ -639,13 +946,26 @@ int32_t il2cpp_stream_write_line(il2cpp_stream_t stream, Il2CppObject* line)
     {
         return -1;
     }
-    const std::string utf8 = CsToUtf8(line);
-    if (il2cpp_stream_write(stream, utf8.data(), static_cast<int32_t>(utf8.size()))
-        != static_cast<int32_t>(utf8.size()))
+    // P2(5) A1: the writer's selected encoding (default UTF-8) + preamble.
+    if (WriterEncodeAndWrite(s, line) != 0)
     {
-        return -1; // short write (or capability violation): line not written
+        return -1;
     }
     return il2cpp_stream_write(stream, "\r\n", 2) == 2 ? 0 : -1;
+}
+
+// StreamWriter.Write(text): writes the text in the writer's encoding WITHOUT a
+// line terminator (net48 Write vs WriteLine). A null string emits NOTHING (the
+// empty encoding -- net48 TextWriter.Write(null) is a no-op). 0 on success,
+// non-zero on failure (closed receiver, capability violation, short write).
+int32_t il2cpp_stream_write_text(il2cpp_stream_t stream, Il2CppObject* text)
+{
+    StreamState* s = stream;
+    if (s == nullptr || s->closed || !s->canWrite)
+    {
+        return -1;
+    }
+    return WriterEncodeAndWrite(s, text);
 }
 
 // StreamReader.ReadToEnd(): everything from the current position to the end
@@ -668,7 +988,46 @@ Il2CppObject* il2cpp_stream_read_to_end(il2cpp_stream_t stream)
         return nullptr;
     }
 #endif
+    if (s->textEncoding != 0)
+    {
+        // Decode the remaining bytes as UTF-16 (the pushback ring replays
+        // first). A lone trailing byte decodes to its own unit (defensive).
+        std::vector<char16_t> units;
+        for (;;)
+        {
+            const int lo = StreamGetByte(s);
+            if (lo < 0)
+            {
+                break;
+            }
+            const int hi = StreamGetByte(s);
+            if (hi < 0)
+            {
+                units.push_back(static_cast<char16_t>(lo));
+                break;
+            }
+            units.push_back(s->textEncoding == 1
+                ? static_cast<char16_t>(lo | (hi << 8))
+                : static_cast<char16_t>((lo << 8) | hi));
+        }
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
+            reinterpret_cast<const char16_t*>(units.data()),
+            static_cast<int32_t>(units.size())));
+    }
     std::vector<char> bytes;
+    // The BOM peek (ctor) may have pushed bytes back into the ring; they must
+    // replay in front of the backend remainder. The raw backend reads below
+    // bypass StreamGetByte, so drain the ring first (ioext rte_read lost the
+    // first bytes of a MemoryStream reader without a BOM).
+    while (s->pendingCount > 0)
+    {
+        const int b = StreamGetByte(s);
+        if (b < 0)
+        {
+            break;
+        }
+        bytes.push_back(static_cast<char>(b));
+    }
     if (s->kind == StreamState::kFile)
     {
         char buf[4096];
@@ -687,8 +1046,10 @@ Il2CppObject* il2cpp_stream_read_to_end(il2cpp_stream_t stream)
         if (s->pos < s->length)
         {
             const int64_t avail = s->length - s->pos;
-            bytes.resize(static_cast<size_t>(avail));
-            std::memcpy(bytes.data(), s->buf + s->pos, static_cast<size_t>(avail));
+            const size_t base = bytes.size(); // keep the drained pushback prefix
+            bytes.resize(base + static_cast<size_t>(avail));
+            std::memcpy(bytes.data() + base, s->buf + s->pos,
+                        static_cast<size_t>(avail));
             s->pos = s->length; // the read consumes the remainder
         }
     }
@@ -778,6 +1139,14 @@ int64_t il2cpp_stream_seek(il2cpp_stream_t stream, int64_t offset, int32_t origi
     {
         return -1; // before the beginning of the stream
     }
+    if (s->appendMode && newPos < s->appendStart)
+    {
+        // net48 FileStream.Seek throws IOException when the resulting position
+        // is before the open-time EOF (IO_SeekAppendOverwrite). The same guard
+        // lives in the write path (il2cpp_stream_write).
+        il2cpp_throw_new(kStreamIOExceptionChain,
+            "Unable to seek to a position before the file's append start.");
+    }
 #if defined(_WIN32)
     if (s->kind == StreamState::kCom)
     {
@@ -787,15 +1156,26 @@ int64_t il2cpp_stream_seek(il2cpp_stream_t stream, int64_t offset, int32_t origi
         int64_t out = 0;
         const int32_t hr = il2cpp_com_stream_seek(
             reinterpret_cast<intptr_t>(s->iStream), offset, origin, &out);
-        return (hr == kComHrOk && out >= 0) ? out : -1;
+        if (hr != kComHrOk || out < 0)
+        {
+            return -1; // position unchanged on failure
+        }
+        s->pendingCount = 0; // explicit reposition discards the pushback ring
+        return out;
     }
 #endif
     if (s->kind == StreamState::kMemory)
     {
         s->pos = newPos; // seeking past the end is allowed; writes extend
+        s->pendingCount = 0;
         return newPos;
     }
-    return STREAM_FSEEK(s->fp, newPos, SEEK_SET) == 0 ? newPos : -1;
+    if (STREAM_FSEEK(s->fp, newPos, SEEK_SET) != 0)
+    {
+        return -1; // position unchanged on failure
+    }
+    s->pendingCount = 0;
+    return newPos;
 }
 
 // Stream.SetLength(value): truncates or extends the stream to 'value' bytes.
@@ -809,6 +1189,10 @@ int32_t il2cpp_stream_set_length(il2cpp_stream_t stream, int64_t value)
     if (s == nullptr || s->closed || value < 0 || !s->canSeek)
     {
         return -1;
+    }
+    if (s->appendMode && value < s->appendStart)
+    {
+        return -1; // IO_SeekAppendOverwrite
     }
 #if defined(_WIN32)
     if (s->kind == StreamState::kCom)
@@ -886,6 +1270,40 @@ il2cpp_stream_t il2cpp_stream_memory_create(void)
     s->canSeek = true; // memory streams always support seeking
     s->refCount = 1;
     s->closed = false;
+    s->pendingCount = 0;
+    s->textEncoding = 0;
+    s->appendMode = false;
+    s->appendStart = 0;
+    s->writerEncoding = 0;
+    s->writerBomPending = false;
+    return s;
+}
+
+// P2 IO-symmetry (2026-09-19): MemoryStream(byte[] buffer) -- seeded with a
+// COPY of the payload, pos reset to 0 (net48 wraps the caller's array; the
+// runtime copies. Round-trip Position/Length/ToArray semantics are byte-exact).
+il2cpp_stream_t il2cpp_stream_memory_create_data(const uint8_t* data, int64_t length)
+{
+    StreamState* s = static_cast<StreamState*>(il2cpp_stream_memory_create());
+    if (length > 0 && data != nullptr)
+    {
+        il2cpp_stream_write(s, data, static_cast<int32_t>(length));
+        s->pos = 0;
+    }
+    return s;
+}
+
+// P2 IO-symmetry (2026-09-19): MemoryStream(int capacity) -- empty stream with
+// the requested initial buffer capacity (a negative request is ignored, net48
+// would throw ArgumentOutOfRangeException).
+il2cpp_stream_t il2cpp_stream_memory_create_capacity(int64_t capacity)
+{
+    StreamState* s = static_cast<StreamState*>(il2cpp_stream_memory_create());
+    if (capacity > 0)
+    {
+        s->buf = static_cast<unsigned char*>(std::malloc(static_cast<size_t>(capacity)));
+        s->capacity = capacity; // length remains 0 (no content yet)
+    }
     return s;
 }
 
@@ -998,7 +1416,7 @@ StreamState* StreamStateOf(Il2CppObject* self)
 // The .NET exception carrier chains for the ctor failure paths (the
 // arrayext.cpp convention: type duplicated, then the base chain).
 const char kStreamFileNotFoundChain[] =
-    "System.IO.FileNotFoundException,System.IO.FileNotFoundException,System.SystemException,System.Exception";
+    "System.IO.FileNotFoundException,System.IO.FileNotFoundException,System.IO.IOException,System.SystemException,System.Exception";
 
 // Validate the (offset, count) window over 'buffer' (net48
 // ArgumentOutOfRangeException semantics -- checked BEFORE any pointer
@@ -1036,14 +1454,24 @@ int32_t StreamTranslateFileMode(int32_t fileMode, int32_t fileAccess)
     }
     switch (fileAccess)
     {
-        case 1: // Read -> rb (only the open modes accept read-only)
-            return (fileMode == 3 || fileMode == 4) ? 0 : -1;
+        case 1: // Read
+            if (fileMode == 3) return 0;  // Open: rb
+            if (fileMode == 4) return 9;  // OpenOrCreate: seed an empty file + rb
+            return -1;
         case 3: // ReadWrite
-            // The truncating modes wipe existing content (w+b); the open
-            // modes keep it (r+b).
-            return (fileMode == 1 || fileMode == 2 || fileMode == 5) ? 4 : 3;
+            if (fileMode == 1) return 8;  // CreateNew: exclusive w+b
+            if (fileMode == 2) return 4;  // Create: w+b (truncating)
+            if (fileMode == 3) return 6;  // Open: strict r+b (no create)
+            if (fileMode == 4) return 3;  // OpenOrCreate: r+b -> w+b fallback
+            if (fileMode == 5) return 7;  // Truncate: strict r+b + truncate
+            return -1;
         case 2: // Write
-            return (fileMode == 1 || fileMode == 2 || fileMode == 5) ? 1 : 3;
+            if (fileMode == 1) return 5;  // CreateNew: exclusive wb
+            if (fileMode == 2) return 1;  // Create: wb (truncating)
+            if (fileMode == 3) return 6;  // Open: strict r+b (no create)
+            if (fileMode == 4) return 3;  // OpenOrCreate: r+b -> w+b fallback
+            if (fileMode == 5) return 7;  // Truncate: strict r+b + truncate
+            return -1;
         default: return -1; // invalid access (validated by the caller)
     }
 }
@@ -1204,11 +1632,16 @@ int64_t BinaryRemaining(StreamState* s)
 
 } // namespace
 
-void icall_stream_file_ctor(Il2CppObject* self, Il2CppObject* path,
-                            int32_t fileMode, int32_t fileAccess)
+// Shared FileStream-ctor tail: validates the .NET FileMode (1..6) /
+// FileAccess (1..3) constants, translates them to the runtime mode and opens
+// the platform file -- the ArgumentNullException / ArgumentException /
+// FileNotFoundException-chain surface both path ctors share (net48). The
+// caller has already checked the receiver and registered the stream classes.
+namespace
 {
-    ThrowIfNullReceiver(self);
-    il2cpp::il2cpp_stream_register_classes();
+void FileStreamCtorCommon(Il2CppObject* self, Il2CppObject* path,
+                          int32_t fileMode, int32_t fileAccess)
+{
     if (path == nullptr)
     {
         il2cpp_throw_argument_null_exception("path");
@@ -1241,12 +1674,60 @@ void icall_stream_file_ctor(Il2CppObject* self, Il2CppObject* path,
     }
     AsStream(self)->handle = StreamHandleAlloc(state);
 }
+} // namespace
+
+void icall_stream_file_ctor(Il2CppObject* self, Il2CppObject* path,
+                            int32_t fileMode, int32_t fileAccess)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    FileStreamCtorCommon(self, path, fileMode, fileAccess);
+}
+
+//-----------------------------------------------------------------------------
+// icall_stream_file_ctor2 -- FileStream(string path, FileMode fileMode): the
+// 2-arg net48 ctor. The access default is the net48 rule: FileMode.Append ->
+// FileAccess.Write, every other mode -> FileAccess.ReadWrite (FileShare.Read
+// is not modeled -- the fopen backend has no share enforcement, same as the
+// 3-arg ctor). Everything else defers to FileStreamCtorCommon (validation,
+// mode translation, open, exception surface).
+//-----------------------------------------------------------------------------
+void icall_stream_file_ctor2(Il2CppObject* self, Il2CppObject* path,
+                             int32_t fileMode)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    const int32_t fileAccess = (fileMode == 6) ? 2 : 3; // Append -> Write, else ReadWrite
+    FileStreamCtorCommon(self, path, fileMode, fileAccess);
+}
 
 void icall_stream_memory_ctor(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     il2cpp::il2cpp_stream_register_classes();
     AsStream(self)->handle = StreamHandleAlloc(il2cpp_stream_memory_create());
+}
+
+// P2 IO-symmetry (2026-09-19): MemoryStream(byte[]) / MemoryStream(int).
+void icall_stream_memory_ctor_data(Il2CppObject* self, Il2CppArray* data)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    StreamState* s = static_cast<StreamState*>(il2cpp_stream_memory_create());
+    if (data != nullptr && data->length > 0)
+    {
+        il2cpp_stream_write(s, reinterpret_cast<const uint8_t*>(data->data),
+                            static_cast<int32_t>(data->length));
+        s->pos = 0;
+    }
+    AsStream(self)->handle = StreamHandleAlloc(s);
+}
+
+void icall_stream_memory_ctor_capacity(Il2CppObject* self, int32_t capacity)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    AsStream(self)->handle = StreamHandleAlloc(il2cpp_stream_memory_create_capacity(capacity));
 }
 
 //------------------------------------------------------------------------------
@@ -1320,6 +1801,10 @@ Il2CppObject* il2cpp_stream_com_create(intptr_t iStream, int32_t deleteOnRelease
     s->canSeek = true;
     s->refCount = 1;
     s->closed = false;
+    s->pendingCount = 0;
+    s->textEncoding = 0;
+    s->appendMode = false;
+    s->appendStart = 0;
     Il2CppStreamObject* obj = reinterpret_cast<Il2CppStreamObject*>(
         il2cpp_object_new(ComStreamClass()));
     obj->handle = StreamHandleAlloc(s);
@@ -1356,10 +1841,12 @@ intptr_t il2cpp_stream_com_get_iunknown(Il2CppObject* stream)
 #endif
 }
 
-// Shared body for the StreamReader/StreamWriter ctors: the wrapper attaches a
-// NEW handle to the WRAPPED stream's existing state (refCount++ -- closing
-// the wrapper closes the shared file once, freed at the last handle).
-void icall_stream_reader_ctor(Il2CppObject* self, Il2CppObject* stream)
+// Shared wrap prologue for the StreamReader/StreamWriter/BinaryReader/
+// BinaryWriter ctors: the wrapper attaches a NEW handle to the WRAPPED
+// stream's existing state (refCount++ -- closing the wrapper closes the
+// shared file once, freed at the last handle). The caller arms the
+// receiver's handle and (for the TEXT reader only) runs the BOM peek.
+StreamState* WrapStreamShared(Il2CppObject* self, Il2CppObject* stream)
 {
     ThrowIfNullReceiver(self);
     il2cpp::il2cpp_stream_register_classes();
@@ -1377,7 +1864,79 @@ void icall_stream_reader_ctor(Il2CppObject* self, Il2CppObject* stream)
         il2cpp_throw_argument_exception("the wrapped stream is closed");
     }
     ++shared->refCount; // this wrapper is now another live handle
+    return shared;
+}
+
+// net48 StreamReader BOM detection: peek up to 3 bytes at construction. A
+// UTF-8 / UTF-16 BOM is consumed and selects the text encoding; otherwise the
+// peeked bytes are pushed back (the ring replays them). Shared by the
+// StreamReader(Stream) and StreamReader(string) ctors (P2 IO-symmetry).
+void ReaderBomDetect(StreamState* shared)
+{
+    {
+        const int b0 = StreamGetByte(shared);
+        if (b0 >= 0)
+        {
+            const int b1 = StreamGetByte(shared);
+            const int b2 = StreamGetByte(shared);
+            if (b0 == 0xEF && b1 == 0xBB && b2 == 0xBF)
+            {
+                // UTF-8 BOM consumed; the encoding stays UTF-8.
+            }
+            else if (b0 == 0xFF && b1 == 0xFE)
+            {
+                shared->textEncoding = 1; // UTF-16LE; b2 (when present) is DATA
+                if (b2 >= 0)
+                {
+                    const int32_t put = b2;
+                    StreamUnread(shared, &put, 1);
+                }
+            }
+            else if (b0 == 0xFE && b1 == 0xFF)
+            {
+                shared->textEncoding = 2; // UTF-16BE
+                if (b2 >= 0)
+                {
+                    const int32_t put = b2;
+                    StreamUnread(shared, &put, 1);
+                }
+            }
+            else
+            {
+                const int32_t put[3] = { b0, b1, b2 };
+                const int32_t putCount = (b2 >= 0) ? 3 : (b1 >= 0 ? 2 : 1);
+                StreamUnread(shared, put, putCount);
+            }
+        }
+    }
+}
+
+void icall_stream_reader_ctor(Il2CppObject* self, Il2CppObject* stream)
+{
+    StreamState* shared = WrapStreamShared(self, stream);
+    ReaderBomDetect(shared);
     AsStream(self)->handle = StreamHandleAlloc(shared);
+}
+
+// P2 IO-symmetry (2026-09-19): StreamReader(string path) -- net48 opens with
+// FileMode.Open + FileAccess.Read (runtime mode 0 "rb") and performs the same
+// BOM detection as the (Stream) ctor. Missing file -> FileNotFoundException.
+void icall_stream_reader_path_ctor(Il2CppObject* self, Il2CppObject* path)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    if (path == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("path");
+    }
+    il2cpp_stream_t state = il2cpp_stream_file_open(path, 0); // rb: open existing for read
+    if (state == nullptr)
+    {
+        il2cpp_throw_new(kStreamFileNotFoundChain,
+            "Could not find the file or directory.");
+    }
+    ReaderBomDetect(static_cast<StreamState*>(state));
+    AsStream(self)->handle = StreamHandleAlloc(state);
 }
 
 void icall_stream_writer_ctor(Il2CppObject* self, Il2CppObject* stream)
@@ -1413,6 +1972,85 @@ void icall_stream_writer_path_ctor(Il2CppObject* self, Il2CppObject* path)
             "Could not find the file or directory.");
     }
     AsStream(self)->handle = StreamHandleAlloc(state);
+}
+
+// P2(5) IO-symmetry (2026-09-19): StreamWriter(string path, bool append).
+//   append=false -> FileMode.Create   (runtime "wb" mode 1: create/truncate)
+//   append=true  -> FileMode.Append   (runtime "ab" mode 2: open-or-create,
+//                                     every write lands at EOF -- net48
+//                                     FileMode.Append implies FileAccess.Write)
+// The text encoder is UTF-8 with no preamble (net48 StreamWriter default).
+void icall_stream_writer_path_append_ctor(Il2CppObject* self, Il2CppObject* path,
+                                          int32_t append)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    if (path == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("path");
+    }
+    il2cpp_stream_t state = il2cpp_stream_file_open(path, append ? 2 : 1);
+    if (state == nullptr)
+    {
+        il2cpp_throw_new(kStreamFileNotFoundChain,
+            "Could not find the file or directory.");
+    }
+    StreamState* s = static_cast<StreamState*>(state);
+    s->writerEncoding = 0;     // UTF-8
+    s->writerBomPending = false;
+    AsStream(self)->handle = StreamHandleAlloc(state);
+}
+
+// P2(5) A1 (2026-09-19): StreamWriter(string path, bool append, Encoding) and
+// its bufferSize overload. The encoding object carries the code page + the
+// preamble flag; net48 writes the preamble before the FIRST text write when
+// the writer starts at position 0 (append=false truncates, so position 0;
+// append=true opens at EOF -- no preamble). ASCII/UTF-8 (no BOM) emit none.
+void icall_stream_writer_path_encoding_ctor(Il2CppObject* self, Il2CppObject* path,
+                                            int32_t append, Il2CppObject* encoding)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    if (path == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("path");
+    }
+    if (encoding == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("encoding");
+    }
+    il2cpp_stream_t state = il2cpp_stream_file_open(path, append ? 2 : 1);
+    if (state == nullptr)
+    {
+        il2cpp_throw_new(kStreamFileNotFoundChain,
+            "Could not find the file or directory.");
+    }
+    StreamState* s = static_cast<StreamState*>(state);
+    // encoding page 65001/1200/1201/20127 -> writerEncoding 0/1/1/2.
+    const int32_t page = reinterpret_cast<Il2CppEncodingObject*>(encoding)->page;
+    const int32_t emitBom = reinterpret_cast<Il2CppEncodingObject*>(encoding)->emitBom;
+    s->writerEncoding = (page == 65001) ? 0 : (page == 20127) ? 2 : 1;
+    // net48: the preamble is written only when the stream starts empty
+    // (append=false truncates -> yes; append=true -> only when the file was
+    // empty; a UTF-16/UTF-8 BOM requires emitBom and a non-UTF8/ASCII page or
+    // an explicit BOM flag).
+    const bool startsEmpty = !append || il2cpp_stream_get_length(s) == 0;
+    s->writerBomPending = startsEmpty && emitBom != 0;
+    AsStream(self)->handle = StreamHandleAlloc(state);
+}
+
+void icall_stream_writer_path_encoding_ctor4(Il2CppObject* self, Il2CppObject* path,
+                                             int32_t append, Il2CppObject* encoding,
+                                             int32_t bufferSize)
+{
+    // net48: bufferSize <= 0 -> ArgumentOutOfRangeException; the value never
+    // changes the written bytes (internal buffer size only).
+    if (bufferSize <= 0)
+    {
+        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.Exception",
+                         "Positive number required.");
+    }
+    icall_stream_writer_path_encoding_ctor(self, path, append, encoding);
 }
 
 int32_t icall_stream_read_bytes(Il2CppObject* self, Il2CppArray* buffer,
@@ -1614,6 +2252,13 @@ void icall_stream_set_length(Il2CppObject* self, int64_t value)
         il2cpp_throw_not_supported_exception("Stream does not support seeking.");
         return;
     }
+    if (state->appendMode && value < state->appendStart)
+    {
+        il2cpp_throw_io_exception(
+            "Unable to seek backward to overwrite data that previously existed "
+            "in a file opened in Append mode.");
+        return; // unreachable
+    }
     (void)il2cpp_stream_set_length(state, value);
 }
 
@@ -1685,6 +2330,20 @@ int32_t icall_stream_write_line(Il2CppObject* self, Il2CppObject* line)
     return il2cpp_stream_write_line(state, line);
 }
 
+// TextWriter/StreamWriter.Write(string): UTF-8 text WITHOUT the line
+// terminator (net48 Write). 0 on success, -1 on a closed receiver (the M3
+// silent-failure convention).
+int32_t icall_stream_write_text(Il2CppObject* self, Il2CppObject* text)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (state == nullptr || state->closed)
+    {
+        return -1;
+    }
+    return il2cpp_stream_write_text(state, text);
+}
+
 // StreamReader.ReadToEnd(): the remainder from the current position to EOF as
 // one UTF-8 managed string ("" at end-of-stream, NOT null -- net48). nullptr
 // for a closed receiver or a read-capability violation.
@@ -1699,7 +2358,7 @@ Il2CppObject* icall_stream_read_to_end(Il2CppObject* self)
     return il2cpp_stream_read_to_end(state);
 }
 
-Il2CppObject* icall_stream_memory_to_array(Il2CppObject* self)
+Il2CppArray* icall_stream_memory_to_array(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
@@ -1707,7 +2366,7 @@ Il2CppObject* icall_stream_memory_to_array(Il2CppObject* self)
     {
         return nullptr;
     }
-    return il2cpp_stream_memory_to_array(state);
+    return reinterpret_cast<Il2CppArray*>(il2cpp_stream_memory_to_array(state));
 }
 
 // net48 timeout surface (System.IO.Stream): FileStream and MemoryStream never
@@ -1762,14 +2421,18 @@ int32_t icall_stream_set_write_timeout(Il2CppObject* self, int32_t value)
 
 void icall_binary_reader_ctor(Il2CppObject* self, Il2CppObject* stream)
 {
-    // Identical wrap semantics to StreamReader(Stream): validates the wrapped
-    // stream, refCounts its backend state, arms the receiver's handle.
-    icall_stream_reader_ctor(self, stream);
+    // net48 BinaryReader has NO BOM handling (BOM detection belongs to the
+    // TEXT StreamReader path). Wrap WITHOUT the peek: the pushback ring is
+    // only drained by the text byte reader (StreamGetByte), so peeking here
+    // would silently drop up to 3 bytes from the binary read path.
+    StreamState* shared = WrapStreamShared(self, stream);
+    AsStream(self)->handle = StreamHandleAlloc(shared);
 }
 
 void icall_binary_writer_ctor(Il2CppObject* self, Il2CppObject* stream)
 {
-    icall_stream_reader_ctor(self, stream);
+    StreamState* shared = WrapStreamShared(self, stream);
+    AsStream(self)->handle = StreamHandleAlloc(shared);
 }
 
 void icall_binary_write_int32(Il2CppObject* self, int32_t value)
@@ -1986,6 +2649,23 @@ int32_t icall_binary_read_bool(Il2CppObject* self)
         return 0;
     }
     return b != 0 ? 1 : 0;
+}
+
+// BinaryReader.ReadByte: the RAW next byte (0..255 -- net48). Separate from
+// icall_binary_read_bool on purpose: the bool icall NORMALIZES to 0/1 (right
+// for ReadBoolean, wrong for ReadByte). Truncated: 0 (the M3 zero-value
+// convention -- net48 throws EndOfStreamException, the documented
+// divergence).
+int32_t icall_binary_read_byte(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    uint8_t b = 0;
+    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, &b, 1))
+    {
+        return 0;
+    }
+    return static_cast<int32_t>(b);
 }
 
 Il2CppObject* icall_binary_read_string(Il2CppObject* self)

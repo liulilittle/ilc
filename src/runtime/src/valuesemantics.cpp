@@ -20,6 +20,7 @@
 
 #include "il2cpp_value_semantics.h"
 
+#include "arraysort.h" // FindVirtualSlotByName (Object.Equals virtual fallback)
 #include "il2cpp_delegate_ext.h" // BUG-3: icall_delegate_get_hash_code (the delegate hash branch below)
 #include "enumext.h" // il2cpp_enum_is_registered / il2cpp_enum_boxed_get_hash_code /
                      // il2cpp_enum_equals (boxed-enum value hash/equality)
@@ -27,6 +28,7 @@
 #include "il2cpp_format.h"
 #include "il2cpp_metadata.h"
 #include "il2cpp_object.h"
+#include "versionuri.h" // icall_uri_to_string (untracked-Uri ToString branch below)
 
 // decimal_format.h owns the il2cpp::runtime::Il2CppDecimal definition AND the
 // T2 formatting icalls (its struct is the decimal_format.h/decimal.cpp side
@@ -211,6 +213,44 @@ bool BoxedValueEquals(const Il2CppObject* a, const Il2CppObject* b)
     return false; // same-named non-primitive: no value equality
 }
 
+// baudit2: does the receiver's class chain reach System.ValueType (a boxed
+// user value type)? Determines the `this` ABI of a reflected override: the
+// generated value-type method takes the box PAYLOAD address, a reference
+// type takes the object itself.
+bool IsValueTypeKlass(const Il2CppClass* klass)
+{
+    for (const Il2CppClass* cur = klass; cur != nullptr; cur = cur->baseClass)
+    {
+        if (cur == &System_ValueType_class)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// baudit2: net48 static Object.Equals(a, b) IS the VIRTUAL a.Equals(b) -- the
+// reflected Equals(object) override (picked by the (r:System.Object)
+// signature, never the IEquatable<T> overload's slot) is dispatched through
+// the receiver's vtable. Returns the override's 0/1 result, or -1 when the
+// type has no reflected override (the caller keeps its fast paths / reference
+// fallback). The receiver is the box PAYLOAD address for a value type (the
+// il2cpp_unbox_user_struct contract) and the object itself for a class.
+int32_t TryReflectedEqualsDispatch(Il2CppObject* a, Il2CppObject* b)
+{
+    const int32_t slot = FindVirtualSlotByNameAndSignature(a, "Equals", "(r:System.Object)");
+    if (slot < 0 || a->klass->vtable == nullptr || slot >= a->klass->vtableSize ||
+        a->klass->vtable[slot] == nullptr)
+    {
+        return -1;
+    }
+    using EqualsFn = bool (*)(Il2CppObject*, Il2CppObject*);
+    Il2CppObject* receiver = IsValueTypeKlass(a->klass)
+        ? reinterpret_cast<Il2CppObject*>(reinterpret_cast<char*>(a) + kBoxPayloadOffset)
+        : a;
+    return reinterpret_cast<EqualsFn>(a->klass->vtable[slot])(receiver, b) ? 1 : 0;
+}
+
 // Null-receiver guard (defensive contract, mirrors stringext.cpp/hashtable.cpp):
 // generated code null-checks first; the icall turns a null into the .NET NRE.
 void ThrowIfNull(Il2CppObject* obj)
@@ -382,7 +422,12 @@ int32_t icall_object_get_hash_code(Il2CppObject* obj)
 //                                             string (int32 payload);
 //     Double / Single                       -> net48 "G15" text (8-byte
 //                                             widened payload);
-//   any other object   -> the type's full name (klass->name);
+//   any other object   -> the type's full name (klass->name), EXCEPT an
+//                          untracked System.Uri, which renders its URL text
+//                          (icall_uri_to_string -- diffuri001 tostring.queue:
+//                          Queue<Uri>.Peek() returns object-typed, so the
+//                          resolver cannot fold the Uri arm and lands here;
+//                          net48 prints the URL, never "System.Uri");
 //   null               -> NullReferenceException.
 //------------------------------------------------------------------------------
 Il2CppString* icall_object_to_string(Il2CppObject* obj)
@@ -461,6 +506,10 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
         // Console.WriteLine(object) routes here (batch 148 enumparseic).
         return il2cpp_enum_boxed_to_string(obj);
     }
+    if (HasKlassName(obj, "System.Uri"))
+    {
+        return reinterpret_cast<Il2CppString*>(icall_uri_to_string(obj));
+    }
     return il2cpp_string_new_from_utf8(obj->klass->name);
 }
 
@@ -490,7 +539,26 @@ bool icall_object_equals(Il2CppObject* a, Il2CppObject* b)
     if (a->klass != nullptr && b->klass != nullptr &&
         std::strcmp(a->klass->name, b->klass->name) == 0)
     {
+        // baudit2: a same-klass receiver with a reflected Equals(object)
+        // override is that override's call -- NOT a boxed-value-table miss
+        // (the old early return made user types fall through to `false`).
+        // Only the builtin value paths (primitive/decimal/enum boxes) have
+        // no typeinfo, so they keep BoxedValueEquals untouched.
+        const int32_t reflectedSame = TryReflectedEqualsDispatch(a, b);
+        if (reflectedSame >= 0)
+        {
+            return reflectedSame != 0;
+        }
         return BoxedValueEquals(a, b);
+    }
+    // baudit2: net48 static Object.Equals(a, b) IS the virtual
+    // a.Equals(b) -- once the builtin fast paths (identity / string /
+    // same-klass boxes) miss, dispatch the receiver's reflected Equals
+    // virtual (a user override; the typeinfo carries the vtable slot).
+    const int32_t reflectedCross = TryReflectedEqualsDispatch(a, b);
+    if (reflectedCross >= 0)
+    {
+        return reflectedCross != 0;
     }
     return false;
 }

@@ -73,7 +73,7 @@ struct Il2CppDictSIObject
 //                          refFieldBitmap 0b010 (slot 1 = the key)
 //
 // The enumerator wraps the TWO snapshot arrays il2cpp_dict_si_get_keys /
-// il2cpp_dict_si_get_values produce (deterministic hash-bucket order,
+// il2cpp_dict_si_get_values produce (insertion order,
 // positionally consistent -- dictsi.h). get_Current allocates a fresh
 // Il2CppDictKvpSI per pair (a single allocation; the explicit-only collector
 // never interrupts it).
@@ -159,7 +159,7 @@ bool icall_dict_si_remove(Il2CppObject* self, Il2CppObject* key);
 int32_t icall_dict_si_get_count(Il2CppObject* self);
 void icall_dict_si_clear(Il2CppObject* self);
 
-// Keys / Values snapshot arrays (deterministic hash-bucket order).
+// Keys / Values snapshot arrays (insertion order).
 Il2CppArray* icall_dict_si_get_keys(Il2CppObject* self);
 Il2CppArray* icall_dict_si_get_values(Il2CppObject* self);
 

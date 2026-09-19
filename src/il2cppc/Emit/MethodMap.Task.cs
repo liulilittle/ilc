@@ -52,7 +52,15 @@ namespace Il2Cpp.Transpiler.Emit
             // managed references and ride the SAME ref carrier as object.
             // The GenericInstantiationName arg table emits "class" / "array".
             var isClass = instName?.Contains("_class", StringComparison.Ordinal) == true
-                || genArgs is { Length: 1 } && genArgs[0] == 0x12;
+                || genArgs is { Length: 1 } && genArgs[0] == 0x12
+                // A1 (asynccase Task<Point>): a dotted user-class
+                // instantiation ("Task`1_Cases.AsyncCase+Point") rides the
+                // SHARED ref carrier (the DottedRefArg kind rule, Queue
+                // dotted-tag precedent). The tracked receiver tag carries
+                // the same encoding when the parent is a bare TypeRef, so
+                // the instName ?? receiverType tag decides (the List
+                // precedent). BCL struct full names stay LOUD.
+                || DottedRefArg(instName ?? receiverType) != null;
             var isArray = instName?.Contains("_array", StringComparison.Ordinal) == true
                 || genArgs is { Length: 1 } && (genArgs[0] == 0x1D || genArgs[0] == 0x1F);
             // batch 165b: VALUETYPE instantiations (Task<decimal> 0x11,
@@ -62,7 +70,12 @@ namespace Il2Cpp.Transpiler.Emit
             // compiled to icall_task_get_result(int32) and failed only later
             // at the decimal-compare site -- a confusing downstream error).
             var isValuetype = instName?.Contains("_valuetype", StringComparison.Ordinal) == true
-                || genArgs is { Length: 1 } && genArgs[0] == 0x11;
+                || genArgs is { Length: 1 } && genArgs[0] == 0x11
+                // A1 guard (Task<DateTime> et al.): a dotted BCL struct
+                // suffix must hit this LOUD gate, never the int32 fallback
+                // below (which would silently truncate the struct value --
+                // the hazard this gate exists for).
+                || (DottedSuffix(instName ?? receiverType) is string ds && IsKnownValueTypeName(ds));
             // batch 165: the ref-return carriers (string, object, class and
             // array all ride the "s" icalls -- the result slot IS the object).
             var isRef = isString || isObject || isClass || isArray;

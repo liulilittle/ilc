@@ -39,6 +39,10 @@ public static partial class MethodRefResolver
             case "get_TickCount64": return I("il2cpp::runtime::icall_environment_get_tick_count64", 0, true, false, false, resultKind: "l");
             case "get_ProcessorCount":
             case "GetProcessorCount": return I("il2cpp::runtime::icall_environment_get_processor_count", 0, true, false, false);
+            // D2 (diffenv001 env.workingset): the current process working
+            // set in bytes. Returns int64 (ResultKind "l" -- the TickCount64
+            // precedent); the probe asserts positivity only.
+            case "get_WorkingSet": return I("il2cpp::runtime::icall_environment_get_working_set", 0, true, false, false, resultKind: "l");
             case "get_UserName": return I("il2cpp::runtime::icall_environment_get_user_name", 0, true, true, false);
             case "get_MachineName": return I("il2cpp::runtime::icall_environment_get_machine_name", 0, true, true, false);
             case "get_OSVersion": return I("il2cpp::runtime::icall_environment_get_os_version", 0, true, true, false);

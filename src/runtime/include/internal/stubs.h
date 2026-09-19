@@ -16,6 +16,13 @@ Il2CppObject* icall_gc_allocate_new_array(int32_t length, int32_t elementType);
 int32_t icall_com_aware_weak_reference_has_interop_info(Il2CppObject* self);
 void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject* self);
 int32_t icall_exception_get_exception_count();
+// ilistException: System.Exception message carrier. BCL exception ctors are
+// otherwise no-ops, so `new Exception("a")` would lose its message and
+// get_Message could never answer it. The ctor icall captures {object ->
+// message}; the get icall reads it back (miss/null -> the empty string;
+// the catch-variable carrier path is untouched).
+void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message);
+Il2CppString* icall_exception_get_message(Il2CppObject* obj);
 Il2CppObject* icall_type_get_type_from_handle_unsafe(intptr_t handle);
 int64_t icall_jit_info_get_compiled_il_bytes();
 int64_t icall_jit_info_get_compiled_method_count();
@@ -126,6 +133,14 @@ Il2CppObject* icall_appdomain_is_string_interned(Il2CppString* str);
 Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString* str);
 void icall_appdomain_n_unload(int32_t id);
 int32_t icall_appdomain_get_id();
+
+// AppDomain manager / fusion PNSE stubs (net48 QCalls): the simplified
+// runtime has no AppDomain manager model and no fusion update pipeline --
+// the documented PNSE contract.
+void icall_appdomain_disable_fusion_updates_from_ad_manager(int32_t domainId);
+void icall_appdomain_get_app_domain_manager_type(int32_t domainId, Il2CppString** assemblyName, Il2CppString** typeName);
+void icall_appdomain_set_app_domain_manager_type(int32_t domainId, Il2CppString* assemblyName, Il2CppString* typeName);
+void icall_appdomain_set_canonical_conditional_aptca_list(int32_t domainId, Il2CppString* list);
 
 //------------------------------------------------------------------------------
 // Full-framework audit-gap closure (2026-08-22) -- see stubs.cpp for the

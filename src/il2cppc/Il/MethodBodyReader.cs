@@ -227,6 +227,18 @@ public static class MethodBodyReader
     private static string LocalTypeKind(MetadataReader md, ref BlobReader sig, string name)
     {
         var b = sig.ReadByte();
+        return LocalTypeKindFromByte(md, b, ref sig, name);
+    }
+
+    // R2a (R77): the byte already-read split of LocalTypeKind -- the
+    // generic-instance producer below must inspect the first argument byte
+    // AFTER reading it (to decide simple -> "g:" vs complex -> consume), and
+    // a complex argument must still be consumed from that byte onward.
+    private static string LocalTypeKindFromByte(MetadataReader md, byte b, ref BlobReader sig, string name)
+    {
+        // ECMA-335 II.23.1.16: local signatures may carry custom modifiers
+        // (0x1F/0x20) -- strip before classifying (SZARRAY is 0x1D only).
+        b = MethodSignatureCoder.SkipCustomModifiers(ref sig, b);
         if (b is 0x0A or 0x0B) return "l";          // I8/U8: int64_t slot
         if (b is 0x0C or 0x0D) return "d";          // R4/R8: double slot
         if (b is 0x0E or 0x1C) return "r";          // STRING/OBJECT: managed reference
@@ -274,6 +286,19 @@ public static class MethodBodyReader
                 };
                 return fullName == null ? "v" : "v:" + fullName;
             }
+            // R2a (R77 producer -- CLASS form): net48 encodes a class-typed
+            // generic-instance local as 0x12 CLASS + TypeSpec (the inline 0x15
+            // form below covers the asynccase awaiter shape). A single-arg
+            // instance of a type DECLARED IN THIS ASSEMBLY encodes the
+            // concrete instantiation for the emitter. Interface
+            // instantiations stay "r": they have no generated struct
+            // (interfaces emit descriptor metadata only), exactly like every
+            // other interface-typed reference local.
+            if (b == 0x12 && th.Kind == HandleKind.TypeSpecification)
+            {
+                var g12 = TryClassGenericInstanceKind(md, (TypeSpecificationHandle)th);
+                if (g12 != null) return g12;
+            }
             return b == 0x12 ? "r" : "v";
         }
         // batch 156c (asynccase): GENERICINST (0x15) LOCAL -- the async state
@@ -308,14 +333,14 @@ public static class MethodBodyReader
                 var flat = true;
                 for (var i = 0; i < argcVt; i++)
                 {
-                    var ab = sig.ReadByte();
+                    var ab = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
                     switch (ab)
                     {
                         case 0x0A: codes.Add("l"); break;   // I8
                         case 0x0C: codes.Add("d"); break;   // R4 (float-in-double slot)
                         case 0x0D: codes.Add("d"); break;   // R8
                         case 0x11 or 0x12: _ = sig.ReadTypeHandle(); flat = false; break;
-                        case 0x1D or 0x1F: _ = sig.ReadByte(); flat = false; break;
+                        case 0x1D: _ = sig.ReadByte(); flat = false; break;
                         case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); flat = false; break;
                         case 0x15: flat = false; break;     // nested GenericInst: not decoded here
                         default: codes.Add("i"); break;     // I4/U4/I2/U2/I1/U1/Bool/Char...
@@ -325,6 +350,43 @@ public static class MethodBodyReader
                     return "tuple:" + string.Join(",", codes);
             }
             var argc = sig.ReadCompressedInteger();
+            // R2a (R77 producer): a local whose type is a SINGLE-ARGUMENT
+            // generic instance of a definition DECLARED IN THIS ASSEMBLY
+            // (HandleKind.TypeDefinition -- user generics; BCL instantiations
+            // arrive as TypeReference and keep the legacy "v"/"r" slots)
+            // encodes its concrete instantiation for the emitter:
+            // "g:<defFullName>:<suffix>". CodeGenerator's scan (CG:552)
+            // synthesizes the instantiated TypeDef from these kinds, and the
+            // declaration arm (CG:1759) declares the concrete C++ type.
+            // The suffix table is the CALL-SIDE authority table
+            // (MethodRefResolver.GenericInstantiationName):
+            // 0x0E->"string", 0x12->"class", 0x11->"valuetype", 0x1C->"object",
+            // primitives by name. NOTE: the pre-existing GenericArgSuffix
+            // helper is NOT reused for the VALUE -- it maps CLASS/VALUETYPE
+            // args to their SHORT TYPE NAME ("Exception"), while the call side
+            // names every class arg "class" (Box`1<Exception> ->
+            // Box_1_class); using it would re-split the two sides this task
+            // unifies (R1). It only remains as the consume-side helper for
+            // nested shapes in its own recursion.
+            // Interface instantiations are EXCLUDED: an interface has no
+            // generated C++ struct (only a forward decl + descriptor metadata),
+            // and a synthetic empty TypeDef would collide with the real
+            // interface entry under the SAME TypeCppName (duplicate typeinfo
+            // definitions -- genericiface's IBox<int> local).
+            if (th15.Kind == HandleKind.TypeDefinition && defName != null && argc == 1
+                && (md.GetTypeDefinition((TypeDefinitionHandle)th15).Attributes
+                    & System.Reflection.TypeAttributes.Interface) == 0)
+            {
+                var gSuffix = SimpleGenericArgSuffix(md, ref sig, out var argLead);
+                if (gSuffix != null)
+                {
+                    return $"g:{defName}:{gSuffix}";
+                }
+                // Complex argument (SZARRAY/ARRAY/GENERICINST/VAR/...): consume
+                // it from the byte already read and keep the legacy slot kind.
+                _ = LocalTypeKindFromByte(md, argLead, ref sig, name);
+                return "v";
+            }
             for (var i = 0; i < argc; i++)
             {
                 _ = LocalTypeKind(md, ref sig, name);
@@ -336,7 +398,7 @@ public static class MethodBodyReader
             sig.ReadCompressedInteger(); // VAR/MVAR: parameter index
             return "v";
         }
-        if (b is 0x1D or 0x1F)
+        if (b is 0x1D)
         {
             LocalTypeKind(md, ref sig, name); // SZARRAY: element type follows; the array object is a reference
             return "r";
@@ -387,13 +449,75 @@ public static class MethodBodyReader
         return "i";
     }
 
+    // R2a (R77): the CALL-SIDE instantiation-suffix table for a simple
+    // generic argument byte -- the naming authority is
+    // MethodRefResolver.GenericInstantiationName (0x0E -> "string",
+    // 0x12 -> "class", 0x11 -> "valuetype", ...), which names both the
+    // instance type symbol and its methods. Returns null for argument shapes
+    // needing trailing payload consumption (SZARRAY/ARRAY/GENERICINST/VAR/...).
+    // NOTE: the pre-existing GenericArgSuffix below maps CLASS/VALUETYPE args
+    // to the concrete SHORT type name for its own nested-shape recursion; its
+    // VALUE must not be used here or the two sides split apart again.
+    internal static string? SimpleGenericArgSuffix(MetadataReader md, ref BlobReader sig, out byte argLead)
+    {
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        argLead = b;
+        return b switch
+        {
+            0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            // A3/A4 (genericiface/genericvirtdeep): primitive instantiation
+            // args (Box<string>, Box<bool>, ...) must ALSO discover R77
+            // clones -- previously only 0x11/0x12 (user classes/structs)
+            // did, so `new Box<string>()` never synthesized Box_1_string
+            // and its calls folded to the int-typed symbols (g++ errors).
+            // The table mirrors GenericArgSuffix's primitive arms below
+            // (a GENERIC kind rule, not per-pair arms).
+            0x02 => "bool",
+            0x03 => "char",
+            0x04 => "sbyte",
+            0x05 => "byte",
+            0x06 => "short",
+            0x07 => "ushort",
+            0x08 => "int",
+            0x09 => "uint",
+            0x0A => "long",
+            0x0B => "ulong",
+            0x0C => "float",
+            0x0D => "double",
+            0x0E => "string",
+            0x1C => "object",
+            _ => null,
+        };
+    }
+
+    // R2a (R77): decode a TypeSpecification generic instance and return the
+    // "g:<defFullName>:<suffix>" local kind when it is a single-argument
+    // instance of a NON-interface type declared in this assembly; otherwise
+    // null (the caller keeps the legacy slot kind). Own BlobReader -- the
+    // caller's stream is untouched.
+    internal static string? TryClassGenericInstanceKind(MetadataReader md, TypeSpecificationHandle handle)
+    {
+        var sig = md.GetBlobReader(md.GetTypeSpecification(handle).Signature);
+        if (sig.ReadByte() != 0x15) return null; // not GENERICINST
+        _ = sig.ReadByte();                      // 0x11 VALUETYPE / 0x12 CLASS marker
+        var defHandle = sig.ReadTypeHandle();
+        if (defHandle.Kind != HandleKind.TypeDefinition) return null; // BCL/other-assembly: keep legacy kind
+        var td = md.GetTypeDefinition((TypeDefinitionHandle)defHandle);
+        if ((td.Attributes & System.Reflection.TypeAttributes.Interface) != 0) return null;
+        if (sig.ReadCompressedInteger() != 1) return null; // single-argument only (R3 gap otherwise)
+        var suffix = SimpleGenericArgSuffix(md, ref sig, out _);
+        if (suffix == null) return null; // complex argument: keep legacy kind
+        return $"g:{md.GetFullName((TypeDefinitionHandle)defHandle)}:{suffix}";
+    }
+
     // R77: decode one generic-argument byte to its instantiation-suffix
     // name ("int", "object", "byte", "long", ...). Consumes trailing
     // payload (CLASS/VALUETYPE handle, SZARRAY element, VAR/MVAR index,
     // nested GenericInst args) so the next arg byte stays aligned.
     private static string GenericArgSuffix(MetadataReader md, ref BlobReader sig, string name)
     {
-        var b = sig.ReadByte();
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         switch (b)
         {
             case 0x02: return "bool";
@@ -431,8 +555,7 @@ public static class MethodBodyReader
             case 0x1E: // MVAR
                 sig.ReadCompressedInteger();
                 return "int"; // default instantiation T -> int
-            case 0x1D: // SZARRAY
-            case 0x1F:
+            case 0x1D: // SZARRAY (0x1F is CMOD_REQD per ECMA, stripped at entry)
                 _ = sig.ReadByte();
                 return "object"; // arrays are references
             case 0x15: // GENERICINST (nested)
@@ -473,9 +596,9 @@ public static class MethodBodyReader
         var argc = sig.ReadCompressedInteger();
         for (var i = 0; i < argc; i++)
         {
-            var b = sig.ReadByte();
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             if (b is 0x11 or 0x12) _ = sig.ReadTypeHandle();
-            else if (b is 0x1D or 0x1F) _ = sig.ReadByte();
+            else if (b is 0x1D) _ = sig.ReadByte();
             else if (b is 0x13 or 0x1E) _ = sig.ReadCompressedInteger();
         }
         return defName;

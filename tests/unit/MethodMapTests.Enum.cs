@@ -48,26 +48,25 @@ public class MethodMapEnumTests
 
     //--------------------------------------------------------------------------
     // GetUnderlyingType(Type) -- the underlying primitive's name string.
-    // ABI FIX (enumdeep, 2026-08-07): the IL argument is the folded typeof(T)
-    // FULL-NAME STRING (ldtoken + GetTypeFromHandle fold), but the runtime
-    // icall takes a CLASS DESCRIPTOR (Il2CppClass*). There is no name-string
-    // -> descriptor cast in the emitter table, so the string is DROPPED and
-    // PrependZeroArg injects the null descriptor -- the runtime's documented
-    // Int32 no-metadata assumption ("System.Int32"), exact for every M3
-    // (int32-backed) enum.
+    // raudit4 (2026-09-13): the mapping routes the folded typeof(T) FULL-NAME
+    // STRING to il2cpp_enum_get_underlying_type_by_type_name (the runtime
+    // resolves the registered enum metadata by name and returns "System.Int64"
+    // for a long-backed enum). The name string is the ONE runtime argument --
+    // no dropped arg, no injected null descriptor (VERIFY-FIX: prependZero is
+    // false).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Enum_GetUnderlyingType_MapsToUnderlyingIcall()
     {
         var resolved = ResolveMember("GetUnderlyingType", Sig(0x0E, 0x12));
 
-        Assert.Equal("il2cpp::runtime::il2cpp_enum_get_underlying_type", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_enum_get_underlying_type_by_type_name", resolved.CppName);
         Assert.False(resolved.IsInstance);
         Assert.True(resolved.ReturnsValue);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(1, resolved.ParamCount);
-        Assert.Equal(new[] { "drop" }, resolved.ParamTypeNames);
-        Assert.True(resolved.PrependZeroArg);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+        Assert.False(resolved.PrependZeroArg);
     }
 
     //--------------------------------------------------------------------------

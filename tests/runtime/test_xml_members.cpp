@@ -311,7 +311,7 @@ void TestInnerXml()
            "InnerXml(cdata node) == raw content");
     // Root inner xml (children only; the root tag is NOT emitted).
     Expect(Str(il2cpp_xml_get_inner_xml(g_root)) ==
-               "<item id=\"x\">hi<b>deep</b>tail</item><item id=\"y\"/><![CDATA[raw & stuff]]>",
+               "<item id=\"x\">hi<b>deep</b>tail</item><item id=\"y\" /><![CDATA[raw & stuff]]>",
            "InnerXml(root) == children markup only");
 }
 

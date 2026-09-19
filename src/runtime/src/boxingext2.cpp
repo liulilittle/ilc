@@ -61,6 +61,10 @@
 #include "il2cpp_object.h"
 #include "il2cpp_runtime.h" // il2cpp_class_register / il2cpp_class_by_name /
                             // il2cpp_is_instance / il2cpp_gc_alloc
+#include "typeinfo.h"       // il2cpp_typeinfo_lookup / Il2CppMethodInfo (the
+                            // user-override Equals(object) vtable dispatch)
+#include "versionuri.h"     // System_Uri_class / icall_uri_equals (URI-FIX
+                            // P1b fenced Uri value branch below)
 
 #include <cmath>
 #include <cstdint>
@@ -236,7 +240,7 @@ void EnsureBox2ClassesRegistered()
 // NullReferenceException, a wrong runtime type is InvalidCastException. The
 // base-chain suffix (",System.Exception") is the transpiler's chain format --
 // it lets il2cpp_exception_matches accept a catch of System.Exception.
-void ThrowUnboxNull()
+[[noreturn]] void ThrowUnboxNull()
 {
     il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
                      "Object reference not set to an instance of an object.");
@@ -458,7 +462,6 @@ Il2CppObject* icall_box_user_struct(Il2CppClass* klass, const void* value, size_
     {
         il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.SystemException,System.Exception",
                          "Value does not fall within the expected range.");
-        return nullptr; // unreachable (always throws); well-formed path only
     }
     Il2CppObject* boxed = il2cpp_gc_alloc_size(klass, kBoxPayloadOffset + payloadSize);
     std::memcpy(reinterpret_cast<char*>(boxed) + kBoxPayloadOffset, value, payloadSize);
@@ -485,7 +488,6 @@ void* il2cpp_unbox_user_struct(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return nullptr; // unreachable (always throws); well-formed path only
     }
     if (obj->klass == nullptr || !IsValueTypeClass(obj->klass))
     {
@@ -503,7 +505,6 @@ int32_t icall_unbox_byte(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_byteBoxClass && !il2cpp_is_instance(obj, &g_byteBoxClass))
@@ -522,7 +523,6 @@ int32_t icall_unbox_sbyte(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_sbyteBoxClass && !il2cpp_is_instance(obj, &g_sbyteBoxClass))
@@ -543,7 +543,6 @@ int32_t icall_unbox_short(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_shortBoxClass && !il2cpp_is_instance(obj, &g_shortBoxClass))
@@ -564,7 +563,6 @@ int32_t icall_unbox_ushort(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_ushortBoxClass && !il2cpp_is_instance(obj, &g_ushortBoxClass))
@@ -584,7 +582,6 @@ int32_t icall_unbox_uint(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_uintBoxClass && !il2cpp_is_instance(obj, &g_uintBoxClass))
@@ -605,7 +602,6 @@ int64_t icall_unbox_long(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_longBoxClass && !il2cpp_is_instance(obj, &g_longBoxClass))
@@ -627,7 +623,6 @@ uint64_t icall_unbox_ulong(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_ulongBoxClass && !il2cpp_is_instance(obj, &g_ulongBoxClass))
@@ -647,7 +642,6 @@ double icall_unbox_float(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0.0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_floatBoxClass && !il2cpp_is_instance(obj, &g_floatBoxClass))
@@ -667,7 +661,6 @@ Il2CppDecimal icall_unbox_decimal(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return Il2CppDecimal{}; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBox2ClassesRegistered();
     if (obj->klass != &g_decimalBoxClass && !il2cpp_is_instance(obj, &g_decimalBoxClass))
@@ -702,6 +695,27 @@ bool icall_boxed_equals_ext2(Il2CppObject* a, Il2CppObject* b)
     if (a->klass != b->klass)
     {
         return false;
+    }
+    // URI-FIX P1b: System.Uri VALUE equality, fenced by a runtime klass
+    // compare -- fires only when the (same-klass, per the gate above)
+    // operand IS a Uri instance (exact klass or a Uri subclass, via
+    // il2cpp_is_instance); every other klass takes the pre-existing paths
+    // below unchanged. net48 Uri.Equals compares the normalized
+    // AbsoluteUri (P1: verbatim rebuild); relatives compare OriginalString
+    // -- icall_uri_equals is the single source of truth (versionuri.cpp).
+    // WHY HERE (G2): Roslyn emits instance Equals calls with parent
+    // System.Object (StackFold.cs delechain note), and the hint-less first
+    // pass resolves Object::Equals to THIS icall; the receiver-aware
+    // re-resolve gate (StackFold.cs:2578) triggers on resolved==null,
+    // non-il2cpp:: names, object_to_string/hash_code and enumerator cases
+    // -- but NOT on icall_boxed_equals_ext2 -- so a tracked Uri receiver
+    // never re-resolves to the Uri domain arm and Uri operands ALWAYS
+    // arrive here (evidence: gen Cases_Prog.cpp:393). The fence keeps the
+    // change to Uri operands only (compile-time hint absent at these
+    // sites, so the guard is the runtime klass -- per parent ruling 1).
+    if (il2cpp_is_instance(a, &System_Uri_class))
+    {
+        return icall_uri_equals(a, b);
     }
     EnsureBox2ClassesRegistered();
     const Il2CppClass* klass = a->klass;
@@ -754,6 +768,40 @@ bool icall_boxed_equals_ext2(Il2CppObject* a, Il2CppObject* b)
     if (il2cpp_enum_is_registered(klass))
     {
         return il2cpp_enum_equals(a, b) != 0;
+    }
+    // caudit2: USER-type boxes -- net48's ((object)a).Equals((object)b) is
+    // the VIRTUAL Equals(object) dispatch (a user override), not reference or
+    // payload comparison. The reflected method table (typeinfo.h) carries the
+    // (r:System.Object) override and its vtable slot; the receiver is the box
+    // PAYLOAD address for a value type (the generated value-type method takes
+    // the value's address -- the il2cpp_unbox_user_struct contract) or the
+    // object itself for a translated class. Types without an override (and
+    // every BCL box, which has no typeinfo) fall through to the legacy
+    // delegation below -- the pre-existing reference-equality fallback stays.
+    if (const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(klass->name))
+    {
+        const Il2CppMethodInfo* equalsOverride = nullptr;
+        for (int32_t i = 0; i < info->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = info->methods[i];
+            if (std::strcmp(m.name, "Equals") == 0 && m.paramCount == 1 &&
+                std::strstr(m.signature, "(r:System.Object)") != nullptr)
+            {
+                equalsOverride = &m;
+                break;
+            }
+        }
+        if (equalsOverride != nullptr && equalsOverride->virtualSlot >= 0 &&
+            klass->vtable != nullptr && equalsOverride->virtualSlot < klass->vtableSize &&
+            klass->vtable[equalsOverride->virtualSlot] != nullptr)
+        {
+            using EqualsObjectFn = int32_t (*)(Il2CppObject*, Il2CppObject*);
+            Il2CppObject* receiver = IsValueTypeClass(const_cast<Il2CppClass*>(klass))
+                ? reinterpret_cast<Il2CppObject*>(reinterpret_cast<char*>(a) + kBoxPayloadOffset)
+                : a;
+            return reinterpret_cast<EqualsObjectFn>(
+                klass->vtable[equalsOverride->virtualSlot])(receiver, b) != 0;
+        }
     }
     // Legacy set (int32/bool/char/double) and non-primitive box classes
     // (strings, user objects): boxingext.cpp's icall_boxed_equals is the

@@ -47,8 +47,8 @@
 il2cpp::Il2CppClass System_Threading_Thread_class = {
     "System.Threading.Thread",                   // name
     static_cast<int32_t>(sizeof(il2cpp::Il2CppThreadObject)), // instanceSize
-    0b100000u,                                   // refFieldBitmap: bit 5 = name
-    1,                                           // refFieldCount: one reference field (name)
+    0b1100000u,                                  // refFieldBitmap: bit 5 = name, bit 6 = callbackTarget
+    2,                                           // refFieldCount: name + callbackTarget
     &System_Object_class,                        // baseClass (a Thread IS-A object)
     nullptr,                                     // vtable
     0,                                           // vtableSize
@@ -68,6 +68,12 @@ static_assert(offsetof(Il2CppThreadObject, handle) == 2 * sizeof(void*),
 static_assert(offsetof(Il2CppThreadObject, name) == 5 * sizeof(void*),
               "Il2CppThreadObject: name must sit at slot 5 (offset 40 -- "
               "the refFieldBitmap bit 5 GC reference)");
+static_assert(offsetof(Il2CppThreadObject, managedId) == 36,
+              "Il2CppThreadObject: managedId must sit at offset 36 (the "
+              "alignment padding before the name slot -- keeps name at slot 5)");
+static_assert(offsetof(Il2CppThreadObject, callbackTarget) == 6 * sizeof(void*),
+              "Il2CppThreadObject: callbackTarget must sit at slot 6 (offset 48 "
+              "-- the refFieldBitmap bit 6 GC reference)");
 
 bool g_threadClassRegistered = false;
 
@@ -104,21 +110,72 @@ struct il2cpp_thread_handle
     std::atomic<int32_t> state; // 1 = RUNNING, 2 = FINISHED (monotonic)
     plat_thread_t native;       // the spawned platform thread (joined once)
     int32_t tid;                // OS thread id, set by the child at entry
+    int32_t managedId;          // ctor-assigned managed id (net48 MTID) -- the
+                                // child publishes it to its TLS at entry so
+                                // CurrentThread.ManagedThreadId matches the
+                                // owning Thread object inside the callback
     void (*fn)();               // the ThreadStart callback (zero-arg ABI)
+    Il2CppObject* target;       // ThreadStart delegate target (null = static);
+                                // passed as `this` to the instance ABI when set
     Il2CppObject* parameter;    // ParameterizedThreadStart arg (nullptr for ThreadStart)
+    Il2CppString* name;         // owner's Thread.Name at Start (raw pointer --
+                                // the owning Thread object roots the string via
+                                // refFieldBitmap bit 5 and outlives the thread,
+                                // so the child TLS copy below stays valid)
 };
 
+//------------------------------------------------------------------------------
+// ManagedThreadId allocator (net48 contract, A1 MTID-BOUNDARY-SPEC F50B348A):
+// a PROCESS-WIDE monotonic counter. The main thread is 1; id 2 is reserved for
+// the runtime, so the FIRST user Thread gets 3 and each subsequent one +1,
+// never reused. The id is assigned at CONSTRUCTION (net48 assigns even for a
+// never-started Thread) and stays stable across Start/Join.
+//------------------------------------------------------------------------------
+std::atomic<int32_t> g_nextManagedId{3};
+
+// The managed id of the thread currently executing (TLS). Defaults to 1 (the
+// main thread); a spawned thread's trampoline sets it to its object's
+// ctor-assigned id before running the callback, so
+// Thread.CurrentThread.ManagedThreadId == the instance's id inside the body.
+thread_local int32_t t_currentManagedId = 1;
+
+// The Thread.Name visible to Thread.CurrentThread inside a spawned thread
+// (TLS). Published from the owner's name at Start (the child never touches
+// the managed owner object); the main thread's entry stays null until set.
+thread_local Il2CppString* t_currentThreadName = nullptr;
+
+// Per-thread "already registered as a pool worker" flag (TLS). A pool worker
+// registers its managed id exactly ONCE at thread start; the flag makes a
+// second registration on the same thread a no-op (the worker keeps its id
+// across every work item it serves -- net48 MTID contract item 5).
+thread_local bool t_poolWorkerRegistered = false;
+
 // ThreadTrampolineParameterized -- ParameterizedThreadStart runner: passes
-// the stored parameter to the callback, then marks the handle FINISHED.
+// the stored parameter to the callback, then marks the handle FINISHED. An
+// instance-bound callback (target != null, a closure over captured state) uses
+// the generated instance ABI `void M(Il2CppObject* this, Il2CppObject* param)`
+// -- the target rides the `this` slot; a static callback uses
+// `void M(Il2CppObject* param)`.
 void ThreadTrampolineParameterized(void* arg)
 {
     il2cpp_thread_handle* h = static_cast<il2cpp_thread_handle*>(arg);
     h->tid = plat_thread_current_id();
+    t_currentManagedId = h->managedId; // CurrentThread.ManagedThreadId == owner
+    t_currentThreadName = h->name;     // CurrentThread.Name == owner's name
     try
     {
-        typedef void (*ParameterizedFn)(Il2CppObject*);
-        ParameterizedFn pfn = reinterpret_cast<ParameterizedFn>(h->fn);
-        pfn(h->parameter);
+        if (h->target != nullptr)
+        {
+            typedef void (*InstanceParameterizedFn)(Il2CppObject*, Il2CppObject*);
+            InstanceParameterizedFn pfn = reinterpret_cast<InstanceParameterizedFn>(h->fn);
+            pfn(h->target, h->parameter);
+        }
+        else
+        {
+            typedef void (*ParameterizedFn)(Il2CppObject*);
+            ParameterizedFn pfn = reinterpret_cast<ParameterizedFn>(h->fn);
+            pfn(h->parameter);
+        }
     }
     catch (...)
     {
@@ -136,9 +193,23 @@ void ThreadTrampoline(void* arg)
 {
     il2cpp_thread_handle* h = static_cast<il2cpp_thread_handle*>(arg);
     h->tid = plat_thread_current_id();
+    t_currentManagedId = h->managedId; // CurrentThread.ManagedThreadId == owner
+    t_currentThreadName = h->name;     // CurrentThread.Name == owner's name
     try
     {
-        h->fn();
+        // An instance-method ThreadStart (closure/lambda) takes the target in
+        // the `this` slot (generated instance ABI void M(Il2CppObject* this));
+        // a static one is the plain void M().
+        if (h->target != nullptr)
+        {
+            typedef void (*InstanceFn)(Il2CppObject*);
+            InstanceFn pfn = reinterpret_cast<InstanceFn>(h->fn);
+            pfn(h->target);
+        }
+        else
+        {
+            h->fn();
+        }
     }
     catch (...)
     {
@@ -180,23 +251,44 @@ constexpr const char* kOutOfMemoryChain =
 // Reap a spawned thread's native handle: wait for the child to exit when it
 // is still running (the FINISHED store happens-before the child exits, and
 // plat_thread_join synchronizes with that exit -- so after the join returns
-// the child can never touch h again and the handle is safe to free), then
-// preserve the child's OS id on the object (net48 keeps ManagedThreadId
-// queryable after the thread ends) and release the handle. Called ONLY by
-// the Join family (single-caller model -- t->handle/t->tid are parent-only
-// state, race-free).
+// the child can never touch h again and the handle is safe to free) and
+// release the handle. The object's managed id (t->tid, assigned at ctor) is
+// NEVER overwritten here -- net48 keeps ManagedThreadId stable for the whole
+// lifetime of the Thread object. Called ONLY by the Join family (single-caller
+// model -- t->handle is parent-only state, race-free).
 void ReapThread(Il2CppThreadObject* t, il2cpp_thread_handle* h)
 {
     if (h->state.load(std::memory_order_acquire) != 2)
     {
         plat_thread_join(h->native);
     }
-    t->tid = h->tid;
     t->handle = nullptr;
     delete h;
 }
 
 } // namespace
+
+//------------------------------------------------------------------------------
+// il2cpp_threadobj_register_pool_worker -- ThreadPool worker managed-id
+// registration (net48 MTID contract, A1 F50B348A item 5). A pool worker
+// shares the SAME process-wide monotonic id space as explicit Thread objects
+// and REUSES its id across every work item it serves. Called ONCE at worker
+// thread start (threadpool.cpp mark_pool_worker): allocates the next id from
+// the shared allocator and publishes it to the calling thread's TLS, so
+// Thread.CurrentThread.ManagedThreadId inside a work item reports the
+// worker's stable id. Idempotent per thread (t_poolWorkerRegistered): a
+// second call on the same thread is a no-op, so the worker keeps its id.
+// EXTERNAL linkage (outside the anonymous namespace): threadpool.cpp calls it.
+//------------------------------------------------------------------------------
+void il2cpp_threadobj_register_pool_worker()
+{
+    if (t_poolWorkerRegistered)
+    {
+        return; // already registered: the worker keeps its id (reuse contract)
+    }
+    t_poolWorkerRegistered = true;
+    t_currentManagedId = g_nextManagedId.fetch_add(1, std::memory_order_relaxed);
+}
 
 //------------------------------------------------------------------------------
 // icall_threadobj_ctor -- new Thread(ThreadStart): validate the delegate
@@ -211,13 +303,24 @@ void icall_threadobj_ctor(Il2CppObject* self, Il2CppObject* callback)
     {
         il2cpp_throw_argument_null_exception("start");
     }
-    void* fn = icall_delegate_get_fn_ptr(callback);
+    // Instance-method delegates (closures/lambdas) ARE valid ThreadStart
+    // callbacks: extract (methodPtr, target) and keep the target as a GC
+    // reference (callbackTarget) so the spawned thread can invoke the
+    // generated instance ABI with it as `this`. Still rejects multicast
+    // (InvalidOperationException) and null.
+    Il2CppObject* target = nullptr;
+    void* fn = icall_delegate_get_fn_ptr_target(callback, &target);
     il2cpp_threadobj_class(); // register the descriptor (tooling/type probes)
     Il2CppThreadObject* t = AsThread(self);
     t->callbackFn = fn;
+    t->callbackTarget = target;
     t->handle = nullptr;
     t->state = 0; // NEW
     t->tid = 0;
+    // net48 ManagedThreadId: assigned at CONSTRUCTION (even for a never-started
+    // Thread), monotonic and never reused. The first user Thread gets 3 (id 2
+    // is the runtime-reserved slot).
+    t->managedId = g_nextManagedId.fetch_add(1, std::memory_order_relaxed);
     t->isBackground = false; // net48: new threads are foreground
     t->name = nullptr;       // Thread.Name: unset until icall_threadobj_set_name
 }
@@ -238,7 +341,10 @@ void icall_threadobj_start(Il2CppObject* self)
     il2cpp_thread_handle* h = new il2cpp_thread_handle();
     h->state.store(1, std::memory_order_relaxed);
     h->tid = 0;
+    h->managedId = t->managedId; // publish the ctor-assigned id to the child TLS
+    h->name = t->name;             // publish the owner's name to the child TLS
     h->fn = reinterpret_cast<void (*)()>(t->callbackFn);
+    h->target = t->callbackTarget; // instance ThreadStart target (null = static)
     h->native = plat_thread_spawn(&ThreadTrampoline, h);
     if (h->native == nullptr)
     {
@@ -269,7 +375,10 @@ void icall_threadobj_start_parameterized(Il2CppObject* self, Il2CppObject* param
     il2cpp_thread_handle* h = new il2cpp_thread_handle();
     h->state.store(1, std::memory_order_relaxed);
     h->tid = 0;
+    h->managedId = t->managedId; // publish the ctor-assigned id to the child TLS
+    h->name = t->name;             // publish the owner's name to the child TLS
     h->fn = reinterpret_cast<void (*)()>(t->callbackFn);
+    h->target = t->callbackTarget; // instance ParameterizedThreadStart target
     h->parameter = parameter;
     h->native = plat_thread_spawn(&ThreadTrampolineParameterized, h);
     if (h->native == nullptr)
@@ -425,22 +534,17 @@ bool icall_threadobj_get_is_alive(Il2CppObject* self)
 }
 
 //------------------------------------------------------------------------------
-// icall_threadobj_get_managed_thread_id -- Thread.ManagedThreadId
-// (SIMPLIFIED): the OS thread id -- 0 until Start for a spawned thread (the
-// child records its id at entry), the current OS id for the CURRENT object.
+// icall_threadobj_get_managed_thread_id -- Thread.ManagedThreadId: the
+// ctor-assigned managed id (net48 semantics -- assigned at CONSTRUCTION even
+// for a never-started Thread, monotonic, never reused, stable across
+// Start/Join). The CURRENT object carries the running thread's TLS id (see
+// get_current_thread).
 //------------------------------------------------------------------------------
 int32_t icall_threadobj_get_managed_thread_id(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     const Il2CppThreadObject* t = AsThread(self);
-    if (t->state == 2)
-    {
-        return t->tid;
-    }
-    const il2cpp_thread_handle* h = static_cast<const il2cpp_thread_handle*>(t->handle);
-    // Join freed the handle but preserved the id on the object (net48 keeps
-    // ManagedThreadId queryable after the thread ends).
-    return h != nullptr ? h->tid : t->tid;
+    return t->managedId;
 }
 
 //------------------------------------------------------------------------------
@@ -533,6 +637,8 @@ void icall_threadobj_set_name(Il2CppObject* self, Il2CppString* name)
     if (name == nullptr || name->length == 0)
     {
         t->name = nullptr; // clear (net48 InternalClearName -- no exception)
+        if (t->state == 2)
+            t_currentThreadName = nullptr; // CURRENT wrapper clear publishes too
         return;
     }
     if (t->name != nullptr)
@@ -540,12 +646,20 @@ void icall_threadobj_set_name(Il2CppObject* self, Il2CppString* name)
         il2cpp_throw_invalid_operation_exception("A thread's Name may only be set once.");
     }
     t->name = name;
+    if (t->state == 2)
+    {
+        // Naming the CURRENT wrapper (Thread.CurrentThread.Name = x) names
+        // this thread: publish to TLS so later CurrentThread reads see it
+        // (the wrapper itself is ephemeral -- a fresh object per call).
+        t_currentThreadName = name;
+    }
 }
 
 //------------------------------------------------------------------------------
 // icall_threadobj_get_current_thread -- Thread.CurrentThread (static): a
 // fresh Thread object wrapping the CURRENT thread (state CURRENT,
-// ManagedThreadId = the current OS id, IsAlive true, self-join throws).
+// ManagedThreadId = the current thread's managed id from TLS -- main = 1,
+// a spawned thread = its ctor-assigned id, IsAlive true, self-join throws).
 //------------------------------------------------------------------------------
 Il2CppObject* icall_threadobj_get_current_thread()
 {
@@ -553,11 +667,14 @@ Il2CppObject* icall_threadobj_get_current_thread()
     Il2CppThreadObject* t = reinterpret_cast<Il2CppThreadObject*>(
         il2cpp_object_new(&System_Threading_Thread_class));
     t->callbackFn = nullptr;
+    t->callbackTarget = nullptr; // no ThreadStart callback (CURRENT object)
     t->handle = nullptr;
     t->state = 2; // CURRENT
     t->tid = plat_thread_current_id();
+    t->managedId = t_currentManagedId; // main = 1; spawned = ctor id (TLS)
     t->isBackground = false; // net48: threads start foreground
-    t->name = nullptr;       // CurrentThread.Name: unset until set_name
+    t->name = t_currentThreadName; // CurrentThread.Name: owner's name in a
+                                   // spawned thread, null on main until set
     return reinterpret_cast<Il2CppObject*>(t);
 }
 

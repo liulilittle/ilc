@@ -108,7 +108,7 @@ bool ThrowsDotNetPrefix(Fn fn, const char* typePrefix)
 const char* kSyncLock = "System.Threading.SynchronizationLockException";
 const char* kArgNull = "System.ArgumentNullException";
 const char* kArg = "System.ArgumentException";
-const char* kInvOp = "System.InvalidOperationException";
+[[maybe_unused]] const char* kInvOp = "System.InvalidOperationException";
 
 } // namespace
 
@@ -305,7 +305,7 @@ int main()
         pulser.join();
     }
 
-    // --- 11. side-table exhaustion and slot reuse ---
+    // --- 11. side-table growth and slot reuse (thaudit1: net48 has no limit) ---
     {
         std::vector<Il2CppObject> objs(65);
         bool lockTaken = false;
@@ -313,11 +313,10 @@ int main()
         {
             il2cpp_monitor_enter(&objs[static_cast<std::size_t>(i)]);
         }
-        Expect(ThrowsDotNetPrefix([&]() { il2cpp_monitor_enter(&objs[64], &lockTaken); }, kInvOp),
-               "65th held monitor throws InvalidOperationException (table exhausted)");
-        Expect(!lockTaken,
-               "2-arg enter leaves *lockTaken false when the table is exhausted");
-        for (int32_t i = 0; i < 64; ++i)
+        il2cpp_monitor_enter(&objs[64], &lockTaken);
+        Expect(lockTaken,
+               "65th held monitor enters (growable table: net48 has no monitor-count limit)");
+        for (int32_t i = 0; i < 65; ++i)
         {
             il2cpp_monitor_exit(&objs[static_cast<std::size_t>(i)]);
         }

@@ -108,7 +108,9 @@ public class MethodMapXmlTests
         Assert.Equal("il2cpp::runtime::il2cpp_xml_select_nodes", m.CppName);
         Assert.True(m.IsInstance);
         Assert.Equal(1, m.ParamCount);
-        Assert.False(m.ReturnsValue); // void-IL wrapper; the array result
+        // xmaudit2 (VERIFY-FIX): the result is CONSUMED (XmlNodeList l = ...;
+        // l.Count; l[0]) -- rv flipped true, exactly like SelectSingleNode.
+        Assert.True(m.ReturnsValue);
         Assert.True(m.ReturnsRef);    // rides the ref slot
         Assert.Equal(new[] { "node", "s" }, m.ParamTypeNames);
         Assert.Equal("System.Xml.XmlNodeList", m.ReturnTypeName);

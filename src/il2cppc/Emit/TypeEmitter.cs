@@ -169,6 +169,7 @@ public static class TypeEmitter
                         Owner = nested,
                         IsStatic = true,
                         IsLiteral = (fd.Attributes & FieldAttributes.Literal) != 0,
+                        IsPublic = (fd.Attributes & FieldAttributes.Public) != 0,
                         ConstantValue = TryReadNestedConstant(md, fd),
                     });
                 }
@@ -180,6 +181,7 @@ public static class TypeEmitter
                         Name = fName,
                         Owner = nested,
                         IsStatic = false,
+                        IsPublic = (fd.Attributes & FieldAttributes.Public) != 0,
                         TypeKind = kind,
                         FieldTypeName = typeName,
                     });
@@ -303,7 +305,9 @@ public static class TypeEmitter
         var header = sig.ReadByte();
         if (header != 0x06)
             throw new NotSupportedException($"field signature must start with FIELD(0x06), got 0x{header:X2}");
-        var typeByte = sig.ReadByte();
+        // ECMA-335 II.23.1.16: strip custom modifiers (volatile's
+        // CMOD_REQD(IsVolatile) = 0x1F) before classifying the real type.
+        var typeByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         return typeByte switch
         {
             0x08 => (FieldTypeKind.Int32, ""),
@@ -389,7 +393,9 @@ public static class TypeEmitter
 
     private static string NestedTypeArgName(MetadataReader md, ref BlobReader sig)
     {
-        var b = sig.ReadByte();
+        // ECMA-335 II.23.1.16 custom modifiers (0x1F CMOD_REQD / 0x20
+        // CMOD_OPT) precede the modified type -- strip before decoding.
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         return b switch
         {
             0x02 => "System.Boolean",
@@ -410,7 +416,7 @@ public static class TypeEmitter
             // batch 165b: SZARRAY generic argument (Task<int[]> -- the
             // <AF>d__3 awaiter field signature carries TaskAwaiter`1<int[]>):
             // the element type follows the 0x1D/0x1F byte (recursive).
-            0x1D or 0x1F => NestedTypeArgName(md, ref sig) + "[]",
+            0x1D => NestedTypeArgName(md, ref sig) + "[]",
             0x13 or 0x1E => "int", // VAR/MVAR: generic argument parameter
             // Tolerant fallback: exotic arg types map to Object.
             var other => "System.Object",
@@ -448,7 +454,12 @@ public static class TypeEmitter
         // generic suffix (they are concrete types, not instantiations).
         if (!t.IsNested && t.GenericArity > 0)
         {
-            return baseName + "_" + (t.InstantiationSuffix ?? "int");
+            // A5 (myIList): the closed suffix may be a dotted full name
+            // ("System.Exception" for user-generic instantiations) -- it must
+            // be sanitized like the base name or the struct name carries a
+            // '.' (generated.h "expected unqualified-id"). Short suffixes
+            // ("int"/"string"/...) are Sanitize-fixed points.
+            return baseName + "_" + Sanitize(t.InstantiationSuffix ?? "int");
         }
         return baseName;
     }
@@ -612,7 +623,10 @@ public static class TypeEmitter
     // top-level entry but has NO generated struct -- the runtime stamps every
     // delegate with the single System.Delegate class, so a field of a delegate
     // type is a plain GC reference slot, exactly like a System.Object field).
-    private static string ReferenceCppType(string fullName, IReadOnlyList<TypeDef> allTypes) => fullName switch
+    // PUBLIC: the FieldAssignStmt emitter casts the stored value to this SAME
+    // type (single authority for the field's C++ storage type -- the gccompact
+    // regression came from the two sides drifting apart).
+    public static string ReferenceCppType(string fullName, IReadOnlyList<TypeDef> allTypes) => fullName switch
     {
         "System.Object" => "Il2CppObject*",
         "System.String" => "Il2CppObject*",
@@ -696,7 +710,7 @@ public static class TypeEmitter
         // types = sizeof(struct).
         var sizeExpr = t.IsInterface ? "0" : $"static_cast<int32_t>(sizeof({TypeCppName(t)}))";
         w.Line($"Il2CppClass {TypeCppName(t)}_class = {{");
-        w.Line($"    \"{t.FullName}\",                                        // name");
+        w.Line($"    \"{ReflectionFullName(t)}\",                                        // name");
         w.Line($"    {sizeExpr},                                            // instanceSize");
         w.Line($"    0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(Math.Max(t.InstanceSize, 1) / IntPtr.Size, '0')}u,          // refFieldBitmap: bit i <=> slot i is a GC reference");
         w.Line($"    {t.RefFieldCount},                                        // refFieldCount");
@@ -748,6 +762,17 @@ public static class TypeEmitter
         {
             var mapName = $"{TypeCppName(t)}_iface_{TypeCppName(iface)}_map";
             w.Line($"// Interface slot -> vtable slot for {iface.FullName}.");
+            // C2466 guard (boxstr/boxdeep, msvc): a MARKER interface with ZERO
+            // methods yields an empty slot map -- `int32_t m[] = {}` is a
+            // zero-size array the C++ standard forbids (g++/clang tolerate as
+            // an extension, MSVC rejects: C2466). The runtime never reads the
+            // map for a 0-slot interface; emit a single dummy slot.
+            if (slotMap.Length == 0)
+            {
+                w.Line($"int32_t {mapName}[] = {{ 0 }}; // empty marker interface (no slots)");
+                w.Line();
+                continue;
+            }
             w.Line($"int32_t {mapName}[] = {{");
             w.Open();
             for (var i = 0; i < slotMap.Length; i++)
@@ -901,6 +926,16 @@ public static class TypeEmitter
         // runtime's Il2CppDateTime zero value (il2cpp_time.h).
         w.Line("// System.DateTime::MinValue BCL static storage (8-byte Il2CppDateTime, inline variable)");
         w.Line("inline il2cpp::runtime::Il2CppDateTime System_DateTime_sf_MinValue = il2cpp::runtime::Il2CppDateTime(0);");
+        // B4 (dtoprobe): System.DateTimeOffset::MinValue / ::MaxValue --
+        // mscorlib static readonly VALUETYPE fields (net8: NOT const, so
+        // Roslyn cannot fold the ldsfld -- the read references
+        // System_DateTimeOffset_sf_MinValue/MaxValue). 16-byte
+        // Il2CppDateTimeOffset image {utcTicks, offsetMinutes}:
+        // MinValue = 0001-01-01 +00:00 ({0,0}); MaxValue = 9999-12-31
+        // 23:59:59.9999999 +00:00 ({DateTime.MaxTicks, 0}).
+        w.Line("// System.DateTimeOffset::MinValue/MaxValue BCL static storage (16-byte Il2CppDateTimeOffset, inline variable)");
+        w.Line("inline il2cpp::runtime::Il2CppDateTimeOffset System_DateTimeOffset_sf_MinValue = { 0, 0 };");
+        w.Line("inline il2cpp::runtime::Il2CppDateTimeOffset System_DateTimeOffset_sf_MaxValue = { 3155378975999999999LL, 0 };");
         // wf2 (winforms1): System.IntPtr::Zero / System.UIntPtr::Zero are BCL
         // static fields (mscorlib types have no TypeDef -- no storage emitted).
         w.Line("// System.IntPtr::Zero BCL static storage (intptr_t pointer carrier, inline variable)");
@@ -981,7 +1016,13 @@ public static class TypeEmitter
         {
             foreach (var tdh in md.TypeDefinitions)
             {
-                if (md.GetFullName(tdh) != f.Owner.FullName) continue;
+                // Nested owners: the expanded model keys nested types by SHORT
+                // FullName ("<>c") while metadata GetFullName walks the
+                // declaring chain ("Cases.ArrayExt2Demo+<>c") -- match either
+                // form or <>c lambda-cache fields (Func<>, reference) fall to
+                // the int32 default below (arrayext2 cmake FAIL).
+                var metaName = md.GetFullName(tdh);
+                if (metaName != f.Owner.FullName && metaName != ReflectionFullName(f.Owner)) continue;
                 var td = md.GetTypeDefinition(tdh);
                 foreach (var fh in td.GetFields())
                 {
@@ -989,7 +1030,9 @@ public static class TypeEmitter
                     if (md.GetString(fd.Name) != f.Name) continue;
                     var sig = md.GetBlobReader(fd.Signature);
                     if (sig.ReadByte() != 0x06) return (StaticFieldSemantic.Value, "System.Int32");
-                    var typeByte = sig.ReadByte();
+                    // ECMA-335 II.23.1.16: strip custom modifiers
+                    // (volatile -> CMOD_REQD(IsVolatile) 0x1F) first.
+                    var typeByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
                     // Reference kinds (mirrors CodeGenerator.StaticFieldIsReference):
                     // 0x0E String, 0x1C Object, 0x12 Class, 0x15 GenericInst
                     // (Func`N etc.), 0x1D/0x1F SZARRAY, 0x14 ARRAY. 0x15 is
@@ -998,7 +1041,7 @@ public static class TypeEmitter
                     if (typeByte is 0x1C) return (StaticFieldSemantic.Reference, "System.Object");
                     if (typeByte is 0x12) return (StaticFieldSemantic.Reference, ResolveNestedTypeName(md, sig.ReadTypeHandle()));
                     if (typeByte is 0x15) { sig.ReadByte(); return (StaticFieldSemantic.Reference, ResolveNestedTypeName(md, sig.ReadTypeHandle())); }
-                    if (typeByte is 0x1D or 0x1F or 0x14) return (StaticFieldSemantic.Reference, "System.Array");
+                    if (typeByte is 0x1D or 0x14) return (StaticFieldSemantic.Reference, "System.Array");
                     // wf16 (winforms1): native-int static fields (0x18/0x19)
                     // and 64-bit integer statics (0x0A/0x0B) -- the M1 int32_t
                     // slot truncated the 64-bit WNDPROC/HWND pointer and long
@@ -1200,14 +1243,14 @@ public static class TypeEmitter
         var fieldEntries = t.InstanceFields
             .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference ? f.FieldTypeName : "System.Int32",
                 Offset: f.SlotIndex * IntPtr.Size, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
-                Addr: "nullptr", Flags: 0))
+                Addr: "nullptr", Flags: f.IsPublic ? 1 : 0))
             .Concat(t.StaticFields.Select(f =>
             {
                 var (semantic, typeName) = StaticFieldSemantics(f, md);
                 return (f.Name, TypeName: typeName,
                     Offset: -1, IsRef: semantic == StaticFieldSemantic.Reference ? 1 : 0,
                     Addr: f.IsLiteral ? "nullptr" : $"&{FieldCppName(t, f.Name)}",
-                    Flags: (f.IsStatic ? 2 : 0) | (f.IsLiteral ? 4 : 0));
+                    Flags: (f.IsPublic ? 1 : 0) | (f.IsStatic ? 2 : 0) | (f.IsLiteral ? 4 : 0));
             }))
             .ToList();
         if (fieldEntries.Count > 0)

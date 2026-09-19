@@ -102,6 +102,25 @@ int32_t il2cpp_intptr_to_int32(intptr_t value)
 }
 
 //------------------------------------------------------------------------------
+// UIntPtr.ToUInt32() / explicit operator uint -- CHECKED conversion to uint32.
+//
+// net48 (probe 2026-09-14): `(uint)UIntPtr` and UIntPtr.ToUInt32 both throw
+// System.OverflowException for a value above UINT32_MAX; small values pass.
+// The comparison runs on the UNSIGNED bit pattern (a negative intptr_t is a
+// high unsigned address), and on 32-bit targets uintptr_t is 32 bits so the
+// check never fires.
+//------------------------------------------------------------------------------
+uint32_t il2cpp_uintptr_to_uint32(intptr_t value)
+{
+    if (static_cast<uint64_t>(static_cast<uintptr_t>(value)) >
+        static_cast<uint64_t>(UINT32_MAX))
+    {
+        il2cpp_throw_new(kOverflowChain, "Arithmetic operation resulted in an overflow.");
+    }
+    return static_cast<uint32_t>(value);
+}
+
+//------------------------------------------------------------------------------
 // IntPtr.op_Equality(IntPtr, IntPtr) -- bit-pattern equality.
 //------------------------------------------------------------------------------
 bool il2cpp_intptr_op_equality(intptr_t a, intptr_t b)

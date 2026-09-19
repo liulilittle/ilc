@@ -71,6 +71,14 @@ int64_t il2cpp_intptr_to_int64(intptr_t value);
 // targets the range check never fires.
 int32_t il2cpp_intptr_to_int32(intptr_t value);
 
+// UIntPtr.ToUInt32() / explicit operator uint: CHECKED conversion to uint32
+// -- a value outside [0, UINT32_MAX] throws System.OverflowException (net48
+// probe 2026-09-14: both `(uint)UIntPtr` and ToUInt32 throw), never
+// truncates. The check runs on the UNSIGNED bit pattern (a negative
+// intptr_t is a high address). On 32-bit targets uintptr_t is uint32 and
+// the range check never fires.
+uint32_t il2cpp_uintptr_to_uint32(intptr_t value);
+
 // IntPtr.op_Equality(IntPtr, IntPtr): bit-pattern equality.
 bool il2cpp_intptr_op_equality(intptr_t a, intptr_t b);
 

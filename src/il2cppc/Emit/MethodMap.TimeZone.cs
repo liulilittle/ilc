@@ -144,6 +144,27 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::il2cpp_timezone_get_is_daylight_saving", 1, true, false, true,
                     new[] { "drop", "drop" });
 
+            // --- tzimpl: minimal zone registry + per-date conversion ---
+            case "FindSystemTimeZoneById":
+                // Static: TimeZoneInfo FindSystemTimeZoneById(string id).
+                // timezone_registry.cpp resolves the closed set (Eastern/
+                // Pacific/Central Standard Time + UTC) to a STABLE handle;
+                // unknown ids throw NotSupportedException carrying the id.
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_timezone_find_by_id", 1, true, true, false,
+                        new[] { "s" }, returnTypeName: "System.TimeZoneInfo");
+                throw new NotSupportedException(
+                    $"FindSystemTimeZoneById with {count} arg(s) not wired: the runtime registry takes a single zone id string");
+            case "ConvertTimeFromUtc":
+                // Static: DateTime ConvertTimeFromUtc(DateTime, TimeZoneInfo).
+                // The per-date offset comes from the zone handle (US 2007+
+                // DST rules); a pre-2007 instant throws the LOUD boundary.
+                if (count == 2)
+                    return I("il2cpp::runtime::il2cpp_timezone_convert_from_utc", 2, true, false, false,
+                        new[] { "", "" }, "dt", returnTypeName: "System.DateTime");
+                throw new NotSupportedException(
+                    $"ConvertTimeFromUtc with {count} arg(s) not wired: the runtime takes (DateTime, TimeZoneInfo)");
+
             // --- LOUD rejections: net48 members with no runtime icall ---
             // (the name/registry/zone-table surface -- timezone.h ships only
             // the offset/conversion/daylight icalls).
@@ -153,7 +174,6 @@ public static partial class MethodRefResolver
             case "get_DaylightName":
             case "get_BaseUtcOffset":
             case "get_SupportsDaylightSavingTime":
-            case "FindSystemTimeZoneById":
             case "GetSystemTimeZones":
             case "CreateCustomTimeZone":
             case "ClearCachedData":

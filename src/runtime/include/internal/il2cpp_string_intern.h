@@ -93,4 +93,10 @@ Il2CppObject* il2cpp_string_is_interned(Il2CppObject* str);
 // guarantee: two calls with the same content return the same pointer.
 Il2CppObject* il2cpp_string_intern_literal(const char* utf8);
 
+// Explicit-length variant (string-pool emission): 'byteLen' UTF-8 bytes are
+// read as content, so embedded NULs survive (the strlen form above cannot see
+// them). Interned identity is by content; a null pointer or byteLen <= 0
+// interns the empty literal.
+Il2CppObject* il2cpp_string_intern_literal_n(const char* utf8, int32_t byteLen);
+
 } // namespace il2cpp

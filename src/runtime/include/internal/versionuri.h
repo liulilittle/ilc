@@ -63,15 +63,19 @@
 //
 //   * Il2CppVersionObject: header + component count + 4 int32 components,
 //     NO GC reference fields (refFieldBitmap 0).
-//   * Il2CppUriObject: header + FOUR string-pointer slots (scheme/host/
-//     path/opaque). These ARE GC references -- refFieldBitmap bits 1,2,3,4
-//     -- so the compacting collector (gc.cpp, bitmap-driven scan) keeps the
-//     strings alive and rewrites the slots on Gen0 compaction. The Version
-//     object has no such requirement (int32 components are roots-free).
-//     The FOURTH slot (opaque) holds the verbatim text after "scheme:" for
-//     opaque "scheme:rest" URIs (D-NETD2-1) and is null for hierarchical /
-//     network-path URIs -- icall_uri_to_string uses its presence to decide
-//     whether to rebuild "scheme:rest" or "scheme://host/path".
+//   * Il2CppUriObject: header + FIVE string-pointer slots (scheme/host/
+//     path/opaque/original). These ARE GC references -- refFieldBitmap bits
+//     1,2,3,4,5 -- so the compacting collector (gc.cpp, bitmap-driven scan)
+//     keeps the strings alive and rewrites the slots on Gen0 compaction. The
+//     Version object has no such requirement (int32 components are
+//     roots-free). The FOURTH slot (opaque) holds the verbatim text after
+//     "scheme:" for opaque "scheme:rest" URIs (D-NETD2-1) and is null for
+//     hierarchical / network-path URIs -- icall_uri_to_string uses its
+//     presence to decide whether to rebuild "scheme:rest" or
+//     "scheme://host/path". The FIFTH slot (original) holds the verbatim
+//     input text (OriginalString, URI-FIX P1). The trailing isAbsolute flag
+//     (a plain int32, not a GC reference) discriminates parsed absolute
+//     URIs (1) from relative verbatim storage (0, UriKind.Relative).
 //
 // The object icalls (il2cpp::runtime::icall_version_* / icall_uri_*) own the
 // read/write ABI; the plain parse/to_string primitives above stay as the
@@ -135,6 +139,13 @@ struct Il2CppUriObject
     Il2CppString* opaque; // slot 4 (offset 32) -- GC reference; null for
                           // hierarchical/network-path URIs, the verbatim
                           // "scheme:" remainder for opaque URIs (D-NETD2-1)
+    Il2CppString* original; // slot 5 (offset 40) -- GC reference; the verbatim
+                          // input text (OriginalString -- net48 returns the
+                          // exact user string; URI-FIX P1)
+    int32_t isAbsolute;   // (offset 48) -- 1 = parsed absolute URI, 0 =
+                          // relative verbatim storage (UriKind.Relative or a
+                          // RelativeOrAbsolute fallback; ToString() returns
+                          // the original text with no normalization)
 };
 
 // The System.Uri descriptor (lazily registered on first use; generated code
@@ -277,8 +288,9 @@ std::string il2cpp_uri_to_string(const il2cpp_uri_t* uri);
 
 //------------------------------------------------------------------------------
 // Uri object icalls (see the OBJECT MODEL block at the top -- the receiver is
-// an Il2CppUriObject allocated through System_Uri_class; the three string
-// slots are GC references scanned through refFieldBitmap bits 1,2,3).
+// an Il2CppUriObject allocated through System_Uri_class; the five string
+// slots are GC references scanned through refFieldBitmap bits 1..5, and the
+// trailing isAbsolute flag is a plain int32).
 //------------------------------------------------------------------------------
 
 // Uri(string uriString): parses the three-form net48-loose grammar (the
@@ -291,17 +303,60 @@ std::string il2cpp_uri_to_string(const il2cpp_uri_t* uri);
 // not return a parse status).
 void icall_uri_ctor(Il2CppObject* self, Il2CppObject* input);
 
-// Getters: return the stored part as a managed string (Il2CppObject* -- the
-// IR's reference shape; the slot was created by the ctor, so it is never
-// null once the object is initialized).
+// Getters: scheme/host return the stored part as a managed string
+// (Il2CppObject* -- the IR's reference shape; the slot was created by the
+// ctor, so it is never null once the object is initialized). The path
+// getter (AbsolutePath, P4b) returns the C3/C6-normalized path for
+// hierarchical absolute URIs (dot-folded, empty->"/", escapes preserved);
+// opaque and relative URIs keep the verbatim stored path.
 Il2CppObject* icall_uri_get_scheme(Il2CppObject* self);
 Il2CppObject* icall_uri_get_host(Il2CppObject* self);
 Il2CppObject* icall_uri_get_path(Il2CppObject* self);
 
 // ToString(): rebuilds "scheme://host/path" (hierarchical/network-path) or
 // "scheme:rest" (opaque -- the verbatim remainder) from the stored slots
-// (the domain round-trip rule). Returns the managed string as Il2CppObject*
-// (the IR's reference shape).
+// (the domain round-trip rule). Relative verbatim storage (isAbsolute == 0)
+// returns the original text unchanged (net48 ToString()==OriginalString).
+// Returns the managed string as Il2CppObject* (the IR's reference shape).
 Il2CppObject* icall_uri_to_string(Il2CppObject* self);
+
+// Uri(string uriString, UriKind kind) (URI-FIX P1): kind 2 (Relative)
+// stores the input verbatim (no parsing -- ToString()==OriginalString,
+// IsAbsoluteUri==false); kind 1 (Absolute) parses exactly like
+// icall_uri_ctor; kind 0 (RelativeOrAbsolute) parses when possible and
+// otherwise falls back to verbatim relative storage. Null input ->
+// ArgumentNullException; absolute-parse failure -> ArgumentException
+// (net48 throws UriFormatException -- recorded deviation, URI-FIX P1).
+void icall_uri_ctor_2(Il2CppObject* self, Il2CppObject* input, int32_t kind);
+
+// OriginalString: the verbatim input text (net48 returns the exact user
+// string). Never null once the object is initialized.
+Il2CppObject* icall_uri_get_originalstring(Il2CppObject* self);
+
+// AbsoluteUri (URI-FIX P1): rebuilds the absolute form from the stored
+// slots -- verbatim in P1 (identical to ToString until the C-series
+// normalization lands in P3/P4). Throws InvalidOperationException on
+// relative URIs (net48).
+Il2CppObject* icall_uri_get_absoluteuri(Il2CppObject* self);
+
+// IsAbsoluteUri: true for parsed absolute URIs, false for relative
+// verbatim storage.
+bool icall_uri_get_is_absolute_uri(Il2CppObject* self);
+
+// Equals(object) (URI-FIX P1, normalized P3): relative vs absolute never
+// equal; two relatives compare OriginalString ordinally (net48); two
+// absolutes compare the normalized AbsoluteUri ordinally (C1/C2/C5/C6/C7;
+// dot-folding/escapes arrive with P4 -- recorded deviation).
+bool icall_uri_equals(Il2CppObject* self, Il2CppObject* other);
+
+// GetHashCode() (URI-FIX P3 -- accepted deviation, parent ruling
+// 2026-09-19): net48 hashes via the native NLS case mixer (OS/NLS-version
+// dependent; exact-int replication would pin our NLS tables, not .NET
+// semantics). The runtime hash is a deterministic FNV-1a ordinal fold over
+// the SAME normalized absolute text Equals compares (relative: the
+// OriginalString) -- so Equals(a,b) implies Hash(a)==Hash(b) by
+// construction. Contract equality only; the oracle integer is never
+// asserted (see URI-FIX-PLAN Addendum A3).
+int32_t icall_uri_get_hash_code(Il2CppObject* self);
 
 }} // namespace il2cpp::runtime

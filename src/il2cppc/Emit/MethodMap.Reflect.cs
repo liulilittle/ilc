@@ -38,6 +38,29 @@ namespace Il2Cpp.Transpiler.Emit;
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
+    // raudit3 (2026-09-13): reflection MEMBER object == / != (the base
+    // MemberInfo operator -- csc emits it for every derived member type).
+    // In the simplified reflection model a member VALUE is its name string,
+    // so reference equality reduces to ordinal string equality; both helpers
+    // are null-safe (null == null -> True, exactly-one-null -> False), the
+    // net48 ReferenceEquals doctrine for the == null / != null probes.
+    private static ResolvedMethod? TryMapReflectionMember(string name, byte[] ps)
+    {
+        switch (name)
+        {
+            case "op_Equality":
+                return ps.Length == 2
+                    ? I("il2cpp::runtime::icall_string_equals_static", 2, true, false, false)
+                    : null;
+            case "op_Inequality":
+                return ps.Length == 2
+                    ? I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false)
+                    : null;
+            default:
+                return null;
+        }
+    }
+
     private static ResolvedMethod? TryMapReflect(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {

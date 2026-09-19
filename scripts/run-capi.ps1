@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("mingw", "msvc", "wsl")]
     [string]$Compiler = "mingw"
 )

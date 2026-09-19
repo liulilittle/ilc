@@ -199,7 +199,7 @@ const char kNotSupportedChain[] =
 const char kInvalidOperationChain[] =
     "System.InvalidOperationException,System.InvalidOperationException,System.SystemException,System.Exception";
 const char kFileNotFoundChain[] =
-    "System.IO.FileNotFoundException,System.IO.FileNotFoundException,System.SystemException,System.Exception";
+    "System.IO.FileNotFoundException,System.IO.FileNotFoundException,System.IO.IOException,System.SystemException,System.Exception";
 const char kIOExceptionChain[] =
     "System.IO.IOException,System.IO.IOException,System.SystemException,System.Exception";
 
@@ -417,13 +417,15 @@ int main()
     Expect(il2cpp_stream_set_length(fseek, -1) == -1, "file SetLength(-1) returns -1");
     Expect(il2cpp_stream_close(fseek) == 0, "seek file closes");
 
-    // Append-mode file streams remain seekable (net48 probe: FileMode.Append
-    // still reports CanSeek=true and Seek succeeds -- only write placement
-    // differs, "ab" writes land at end-of-file).
+    // Append-mode file streams stay CanSeek=true, but a seek to a position
+    // BEFORE the open-time EOF throws IOException (net48 oracle:
+    // FileStream.Seek in append mode -> IO_SeekAppendOverwrite; this file
+    // holds 3 bytes from the section above).
     il2cpp_stream_t fapp = il2cpp_stream_file_open(Cs("st_tmp/seek.bin"), 2); // ab
     Expect(fapp != nullptr && il2cpp_stream_get_can_seek(fapp) == 1,
            "append-mode file CanSeek is 1 (net48 probe)");
-    Expect(il2cpp_stream_seek(fapp, 0, 0) == 0, "Seek on an append stream succeeds");
+    Expect(ThrowsDotNet([&] { (void)il2cpp_stream_seek(fapp, 0, 0); }, kIOExceptionChain),
+           "Seek before the append start throws IOException (net48 oracle)");
     Expect(il2cpp_stream_close(fapp) == 0, "append file closes");
 
     // null-stream errors for the new handle surface.
@@ -437,8 +439,8 @@ int main()
            "file_open of a missing file (read) returns null");
     Expect(il2cpp_stream_file_open(Cs("st_tmp/no_dir/x.bin"), 1) == nullptr,
            "file_open into a missing directory returns null");
-    Expect(il2cpp_stream_file_open(Cs("st_tmp/data.bin"), 7) == nullptr,
-           "file_open with an invalid mode returns null");
+    Expect(il2cpp_stream_file_open(Cs("st_tmp/data.bin"), 10) == nullptr,
+           "file_open with an out-of-range mode (10) returns null (modes 0..9 are valid)");
     Expect(il2cpp_stream_read(nullptr, buf, 4) == -1, "read(null) returns -1");
     Expect(il2cpp_stream_write(nullptr, buf, 4) == -1, "write(null) returns -1");
     Expect(il2cpp_stream_write(nullptr, nullptr, 0) == -1, "write(null, null, 0) returns -1");
@@ -595,7 +597,7 @@ int main()
     Expect(icall_stream_read_bytes(ms, mbuf, 0, 3) == 3, "ms.Read(buf, 0, 3) == 3");
     Expect(mbuf->data[0] == 1 && mbuf->data[1] == 2 && mbuf->data[2] == 3,
            "read-back bytes equal the written bytes");
-    Il2CppObject* marr = icall_stream_memory_to_array(ms);
+    Il2CppObject* marr = reinterpret_cast<Il2CppObject*>(icall_stream_memory_to_array(ms));
     Expect(marr != nullptr && BytesEqual(marr, "\x01\x02\x03", 3),
            "ms.ToArray returns the full content");
     Expect(icall_stream_close(ms) == 0, "MemoryStream object Close returns 0");
@@ -937,7 +939,8 @@ int main()
     icall_stream_file_ctor(apObj, Cs("st_tmp/obj_seek.bin"), 6, 2); // Append + Write
     Expect(icall_stream_get_can_seek(apObj) == 1,
            "append FileStream object CanSeek is 1 (net48 probe)");
-    Expect(icall_stream_seek(apObj, 0, 0) == 0, "Seek on an append stream object succeeds");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_seek(apObj, 0, 0); }, kIOExceptionChain),
+           "Seek before the append start throws IOException (net48 oracle)");
     Expect(icall_stream_close(apObj) == 0, "append object closes");
 
     // Closed-receiver M3 conventions + null-receiver guards for the new surface.
@@ -962,6 +965,71 @@ int main()
     Expect(ThrowsDotNet([&] { icall_stream_write_byte(nullptr, 0); }, kNullRefChain),
            "write_byte(null receiver) throws NullReferenceException");
 
+    // --- WAVE2: write_text (no newline, null no-op) -------------------------
+    {
+        il2cpp_stream_t wt = il2cpp_stream_memory_create();
+        Expect(il2cpp_stream_write_text(wt, Cs("AB")) == 0, "write_text returns 0");
+        Expect(il2cpp_stream_write_text(wt, nullptr) == 0, "write_text(null) is a no-op");
+        Expect(il2cpp_stream_write_line(wt, Cs("C")) == 0, "write_line after write_text");
+        Expect(il2cpp_stream_get_length(wt) == 5,
+               "write_text emits no line terminator (2 + 0 + 3 bytes)");
+        Expect(il2cpp_stream_set_position(wt, 0) == 0, "write_text buffer rewinds");
+        char wbuf[8];
+        std::memset(wbuf, 0, sizeof(wbuf));
+        Expect(il2cpp_stream_read(wt, wbuf, 5) == 5, "write_text buffer reads back");
+        Expect(std::memcmp(wbuf, "ABC\r\n", 5) == 0,
+               "write_text/write_line byte order is AB + C CRLF");
+        Expect(il2cpp_stream_close(wt) == 0, "write_text fixture closes");
+    }
+
+    // icall_stream_write_text on the object surface; closed receiver -> -1.
+    Il2CppObject* wtObj = NewMemoryStream();
+    icall_stream_memory_ctor(wtObj);
+    Expect(icall_stream_write_text(wtObj, Cs("XY")) == 0, "object write_text returns 0");
+    Expect(icall_stream_write_text(wtObj, nullptr) == 0, "object write_text(null) is a no-op");
+    Expect(icall_stream_get_length(wtObj) == 2, "object write_text wrote exactly XY");
+    Expect(icall_stream_close(wtObj) == 0, "object write_text fixture closes");
+    Expect(icall_stream_write_text(wtObj, Cs("Z")) == -1,
+           "write_text on a closed receiver returns -1 (M3 convention)");
+
+    // --- WAVE2: FileStream(string, FileMode) 2-arg ctor ---------------------
+    // Access defaults (net48 oracle): Append -> Write, every other mode ->
+    // ReadWrite.
+    Il2CppObject* fs2c = NewFileStream();
+    icall_stream_file_ctor2(fs2c, Cs("st_tmp/obj2.bin"), 2); // Create
+    Expect(icall_stream_get_can_read(fs2c) == 1 && icall_stream_get_can_write(fs2c) == 1,
+           "2-arg Create opens ReadWrite (net48 oracle)");
+    icall_stream_write_bytes(fs2c, ByteArray("abc", 3), 0, 3);
+    Expect(icall_stream_close(fs2c) == 0, "2-arg Create stream closes");
+    Il2CppObject* raw2 = icall_file_read_all_text(Cs("st_tmp/obj2.bin"));
+    Expect(raw2 != nullptr && StrEquals(raw2, "abc"), "2-arg written file content matches");
+
+    Il2CppObject* fs2o = NewFileStream();
+    icall_stream_file_ctor2(fs2o, Cs("st_tmp/obj2.bin"), 3); // Open
+    Expect(icall_stream_get_can_read(fs2o) == 1 && icall_stream_get_can_write(fs2o) == 1,
+           "2-arg Open opens ReadWrite (net48 oracle)");
+    Expect(icall_stream_close(fs2o) == 0, "2-arg Open stream closes");
+
+    Il2CppObject* fs2a = NewFileStream();
+    icall_stream_file_ctor2(fs2a, Cs("st_tmp/obj2.bin"), 6); // Append
+    Expect(icall_stream_get_can_read(fs2a) == 0 && icall_stream_get_can_write(fs2a) == 1,
+           "2-arg Append opens Write-only (net48 oracle)");
+    icall_stream_write_bytes(fs2a, ByteArray("d", 1), 0, 1);
+    Expect(icall_stream_close(fs2a) == 0, "2-arg Append stream closes");
+    Il2CppObject* raw3 = icall_file_read_all_text(Cs("st_tmp/obj2.bin"));
+    Expect(raw3 != nullptr && StrEquals(raw3, "abcd"), "2-arg Append extends the file");
+
+    Il2CppObject* fs2m = NewFileStream();
+    Expect(ThrowsDotNet([&] { icall_stream_file_ctor2(fs2m, Cs("st_tmp/missing2.bin"), 3); },
+                        kFileNotFoundChain),
+           "2-arg Open on a missing file throws FileNotFoundException");
+    Expect(ThrowsDotNet([&] { icall_stream_file_ctor2(fs2m, Cs("st_tmp/obj2.bin"), 7); },
+                        kArgumentChain),
+           "2-arg invalid FileMode throws ArgumentException");
+    Expect(ThrowsDotNet([&] { icall_stream_file_ctor2(fs2m, nullptr, 3); },
+                        kArgNullExceptionChain),
+           "2-arg null path throws ArgumentNullException");
+
     // --- Cleanup: remove the files + the created directory chain --------------
     (void)il2cpp_stream_close(il2cpp_stream_file_open(Cs("st_tmp/data.bin"), 1));
     icall_file_delete(Cs("st_tmp/data.bin"));
@@ -978,6 +1046,7 @@ int main()
     icall_file_delete(Cs("st_tmp/obj_seek.bin"));
     icall_file_delete(Cs("st_tmp/obj_rwbyte.bin"));
     icall_file_delete(Cs("st_tmp/obj_rwe.bin"));
+    icall_file_delete(Cs("st_tmp/obj2.bin"));
     (void)IL2CPP_TEST_RMDIR("st_tmp");
     Expect(icall_directory_exists(Cs("st_tmp")) == 0,
            "test directory is fully removed after cleanup");

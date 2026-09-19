@@ -45,6 +45,12 @@
 //      char/double/string renders its .NET ToString text ("42", "True", "X",
 //      "2.75", "boxedstr"); a non-primitive object prints its type's full name
 //      (the icall_object_to_string fallback).
+//  16. Console output code-page follow (net48 Console.OutputEncoding
+//      default): main() pins 65001, so every byte expectation above holds on
+//      any host console; a GBK (936) console emits GBK bytes (zhong -> D6 D0)
+//      while unmappable output (astral pairs, U+221E infinity) becomes '?'
+//      (net48 replacement fallback, best-fit on) -- the diffuri002 parity.
+//      Windows-only; skipped when the process has no console to switch.
 //
 // stdout is captured via freopen into a scratch file (and restored), stdin
 // is redirected from a scratch file for the ReadLine section. The capture
@@ -76,6 +82,13 @@
 
 #ifdef _WIN32
     #include <io.h> // _dup / _dup2 (stdout handle save/restore)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX // keep std::numeric_limits::max() usable with <windows.h>
+    #endif
+    #include <windows.h> // Get/SetConsoleOutputCP (output-encoding sections)
     #define CONSOLE_CAPTURE_FILE "console_capture.txt"
     #define CONSOLE_INPUT_FILE "console_input.txt"
     #define CONSOLE_RESTORE_NAME "CON"
@@ -284,6 +297,16 @@ int main()
     using il2cpp::runtime::console_format_u64;
     using il2cpp::runtime::console_format_double;
     using il2cpp::runtime::console_write_newline;
+
+#ifdef _WIN32
+    // Pin UTF-8 output mode: every byte expectation below assumes 65001.
+    // (The ambient console on zh-CN hosts is 936/GBK, which would otherwise
+    // re-encode non-ASCII output -- the diffuri002 GBK finding.) The GBK
+    // section (16) switches explicitly; the original CP is restored at the
+    // end of main.
+    const unsigned savedOutputCP = static_cast<unsigned>(::GetConsoleOutputCP());
+    ::SetConsoleOutputCP(65001);
+#endif
 
     // --- 1. WriteLine(bool): .NET bool.ToString() ---
     BeginCapture();
@@ -582,11 +605,87 @@ int main()
     Expect(icall_console_get_error() == errStream,
            "SetError(null) leaves the Error stream untouched");
 
+#ifdef _WIN32
+    // --- 16. GBK (936) code-page follow (net48 Console.OutputEncoding ---
+    // default): zhong -> GBK D6 D0; astral/lone/infinity -> '?' (replacement
+    // fallback). Asserted on every console text path: char/stream/object/
+    // double/infinity + console_write_units + the M1 string icalls
+    // (runtime.cpp WriteStringUtf8 dispatcher).
+    // Needs a real console to switch; without one SetConsoleOutputCP fails.
+    if (::SetConsoleOutputCP(936))
+    {
+        using il2cpp::runtime::console_output_code_page;
+        using il2cpp::runtime::console_write_units;
+        using il2cpp::runtime::icall_console_write_line_object;
+        Expect(console_output_code_page() == 936u,
+               "output code page follows SetConsoleOutputCP(936)");
+        static const char16_t zhong1[] = { 0x4E2D };
+        static const char16_t emoji1[] = { 0xD83D, 0xDE00 };
+        static const char16_t lone1[] = { 0xD800 };
+        BeginCapture();
+        icall_console_write_c(0x4E2D);
+        Expect(EndCapture() == "\xD6\xD0",
+               "Write(char) zhong emits GBK D6 D0 under 936");
+        BeginCapture();
+        icall_console_stream_write(outStream,
+            reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new(zhong1, 1)));
+        Expect(EndCapture() == "\xD6\xD0",
+               "stream Write(zhong) emits GBK D6 D0 under 936");
+        BeginCapture();
+        icall_console_stream_write_line(outStream,
+            reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new(emoji1, 2)));
+        Expect(EndCapture() == "?" CONSOLE_NEWLINE,
+               "stream WriteLine(astral) emits '?' under 936");
+        BeginCapture();
+        icall_console_stream_write(outStream,
+            reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new(lone1, 1)));
+        Expect(EndCapture() == "?",
+               "stream Write(lone surrogate) emits '?' under 936");
+        BeginCapture();
+        icall_console_write_d(std::numeric_limits<double>::infinity());
+        icall_console_write_d(-std::numeric_limits<double>::infinity());
+        Expect(EndCapture() == "?-?",
+               "Write(double) infinity emits '?/-?' under 936");
+        BeginCapture();
+        icall_console_write_line_object(
+            reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new(zhong1, 1)));
+        Expect(EndCapture() == "\xD6\xD0" CONSOLE_NEWLINE,
+               "WriteLine(object string) emits GBK D6 D0 under 936");
+        BeginCapture();
+        console_write_units(zhong1, 1, stdout);
+        Expect(EndCapture() == "\xD6\xD0",
+               "console_write_units(zhong) emits GBK D6 D0 under 936");
+        BeginCapture();
+        icall_console_write_line_s(
+            reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new(zhong1, 1)));
+        Expect(EndCapture() == "\xD6\xD0" CONSOLE_NEWLINE,
+               "M1 WriteLine(string) zhong emits GBK D6 D0 under 936");
+        BeginCapture();
+        icall_console_write_s(
+            reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new(emoji1, 2)));
+        Expect(EndCapture() == "?",
+               "M1 Write(string) astral emits '?' under 936");
+        ::SetConsoleOutputCP(65001);
+        Expect(console_output_code_page() == 65001u,
+               "output code page restored to 65001");
+    }
+    else
+    {
+        std::printf("SKIP: no console to switch code page (section 16)\n");
+    }
+#endif
+
     if (g_failures != 0)
     {
         std::printf("%d console assertion(s) failed\n", g_failures);
+#ifdef _WIN32
+        ::SetConsoleOutputCP(savedOutputCP);
+#endif
         return 1;
     }
     std::printf("all runtime console tests passed\n");
+#ifdef _WIN32
+    ::SetConsoleOutputCP(savedOutputCP);
+#endif
     return 0;
 }

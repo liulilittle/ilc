@@ -262,18 +262,18 @@ bool ParseUnicodeProperty(ParseState* st, std::vector<RegexRange>* ranges,
         // \P{Name} inside a class: add the COMPLEMENT (everything not in the
         // category) as ordinary members (net48 ScanCharClass
         // AddUnicodeCategory behavior; probe: "[\P{L}]" matches '1' not 'a').
-        char16_t next = 0;
+        uint32_t next = 0;
         for (int32_t i = 0; i < count; ++i)
         {
-            if (static_cast<int32_t>(table[i].lo) > static_cast<int32_t>(next))
+            if (static_cast<uint32_t>(table[i].lo) > next)
             {
-                ranges->push_back({next, static_cast<char16_t>(table[i].lo - 1)});
+                ranges->push_back({static_cast<char16_t>(next), static_cast<char16_t>(table[i].lo - 1)});
             }
-            next = static_cast<char16_t>(table[i].hi + 1);
+            next = static_cast<uint32_t>(table[i].hi) + 1;
         }
-        if (static_cast<int32_t>(next) <= 0xFFFF)
+        if (next <= 0xFFFF)
         {
-            ranges->push_back({next, 0xFFFF});
+            ranges->push_back({static_cast<char16_t>(next), 0xFFFF});
         }
     }
     else
@@ -1232,6 +1232,20 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
         if (outError != nullptr)
         {
             *outError = st.error;
+        }
+        return nullptr;
+    }
+    if (st.pos != st.length)
+    {
+        // ParseAlternation stops before the end ONLY on an unmatched ')' (the
+        // only break character ParseSequence does not consume). net48 rejects
+        // it with ArgumentException("Too many )"): the T3 API layer detects
+        // the same condition and raises that message; this layer never lets
+        // the trailing text be silently ignored.
+        FreeNode(root);
+        if (outError != nullptr)
+        {
+            *outError = RegexParseError::UnclosedGroup;
         }
         return nullptr;
     }

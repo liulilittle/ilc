@@ -166,7 +166,7 @@ public class GuidSlotWiringTests
         var peBuilder = new ManagedPEBuilder(new PEHeaderBuilder(
                 machine: Machine.I386,
                 imageCharacteristics: Characteristics.ExecutableImage | Characteristics.Dll),
-            root, ilStream);
+            root, ilStream ?? new BlobBuilder());
         var blob = new BlobBuilder();
         peBuilder.Serialize(blob);
         return new MemoryStream(blob.ToArray());

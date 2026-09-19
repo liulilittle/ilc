@@ -127,6 +127,12 @@ Il2CppObject* il2cpp_stream_read_to_end(il2cpp_stream_t stream);
 // short write).
 int32_t il2cpp_stream_write_line(il2cpp_stream_t stream, Il2CppObject* line);
 
+// StreamWriter.Write(text): writes 'text' as UTF-8 WITHOUT a line terminator
+// (net48 TextWriter.Write). A null string emits nothing. 0 on success,
+// non-zero on failure (null/closed stream, write-only violation, short
+// write).
+int32_t il2cpp_stream_write_text(il2cpp_stream_t stream, Il2CppObject* text);
+
 // Stream.Length: the stream size in bytes (bytes written so far). -1 for a
 // null stream or a backend error.
 int64_t il2cpp_stream_get_length(il2cpp_stream_t stream);

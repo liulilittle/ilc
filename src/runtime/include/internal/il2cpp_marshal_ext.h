@@ -85,6 +85,7 @@
 #include "il2cpp_pinvoke_struct.h"
 #include "il2cpp_string.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace il2cpp {
@@ -342,6 +343,54 @@ Il2CppObject* icall_marshal_get_objects_for_native_variants(intptr_t aSrcNativeV
 // object is never a COM wrapper -- this always returns false (documented:
 // net48 would return true only for objects ILC can never produce).
 bool icall_marshal_is_com_object(Il2CppObject* o);
+
+//------------------------------------------------------------------------------
+// Marshal.Read/Write primitive family + StructureToPtr VALUE form (marshalrw,
+// 2026-09-13). Direct little-endian memory access at a caller-supplied byte
+// offset (base + offset). net48 contract: NO bounds checks and NO exception
+// paths -- the caller owns the memory's validity.
+//
+//   write_* : 3-arg (base, offset, value); the 2-arg IL overload (IntPtr,
+//             value) is the C++ OVERLOAD that forwards offset 0.
+//   read_*  : 2-arg (base, offset); the 1-arg IL overload (IntPtr) forwards
+//             offset 0.
+//
+// Value widths follow the IL ABI slot: byte/int16/int32 arrive as int32_t
+// (narrowed/truncated inside -- net48 unchecked semantics); int64 as int64_t;
+// IntPtr as intptr_t. Reads return the widened int32/int64/intptr_t value
+// (net48 ReadByte zero-extends, ReadInt16 sign-extends).
+//------------------------------------------------------------------------------
+void il2cpp_marshal_write_byte(uint8_t* base, int32_t offset, int32_t value);
+void il2cpp_marshal_write_byte(uint8_t* base, int32_t value);
+void il2cpp_marshal_write_int16(uint8_t* base, int32_t offset, int32_t value);
+void il2cpp_marshal_write_int16(uint8_t* base, int32_t value);
+void il2cpp_marshal_write_int32(uint8_t* base, int32_t offset, int32_t value);
+void il2cpp_marshal_write_int32(uint8_t* base, int32_t value);
+void il2cpp_marshal_write_int64(uint8_t* base, int32_t offset, int64_t value);
+void il2cpp_marshal_write_int64(uint8_t* base, int64_t value);
+void il2cpp_marshal_write_intptr(uint8_t* base, int32_t offset, intptr_t value);
+void il2cpp_marshal_write_intptr(uint8_t* base, intptr_t value);
+
+int32_t il2cpp_marshal_read_byte(const uint8_t* base, int32_t offset);
+int32_t il2cpp_marshal_read_byte(const uint8_t* base);
+int32_t il2cpp_marshal_read_int16(const uint8_t* base, int32_t offset);
+int32_t il2cpp_marshal_read_int16(const uint8_t* base);
+int32_t il2cpp_marshal_read_int32(const uint8_t* base, int32_t offset);
+int32_t il2cpp_marshal_read_int32(const uint8_t* base);
+int64_t il2cpp_marshal_read_int64(const uint8_t* base, int32_t offset);
+int64_t il2cpp_marshal_read_int64(const uint8_t* base);
+intptr_t il2cpp_marshal_read_intptr(const uint8_t* base, int32_t offset);
+intptr_t il2cpp_marshal_read_intptr(const uint8_t* base);
+
+// StructureToPtr<T>(T, IntPtr, bool) VALUE form: the transpiler passes
+// &value, sizeof(T) and the generated class descriptor. Dispatch matches
+// il2cpp_marshal_struct_store (registered kinds via the layout registry,
+// reference-free user structs copied byte for byte, reference-bearing /
+// unknown -> NotSupportedException, fDeleteOld no-op for blittable data);
+// no box is materialized. Declared here, implemented next to struct_store in
+// marshalext3.cpp.
+void il2cpp_marshal_struct_store_value(Il2CppClass* klass, const void* value, void* dst,
+                                       bool fDeleteOld, size_t payloadSize);
 
 } // namespace runtime
 } // namespace il2cpp

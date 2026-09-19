@@ -19,7 +19,15 @@ public static partial class MethodRefResolver
         switch (name)
         {
             case "get_InvariantCulture":
-                return new ResolvedMethod(ResolvedMethod.NullMarker, 0, false, true, true, Array.Empty<bool>(), false);
+                // Handle-gap model: a CultureInfo IS its culture-name string
+                // (get_CurrentCulture returns the name). The invariant culture
+                // is the EMPTY name, non-null -- net48 probes assert
+                // `InvariantCulture == null` False and `.Name == ""` True
+                // (cultureprobe); the old NullMarker fold made both wrong.
+                // Formatting providers are dropped at the call sites
+                // regardless of this value.
+                return I("il2cpp::runtime::il2cpp_culture_get_invariant", 0, true, true, false,
+                    returnTypeName: "System.Globalization.CultureInfo");
             case "get_CurrentCulture":
                 // C42 fold fix: the runtime reads the OS user locale name
                 // (cultureinfo.cpp, GetUserDefaultLCID -> "zh-CN" on the
@@ -30,8 +38,11 @@ public static partial class MethodRefResolver
                     returnTypeName: "System.String");
             case "get_Name":
                 // CultureInfo.CurrentCulture.Name on the culture-name string
-                // is an identity (the getter returns the string).
-                return receiverType == "System.String"
+                // is an identity (the getter returns the string). The
+                // invariant carrier is likewise the invariant name string, so
+                // a CultureInfo-hinted receiver is the same identity (the
+                // empty name returns "").
+                return receiverType is "System.String" or "System.Globalization.CultureInfo"
                     ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true)
                     : null;
             // P6: CultureInfo internal methods (stubs).

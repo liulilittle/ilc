@@ -163,16 +163,20 @@ void DivModMagnitude(const std::vector<uint32_t>& a, const std::vector<uint32_t>
             remainder.pop_back();
         }
         // Binary search the largest q in [0, 2^32) with q*b <= remainder.
+        // bigaudit1: lo/hi span [0, 2^32] -- a uint32 bound wrapped when
+        // mid == 0xFFFFFFFF (lo = mid + 1 -> 0 -> non-termination for
+        // quotient limbs that reach the full 32-bit range). Search in
+        // uint64_t; the digit itself is still a uint32 limb.
         uint32_t q = 0;
-        uint32_t lo = 0;
-        uint32_t hi = 0xFFFFFFFFu;
+        uint64_t lo = 0;
+        uint64_t hi = 0xFFFFFFFFull;
         while (lo <= hi)
         {
-            const uint32_t mid = lo + (hi - lo) / 2;
-            const std::vector<uint32_t> prod = MulMagnitude(b, { mid });
+            const uint64_t mid = lo + (hi - lo) / 2;
+            const std::vector<uint32_t> prod = MulMagnitude(b, { static_cast<uint32_t>(mid) });
             if (CompareMagnitude(prod, remainder) <= 0)
             {
-                q = mid;
+                q = static_cast<uint32_t>(mid);
                 lo = mid + 1;
             }
             else

@@ -22,10 +22,14 @@ bool il2cpp_string_equals_ordinal(const Il2CppString* a, const Il2CppString* b) 
         if (pa[i+0]!=pb[i+0]||pa[i+1]!=pb[i+1]||pa[i+2]!=pb[i+2]||pa[i+3]!=pb[i+3]||
             pa[i+4]!=pb[i+4]||pa[i+5]!=pb[i+5]||pa[i+6]!=pb[i+6]||pa[i+7]!=pb[i+7]) 
         {
-            if (pa[i+0]!=pb[i+0]) return false; if (pa[i+1]!=pb[i+1]) return false;
-            if (pa[i+2]!=pb[i+2]) return false; if (pa[i+3]!=pb[i+3]) return false;
-            if (pa[i+4]!=pb[i+4]) return false; if (pa[i+5]!=pb[i+5]) return false;
-            if (pa[i+6]!=pb[i+6]) return false; return false;
+            if (pa[i+0]!=pb[i+0]) return false;
+            if (pa[i+1]!=pb[i+1]) return false;
+            if (pa[i+2]!=pb[i+2]) return false;
+            if (pa[i+3]!=pb[i+3]) return false;
+            if (pa[i+4]!=pb[i+4]) return false;
+            if (pa[i+5]!=pb[i+5]) return false;
+            if (pa[i+6]!=pb[i+6]) return false;
+            return false;
         }
     }
     for (; i < len; ++i) if (pa[i]!=pb[i])  return false;
@@ -53,8 +57,14 @@ bool il2cpp_string_equals_ordinal_ignore_case(const Il2CppString* a, const Il2Cp
         char16_t la7=ToLowerAscii(pa[i+7]), lb7=ToLowerAscii(pb[i+7]);
         if (la0!=lb0||la1!=lb1||la2!=lb2||la3!=lb3||la4!=lb4||la5!=lb5||la6!=lb6||la7!=lb7) 
         {
-            if (la0!=lb0) return false; if (la1!=lb1) return false; if (la2!=lb2) return false; if (la3!=lb3) return false;
-            if (la4!=lb4) return false; if (la5!=lb5) return false; if (la6!=lb6) return false; return false;
+            if (la0!=lb0) return false;
+            if (la1!=lb1) return false;
+            if (la2!=lb2) return false;
+            if (la3!=lb3) return false;
+            if (la4!=lb4) return false;
+            if (la5!=lb5) return false;
+            if (la6!=lb6) return false;
+            return false;
         }
     }
     for (; i < len; ++i) if (ToLowerAscii(pa[i]) != ToLowerAscii(pb[i]))  return false;
@@ -107,7 +117,8 @@ int il2cpp_string_compare_ordinal_ignore_case(const Il2CppString* a, const Il2Cp
         char16_t la7=ToLowerAscii(pa[i+7]), lb7=ToLowerAscii(pb[i+7]); if (la7!=lb7) return la7<lb7?-1:1;
     }
     for (; i < minLen; ++i) { char16_t la=ToLowerAscii(pa[i]), lb=ToLowerAscii(pb[i]); if (la!=lb) return la<lb?-1:1; }
-    if (alen==blen) return 0; return alen < blen ? -1 : 1;
+    if (alen==blen) return 0;
+    return alen < blen ? -1 : 1;
 }
 } // namespace il2cpp
 

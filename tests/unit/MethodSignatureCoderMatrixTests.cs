@@ -58,7 +58,13 @@ public class MethodSignatureCoderMatrixTests
     [InlineData(new byte[] { 0x1B, 0x00, 0x02, 0x08, 0x08, 0x08 }, "F:i(i;i)")]     // delegate*<int,int,int>
     [InlineData(new byte[] { 0x1D, 0x08 }, "r:i[]")]               // int[]
     [InlineData(new byte[] { 0x1E, 0x00 }, "i")]                   // MVAR !!0 (method-level generic param, index 0)
-    [InlineData(new byte[] { 0x1F, 0x08 }, "r:i[]")]               // SZARRAY 0x1F codebase variant
+    // ECMA-335 II.23.1.16 custom modifiers (0x1F CMOD_REQD / 0x20 CMOD_OPT):
+    // a coded index followed by the modified type -- both are consumed and the
+    // underlying type encodes (volatile's IsVolatile modreq is the real-world
+    // shape: `static volatile int` field sig = 06 1F 09 08; the old codebase
+    // treated 0x1F as an SZARRAY variant, which is wrong).
+    [InlineData(new byte[] { 0x1F, 0x05, 0x08 }, "i")]             // CMOD_REQD + I4
+    [InlineData(new byte[] { 0x20, 0x05, 0x08 }, "i")]             // CMOD_OPT + I4
     [InlineData(new byte[] { 0x40, 0x05 }, "T:System.Object")]     // ELEMENT_TYPE type-handle (nested)
     public void Param_StructuralTypes_Encode(byte[] paramBytes, string expected)
     {
@@ -80,7 +86,7 @@ public class MethodSignatureCoderMatrixTests
     [Theory]
     [InlineData(0x17)] // reserved (ECMA-335 PRINTED I=0x17 is an erratum; real nint=0x18)
     [InlineData(0x1A)] // reserved
-    [InlineData(0x20)] // CMOD_OPT (custom modifier -- no codebase convention, param contract loud-rejects)
+    [InlineData(0x20)] // CMOD_OPT with no payload = malformed -> loud (well-formed cmods are consumed, see StructuralTypes)
     [InlineData(0x21)] // INTERNAL
     [InlineData(0x42)] // undefined
     [InlineData(0x45)] // PINNED (local-signature modifier, never a method param)

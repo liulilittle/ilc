@@ -6,8 +6,8 @@
 // Managed object header note: Il2CppObject (il2cpp_object.h) carries ONLY the
 // klass pointer -- there is no sync block / header bit for locking state (the
 // M-stage layout is stable and must not change). The monitor state therefore
-// lives in a GLOBAL SIDE TABLE inside the runtime: a fixed array of entries
-// keyed by Il2CppObject* (see monitor.cpp for the table mechanics).
+// lives in a GLOBAL SIDE TABLE inside the runtime: a growable pointer table of
+// entries keyed by Il2CppObject* (see monitor.cpp for the table mechanics).
 //
 // Semantics (net48-aligned, simplified for the M-stage):
 //

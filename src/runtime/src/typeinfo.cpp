@@ -259,8 +259,29 @@ const Il2CppFieldInfo* il2cpp_type_get_field(const Il2CppTypeInfo* info, const c
     {
         ThrowNullMemberName(nullptr); // net48: GetField(null) ParamName is empty
     }
-    return FindMemberThroughBaseChain(info, name,
-        &Il2CppTypeInfo::fields, &Il2CppTypeInfo::fieldCount);
+    // raudit3: net48 GetField(string) binds Public|Instance|Static by default,
+    // so a PRIVATE field is invisible (typeof(D).GetField("hidden") == null).
+    // Il2CppFieldInfo.flags bit0 = public (typeinfo.h). Inherited members live
+    // under their declaring type's table -- walk the baseType chain; a private
+    // hit is SKIPPED and the scan continues (a public base field of the same
+    // name is still found, matching net48).
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->fields == nullptr)
+        {
+            continue;
+        }
+        for (int32_t i = 0; i < scan->fieldCount; ++i)
+        {
+            const Il2CppFieldInfo& field = scan->fields[i];
+            if (field.name != nullptr && std::strcmp(field.name, name) == 0
+                && (field.flags & 1) != 0)
+            {
+                return &field;
+            }
+        }
+    }
+    return nullptr;
 }
 
 //------------------------------------------------------------------------------

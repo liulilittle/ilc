@@ -11,9 +11,10 @@ namespace Il2Cpp.Transpiler.Emit;
 // The runtime implements: construction (from_ymd/from_ymdhms), Now/UtcNow,
 // Year..Second/DayOfWeek accessors, AddDays/Hours/Minutes, AddTicks/
 // SubtractTicks, Subtract(DateTime), Compare/CompareTo, ToString(0/1/2),
-// ParseExact(string, string). EVERY other common DateTime member has no
-// icall -- a silent fallback would emit a C++ call to a symbol that does not
-// exist (late link error); the loud throw names the gap instead.
+// ParseExact(string, string), ToFileTime(Utc)/FromFileTime(Utc), GetHashCode.
+// EVERY other common DateTime member has no icall -- a silent fallback
+// would emit a C++ call to a symbol that does not exist (late link error);
+// the loud throw names the gap instead.
 //
 // Owners: System.DateTime (TimeSpan: nothing -- MethodMap.TimeSpan.cs already
 // rejects its own gaps: ToString / total-* accessors).
@@ -49,15 +50,10 @@ public static partial class MethodRefResolver
             case "FromOADate":
             case "ToBinary":
             case "FromBinary":
-            case "ToFileTime":
-            case "ToFileTimeUtc":
-            case "FromFileTime":
-            case "FromFileTimeUtc":
             case "IsDaylightSavingTime":
             case "GetTypeCode":
             case "GetDateTimeFormats":
             case "Equals":
-            case "GetHashCode":
             case "op_Equality":
             case "op_Inequality":
             case "op_LessThan":
@@ -70,7 +66,7 @@ public static partial class MethodRefResolver
             case "ToLongTimeString":
             case "ToLocalTime":
             case "ToUniversalTime":
-                throw new NotSupportedException($"DateTime.{name} not wired: no runtime icall (the wired surface is construction, Now/UtcNow, Year..Second/DayOfWeek, AddDays/Hours/Minutes, AddTicks, Subtract, Compare/CompareTo, ToString, ParseExact)");
+                throw new NotSupportedException($"DateTime.{name} not wired: no runtime icall (the wired surface is construction, Now/UtcNow, Year..Second/DayOfWeek, AddDays/Hours/Minutes, AddTicks, Subtract, Compare/CompareTo, ToString, ParseExact, ToFileTime(Utc)/FromFileTime(Utc), GetHashCode)");
             default: return null;
         }
     }

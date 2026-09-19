@@ -44,7 +44,7 @@ namespace {
 // argument is an ArgumentNullException. The chain suffix (",System.Exception")
 // is the transpiler's chain format -- it lets il2cpp_exception_matches accept
 // a catch of System.Exception.
-void ThrowArgumentNull()
+[[noreturn]] void ThrowArgumentNull()
 {
     il2cpp_throw_new("System.ArgumentNullException,System.Exception",
                      "Value cannot be null.");
@@ -53,7 +53,7 @@ void ThrowArgumentNull()
 // Null-RECEIVER failure: net48 ((Type)null).IsAssignableFrom(x) throws
 // NullReferenceException (probe-verified). Same carrier convention as
 // ThrowArgumentNull.
-void ThrowNullReference()
+[[noreturn]] void ThrowNullReference()
 {
     il2cpp_throw_new("System.NullReferenceException,System.Exception",
                      "Object reference not set to an instance of an object.");
@@ -151,7 +151,6 @@ Il2CppObject* il2cpp_type_get_element_type(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return nullptr; // unreachable (ThrowNullReference always throws)
     }
     const char* name = klass->name;
     if (name == nullptr || name[0] != '[')
@@ -181,7 +180,6 @@ int32_t il2cpp_type_is_assignable_from(Il2CppClass* target, Il2CppClass* source)
     if (target == nullptr)
     {
         ThrowNullReference();
-        return 0; // unreachable (ThrowNullReference always throws)
     }
     if (source == nullptr)
     {
@@ -253,7 +251,6 @@ Il2CppString* il2cpp_type_get_full_name(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowArgumentNull();
-        return nullptr; // unreachable (ThrowArgumentNull always throws)
     }
     const char* name = (klass->name != nullptr) ? klass->name : "System.Object";
     // Type names are ASCII by project convention (generated code is pure
@@ -308,7 +305,6 @@ int32_t il2cpp_type_is_array(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return 0;
     }
     const char* name = klass->name;
     return (name != nullptr && name[0] == '[') ? 1 : 0;
@@ -319,7 +315,6 @@ int32_t il2cpp_type_has_element_type(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return 0;
     }
     const char* name = klass->name;
     return (name != nullptr && name[0] == '[') ? 1 : 0;
@@ -330,7 +325,6 @@ int32_t il2cpp_type_is_enum(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return 0;
     }
     return BaseChainContains(klass, "System.Enum") ? 1 : 0;
 }
@@ -340,7 +334,6 @@ int32_t il2cpp_type_is_value_type(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return 0;
     }
     return IsValueTypeChain(klass) ? 1 : 0;
 }
@@ -350,7 +343,6 @@ int32_t il2cpp_type_is_interface(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return 0;
     }
     return IsInterfaceDescriptor(klass) ? 1 : 0;
 }
@@ -360,7 +352,6 @@ int32_t il2cpp_type_is_class(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return 0;
     }
     if (IsValueTypeChain(klass) || IsInterfaceDescriptor(klass))
     {
@@ -374,7 +365,6 @@ int32_t il2cpp_type_is_primitive(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return 0;
     }
     const char* name = klass->name;
     if (name == nullptr)
@@ -402,7 +392,6 @@ Il2CppObject* il2cpp_type_get_base_type(Il2CppClass* klass)
     if (klass == nullptr)
     {
         ThrowNullReference();
-        return nullptr;
     }
     Il2CppClass* base = klass->baseClass;
     if (base == nullptr || base->name == nullptr)

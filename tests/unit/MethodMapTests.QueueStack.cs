@@ -236,12 +236,215 @@ public class MethodMapQueueStackTests
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodRefResolverDispatchTests).
     //--------------------------------------------------------------------------
-    private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)
+    //--------------------------------------------------------------------------
+    // G4: the generic Queue`1<int> / Stack`1<string> expansions
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Queue1Int_Enqueue_MapsToIntEnqueue()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "Enqueue", new byte[] { 0x00, 0x01, 0x01, 0x13, 0x00 }), "Enqueue",
+            receiverType: "System.Collections.Generic.Queue`1_int");
+
+        Assert.Equal("il2cpp::runtime::icall_queue_int_enqueue", resolved.CppName);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Queue1Int_Dequeue_ResultKindInt()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "Dequeue", new byte[] { 0x00, 0x00, 0x13, 0x00 }), "Dequeue",
+            receiverType: "System.Collections.Generic.Queue`1_int");
+
+        Assert.Equal("il2cpp::runtime::icall_queue_int_dequeue", resolved.CppName);
+        Assert.Equal("i", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_Queue1Int_ToArray_TracksInt32Array()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "ToArray", new byte[] { 0x00, 0x00, 0x1D, 0x13, 0x00 }), "ToArray",
+            receiverType: "System.Collections.Generic.Queue`1_int");
+
+        Assert.Equal("il2cpp::runtime::icall_queue_int_to_array", resolved.CppName);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Queue1Int_Contains_MapsToIntContains()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "Contains", new byte[] { 0x00, 0x01, 0x02, 0x13, 0x00 }), "Contains",
+            receiverType: "System.Collections.Generic.Queue`1_int");
+
+        Assert.Equal("il2cpp::runtime::icall_queue_int_contains", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_Stack1String_Push_MapsToPushIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Stack`1", "Push", new byte[] { 0x00, 0x01, 0x01, 0x13, 0x00 }), "Push",
+            receiverType: "System.Collections.Generic.Stack`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_stack_push", resolved.CppName);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Stack1String_Contains_MapsToStackContainsIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Stack`1", "Contains", new byte[] { 0x00, 0x01, 0x02, 0x13, 0x00 }), "Contains",
+            receiverType: "System.Collections.Generic.Stack`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_stack_contains", resolved.CppName);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Stack1String_ToArray_TracksStringArray()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Stack`1", "ToArray", new byte[] { 0x00, 0x00, 0x1D, 0x13, 0x00 }), "ToArray",
+            receiverType: "System.Collections.Generic.Stack`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_stack_to_array", resolved.CppName);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // T2 W1: the reference-element Queue`1/Stack`1 expansions (string/object/
+    // class). These ride the non-generic Il2CppObject* slots unchanged, but
+    // (a) ToArray tracks the element array (string[]/object[]; the `_class`
+    // suffix collapses the concrete element name so it stays LOUD) and
+    // (b) the enumerator tracks a per-element token so get_Current returns the
+    // reference element instead of the int32 unbox.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Queue1String_Enqueue_MapsToQueueEnqueue()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "Enqueue", new byte[] { 0x00, 0x01, 0x01, 0x13, 0x00 }), "Enqueue",
+            receiverType: "System.Collections.Generic.Queue`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_queue_enqueue", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Queue1String_ToArray_TracksStringArray()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "ToArray", new byte[] { 0x00, 0x00, 0x1D, 0x13, 0x00 }), "ToArray",
+            receiverType: "System.Collections.Generic.Queue`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_queue_to_array", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Queue1Object_ToArray_TracksObjectArray()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "ToArray", new byte[] { 0x00, 0x00, 0x1D, 0x13, 0x00 }), "ToArray",
+            receiverType: "System.Collections.Generic.Queue`1_object");
+
+        Assert.Equal("il2cpp::il2cpp_queue_to_array", resolved.CppName);
+        Assert.Equal("System.Object[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Queue1Class_ToArray_ThrowsLoud()
+    {
+        // The `_class` suffix collapses the concrete element name, so the
+        // element-array tracking is not recoverable -> LOUD (deferred).
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "ToArray", new byte[] { 0x00, 0x00, 0x1D, 0x13, 0x00 }), "ToArray",
+                receiverType: "System.Collections.Generic.Queue`1_class"));
+
+        Assert.Contains("System.Collections.Generic.Queue`1::ToArray", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Queue1String_GetEnumerator_TracksRefEnumerator()
+    {
+        // Return 0x1C (System.Object) -- a self-contained reference byte; the
+        // resolver's GetEnumerator arm ignores the decoded return type (it
+        // dispatches on the receiver), so the blob only needs to PARSE. (A
+        // 0x11 VALUETYPE return would demand a TypeDefOrRef handle; a bare
+        // 0x00 resolves to ModuleDefinition, which M2 rejects.)
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1", "GetEnumerator", new byte[] { 0x00, 0x00, 0x1C }), "GetEnumerator",
+            receiverType: "System.Collections.Generic.Queue`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_queue_get_enumerator", resolved.CppName);
+        Assert.Equal("System.Collections.Generic.Queue`1.Enumerator_string", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Queue1StringEnumerator_GetCurrent_ReturnsRef()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1+Enumerator", "get_Current", new byte[] { 0x00, 0x00, 0x13, 0x00 }), "get_Current",
+            receiverType: "System.Collections.Generic.Queue`1.Enumerator_string");
+
+        Assert.Equal("il2cpp::il2cpp_queue_enumerator_get_current", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Queue1ObjectEnumerator_GetCurrent_ReturnsObjectRef()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Queue`1+Enumerator", "get_Current", new byte[] { 0x00, 0x00, 0x13, 0x00 }), "get_Current",
+            receiverType: "System.Collections.Generic.Queue`1.Enumerator_object");
+
+        Assert.Equal("il2cpp::il2cpp_queue_enumerator_get_current", resolved.CppName);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Stack1Object_Push_MapsToStackPush()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Stack`1", "Push", new byte[] { 0x00, 0x01, 0x01, 0x13, 0x00 }), "Push",
+            receiverType: "System.Collections.Generic.Stack`1_object");
+
+        Assert.Equal("il2cpp::il2cpp_stack_push", resolved.CppName);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Stack1Object_ToArray_TracksObjectArray()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Stack`1", "ToArray", new byte[] { 0x00, 0x00, 0x1D, 0x13, 0x00 }), "ToArray",
+            receiverType: "System.Collections.Generic.Stack`1_object");
+
+        Assert.Equal("il2cpp::il2cpp_stack_to_array", resolved.CppName);
+        Assert.Equal("System.Object[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Stack1Class_ToArray_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Collections.Generic", "Stack`1", "ToArray", new byte[] { 0x00, 0x00, 0x1D, 0x13, 0x00 }), "ToArray",
+                receiverType: "System.Collections.Generic.Stack`1_class"));
+
+        Assert.Contains("System.Collections.Generic.Stack`1::ToArray", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Stack1ObjectEnumerator_GetCurrent_ReturnsObjectRef()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "Stack`1+Enumerator", "get_Current", new byte[] { 0x00, 0x00, 0x13, 0x00 }), "get_Current",
+            receiverType: "System.Collections.Generic.Stack`1.Enumerator_object");
+
+        Assert.Equal("il2cpp::il2cpp_stack_enumerator_get_current", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+    }
+
+    private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? receiverType = null)
     {
         using var reader = new PEReader(pe);
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
-        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>());
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            receiverType, false, null, null);
     }
 
     // Signature blob: header 0x00 (DEFAULT, non-generic), param count, return

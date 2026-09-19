@@ -261,7 +261,7 @@ int main()
     ExpectD("1e", 0, "try-parse double \"1e\" -> 0 (exponent needs digits)");
     ExpectD("1 2", 0, "try-parse double \"1 2\" -> 0 (embedded whitespace)");
     ExpectD("1.2.3", 0, "try-parse double \"1.2.3\" -> 0 (two separators)");
-    ExpectD("1,000", 0, "try-parse double \"1,000\" -> 0 (group separators not supported)");
+    ExpectDIs("1,000", 1000.0, "try-parse double \"1,000\" -> 1000.0 (AllowThousands; net48 oracle)");
     ExpectD("1e999", 0, "try-parse double \"1e999\" -> 0 (overflow -> false, no throw)");
     ExpectD("-1e999", 0, "try-parse double \"-1e999\" -> 0");
     ExpectD("nan", 0, "try-parse double \"nan\" -> 0 (net48 is case-sensitive)");

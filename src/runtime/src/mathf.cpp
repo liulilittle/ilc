@@ -541,7 +541,6 @@ int32_t icall_mathf_sign_i(float value)
     // The only remaining input is NaN (a NaN fails every comparison).
     il2cpp_throw_new("System.ArithmeticException,System.ArithmeticException,System.SystemException,System.Exception",
                      "Function does not accept floating point Not-a-Number values.");
-    return 0; // unreachable (il2cpp_throw_new always throws); well-formed path only
 }
 
 //------------------------------------------------------------------------------

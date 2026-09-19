@@ -1,2 +1,0 @@
-E:/il2cpp/tests/cases/build_asan/CMakeFiles/edit_cache.dir
-E:/il2cpp/tests/cases/build_asan/CMakeFiles/rebuild_cache.dir

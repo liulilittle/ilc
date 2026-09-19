@@ -173,14 +173,28 @@ public class TypeEmitterNestedTests
         return new MemoryStream(blob.ToArray());
     }
 
+    // The metadata reader borrows its backing blocks from the PEReader; the
+    // reader is USED LONG AFTER Load returns (CtorMethodToken/typeinfo checks).
+    // Disposing the PEReader here leaves `md` dangling -- the block pool then
+    // hands the memory to a parallel test and StringHeap reads run out of
+    // bounds (flaky BadImageFormatException under the full parallel suite).
+    // Retain both handles for the process lifetime (test-only helper).
+    private static readonly List<PEReader> s_retainedReaders = new();
+
     private static (List<TypeDef> Types, MetadataReader Md) Load(string tmpPath, MemoryStream pe)
     {
         File.WriteAllBytes(tmpPath, pe.ToArray());
         var types = MetadataLoader.LoadAssembly(tmpPath);
-        using var fs = File.OpenRead(tmpPath);
-        using var per = new PEReader(fs);
+        // Read the bytes into memory FIRST: the caller deletes tmpPath, and a
+        // live FileStream would lock the file (and the metadata blocks must
+        // outlive the disposed REParse because md escapes this helper).
+        var per = new PEReader(new MemoryStream(File.ReadAllBytes(tmpPath), writable: false));
         var md = per.GetMetadataReader();
         TypeEmitter.ExpandNestedTypes(md, types);
+        lock (s_retainedReaders)
+        {
+            s_retainedReaders.Add(per);
+        }
         return (types, md);
     }
 
@@ -367,7 +381,7 @@ public class TypeEmitterNestedTests
             // BCL base -> nullptr (System.Exception is a runtime type).
             var d1 = TypeEmitter.EmitClassDescriptor(myExc);
             Assert.Contains("Il2CppClass Cases_Recurse_MyException_class", d1);
-            Assert.Contains("\"MyException\"", d1); // short name: reference-point identity
+            Assert.Contains("\"Cases.Recurse+MyException\"", d1); // '+' canonical: matches typeof/enum registry
             Assert.Contains("nullptr", d1);         // baseClass (BCL root)
             // Nested user base -> the nested descriptor (same short-name mapping).
             var d2 = TypeEmitter.EmitClassDescriptor(myExc2);

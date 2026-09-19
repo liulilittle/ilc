@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <utility>
+#include <vector>
 
 //------------------------------------------------------------------------------
 // System.Version runtime descriptor (GLOBAL scope -- the transpiler emits
@@ -61,19 +62,20 @@ Il2CppClass* il2cpp_version_class()
 //------------------------------------------------------------------------------
 // System.Uri runtime descriptor (GLOBAL scope -- the transpiler emits
 // &System_Uri_class for newobj/isinst/castclass, the same contract as
-// System_Version_class above). instanceSize covers the header + 4 string
-// pointers; slots 1..4 (scheme/host/path/opaque) ARE GC references, so
-// refFieldBitmap bits 1..4 are set -- the compacting collector scans them
-// and rewrites the slots on Gen0 compaction (the Version object has no such
-// requirement -- its components are int32, not references). The fourth slot
-// (opaque) is the verbatim "scheme:" remainder for opaque "scheme:rest"
-// URIs (D-NETD2-1); null for hierarchical/network-path URIs.
-//------------------------------------------------------------------------------
+// System_Version_class above). instanceSize covers the header + 5 string
+// pointers + the isAbsolute flag; slots 1..5
+// (scheme/host/path/opaque/original) ARE GC references, so refFieldBitmap
+// bits 1..5 are set -- the compacting collector scans them and rewrites the
+// slots on Gen0 compaction (the Version object has no such requirement --
+// its components are int32, not references). The fourth slot (opaque) is
+// the verbatim "scheme:" remainder for opaque "scheme:rest" URIs
+// (D-NETD2-1); null for hierarchical/network-path URIs. The fifth slot
+// (original) is the verbatim input text (OriginalString, URI-FIX P1).
 il2cpp::Il2CppClass System_Uri_class = {
     "System.Uri",                              // name
-    static_cast<int32_t>(sizeof(il2cpp::Il2CppUriObject)), // instanceSize: header + 4 string pointers
-    0b11110u,                                  // refFieldBitmap: bits 1,2,3,4 = scheme, host, path, opaque
-    4,                                         // refFieldCount: four reference fields
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppUriObject)), // instanceSize: header + 5 string pointers + flag
+    0b111110u,                                 // refFieldBitmap: bits 1..5 = scheme, host, path, opaque, original
+    5,                                         // refFieldCount: five reference fields
     &System_Object_class,                      // baseClass (a Uri IS-A object)
     nullptr,                                   // vtable
     0,                                         // vtableSize
@@ -94,6 +96,10 @@ static_assert(offsetof(Il2CppUriObject, path) == 3 * sizeof(void*),
               "Il2CppUriObject: path must sit at slot 3 (bitmap bit 3)");
 static_assert(offsetof(Il2CppUriObject, opaque) == 4 * sizeof(void*),
               "Il2CppUriObject: opaque must sit at slot 4 (bitmap bit 4)");
+static_assert(offsetof(Il2CppUriObject, original) == 5 * sizeof(void*),
+              "Il2CppUriObject: original must sit at slot 5 (bitmap bit 5)");
+static_assert(offsetof(Il2CppUriObject, isAbsolute) == 5 * sizeof(void*) + 8,
+              "Il2CppUriObject: isAbsolute must follow the original slot");
 
 bool g_uriClassRegistered = false;
 
@@ -672,7 +678,21 @@ int32_t il2cpp_uri_try_create(const char* text, il2cpp_uri_t* out)
             : std::strlen(hostStart);
         if (hostLen == 0)
         {
-            return 0; // empty authority (e.g. "http:///path" or "http://")
+            // URI-FIX P3 (C7): file:///drive paths carry an EMPTY authority
+            // (net48: file scheme, host "", path "/C:/..."). Every other
+            // scheme still rejects the empty host (net48 rejects
+            // "http:///path" too). Scheme compare is case-insensitive --
+            // the stored scheme keeps its verbatim case (C1 lowercases at
+            // rebuild).
+            bool isFile = (scheme.size() == 4)
+                && (scheme[0] == 'f' || scheme[0] == 'F')
+                && (scheme[1] == 'i' || scheme[1] == 'I')
+                && (scheme[2] == 'l' || scheme[2] == 'L')
+                && (scheme[3] == 'e' || scheme[3] == 'E');
+            if (!isFile)
+            {
+                return 0; // empty authority (e.g. "http:///path" or "http://")
+            }
         }
         il2cpp_uri_t parsed;
         parsed.scheme = scheme;
@@ -829,6 +849,433 @@ void AppendManagedPart(std::string* text, const Il2CppString* part)
     }
 }
 
+// UriKind carriers (System.UriKind: RelativeOrAbsolute=0, Absolute=1,
+// Relative=2 -- net48 probe, URI-FIX P1).
+constexpr int32_t kUriKindRelativeOrAbsolute = 0;
+constexpr int32_t kUriKindAbsolute = 1;
+constexpr int32_t kUriKindRelative = 2;
+
+// Rebuild the absolute URI text from the stored slots (P1 verbatim form --
+// identical to the old icall_uri_to_string rebuild until the C-series
+// normalization lands in P3/P4). Single source for ToString, AbsoluteUri
+// and Equals (C6: one rebuild path). Slots are null-checked so an
+// un-ctor'd instance degrades to "" instead of faulting.
+// Managed string -> ASCII std::string (null-safe; un-ctor'd slots read
+// null -- GC-safe by construction; stored parts are ASCII by construction,
+// the ctors reject non-ASCII before storing).
+std::string ManagedToAscii(const Il2CppString* part)
+{
+    std::string text;
+    if (part != nullptr)
+    {
+        text.reserve(static_cast<size_t>(part->length));
+        for (int32_t i = 0; i < part->length; ++i)
+        {
+            text.push_back(static_cast<char>(part->chars[i]));
+        }
+    }
+    return text;
+}
+
+// C1: ASCII lowercase in place (scheme + host proper).
+void AsciiToLowerInPlace(std::string* s)
+{
+    for (std::size_t i = 0; i < s->size(); ++i)
+    {
+        char c = (*s)[i];
+        if (c >= 'A' && c <= 'Z')
+        {
+            (*s)[i] = static_cast<char>(c + ('a' - 'A'));
+        }
+    }
+}
+
+// C1/C2/C5: normalize "[userinfo@]host-or-[v6][:port]" against the
+// (already lowercased) scheme. userinfo keeps its verbatim case (net48
+// treats it as case-sensitive); the host proper is lowercased (covers
+// IPv6 hex); a numeric port is emitted in canonical digits (leading zeros
+// stripped, C2) and omitted when it is the scheme default (C5:
+// http/80, https/443, ftp/21). A non-numeric port or garbage after ']'
+// keeps the whole authority verbatim (no vector -- minimal change).
+// Bare multi-colon hosts (unbracketed IPv6) never split a port.
+std::string NormalizeAuthority(const std::string& authority, const std::string& schemeLower)
+{
+    std::string userinfo;
+    std::string hostPort = authority;
+    const std::size_t at = authority.rfind('@');
+    if (at != std::string::npos)
+    {
+        userinfo.assign(authority, 0, at + 1);
+        hostPort.assign(authority, at + 1, std::string::npos);
+    }
+    std::string hostProper = hostPort;
+    std::string port;
+    bool hasPort = false;
+    if (!hostPort.empty() && hostPort[0] == '[')
+    {
+        const std::size_t close = hostPort.find(']');
+        if (close == std::string::npos)
+        {
+            return authority; // unbalanced -- verbatim
+        }
+        hostProper.assign(hostPort, 0, close + 1);
+        if (close + 1 < hostPort.size())
+        {
+            if (hostPort[close + 1] != ':')
+            {
+                return authority; // garbage after ']' -- verbatim
+            }
+            port.assign(hostPort, close + 2, std::string::npos);
+            hasPort = true;
+        }
+    }
+    else
+    {
+        const std::size_t colon = hostPort.find(':');
+        if (colon != std::string::npos
+            && hostPort.find(':', colon + 1) == std::string::npos)
+        {
+            // Single colon: host:port split.
+            hostProper.assign(hostPort, 0, colon);
+            port.assign(hostPort, colon + 1, std::string::npos);
+            hasPort = true;
+        }
+        // Else: plain host, or bare IPv6 (multi-colon) -- no port.
+    }
+    if (hasPort)
+    {
+        for (std::size_t i = 0; i < port.size(); ++i)
+        {
+            if (port[i] < '0' || port[i] > '9')
+            {
+                return authority; // non-numeric port -- verbatim
+            }
+        }
+        const std::size_t nz = port.find_first_not_of('0');
+        const std::string canon = (nz == std::string::npos) ? std::string("0") : port.substr(nz);
+        const bool isDefault = (schemeLower == "http" && canon == "80")
+            || (schemeLower == "https" && canon == "443")
+            || (schemeLower == "ftp" && canon == "21");
+        std::string out;
+        out.reserve(userinfo.size() + hostProper.size() + canon.size() + 1);
+        out += userinfo;
+        std::string lowerHost = hostProper;
+        AsciiToLowerInPlace(&lowerHost);
+        out += lowerHost;
+        if (!isDefault)
+        {
+            out += ':';
+            out += canon;
+        }
+        return out;
+    }
+    std::string out;
+    out.reserve(userinfo.size() + hostProper.size());
+    out += userinfo;
+    AsciiToLowerInPlace(&hostProper);
+    out += hostProper;
+    return out;
+}
+
+// P4 forward declarations (defined below BuildAbsoluteText -- C3 dot
+// folding over the RAW path, C4 unescape of non-reserved "%XX").
+std::string RemoveDotSegments(const std::string& path);
+std::string UnescapePath(const std::string& path);
+std::string CanonicalAbsolutePath(const std::string& raw);
+
+// Rebuild the absolute URI text from the stored slots (URI-FIX P3
+// normalized form -- single source for ToString, AbsoluteUri, Equals and
+// GetHashCode (C6: one rebuild path). Slots are null-checked so an
+// un-ctor'd instance degrades gracefully instead of faulting.
+// P3 normalization (hierarchical only; opaque "scheme:rest" stays verbatim)
+// plus P4 path canonicalization:
+//   C1 scheme + host-proper ASCII-lowercased (userinfo verbatim),
+//   C2/C5 numeric port canonicalized, scheme defaults omitted,
+//   C3 RFC 3986 dot-segments folded over the RAW path ("%2E" never folds),
+//   C4 non-reserved "%XX" unescaped (reserved "%XX" stays verbatim),
+//   C6 empty path becomes "/",
+//   C7 file scheme with an empty authority rebuilds "file:///path".
+std::string BuildAbsoluteText(const Il2CppUriObject* u)
+{
+    std::string text;
+    text.reserve(static_cast<size_t>(
+        (u->scheme != nullptr ? u->scheme->length : 0)
+        + (u->opaque != nullptr ? u->opaque->length : 0)
+        + (u->host != nullptr ? u->host->length : 0)
+        + (u->path != nullptr ? u->path->length : 0) + 4));
+    if (u->opaque != nullptr)
+    {
+        // Opaque "scheme:rest": rebuild with the verbatim remainder (P3
+        // leaves opaque untouched -- no vector, minimal change).
+        if (u->scheme != nullptr)
+        {
+            AppendManagedPart(&text, u->scheme);
+        }
+        text += ':';
+        AppendManagedPart(&text, u->opaque);
+        return text;
+    }
+    std::string scheme = ManagedToAscii(u->scheme);
+    AsciiToLowerInPlace(&scheme);
+    text += scheme;
+    text += "://";
+    text += NormalizeAuthority(ManagedToAscii(u->host), scheme);
+    std::string path = ManagedToAscii(u->path);
+    if (path.empty())
+    {
+        path = "/"; // C6
+    }
+    else
+    {
+        // P4: dot-fold the RAW path first (C3 -- "%2E" never folds),
+        // then unescape non-reserved "%XX" triples (C4).
+        path = UnescapePath(RemoveDotSegments(path));
+    }
+    text += path;
+    return text;
+}
+
+// C3: RFC 3986 section 5.2.4 dot-segment removal over the RAW path
+// (runs BEFORE C4 unescaping, so encoded "%2E" never folds -- no vector,
+// minimal change). "." segments drop; ".." pops the last normal segment
+// (above-root ".." drops -- no vector, documented); a trailing "/." or
+// "/.." yields a trailing "/" (RFC output rule).
+std::string RemoveDotSegments(const std::string& path)
+{
+    std::vector<std::string> kept;
+    std::size_t i = 0;
+    const bool leadingSlash = !path.empty() && path[0] == '/';
+    while (i <= path.size())
+    {
+        std::size_t slash = path.find('/', i);
+        if (slash == std::string::npos)
+        {
+            slash = path.size();
+        }
+        const std::string seg = path.substr(i, slash - i);
+        if (seg == "..")
+        {
+            // Pop the last NORMAL segment; at root (back is the "" root
+            // slot) or against another "..", the ".." simply drops
+            // (above-root -- no vector, documented).
+            if (!kept.empty() && !kept.back().empty() && kept.back() != "..")
+            {
+                kept.pop_back();
+            }
+        }
+        else if (seg == ".")
+        {
+            // Drop (but the trailing-slash rule below still applies).
+        }
+        else
+        {
+            kept.push_back(seg);
+        }
+        i = slash + 1;
+    }
+    std::string out;
+    for (std::size_t k = 0; k < kept.size(); ++k)
+    {
+        if (k != 0)
+        {
+            out += '/';
+        }
+        out += kept[k];
+    }
+    if (leadingSlash && (out.empty() || out[0] != '/'))
+    {
+        out = "/" + out;
+    }
+    // Trailing "/." or "/.." (or bare "." / "..") leaves a trailing "/".
+    if (path.size() >= 2 && path.compare(path.size() - 2, 2, "/.") == 0)
+    {
+        if (out.empty() || out[out.size() - 1] != '/')
+        {
+            out += '/';
+        }
+    }
+    else if (path.size() >= 3 && path.compare(path.size() - 3, 3, "/..") == 0)
+    {
+        if (out.empty() || out[out.size() - 1] != '/')
+        {
+            out += '/';
+        }
+    }
+    return out;
+}
+// C4: single-pass %XX unescape over the dot-folded path (runs AFTER C3,
+// so encoded "%2E" never folds -- no vector, minimal change). A valid
+// "%XX" triple decodes to the raw byte UNLESS the byte is '%' itself or
+// an RFC 3986 reserved character (gen-delims ":/?#[]@" + sub-delims
+// "!$&'()*+,;=") -- those stay "%XX" verbatim (original case preserved),
+// so "%2F" never becomes a path separator. Invalid or trailing '%'
+// stays verbatim; '+' is untouched (not a space in paths).
+bool IsHexDigit(char c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+unsigned HexValue(char c)
+{
+    if (c >= '0' && c <= '9')
+    {
+        return static_cast<unsigned>(c - '0');
+    }
+    if (c >= 'a' && c <= 'f')
+    {
+        return static_cast<unsigned>(c - 'a') + 10u;
+    }
+    return static_cast<unsigned>(c - 'A') + 10u;
+}
+bool IsReservedByte(unsigned b)
+{
+    switch (static_cast<char>(b))
+    {
+        case ':': case '/': case '?': case '#': case '[': case ']': case '@':
+        case '!': case '$': case '&': case '\'': case '(': case ')':
+        case '*': case '+': case ',': case ';': case '=':
+            return true;
+        default:
+            return false;
+    }
+}
+std::string UnescapePath(const std::string& path)
+{
+    std::string out;
+    out.reserve(path.size());
+    std::size_t i = 0;
+    while (i < path.size())
+    {
+        const char c = path[i];
+        if (c == '%' && path.size() - i >= 3 && IsHexDigit(path[i + 1]) && IsHexDigit(path[i + 2]))
+        {
+            const unsigned b = HexValue(path[i + 1]) * 16u + HexValue(path[i + 2]);
+            if (b == 0x25u || IsReservedByte(b))
+            {
+                out.append(path, i, 3); // keep "%XX" verbatim (case preserved)
+            }
+            else
+            {
+                out.push_back(static_cast<char>(b)); // raw byte (UTF-8 passes through)
+            }
+            i += 3;
+        }
+        else
+        {
+            out.push_back(c); // incl. invalid/trailing '%' and '+'
+            ++i;
+        }
+    }
+    return out;
+}
+// P4b: AbsolutePath normalization (oracle evidence or004f.txt: dots fold
+// like ToString, but "%XX" stays escaped -- NO C4 here; C6 empty->"/"
+// applies). Opaque/relative callers keep their verbatim slots (unchanged).
+std::string CanonicalAbsolutePath(const std::string& raw)
+{
+    if (raw.empty())
+    {
+        return "/"; // C6
+    }
+    return RemoveDotSegments(raw); // C3 only -- escapes preserved
+}
+int32_t OrdinalFoldHash(const std::string& text)
+{
+    uint32_t h = 2166136261u;
+    for (std::size_t i = 0; i < text.size(); ++i)
+    {
+        h ^= static_cast<uint8_t>(text[i]);
+        h *= 16777619u;
+    }
+    return static_cast<int32_t>(h);
+}
+
+// Ordinal compare of two managed strings (null-safe; un-ctor'd slots read
+// as null -- GC-safe by construction).
+bool ManagedStringEquals(const Il2CppString* x, const Il2CppString* y)
+{
+    if (x == y)
+    {
+        return true;
+    }
+    if (x == nullptr || y == nullptr)
+    {
+        return false;
+    }
+    if (x->length != y->length)
+    {
+        return false;
+    }
+    for (int32_t i = 0; i < x->length; ++i)
+    {
+        if (x->chars[i] != y->chars[i])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Store a parsed ABSOLUTE uri plus the verbatim original text. Each string
+// allocation below can trigger a compacting collection that MOVES the fresh
+// Uri (only reachable through the caller's frame slot, which is rewritten):
+// root 'self' and re-read the (possibly moved) object AFTER every
+// allocation, then store into the re-rooted copy. The refFieldBitmap slots
+// were zeroed by il2cpp_object_new, so a partially initialized object is
+// GC-safe -- but a store to the moved-out OLD address would be silently
+// lost (stackqueue2 e2e, 2026-08-13).
+void StoreAbsoluteFromParsed(Il2CppObject* self, const il2cpp_uri_t& parsed, const char* originalAscii)
+{
+    GcRoot<Il2CppObject*> root(self, "StoreAbsoluteFromParsed");
+    Il2CppString* scheme = il2cpp_string_new_from_utf8(parsed.scheme.c_str());
+    self = root.Get();
+    AsUri(self)->scheme = scheme;
+    Il2CppString* host = il2cpp_string_new_from_utf8(parsed.host.c_str());
+    self = root.Get();
+    AsUri(self)->host = host;
+    Il2CppString* path = il2cpp_string_new_from_utf8(parsed.path.c_str());
+    self = root.Get();
+    AsUri(self)->path = path;
+    if (parsed.isOpaque)
+    {
+        Il2CppString* opaque = il2cpp_string_new_from_utf8(parsed.opaque.c_str());
+        self = root.Get();
+        AsUri(self)->opaque = opaque;
+    }
+    else
+    {
+        AsUri(self)->opaque = nullptr;
+    }
+    // Opaque (D-NETD2-1): the verbatim "scheme:" remainder, or null for
+    // hierarchical/network-path URIs -- its null-ness discriminates the two
+    // ToString rebuild forms.
+    Il2CppString* original = il2cpp_string_new_from_utf8(originalAscii);
+    self = root.Get();
+    Il2CppUriObject* u = AsUri(self);
+    u->original = original;
+    u->isAbsolute = 1;
+}
+
+// Store a RELATIVE uri verbatim (UriKind.Relative -- net48:
+// ToString()==OriginalString, no parsing and no normalization,
+// IsAbsoluteUri==false). One shared empty string backs the three unused
+// component slots (shared references are GC-safe).
+void StoreRelativeVerbatim(Il2CppObject* self, const char* verbatimAscii)
+{
+    GcRoot<Il2CppObject*> root(self, "StoreRelativeVerbatim");
+    Il2CppString* empty = il2cpp_string_new_from_utf8("");
+    self = root.Get();
+    Il2CppUriObject* u = AsUri(self);
+    u->scheme = empty;
+    u->host = empty;
+    u->path = empty;
+    u->opaque = nullptr;
+    Il2CppString* original = il2cpp_string_new_from_utf8(verbatimAscii);
+    self = root.Get();
+    u = AsUri(self);
+    u->original = original;
+    u->isAbsolute = 0;
+}
+
 } // namespace
 
 void icall_uri_ctor(Il2CppObject* self, Il2CppObject* input)
@@ -848,41 +1295,47 @@ void icall_uri_ctor(Il2CppObject* self, Il2CppObject* input)
     {
         il2cpp_throw_argument_exception(kInvalidUriMessage);
     }
-    Il2CppUriObject* u = AsUri(self);
-    // Each string allocation below can trigger a compacting collection that
-    // MOVES the fresh Uri (only reachable through the caller's frame slot,
-    // which is rewritten): root 'self' and re-read the (possibly moved)
-    // object AFTER every allocation, then store into the re-rooted copy. The
-    // refFieldBitmap slots were zeroed by il2cpp_object_new, so a partially
-    // initialized object is GC-safe -- but a store to the moved-out OLD
-    // address would be silently lost (stackqueue2 e2e, 2026-08-13).
-    GcRoot<Il2CppObject*> root(self, "icall_uri_ctor");
-    Il2CppString* scheme = il2cpp_string_new_from_utf8(parsed.scheme.c_str());
-    self = root.Get();
-    u = AsUri(self);
-    u->scheme = scheme;
-    Il2CppString* host = il2cpp_string_new_from_utf8(parsed.host.c_str());
-    self = root.Get();
-    u = AsUri(self);
-    u->host = host;
-    Il2CppString* path = il2cpp_string_new_from_utf8(parsed.path.c_str());
-    self = root.Get();
-    u = AsUri(self);
-    u->path = path;
-    // Opaque (D-NETD2-1): the verbatim "scheme:" remainder, or null for
-    // hierarchical/network-path URIs -- its null-ness discriminates the two
-    // ToString rebuild forms.
-    if (parsed.isOpaque)
+    StoreAbsoluteFromParsed(self, parsed, ascii.c_str());
+}
+
+// Uri(string, UriKind) (URI-FIX P1 -- B3): Relative stores verbatim;
+// Absolute parses (failure -> ArgumentException -- net48 throws
+// UriFormatException, recorded deviation); RelativeOrAbsolute parses when
+// possible and otherwise degrades to verbatim relative storage. An
+// undefined kind carrier is rejected like net48 (ArgumentException).
+void icall_uri_ctor_2(Il2CppObject* self, Il2CppObject* input, int32_t kind)
+{
+    ThrowIfNullReceiver(self);
+    if (input == nullptr)
     {
-        Il2CppString* opaque = il2cpp_string_new_from_utf8(parsed.opaque.c_str());
-        self = root.Get();
-        u = AsUri(self);
-        u->opaque = opaque;
+        il2cpp_throw_argument_null_exception("uriString");
     }
-    else
+    if (kind != kUriKindRelativeOrAbsolute && kind != kUriKindAbsolute && kind != kUriKindRelative)
     {
-        u->opaque = nullptr;
+        il2cpp_throw_argument_exception("Invalid UriKind value.");
     }
+    std::string ascii;
+    if (!UriAsciiFromManaged(reinterpret_cast<Il2CppString*>(input), &ascii))
+    {
+        il2cpp_throw_argument_exception(kInvalidUriMessage);
+    }
+    if (kind == kUriKindRelative)
+    {
+        StoreRelativeVerbatim(self, ascii.c_str());
+        return;
+    }
+    il2cpp_uri_t parsed;
+    if (il2cpp_uri_try_create(ascii.c_str(), &parsed))
+    {
+        StoreAbsoluteFromParsed(self, parsed, ascii.c_str());
+        return;
+    }
+    if (kind == kUriKindRelativeOrAbsolute)
+    {
+        StoreRelativeVerbatim(self, ascii.c_str());
+        return;
+    }
+    il2cpp_throw_argument_exception(kInvalidUriMessage);
 }
 
 Il2CppObject* icall_uri_get_scheme(Il2CppObject* self)
@@ -900,31 +1353,100 @@ Il2CppObject* icall_uri_get_host(Il2CppObject* self)
 Il2CppObject* icall_uri_get_path(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
-    return reinterpret_cast<Il2CppObject*>(AsUri(self)->path);
+    const Il2CppUriObject* u = AsUri(self);
+    if (u->isAbsolute == 0 || u->opaque != nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(u->path); // verbatim (unchanged)
+    }
+    // P4b: hierarchical absolute path -- same C3 dot-folding and C6
+    // empty-path rule as BuildAbsoluteText, but escapes stay verbatim
+    // (net48 AbsolutePath keeps "%XX" -- oracle diffuri004).
+    const std::string path = CanonicalAbsolutePath(ManagedToAscii(u->path));
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(path.c_str()));
 }
 
 Il2CppObject* icall_uri_to_string(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     const Il2CppUriObject* u = AsUri(self);
-    std::string text;
-    text.reserve(static_cast<size_t>(u->scheme->length
-                                     + (u->opaque != nullptr ? u->opaque->length : 0)
-                                     + u->host->length + u->path->length + 3));
-    AppendManagedPart(&text, u->scheme);
-    if (u->opaque != nullptr)
+    // Relative verbatim storage (UriKind.Relative): net48 guarantees
+    // ToString()==OriginalString with no normalization.
+    if (u->isAbsolute == 0)
     {
-        // Opaque "scheme:rest": rebuild with the verbatim remainder.
-        text += ':';
-        AppendManagedPart(&text, u->opaque);
+        if (u->original == nullptr)
+        {
+            return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(""));
+        }
+        return reinterpret_cast<Il2CppObject*>(u->original);
     }
-    else
-    {
-        text += "://";
-        AppendManagedPart(&text, u->host);
-        AppendManagedPart(&text, u->path);
-    }
+    const std::string text = BuildAbsoluteText(u);
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(text.c_str()));
+}
+
+Il2CppObject* icall_uri_get_originalstring(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return reinterpret_cast<Il2CppObject*>(AsUri(self)->original);
+}
+
+Il2CppObject* icall_uri_get_absoluteuri(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    const Il2CppUriObject* u = AsUri(self);
+    if (u->isAbsolute == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("This operation is not supported for a relative URI.");
+    }
+    const std::string text = BuildAbsoluteText(u);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(text.c_str()));
+}
+
+bool icall_uri_get_is_absolute_uri(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return AsUri(self)->isAbsolute != 0;
+}
+
+// Equals(object) (URI-FIX P1, normalized P3/P4): relative vs absolute never
+// equal; two relatives compare OriginalString ordinally (net48); two
+// absolutes compare the normalized AbsoluteUri ordinally
+// (C1/C2/C3/C4/C5/C6/C7).
+bool icall_uri_equals(Il2CppObject* self, Il2CppObject* other)
+{
+    ThrowIfNullReceiver(self);
+    if (other == nullptr)
+    {
+        return false;
+    }
+    if (!il2cpp_is_instance(other, &System_Uri_class))
+    {
+        return false;
+    }
+    const Il2CppUriObject* a = AsUri(self);
+    const Il2CppUriObject* b = AsUri(other);
+    if (a->isAbsolute != b->isAbsolute)
+    {
+        return false;
+    }
+    if (a->isAbsolute == 0)
+    {
+        return ManagedStringEquals(a->original, b->original);
+    }
+    return BuildAbsoluteText(a) == BuildAbsoluteText(b);
+}
+
+// GetHashCode() (URI-FIX P3 -- accepted deviation, see versionuri.h): the
+// deterministic ordinal fold over the SAME text Equals compares, so
+// Equals(a,b) implies GetHashCode(a)==GetHashCode(b) by construction.
+int32_t icall_uri_get_hash_code(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    const Il2CppUriObject* u = AsUri(self);
+    if (u->isAbsolute == 0)
+    {
+        return OrdinalFoldHash(ManagedToAscii(u->original));
+    }
+    return OrdinalFoldHash(BuildAbsoluteText(u));
 }
 
 }} // namespace il2cpp::runtime

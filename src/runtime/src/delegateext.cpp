@@ -105,6 +105,15 @@ bool LeafEqual(const Il2CppDelegate* x, const Il2CppDelegate* y)
     return x->methodPtr == y->methodPtr && x->target == y->target;
 }
 
+// rlaudit4: the transpiler-stamped delegate type ID (0 = untracked creation
+// path; see icall_delegate_combine). Containers and leaves both carry it.
+uint64_t DelegateTypeId(Il2CppObject* d)
+{
+    return IsContainer(d)
+        ? reinterpret_cast<Il2CppMulticastDelegate*>(d)->typeId
+        : reinterpret_cast<Il2CppDelegate*>(d)->typeId;
+}
+
 // Flatten a composition tree into its leaf delegates in invocation order:
 // for every container node the FIRST subtree is emitted before the SECOND
 // subtree (matches .NET list concatenation under every combine shape).
@@ -202,7 +211,6 @@ Il2CppObject* icall_delegate_combine(Il2CppObject* a, Il2CppObject* b)
     {
         il2cpp_throw_new("System.ArgumentException,System.Exception",
                          "Cannot combine delegates with different base types.");
-        return nullptr; // unreachable (il2cpp_throw_new never returns)
     }
     EnsureMulticastRegistered();
     Il2CppMulticastDelegate* node = reinterpret_cast<Il2CppMulticastDelegate*>(
@@ -235,7 +243,6 @@ int32_t icall_delegate_get_hash_code(Il2CppObject* d)
     {
         il2cpp_throw_new("System.NullReferenceException,System.Exception",
                          "Object reference not set to an instance of an object.");
-        return 0; // unreachable (il2cpp_throw_new never returns)
     }
     std::vector<Il2CppDelegate*> leaves;
     Flatten(d, leaves);
@@ -325,6 +332,12 @@ bool icall_delegate_equals(Il2CppObject* a, Il2CppObject* b)
 {
     if (a == b) return true; // covers both null and identity
     if (a == nullptr || b == nullptr) return false;
+    // net48 Delegate.Equals -> InternalEqualTypes: different runtime TYPES are
+    // never equal, even with the same target method (probe: dx.Equals(dy)
+    // False). typeId 0 = untracked path -> conservative skip (see Combine).
+    const uint64_t ta = DelegateTypeId(a);
+    const uint64_t tb = DelegateTypeId(b);
+    if (ta != 0 && tb != 0 && ta != tb) return false;
     std::vector<Il2CppDelegate*> la;
     std::vector<Il2CppDelegate*> lb;
     Flatten(a, la);
@@ -363,7 +376,6 @@ Il2CppObject* icall_delegate_get_method_name(Il2CppObject* d)
     {
         il2cpp_throw_new("System.NullReferenceException,System.Exception",
                          "Object reference not set to an instance of an object.");
-        return nullptr; // unreachable (il2cpp_throw_new never returns)
     }
     std::vector<Il2CppDelegate*> list;
     Flatten(d, list);
@@ -374,7 +386,6 @@ Il2CppObject* icall_delegate_get_method_name(Il2CppObject* d)
         il2cpp_throw_new("System.InvalidOperationException,System.Exception",
                          "The delegate's bound method has no registered name "
                          "(il2cpp_delegate_register_method was never called for it).");
-        return nullptr; // unreachable (il2cpp_throw_new never returns)
     }
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(name));
 }
@@ -402,7 +413,6 @@ int32_t icall_multicast_invoke_i4(Il2CppObject* list, int32_t a0, int32_t a1, in
     {
         il2cpp_throw_new("System.NullReferenceException,System.Exception",
                          "Object reference not set to an instance of an object.");
-        return 0; // unreachable (il2cpp_throw_new never returns)
     }
     std::vector<Il2CppDelegate*> leaves;
     Flatten(list, leaves);
@@ -486,6 +496,36 @@ void icall_multicast_invoke_r_void(Il2CppObject* list, Il2CppObject* a0)
 }
 
 //------------------------------------------------------------------------------
+// rlaudit4: icall_multicast_invoke_r -- ref-returning, ZERO-arg multicast
+// (`Func<string> f; f()`): call every leaf's methodPtr in invocation order,
+// return the LAST result (.NET multicast semantics). Per-leaf dispatch by
+// binding (mirrors the sibling variants): static -> Il2CppObject*(*)(void);
+// instance -> Il2CppObject*(*)(Il2CppObject*) called as (target).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_multicast_invoke_r(Il2CppObject* list)
+{
+    if (list == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    std::vector<Il2CppDelegate*> leaves;
+    Flatten(list, leaves);
+    typedef Il2CppObject* (*RFn)(void);
+    typedef Il2CppObject* (*RThisFn)(Il2CppObject*);
+    Il2CppObject* result = nullptr;
+    for (size_t i = 0; i < leaves.size(); ++i)
+    {
+        Il2CppDelegate* leaf = leaves[i];
+        if (leaf->target != nullptr)
+            result = reinterpret_cast<RThisFn>(leaf->methodPtr)(leaf->target);
+        else
+            result = reinterpret_cast<RFn>(leaf->methodPtr)();
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
 // icall_delegate_get_fn_ptr -- Delegate -> native function pointer (see the
 // header for the full contract). Returns the SINGLE-CAST STATIC-method
 // delegate's methodPtr; null, multicast containers and target-bound
@@ -499,21 +539,42 @@ void* icall_delegate_get_fn_ptr(Il2CppObject* d)
     {
         il2cpp_throw_new("System.NullReferenceException,System.Exception",
                          "Object reference not set to an instance of an object.");
-        return nullptr; // unreachable (il2cpp_throw_new never returns)
     }
     if (IsContainer(d))
     {
         il2cpp_throw_new("System.InvalidOperationException,System.Exception",
                          "A multicast delegate has no single native function pointer.");
-        return nullptr;
     }
     Il2CppDelegate* leaf = reinterpret_cast<Il2CppDelegate*>(d);
     if (leaf->target != nullptr)
     {
         il2cpp_throw_new("System.InvalidOperationException,System.Exception",
                          "An instance-method delegate has no native function pointer (no target binding).");
-        return nullptr;
     }
+    return leaf->methodPtr;
+}
+
+//------------------------------------------------------------------------------
+// icall_delegate_get_fn_ptr_target -- (methodPtr, target) extraction that
+// ACCEPTS an instance-bound delegate (see the header). Used by the ThreadStart
+// ctor: the target rides back to the caller so the spawned thread can invoke
+// the generated instance ABI `void M(Il2CppObject* this)`.
+//------------------------------------------------------------------------------
+void* icall_delegate_get_fn_ptr_target(Il2CppObject* d, Il2CppObject** outTarget)
+{
+    if (outTarget != nullptr) *outTarget = nullptr;
+    if (d == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    if (IsContainer(d))
+    {
+        il2cpp_throw_new("System.InvalidOperationException,System.Exception",
+                         "A multicast delegate has no single native function pointer.");
+    }
+    Il2CppDelegate* leaf = reinterpret_cast<Il2CppDelegate*>(d);
+    if (outTarget != nullptr) *outTarget = leaf->target;
     return leaf->methodPtr;
 }
 

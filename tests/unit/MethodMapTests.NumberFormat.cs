@@ -33,9 +33,10 @@ public class MethodMapTestsNumberFormat
         var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", "get_CurrentInfo", Sig(0x1C)),
             "get_CurrentInfo");
 
-        Assert.Equal(ResolvedMethod.NullMarker, resolved.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_culture_get_current", resolved.CppName);
         Assert.False(resolved.IsInstance);
         Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
     }
 
     [Fact]
@@ -44,8 +45,9 @@ public class MethodMapTestsNumberFormat
         var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", "get_InvariantInfo", Sig(0x1C)),
             "get_InvariantInfo");
 
-        Assert.Equal(ResolvedMethod.NullMarker, resolved.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_culture_get_invariant", resolved.CppName);
         Assert.False(resolved.IsInstance);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------
@@ -61,8 +63,6 @@ public class MethodMapTestsNumberFormat
     [InlineData("get_PositiveSign", "+")]
     [InlineData("get_NegativeSign", "-")]
     [InlineData("get_NaNSymbol", "NaN")]
-    [InlineData("get_PositiveInfinitySymbol", "Infinity")]
-    [InlineData("get_NegativeInfinitySymbol", "-Infinity")]
     public void Resolve_NumberFormatInfo_SeparatorGetters_FoldToInvariantLiteral(string member, string expected)
     {
         var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", member, Sig(0x0E)), member);
@@ -93,7 +93,20 @@ public class MethodMapTestsNumberFormat
         Assert.True(resolved.IsInstance);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(0, resolved.ParamCount);
-        Assert.Equal("drop", resolved.ParamTypeNames![0]); // null-folded receiver dropped
+        Assert.Equal("", resolved.ParamTypeNames![0]); // culture-name receiver
+    }
+
+    [Theory]
+    [InlineData("get_PositiveInfinitySymbol", "il2cpp::runtime::il2cpp_number_format_positive_infinity_symbol")]
+    [InlineData("get_NegativeInfinitySymbol", "il2cpp::runtime::il2cpp_number_format_negative_infinity_symbol")]
+    public void Resolve_NumberFormatInfo_InfinitySymbol_MapsToRuntimeIcall(string member, string expected)
+    {
+        var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", member, Sig(0x0E)), member);
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------

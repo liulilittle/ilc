@@ -35,11 +35,15 @@ using Xunit;
 // (Il2CppObject*), so the instance receiver cast is "" (pass-through) and
 // value arguments cast with "i".
 //
-// Instantiation guard: a folded receiver instance name other than
-// "System.Collections.Generic.List`1_int" is a known-unwireable instantiation
+// Instantiation guard: the int32 AOT expansion ("List`1_int") maps to the
+// il2cpp_list_i4_* value domain; the reference instantiations ("_class",
+// "_string", "_object", "_array" -- every reference metadata form) map to
+// the il2cpp_list_obj_* reference domain (listobj.h). Any OTHER
+// instantiation (a value-type element -- "_long" etc.) is known-unwireable
 // and must fail LOUDLY (NotSupportedException), never silently fall to the
-// generated-name path. A T-shaped parameter that is not VAR (0x13) is not
-// the List`1 definition signature at all and must also be LOUD.
+// generated-name path (and the .ctor must not silently take the i4 create).
+// A T-shaped parameter that is not VAR (0x13) is not the List`1 definition
+// signature at all and must also be LOUD.
 public class MethodMapTestsList
 {
     //--------------------------------------------------------------------------
@@ -144,31 +148,165 @@ public class MethodMapTestsList
     }
 
     //--------------------------------------------------------------------------
-    // Instantiation guard -- a non-int32 instantiation is LOUD, not silent
+    // Reference-element instantiations -- the listobj reference domain
+    // (src/runtime/include/internal/listobj.h). The TypeSpec decoder names the
+    // element by its metadata form: CLASS (0x12) -> "_class", STRING (0x0E) ->
+    // "_string", OBJECT (0x1C) -> "_object", SZARRAY (0x1D) -> "_array". All
+    // four are managed references sharing the Il2CppObject* slot ABI, so every
+    // one of them must route to il2cpp_list_obj_*.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_List_GetCount_StringReceiver_ThrowsLoud()
+    public void Resolve_List_GetCount_StringReceiver_MapsToObjGetCount()
     {
-        // get_Count has no T-bearing parameter, so the guard falls back to the
-        // folded receiver instance name: a List`1_string receiver is LOUD.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Count", Sig(0x20,0x00,0x08)),
-                "get_Count", receiverType: "System.Collections.Generic.List`1_string"));
+        // get_Count has no T-bearing parameter, so the domain selection falls
+        // back to the folded receiver instance name.
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Count", Sig(0x20,0x00,0x08)),
+            "get_Count", receiverType: "System.Collections.Generic.List`1_string");
 
-        Assert.Contains("System.Collections.Generic.List`1::get_Count", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_count", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
     }
 
     [Fact]
-    public void Resolve_List_Add_StringReceiver_ThrowsLoud()
+    public void Resolve_List_Add_StringReceiver_MapsToObjAdd()
     {
-        // Add(T) with a folded List`1_string receiver -- LOUD (the ps VAR
-        // shape cannot distinguish instantiations; the receiver name can).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
-                "Add", receiverType: "System.Collections.Generic.List`1_string"));
+        // Add(T) with a List`1_string receiver: the element crosses as a
+        // managed reference ("" passthrough -- no int32 cast).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+            "Add", receiverType: "System.Collections.Generic.List`1_string");
 
-        Assert.Contains("System.Collections.Generic.List`1::Add", ex.Message);
-        Assert.Contains("il2cpp_list_i4", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_list_obj_add", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.Equal("", resolved.ParamTypeNames![1]);
+    }
+
+    [Fact]
+    public void Resolve_List_GetItem_ObjectReceiver_MapsToObjGetItem()
+    {
+        // get_Item on a List`1_object receiver returns the element as a
+        // managed reference (ReturnsRef true).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_object");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.Equal("i", resolved.ParamTypeNames![1]);
+    }
+
+    [Fact]
+    public void Resolve_List_Add_ArrayReceiver_MapsToObjAdd()
+    {
+        // SZARRAY element (0x1D -> "_array"), e.g. List<string[]>: still a
+        // managed reference slot.
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+            "Add", receiverType: "System.Collections.Generic.List`1_array");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_add", resolved.CppName);
+        Assert.Equal("", resolved.ParamTypeNames![1]);
+    }
+
+    [Fact]
+    public void Resolve_List_Ctor_StringReceiver_MapsToObjCreate()
+    {
+        // Parameterless .ctor on a reference instantiation creates through the
+        // listobj domain (the newobj temp is dropped; the create icall returns
+        // the new object).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", ".ctor", Sig(0x20,0x00,0x01)),
+            ".ctor", receiverType: "System.Collections.Generic.List`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_create", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("drop", resolved.ParamTypeNames![0]);
+    }
+
+    //--------------------------------------------------------------------------
+    // Instantiation guard -- an instantiation that is neither the int32 AOT
+    // expansion nor a reference element is LOUD, not silent
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_List_Ctor_LongReceiver_MapsToObjCreate()
+    {
+        // G4: List<long> rides the listobj storage domain -- the parameterless
+        // ctor creates through the object-domain create (the *_long value
+        // icalls box/unbox at the member boundary).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", ".ctor", Sig(0x20,0x00,0x01)),
+            ".ctor", receiverType: "System.Collections.Generic.List`1_long");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_create", resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal(new[] { "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_List_Ctor_DoubleReceiver_MapsToObjCreate()
+    {
+        // G4: List<double> rides the listobj storage domain -- the parameterless
+        // ctor creates through the object-domain create (the *_double value
+        // icalls box/unbox at the member boundary).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", ".ctor", Sig(0x20,0x00,0x01)),
+            ".ctor", receiverType: "System.Collections.Generic.List`1_double");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_create", resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal(new[] { "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_List_Ctor_NestedListReceiver_MapsToObjCreate()
+    {
+        // G4: List<List<int>> -- the nested GenericInst element is a managed
+        // reference, so the instantiation rides the listobj domain (its
+        // instance name carries the fully nested suffix).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", ".ctor", Sig(0x20,0x00,0x01)),
+            ".ctor", receiverType: "System.Collections.Generic.List`1_System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_create", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_List_GetItem_NestedListReceiver_TracksInnerList()
+    {
+        // The get_Item result tracks the INNER instantiation name so member
+        // calls on the returned list resolve against List<int>.
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item", resolved.CppName);
+        Assert.Equal("System.Collections.Generic.List`1_int", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_List_Add_DoubleReceiver_MapsToAddDouble()
+    {
+        // instance void Add(T): real blob 20 01 01 13 00; the double domain
+        // boxes on entry (icall_box_double), so the value cast is "d".
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+            "Add", receiverType: "System.Collections.Generic.List`1_double");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_add_double", resolved.CppName);
+        Assert.Equal(new[] { "", "d" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_List_GetItem_DoubleReceiver_ResultKindDouble()
+    {
+        // instance T get_Item(int32): real blob 20 01 13 00 08; the element
+        // leaves as the double carrier (ResultKind "d" -- the emitter declares
+        // a double local and unboxes on exit).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_double");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item_double", resolved.CppName);
+        Assert.Equal("d", resolved.ResultKind);
     }
 
     [Fact]
@@ -266,6 +404,151 @@ public class MethodMapTestsList
         Assert.Equal(1, resolved.ParamCount);
         Assert.Equal("drop", resolved.ParamTypeNames![0]); // newobj temp dropped
         Assert.Equal("i", resolved.ParamTypeNames![1]);
+    }
+
+    //--------------------------------------------------------------------------
+    // Enumerator dispatch over a reference List receiver: the tracked
+    // pseudo-type carries the element form ("...List`1.Enumerator_string"),
+    // so get_Current returns a managed reference and the listobj enumerator
+    // icalls are selected (listrefdeep foreach).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ListEnumerator_StringReceiver_GetCurrent_MapsToObj()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1+Enumerator", "get_Current", Sig(0x20,0x00,0x13,0x00)),
+            "get_Current", receiverType: "System.Collections.Generic.List`1.Enumerator_string");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_enumerator_get_current", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_ListEnumerator_StringReceiver_MoveNext_MapsToObj()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1+Enumerator", "MoveNext", Sig(0x20,0x00,0x02)),
+            "MoveNext", receiverType: "System.Collections.Generic.List`1.Enumerator_string");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_enumerator_move_next", resolved.CppName);
+        Assert.False(resolved.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_IDisposable_StringEnumeratorDispose_MapsToObj()
+    {
+        var resolved = ResolveMember(Synthesize("System", "IDisposable", "Dispose", Sig(0x20,0x00,0x01)),
+            "Dispose", receiverType: "System.Collections.Generic.List`1.Enumerator_string");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_enumerator_dispose", resolved.CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // Generic interface owners over a reference List receiver
+    // (TryMapListInterface): `ilist[i]` / `ilist.Count` on IList`1<T> where T
+    // is a reference type. The tracked element type follows the receiver
+    // instance suffix so downstream member resolution sees the right type.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_IListGetItem_StringListReceiver_MapsToObjGetItem()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "IList`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_string");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_ICollectionGetCount_ClassListReceiver_MapsToObjGetCount()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "ICollection`1", "get_Count", Sig(0x20,0x00,0x08)),
+            "get_Count", receiverType: "System.Collections.Generic.List`1_class");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_count", resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_IListGetItem_ForeignReceiver_ThrowsLoud()
+    {
+        // A receiver-typed attempt that still has no mapping is a REAL gap:
+        // BclResolve rejects it LOUDLY (MethodRefResolver.cs:721-740) instead
+        // of emitting a phantom generated name. "_long" is neither the int32
+        // expansion nor a reference List instance.
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Collections.Generic", "IList`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+                "get_Item", receiverType: "System.Collections.Generic.List`1_long"));
+
+        Assert.Contains("IList`1::get_Item", ex.Message);
+        Assert.Contains("System.Collections.Generic.List`1_long", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // Dotted user-class instantiations (A5/B1/B6 myIList/baudit2/
+    // ilistException): "List`1_System.Exception" / "List`1_Cases.Baudit2.P"
+    // ride the SHARED listobj reference domain (the Queue dotted-tag
+    // precedent) -- every reference element shares the Il2CppObject* slot
+    // ABI. BCL struct full names stay LOUD (no per-type box domain).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_List_Add_DottedClassReceiver_MapsToObjAdd()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+            "Add", receiverType: "System.Collections.Generic.List`1_System.Exception");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_add", resolved.CppName);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_List_Ctor_DottedClassReceiver_MapsToObjCreate()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", ".ctor", Sig(0x20,0x00,0x01)),
+            ".ctor", receiverType: "System.Collections.Generic.List`1_Cases.Baudit2.P");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_create", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_List_GetCount_DottedClassReceiver_MapsToObjGetCount()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Count", Sig(0x20,0x00,0x08)),
+            "get_Count", receiverType: "System.Collections.Generic.List`1_System.Exception");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_count", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_List_GetItem_DottedClassReceiver_ReturnsRefTracked()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_System.Exception");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Exception", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_IListGetItem_DottedClassReceiver_MapsToObjGetItem()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "IList`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_System.Exception");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item", resolved.CppName);
+        Assert.Equal("System.Exception", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_List_Add_DottedStructReceiver_StaysLoud()
+    {
+        // BCL struct full names are excluded from the dotted rule (no
+        // per-type box domain exists) -- they stay LOUD, never silently
+        // take the reference domain.
+        Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+                "Add", receiverType: "System.Collections.Generic.List`1_System.DateTime"));
     }
 
     //--------------------------------------------------------------------------

@@ -10,7 +10,9 @@
 // Plain executable + minimal assertion harness (see test_gchandle.cpp).
 //------------------------------------------------------------------------------
 
-#include "../src/runtime/include/internal/stubs.h"
+#include "il2cpp_object.h" // Il2CppObject (stubs.h signatures)
+#include "il2cpp_string.h" // Il2CppString
+#include "stubs.h"         // AppDomain PNSE stubs
 #include "il2cpp_exception.h"
 
 #include <cstdio>

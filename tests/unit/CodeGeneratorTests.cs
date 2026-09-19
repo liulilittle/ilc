@@ -355,8 +355,11 @@ public class CodeGeneratorTests
             // D-TYPG-1: reference-element newarr passes the ELEMENT class so
             // the runtime stamps an element-aware descriptor (string[] ->
             // "String[]", object[] -> "Object[]"; GetType().Name parity).
-            Assert.Contains("il2cpp_array_new(&System_String_class, 8, true", cpp);  // string[]
-            Assert.Contains("il2cpp_array_new(&System_Object_class, 8, true", cpp);  // object[]
+            // BCL element types resolve by NAME at runtime
+            // (il2cpp_class_by_name -- no generated &System_String_class symbol);
+            // user types keep the &Symbol descriptor.
+            Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.String\"), 8, true", cpp);  // string[]
+            Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.Object\"), 8, true", cpp);  // object[]
             Assert.Contains("il2cpp_array_new(nullptr, 4, false", cpp); // int32[] (unchanged)
         }
         finally
@@ -1281,8 +1284,10 @@ public class CodeGeneratorTests
             CodeGenerator.Generate(types, dir, exe);
             var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_PinvokeExt.cpp"));
             // reverse_static's result temp must be full-width (an int32_t temp
-            // truncates the pointer before it reaches the consumer).
-            var m = System.Text.RegularExpressions.Regex.Match(cpp, @"(\w+) = reverse_static\(");
+            // truncates the pointer before it reaches the consumer). The native
+            // return rides the P/Invoke result bridge
+            // (il2cpp_pinvoke_result<intptr_t>).
+            var m = System.Text.RegularExpressions.Regex.Match(cpp, @"(\w+) = il2cpp::runtime::il2cpp_pinvoke_result<intptr_t>\(reverse_static\(");
             Assert.True(m.Success, "reverse_static call must assign to a temp");
             var target = m.Groups[1].Value;
             Assert.Contains($"intptr_t {target};", cpp);
@@ -1514,16 +1519,22 @@ public class CodeGeneratorTests
         {
             CodeGenerator.Generate(types, dir, exe);
             var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_BitOpCase.cpp"));
-            // int64 shifts keep the 6-bit mask (G1: 1LL << 33 == 2^33, not 1<<1)
-            Assert.Contains("(1LL << (33LL & 63))", cpp);
-            Assert.Contains("(1LL << (63LL & 63))", cpp);
-            // int64 shr.un keeps the full uint64_t width + 6-bit mask (G2)
-            Assert.Contains("static_cast<int64_t>(static_cast<uint64_t>(2147483648LL) >> (31LL & 63))", cpp);
-            // int64 cgt.un keeps the full uint64_t width (G3: 2^32 > 2^32-1)
+            // G5 int64fold (pre-apply verification): int64 CONSTANT subtrees
+            // now fold at generation time (TryFoldInt64), so the pre-patch
+            // constant-emission strings are gone; the folded results carry the
+            // same semantics. 1L << 33 (6-bit mask in the fold) -> 2^33:
+            Assert.Contains("8589934592LL", cpp);
+            // 81985529216486895L / 4294967296L -> truncated quotient:
+            Assert.Contains("19088743LL", cpp);
+            // the int64 6-bit shift mask still emits for NON-constant operands:
+            Assert.Contains("(24LL & 63)", cpp);
+            // the int32 5-bit mask is unchanged:
+            Assert.Contains("(1LL & 31)", cpp);
+            // int64 cgt.un keeps the full uint64_t width (G3: 2^32 > 2^32-1;
+            // comparisons are deliberately NOT folded):
             Assert.Contains("static_cast<uint64_t>(4294967296LL) > static_cast<uint64_t>(4294967295LL)", cpp);
-            // int64 div is a plain full-width division, no int32 truncation (G5)
-            Assert.Contains("((81985529216486895LL) / (4294967296LL))", cpp);
-            // long.MinValue emits as the well-formed two-literal form (G4)
+            // long.MinValue emits as the well-formed two-literal form (G4),
+            // whether from the constant or from the 1L<<63 fold:
             Assert.Contains("(-9223372036854775807LL - 1LL)", cpp);
             Assert.DoesNotContain("-9223372036854775808LL", cpp);
         }
@@ -1622,7 +1633,10 @@ public class CodeGeneratorTests
             // allocation (8-byte stride, GC-scanned payload).
             // D-TYPG-1: the newarr passes the ELEMENT class (WeakReference /
             // the nested Payload class) for the element-aware descriptor.
-            Assert.Contains("il2cpp_array_new(&System_WeakReference_class, 8, true, static_cast<int32_t>(3LL))", cpp);
+            // BCL element types resolve by NAME at runtime
+            // (il2cpp_class_by_name -- no generated &System_WeakReference_class
+            // symbol); user/nested types keep the &Symbol descriptor.
+            Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.WeakReference\"), 8, true, static_cast<int32_t>(3LL))", cpp);
             Assert.Contains("il2cpp_array_new(&Cases_Gcstress3_Payload_class, 8, true, static_cast<int32_t>(3LL))", cpp);
             Assert.Contains("stelem.ref", cpp);
             Assert.Contains("ldelem.ref", cpp);
@@ -1642,7 +1656,8 @@ public class CodeGeneratorTests
     {
         var exe = CaseExePath("gcstress3");
         var types = MetadataLoader.LoadAssembly(exe);
-        using var pe = new PEReader(File.OpenRead(exe));
+        using var fs = File.OpenRead(exe);
+        using var pe = new PEReader(fs);
         var md = pe.GetMetadataReader();
         var method = typeof(Il2Cpp.Transpiler.Emit.CodeGenerator).GetMethod(
             "ArrayElementType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
@@ -1682,7 +1697,7 @@ public class CodeGeneratorTests
             {
                 var m = md.GetMethodDefinition(mh);
                 if (md.GetString(m.Name) != "Main") continue;
-                var il = pe.GetMethodBody(m.RelativeVirtualAddress).GetILBytes();
+                var il = pe.GetMethodBody(m.RelativeVirtualAddress)!.GetILBytes()!;
                 for (var i = 0; i < il.Length; i++)
                 {
                     if (il[i] != 0x8D) continue; // newarr
@@ -1841,9 +1856,10 @@ public class CodeGeneratorTests
             Assert.Contains("extern \"C\" int32_t call_callback(intptr_t, int32_t);", cpp);
             // The IntPtr arg reaches the intptr_t param via the "n" cast, and
             // icall_delegate_get_fn_ptr (returns void*) is normalized to the
-            // intptr_t "ptr" carrier slot.
+            // intptr_t "ptr" carrier slot. P/Invoke args ride the native-ABI
+            // bridge wrapper (il2cpp_pinvoke_arg).
             Assert.Contains("reinterpret_cast<intptr_t>(il2cpp::runtime::icall_delegate_get_fn_ptr(", cpp);
-            Assert.Contains("call_callback(static_cast<intptr_t>(t1), static_cast<int32_t>(14LL)", cpp);
+            Assert.Contains("call_callback(il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<intptr_t>(t1)), il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<int32_t>(14LL)", cpp);
         }
         finally
         {
@@ -1955,6 +1971,35 @@ public class CodeGeneratorTests
             // (no undefined System_Converter_2_int_int symbols).
             Assert.Contains("il2cpp::il2cpp_delegate_new(reinterpret_cast<void*>(&Cases_ArrFuncs_Double_", cpp);
             Assert.DoesNotContain("System_Converter_2_int_int", cpp);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // strictalias (2026-09-13): the IntPtr receiver read must use the DECLARED
+    // slot type, never a fixed-width pointer pun. The live value carrier is
+    // intptr_t on the widened paths (winforms1) but still int32_t on others
+    // (pinvokedeep2 Marshal.OffsetOf local, fresh gen) -- a fixed-width cast
+    // is wrong for one of the two: an int32_t* read of an intptr_t slot trips
+    // GCC -Wstrict-aliasing (Cases_Winforms1.cpp:13787), an intptr_t* read of
+    // an int32_t slot would over-read. "deref:v" emits *addr.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_IntPtrToInt32_ReadsDeclaredSlotType()
+    {
+        var exe = CaseExePath("pinvokedeep2");
+        var types = MetadataLoader.LoadAssembly(exe);
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CodeGenerator.Generate(types, dir, exe);
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_PinvokeDeep2.cpp"));
+            Assert.Contains("il2cpp_intptr_to_int32((*((&", cpp);
+            Assert.DoesNotContain("il2cpp_intptr_to_int32((*reinterpret_cast<int32_t*>", cpp);
+            Assert.DoesNotContain("il2cpp_intptr_to_int64((*reinterpret_cast<int32_t*>", cpp);
         }
         finally
         {
@@ -2319,6 +2364,38 @@ public class CodeGeneratorTests
             Assert.Contains("intptr_t loc273;", cpp);
             Assert.DoesNotContain("int32_t loc272;", cpp);
             Assert.DoesNotContain("int32_t loc273;", cpp);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+    //--------------------------------------------------------------------------
+    // caudit2-fix (fieldargcase): the FieldAccess value-type receiver forms.
+    // this (T* arg0) -> `arg0->V`; a BY-VALUE struct param (V:) is a plain
+    // C++ value -> `(&(arg))->V`; a BY-REF struct param (B:V:) is `T*` ->
+    // `arg->V`. The old name-prefix judge emitted `arg1->V` for the by-value
+    // case and broke the C++ build.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_FieldArgCase_AddressVsByValueVsByRef()
+    {
+        var exe = CaseExePath("fieldargcase");
+        var types = MetadataLoader.LoadAssembly(exe);
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CodeGenerator.Generate(types, dir, exe);
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_FieldArgSt.cpp"));
+            // this / implicit V (both through the T* arg0 address)
+            Assert.Contains("Cases_FieldArgSt* arg0", cpp);
+            Assert.Contains("(arg0->V == arg0->V)", cpp);
+            // by-value struct param: declared by value, accessed via (&arg)
+            Assert.Contains("Cases_FieldArgSt arg1", cpp);
+            Assert.Contains("(&(arg1))->V", cpp);
+            // by-ref struct param: declared as a pointer, dereferenced directly
+            Assert.Contains("Cases_FieldArgSt* arg1", cpp);
+            Assert.Contains("(arg0->V == arg1->V)", cpp);
         }
         finally
         {

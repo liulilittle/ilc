@@ -134,7 +134,15 @@ public static partial class MethodRefResolver
             // "System.Int32"). Contrast with get_Name (short name). The receiver
             // is the Type value (name string); the runtime returns the full name.
             case "get_FullName":
-                return I("il2cpp::runtime::il2cpp_type_get_full_name", 0, true, true, true, returnTypeName: "System.String");
+                // raudit3 (2026-09-13): the simplified Type VALUE is its
+                // FULL-name string (typeof folds and il2cpp_type_get_type both
+                // carry the canonical name), so FullName is the receiver
+                // itself. The descriptor-taking il2cpp_type_get_full_name
+                // (Il2CppClass*) cannot consume the string-model receiver --
+                // raudit3 cmake: "cannot convert 'Il2CppObject*' to
+                // 'Il2CppClass*'". Identity via the shared marker (the
+                // CultureInfo.get_Name precedent, MethodMap.CultureInfo.cs).
+                return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true);
             // Type.IsSubclassOf(Type c) -- instance: whether this type derives
             // from c. The receiver is this, the argument is c (both Type values).
             case "IsSubclassOf":

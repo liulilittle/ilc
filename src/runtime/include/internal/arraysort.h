@@ -195,6 +195,40 @@ int32_t il2cpp_array_binary_search_int64(Il2CppArray* arr, int64_t value);
 int32_t il2cpp_array_binary_search_string(Il2CppArray* arr, Il2CppObject* value);
 
 //------------------------------------------------------------------------------
+// W7 (T2): the double/float/long generic static surface. Double and float
+// sort with the net48 total order (NaN sorts before any non-NaN; NaN vs
+// NaN equal -- the Double.CompareTo contract); IndexOf<double> uses
+// Double.Equals semantics (a NaN needle finds NaN slots); the binary
+// search is the total-order lower bound with the complement rule.
+// LastIndexOf<double/long/string> are reverse first-match scans (double
+// with Double.Equals; string ordinal with null matching null slots).
+//------------------------------------------------------------------------------
+
+// Array.Sort(double[]): ascending total-order in-place quicksort. double
+// arrays only (isRefElem == false, elemSize == 8).
+void il2cpp_array_sort_double(Il2CppArray* arr);
+
+// Array.Sort(float[]): ascending total-order in-place quicksort. float
+// arrays only (isRefElem == false, elemSize == 4; comparison widens to
+// double, so NaN/-0.0 behave exactly like the double sort).
+void il2cpp_array_sort_float(Il2CppArray* arr);
+
+// Array.IndexOf<double>: index of the FIRST element Double.Equals to
+// 'value' (NaN finds NaN), or -1 when absent. double arrays only.
+int32_t il2cpp_array_index_of_double(Il2CppArray* arr, double value);
+
+// Array.BinarySearch<double>: total-order lower-bound search on an
+// ASCENDING double array (same complement rule as the int32 search).
+// double arrays only.
+int32_t il2cpp_array_binary_search_double(Il2CppArray* arr, double value);
+
+// Array.LastIndexOf<double/long/string>: index of the LAST matching
+// element, or -1 when absent (also for an empty array).
+int32_t il2cpp_array_last_index_of_double(Il2CppArray* arr, double value);
+int32_t il2cpp_array_last_index_of_long(Il2CppArray* arr, int64_t value);
+int32_t il2cpp_array_last_index_of_string(Il2CppArray* arr, Il2CppObject* value);
+
+//------------------------------------------------------------------------------
 // D-ICMP (icomparedeep, 2026-08-12): the comparer/comparison dispatch surface.
 //
 // These entries wire the comparison DOMAIN the icomparedeep e2e case needs:
@@ -222,6 +256,17 @@ int32_t il2cpp_icomparer_compare(Il2CppObject* comparer, Il2CppObject* a, Il2Cpp
 // getters to this; the returned object's Compare dispatches on the runtime
 // type). Idempotent; the same pointer is returned every call.
 Il2CppObject* il2cpp_comparer_default(void);
+
+// a5reds (strsort_ordinal): System.StringComparer::get_Ordinal /
+// get_OrdinalIgnoreCase -- the runtime's ordinal-string-comparer SINGLETONS
+// (klass names "System.StringComparer.Ordinal" / ".OrdinalIgnoreCase").
+// il2cpp_array_sort_icomparer recognizes them by POINTER IDENTITY and sorts
+// reference-element arrays with il2cpp_string_compare_ordinal /
+// _ignore_case (null-first ordering, net48); a non-string element throws
+// ArgumentException (the comparand type-mismatch contract). Idempotent; the
+// same pointer is returned every call.
+Il2CppObject* il2cpp_string_comparer_ordinal(void);
+Il2CppObject* il2cpp_string_comparer_ordinal_ignore_case(void);
 
 // System.Collections.Comparer::Compare(object, object) -- the DEFAULT comparer
 // semantics (also the fallback for a null IComparer in the comparer sorts):
@@ -301,5 +346,20 @@ Il2CppObject* il2cpp_ienum_get_enumerator_nongeneric(Il2CppObject* receiver);
 // not IDisposable and the guard never fires) rather than a throw.
 void il2cpp_ienum_reset(Il2CppObject* receiver);
 void il2cpp_ienum_dispose(Il2CppObject* receiver);
+
+// Resolve a virtual slot by METHOD NAME through the registered typeinfo
+// (D-ICMP-1). Returns -1 when the receiver type has no reflected virtual of
+// that name (a boxed builtin has no typeinfo). Shared by the IComparable /
+// IComparer dispatch and the Object.Equals virtual fallback.
+int32_t FindVirtualSlotByName(Il2CppObject* obj, const char* name);
+
+// baudit2: resolve a virtual slot by METHOD NAME + a signature FRAGMENT
+// (own typeinfo table first, then the baseType chain -- the inherited
+// override case). The fragment selects the intended overload: the
+// Object.Equals virtual dispatch must use "(r:System.Object)" so a type
+// whose IEquatable<T>.Equals overload is declared first does NOT get its
+// (different-ABI) slot. Returns -1 when no reflected method matches.
+int32_t FindVirtualSlotByNameAndSignature(Il2CppObject* obj, const char* name,
+                                          const char* signatureFragment);
 
 } // namespace il2cpp

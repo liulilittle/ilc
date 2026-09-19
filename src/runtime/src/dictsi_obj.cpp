@@ -274,7 +274,7 @@ void icall_dict_si_clear(Il2CppObject* self)
 
 //------------------------------------------------------------------------------
 // icall_dict_si_get_keys -- Keys: a fresh reference array (Il2CppString*
-// elements) in the deterministic hash-bucket order.
+// elements) in insertion order.
 //------------------------------------------------------------------------------
 Il2CppArray* icall_dict_si_get_keys(Il2CppObject* self)
 {
@@ -303,7 +303,7 @@ namespace il2cpp {
 //------------------------------------------------------------------------------
 // il2cpp_dict_si_get_enumerator -- Dictionary`2+Enumerator..ctor result: a
 // SNAPSHOT pair enumerator over the dictionary's current Keys + Values (the
-// deterministic hash-bucket order, positionally consistent -- dictsi.h). The
+// insertion order, positionally consistent -- dictsi.h). The
 // enumerator holds both arrays; a later dictionary mutation cannot affect the
 // ongoing foreach (snapshot independence -- net48 foreach semantics).
 //------------------------------------------------------------------------------
@@ -346,6 +346,17 @@ Il2CppObject* il2cpp_dict_si_enumerator_get_current(Il2CppObject* self)
     ThrowIfNullReceiver(self);
     Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
     const int32_t i = en->index;
+    // net48: before the first MoveNext (and after the enumerator is
+    // exhausted / Reset) Current is default(KeyValuePair<string,int>) --
+    // Key = null, Value = 0 -- NOT an exception (struct enumerator semantics).
+    if (i < 0 || i >= EnumeratorLength(en))
+    {
+        Il2CppDictKvpSI* dflt = reinterpret_cast<Il2CppDictKvpSI*>(
+            il2cpp_object_new(&System_Collections_Generic_KeyValuePair_2_string_int_class));
+        dflt->key = nullptr;
+        dflt->value = 0;
+        return reinterpret_cast<Il2CppObject*>(dflt);
+    }
     Il2CppObject* const* keys = reinterpret_cast<Il2CppObject* const*>(en->keys->data);
     const int32_t* values = reinterpret_cast<const int32_t*>(en->values->data);
     Il2CppDictKvpSI* kvp = reinterpret_cast<Il2CppDictKvpSI*>(
@@ -411,6 +422,10 @@ Il2CppObject* il2cpp_dict_si_keycollection_enumerator_get_current(Il2CppObject* 
 {
     ThrowIfNullReceiver(self);
     Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    if (en->index < 0 || en->index >= en->keys->length)
+    {
+        il2cpp_throw_invalid_operation_exception("Enumeration has either not started or has already finished.");
+    }
     Il2CppObject* const* keys = reinterpret_cast<Il2CppObject* const*>(en->keys->data);
     return reinterpret_cast<Il2CppObject*>(keys[en->index]);
 }
@@ -448,6 +463,10 @@ int32_t il2cpp_dict_si_valuecollection_enumerator_get_current(Il2CppObject* self
 {
     ThrowIfNullReceiver(self);
     Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(self);
+    if (en->index < 0 || en->index >= en->values->length)
+    {
+        il2cpp_throw_invalid_operation_exception("Enumeration has either not started or has already finished.");
+    }
     return reinterpret_cast<const int32_t*>(en->values->data)[en->index];
 }
 

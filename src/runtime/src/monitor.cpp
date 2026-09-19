@@ -52,10 +52,13 @@
 #include <cstdint>
 #include <cstdlib> // std::abort (defensive fallback in ThrowSynchronizationLockException)
 #include <thread>
+#include <vector>
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <windows.h>
 #else
     #include <pthread.h>
@@ -66,12 +69,12 @@ namespace il2cpp { namespace runtime {
 namespace {
 
 //------------------------------------------------------------------------------
-// Fixed-size side table. 64 concurrent distinct objects can be monitored;
-// the table is allocated lazily per object and freed when the last reference
-// drops, so in practice the limit is the number of DISTINCT objects held
-// simultaneously (a table-full enter throws InvalidOperationException).
+// GROWABLE side table (thaudit1): net48 has no monitor-count limit, so the
+// table grows on demand. Entries are heap-allocated so their addresses stay
+// STABLE while the table grows (a blocked thread holds an entry pointer past
+// the table lock -- see the header comment); free slots (obj == nullptr) are
+// reused and never deleted.
 //------------------------------------------------------------------------------
-constexpr int32_t kMaxMonitors = 64;
 
 // Poll interval of the wait loop (pulse-detection latency bound).
 constexpr int32_t kWaitPollMs = 5;
@@ -91,7 +94,7 @@ struct MonitorEntry
     int32_t pulseGen;       // bumped by every Pulse that finds a waiter (table-lock guarded)
 };
 
-MonitorEntry g_entries[kMaxMonitors];
+std::vector<MonitorEntry*> g_entries;
 
 #if defined(_WIN32)
 CRITICAL_SECTION g_tableLock;
@@ -202,17 +205,17 @@ int32_t CurrentThreadId()
 // Lookup only; nullptr when the object has no entry (never held/waited on).
 MonitorEntry* FindEntry(Il2CppObject* obj)
 {
-    for (int32_t i = 0; i < kMaxMonitors; ++i)
+    for (size_t i = 0; i < g_entries.size(); ++i)
     {
-        if (g_entries[i].obj == obj)
+        if (g_entries[i]->obj == obj)
         {
-            return &g_entries[i];
+            return g_entries[i];
         }
     }
     return nullptr;
 }
 
-// Lookup or lazily allocate; nullptr when the table is exhausted. The
+// Lookup or lazily allocate; never nullptr (the table grows on demand). The
 // returned entry carries refs == 0; the caller must reserve it (++refs)
 // before releasing the table lock.
 MonitorEntry* FindOrCreateEntry(Il2CppObject* obj)
@@ -222,22 +225,31 @@ MonitorEntry* FindOrCreateEntry(Il2CppObject* obj)
     {
         return existing;
     }
-    for (int32_t i = 0; i < kMaxMonitors; ++i)
+    for (size_t i = 0; i < g_entries.size(); ++i)
     {
-        if (g_entries[i].obj == nullptr)
+        MonitorEntry* e = g_entries[i];
+        if (e->obj == nullptr)
         {
-            MonitorEntry& e = g_entries[i];
-            InitEntryLock(e);
-            e.obj = obj;
-            e.ownerThreadId = 0;
-            e.recursion = 0;
-            e.refs = 0;
-            e.waiterCount = 0;
-            e.pulseGen = 0;
-            return &e;
+            InitEntryLock(*e);
+            e->obj = obj;
+            e->ownerThreadId = 0;
+            e->recursion = 0;
+            e->refs = 0;
+            e->waiterCount = 0;
+            e->pulseGen = 0;
+            return e;
         }
     }
-    return nullptr;
+    MonitorEntry* fresh = new MonitorEntry();
+    InitEntryLock(*fresh);
+    fresh->obj = obj;
+    fresh->ownerThreadId = 0;
+    fresh->recursion = 0;
+    fresh->refs = 0;
+    fresh->waiterCount = 0;
+    fresh->pulseGen = 0;
+    g_entries.push_back(fresh);
+    return fresh;
 }
 
 // Drop a reservation; at zero the entry is freed (no thread can be waiting
@@ -267,7 +279,11 @@ void ReleaseRef(MonitorEntry& e)
         "Object synchronization method was called from an unsynchronized block of code.");
     // il2cpp_throw_new throws a C++ exception and never returns; the abort
     // is a defensive fallback that also silences -Winvalid-noreturn.
+#ifdef _MSC_VER
+    __assume(0);
+#else
     std::abort();
+#endif
 }
 
 } // namespace

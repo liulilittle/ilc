@@ -356,8 +356,8 @@ int main()
            "parse \"1 2\" -> FormatException (embedded whitespace)");
     Expect(ParseDoubleThrows("1.2.3", "System.FormatException"),
            "parse \"1.2.3\" -> FormatException (two separators)");
-    Expect(ParseDoubleThrows("1,000", "System.FormatException"),
-           "parse \"1,000\" -> FormatException (group separators not supported)");
+    Expect(ParseDoubleIs("1,000", 1000.0),
+           "parse \"1,000\" -> 1000.0 (AllowThousands; saudit2 / net48 oracle)");
     Expect(ParseDoubleThrows("1e999", "System.OverflowException"),
            "parse \"1e999\" -> OverflowException (net48 contract)");
     Expect(ParseDoubleThrows("-1e999", "System.OverflowException"),

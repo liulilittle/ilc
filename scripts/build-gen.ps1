@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory)][string]$GenDir,
     [ValidateSet("msvc","mingw","wsl")][string]$Compiler = "msvc"
 )

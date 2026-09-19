@@ -602,10 +602,10 @@ bool g_webClientClassRegistered = false;
 //   System.SystemException -> System.Exception (net48 inheritance).
 // The factory lives here because exceptionext.cpp is a shared read-only
 // domain for this task -- the wiring report asks the exception owner to
-// promote this chain to il2cpp_throw_web_exception. Not marked [[noreturn]]:
-// il2cpp_throw_new is a plain void function, so an annotation would trip
-// clang's -Winvalid-noreturn; callers add the unreachable terminating return.
-void ThrowWebException(const char* message)
+// promote this chain to il2cpp_throw_web_exception. [[noreturn]]: the body
+// always throws through il2cpp_throw_new (declared [[noreturn]] in
+// il2cpp_exception.h), so callers need no terminating return.
+[[noreturn]] void ThrowWebException(const char* message)
 {
     il2cpp_throw_new(
         "System.Net.WebException,System.Net.WebException,"
@@ -689,7 +689,6 @@ Il2CppString* DownloadStringCore(Il2CppString* url)
             il2cpp_throw_format_exception(err);
         }
         ThrowWebException("file not found");
-        return nullptr; // unreachable: ThrowWebException never returns
     }
     if (std::strcmp(err, "null or empty URL") == 0)
     {
@@ -705,7 +704,6 @@ Il2CppString* DownloadStringCore(Il2CppString* url)
     // non-200 status / connect / send / recv / premature EOF -> WebException.
     il2cpp_http_free_body(resp.body);
     ThrowWebException(err);
-    return nullptr; // unreachable: ThrowWebException never returns
 }
 
 //------------------------------------------------------------------------------

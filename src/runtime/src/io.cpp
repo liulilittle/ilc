@@ -43,6 +43,7 @@
 #include "il2cpp_io.h"
 
 #include "il2cpp_array.h"
+#include "il2cpp_encoding.h" // il2cpp_encoding_unicode_convert / utf8_convert
 #include "il2cpp_exception.h"     // il2cpp_throw_new (Directory.Delete exception transport)
 #include "il2cpp_exception_ext.h" // il2cpp_throw_io_exception / _file_not_found (fileio2 status mapping)
 #include "il2cpp_metadata.h"      // System_Object_class (FileInfo descriptor base)
@@ -66,18 +67,13 @@
     // (_mkdir/_rmdir/_stat/_S_IFDIR) -- the portable common denominator.
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>   // CopyFileW/MoveFileW/GetFileAttributesW/GetFileAttributesExW
-    #include <direct.h>    // ::_mkdir, ::_rmdir
     #include <sys/stat.h>  // ::_wstat, _S_IFDIR, _S_IFREG
-    #define IL2CPP_IO_MKDIR(p) ::_mkdir(p)
-    #define IL2CPP_IO_RMDIR(p) ::_rmdir(p)
 #else
     #include <cerrno>      // ::errno, EXDEV (Move cross-device fallback)
     #include <dirent.h>    // ::opendir / ::readdir / ::closedir (recursive Delete)
     #include <sys/stat.h>  // ::stat, ::mkdir
     #include <sys/types.h>
     #include <unistd.h>    // ::rmdir, ::rename, ::unlink (POSIX; absent from <sys/stat.h>)
-    #define IL2CPP_IO_MKDIR(p) ::mkdir(p, 0755)
-    #define IL2CPP_IO_RMDIR(p) ::rmdir(p)
 #endif
 
 //------------------------------------------------------------------------------
@@ -339,10 +335,17 @@ std::vector<wchar_t> CsToWide(Il2CppObject* obj)
 // Path string helpers (Windows semantics; see the file header).
 //------------------------------------------------------------------------------
 
-// The file-name segment: everything after the final '/' or '\'.
+// The file-name segment: everything after the final directory separator --
+// or, on Windows, the final volume separator ':' (net48 Path.GetFileName /
+// GetExtension split on DirectorySeparatorChar + AltDirectorySeparatorChar +
+// VolumeSeparatorChar: "C:file.txt" -> "file.txt", "C:" -> "").
 std::string FileNameSegment(const std::string& path)
 {
+#if defined(_WIN32)
+    const size_t sep = path.find_last_of("/\\:");
+#else
     const size_t sep = path.find_last_of("/\\");
+#endif
     return (sep == std::string::npos) ? path : path.substr(sep + 1);
 }
 
@@ -390,6 +393,103 @@ std::vector<std::string> SplitLines(const std::string& content)
         }
     }
     return lines; // "" -> no iterations -> zero-length vector (empty file)
+}
+
+// net48 StreamReader BOM detection for the whole-file text APIs: strip a
+// UTF-8 BOM (EF BB BF), transcode a UTF-16LE (FF FE) / UTF-16BE (FE FF)
+// stream to UTF-8, otherwise pass the bytes through (UTF-8 default). The
+// UTF-32LE signature FF FE 00 00 is NOT wired (documented deviation: it is
+// treated as UTF-16LE here; no probe exercises it yet).
+// Returns the UTF-8 text in 'out'.
+void DecodeTextWithBom(const std::string& bytes, std::string& out)
+{
+    const unsigned char* b = reinterpret_cast<const unsigned char*>(bytes.data());
+    const size_t n = bytes.size();
+    size_t off = 0;
+    int utf16 = 0; // 0 = none, 1 = LE, 2 = BE
+    if (n >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF)
+    {
+        off = 3;
+    }
+    else if (n >= 2 && b[0] == 0xFF && b[1] == 0xFE)
+    {
+        off = 2;
+        utf16 = 1;
+    }
+    else if (n >= 2 && b[0] == 0xFE && b[1] == 0xFF)
+    {
+        off = 2;
+        utf16 = 2;
+    }
+    if (utf16 == 0)
+    {
+        out.assign(bytes, off, std::string::npos);
+        return;
+    }
+    const size_t unitBytes = n - off;
+    std::string le(bytes, off, unitBytes);
+    if (utf16 == 2)
+    {
+        // In-place byte swap: the BE unit stream -> the LE unit stream.
+        for (size_t i = 0; i + 1 < le.size(); i += 2)
+        {
+            const char t = le[i];
+            le[i] = le[i + 1];
+            le[i + 1] = t;
+        }
+    }
+    // UTF-16LE byte stream -> UTF-16 units. The runtime targets little-endian
+    // hosts (x64/aarch64); the BE signature was byte-swapped above, so a raw
+    // copy IS the LE decode. The UTF-8->UTF-16 converter must NOT be used
+    // here (it decoded the LE bytes as UTF-8: "A\0B\0" -- ioaudit4 bug).
+    // A trailing odd byte is dropped (truncated final unit).
+    const int32_t units = static_cast<int32_t>(le.size() / 2);
+    std::u16string u16(static_cast<size_t>(units), u'\0');
+    if (units > 0)
+    {
+        std::memcpy(u16.data(), le.data(), static_cast<size_t>(units) * sizeof(char16_t));
+    }
+    // net48 StreamReader flush semantics for unpaired UTF-16 surrogates
+    // (oracle: .opencode/tmp/a1reds/evidence-a1surro-oracle.out): a TRAILING
+    // high surrogate is DROPPED, a high followed by a non-low unit and every
+    // lone low unit decode to U+FFFD, valid pairs pass through. Reproduce
+    // before the UTF-8 encode (the encoder alone would emit U+FFFD for the
+    // trailing high case).
+    std::u16string clean;
+    clean.reserve(u16.size());
+    for (size_t i = 0; i < u16.size(); ++i)
+    {
+        const char16_t c = u16[i];
+        if (c >= 0xD800 && c <= 0xDBFF)
+        {
+            if (i + 1 < u16.size() && u16[i + 1] >= 0xDC00 && u16[i + 1] <= 0xDFFF)
+            {
+                clean.push_back(c);
+                clean.push_back(u16[++i]);
+            }
+            else if (i + 1 < u16.size())
+            {
+                clean.push_back(0xFFFD);
+            }
+            // trailing high surrogate: dropped (net48 decoder flush)
+        }
+        else if (c >= 0xDC00 && c <= 0xDFFF)
+        {
+            clean.push_back(0xFFFD);
+        }
+        else
+        {
+            clean.push_back(c);
+        }
+    }
+    const char16_t* cleanUnits = clean.data();
+    const int32_t cleanCount = static_cast<int32_t>(clean.size());
+    const int32_t needed = il2cpp_encoding_utf8_convert(cleanUnits, cleanCount, nullptr, 0);
+    out.resize(static_cast<size_t>(needed > 0 ? needed : 0));
+    if (needed > 0)
+    {
+        il2cpp_encoding_utf8_convert(cleanUnits, cleanCount, out.data(), needed);
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -494,12 +594,16 @@ Il2CppObject* icall_file_read_all_text(Il2CppObject* path)
     FILE* in = plat_file_open(p.c_str(), "rb");
     if (in == nullptr)
     {
-        return nullptr; // missing file / unreadable -> null (failure signal)
+        // net48 File.ReadAllText on a missing file throws
+        // FileNotFoundException (diffio001 readalltext.missing).
+        il2cpp::il2cpp_throw_file_not_found_exception(p.c_str());
     }
     std::string bytes;
     ReadFileContents(in, bytes);
     (void)std::fclose(in);
-    return Utf8ToCs(bytes.data(), bytes.size());
+    std::string utf8;
+    DecodeTextWithBom(bytes, utf8);
+    return Utf8ToCs(utf8.data(), utf8.size());
 }
 
 int32_t icall_file_write_all_lines(Il2CppObject* path, Il2CppObject* lines)
@@ -551,12 +655,15 @@ Il2CppObject* icall_file_read_all_lines(Il2CppObject* path)
     FILE* in = plat_file_open(p.c_str(), "rb");
     if (in == nullptr)
     {
-        return nullptr; // missing file / unreadable -> null (failure signal)
+        // Same net48 contract as ReadAllText (same defect root).
+        il2cpp::il2cpp_throw_file_not_found_exception(p.c_str());
     }
     std::string bytes;
     ReadFileContents(in, bytes);
     (void)std::fclose(in);
-    const std::vector<std::string> lines = SplitLines(bytes);
+    std::string utf8;
+    DecodeTextWithBom(bytes, utf8);
+    const std::vector<std::string> lines = SplitLines(utf8);
     Il2CppArray* arr = il2cpp_array_new(
         il2cpp_string_class(), static_cast<int32_t>(sizeof(void*)), true,
         static_cast<int32_t>(lines.size()));
@@ -570,8 +677,49 @@ Il2CppObject* icall_file_read_all_lines(Il2CppObject* path)
     return reinterpret_cast<Il2CppObject*>(arr);
 }
 
-//------------------------------------------------------------------------------
-// File.Copy / File.Move / File.GetAttributes / File.SetAttributes /
+  Il2CppArray* icall_file_read_all_bytes(Il2CppObject* path)
+  {
+      if (path == nullptr)
+      {
+          return nullptr;
+      }
+      const std::string p = CsToUtf8Z(path);
+      FILE* in = plat_file_open(p.c_str(), "rb");
+      if (in == nullptr)
+      {
+          // Same net48 FileNotFoundException contract (same defect root).
+          il2cpp::il2cpp_throw_file_not_found_exception(p.c_str());
+      }
+      std::string bytes;
+      ReadFileContents(in, bytes);
+      (void)std::fclose(in);
+      Il2CppArray* arr = il2cpp_array_new(
+          nullptr, 1, false, static_cast<int32_t>(bytes.size()));
+      if (!bytes.empty())
+      {
+          std::memcpy(arr->data, bytes.data(), bytes.size());
+      }
+      return arr;
+  }
+
+  int32_t icall_file_write_all_bytes(Il2CppObject* path, Il2CppArray* bytes)
+  {
+      if (path == nullptr)
+      {
+          return -1;
+      }
+      const std::string p = CsToUtf8Z(path);
+      std::string data;
+      if (bytes != nullptr && bytes->length > 0)
+      {
+          data.assign(reinterpret_cast<const char*>(bytes->data),
+                      static_cast<size_t>(bytes->length));
+      }
+      return WriteBytesToFile(p, data, "wb");
+  }
+
+  //------------------------------------------------------------------------------
+  // File.Copy / File.Move / File.GetAttributes / File.SetAttributes /
 // File.GetLastWriteTime (net48 gap closure -- see il2cpp_io.h).
 //------------------------------------------------------------------------------
 
@@ -1025,7 +1173,7 @@ int32_t icall_directory_create_directory(Il2CppObject* path)
         prefix = (j == std::string::npos) ? p : p.substr(0, j);
         if (!prefix.empty() && !PathIsDir(prefix))
         {
-            if (IL2CPP_IO_MKDIR(prefix.c_str()) != 0 && !PathIsDir(prefix))
+            if (!plat_dir_mkdir(prefix.c_str()) && !PathIsDir(prefix))
             {
                 return 1; // a level could not be created and is not there
             }
@@ -1052,7 +1200,7 @@ int32_t icall_directory_delete(Il2CppObject* path)
     {
         return 1;
     }
-    return IL2CPP_IO_RMDIR(p.c_str()) == 0 ? 0 : 1;
+    return plat_dir_rmdir(p.c_str()) ? 0 : 1;
 }
 
 //------------------------------------------------------------------------------
@@ -1231,7 +1379,7 @@ int32_t icall_directory_delete_recursive(Il2CppString* path, int32_t recursive)
     {
         // Only an EMPTY directory is removed; the rmdir fails on a
         // non-empty directory -- the net48 IOException, tree intact.
-        if (IL2CPP_IO_RMDIR(p.c_str()) != 0)
+        if (!plat_dir_rmdir(p.c_str()))
         {
             il2cpp_throw_new(kIOExceptionChain, "The directory is not empty.");
             return 0; // unreachable

@@ -23,6 +23,8 @@
 
 #include "il2cpp_encoding.h"
 #include "il2cpp_exception.h"
+#include "il2cpp_runtime.h"   // il2cpp_object_new / il2cpp_class_register
+#include "il2cpp_gc.h"        // il2cpp_gc_add_static_root (singleton liveness)
 
 #include <cstdint>
 #include <cstring>
@@ -567,7 +569,6 @@ int32_t il2cpp_encoding_get_bytes(Il2CppString* text,
     }
     il2cpp_throw_new("System.ArgumentException,System.Exception",
                      "Unknown encoding code page.");
-    return 0;
 }
 
 //------------------------------------------------------------------------------
@@ -632,16 +633,16 @@ Il2CppString* il2cpp_encoding_get_chars(const uint8_t* src, int32_t byteLen,
         std::vector<char16_t> tmp(static_cast<size_t>(byteLen));
         for (int32_t i = 0; i < byteLen; ++i)
         {
-            // .NET ASCIIEncoding decoder fallback: bytes above 0x7F -> U+FFFD.
+            // net48 ASCIIEncoding default decoder fallback: bytes above 0x7F
+            // decode to '?' (EncoderReplacementFallback("?")), NOT U+FFFD.
             tmp[static_cast<size_t>(i)] = (src[i] <= 0x7F)
-                ? static_cast<char16_t>(src[i]) : static_cast<char16_t>(0xFFFD);
+                ? static_cast<char16_t>(src[i]) : static_cast<char16_t>(0x3F);
         }
         return il2cpp_string_new(tmp.data(), byteLen);
     }
     }
     il2cpp_throw_new("System.ArgumentException,System.Exception",
                      "Unknown encoding code page.");
-    return nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -865,20 +866,19 @@ Il2CppArray* GetCharsRange(Il2CppArray* bytes, int32_t index, int32_t count,
     case il2cpp_encoding_code_page::ascii:
     {
         // One output unit per input byte: 7-bit passthrough, bytes above
-        // 0x7F -> U+FFFD (the .NET ASCIIEncoding default decoder fallback).
+        // 0x7F -> '?' (the net48 ASCIIEncoding default decoder fallback).
         Il2CppArray* arr = il2cpp_array_new(nullptr, 2, false, n);
         char16_t* dst = reinterpret_cast<char16_t*>(il2cpp_array_get_elem_ptr(arr, 0));
         for (int32_t i = 0; i < n; ++i)
         {
             dst[i] = (src[i] <= 0x7F) ? static_cast<char16_t>(src[i])
-                                      : static_cast<char16_t>(0xFFFD);
+                                      : static_cast<char16_t>(0x3F);
         }
         return arr;
     }
     }
     il2cpp_throw_new("System.ArgumentException,System.Exception",
                      "Unknown encoding code page.");
-    return nullptr;
 }
 
 } // namespace
@@ -912,6 +912,280 @@ Il2CppArray* il2cpp_encoding_unicodebe_get_chars(Il2CppArray* bytes, int32_t ind
 Il2CppArray* il2cpp_encoding_ascii_get_chars(Il2CppArray* bytes, int32_t index, int32_t count)
 {
     return GetCharsRange(bytes, index, count, il2cpp_encoding_code_page::ascii);
+}
+
+//------------------------------------------------------------------------------
+// P2(5) A1: the OBJECT model (see il2cpp_encoding.h).
+//------------------------------------------------------------------------------
+namespace {
+
+// Cast an encoding object parameter to its payload view.
+Il2CppEncodingObject* AsEncoding(Il2CppObject* obj)
+{
+    return reinterpret_cast<Il2CppEncodingObject*>(obj);
+}
+
+int32_t PageOf(Il2CppObject* self)
+{
+    return AsEncoding(self)->page;
+}
+
+int32_t EmitBomOf(Il2CppObject* self)
+{
+    return AsEncoding(self)->emitBom;
+}
+
+// The per-page allocating GetBytes used by the object-receiver entry: pick the
+// page-specific helper by the receiver's code page.
+Il2CppArray* GetBytesForPage(Il2CppObject* self, Il2CppString* text)
+{
+    switch (PageOf(self))
+    {
+    case 65001: return il2cpp_encoding_utf8_get_bytes(text);
+    case 1200:  return il2cpp_encoding_unicode_get_bytes(text);
+    case 1201:  return il2cpp_encoding_unicodebe_get_bytes(text);
+    case 20127: return il2cpp_encoding_ascii_get_bytes(text);
+    }
+    il2cpp_throw_new("System.ArgumentException,System.Exception",
+                     "Unknown encoding code page.");
+}
+
+Il2CppString* GetStringForPage(Il2CppObject* self, Il2CppArray* bytes)
+{
+    switch (PageOf(self))
+    {
+    case 65001: return il2cpp_encoding_utf8_get_string(bytes);
+    case 1200:  return il2cpp_encoding_unicode_get_string(bytes);
+    case 1201:  return il2cpp_encoding_unicodebe_get_string(bytes);
+    case 20127: return il2cpp_encoding_ascii_get_string(bytes);
+    }
+    il2cpp_throw_new("System.ArgumentException,System.Exception",
+                     "Unknown encoding code page.");
+}
+
+// The cached singleton instances (GC roots -- registered once on first use).
+Il2CppObject* g_utf8Singleton = nullptr;
+Il2CppObject* g_unicodeSingleton = nullptr;
+Il2CppObject* g_unicodeBeSingleton = nullptr;
+Il2CppObject* g_asciiSingleton = nullptr;
+bool g_encodingRootsArmed = false;
+
+void ArmEncodingRoots()
+{
+    if (g_encodingRootsArmed)
+    {
+        return;
+    }
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_utf8Singleton));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_unicodeSingleton));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_unicodeBeSingleton));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_asciiSingleton));
+    g_encodingRootsArmed = true;
+}
+
+Il2CppObject* NewEncoding(Il2CppClass* klass, int32_t page, int32_t emitBom)
+{
+    il2cpp_encoding_register_classes();
+    ArmEncodingRoots();
+    Il2CppObject* obj = il2cpp_object_new(klass);
+    AsEncoding(obj)->page = page;
+    AsEncoding(obj)->emitBom = emitBom;
+    return obj;
+}
+
+} // namespace
+
+void icall_encoding_ctor_utf8(Il2CppObject* self, int32_t emitBom)
+{
+    il2cpp_encoding_register_classes();
+    AsEncoding(self)->page = 65001;
+    AsEncoding(self)->emitBom = emitBom ? 1 : 0;
+}
+
+void icall_encoding_ctor_utf8_2(Il2CppObject* self, int32_t emitBom, int32_t throwOnInvalid)
+{
+    (void)throwOnInvalid; // the throw-on-invalid decoder variant is out of scope
+    icall_encoding_ctor_utf8(self, emitBom);
+}
+
+void icall_encoding_ctor_unicode(Il2CppObject* self, int32_t bigEndian, int32_t byteOrderMark)
+{
+    il2cpp_encoding_register_classes();
+    AsEncoding(self)->page = bigEndian ? 1201 : 1200;
+    AsEncoding(self)->emitBom = byteOrderMark ? 1 : 0;
+}
+
+void icall_encoding_ctor_ascii(Il2CppObject* self)
+{
+    il2cpp_encoding_register_classes();
+    AsEncoding(self)->page = 20127;
+    AsEncoding(self)->emitBom = 0;
+}
+
+Il2CppObject* icall_encoding_get_UTF8()
+{
+    if (g_utf8Singleton == nullptr)
+    {
+        g_utf8Singleton = NewEncoding(&System_Text_UTF8Encoding_class, 65001, 1);
+    }
+    return g_utf8Singleton;
+}
+
+Il2CppObject* icall_encoding_get_Unicode()
+{
+    if (g_unicodeSingleton == nullptr)
+    {
+        g_unicodeSingleton = NewEncoding(&System_Text_UnicodeEncoding_class, 1200, 1);
+    }
+    return g_unicodeSingleton;
+}
+
+// Encoding.BigEndianUnicode -- UTF-16BE (page 1201). The .NET TYPE is
+// UnicodeEncoding for both LE and BE, so the descriptor is shared; only the
+// page differs. Without this dedicated singleton the getter returned the LE
+// instance and BigEndianUnicode.GetBytes produced little-endian bytes
+// (encodingconvcase regression).
+Il2CppObject* icall_encoding_get_UnicodeBE()
+{
+    if (g_unicodeBeSingleton == nullptr)
+    {
+        g_unicodeBeSingleton = NewEncoding(&System_Text_UnicodeEncoding_class, 1201, 1);
+    }
+    return g_unicodeBeSingleton;
+}
+
+Il2CppObject* icall_encoding_get_ASCII()
+{
+    if (g_asciiSingleton == nullptr)
+    {
+        g_asciiSingleton = NewEncoding(&System_Text_ASCIIEncoding_class, 20127, 0);
+    }
+    return g_asciiSingleton;
+}
+
+Il2CppArray* icall_encoding_get_preamble(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    const int32_t page = PageOf(self);
+    const int32_t emitBom = EmitBomOf(self);
+    if (emitBom == 0)
+    {
+        return il2cpp_array_new(nullptr, 1, false, 0);
+    }
+    uint8_t bom[3];
+    int32_t n = 0;
+    if (page == 65001)
+    {
+        bom[0] = 0xEF; bom[1] = 0xBB; bom[2] = 0xBF; n = 3;
+    }
+    else if (page == 1200)
+    {
+        bom[0] = 0xFF; bom[1] = 0xFE; n = 2;
+    }
+    else if (page == 1201)
+    {
+        bom[0] = 0xFE; bom[1] = 0xFF; n = 2;
+    }
+    Il2CppArray* arr = il2cpp_array_new(nullptr, 1, false, n);
+    if (n > 0)
+    {
+        std::memcpy(arr->data, bom, static_cast<size_t>(n));
+    }
+    return arr;
+}
+
+Il2CppArray* icall_encoding_get_bytes(Il2CppObject* self, Il2CppString* text)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    return GetBytesForPage(self, text);
+}
+
+Il2CppString* icall_encoding_get_string(Il2CppObject* self, Il2CppArray* bytes)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    return GetStringForPage(self, bytes);
+}
+
+Il2CppArray* icall_encoding_get_chars(Il2CppObject* self, Il2CppArray* bytes,
+                                      int32_t index, int32_t count)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    switch (PageOf(self))
+    {
+    case 65001: return il2cpp_encoding_utf8_get_chars(bytes, index, count);
+    case 1200:  return il2cpp_encoding_unicode_get_chars(bytes, index, count);
+    case 1201:  return il2cpp_encoding_unicodebe_get_chars(bytes, index, count);
+    case 20127: return il2cpp_encoding_ascii_get_chars(bytes, index, count);
+    }
+    il2cpp_throw_new("System.ArgumentException,System.Exception",
+                     "Unknown encoding code page.");
+}
+
+Il2CppArray* icall_encoding_get_chars_all(Il2CppObject* self, Il2CppArray* bytes)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    const int32_t len = il2cpp_array_get_length(bytes);
+    return icall_encoding_get_chars(self, bytes, 0, len);
+}
+
+}} // namespace il2cpp::runtime
+
+//------------------------------------------------------------------------------
+// GLOBAL-scope descriptors (matching the il2cpp_encoding.h externs and the
+// transpiler's &System_Text_*Encoding_class emission -- the
+// System_IO_*_class / System_Version_class precedent).
+//------------------------------------------------------------------------------
+#define ENCODING_CLASS(SYM, DOTNAME)  \
+    ::il2cpp::Il2CppClass SYM = {     \
+        DOTNAME,                      \
+        static_cast<int32_t>(sizeof(::il2cpp::Il2CppEncodingObject)), \
+        0u,                           \
+        0,                            \
+        &System_Object_class,         \
+        nullptr, 0, nullptr, 0,       \
+    }
+
+ENCODING_CLASS(System_Text_Encoding_class, "System.Text.Encoding");
+ENCODING_CLASS(System_Text_UTF8Encoding_class, "System.Text.UTF8Encoding");
+ENCODING_CLASS(System_Text_UnicodeEncoding_class, "System.Text.UnicodeEncoding");
+ENCODING_CLASS(System_Text_ASCIIEncoding_class, "System.Text.ASCIIEncoding");
+
+#undef ENCODING_CLASS
+
+namespace il2cpp { namespace runtime {
+
+void il2cpp_encoding_register_classes()
+{
+    static bool registered = false;
+    if (registered)
+    {
+        return;
+    }
+    il2cpp_class_register(&System_Text_Encoding_class);
+    il2cpp_class_register(&System_Text_UTF8Encoding_class);
+    il2cpp_class_register(&System_Text_UnicodeEncoding_class);
+    il2cpp_class_register(&System_Text_ASCIIEncoding_class);
+    registered = true;
 }
 
 }} // namespace il2cpp::runtime

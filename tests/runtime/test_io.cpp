@@ -6,10 +6,11 @@
 //   1. File.Exists   : false for missing paths, true after WriteAllText.
 //   2. WriteAllText  : creates the file; overwrite truncates; empty content
 //                      produces an empty file.
-//   3. ReadAllText   : round-trips ASCII content; missing file -> null.
+//   3. ReadAllText   : round-trips ASCII content; missing file throws
+//                      FileNotFoundException (net48).
 //   4. WriteAllLines : writes one line per element with CRLF separators.
 //   5. ReadAllLines  : returns a managed string[] with one element per line;
-//                      missing file -> null.
+//                      missing file throws FileNotFoundException (net48).
 //   6. File.Delete   : removes the file; deleting a missing file succeeds
 //                      (.NET silent-success semantics); missing -> 0.
 //   7. Directory.CreateDirectory : recursive creation returns 0 and the
@@ -273,11 +274,14 @@ int main()
     }
     icall_file_delete(Cs("io_tmp/cr.txt"));
 
-    // --- 5b. Missing file -> null -------------------------------------------
-    Expect(icall_file_read_all_text(Cs("io_tmp/no_such.txt")) == nullptr,
-           "File.ReadAllText returns null for a missing file");
-    Expect(icall_file_read_all_lines(Cs("io_tmp/no_such.txt")) == nullptr,
-           "File.ReadAllLines returns null for a missing file");
+    // --- 5b. Missing file throws FileNotFoundException (net48 contract;
+    // diffio001 readalltext.missing) --------------------------------------
+    ExpectThrows(kFileNotFoundType,
+                 "File.ReadAllText throws FileNotFoundException for a missing file",
+                 [&] { icall_file_read_all_text(Cs("io_tmp/no_such.txt")); });
+    ExpectThrows(kFileNotFoundType,
+                 "File.ReadAllLines throws FileNotFoundException for a missing file",
+                 [&] { icall_file_read_all_lines(Cs("io_tmp/no_such.txt")); });
 
     // --- 6. File.Delete ------------------------------------------------------
     Expect(icall_file_delete(Cs("io_tmp/data.txt")) == 0,

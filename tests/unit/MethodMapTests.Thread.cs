@@ -182,6 +182,25 @@ public class MethodMapThreadTests
     }
 
     [Fact]
+    public void Resolve_Thread_SetPriorityEnum_MapsToIcall()
+    {
+        // ThreadPriority is a managed ENUM: the IL signature encodes the
+        // parameter as ELEMENT_TYPE_VALUETYPE (0x11) + the TypeDefOrRef coded
+        // index, not I4 (0x08). Both ride the int32 slot; the resolver must
+        // accept 0x11 (diffthread001 Thread.CurrentThread.Priority =
+        // ThreadPriority.Normal previously fell to the phantom generated-name
+        // path -> hard compile failure). Blob mirrors the Decimal
+        // op_UnaryNegation shape (valuetype return + valuetype param).
+        var m = ResolveMember(Synthesize("System.Threading", "Thread", "set_Priority",
+            new byte[] { 0x00, 0x01, 0x11, 0x05, 0x11, 0x05 }), "set_Priority");
+
+        Assert.Equal("il2cpp::runtime::icall_threadobj_set_priority", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+    }
+
+    [Fact]
     public void Resolve_Thread_GetIsBackground_MapsToIcall()
     {
         var m = ResolveMember(Synthesize("System.Threading", "Thread", "get_IsBackground", Sig(0x02)), "get_IsBackground");
@@ -227,6 +246,11 @@ public class MethodMapThreadTests
         Assert.True(m.IsInstance);
         Assert.Equal(1, m.ParamCount);
         Assert.False(m.ReturnsValue);
+        // The runtime signature is icall_threadobj_set_name(Il2CppObject*,
+        // Il2CppString*): the IL string argument (Il2CppObject* in the IR) must
+        // carry the "s" cast, else the emitted call passes Il2CppObject* where
+        // Il2CppString* is expected (hard compile failure).
+        Assert.Equal(new[] { "", "s" }, m.ParamTypeNames);
     }
 
     [Fact]

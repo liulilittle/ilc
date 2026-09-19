@@ -34,7 +34,9 @@
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <windows.h>
 #else
     #include <condition_variable>
@@ -97,13 +99,17 @@ void wake_timer(il2cpp_timer* timer)
 // SCHEDULED time (drift-free). The advance is a compare-exchange against the
 // deadline this loop just used: a change() that re-armed mid-callback makes
 // the CAS fail and the fresh schedule is honored on the next iteration.
-// Returns false when the timer is done (one-shot fired) or was disposed.
+// Returns false when the timer was disposed.
 bool fire_and_advance(il2cpp_timer* timer)
 {
     timer->callback(timer->state);
     if (timer->periodMs.load() <= 0)
     {
-        return false; // one-shot: the timer is done
+        // thaudit4: a fired ONE-SHOT disarms but keeps the worker thread
+        // alive -- net48 Timer.Change re-schedules a one-shot (probe:
+        // fires=2 after Change(10, Infinite)). Exit only on dispose.
+        timer->nextFireMs.store(kNotScheduled);
+        return !timer->stopped.load();
     }
     int64_t expected = timer->nextFireMs.load();
     if (timer->nextFireMs.compare_exchange_strong(expected, expected + timer->periodMs.load()))

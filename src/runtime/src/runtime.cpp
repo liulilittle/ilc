@@ -20,20 +20,27 @@ void icall_console_write_line_i(int32_t value) {
 
 namespace {
 
-// UTF-16 -> UTF-8 emission for the console string icalls. The byte stream
-// follows the .NET default replacement fallback (the same algorithm
-// encoding.cpp's Utf8Encode documents): ASCII 1 byte, BMP 2-3 bytes, a
-// valid surrogate pair one 4-byte sequence, an unpaired surrogate U+FFFD
-// (EF BF BD). stdout runs in binary mode (console.cpp
-// ConsoleStreamInitializer), so the bytes reach the stream verbatim --
-// Chinese text is emitted as its correct UTF-8 encoding (E4 B8 AD for
-// U+4E2D), not '?'.
+// UTF-16 emission for the console string icalls (net48 Console.OutputEncoding
+// default: the console output code page). CP 65001 keeps the exact legacy
+// UTF-8 loop below (byte-identical -- ASCII 1 byte, BMP 2-3 bytes, a valid
+// surrogate pair one 4-byte sequence, unpaired -> U+FFFD EF BF BD); other
+// code pages route pair-aware through console_write_units (WideCharToMultiByte,
+// unmappable -> '?' -- the diffuri002 GBK parity: U+4E2D -> D6 D0).
+// stdout runs in binary mode (console.cpp ConsoleStreamInitializer), so the
+// bytes reach the stream verbatim.
 void WriteStringUtf8(const Il2CppString* str)
 {
     if (str == nullptr)
     {
         return;
     }
+#ifdef _WIN32
+    if (console_output_code_page() != 65001u)
+    {
+        console_write_units(str->chars, str->length, stdout);
+        return;
+    }
+#endif
     for (int32_t i = 0; i < str->length; ++i)
     {
         const uint32_t u = static_cast<uint32_t>(str->chars[i]);

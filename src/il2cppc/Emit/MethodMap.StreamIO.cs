@@ -16,6 +16,8 @@ namespace Il2Cpp.Transpiler.Emit;
 //
 // Wired surface:
 //   .ctor(string, FileMode, FileAccess) -> icall_stream_file_ctor
+//   .ctor(string, FileMode)              -> icall_stream_file_ctor2 (WAVE2:
+//     runtime derives the access default Append -> Write, else ReadWrite)
 //   .ctor()                              -> icall_stream_memory_ctor (MemoryStream)
 //   .ctor(Stream)                        -> icall_stream_reader_ctor / writer_ctor
 //   Flush/Close/Dispose()                -> icall_stream_{flush,close}
@@ -28,6 +30,8 @@ namespace Il2Cpp.Transpiler.Emit;
 //   StreamReader.ReadToEnd()             -> icall_stream_read_to_end (string;
 //     D-STO-1 -- was the last unwired reader text member)
 //   StreamWriter.WriteLine(string)       -> icall_stream_write_line
+//   StreamWriter/TextWriter.Write(string) -> icall_stream_write_text (WAVE2:
+//     UTF-8 text without the line terminator; null emits nothing)
 //   MemoryStream.ToArray()               -> icall_stream_memory_to_array (byte[])
 //   Read(byte[],int,int)                 -> icall_stream_read_bytes (int32 count)
 //   Write(byte[],int,int)                -> icall_stream_write_bytes
@@ -45,12 +49,12 @@ namespace Il2Cpp.Transpiler.Emit;
 // the underlying file once (net48 semantics).
 //
 // Remaining LOUD rejections:
-//   * FileStream(string, FileMode) 2-arg -- no literal-injection mechanism
-//     for the mode constant; needs an extra icall variant.
 //   * StreamWriter(string, Encoding) / (Stream, Encoding) -- encoding ctors
 //     need extra icall variants.
 //   * Dispose(bool) -- the runtime has only Close (no disposing flag).
 //   * WriteLine(non-string) -- the icall takes exactly (self, string).
+//   * FileStream(FileShare/bufferSize/FileOptions) forms -- need extra icall
+//     variants.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -159,6 +163,18 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_stream_read_byte", 0, true, false, true);
                 throw new NotSupportedException($"ReadByte with {count} arg(s) not wired: the runtime icall takes no arguments");
             case "Write":
+                // WAVE2: TextWriter/StreamWriter.Write(string) -- UTF-8 text
+                // WITHOUT the line terminator (net48 Write vs WriteLine). The
+                // MemberRef owner is the TextWriter BASE for both concrete and
+                // base-typed stream-writer receivers; the RawSignature byte
+                // 0x0E separates the string form from the still-LOUD
+                // Write(char)(0x03)/Write(object) overloads. StringWriter
+                // receivers route to StringIO before this arm (receiverType
+                // dispatch in MethodRefResolver).
+                if ((owner is "System.IO.StreamWriter" or "System.IO.TextWriter"
+                        || receiverType is "System.IO.StreamWriter")
+                    && ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_stream_write_text", 1, false, false, true);
                 if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return I("il2cpp::runtime::icall_stream_write_bytes", 3, false, false, true,
                         new[] { "", "a", "", "" });
@@ -194,20 +210,40 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x0E && ps[1] is 0x08 or 0x11 && ps[2] is 0x08 or 0x11)
                     return I("il2cpp::runtime::icall_stream_file_ctor", 3, false, false, true,
                         new[] { "", "", "i", "i" });
+                // WAVE2: FileStream(string path, FileMode fileMode) -- the
+                // runtime derives the net48 access default (Append -> Write,
+                // otherwise ReadWrite).
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] is 0x08 or 0x11)
+                    return I("il2cpp::runtime::icall_stream_file_ctor2", 2, false, false, true,
+                        new[] { "", "", "i" });
                 throw new NotSupportedException(
-                    $"FileStream ctor with {count} arg(s) not wired: the object-typed icall takes exactly " +
-                    "(string path, int32 FileMode, int32 FileAccess) -- the 2-arg (string, FileMode) form has no " +
-                    "literal-injection mechanism for the mode constant (needs an extra icall variant)");
-            case "System.IO.MemoryStream":
-                if (ps.Length == 0)
-                    return I("il2cpp::runtime::icall_stream_memory_ctor", 0, false, false, true);
-                throw new NotSupportedException($"MemoryStream ctor with {count} arg(s) not wired (only the parameterless form has an object icall)");
-            case "System.IO.StreamReader":
-                if (ps.Length == 1 && ps[0] == 0x12)
-                    return I("il2cpp::runtime::icall_stream_reader_ctor", 1, false, false, true);
-                throw new NotSupportedException(
-                    $"StreamReader ctor with {count} arg(s) not wired: the object-typed icall takes exactly (Stream) -- " +
-                    "the string/encoding overloads need extra icall variants");
+                    $"FileStream ctor with {count} arg(s) not wired: the object-typed icalls take exactly " +
+                    "(string path, int32 FileMode) or (string path, int32 FileMode, int32 FileAccess) -- " +
+                    "the other overloads (FileShare/bufferSize/FileOptions forms) need extra icall variants");
+              case "System.IO.MemoryStream":
+                  if (ps.Length == 0)
+                      return I("il2cpp::runtime::icall_stream_memory_ctor", 0, false, false, true);
+                  // P2 IO-symmetry (2026-09-19): the 1-arg ctors -- byte[]
+                  // (0x1D SZARRAY -> "a" cast) seeds the buffer; int32 sets the
+                  // initial capacity. Both were LOUD before.
+                  if (ps.Length == 1 && ps[0] == 0x1D)
+                      return I("il2cpp::runtime::icall_stream_memory_ctor_data", 1, false, false, true,
+                          new[] { "", "a" });
+                  if (ps.Length == 1 && ps[0] == 0x08)
+                      return I("il2cpp::runtime::icall_stream_memory_ctor_capacity", 1, false, false, true,
+                          new[] { "", "i" });
+                  throw new NotSupportedException($"MemoryStream ctor with {count} arg(s) not wired (wired: (), (byte[]), (int))");
+              case "System.IO.StreamReader":
+                  if (ps.Length == 1 && ps[0] == 0x12)
+                      return I("il2cpp::runtime::icall_stream_reader_ctor", 1, false, false, true);
+                  // P2 IO-symmetry (2026-09-19): StreamReader(string path) --
+                  // the runtime opens "rb" and BOM-detects (net48 contract).
+                  if (ps.Length == 1 && ps[0] == 0x0E)
+                      return I("il2cpp::runtime::icall_stream_reader_path_ctor", 1, false, false, true,
+                          new[] { "", "" });
+                  throw new NotSupportedException(
+                      $"StreamReader ctor with {count} arg(s) not wired: the object-typed icalls take exactly (Stream) or (string path) -- " +
+                      "the encoding overloads need extra icall variants");
             case "System.IO.StreamWriter":
                 if (ps.Length == 1 && ps[0] == 0x12)
                     return I("il2cpp::runtime::icall_stream_writer_ctor", 1, false, false, true);
@@ -218,9 +254,25 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::icall_stream_writer_path_ctor", 1, false, false, true,
                         new[] { "", "" });
+                // P2(5) IO-symmetry (2026-09-19): the append / encoding path
+                // ctors -- (string,bool) opens Create/Append, (string,bool,
+                // Encoding) and (string,bool,Encoding,int) additionally select
+                // the text encoder + its preamble. The runtime reads the
+                // encoding's class name; bufferSize is validated (net48:
+                // <= 0 -> ArgumentOutOfRangeException) and otherwise ignored
+                // (it never changes the written bytes).
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x02)
+                    return I("il2cpp::runtime::icall_stream_writer_path_append_ctor", 2, false, false, true,
+                        new[] { "", "", "i" });
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x02 && ps[2] == 0x12)
+                    return I("il2cpp::runtime::icall_stream_writer_path_encoding_ctor", 3, false, false, true,
+                        new[] { "", "", "i", "" });
+                if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x02 && ps[2] == 0x12 && ps[3] == 0x08)
+                    return I("il2cpp::runtime::icall_stream_writer_path_encoding_ctor4", 4, false, false, true,
+                        new[] { "", "", "i", "", "i" });
                 throw new NotSupportedException(
                     $"StreamWriter ctor with {count} arg(s) not wired: the object-typed icall takes exactly " +
-                    "(Stream) or (string path) -- the encoding overloads need extra icall variants");
+                    "(Stream), (string path), (string, bool append) or (string, bool, Encoding[, int bufferSize])");
             default: return null;
         }
     }

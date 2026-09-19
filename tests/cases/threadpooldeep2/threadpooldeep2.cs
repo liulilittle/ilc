@@ -51,6 +51,13 @@ namespace Cases { public static class ThreadPoolDeep2 {
     static WaitCallback g_innerCb;
     static int g_outer;
     static int g_inner;
+    // E2E oracle fix (2026-09-11): the busy loops below were `for (...) { }`
+    // -- an EMPTY body that Release -O2 legally elides (observed: the workers
+    // finished instantly, the queue drained on one worker, workersGE2 flaked).
+    // Each iteration does a real Interlocked.Increment -- an icall the C++
+    // optimizer cannot remove -- so the intended busy interval survives. The
+    // value itself is never asserted (each worker writes its own run counter).
+    static int g_spin;
 
     static void IncWorker(object state)
     {
@@ -73,7 +80,7 @@ namespace Cases { public static class ThreadPoolDeep2 {
             if (cur <= p) break;
             if (Interlocked.CompareExchange(ref g_peak, cur, p) == p) break;
         }
-        for (int i = 0; i < 500000; i++) { }
+        for (int i = 0; i < 500000; i++) { Interlocked.Increment(ref g_spin); }
         Interlocked.Decrement(ref g_active);
         Interlocked.Increment(ref g_done);
     }
@@ -81,7 +88,7 @@ namespace Cases { public static class ThreadPoolDeep2 {
     static void RoundRobinWorker(object state)
     {
         int idx = (int)state;
-        for (int i = 0; i < 500000; i++) { }
+        for (int i = 0; i < 500000; i++) { Interlocked.Increment(ref g_spin); }
         Thread cur = Thread.CurrentThread;
         g_thr[idx] = cur;
         g_workerIds[idx] = cur.ManagedThreadId;

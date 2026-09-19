@@ -4,7 +4,6 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Il2Cpp.Transpiler;
-using Il2Cpp.Transpiler;
 using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Model;
 using Xunit;

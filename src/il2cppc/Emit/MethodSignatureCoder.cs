@@ -40,13 +40,114 @@ public static class MethodSignatureCoder
         // The return type is also read as a raw byte, consuming its trailing TypeDefOrRef
         // (class/value-type returns); otherwise the param loop would start parsing at the
         // TypeDefOrRef coded index and produce a wrong hash input.
-        var returnByte = sig.ReadByte();
+        var returnByte = SkipCustomModifiers(ref sig, sig.ReadByte());
         var returnType = (SignatureTypeCode)returnByte;
         var returnTypeName = EncodeReturn(md, ref sig, returnByte);
         var parts = new string[paramCount];
         for (var i = 0; i < paramCount; i++)
             parts[i] = EncodeType(md, ref sig);
         return (paramCount, returnType, string.Join(",", parts), returnTypeName);
+    }
+
+    /// <summary>
+    /// ECMA-335 II.23.1.16 custom modifiers: CMOD_REQD (0x1F) / CMOD_OPT (0x20)
+    /// each carry a TypeDefOrRefOrSpec coded index followed by the type they
+    /// modify. Every type-reading entry point must consume the modifier(s) and
+    /// continue with the REAL type byte (volatile fields, `in` parameters and
+    /// modreq'd returns would otherwise misparse -- e.g. `static volatile int`
+    /// has field sig 06 1F 09 08 where 0x1F is IsVolatile's modreq).
+    /// </summary>
+    public static byte SkipCustomModifiers(ref BlobReader sig, byte b)
+    {
+        while (b is 0x1F or 0x20)
+        {
+            // A well-formed modifier carries a TypeDefOrRefOrSpec coded index
+            // AND the type it modifies. A blob that ends early is malformed
+            // (e.g. the reserved-byte matrix probes) -- reject loudly with the
+            // offending byte, never misparse.
+            if (sig.RemainingBytes == 0)
+                throw new NotSupportedException($"signature custom modifier 0x{b:X2} has no coded index (malformed signature blob)");
+            _ = sig.ReadCompressedInteger(); // TypeDefOrRefOrSpec coded index
+            if (sig.RemainingBytes == 0)
+                throw new NotSupportedException($"signature custom modifier 0x{b:X2} has no underlying type (malformed signature blob)");
+            b = sig.ReadByte();
+        }
+        return b;
+    }
+
+    /// <summary>
+    /// R2b P2 (parallel VAR channel): decode ONLY which signature slots are
+    /// generic parameters (0x13 VAR / 0x1E MVAR). The main Decode keeps the raw
+    /// "i"/"" encodings (the hash channel -- A3 C3: the C++ name hash must not
+    /// drift); a closed generic clone consumes THESE flags to render T as its
+    /// concrete C++ type (Il2CppObject* for reference instantiations) without
+    /// touching the hash input.
+    /// </summary>
+    public static (bool ReturnIsVar, bool[] ParamIsVar) DecodeVarFlags(MetadataReader md, BlobHandle sigHandle)
+    {
+        var sig = md.GetBlobReader(sigHandle);
+        var header = sig.ReadSignatureHeader();
+        if (header.IsGeneric) sig.ReadCompressedInteger();
+        var paramCount = sig.ReadCompressedInteger();
+        var returnByte = SkipCustomModifiers(ref sig, sig.ReadByte());
+        var returnIsVar = returnByte is 0x13 or 0x1E;
+        ConsumeVarSigType(md, ref sig, returnByte);
+        var flags = new bool[paramCount];
+        for (var i = 0; i < paramCount; i++)
+        {
+            var b = SkipCustomModifiers(ref sig, sig.ReadByte());
+            flags[i] = b is 0x13 or 0x1E;
+            ConsumeVarSigType(md, ref sig, b);
+        }
+        return (returnIsVar, flags);
+    }
+
+    // Consume one signature type byte plus its trailing payload (the minimal
+    // alignment walk DecodeVarFlags needs -- it never materializes the names).
+    private static void ConsumeVarSigType(MetadataReader md, ref BlobReader sig, byte b)
+    {
+        switch (b)
+        {
+            case 0x11 or 0x12 or 0x40:
+                sig.ReadTypeHandle();
+                break;
+            case 0x13 or 0x1E:
+                sig.ReadCompressedInteger();
+                break;
+            // ECMA-335 custom modifier (0x1F/0x20): coded index then the
+            // modified type -- consume the real type recursively.
+            case 0x1F or 0x20:
+                _ = sig.ReadCompressedInteger();
+                ConsumeVarSigType(md, ref sig, sig.ReadByte());
+                break;
+            case 0x0F or 0x10 or 0x1D:
+                ConsumeVarSigType(md, ref sig, sig.ReadByte());
+                break;
+            case 0x14:
+                ConsumeVarSigType(md, ref sig, sig.ReadByte());
+                var rank = sig.ReadCompressedInteger();
+                var numSizes = sig.ReadCompressedInteger();
+                for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+                var numLo = sig.ReadCompressedInteger();
+                for (var i = 0; i < numLo; i++) _ = sig.ReadCompressedInteger();
+                break;
+            case 0x15:
+                _ = sig.ReadByte(); // CLASS/VALUETYPE marker
+                _ = sig.ReadTypeHandle();
+                var argc = sig.ReadCompressedInteger();
+                for (var i = 0; i < argc; i++)
+                    ConsumeVarSigType(md, ref sig, sig.ReadByte());
+                break;
+            case 0x1B:
+                _ = sig.ReadByte(); // calling convention
+                var fc = sig.ReadCompressedInteger();
+                ConsumeVarSigType(md, ref sig, sig.ReadByte());
+                for (var i = 0; i < fc; i++)
+                    ConsumeVarSigType(md, ref sig, sig.ReadByte());
+                break;
+            default:
+                break; // leaf bytes carry no trailing data
+        }
     }
 
     /// <summary>
@@ -92,7 +193,7 @@ public static class MethodSignatureCoder
     // signature convention).
     private static string EncodePropertyType(MetadataReader md, ref BlobReader sig)
     {
-        var b = sig.ReadByte();
+        var b = SkipCustomModifiers(ref sig, sig.ReadByte());
         return b switch
         {
             0x02 => "System.Boolean",
@@ -181,7 +282,7 @@ public static class MethodSignatureCoder
         if ((conv & 0x40) != 0)
             throw new NotSupportedException($"calli signature with EXPLICIT_THIS calling convention (0x{conv:X2}) not supported in fnptr-b23");
         var paramCount = sig.ReadCompressedInteger();
-        var returnByte = sig.ReadByte();
+        var returnByte = SkipCustomModifiers(ref sig, sig.ReadByte());
         var returnType = (SignatureTypeCode)returnByte;
         ConsumeReturnTrailing(md, ref sig, returnByte);
         var parts = new string[paramCount];
@@ -200,7 +301,10 @@ public static class MethodSignatureCoder
     // ushort/native-int live in int32_t slots ("b"/"c"/"i1"/"u1"/"i2"/"u2"/"n"); int64/uint64 in
     // int64_t slots ("l"/"q"); float/double in double slots ("f"/"d"); arrays are managed
     // references ("r:...[]").
-    private static string EncodeType(MetadataReader md, ref BlobReader sig) => sig.ReadByte() switch
+    private static string EncodeType(MetadataReader md, ref BlobReader sig)
+    {
+        var tb = SkipCustomModifiers(ref sig, sig.ReadByte());
+        return tb switch
     {
         0x01 => "v",                                    // ELEMENT_TYPE_VOID
         0x02 => "b",                                    // ELEMENT_TYPE_BOOLEAN (int32 slot)
@@ -237,11 +341,12 @@ public static class MethodSignatureCoder
         0x19 => "i",                                    // ELEMENT_TYPE_U (native uint -- as int32)
         0x1B => "F:" + FnPtrSig(md, ref sig),           // ELEMENT_TYPE_FNPTR
         0x1C => "r:System.Object",                      // ELEMENT_TYPE_OBJECT
-        0x1D or 0x1F => "r:" + EncodeType(md, ref sig).TrimStart('r', ':') + "[]", // ELEMENT_TYPE_SZARRAY (0x1F is the codebase's SZARRAY variant convention)
+        0x1D => "r:" + EncodeType(md, ref sig).TrimStart('r', ':') + "[]", // ELEMENT_TYPE_SZARRAY
         0x40 => "T:" + ResolveTypeName(md, sig.ReadTypeHandle()), // ELEMENT_TYPE type-handle (nested)
         0x41 => "...",                                  // ELEMENT_TYPE_SENTINEL (vararg separator -- no trailing data)
         var b => throw new NotSupportedException($"signature parameter type byte 0x{b:X2} not supported in M2"),
     };
+    }
 
     // ELEMENT_TYPE_FNPTR (0x1B) trailing payload: a full method signature --
     // calling-convention byte (0x00 default / 0x01 C / 0x02 StdCall / 0x03
@@ -285,6 +390,11 @@ public static class MethodSignatureCoder
     // reference/value/generic-inst returns (no more LOUD -- G2 guard removed).
     private static string EncodeReturn(MetadataReader md, ref BlobReader sig, byte returnByte)
     {
+        // ECMA-335 II.23.1.16 custom modifiers (volatile / in / init modreq):
+        // strip them and decode the underlying return type (the caller may
+        // have passed the raw modifier byte -- Decode/DecodeStandalone strip
+        // first, this keeps every entry consistent).
+        returnByte = SkipCustomModifiers(ref sig, returnByte);
         if (returnByte is 0x11 or 0x12 or 0x40)
         {
             var prefix = returnByte == 0x11 ? "V:" : returnByte == 0x12 ? "r:" : "T:";
@@ -309,18 +419,13 @@ public static class MethodSignatureCoder
         // ELEMENT byte after the marker -- not consuming it makes the param loop read the
         // element as the first param (string[] Get(int x) decodes "r:System.String" instead
         // of "i", and a following int param is silently dropped).
-        if (returnByte is 0x1D or 0x1F) return "r:" + EncodeType(md, ref sig).TrimStart('r', ':') + "[]";
+        if (returnByte is 0x1D) return "r:" + EncodeType(md, ref sig).TrimStart('r', ':') + "[]";
         // b23-audit: BYREF return types (ref int Get(int x) -> 00 01 10 08 08) carry the
         // element type after the marker -- same misalignment without the consume.
         if (returnByte == 0x10) return "B:" + EncodeType(md, ref sig);
         // b23-audit: PTR return types (int* Get(int x) -> 00 01 0F 08 08) carry the
         // pointee type after the marker.
         if (returnByte == 0x0F) return "P:" + EncodeType(md, ref sig);
-        // 0x20 CMOD_OPT: a custom modifier carries TypeDefOrRef + underlying type. The
-        // param contract loud-rejects it (default switch arm); a silent return skip here
-        // would misalign the param loop, so reject loudly and symmetrically.
-        if (returnByte == 0x20)
-            throw new NotSupportedException($"signature return type byte 0x20 (custom modifier) not supported in M2");
         // 0x16 TYPEDBYREF / 0x41 SENTINEL / leaf bytes carry no trailing data -- no-op.
         return "";
     }
@@ -369,4 +474,18 @@ public static class MethodSignatureCoder
             HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)handle),
             _ => throw new NotSupportedException($"signature type handle kind {handle.Kind} not supported in M2"),
         };
+
+    // M3 generic argument: consume a TypeDefOrRef coded index and return the
+    // concrete full name. Shared by MethodRefResolver / CodeGenerator /
+    // StackFold / MethodBodyReader (the "four-place rule").
+    public static string ResolveM3ArgTypeName(MetadataReader md, ref BlobReader sig)
+    {
+        EntityHandle h = sig.ReadTypeHandle();
+        return h.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)h),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)h),
+            _ => throw new NotSupportedException($"M3 arg handle kind {h.Kind}"),
+        };
+    }
 }

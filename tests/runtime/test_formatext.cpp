@@ -123,7 +123,7 @@ il2cpp::Il2CppObject* MakeFormatWide(const char16_t* fmt)
 il2cpp::Il2CppString* FmtDW(double v, const char16_t* fmt)
 {
     return reinterpret_cast<il2cpp::Il2CppString*>(
-        il2cpp::runtime::icall_format_double_custom(v, MakeFormatWide(fmt)));
+        il2cpp::runtime::icall_format_double_custom(v, MakeFormatWide(fmt), nullptr));
 }
 
 il2cpp::Il2CppString* FmtI32(int32_t v, const char* fmt)
@@ -141,7 +141,7 @@ il2cpp::Il2CppString* FmtI64(int64_t v, const char* fmt)
 il2cpp::Il2CppString* FmtD(double v, const char* fmt)
 {
     return reinterpret_cast<il2cpp::Il2CppString*>(
-        il2cpp::runtime::icall_format_double_custom(v, MakeFormat(fmt)));
+        il2cpp::runtime::icall_format_double_custom(v, MakeFormat(fmt), nullptr));
 }
 
 void ExpectFmtI32(int32_t v, const char* fmt, const char* expected, const char* what)
@@ -190,7 +190,7 @@ bool FmtThrowsD(double v, const char* fmt)
 {
     try
     {
-        il2cpp::runtime::icall_format_double_custom(v, MakeFormat(fmt));
+        il2cpp::runtime::icall_format_double_custom(v, MakeFormat(fmt), nullptr);
     }
     catch (const il2cpp::DotNetException& e)
     {
@@ -588,6 +588,51 @@ int main()
                 nullptr, 5);
             Expect(StringIs(reinterpret_cast<il2cpp::Il2CppString*>(s), "   ab"),
                    "composite item {0,5} of a string arg aligns the payload");
+        }
+    }
+
+    // --- 9. provider routing (saudit4): the invariant culture through the
+    // custom formatters and the composite engine (net48 oracle-pinned:
+    // 1234.ToString("C", Invariant) == U+00A4 "1,234.00"; negative wraps
+    // "(¤n)"; P becomes "n %"; nullptr keeps the zh-CN U+00A5 layout). ---
+    {
+        using il2cpp::runtime::icall_format_composite_item;
+        il2cpp::Il2CppObject* inv = MakeFormat("");
+        auto FmtI32P = [&](int32_t v, const char* fmt) {
+            return reinterpret_cast<il2cpp::Il2CppString*>(
+                il2cpp::runtime::icall_format_int32_custom(v, MakeFormat(fmt), inv));
+        };
+        Expect(StringIsWide(FmtI32P(1234, "C"), u"\u00A41,234.00"),
+               "int32 C invariant positive uses U+00A4");
+        Expect(StringIsWide(FmtI32P(-1234, "C2"), u"(\u00A41,234.00)"),
+               "int32 C invariant negative wraps (currency)");
+        Expect(StringIsWide(FmtI32P(1234, "P0"), u"123,400 %"),
+               "int32 P invariant has the space before %");
+        Expect(StringIsWide(FmtI32P(-1234, "P0"), u"-123,400 %"),
+               "int32 P invariant negative keeps the sign");
+        Expect(StringIsWide(
+                   reinterpret_cast<il2cpp::Il2CppString*>(
+                       il2cpp::runtime::icall_format_int64_custom(1234, MakeFormat("C"), inv)),
+                   u"\u00A41,234.00"),
+               "int64 C invariant positive uses U+00A4");
+        Expect(StringIsWide(
+                   reinterpret_cast<il2cpp::Il2CppString*>(
+                       il2cpp::runtime::icall_format_int32_custom(1234, MakeFormat("C"), nullptr)),
+                   u"\u00A51,234.00"),
+               "int32 C nullptr provider stays zh-CN U+00A5");
+        {
+            il2cpp::Il2CppObject* s = icall_format_composite_item(
+                reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_box_int32(nullptr, 1234)),
+                MakeFormat("C"), 0, inv);
+            Expect(StringIsWide(reinterpret_cast<il2cpp::Il2CppString*>(s), u"\u00A41,234.00"),
+                   "composite int C with invariant provider");
+        }
+        {
+            il2cpp::Il2CppObject* s = icall_format_composite_item(
+                reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::runtime::icall_box_double(12.5)),
+                MakeFormat("C"), 0, inv);
+            Expect(StringIsWide(reinterpret_cast<il2cpp::Il2CppString*>(s), u"\u00A412.50"),
+                   "composite double C with invariant provider");
         }
     }
 

@@ -437,6 +437,34 @@ int main()
     il2cpp::Il2CppString* const emptyHex = ToHex(NewByteArray(0));
     Expect(emptyHex->length == 0, "ToString(empty) == empty string");
 
+    // --- 6. ToT offset forms: startIndex selects the first byte read ---
+    // to_bool_offset must normalize through uint8_t (never memcpy an
+    // arbitrary byte into a C++ bool -- values other than 0/1 are UB and
+    // clang folds them to False; net48 is non-zero -> True).
+    {
+        il2cpp::Il2CppArray* const b0 = NewByteArray(1);
+        b0->data[0] = static_cast<char>(0);
+        il2cpp::Il2CppArray* const b1 = NewByteArray(1);
+        b1->data[0] = static_cast<char>(1);
+        il2cpp::Il2CppArray* const b42 = NewByteArray(1);
+        b42->data[0] = static_cast<char>(42);
+        il2cpp::Il2CppArray* const bff = NewByteArray(1);
+        bff->data[0] = static_cast<char>(0xFF);
+        Expect(il2cpp::runtime::il2cpp_bitconverter_to_bool_offset(b0, 0) == false,
+               "to_bool_offset({0},0) == false");
+        Expect(il2cpp::runtime::il2cpp_bitconverter_to_bool_offset(b1, 0) == true,
+               "to_bool_offset({1},0) == true");
+        Expect(il2cpp::runtime::il2cpp_bitconverter_to_bool_offset(b42, 0) == true,
+               "to_bool_offset({42},0) == true (non-zero, UB catcher on bool-strict compilers)");
+        Expect(il2cpp::runtime::il2cpp_bitconverter_to_bool_offset(bff, 0) == true,
+               "to_bool_offset({255},0) == true (non-zero)");
+        il2cpp::Il2CppArray* const b02a = NewByteArray(2);
+        b02a->data[0] = static_cast<char>(0);
+        b02a->data[1] = static_cast<char>(42);
+        Expect(il2cpp::runtime::il2cpp_bitconverter_to_bool_offset(b02a, 1) == true,
+               "to_bool_offset({0,42},1) reads index 1 (== true)");
+    }
+
     // null -> ArgumentNullException (paramName "value").
     ExpectDotNetException("ToString(null) throws ArgumentNullException",
                           kNullArgExTag,

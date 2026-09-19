@@ -47,6 +47,7 @@
 #include "typeinfo.h"          // il2cpp_typeinfo_lookup / Il2CppTypeInfo
 #include "il2cpp_runtime.h"    // il2cpp_object_new
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception / _new
+#include "il2cpp_string.h"        // il2cpp_string_new_from_cs (canonical Type name)
 
 #include <cstring>
 
@@ -223,13 +224,54 @@ Il2CppObject* il2cpp_activator_create_instance(Il2CppObject* typeName)
             "part of this AOT build (not registered in the typeinfo registry).");
     }
     const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(keyBuf);
-    if (info == nullptr || info->klass == nullptr)
+    if (info != nullptr && info->klass != nullptr)
     {
+        Il2CppObject* obj = il2cpp_object_new(const_cast<Il2CppClass*>(info->klass));
+        // raudit2: net48 CreateInstance(C) RUNS the parameterless ctor. The
+        // generated .ctor has the instance ABI void(Il2CppObject* this) and
+        // its address is registered in the typeinfo method table
+        // (TypeEmitter emits the .ctor entry with fnPtr).
+        if (info->methods != nullptr)
+        {
+            for (int32_t i = 0; i < info->methodCount; ++i)
+            {
+                const Il2CppMethodInfo& mi = info->methods[i];
+                if (mi.name != nullptr && std::strcmp(mi.name, ".ctor") == 0
+                    && mi.paramCount == 0 && mi.fnPtr != nullptr)
+                {
+                    reinterpret_cast<void (*)(Il2CppObject*)>(mi.fnPtr)(obj);
+                    return obj;
+                }
+            }
+        }
         il2cpp_throw_new(kMissingMethodChain,
-            "Cannot create an instance of the specified type: the type is not "
-            "part of this AOT build (not registered in the typeinfo registry).");
+            "Cannot create an instance of the specified type: no parameterless "
+            "constructor is defined (net48 raises MissingMethodException).");
     }
-    return il2cpp_object_new(const_cast<Il2CppClass*>(info->klass));
+    // raudit2: BCL primitive fallback -- net48 CreateInstance(typeof(int)) is
+    // the BOXED default (0), not an exception. The primitive box classes are
+    // registered in the builtin class registry (il2cpp_class_by_name), and a
+    // zero-initialized box instance is exactly the default value.
+    static const char* const kPrimitiveBoxNames[] = {
+        "System.Boolean", "System.Byte", "System.SByte", "System.Char",
+        "System.Int16", "System.UInt16", "System.Int32", "System.UInt32",
+        "System.Int64", "System.UInt64", "System.Single", "System.Double",
+        "System.Decimal",
+    };
+    for (size_t bi = 0; bi < sizeof(kPrimitiveBoxNames) / sizeof(kPrimitiveBoxNames[0]); ++bi)
+    {
+        if (std::strcmp(keyBuf, kPrimitiveBoxNames[bi]) == 0)
+        {
+            Il2CppClass* boxClass = il2cpp_class_by_name(keyBuf);
+            if (boxClass != nullptr)
+            {
+                return il2cpp_object_new(boxClass);
+            }
+        }
+    }
+    il2cpp_throw_new(kMissingMethodChain,
+        "Cannot create an instance of the specified type: the type is not "
+        "part of this AOT build (not registered in the typeinfo registry).");
 }
 
 //------------------------------------------------------------------------------
@@ -265,6 +307,13 @@ Il2CppObject* il2cpp_type_get_type(Il2CppObject* typeName)
     {
         return nullptr;
     }
+    // raudit3/reflect2: net48 parses "Name, Assembly[, ...]" -- the assembly
+    // qualifier is stripped and FullName reports the canonical name.
+    // NormalizeTypeName is the ONE parser shared with Activator.CreateInstance:
+    // it skips leading spaces, rejects an EMPTY assembly part
+    // ("System.Int32," -> null, net48 probe-pinned), and returns the canonical
+    // type-name key. The previous detached-canonical extraction skipped that
+    // assembly validation (reflect2 gt_emptyasm: type wrongly resolved).
     char keyBuf[kNameBufferSize];
     if (NormalizeTypeName(nameBuf, keyBuf) <= 0)
     {
@@ -272,7 +321,11 @@ Il2CppObject* il2cpp_type_get_type(Il2CppObject* typeName)
     }
     if (il2cpp_typeinfo_lookup(keyBuf) != nullptr)
     {
-        return typeName; // user-assembly type: registry hit
+        // user-assembly type: registry hit; the Type VALUE is the CANONICAL
+        // name string (allocate when the qualifier was stripped).
+        return std::strcmp(keyBuf, nameBuf) == 0
+            ? typeName
+            : reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(keyBuf));
     }
     // BCL fallback: the builtin descriptor registry (il2cpp_class_by_name)
     // resolves System.Int32 / System.String / ... even though those types
@@ -280,7 +333,9 @@ Il2CppObject* il2cpp_type_get_type(Il2CppObject* typeName)
     il2cpp_ensure_builtin_system_classes();
     if (il2cpp_class_by_name(keyBuf) != nullptr)
     {
-        return typeName;
+        return std::strcmp(keyBuf, nameBuf) == 0
+            ? typeName
+            : reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(keyBuf));
     }
     return nullptr;
 }

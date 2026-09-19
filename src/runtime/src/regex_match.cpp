@@ -49,6 +49,8 @@ struct MatchContext {
     int64_t steps;
     bool budgetHit;
     std::vector<Capture> captures; // finalized capture history (stack)
+    int32_t base;                  // absolute offset of text[0] (anchor math)
+    const char16_t* origin;        // absolute text start (LineStart lookback)
 };
 
 char16_t Fold(char16_t c)
@@ -272,7 +274,8 @@ int32_t MatchNode(const RegexNode* node, int32_t pos, MatchContext* ctx,
         switch (node->anchor)
         {
         case AnchorKind::Start:
-            return pos == 0 ? Continue(cont, pos, ctx) : -1;
+            // Absolute position 0 only (a suffix slice must NOT re-anchor).
+            return pos + ctx->base == 0 ? Continue(cont, pos, ctx) : -1;
         case AnchorKind::End:
             // net48: end-of-string OR immediately before a trailing '\n'.
             if (pos == ctx->len)
@@ -285,13 +288,14 @@ int32_t MatchNode(const RegexNode* node, int32_t pos, MatchContext* ctx,
             }
             return -1;
         case AnchorKind::LineStart:
-            if (pos == 0)
+        {
+            const int32_t abs = pos + ctx->base;
+            if (abs == 0)
             {
                 return Continue(cont, pos, ctx);
             }
-            return (pos > 0 && ctx->text[pos - 1] == u'\n')
-                       ? Continue(cont, pos, ctx)
-                       : -1;
+            return ctx->origin[abs - 1] == u'\n' ? Continue(cont, pos, ctx) : -1;
+        }
         case AnchorKind::LineEnd:
             if (pos == ctx->len)
             {
@@ -753,8 +757,8 @@ int32_t BacktrackGreedy(RepeatState* st, int32_t iters, int32_t entryCount, Matc
 // Entry point
 //------------------------------------------------------------------------------
 
-bool il2cpp_regex_match(const RegexAst* pattern, const char16_t* input,
-                        int32_t inputLength, MatchResult* outResult)
+bool RegexMatchAt(const RegexAst* pattern, const char16_t* input,
+                  int32_t inputLength, int32_t baseOffset, MatchResult* outResult)
 {
     if (outResult != nullptr)
     {
@@ -775,6 +779,8 @@ bool il2cpp_regex_match(const RegexAst* pattern, const char16_t* input,
     ctx.len = inputLength;
     ctx.steps = 0;
     ctx.budgetHit = false;
+    ctx.base = baseOffset;
+    ctx.origin = input;
 
 
     const Continuation top = {nullptr, 0, 0, -1, 0, nullptr, nullptr};
@@ -810,6 +816,12 @@ bool il2cpp_regex_match(const RegexAst* pattern, const char16_t* input,
         }
     }
     return false;
+}
+
+bool il2cpp_regex_match(const RegexAst* pattern, const char16_t* input,
+                        int32_t inputLength, MatchResult* outResult)
+{
+    return RegexMatchAt(pattern, input, inputLength, 0, outResult);
 }
 
 } } // namespace il2cpp::runtime

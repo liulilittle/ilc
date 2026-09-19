@@ -107,6 +107,21 @@ public static class CodeGenerator
         // Conditional include keeps non-Windows builds clean.
         generatedHeader.Line("#ifdef _WIN32");
         generatedHeader.Line("#include <windows.h>");
+        // Win32 SDK headers that <windows.h> does NOT pull in: the GUI import
+        // families (comdlg32 -> commdlg.h: GetOpenFileNameW/ChooseColorW/
+        // ChooseFontW; comctl32 -> commctrl.h: InitCommonControlsEx/
+        // ImageList_*) need their own headers so the call sites see the SDK
+        // prototypes. The transpiler no longer restates system-DLL imports
+        // (isWindowsDll below suppresses the declaration), so these prototypes
+        // ARE the call targets -- without the include the call is undeclared.
+        // Conditional on the assembly actually importing the module (no cost
+        // for the non-GUI cases). wingdi.h (gdi32) rides <windows.h> already.
+        static bool HasWin32Import(List<TypeDef> ts, string name)
+            => ts.Any(t => t.Methods.Any(m => m.IsPInvoke && m.PinvokeModule != null
+                && (m.PinvokeModule.Equals(name, StringComparison.OrdinalIgnoreCase)
+                    || m.PinvokeModule.Equals(name + ".dll", StringComparison.OrdinalIgnoreCase))));
+        if (HasWin32Import(types, "comdlg32")) generatedHeader.Line("#include <commdlg.h>");
+        if (HasWin32Import(types, "comctl32")) generatedHeader.Line("#include <commctrl.h>");
         generatedHeader.Line("#endif");
         // M7 wiring: numeric Parse/TryParse domain -- Int32/Int64/Double/
         // Byte/Bool TryParse icalls (icall_try_parse_int32/int64/double/bool/
@@ -214,12 +229,22 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"il2cpp_marshal_ext.h\"");
         generatedHeader.Line("#include \"il2cpp_marshal_ext2.h\"");
         generatedHeader.Line("#include \"il2cpp_pinvoke_ext.h\"");
+        // P/Invoke native-ABI bridge (Win32 handle/pointer/wide-string/struct
+        // marshalling): the internal carriers (intptr_t / char16_t* / managed
+        // mirror structs) are adapted to whatever the NATIVE declaration names
+        // at the call target -- windows.h's SDK prototype on Windows, the
+        // transpiler's own extern "C" otherwise.
+        generatedHeader.Line("#include \"il2cpp_pinvoke_bridge.h\"");
         // M5 wiring: regex domain (il2cpp_regex_is_match/match/replace/split
         // -- static Regex overloads, MethodMap.Regex.cs).
         generatedHeader.Line("#include \"regex.h\"");
         // M5 wiring: List<int> domain -- the int32 AOT expansion allocates
         // through il2cpp_list_i4_class (BclAllocExpr, MethodMap.List.cs).
         generatedHeader.Line("#include \"listi4.h\"");
+        // ilistException: List<Exception> (CLASS instantiation) allocates
+        // through il2cpp_list_obj_class (listobj.h, namespace il2cpp) --
+        // without the include the generated C++ cannot see the declarations.
+        generatedHeader.Line("#include \"listobj.h\"");
         // M6 wiring: ArrayList / Stack+Queue object domains -- the member
         // icalls (il2cpp_arraylist_* / il2cpp_stack_* / il2cpp_queue_*) and
         // the *_class() descriptor accessors live in arraylist.h / stackqueue.h
@@ -266,6 +291,21 @@ public static class CodeGenerator
         // include -> il2cpp_object_new(&System_Collections_Generic_Dictionary_2_
         // string_int_class) + the icall_dict_si_* calls cannot compile.
         generatedHeader.Line("#include \"dictsi_obj.h\"");
+        // Phase-2 absorption: the Dictionary<string,string> /
+        // Dictionary<Uri,string> expansions ride the shared generic table
+        // (dictgen.h) through the icall_dict_gen_*_o twins -- the dictss /
+        // uristr shims are deleted, no dictss_obj.h include.
+        // Phase-1 (dictgen): the shared generic Dictionary`2 storage + kind
+        // registry (dictgen.h) -- the wrapper/enumerator/KVP descriptors +
+        // the single icall_dict_gen_* family.
+        generatedHeader.Line("#include \"dictgen.h\"");
+        // G4: the Queue<int> boxing/unboxing wrappers (queueint_obj.h).
+        generatedHeader.Line("#include \"queueint_obj.h\"");
+        // T2 W4: the Stack<int/long/double> boxing/unboxing wrappers.
+        generatedHeader.Line("#include \"stackint_obj.h\"");
+        generatedHeader.Line("#include \"sortedlistint_obj.h\"");
+        generatedHeader.Line("#include \"sortedset_obj.h\"");
+        generatedHeader.Line("#include \"genericcomparer_obj.h\"");
         generatedHeader.Line("#include \"enumext.h\"");
         generatedHeader.Line("#include \"il2cpp_interlocked.h\"");
         generatedHeader.Line("#include \"il2cpp_string_ext3.h\"");
@@ -399,6 +439,199 @@ public static class CodeGenerator
         generatedHeader.Line("#endif");
         generatedHeader.Line();
 
+        // R77 generic multi-instantiation scan (R2b): collect every generic-inst
+        // local across all method bodies, and synthesize a CLONE TypeDef per
+        // unique (defName, suffix) whose methods/fields are re-owned so the
+        // emitter can generate the concrete struct + methods. MUST run BEFORE
+        // VTablePlanner.PlanAll (the clone's vtable/interface maps need
+        // planning exactly like a definition). Identity: the clone shares the
+        // definition's FullName (C++ symbols/hashes key on the definition
+        // name -- A3 constraints C3/C4); TypeDef.InstantiationKey (FullName +
+        // "|" + suffix) is the planner dedup key.
+        var genericInstTypes = new Dictionary<string, TypeDef>(StringComparer.Ordinal);
+        // R2b scan source helper: synthesize a clone for one (defFullName,
+        // suffix) pair from the definition in this assembly (same helper the
+        // local-kind scan uses; also fed by the newobj/TypeSpec and model
+        // string scans below -- newobj-only instantiations have no local kind).
+        void EnsureClone(string gDef, string gSuffix)
+        {
+            // R2b: the "int" instantiation IS the definition itself under the
+            // M3 single-instantiation convention (TypeCppName default "_int");
+            // a clone would emit a second same-named type/method set (allSrc
+            // overwrite/duplicate definition). Keep the definition.
+            if (gSuffix == "int") return;
+            var gKey = gDef + "|" + gSuffix;
+            if (genericInstTypes.ContainsKey(gKey)) return;
+            var def = types.FirstOrDefault(x => x.FullName == gDef && x.InstantiationSuffix == null);
+            if (def == null) return;
+            // R2b scope: reference CLASS instantiations only. Interface/struct
+            // instantiations keep the legacy path (R3 / P2 concerns: interface
+            // dispatch maps and value-type slots need their own closure).
+            if (def.IsInterface || def.IsValueType) return;
+            var clone = new TypeDef
+            {
+                Name = def.Name,
+                Namespace = def.Namespace,
+                GenericArity = def.GenericArity,
+                InstantiationSuffix = gSuffix,
+                IsInterface = false,
+                IsValueType = false,
+                IsSealed = def.IsSealed,
+                IsAbstract = false,
+                IsNested = def.IsNested,
+                DeclaringTypeName = def.DeclaringTypeName,
+                BeforeFieldInit = def.BeforeFieldInit,
+                BaseTypeName = def.BaseTypeName,
+            };
+            // R2b P2: a VAR field becomes the concrete reference storage in a
+            // reference instantiation (Il2CppObject* -- the uniform managed
+            // reference representation).
+            bool RefVar(FieldDef f) => f.IsGenericVar && gSuffix != "int";
+            foreach (var f in def.StaticFields)
+                clone.StaticFields.Add(new FieldDef
+                {
+                    Name = f.Name, Owner = clone, IsStatic = true,
+                    IsLiteral = f.IsLiteral, ConstantValue = f.ConstantValue,
+                    TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
+                    FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
+                    IsGenericVar = f.IsGenericVar,
+                });
+            foreach (var f in def.InstanceFields)
+                clone.InstanceFields.Add(new FieldDef
+                {
+                    Name = f.Name, Owner = clone, IsStatic = false,
+                    IsLiteral = f.IsLiteral, ConstantValue = f.ConstantValue,
+                    TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
+                    FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
+                    IsGenericVar = f.IsGenericVar,
+                });
+            foreach (var m in def.Methods)
+                clone.Methods.Add(new MethodDef
+                {
+                    Name = m.Name, Owner = clone, IsStatic = m.IsStatic,
+                    IsPublic = m.IsPublic, ParamCount = m.ParamCount,
+                    ParamTypes = m.ParamTypes, ReturnType = m.ReturnType,
+                    ReturnTypeName = m.ReturnTypeName, IsVirtual = m.IsVirtual,
+                    IsOverride = m.IsOverride, IsAbstract = m.IsAbstract,
+                    IsFinal = m.IsFinal, IsPInvoke = m.IsPInvoke,
+                    PinvokeModule = m.PinvokeModule, PinvokeEntryName = m.PinvokeEntryName,
+                    PinvokeFlags = m.PinvokeFlags, PinvokeSetLastError = m.PinvokeSetLastError,
+                    GenericArity = m.GenericArity,
+                    ParamIsVar = m.ParamIsVar, ReturnIsVar = m.ReturnIsVar,
+                });
+            foreach (var p in def.Properties)
+                clone.Properties.Add(new PropertyDef
+                {
+                    Name = p.Name, Owner = clone, TypeName = p.TypeName,
+                    GetterName = p.GetterName, SetterName = p.SetterName,
+                    IndexParamCount = p.IndexParamCount,
+                });
+            foreach (var iname in def.InterfaceNames)
+                clone.InterfaceNames.Add(iname);
+            genericInstTypes[gKey] = clone;
+            types.Add(clone);
+        }
+        // Snapshot: EnsureClone appends to `types` during the scan.
+        foreach (var ct in types.ToList())
+        {
+            if (ct.IsInterface || IsDelegateTypeDef(ct)) continue;
+            foreach (var cm in ct.Methods)
+            {
+                if (cm.IsPInvoke || cm.IsAbstract) continue;
+                MethodBodyInfo? scanInfo;
+                try { scanInfo = MethodBodyReader.Read(pe, md, ct, cm); }
+                catch { continue; }
+                if (scanInfo == null) continue;
+                foreach (var lk in scanInfo.LocalKinds)
+                {
+                    if (lk == null || !lk.StartsWith("g:", StringComparison.Ordinal)) continue;
+                    var gParts = lk[2..].Split(':');
+                    if (gParts.Length < 2) continue;
+                    EnsureClone(gParts[0], gParts[1]);
+                }
+                // R2b scan source 2: newobj-only instantiations (e.g.
+                // `new Box<string>()` with no local). The newobj operand is a
+                // METHOD token (0x73), NOT a TypeSpec -- the constructed type
+                // lives in the MemberRef's PARENT (a TypeSpec for a generic
+                // instantiation). A3/A9 anchor: MethodDef (same-assembly
+                // generic ctor) and MethodSpec (generic-method token) have no
+                // useful TypeSpec here.
+                try
+                {
+                    foreach (var ins in IlDecoder.DecodeMethod(scanInfo.IlBytes, md))
+                    {
+                        if (ins.OpCode != System.Reflection.Metadata.ILOpCode.Newobj) continue;
+                        var h = MetadataTokens.Handle((int)ins.Operand);
+                        if (h.Kind != HandleKind.MemberReference) continue;
+                        var mr2 = md.GetMemberReference((MemberReferenceHandle)h);
+                        if (mr2.Parent.Kind != HandleKind.TypeSpecification) continue;
+                        var inst = MethodBodyReader.TryClassGenericInstanceKind(
+                            md, (TypeSpecificationHandle)mr2.Parent);
+                        if (inst == null) continue;
+                        var ip = inst[2..].Split(':');
+                        if (ip.Length >= 2) EnsureClone(ip[0], ip[1]);
+                    }
+                }
+                catch { }
+            }
+        }
+        // R2b scan source 3: model strings -- a generic-inst BASE type
+        // (VirtStr : VirtBase<string> decodes BaseTypeName "VirtBase`1<System.String>")
+        // and generic-inst FIELD types carry the angle-bracket canonical name;
+        // parse and clone the definitions they instantiate.
+        void ScanModelName(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            var lt = name.IndexOf('<');
+            if (lt < 0 || !name.EndsWith(">", StringComparison.Ordinal)) return;
+            var defName = name[..lt];
+            if (!defName.Contains('`')) return;
+            var inner = name[(lt + 1)..^1];
+            var suffix = inner switch
+            {
+                "System.String" => "string",
+                "System.Object" => "object",
+                "System.Int32" => "int",
+                "System.Int64" => "long",
+                "System.Double" => "double",
+                "System.Single" => "float",
+                "System.Boolean" => "bool",
+                "System.Char" => "char",
+                "System.Byte" => "byte",
+                _ => null,
+            };
+            if (suffix != null) EnsureClone(defName, suffix);
+        }
+        foreach (var ct in types.ToList())
+        {
+            if (ct.InstantiationSuffix != null) continue;
+            ScanModelName(ct.BaseTypeName);
+            foreach (var f in ct.InstanceFields) ScanModelName(f.FieldTypeName);
+            foreach (var f in ct.StaticFields) ScanModelName(f.FieldTypeName);
+        }
+
+        // R2b clone linking: the clones were copied BEFORE the loader's
+        // second-pass resolution, so their BaseType/InterfaceTypes are unset.
+        // Idempotent guard -- only fills what is still null/empty, existing
+        // links untouched. Resolution = the shared ResolveInstantiationOwner
+        // (suffix-exact clone -> exact FullName -> F1 argument-aware branch ->
+        // generic-arity prefix): single implementation (C6), identical to the
+        // callvirt/devirt owner resolution.
+        {
+            foreach (var t in types)
+            {
+                if (t.BaseType == null && t.BaseTypeName != "System.Object"
+                    && ResolveInstantiationOwner(types, t.BaseTypeName) is { } bt)
+                    t.BaseType = bt;
+                if (t.InterfaceTypes.Count == 0 && t.InterfaceNames.Count > 0)
+                {
+                    foreach (var iname in t.InterfaceNames)
+                        if (ResolveInstantiationOwner(types, iname) is { } it && !t.InterfaceTypes.Contains(it))
+                            t.InterfaceTypes.Add(it);
+                }
+            }
+        }
+
         // Task 7: virtual-slot planning pass -- computes every type's vtable
         // (base-first slots, override replacement) BEFORE any emission so the
         // descriptor/vtable/body generation all see the final slot layout.
@@ -459,6 +692,9 @@ public static class CodeGenerator
                     HasExceptionRegions = candInfo.ExceptionRegions.Count > 0,
                     IsVirtual = cm.IsVirtual,
                     Body = candStmts,
+                    // D1 gate: struct-typed locals (the inline temps would
+                    // misdeclare -- see InlinePass.IsInlineable).
+                    LocalKinds = candInfo.LocalKinds,
                 };
             }
         }
@@ -504,55 +740,6 @@ public static class CodeGenerator
         // abstract/folded-accessor skips above are shared).
         var foldedCount = 0;
         var methodCount = 0;
-
-        // R77 generic multi-instantiation scan: collect every generic-inst
-        // local/param/return across all method bodies BEFORE type emission.
-        // Each unique (defName, suffix) pair becomes a synthetic TypeDef
-        // with InstantiationSuffix set, so the emitter generates the
-        // correct struct + methods (ListBuilder_1_object, etc.).
-        var genericInstTypes = new Dictionary<string, TypeDef>(StringComparer.Ordinal);
-        foreach (var ct in types)
-        {
-            if (ct.IsInterface || IsDelegateTypeDef(ct)) continue;
-            foreach (var cm in ct.Methods)
-            {
-                if (cm.IsPInvoke || cm.IsAbstract) continue;
-                MethodBodyInfo? scanInfo;
-                try { scanInfo = MethodBodyReader.Read(pe, md, ct, cm); }
-                catch { continue; }
-                if (scanInfo == null) continue;
-                // Scan local kinds for "g:<def>:<suffix>"
-                foreach (var lk in scanInfo.LocalKinds)
-                {
-                    if (lk != null && lk.StartsWith("g:", StringComparison.Ordinal))
-                    {
-                        var gParts = lk[2..].Split(':');
-                        if (gParts.Length >= 2)
-                        {
-                            var gDef = gParts[0];
-                            var gSuffix = gParts[1];
-                            var gKey = gDef + "«" + gSuffix;
-                            if (!genericInstTypes.ContainsKey(gKey))
-                            {
-                                var gTypeDef = new TypeDef
-                                {
-                                    Name = gDef.Split('.').Last() + $"`1_{gSuffix}",
-                                    Namespace = string.Join(".", gDef.Split('.').SkipLast(1)),
-                                    GenericArity = 1,
-                                    InstantiationSuffix = gSuffix,
-                                };
-                                genericInstTypes[gKey] = gTypeDef;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // Add synthetic generic-inst TypeDefs to the types list
-        foreach (var gtv in genericInstTypes.Values)
-        {
-            types.Add(gtv);
-        }
 
         // r78 fix: two-pass forward declaration strategy.
         // Pass 0: collect field-referenced types NOT in the types list (BCL internal types
@@ -680,6 +867,31 @@ public static class CodeGenerator
             generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
         }
 
+        // G6 skip-stub: a fold-rejected body would otherwise leave `entry.cpp`
+        // and the typeinfo table referencing a symbol that is never defined
+        // ("use of undeclared identifier" -- caudit2/dtaudit2). Emit a typed
+        // stub that throws a managed NotSupportedException at run time: the
+        // gap stays LOUD, the rest of the case stays usable.
+        void EmitNotTranspiledStub(CppWriter w, TypeDef t, MethodDef m,
+                                   MethodBodyInfo info, string ret)
+        {
+            var cppMethodName = MethodCppName(t, m);
+            var paramNames = Enumerable.Range(0, info.ArgCount).Select(i => $"arg{i}").ToArray();
+            var paramTypes = ParamTypesCpp(m, info);
+            var body = "    il2cpp_throw_new(\"System.NotSupportedException,System.Exception\", " +
+                       $"\"this method was not transpiled (M5 mapping gap): {t.FullName}::{m.Name} -- see the transpile log\");\n";
+            if (ret != "void")
+                body += "    return {}; // unreachable (the throw above never returns)\n";
+            w.Line("//------------------------------------------------------------------------------");
+            w.Line($"// NOT TRANSPILED: {t.FullName}::{m.Name} -- the fold rejected the body;");
+            w.Line("// this stub keeps entry.cpp and the typeinfo table linkable and reports the gap");
+            w.Line("// as a managed NotSupportedException at run time.");
+            w.Line("//------------------------------------------------------------------------------");
+            w.Line(MethodEmitter.EmitMethod(cppMethodName, paramNames, ret, body, paramTypes));
+            w.Line();
+            generatedHeader.Line($"{ret} {cppMethodName}({ParamListTyped(paramNames, paramTypes)});");
+        }
+
         foreach (var t in types)
         {
             var cppName = TypeEmitter.TypeCppName(t);
@@ -716,6 +928,17 @@ public static class CodeGenerator
                 w.Line($"static bool {cppName}_cctor_running = false;");
                 w.Line($"static const char* {cppName}_cctor_exc_type = nullptr;");
                 w.Line($"static const char* {cppName}_cctor_exc_msg = nullptr;");
+                // msvc C4702 (cctorchain): when the .cctor body itself ends in
+                // a throw (an [[noreturn]] il2cpp_throw_new call, visible to
+                // MSVC's same-TU flow analysis), the post-catch bookkeeping
+                // here is provably unreachable. It is CORRECT code (needed
+                // whenever the .cctor CAN return), so suppress the diagnostic
+                // for this generated template only -- the structure is fully
+                // generator-controlled.
+                w.Line("#if defined(_MSC_VER)");
+                w.Line("#pragma warning(push)");
+                w.Line("#pragma warning(disable:4702)");
+                w.Line("#endif");
                 w.Line($"IL2CPP_NOINLINE void ensure_cctor_{cppName}(void) {{");
                 w.Open();
                 w.Line($"if ({cppName}_cctor_done) return;");
@@ -743,6 +966,9 @@ public static class CodeGenerator
                 w.Line($"{cppName}_cctor_done = true;");
                 w.Close();
                 w.Line("}");
+                w.Line("#if defined(_MSC_VER)");
+                w.Line("#pragma warning(pop)");
+                w.Line("#endif");
                 w.Line();
                 generatedHeader.Line($"extern bool {cppName}_cctor_done;");
                 generatedHeader.Line($"void ensure_cctor_{cppName}(void);");
@@ -877,6 +1103,9 @@ public static class CodeGenerator
                         || pinvokeBase.StartsWith("api-ms-win-", StringComparison.OrdinalIgnoreCase)
                         || pinvokeBase.Equals("kernel32", StringComparison.OrdinalIgnoreCase)
                         || pinvokeBase.Equals("user32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("gdi32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("comdlg32", StringComparison.OrdinalIgnoreCase)
+                        || pinvokeBase.Equals("comctl32", StringComparison.OrdinalIgnoreCase)
                         || pinvokeBase.Equals("advapi32", StringComparison.OrdinalIgnoreCase)
                         || pinvokeBase.Equals("shell32", StringComparison.OrdinalIgnoreCase)
                         || pinvokeBase.Equals("ole32", StringComparison.OrdinalIgnoreCase)
@@ -1004,16 +1233,42 @@ public static class CodeGenerator
                 }
                 MethodBodyInfo bodyInfo;
                 try { bodyInfo = MethodBodyReader.Read(pe, md, t, m); }
-                catch (Exception) { Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped"); continue; }
+                catch (Exception) { Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped (no stub: no body info for the signature)"); continue; }
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
                 var managedRetStruct = ManagedReturnStructName(md, m);
-                if (managedRetStruct == "System.Guid") { Console.Error.WriteLine($"warning: {t.FullName}::{m.Name} returns Guid -> skipped"); continue; }
+                // VERIFY-FIX (2.7): returnType is computed BEFORE the Guid skip --
+                // the stub needs the method's real return type, and the patch's
+                // original order referenced the yet-undeclared local (CS0841).
                 var returnType = managedRetStruct != null ? TypeCppName(managedRetStruct) : ReturnTypeCpp(bodyInfo.ReturnType);
+                if (managedRetStruct == "System.Guid")
+                {
+                    Console.Error.WriteLine($"warning: {t.FullName}::{m.Name} returns Guid -> skipped");
+                    EmitNotTranspiledStub(w, t, m, bodyInfo, returnType);
+                    continue;
+                }
+                // R2b P2: a VAR return in a reference instantiation renders as
+                // the managed reference (Il2CppObject*).
+                if (managedRetStruct == null && m.ReturnIsVar && t.InstantiationSuffix != null)
+                    returnType = "Il2CppObject*";
+                _curInstantiationSuffix = t.InstantiationSuffix;
+                _curReturnIsVar = m.ReturnIsVar;
                 _curStructReturnCpp = managedRetStruct != null ? returnType : null;
                 List<Stmt> stmts;
+                // R2b P2: the resolution hint for VAR (0x13) TypeSpec args in
+                // this body's member references (List`1<T> -> List`1_<suffix>).
+                // Save/restore around the fold so the hint cannot leak into
+                // later bodies (R1 review item).
+                var prevVarHint = MethodRefResolver.InstantiationSuffixHint;
+                MethodRefResolver.InstantiationSuffixHint = t.InstantiationSuffix;
                 try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}", CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null }, md, types, accessors, pe); }
-                catch (Exception) { Console.Error.WriteLine($"warning: method fold failed -> skipped"); continue; }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"warning: method fold failed -> skipped ({t.FullName}::{m.Name}: {ex.Message})");
+                    EmitNotTranspiledStub(w, t, m, bodyInfo, returnType);
+                    continue;
+                }
+                finally { MethodRefResolver.InstantiationSuffixHint = prevVarHint; }
                 // P0-1/P0-3: algebraic identities + null-comparison folding
                 // (constant propagation already happened inside StackFold.Fold;
                 // branch conditions that became constants feed the existing
@@ -1064,9 +1319,40 @@ public static class CodeGenerator
                 // read is a "ref" def and never shares an int32 slot.
                 stmts = TempSlotPass.Rename(stmts,
                     fieldName => StaticFieldExprIsReference(md, types, fieldName)).Stmts;
+                // ipaudit4: liveness-based root clearing (linear methods only
+                // -- exception regions keep the conservative all-or-nothing
+                // rooting; the pass itself is a no-op elsewhere).
+                if (bodyInfo.ExceptionRegions.Count == 0)
+                {
+                    stmts = RootClearPass.Run(stmts,
+                        fieldName => StaticFieldExprIsReference(md, types, fieldName)).Stmts;
+                }
                 methodCount++;
                 typeEmittedMethod = true;
-                var (body, refLocals, rootAnalysis, structFieldRoots) = EmitBody(md, types, bodyInfo, stmts, symMap, m.ParamTypes);
+                // caudit2-fix: publish the per-arg address map to the emitter
+                // (FieldAccess value-type receiver judge). Rebuilt per method.
+                _curArgAddress = ArgAddressMap(m, bodyInfo);
+                // A5 (myIList): the deferred `call_<token>` ctor calls inside
+                // generic DEFINITION bodies resolve at EMIT time through the
+                // open parent TypeSpec -- without the body owner's hint they
+                // decode to the "int" default (i4 arms) while the fold-time
+                // calls took the closed arms. Mirror the fold scope above so
+                // emission sees the same closed context (save/restore: the
+                // hint must never leak across bodies).
+                var prevEmitHint = MethodRefResolver.InstantiationSuffixHint;
+                MethodRefResolver.InstantiationSuffixHint = t.InstantiationSuffix;
+                string body;
+                List<string> refLocals;
+                RootSlotPass.Analysis rootAnalysis;
+                List<string> structFieldRoots;
+                try
+                {
+                    (body, refLocals, rootAnalysis, structFieldRoots) = EmitBody(md, types, bodyInfo, stmts, symMap, m.ParamTypes);
+                }
+                finally
+                {
+                    MethodRefResolver.InstantiationSuffixHint = prevEmitHint;
+                }
                 // Audit C1: reference-typed parameters (including 'this') are
                 // GC frame roots while the method is on the call stack -- an
                 // object reachable ONLY through a parameter (no local/field
@@ -1080,7 +1366,9 @@ public static class CodeGenerator
                 {
                     var parts = SplitTopLevel(m.ParamTypes).ToArray();
                     for (var i = 0; i < parts.Length; i++)
-                        if (parts[i].StartsWith("r:", StringComparison.Ordinal))
+                        if (parts[i].StartsWith("r:", StringComparison.Ordinal)
+                            || (m.ParamIsVar is { } piv && i < piv.Length && piv[i]
+                                && m.Owner.InstantiationSuffix != null))
                             paramRoots.Add(m.IsStatic ? $"arg{i}" : $"arg{i + 1}");
                 }
                 refLocals = refLocals.Concat(paramRoots).ToList();
@@ -1374,34 +1662,124 @@ public static class CodeGenerator
             .Where(b => b.Condition == null || !TryFoldInt32(b.Condition, out var cv) || cv != 0)
             .Select(b => b.TargetLabel)
             .ToHashSet();
-        var reachable = new bool[stmts.Count];
-        var isReachable = true;
-        for (var i = 0; i < stmts.Count; i++)
+        var endReachableState = true;
+        bool[] ComputeReachability(HashSet<string> targets)
         {
-            reachable[i] = isReachable;
-            switch (stmts[i])
+            var arr = new bool[stmts.Count];
+            var live = true;
+            // C++-level fall-through, tracked SEPARATELY from `live`: the
+            // throw/rethrow terminator rule below exists to suppress dead IL
+            // (C4702) and must NOT feed the C4716 decision. il2cpp_throw_new is
+            // deliberately NOT declared [[noreturn]], so from the C++ compiler's
+            // point of view a `throw` statement DOES fall through to the closing
+            // brace -- a throw-only non-void method therefore still needs the
+            // trailing zero-return (C4716TrailingReturnTests). `ret` (emits
+            // `return ...;`) and unconditional/constant-true branches (emit
+            // `goto ...;`) really do terminate at the C++ level, so they clear
+            // this flag too. This flag deliberately reproduces the pre-existing
+            // semantics: only labels reset it (no region-context reset) -- a
+            // spurious trailing return on a `try { return x; } finally {...}`
+            // body would itself be unreachable code (C4702).
+            var liveCpp = true;
+            // EH region context of one statement, as a stable integer key:
+            // 1_000_000+handlerRegion if the offset is inside a handler range,
+            // else 2_000_000+tryRegion if inside a try range, else 0. A change
+            // of context means control moved to a different EH region, which is
+            // entered by the exception dispatcher / by falling out of the
+            // previous region -- NEVER by falling through the region's own
+            // terminator. `live` therefore restarts there.
+            //
+            // Without this, a `throw` at the end of a try body poisons every
+            // following statement up to the next label: exdeep's `try { throw }
+            // catch { }` (empty handler -> no statement to reset on) dropped the
+            // whole rest of Main (f19/f20 probes vanished from the output while
+            // the build still succeeded). The lock-finally cleanup copies that
+            // C4702 suppression targets live INSIDE the same try region as their
+            // throw, so they stay dead.
+            int RegionContext(int off)
             {
-                case LabelStmt l when !branchTargets.Contains(l.Name):
-                    break; // dead label: not emitted, reachability not reset
-                case LabelStmt:
-                    isReachable = true;
-                    break;
-                case RetStmt:
-                    isReachable = false;
-                    break;
-                case BranchStmt b:
-                    if (b.Condition == null) isReachable = false; // unconditional goto: fall-through is dead
-                    else if (TryFoldInt32(b.Condition, out var cv) && cv != 0) isReachable = false; // constant true: always taken
-                    break;                                          // constant false/non-constant: fall-through continues
+                var h = -1;
+                var t = -1;
+                for (var r = 0; r < bodyInfo.ExceptionRegions.Count; r++)
+                {
+                    var rg = bodyInfo.ExceptionRegions[r];
+                    if (off >= rg.HandlerOffset && off < rg.HandlerOffset + rg.HandlerLength) h = r;
+                    else if (off >= rg.TryOffset && off < rg.TryOffset + rg.TryLength) t = r;
+                }
+                if (h >= 0) return 1_000_000 + h;
+                if (t >= 0) return 2_000_000 + t;
+                return 0;
+            }
+            var prevCtx = -3; // no previous statement
+            for (var i = 0; i < stmts.Count; i++)
+            {
+                var ctx = RegionContext(stmts[i].SourceOffset);
+                if (ctx != prevCtx) live = true; // new EH region: reachable again
+                prevCtx = ctx;
+                arr[i] = live;
+                switch (stmts[i])
+                {
+                    case LabelStmt l when !targets.Contains(l.Name):
+                        break; // dead label: not emitted, reachability not reset
+                    case LabelStmt:
+                        live = true;
+                        liveCpp = true;
+                        break;
+                    case RetStmt:
+                        live = false;
+                        liveCpp = false;
+                        break;
+                    // IL throw / rethrow is a TERMINATOR (ECMA-355 III.3.3x:
+                    // no fall-through after it). Statements the fold kept
+                    // after a throw (the lock-finally cleanup copies) would
+                    // otherwise be emitted as C++ code following the
+                    // [[noreturn]] il2cpp_throw_new call -> MSVC C4702
+                    // (lockcase/exceptionchain2). A label still resets
+                    // reachability, so any branch target stays emitted.
+                    // NOTE: liveCpp is intentionally NOT cleared here (see above).
+                    case CallStmt th when th.Function.StartsWith("throw_", StringComparison.Ordinal)
+                        || th.Function == "rethrow":
+                        live = false;
+                        break;
+                    case BranchStmt b:
+                        if (b.Condition == null) { live = false; liveCpp = false; } // unconditional goto: fall-through is dead
+                        else if (TryFoldInt32(b.Condition, out var cv) && cv != 0) { live = false; liveCpp = false; } // constant true: always taken
+                        break;                                          // constant false/non-constant: fall-through continues
+                }
+            }
+            endReachableState = liveCpp;
+            return arr;
+        }
+        var reachable = ComputeReachability(branchTargets);
+        // Second pass (msvc C4102 / gcc -Wunused-label, boolops L_240): a label
+        // can be targeted ONLY by a branch that sits in an UNREACHABLE block --
+        // that branch is never emitted, so the label it targets is never
+        // emitted either. Recompute the target set from reachable branches
+        // only and re-run reachability (a dropped label stops resetting
+        // reachability, so its dead-fall-through block is dropped too --
+        // semantics preserved: no emitted goto could reach it).
+        {
+            var emittedTargets = new HashSet<string>();
+            for (var i = 0; i < stmts.Count; i++)
+            {
+                if (!reachable[i] || stmts[i] is not BranchStmt b2) continue;
+                if (b2.Condition != null && TryFoldInt32(b2.Condition, out var cv2) && cv2 == 0) continue; // constant-false: no goto emitted
+                emittedTargets.Add(b2.TargetLabel);
+            }
+            if (emittedTargets.Count != branchTargets.Count)
+            {
+                branchTargets = emittedTargets;
+                reachable = ComputeReachability(branchTargets);
             }
         }
         // C4716 (MULTI-D batch find, delegate2 msvc): after the last statement,
-        // isReachable holds the FALL-THROUGH state of the function's closing
-        // brace. A non-void method whose body never falls into an IL 'ret' (it
-        // ends on a throw/rethrow path) leaves the C++ end-of-function reachable
-        // WITHOUT a return statement -> MSVC C4716. The trailing-return
-        // injection below keys off this flag.
-        var endReachable = isReachable;
+        // endReachableState holds the C++-LEVEL FALL-THROUGH state of the
+        // function's closing brace (liveCpp -- `throw` does NOT terminate it,
+        // because il2cpp_throw_new is not [[noreturn]]). A non-void method whose
+        // body never falls into an IL 'ret' (it ends on a throw/rethrow path)
+        // leaves the C++ end-of-function reachable WITHOUT a return statement ->
+        // MSVC C4716. The trailing-return injection below keys off this flag.
+        var endReachable = endReachableState;
 
         // Locals/temps (not parameters, not static fields) are declared once at the function top (assignments inside dead blocks are not counted).
         // A local is declared when it appears ANYWHERE in a reachable statement's
@@ -1505,7 +1883,16 @@ public static class CodeGenerator
                 else if (vc.Function.StartsWith("initobj_", StringComparison.Ordinal)
                          && int.TryParse(vc.Function["initobj_".Length..], out var ioTok))
                 {
-                    locKind[laCtor.Name] = TypeCppName(TypeTokenFullName(md, ioTok));
+                    // R2b P2 (default(T) in a generic body): an initobj on a
+                    // VAR/MVAR TypeSpec must NOT materialize the canonical
+                    // "System.Int32" name -- TypeCppName sanitizes it to the
+                    // UNDEFINED C++ type `System_Int32`. The VAR channel
+                    // decides the slot exactly like every other VAR face:
+                    // closed reference clone -> ref; definition/int -> value.
+                    if (IsVarOrMvarTypeSpec(md, ioTok))
+                        locKind[laCtor.Name] = _curInstantiationSuffix is not (null or "int") ? "ref" : "val";
+                    else
+                        locKind[laCtor.Name] = TypeCppName(TypeTokenFullName(md, ioTok));
                 }
             }
         }
@@ -1573,6 +1960,25 @@ public static class CodeGenerator
             if (asf.Value is StaticFieldExpr sf && StaticFieldExprIsReference(md, types, sf.FieldName))
                 locKind[asf.Target] = "ref";
         }
+        // R7-C4244 (winforms1): a static IntPtr/UIntPtr read (storage
+        // intptr_t/uintptr_t) assigned to a temp/local must keep the full
+        // pointer width -- the ExprKind default "val" declared int32_t and the
+        // assignment warned C4244 (x16; the slot then fed ShowWindow's native
+        // arg). Seed "ptr" (declared intptr_t) like the ref seed above.
+        for (var i = 0; i < stmts.Count; i++)
+        {
+            if (!reachable[i] || stmts[i] is not AssignStmt asp) continue;
+            if (asp.Value is not StaticFieldExpr sfp) continue;
+            var dotP = sfp.FieldName.LastIndexOf('.');
+            if (dotP <= 0) continue;
+            var ownerP = sfp.FieldName[..dotP];
+            var fieldP = sfp.FieldName[(dotP + 1)..];
+            var ownerShortP = ownerP[(ownerP.LastIndexOf('+') + 1)..];
+            var ownerDefP = types.FirstOrDefault(x => x.FullName == ownerShortP || TypeEmitter.ReflectionFullName(x) == ownerP);
+            var fieldDefP = ownerDefP?.StaticFields.FirstOrDefault(ff => ff.Name == fieldP);
+            if (fieldDefP != null && fieldDefP.FieldTypeName is "System.IntPtr" or "System.UIntPtr")
+                locKind[asp.Target] = "ptr";
+        }
         for (var i = 0; i < stmts.Count; i++)
         {
             if (!reachable[i] || stmts[i] is not AssignStmt a) continue;
@@ -1588,15 +1994,33 @@ public static class CodeGenerator
                 locKind[bodyInfo.LocNames[i]] = bodyInfo.LocalKinds[i];
         var refLocals = new List<string>();
         // batch 156c (asynccase): REFERENCE FIELDS of VALUETYPE locals (the
-        // async state machine's builder/awaiter slots) -- collected by the
-        // "v:" declaration arm as `local.field` root-slot expressions. Merged
-        // into frameRoots UNCONDITIONALLY (whole-method, bypassing the
-        // RootSlotPass liveness filter -- interior struct fields are
-        // address-taken and the liveness analysis tracks local NAMES only).
-        var structFieldRoots = new List<string>();
-        foreach (var d in declared)
-        {
-            var kind = locKind.TryGetValue(d, out var k) ? k : "val";
+            // async state machine's builder/awaiter slots) -- collected by the
+            // "v:" declaration arm as `local.field` root-slot expressions. Merged
+            // into frameRoots UNCONDITIONALLY (whole-method, bypassing the
+            // RootSlotPass liveness filter -- interior struct fields are
+            // address-taken and the liveness analysis tracks local NAMES only).
+            var structFieldRoots = new List<string>();
+            foreach (var d in declared)
+            {
+                // boxdeep/boxdeep2 (-Wunused-but-set-variable): a compiler TEMP
+                // (tN/inlN) whose only store is an IL `stloc` of an
+                // intentionally-unused C# local (the `try { int x = (int)od; }`
+                // InvalidCastException probe -- the unbox's side effect is the
+                // point, the value is never read). The transpile is faithful;
+                // the attribute only acknowledges the unused binding (genuine
+                // emitter bugs on USED temps still warn).
+                var mu = (d.Length > 1 && d[0] == 't' && char.IsDigit(d[1]))
+                    || (d.StartsWith("inl", StringComparison.Ordinal) && d.Length > 3 && char.IsDigit(d[3]))
+                    ? "[[maybe_unused]] " : "";
+                // G5 (boxstr): the same acknowledgment for EVERY declaration arm
+                // below (int64_t/double/... kind-specific arms previously emitted
+                // the bare declaration -> -Wunused-but-set-variable on an
+                // intentionally-unread IL temp).
+                string MuPrefix(string name) =>
+                    (name.Length > 1 && name[0] == 't' && char.IsDigit(name[1]))
+                    || (name.StartsWith("inl", StringComparison.Ordinal) && name.Length > 3 && char.IsDigit(name[3]))
+                        ? "[[maybe_unused]] " : "";
+                var kind = locKind.TryGetValue(d, out var k) ? k : "val";
             // M3 Task 11: a local initialized by a value-type ctor
             // (ldloca + call .ctor) is declared as the ctor's declaring type.
             string? vtType = null;
@@ -1620,7 +2044,7 @@ public static class CodeGenerator
             }
             if (vtType != null)
             {
-                w.Line($"{vtType} {d};");
+                w.Line($"{MuPrefix(d)}{vtType} {d};");
                 continue;
             }
             // M5 wiring: the IL local signature is authoritative for
@@ -1693,7 +2117,7 @@ public static class CodeGenerator
                 }
                 else
                 {
-                    w.Line($"int32_t {d};");
+                    w.Line($"{MuPrefix(d)}int32_t {d};");
                 }
                 continue;
             }
@@ -1728,14 +2152,37 @@ public static class CodeGenerator
                     var genericTypeDef = types.FirstOrDefault(t => t.FullName == defName);
                     if (genericTypeDef != null)
                     {
+                        // R2b P2: a CLASS instantiation is a managed reference
+                        // (the newobj result is an object pointer) -- declare
+                        // Il2CppObject* + frame root. The concrete
+                        // {base}_{suffix} VALUE declaration is only for
+                        // VALUE-type instantiations (ListBuilder`1:object,
+                        // the shape this encoding was introduced for).
+                        if (!genericTypeDef.IsValueType)
+                        {
+                            refLocals.Add(d);
+                            w.Line($"Il2CppObject* {d} = nullptr;");
+                            locKind[d] = "ref";
+                            continue;
+                        }
                         // Build the instantiated C++ name: {base}_{suffix}
                         var baseName = TypeEmitter.Sanitize(defName);
-                        w.Line($"{baseName}_{suffix} {d};");
+                        w.Line($"{MuPrefix(d)}{baseName}_{suffix} {d};");
                         continue;
                     }
                 }
                 // Fallback: if we can't resolve, declare as int32_t
-                w.Line($"int32_t {d};");
+                w.Line($"{MuPrefix(d)}int32_t {d};");
+                continue;
+            }
+            // R2b P2: a bare VAR local (0x13/0x1E -> "v" from
+            // MethodBodyReader.LocalTypeKind) inside a reference
+            // instantiation is the managed reference -- same ref-carrier
+            // doctrine as the "r" locals above.
+            if (ilKind == "v" && _curInstantiationSuffix != null && _curInstantiationSuffix != "int")
+            {
+                refLocals.Add(d);
+                w.Line($"Il2CppObject* {d} = nullptr;");
                 continue;
             }
             if (ilKind != null && ilKind.StartsWith("v:", StringComparison.Ordinal))
@@ -1793,7 +2240,7 @@ public static class CodeGenerator
                 // here) -> unknown type name at the cmake build step.
                 if (ilKind.Length > 2 && IsEnumReceiverType(ilKind[2..], types))
                 {
-                    w.Line($"int32_t {d};");
+                    w.Line($"{MuPrefix(d)}int32_t {d};");
                     continue;
                 }
                 // batch 156c (asynccase): a VALUETYPE local whose struct has
@@ -1816,14 +2263,18 @@ public static class CodeGenerator
                 var vtTypeDef = types.FirstOrDefault(t => t.FullName == ilKind[2..]);
                 if (vtTypeDef != null && vtTypeDef.InstanceFields.Any(f => f.TypeKind == FieldTypeKind.Reference))
                 {
-                    w.Line($"{TypeCppName(ilKind[2..])} {d} = {{ }};");
+                    // Nested structs (async state machines): declare with the
+                    // PREFIXED TypeCppName (Cases_AsyncCase__B_d__1), not the
+                    // short-name string overload (_B_d__1) -- the struct itself
+                    // emits prefixed since the r78 nested-collision fix.
+                    w.Line($"{TypeEmitter.TypeCppName(vtTypeDef)} {d} = {{ }};");
                     foreach (var rf in vtTypeDef.InstanceFields)
                         if (rf.TypeKind == FieldTypeKind.Reference)
                             structFieldRoots.Add($"{d}.{TypeEmitter.Sanitize(rf.Name)}");
                 }
                 else
                 {
-                    w.Line($"{TypeCppName(ilKind[2..])} {d};");
+                    w.Line($"{MuPrefix(d)}{(vtTypeDef != null ? TypeEmitter.TypeCppName(vtTypeDef) : TypeCppName(ilKind[2..]))} {d};");
                 }
                 continue;
             }
@@ -1833,7 +2284,7 @@ public static class CodeGenerator
                 // contract is char* (alloc AND free both take char*; the
                 // native const char* param accepts it implicitly). NOT a GC
                 // root; the native buffer is freed after the call.
-                w.Line($"char* {d};");
+                w.Line($"{MuPrefix(d)}char* {d};");
                 continue;
             }
             if (kind == "cstr16")
@@ -1842,7 +2293,7 @@ public static class CodeGenerator
                 // char16_t* (il2cpp_pinvoke_string_to_utf16_alloc /
                 // pinvoke_utf16_free pair; the native const char16_t* param
                 // accepts it implicitly). NOT a GC root.
-                w.Line($"char16_t* {d};");
+                w.Line($"{MuPrefix(d)}char16_t* {d};");
                 continue;
             }
             if (kind == "ref")
@@ -1863,12 +2314,12 @@ public static class CodeGenerator
             // int64/double constants held in temps).
             if (kind == "l")
             {
-                w.Line($"int64_t {d};");
+                w.Line($"{MuPrefix(d)}int64_t {d};");
                 continue;
             }
             if (kind == "d")
             {
-                w.Line($"double {d};");
+                w.Line($"{MuPrefix(d)}double {d};");
                 continue;
             }
             // fnptr domain b23: a local holding a raw function pointer
@@ -1884,40 +2335,40 @@ public static class CodeGenerator
             // casts onward with the "p" arg-cast).
             if (kind == "ptr")
             {
-                w.Line($"intptr_t {d};");
+                w.Line($"{MuPrefix(d)}intptr_t {d};");
                 continue;
             }
             // M5 wiring: DateTime/TimeSpan icall results -> the runtime value
             // struct types (il2cpp_time.h -- included by generated.h).
             if (kind == "dt")
             {
-                w.Line($"il2cpp::runtime::Il2CppDateTime {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppDateTime {d};");
                 continue;
             }
             if (kind == "ts")
             {
-                w.Line($"il2cpp::runtime::Il2CppTimeSpan {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppTimeSpan {d};");
                 continue;
             }
             // P13 dtoffset: DateTimeOffset icall results -> the 16-byte runtime
             // value struct (il2cpp_dtoffset.h -- included by generated.h).
             if (kind == "dto")
             {
-                w.Line($"il2cpp::runtime::Il2CppDateTimeOffset {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppDateTimeOffset {d};");
                 continue;
             }
             // P17 biginteger: BigInteger icall results -> the 8-byte runtime
             // value struct (il2cpp_biginteger.h -- included by generated.h).
             if (kind == "bi")
             {
-                w.Line($"il2cpp::runtime::Il2CppBigInteger {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppBigInteger {d};");
                 continue;
             }
             // decimal-domain T3: decimal icall results -> the 16-byte runtime
             // value struct (decimal.h -- included by generated.h).
             if (kind == "dec")
             {
-                w.Line($"il2cpp::runtime::Il2CppDecimal {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppDecimal {d};");
                 continue;
             }
             // Struct-marshal wiring: registered-struct icall results
@@ -1925,17 +2376,17 @@ public static class CodeGenerator
             // value struct (il2cpp_pinvoke_struct.h -- in generated.h chain).
             if (kind == "rect")
             {
-                w.Line($"il2cpp::Il2CppPinvokeRect {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::Il2CppPinvokeRect {d};");
                 continue;
             }
             if (kind == "point")
             {
-                w.Line($"il2cpp::Il2CppPinvokePoint {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::Il2CppPinvokePoint {d};");
                 continue;
             }
             if (kind == "msg")
             {
-                w.Line($"il2cpp::Il2CppPinvokeMsg {d};");
+                w.Line($"{MuPrefix(d)}il2cpp::Il2CppPinvokeMsg {d};");
                 continue;
             }
             // Guid value slots: guid.h operates on RAW 16 bytes -- the
@@ -1958,9 +2409,9 @@ public static class CodeGenerator
                 continue;
             }
             if (kind != "ref" && kind != "val" && kind.Length > 0)
-                w.Line($"{kind} {d};");
+                w.Line($"{mu}{kind} {d};");
             else
-                w.Line(kind == "ref" ? $"Il2CppObject* {d};" : $"int32_t {d};");
+                w.Line(kind == "ref" ? $"{mu}Il2CppObject* {d};" : $"{mu}int32_t {d};");
         }
         if (declared.Count > 0) w.Line();
 
@@ -2357,6 +2808,11 @@ public static class CodeGenerator
             var chain = catchChain[arriving];
             w.Line("catch (il2cpp::DotNetException& __il2cpp_ex) {");
             w.Open();
+            // msvc C4101: a chain whose clauses are ALL catch-alls has no
+            // `__il2cpp_ex.type_name()` guard -- mark the variable used
+            // (a typed clause's guard already uses it).
+            if (!chain.Any(s => regions[s].CatchTypeToken != 0))
+                w.Line("(void)__il2cpp_ex; // catch-all chain: the exception value is never inspected");
             var first = true;
             foreach (var s in chain)
             {
@@ -2679,6 +3135,9 @@ public static class CodeGenerator
             // finally region: the catch-all runs the finally code then
             // RETHROWS (the original exception continues unwinding -- .NET
             // finally semantics: cleanup code runs, the exception propagates).
+            // The catch variable is NEVER inspected here -> explicitly mark it
+            // used (msvc C4101 "unreferenced local variable" on every finally).
+            w.Line("(void)__il2cpp_ex; // finally: the exception is rethrown, never inspected");
             w.Line("// finally block: cleanup code runs, then the original exception is rethrown");
         }
         else if (region.CatchTypeToken != 0)
@@ -2688,6 +3147,9 @@ public static class CodeGenerator
         }
         else
         {
+            // catch-all: no type test, and the handler body cannot reference
+            // the exception (no variable binding) -> mark it used (C4101).
+            w.Line("(void)__il2cpp_ex; // catch-all: the exception value is never inspected");
             w.Line("// catch-all handler: matches every managed exception");
         }
     }
@@ -2753,6 +3215,17 @@ public static class CodeGenerator
     };
 
     private static string? _curStructReturnCpp;
+
+    // R2b P2 (closed generic clone context): the instantiation suffix of the
+    // type whose body is currently being emitted (null for definitions), and
+    // whether the current method's return slot is a VAR. Reference
+    // instantiations render VAR slots as Il2CppObject*.
+    private static string? _curInstantiationSuffix;
+    private static bool _curReturnIsVar;
+    // caudit2-fix: per-argument "is an address" map for the CURRENT method body
+    // (arg0 = value-type this pointer, B:V:/B:r: by-ref, P: raw pointer).
+    // FieldAccess consults it instead of the old name-prefix heuristic.
+    private static bool[] _curArgAddress = System.Array.Empty<bool>();
 
     private static void EmitStmt(CppWriter w, Stmt s, MetadataReader md, IReadOnlyList<TypeDef> types, HashSet<string> branchTargets, Dictionary<string, string> locKind)
     {
@@ -2872,19 +3345,25 @@ public static class CodeGenerator
             case FieldAssignStmt fa:
                 // Instance field write: null-check the receiver (.NET semantics: dereferencing null
                 // throws NullReferenceException) -> write barrier (M3 Task 3: reference-field writes
-                // mark the card table via il2cpp_write_barrier) -> direct member write. Reference values in the IR are uniformly Il2CppObject*, cast to the field's specific struct pointer type.
+                // mark the card table via il2cpp_write_barrier) -> direct member write.
+                // GCC-REGRESSION (gccompact): the stored value must be cast to the SAME C++ type
+                // the field is DECLARED with -- both sides now derive from the single authority
+                // TypeEmitter.ReferenceCppType(field type, allTypes). Previously the assignment
+                // used TypeCppName(...)+"*" (Node*) while the declaration used the reference-
+                // type table (Il2CppObject* for a nested user type whose model key is the short
+                // name) -- incompatible pointer types on every nested-class reference store.
                 // M3 Task 11: value-type receivers are plain values (no null check, no barrier).
-                var faValueCpp = TypeCppName(fa.RefTargetFullName);
+                var faValueCpp = TypeEmitter.ReferenceCppType(fa.RefTargetFullName, types);
                 // wf5 (winforms1 phase-4): a reference field whose type is a
                 // custom DELEGATE has no generated struct -- the value stays
                 // Il2CppObject* (identity), so the store cast must not try a
                 // <DelegateName>* reinterpret (unknown type name in C++).
-                if (IsCustomDelegateType(fa.RefTargetFullName, types)) faValueCpp = "Il2CppObject";
+                if (IsCustomDelegateType(fa.RefTargetFullName, types)) faValueCpp = "Il2CppObject*";
                 // COM stage 17 batch 3 (com17type): an INTERFACE-typed
                 // reference field (DragEventArgs.Data : IDataObject) has no
                 // generated struct either -- the store cast stays Il2CppObject*
                 // (the interface descriptor is extern-only, never a C++ type).
-                if (IsInterfaceType(fa.RefTargetFullName, types)) faValueCpp = "Il2CppObject";
+                if (IsInterfaceType(fa.RefTargetFullName, types)) faValueCpp = "Il2CppObject*";
                 // r77-cannot-init (Top1, instance field stfld): when the field
                 // is Il2CppObject* but the assigned value is a val-kind int32,
                 // static_cast<Il2CppObject*>(int32) is ill-formed in C++. Use
@@ -2894,13 +3373,13 @@ public static class CodeGenerator
                 var faValIsVal = fa.IsRefField && ExprKind(fa.Value, _curLocKinds) == "val";
                 var faValue = !faValIsVal
                     ? (fa.IsRefField
-                        ? (faValueCpp == "Il2CppObject"
-                            ? $"static_cast<{faValueCpp}*>({EmitExpr(fa.Value, md, types)})"
-                            : NullSafePtrCast($"{faValueCpp}*", EmitExpr(fa.Value, md, types)))
+                        ? (faValueCpp == "Il2CppObject*"
+                            ? $"static_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
+                            : NullSafePtrCast(faValueCpp, EmitExpr(fa.Value, md, types)))
                         : EmitExpr(fa.Value, md, types))
-                    : (faValueCpp == "Il2CppObject"
+                    : (faValueCpp == "Il2CppObject*"
                         ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
-                        : NullSafePtrCast($"{faValueCpp}*", EmitExpr(fa.Value, md, types)));
+                        : NullSafePtrCast(faValueCpp, EmitExpr(fa.Value, md, types)));
                 var faTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject);
                 if (fa.IsRefField && !fa.IsValueTypeObject)
                 {
@@ -2933,11 +3412,39 @@ public static class CodeGenerator
                 {
                     var retExpr = EmitExpr(r.Value, md, types);
                     var retKind = TypeKindResolver.ResolveExprKind(r.Value, _curLocKinds);
+                    // ifcase: a STATIC FIELD return whose signature is a value
+                    // type must not ride the ExprKind heuristic -- that
+                    // returns "ref" for every non-Decimal/DateTime static
+                    // field, so `return flag;` (int32 storage) entered the
+                    // ref->int narrow bridge and emitted the ill-formed
+                    // reinterpret_cast<intptr_t>(int32_t). The authoritative
+                    // metadata decode (StaticFieldExprIsReference, the same
+                    // predicate the field READ declaration path uses) decides
+                    // the kind here. Local override only: ResolveExprKind's
+                    // public classification is untouched.
+                    if (r.Value is StaticFieldExpr sfe)
+                        retKind = StaticFieldExprIsReference(md, types, sfe.FieldName) ? "ref" : "val";
                     // Return type bridge: method signature return type differs from expression kind.
                     // Case 1: returns Il2CppObject* (ref) but expression is int/val → reinterpret_cast through intptr_t.
                     // Case 2: returns int32_t but expression is ref/ptr → static_cast<int32_t> narrow (lossy but preserves slot-reuse semantics).
-                    if ((_curReturnType == SignatureTypeCode.Int32 || _curReturnType == SignatureTypeCode.Int64) && retKind is "ref" or "ptr")
-                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>(reinterpret_cast<intptr_t>({retExpr}))";
+                    // MSVC C2440 guard (msvc P/Invoke family): a "ptr"-kind expression is ALREADY the intptr_t
+                    // carrier (IntPtr ValueTypeNewExpr / ResultKind=="ptr" call, incl. the
+                    // il2cpp_pinvoke_result<intptr_t> bridge). Wrapping it in
+                    // reinterpret_cast<intptr_t> is a SAME-TYPE reinterpret -- MSVC rejects it
+                    // (C2440) while g++/clang tolerate (a fake-green). "ref" is a real pointer
+                    // (Il2CppObject*/concrete*), where the reinterpret is required.
+                    string IntPtrBridge(string targetCpp, string expr) =>
+                        retKind == "ptr"
+                            ? $"static_cast<{targetCpp}>({expr})"
+                            : $"static_cast<{targetCpp}>(reinterpret_cast<intptr_t>({expr}))";
+                    // R2b P2: a VAR return in a reference instantiation is
+                    // declared Il2CppObject* at EmitBody entry -- a reference
+                    // expression is a plain upcast (the generic bridges below
+                    // would reinterpret through int32_t).
+                    if (_curReturnIsVar && _curInstantiationSuffix != null && retKind is "ref" or "ptr")
+                        retExpr = $"static_cast<Il2CppObject*>({retExpr})";
+                    else if ((_curReturnType == SignatureTypeCode.Int32 || _curReturnType == SignatureTypeCode.Int64) && retKind is "ref" or "ptr")
+                        retExpr = IntPtrBridge(ReturnTypeCpp(_curReturnType), retExpr);
                     else if ((_curReturnType == SignatureTypeCode.IntPtr || _curReturnType == SignatureTypeCode.UIntPtr) && retKind is "val" or "i")
                         retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>({retExpr})";
                     else if (ReturnTypeIsRef(_curReturnType) && retKind is "val" or "i" or "l" or "d" or "f" or "b" or "c")
@@ -2947,7 +3454,7 @@ public static class CodeGenerator
                         retExpr = $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({retExpr}))";
                     }
                     else if (!ReturnTypeIsRef(_curReturnType) && retKind is "ref" or "ptr")
-                        retExpr = $"static_cast<{ReturnTypeCpp(_curReturnType)}>(reinterpret_cast<intptr_t>({retExpr}))";
+                        retExpr = IntPtrBridge(ReturnTypeCpp(_curReturnType), retExpr);
                     w.LineAligned($"return {retExpr};",
                         $"IL {At(r.SourceOpName, r.SourceOffset)} -- exit method returning the computed value");
                 }
@@ -3023,8 +3530,13 @@ public static class CodeGenerator
                     // (ResultIsReceiver) take the value and are unaffected.
                     // P17 biginteger: the BigInteger ctor icalls take
                     // Il2CppBigInteger* -- the same address-taking.
+                    // A2 (dtdefect001): the DateTimeOffset ctor icalls take
+                    // Il2CppDateTimeOffset* (the out-param result slot) --
+                    // the same address-taking, or the struct value cannot
+                    // convert to the pointer param.
                     if (resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_decimal", StringComparison.Ordinal)
-                        || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_biginteger", StringComparison.Ordinal))
+                        || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_biginteger", StringComparison.Ordinal)
+                        || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_dtoffset", StringComparison.Ordinal))
                         thisCode = $"(&{thisCode})";
                     // drop-cast fix (icallwide): the old inline walk ignored
                     // ParamTypeNames -- a trailing "drop" (DateTime
@@ -3196,6 +3708,19 @@ public static class CodeGenerator
                     // on the TypeSpecification token kind).
                     if (initobjTok >= 0 && MetadataTokens.Handle(initobjTok).Kind == HandleKind.TypeSpecification)
                     {
+                        // R2b P2 (default(T) in a generic body): a VAR/MVAR
+                        // slot is the int32 VALUE in the definition/int
+                        // closure -- an 8-byte Il2CppObject** null store on
+                        // it overruns the slot. Closed reference clones keep
+                        // the reference-slot null store (and every non-VAR
+                        // TypeSpec -- the awaiter GenericInst -- is a ref).
+                        if (IsVarOrMvarTypeSpec(md, initobjTok)
+                            && _curInstantiationSuffix is null or "int")
+                        {
+                            w.LineAligned($"(*reinterpret_cast<int32_t*>({initobjAddr})) = 0;",
+                                $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize VAR slot (default(T) in a generic body)");
+                            break;
+                        }
                         w.LineAligned($"(*reinterpret_cast<Il2CppObject**>({initobjAddr})) = nullptr;",
                             $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize reference slot (generic value type)");
                         break;
@@ -3364,8 +3889,15 @@ public static class CodeGenerator
                     // runtime LoadXml returns il2cpp::XmlNode*, an unrelated
                     // pointer type, so the handle needs the exact reinterpret
                     // (the reference-typed call-result contract elsewhere).
+                    // FIX XML-RC (xmlreader2/xmlcase/xmldeep2/xpathdeep cmake
+                    // FAIL): the pre-fix literal here was static_cast<...>,
+                    // which is ILL-FORMED for an unrelated pointer return
+                    // (XmlNode* -> Il2CppObject*); this ResultIsReceiver
+                    // reference-local arm is the general handle-gap bridge,
+                    // so the cast must be reinterpret_cast (the same rule the
+                    // comment above already states).
                     var callResult = c.Args[0] is LocExpr && recvTarget != null
-                        ? $"static_cast<Il2CppObject*>({fnStmt}({string.Join(", ", ctorArgs2)}))"
+                        ? $"reinterpret_cast<Il2CppObject*>({fnStmt}({string.Join(", ", ctorArgs2)}))"
                         : $"{fnStmt}({string.Join(", ", ctorArgs2)})";
                     w.LineAligned($"{recvTarget} = {callResult};",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- initialize value-type instance (ldloca ctor)");
@@ -3416,6 +3948,20 @@ public static class CodeGenerator
                     // checks can only be satisfied by the icall layer.)
                     w.LineAligned($"{{ uint8_t __ip4[4]; {fnStmt}({callArgsStmt}, __ip4); }}",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- IPAddress.Parse (statement position, result discarded)");
+                }
+                else if (resolvedStmt?.CppName == "il2cpp::runtime::icall_exception_ctor_message"
+                    && c.Args.Count > 1)
+                {
+                    // ilistException: System.Exception::.ctor(string) double
+                    // emission -- the base ctor nop initializes the receiver
+                    // FIRST (EHBaseCtorTests pins nop(arg0)), then the message
+                    // capture into the runtime side table. A single combined
+                    // call would swallow the nop.
+                    var recvCode = EmitExpr(c.Args[0], md, types);
+                    w.LineAligned($"il2cpp::runtime::il2cpp_object_ctor_nop({recvCode});",
+                        $"IL {At(c.SourceOpName, c.SourceOffset)} -- initialize exception instance (base ctor nop)");
+                    w.LineAligned($"{fnStmt}({callArgsStmt});",
+                        $"IL {At(c.SourceOpName, c.SourceOffset)} -- capture the exception message into the side table)");
                 }
                 else
                 {
@@ -3543,6 +4089,17 @@ public static class CodeGenerator
                         _ => OpSymbol(b.Op),
                     };
                     return $"(static_cast<double>({EmitExpr(b.Left, md, types)}) {dsym} static_cast<double>({EmitExpr(b.Right, md, types)}))";
+                }
+                // G5 (bitopcase): an int64 constant subtree folds with
+                // unchecked wrap. Emitting the two-literal form for the
+                // folded long.MinValue (the Int64ConstExpr convention) keeps
+                // the constant well-formed.
+                if ((ExprIsInt64(b.Left) || ExprIsInt64(b.Right))
+                    && TryFoldInt64(b, out var folded64))
+                {
+                    return folded64 == long.MinValue
+                        ? "(-9223372036854775807LL - 1LL)"
+                        : folded64.ToString(System.Globalization.CultureInfo.InvariantCulture) + "LL";
                 }
                 if (TryFoldInt32(b, out var folded))
                     return folded.ToString(System.Globalization.CultureInfo.InvariantCulture) + "LL";
@@ -3684,11 +4241,29 @@ public static class CodeGenerator
                 // Cast both sides to intptr_t so the comparison is integer-typed.
                 if (b.Op is BinaryOp.Ceq or BinaryOp.Cgt or BinaryOp.Clt or BinaryOp.CgtUn or BinaryOp.CltUn)
                 {
+                    // FIX PTR-CMP (eventdeep cmake FAIL): a C++ POINTER operand
+                    // cannot be converted to intptr_t by static_cast -- that is
+                    // ill-formed between unrelated types ("static_cast from
+                    // 'Il2CppObject *' to 'intptr_t' is not allowed"); the
+                    // pointer -> integer bridge must be reinterpret_cast. The
+                    // INTEGER operands (including the intptr_t CARRIERS --
+                    // ResultKind "ptr" call results and System.IntPtr
+                    // ValueTypeNewExpr both emit intptr_t, NOT a C++ pointer)
+                    // keep static_cast. The old blanket static_cast worked only
+                    // for the integer operands and broke on every real pointer.
                     bool IsPtrExpr(Expr e) => e switch
                     {
                         Ir.LocExpr le => _curLocKinds.TryGetValue(le.Name, out var k)
                             && (k.Contains("*", StringComparison.Ordinal) || k.Contains("Il2CppObject", StringComparison.Ordinal)),
-                        _ => TypeKindResolver.ResolveExprKind(e, _curLocKinds) is "ref" or "ptr"
+                        // A static field's reference-ness is decoded from the
+                        // metadata signature (the ExprKind heuristic maps every
+                        // non-Decimal/DateTime static field to "ref"); the
+                        // storage is int32_t unless the signature is a
+                        // reference type (StaticFieldExprIsReference).
+                        Ir.StaticFieldExpr sf => StaticFieldExprIsReference(md, types, sf.FieldName),
+                        // Resolver "ref" = a C++ pointer expression. "ptr" is
+                        // the intptr_t carrier's kind -- an integer.
+                        _ => TypeKindResolver.ResolveExprKind(e, _curLocKinds) is "ref"
                     };
                     bool IsIntExpr(Expr e) => e switch
                     {
@@ -3697,18 +4272,49 @@ public static class CodeGenerator
                         Ir.IntConstExpr => true,
                         _ => TypeKindResolver.ResolveExprKind(e, _curLocKinds) is "val" or "i"
                     };
+                    // A cast from the nullptr literal to an integer type is
+                    // ill-formed in C++ (NullSafePtrCast precedent); the
+                    // zero-test shape (brfalse/brtrue folding emits
+                    // Ceq(expr, 0)) renders as a direct null comparison.
+                    static bool IsZeroConst(Expr e) => e switch
+                    {
+                        Ir.IntConstExpr i => i.Value == 0,
+                        Ir.Int64ConstExpr l => l.Value == 0,
+                        _ => false,
+                    };
+                    string PtrAsIntPtr(Expr e)
+                    {
+                        var code = EmitExpr(e, md, types);
+                        return code == "nullptr" ? "0" : $"reinterpret_cast<intptr_t>({code})";
+                    }
                     var leftIsPtr = IsPtrExpr(b.Left);
                     var rightIsPtr = IsPtrExpr(b.Right);
                     var leftIsInt = IsIntExpr(b.Left);
                     var rightIsInt = IsIntExpr(b.Right);
-                    // static_cast is used on BOTH sides (never reinterpret): a
-                    // pointer operand converts to intptr_t identically, while an
-                    // integer operand misclassified as ptr (e.g. a static int32
-                    // field) would make reinterpret_cast ill-formed C++.
+                    if (b.Op == BinaryOp.Ceq)
+                    {
+                        if (leftIsPtr && IsZeroConst(b.Right))
+                            return $"({EmitExpr(b.Left, md, types)} == nullptr)";
+                        if (rightIsPtr && IsZeroConst(b.Left))
+                            return $"({EmitExpr(b.Right, md, types)} == nullptr)";
+                    }
                     if (leftIsPtr && rightIsInt)
-                        return $"(static_cast<intptr_t>({EmitExpr(b.Left, md, types)}) {OpSymbol(b.Op)} static_cast<intptr_t>({EmitExpr(b.Right, md, types)}))";
+                        return $"({PtrAsIntPtr(b.Left)} {OpSymbol(b.Op)} static_cast<intptr_t>({EmitExpr(b.Right, md, types)}))";
                     if (rightIsPtr && leftIsInt)
-                        return $"(static_cast<intptr_t>({EmitExpr(b.Left, md, types)}) {OpSymbol(b.Op)} static_cast<intptr_t>({EmitExpr(b.Right, md, types)}))";
+                        return $"(static_cast<intptr_t>({EmitExpr(b.Left, md, types)}) {OpSymbol(b.Op)} {PtrAsIntPtr(b.Right)})";
+                }
+                if (b.Op is BinaryOp.Add or BinaryOp.Sub or BinaryOp.Mul
+                    && (ExprIsInt64(b.Left) || ExprIsInt64(b.Right)))
+                {
+                    // net48 int64 arithmetic wraps (unchecked); C++ signed
+                    // overflow is UB. Compute in uint64 and cast back.
+                    var sym = b.Op switch
+                    {
+                        BinaryOp.Add => "+",
+                        BinaryOp.Sub => "-",
+                        _ => "*",
+                    };
+                    return $"(static_cast<int64_t>(static_cast<uint64_t>({EmitExpr(b.Left, md, types)}) {sym} static_cast<uint64_t>({EmitExpr(b.Right, md, types)})))";
                 }
                 return $"({EmitExpr(b.Left, md, types)} {OpSymbol(b.Op)} {EmitExpr(b.Right, md, types)})";
             case UnaryExpr u:
@@ -3851,6 +4457,16 @@ public static class CodeGenerator
                          return $"il2cpp::runtime::icall_multicast_invoke_rr_void(({receiverCode}){(callArgs2.Length > 0 ? ", " + callArgs2 : "")})";
                      }
 
+                     // rlaudit4: ref-returning ZERO-arg delegates (Func<string>,
+                     // Func<object>, custom ref-return no-arg): multicast must
+                     // flatten (raw methodPtr dispatch would read a container's
+                     // `first` field as code -> 0xC0000005); net48 keeps the
+                     // LAST leaf's result.
+                     if (retCpp == "Il2CppObject*" && paramCpp.Length == 0)
+                     {
+                         return $"il2cpp::runtime::icall_multicast_invoke_r(({receiverCode}))";
+                     }
+
                      // BUG-1 (batch 172): any OTHER void shape (mixed-param /
                      // 3+-ref / >4-arg) falls back to raw methodPtr dispatch.
                      // Single-cast only; multicast of those is a documented gap
@@ -3978,10 +4594,10 @@ public static class CodeGenerator
         var hdr = sig.ReadSignatureHeader();
         if (hdr.IsGeneric) _ = sig.ReadCompressedInteger(); // GenericParameterCount
         var declaredCount = sig.ReadCompressedInteger();
-        var ret = sig.ReadByte();
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         bool returnMvar = ret == 0x1E;
         if (ret is 0x11 or 0x12 or 0x40) _ = sig.ReadTypeHandle();
-        else if (ret is 0x1D or 0x1F) _ = ReadSigParam(md, ref sig);
+        else if (ret is 0x1D) _ = ReadSigParam(md, ref sig);
         else if (ret is 0x13 or 0x1E) _ = sig.ReadCompressedInteger(); // VAR/MVAR return index
         var paramMvar = new bool[paramCount];
         for (var i = 0; i < declaredCount && i < paramMvar.Length; i++)
@@ -3991,11 +4607,11 @@ public static class CodeGenerator
 
     private static byte ReadSigParam(MetadataReader md, ref BlobReader sig)
     {
-        var b = sig.ReadByte();
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         switch (b)
         {
             case 0x11 or 0x12 or 0x40: _ = sig.ReadTypeHandle(); break;
-            case 0x1D or 0x1F: _ = ReadSigParam(md, ref sig); break;
+            case 0x1D: _ = ReadSigParam(md, ref sig); break;
             case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); break; // VAR/MVAR index
             case 0x15:
                 sig.ReadByte();
@@ -4123,6 +4739,13 @@ public static class CodeGenerator
         // extern in il2cpp_metadata.h). gccase/valuesem `new object()` probes
         // hit this.
         "System.Object" => "il2cpp_object_new(&System_Object_class)",
+        // ilistException: `new Exception("a")` -- BCL exceptions have no
+        // generated class descriptor; allocate as a plain object (the
+        // message rides the runtime side table keyed by object identity,
+        // not by klass, so GetType()/Message never consult the klass).
+        // Without the entry the fallback emits an undeclared
+        // &System_Exception_class symbol.
+        "System.Exception" => "il2cpp_object_new(&System_Object_class)",
         // M7 CG-FIX (encodingcase cmake FAIL): `new string(...)` -- the string
         // ctors are CREATE-STYLE (string.cpp discards `this_` and returns the
         // new string, so the newobj placeholder is a DISCARDED allocation; the
@@ -4137,6 +4760,35 @@ public static class CodeGenerator
         // List<int> -- the int32 AOT expansion allocates through the listi4
         // runtime descriptor (MethodMap.List.cs routes the members).
         "System.Collections.Generic.List`1_int" => "il2cpp_object_new(il2cpp::il2cpp_list_i4_class())",
+        // ilistException: List<Exception> (CLASS instantiation -- any
+        // class-typed T folds to the "_class" suffix) allocates through the
+        // listobj reference domain (MethodMap.List.cs obj arms route the
+        // members); without the entry the fallback emits an undefined
+        // &System_Collections_Generic_List_1_class symbol.
+        // listrefcase: the same reference domain owns EVERY reference-element
+        // instantiation -- STRING ("_string"), OBJECT ("_object") and SZARRAY
+        // ("_array") share the Il2CppObject* slot ABI and must allocate the
+        // runtime listobj descriptor (MethodMap.List.cs objReceiver).
+        "System.Collections.Generic.List`1_class" or
+        "System.Collections.Generic.List`1_string" or
+        "System.Collections.Generic.List`1_object" or
+        "System.Collections.Generic.List`1_array" or
+        "System.Collections.Generic.List`1_long" => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
+        "System.Collections.Generic.List`1_double" => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
+        "System.Collections.Generic.List`1_float" or
+        "System.Collections.Generic.List`1_bool" or
+        "System.Collections.Generic.List`1_char" or
+        "System.Collections.Generic.List`1_sbyte" or
+        "System.Collections.Generic.List`1_byte" or
+        "System.Collections.Generic.List`1_short" or
+        "System.Collections.Generic.List`1_ushort" or
+        "System.Collections.Generic.List`1_uint" => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
+        // G4: a NESTED GenericInst element (List<List<int>>) is a managed
+        // reference; its instance name carries the fully nested suffix
+        // ("...List`1_System.Collections.Generic.List`1_int"), so the entry is
+        // a prefix rule rather than an exact key.
+        var nestedListAlloc when nestedListAlloc.StartsWith("System.Collections.Generic.List`1_System.Collections.Generic.List", StringComparison.Ordinal)
+            => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
         // rtdict-b23 (DICT-GC): Dictionary<string,int> allocates through the
         // runtime GLOBAL wrapper descriptor (dictsi_obj.h) -- the same
         // contract as the listi4/random descriptors: without this entry the
@@ -4145,6 +4797,28 @@ public static class CodeGenerator
         // but as a runtime-owned GLOBAL it must go through the lazy accessor
         // (constraint #12 registration) rather than a generated descriptor.
         "System.Collections.Generic.Dictionary`2_string_int" => "il2cpp_object_new(il2cpp::il2cpp_dict_si_object_class())",
+        // Phase-1 (dictgen): Dictionary<int,string> allocates through the
+        // shared generic wrapper descriptor (dictgen.h) -- one class for
+        // every future kind combination (kinds ride the icalls as trailing
+        // literals, not as distinct classes).
+        "System.Collections.Generic.Dictionary`2_int_string" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
+        // G4: the string->string expansion rides the shared generic wrapper
+        // descriptor (dictgen.h -- Phase-2 absorption of the hashtable arms).
+        "System.Collections.Generic.Dictionary`2_string_string" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
+        "System.Collections.Generic.Dictionary`2_string_System.Collections.Generic.List`1_int" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
+        // T4: Dictionary<Uri,string> (CLASS-argument-NOT-LAST) rides the same
+        // shared descriptor; the Uri key normalizes per call inside the
+        // icall_dict_gen_*_o twins (Phase-2 absorption of the forwarders).
+        "System.Collections.Generic.Dictionary`2_System.Uri_string" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
+        // G4: HashSet<int> reuses the same hashtable descriptor (boxed-int
+        // members; see hashset.h).
+        "System.Collections.Generic.HashSet`1_int" => "il2cpp_object_new(il2cpp::il2cpp_hashtable_class())",
+        // T2 W3: long/double/uint/object/class reuse the same hashtable descriptor.
+        "System.Collections.Generic.HashSet`1_long" or
+        "System.Collections.Generic.HashSet`1_double" or
+        "System.Collections.Generic.HashSet`1_uint" or
+        "System.Collections.Generic.HashSet`1_object" or
+        "System.Collections.Generic.HashSet`1_class" => "il2cpp_object_new(il2cpp::il2cpp_hashtable_class())",
         "System.Random" => "il2cpp_object_new(il2cpp::il2cpp_random_class())",
         // batch 158 (timercase): System.Threading.Timer allocates through the
         // runtime-registered descriptor (timer.cpp -- the managed object is a
@@ -4166,6 +4840,39 @@ public static class CodeGenerator
         "System.Collections.ArrayList" => "il2cpp_object_new(il2cpp::il2cpp_arraylist_class())",
         "System.Collections.Stack" => "il2cpp_object_new(il2cpp::il2cpp_stack_class())",
         "System.Collections.Queue" => "il2cpp_object_new(il2cpp::il2cpp_queue_class())",
+        // G4: the generic expansions ride the same descriptors.
+        "System.Collections.Generic.Stack`1_string" => "il2cpp_object_new(il2cpp::il2cpp_stack_class())",
+        // T2 W1: the reference-element instantiations (object/class) reuse the
+        // non-generic stack descriptor (Il2CppObject* slots, stackqueue.h).
+        "System.Collections.Generic.Stack`1_object" or
+        "System.Collections.Generic.Stack`1_class" => "il2cpp_object_new(il2cpp::il2cpp_stack_class())",
+        // T2 W4: the typed value-element instantiations ride the same stack descriptor.
+        "System.Collections.Generic.Stack`1_int" or
+        "System.Collections.Generic.Stack`1_long" or
+        "System.Collections.Generic.Stack`1_double" => "il2cpp_object_new(il2cpp::il2cpp_stack_class())",
+        "System.Collections.Generic.Queue`1_int" => "il2cpp_object_new(il2cpp::il2cpp_queue_class())",
+        // T2 W1: the reference-element instantiations (string/object/class)
+        // reuse the non-generic queue descriptor (Il2CppObject* slots).
+        "System.Collections.Generic.Queue`1_string" or
+        "System.Collections.Generic.Queue`1_object" or
+        "System.Collections.Generic.Queue`1_class" => "il2cpp_object_new(il2cpp::il2cpp_queue_class())",
+        // T2 W4: the typed value-element instantiations ride the same queue descriptor.
+        "System.Collections.Generic.Queue`1_long" or
+        "System.Collections.Generic.Queue`1_double" => "il2cpp_object_new(il2cpp::il2cpp_queue_class())",
+        // URI-FIX (diffuri001): a dotted class-element instantiation (Queue<Uri>
+        // -> "Queue`1_System.Uri") rides the non-generic queue descriptor; the
+        // remainder is namespace-qualified (contains '.'), unlike the short
+        // primitive suffixes.
+        var queueDottedAlloc when queueDottedAlloc.StartsWith("System.Collections.Generic.Queue`1_", StringComparison.Ordinal) && queueDottedAlloc.Substring("System.Collections.Generic.Queue`1_".Length).Contains('.')
+            => "il2cpp_object_new(il2cpp::il2cpp_queue_class())",
+        // A5/B1/B6 (myIList/baudit2/ilistException): a dotted user-class
+        // List instantiation ("List`1_System.Exception" /
+        // "List`1_Cases.Baudit2.P") rides the shared listobj descriptor
+        // (the DottedRefArg kind rule -- the queueDottedAlloc precedent
+        // above). BCL struct full names are excluded by the rule and keep
+        // the fallback (LOUD undefined symbol at link, never silent).
+        var listDottedAlloc when listDottedAlloc.StartsWith("System.Collections.Generic.List`1_", StringComparison.Ordinal) && MethodRefResolver.DottedRefArg(listDottedAlloc) != null
+            => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
         // dictsl-b23 (dictcase SortedList wiring): System.Collections.SortedList
         // allocates through the lazy *_class() descriptor accessor (sortedlist.h
         // -- same FIX-3 contract as Stack/Queue above); without the entry the
@@ -4173,6 +4880,15 @@ public static class CodeGenerator
         // SortedList_class), which is the same descriptor but allocated WITHOUT
         // the lazy registration (isinst identity divergence).
         "System.Collections.SortedList" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
+        "System.Collections.Generic.SortedList`2_string_int" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
+        "System.Collections.Generic.SortedDictionary`2_string_int" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
+        "System.Collections.Generic.SortedSet`1_int" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
+        // T2 W2: string/long/double/object/class ride the same sortedlist descriptor.
+        "System.Collections.Generic.SortedSet`1_string" or
+        "System.Collections.Generic.SortedSet`1_long" or
+        "System.Collections.Generic.SortedSet`1_double" or
+        "System.Collections.Generic.SortedSet`1_object" or
+        "System.Collections.Generic.SortedSet`1_class" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
         // ADO stage 1 (batch 152f): System.Data.DataTable / DataColumn /
         // DataRow allocate through the lazy *_class() descriptor accessors
         // (il2cpp_datatable.h -- the FIX-3 contract).
@@ -4295,8 +5011,8 @@ public static class CodeGenerator
                 // net48-identical). icall_object_to_string would fall through
                 // to the klass-name fallback and print "Cases.Color".
                 if (v.ReceiverTypeName != null && IsEnumReceiverType(v.ReceiverTypeName, types))
-                    return $"static_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_boxed_to_string(static_cast<Il2CppObject*>({EmitExpr(v.Args[0], md, types)})))";
-                return $"static_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(v.Args[0], md, types)}))";
+                    return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_enum_boxed_to_string(static_cast<Il2CppObject*>({EmitExpr(v.Args[0], md, types)})))";
+                return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(v.Args[0], md, types)}))";
             }
             // M7 CG-FIX (excext cmake FAIL): a callvirt to System.Action::Invoke
             // -- StackFold.IsDelegateType (read-only Ir/StackFold.cs) matches
@@ -4327,6 +5043,22 @@ public static class CodeGenerator
         var (owner, sig) = VirtualTarget(md, v.MethodToken, types);
         var retCpp = VirtualReturnTypeCpp(md, v.MethodToken);
         var paramCpp = VirtualParamTypesCpp(md, v.MethodToken); // excludes this; this is always Il2CppObject*
+        // R2b P2 (interface-instantiation ABI): the method signature encodes
+        // T as the int32 default; the CALL-SITE TypeSpec is authoritative.
+        // When the target's parent instantiates T with a reference arg
+        // (IMyList`1<class System.Exception>) every VAR slot is the managed
+        // reference (Il2CppObject*) -- the dispatched clone returns/accepts
+        // Il2CppObject* (P2 declaration face).
+        if (CallSiteVarIsRef(md, v.MethodToken))
+        {
+            var sigH = MetadataTokens.Handle(v.MethodToken).Kind == HandleKind.MethodDefinition
+                ? md.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(v.MethodToken)).Signature
+                : md.GetMemberReference((MemberReferenceHandle)MetadataTokens.Handle(v.MethodToken)).Signature;
+            var (retVar2, paramVars2) = MethodSignatureCoder.DecodeVarFlags(md, sigH);
+            if (retVar2) retCpp = "Il2CppObject*";
+            for (var pi = 0; pi < paramCpp.Length && pi < paramVars2.Length; pi++)
+                if (paramVars2[pi]) paramCpp[pi] = "Il2CppObject*";
+        }
         var receiver = v.Args.Count > 0 ? v.Args[0] : throw new NotSupportedException("callvirt without receiver");
         var args = v.Args.Skip(1).Select(a => EmitExpr(a, md, types)).ToList();
         var receiverCode = EmitExpr(receiver, md, types);
@@ -4440,12 +5172,70 @@ public static class CodeGenerator
     // (receiverChecked is passed as `this` -- a null receiver throws exactly
     // like the vtable path, NOT the unchecked non-virtual callvirt form).
     //--------------------------------------------------------------------------
+    // R2b (M1/M2): resolve an owner/receiver type name to its TypeDef,
+    // PREFERRING the suffix-exact closed clone over the shared-FullName
+    // definition. Order: suffix-exact instantiation name ("Box`1_string") ->
+    // exact FullName (definition / default instance) -> F1 argument-aware
+    // angle-bracket name ("VirtBase`1<System.String>") -> legacy prefix
+    // fallback. Single implementation (C6): the clone-linking pass and the
+    // callvirt/devirt owners share it.
+    private static TypeDef? ResolveInstantiationOwner(IReadOnlyList<TypeDef> types, string name)
+    {
+        var exact = types.FirstOrDefault(t => t.InstantiationSuffix != null
+            && t.FullName + "_" + t.InstantiationSuffix == name);
+        if (exact != null) return exact;
+        var byName = types.FirstOrDefault(t => t.FullName == name);
+        if (byName != null) return byName;
+        // F1 (R2b P2): a canonical generic-instance name resolves by its
+        // ARGUMENT. A BASE type ("VirtBase`1<System.String>") must bind the
+        // matching closed CLONE (VirtBase_1_string) -- the definition's
+        // default "_int" instance has the wrong ABI (genericvirtstr AV:
+        // VirtStr inherited the int vtable slot and dispatch truncated the
+        // string reference). A class-typed argument binds the "_class" clone.
+        // Only when no clone exists (interfaces have none; the arg is "T")
+        // fall back to the definition.
+        var lt = name.IndexOf('<');
+        if (lt > 0 && name.EndsWith(">", StringComparison.Ordinal))
+        {
+            var gDef = name[..lt];
+            var inner = name[(lt + 1)..^1];
+            var suffix = inner switch
+            {
+                "System.String" => "string",
+                "System.Object" => "object",
+                "System.Int32" => "int",
+                "System.Int64" => "long",
+                "System.Double" => "double",
+                "System.Single" => "float",
+                "System.Boolean" => "bool",
+                "System.Char" => "char",
+                "System.Byte" => "byte",
+                _ => null,
+            };
+            if (suffix != null)
+            {
+                var cloneHit = types.FirstOrDefault(t => t.FullName == gDef
+                    && t.InstantiationSuffix == suffix);
+                if (cloneHit != null) return cloneHit;
+            }
+            else
+            {
+                var classHit = types.FirstOrDefault(t => t.FullName == gDef
+                    && t.InstantiationSuffix == "class");
+                if (classHit != null) return classHit;
+            }
+            var gDefHit = types.FirstOrDefault(t => t.FullName == gDef);
+            if (gDefHit != null) return gDefHit;
+        }
+        return types.FirstOrDefault(t => t.GenericArity > 0
+            && name.StartsWith(t.FullName + "_", StringComparison.Ordinal));
+    }
+
     private static string? TryDevirtualize(VirtualCallExpr v, TypeDef owner, string sig,
         IReadOnlyList<TypeDef> types, string receiverChecked, List<string> args)
     {
         if (v.ReceiverTypeName == null || owner.IsValueType) return null;
-        var recvType = types.FirstOrDefault(t => t.FullName == v.ReceiverTypeName
-            || (t.GenericArity > 0 && v.ReceiverTypeName.StartsWith(t.FullName + "_", StringComparison.Ordinal)));
+        var recvType = ResolveInstantiationOwner(types, v.ReceiverTypeName);
         if (recvType == null || recvType.IsInterface || recvType.IsValueType) return null;
 
         // Devirt S3 (devirtualization-plan.md §4 S3): interface dispatch on a
@@ -4499,6 +5289,50 @@ public static class CodeGenerator
     }
 
     // Virtual method explicit-parameter C++ types (excluding this): decoded from the signature (i -> int32_t; r: -> Il2CppObject*).
+    // R2b P2 (interface-instantiation ABI): whether a callvirt/interface
+    // target's parent TypeSpec instantiates T with a REFERENCE argument
+    // (IMyList`1<class System.Exception>) -- the VAR slots of the target then
+    // ride as Il2CppObject* at the call site. A VAR argument (0x13)
+    // refers to the ENCLOSING clone's T: resolved through
+    // _curInstantiationSuffix (same closure as the declaration/body faces).
+    // false for MethodDef targets, open definitions, value-type args and
+    // primitive args.
+    private static bool CallSiteVarIsRef(MetadataReader md, int token)
+    {
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.MemberReference) return false;
+        var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return false;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+        if (sig.ReadByte() != 0x15) return false;
+        _ = sig.ReadByte(); // CLASS/VALUETYPE marker
+        _ = sig.ReadTypeHandle();
+        if (sig.ReadCompressedInteger() != 1) return false;
+        var argByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        // R2b P2 closure (call side): B`1<!0> inside clone A<T>'s body -- the
+        // ABI follows the clone's closed suffix ("int" -> value slot; every
+        // other closed suffix -> managed reference, matching the declaration
+        // face `suffix != "int"` predicate used by RefVar/local/return).
+        if (argByte == 0x13)
+            return _curInstantiationSuffix is not (null or "int");
+        return VarArgByteIsRef(ref sig, argByte);
+    }
+
+    private static bool VarArgByteIsRef(ref BlobReader sig, byte b)
+    {
+        switch (b)
+        {
+            case 0x0E or 0x12 or 0x1C: return true;          // string/class/object
+            case 0x1D: return true;                          // SZARRAY
+            case 0x15:
+            {
+                var marker = sig.ReadByte();                 // nested GenericInst
+                return marker != 0x11;                       // CLASS inst -> ref; VALUETYPE -> value
+            }
+            default: return false;                           // primitives/VAR(handled by caller)/TypedRef: not a reference
+        }
+    }
+
     private static string[] VirtualParamTypesCpp(MetadataReader md, int token)
     {
         string paramTypes;
@@ -4595,9 +5429,9 @@ public static class CodeGenerator
                 _ => throw new NotSupportedException($"callvirt owner kind {mr.Parent.Kind}"),
             };
         }
-        // Generic-instance owner ("Box`1_int") -> match the generic definition ("Box`1").
-        var owner = types.FirstOrDefault(t => t.FullName == ownerFullName
-                                           || (t.GenericArity > 0 && ownerFullName.StartsWith(t.FullName + "_", StringComparison.Ordinal)))
+        // Generic-instance owner ("Box`1_int") -> match the generic definition
+        // ("Box`1"); R2b: prefer the suffix-exact clone (M2).
+        var owner = ResolveInstantiationOwner(types, ownerFullName)
             ?? throw new NotSupportedException($"callvirt owner {ownerFullName} not in translated types");
         return (owner, $"{methodName}({paramTypes})");
     }
@@ -5133,6 +5967,13 @@ public static class CodeGenerator
     private static System.Collections.Generic.Dictionary<string, string> _curLocKinds =
         new();
 
+    // enumparseic/enumdeep: a TryParse out slot declared as a plain int32
+    // local carries kind "val" (the default int32 slot) rather than an enum
+    // struct C++ type -- its address must be taken directly, never read
+    // through ->value__ (which requires an enum struct base).
+    private static bool IsInt32Slot(string name) =>
+        !_curLocKinds.TryGetValue(name, out var k) || k is "val" or "i" or "int";
+
     //--------------------------------------------------------------------------
     // P0-1 (hotpath-audit-2): the array-element fast path. When the array is
     // a local PROVABLY holding a fresh constant-length newarr (see the
@@ -5521,29 +6362,47 @@ public static class CodeGenerator
     // The M3 generic-ARGUMENT byte table (0x15 = a NESTED generic
     // instantiation, e.g. IEnumerable`1<KeyValuePair`2<string,int>> --
     // recurse so the outer instance name carries the nested suffix).
-    private static string ReadM3Arg(MetadataReader md, ref BlobReader sig, byte b) => b switch
+    // ECMA-335 II.23.1.16: custom modifiers (0x1F/0x20) are stripped first.
+    private static string ReadM3Arg(MetadataReader md, ref BlobReader sig, byte b)
     {
-        0x02 => "bool",
-        0x03 => "char",
-        0x04 => "sbyte",
-        0x05 => "byte",
-        0x06 => "short",
-        0x07 => "ushort",
-        0x08 => "int",
-        0x09 => "uint",
-        0x0A => "long",
-        0x0B => "ulong",
-        0x0C => "float",
-        0x0D => "double",
-        0x0E => "string",
-        0x11 => "valuetype",
-        0x12 => "class",
-        0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
-        0x1C => "object",
-        0x1D or 0x1F => "array",
-        0x15 => ReadM3NestedGeneric(md, ref sig),
-        var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
-    };
+        b = MethodSignatureCoder.SkipCustomModifiers(ref sig, b);
+        return b switch
+        {
+            0x02 => "bool",
+            0x03 => "char",
+            0x04 => "sbyte",
+            0x05 => "byte",
+            0x06 => "short",
+            0x07 => "ushort",
+            0x08 => "int",
+            0x09 => "uint",
+            0x0A => "long",
+            0x0B => "ulong",
+            0x0C => "float",
+            0x0D => "double",
+            0x0E => "string",
+             0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+             0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            0x1C => "object",
+            0x1D => "array",
+            0x15 => ReadM3NestedGeneric(md, ref sig),
+            // B2/B5 family (MyList<T> definition bodies decoded at emit
+            // time, e.g. callvirt owner resolution): an OPEN TypeSpec arg
+            // (VAR 0x13 + index) denotes the enclosing closed clone's T --
+            // the R2b P2 InstantiationSuffixHint mechanism (StackFold's and
+            // MethodRefResolver's arms are the precedent). Outside a body
+            // pass the hint is null and the historical "int" holds.
+            0x13 => ReadM3VarArgCG(ref sig),
+            var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
+        };
+    }
+
+    // VAR (0x13) generic-argument consumption: the index byte follows.
+    private static string ReadM3VarArgCG(ref BlobReader sig)
+    {
+        sig.ReadCompressedInteger();
+        return MethodRefResolver.InstantiationSuffixHint ?? "int";
+    }
 
     private static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader sig)
     {
@@ -5685,7 +6544,8 @@ public static class CodeGenerator
         // array bounds, fnptr inner signature); return the leading byte.
         private static byte ConsumeDelegateTypeByte(MetadataReader md, ref BlobReader sig)
         {
-            var b = sig.ReadByte();
+            // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) first.
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             switch (b)
             {
                 case 0x10: return ConsumeDelegateTypeByte(md, ref sig); // BYREF: element follows
@@ -5723,7 +6583,8 @@ public static class CodeGenerator
         private static (bool IsRef, bool IsVoid) ConsumeDelegateSigType(MetadataReader md, ref BlobReader sig,
             byte[] genArgs)
         {
-            var b = sig.ReadByte();
+            // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) first.
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             switch (b)
             {
                 case 0x01: return (false, true);               // void
@@ -5802,7 +6663,13 @@ public static class CodeGenerator
             return false;
         }
         if (methodName != ".ctor") return false;
+        // G7: an IntPtr/UIntPtr ctor-initialized local (`ldloca loc;
+        // <value>; call .ctor`) declares the full-width carrier via
+        // TypeCppName (intptr_t/uintptr_t). Roslyn encodes these locals
+        // as native int/uint, whose coarse IL local kind ("i") would
+        // otherwise declare an int32_t slot and truncate the value.
         return ownerFullName is "System.DateTime" or "System.TimeSpan" or "System.Decimal" or "System.Guid"
+            or "System.IntPtr" or "System.UIntPtr"
             || types.Any(t => t.FullName == ownerFullName && t.IsValueType);
     }
 
@@ -6027,6 +6894,16 @@ public static class CodeGenerator
             if (md.GetFullName(tdh) != ownerShort) continue;
             return StaticFieldIsReference(md, tdh, field);
         }
+        // BCL static fields whose RUNTIME storage is an Il2CppObject* carrier:
+        // the owner is a TypeRef into a reference assembly (no local field
+        // metadata), but the synthesized storage name is externed by the
+        // runtime as a managed reference -- arraysort.h:97
+        // System_Collections_Comparer_sf_Default, il2cpp_console.h:66
+        // System_IO_TextWriter_sf_Null. Reading either into a local must
+        // declare the local Il2CppObject* (caudit3 cmake FAIL otherwise).
+        if (ownerFullName == "System.Collections.Comparer"      // Default / DefaultInvariant
+            || ownerFullName == "System.IO.TextWriter")          // Null
+            return true;
         return false;
     }
 
@@ -6039,13 +6916,15 @@ public static class CodeGenerator
             if (md.GetString(fd.Name) != fieldName) continue;
             var sig = md.GetBlobReader(fd.Signature);
             if (sig.ReadByte() != 0x06) return false; // not a FIELD sig
-            var typeByte = sig.ReadByte();
+            // ECMA-335 II.23.1.16: strip custom modifiers (volatile ->
+            // CMOD_REQD(IsVolatile) 0x1F) before classifying.
+            var typeByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             // Reference kinds (mirrors MetadataLoader.DecodeFieldSignature
             // reference arms + GenericInst/delegate classes): 0x0E String,
             // 0x1C Object, 0x12 Class, 0x15 GenericInst (Func`N etc.),
-            // 0x1D/0x1F SZARRAY, 0x14 ARRAY. Everything else (int32,
+            // 0x1D SZARRAY, 0x14 ARRAY. Everything else (int32,
             // value-type, VAR) stays int32_t storage.
-            return typeByte is 0x0E or 0x1C or 0x12 or 0x15 or 0x1D or 0x1F or 0x14;
+            return typeByte is 0x0E or 0x1C or 0x12 or 0x15 or 0x1D or 0x14;
         }
         return false;
     }
@@ -6092,7 +6971,10 @@ public static class CodeGenerator
             // If the receiver is already an address (LocAddrExpr from ldloca)
             // or a value-type method's this (a {T}* parameter named arg0),
             // dereference it directly; a plain value local needs (&obj)->f.
-            if (obj is LocAddrExpr || (obj is LocExpr le && le.Name.StartsWith("arg", StringComparison.Ordinal)))
+            // caudit2-fix: address args (this pointer / by-ref / raw pointer)
+            // dereference directly; a BY-VALUE struct arg falls through to the
+            // (&(arg))-> form (arg1 is a plain C++ value -- `arg1->V` did not compile).
+            if (obj is LocAddrExpr || (obj is LocExpr le && IsAddressArg(le.Name)))
                 return $"{objCode}->{fieldCppName}";
             return $"(&({objCode}))->{fieldCppName}";
         }
@@ -6262,6 +7144,75 @@ public static class CodeGenerator
 
     // Take the low 32 bits + sign-extend (explicit unchecked: equivalent to C# int wrap-around, deterministic across compilers/configs).
     private static long Wrap32(long v) => unchecked((int)(v & 0xFFFFFFFFL));
+
+    // G5 (bitopcase): int64 constant folding with net48 UNCHECKED wrap-around
+    // (the C# unchecked context / IL add/sub/mul semantics). Mirrors
+    // TryFoldInt32's operator set at 64-bit width. Comparisons are NOT folded
+    // here (they stay in the generic emitter, where equality already casts to
+    // uint64); div/rem by zero and the long.MinValue / -1 division are refused
+    // (net48 raises OverflowException / DivideByZeroException at runtime).
+    internal static bool TryFoldInt64(Expr e, out long value)
+    {
+        switch (e)
+        {
+            case Int64ConstExpr l:
+                value = l.Value;
+                return true;
+            case IntConstExpr i:
+                value = i.Value; // an int32 constant widens into the int64 context
+                return true;
+            case BinaryExpr b:
+                if (!TryFoldInt64(b.Left, out var lv) || !TryFoldInt64(b.Right, out var rv))
+                {
+                    value = 0;
+                    return false;
+                }
+                if (b.Op is BinaryOp.Div or BinaryOp.Rem && rv == 0)
+                {
+                    value = 0;
+                    return false;
+                }
+                if (b.Op == BinaryOp.Div && lv == long.MinValue && rv == -1)
+                {
+                    value = 0;
+                    return false;
+                }
+                if (b.Op is BinaryOp.Ceq or BinaryOp.Cgt or BinaryOp.Clt
+                    or BinaryOp.CgtUn or BinaryOp.CltUn)
+                {
+                    value = 0;
+                    return false; // comparisons keep their int32 emission
+                }
+                value = b.Op switch
+                {
+                    BinaryOp.Add => unchecked(lv + rv),
+                    BinaryOp.Sub => unchecked(lv - rv),
+                    BinaryOp.Mul => unchecked(lv * rv),
+                    BinaryOp.Div => lv / rv,
+                    BinaryOp.Rem => lv % rv,
+                    BinaryOp.And => lv & rv,
+                    BinaryOp.Or => lv | rv,
+                    BinaryOp.Xor => lv ^ rv,
+                    // IL shift counts mask to 0..63 at 64-bit width.
+                    BinaryOp.Shl => unchecked(lv << (int)(rv & 63)),
+                    BinaryOp.Shr => lv >> (int)(rv & 63),
+                    BinaryOp.ShrUn => unchecked((long)((ulong)lv >> (int)(rv & 63))),
+                    _ => 0,
+                };
+                return true;
+            case UnaryExpr u:
+                if (!TryFoldInt64(u.Operand, out var ov))
+                {
+                    value = 0;
+                    return false;
+                }
+                value = u.Op == UnaryOp.Neg ? unchecked(-ov) : ~ov;
+                return true;
+            default:
+                value = 0;
+                return false;
+        }
+    }
 
     // Function-header English comments: IL signature + method-body location (RVA/token) + semantics overview (spec: generated code must carry fully-English, hyper-detailed comments).
     private static void EmitFunctionHeader(CppWriter w, TypeDef t, MethodDef m, MethodBodyInfo info,
@@ -6544,6 +7495,12 @@ public static class CodeGenerator
                 if (md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature).ReadByte() == 0x1D)
                 {
                     var objCodeArr = EmitExpr(c.Args[0], md, types);
+                    // nullptr_t fix (boxing/boxdeep/boxdeep2): a NULL literal
+                    // operand must NOT enter reinterpret_cast<Il2CppObject*>
+                    // ("reinterpret_cast from 'std::nullptr_t'" is ill-formed
+                    // C++). isinst(null)/castclass(null) are null (castclass
+                    // does not throw on null -- ECMA) -> constant-shortcut.
+                    if (objCodeArr == "nullptr") return "nullptr";
                     var klassArr = SzArrayArrayClassCpp(md, tsHandle);
                     if (c.Function.StartsWith("castclass_", StringComparison.Ordinal))
                         return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : (({objCodeArr}) == nullptr ? nullptr : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), nullptr)))";
@@ -6556,10 +7513,31 @@ public static class CodeGenerator
                     throw new NotSupportedException($"isinst/castclass of generic instantiation {specName} not wired in M5");
                 }
                 var objCode0 = EmitExpr(c.Args[0], md, types);
+                // nullptr_t fix: see the SZARRAY arm above (null is the
+                // identity-equivalent safe result for delegate isinst/identity).
+                if (objCode0 == "nullptr") return "nullptr";
                 return $"reinterpret_cast<Il2CppObject*>({objCode0})";
             }
             var typeName = TypeTokenFullName(md, isTok);
             var objCode = EmitExpr(c.Args[0], md, types);
+            // nullptr_t fix (boxing/boxdeep/boxdeep2): null never enters the
+            // is_instance/identity expressions below (each would wrap the
+            // literal in reinterpret_cast<Il2CppObject*>(nullptr) -- ill-formed
+            // C++); isinst(null)/castclass(null) are null (no throw on null).
+            if (objCode == "nullptr") return "nullptr";
+            // xmlenum: HANDLE-GAP identity for the System.Xml xml_doc.h types
+            // (MethodMap.Xml.cs handle-gap contract: XmlDocument IS its root
+            // node handle, XmlNode/XmlElement/XmlNodeList are raw pointers
+            // carried in Il2CppObject* slots). Those types have NO runtime
+            // class descriptor, so &System_Xml_XmlNode_class would be an
+            // undefined symbol (link FAIL); the only reachable castclass in
+            // the wired surface is the foreach element conversion over the
+            // XmlNodeList enumerator (object -> XmlNode), where the
+            // compile-time tracked type is the sole type information the
+            // value has. Identity, same contract as the custom-delegate arm
+            // below (D-CAST-NULL preserved: null input -> null).
+            if (IsXmlHandleGapType(typeName))
+                return $"reinterpret_cast<Il2CppObject*>({objCode})";
             // CG6 (delegate2/delegatecb link FAIL: "undefined symbol:
             // IntFn_class"/"Cb_class"): a custom delegate TypeDef has NO
             // runtime descriptor -- the runtime stamps EVERY delegate with
@@ -6612,9 +7590,20 @@ public static class CodeGenerator
             // runtime stamps the array with an element-aware descriptor (string[]
             // -> "[System.String" -> GetType().Name "String[]"). Value-element
             // arrays keep nullptr (the fixed int32/byte/char/long array classes).
-            var elemClassCpp = isRefElem
-                ? ArrayElementClassCpp(TypeTokenFullName(md, arrTok))
-                : "nullptr";
+            // ilistException: a BCL element with NO generated descriptor
+            // (System.Exception has no _class symbol) must NOT emit
+            // &Missing_class (undeclared identifier). Resolve it at runtime
+            // via il2cpp_class_by_name -- the M7 box-path precedent just above
+            // (known descriptors resolve to the identical pointer; unknown
+            // ones answer nullptr -> the shared object array, which compiles
+            // and carries object elements correctly). Translated user types
+            // keep the direct &Symbol form.
+            var elemName = TypeTokenFullName(md, arrTok);
+            var elemClassCpp = !isRefElem
+                ? "nullptr"
+                : types.Any(t => t.MatchesFullName(elemName))
+                ? ArrayElementClassCpp(elemName)
+                : $"il2cpp::il2cpp_class_by_name(\"{elemName}\")";
             return $"reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new({elemClassCpp}, {elemSize}, {(isRefElem ? "true" : "false")}, static_cast<int32_t>({EmitExpr(c.Args[0], md, types)})))";
         }
         if (c.Function.StartsWith("ldlen_", StringComparison.Ordinal))
@@ -6844,6 +7833,13 @@ public static class CodeGenerator
         var callCode2 = IsMessageCarrierCppName(cppName2)
             ? cppName2 + ")"
             : $"{cppName2}({callArgs2})";
+        // P/Invoke "ptr" result bridge (il2cpp_pinvoke_bridge.h): the native
+        // return may be an SDK pointer/size type (HWND/HMODULE/LRESULT/...)
+        // while the managed carrier is the intptr_t temp. Wrap the call in the
+        // converting helper -- it reinterprets a pointer result back to the
+        // intptr_t carrier (an IntPtr-typed native return passes through).
+        if (resolved2 is { IsPInvoke: true, ResultKind: "ptr" })
+            return $"il2cpp::runtime::il2cpp_pinvoke_result<intptr_t>({callCode2})";
         // M5 wiring: the runtime icalls return Il2CppString* where the IR's
         // reference representation is Il2CppObject* (Il2CppString is NOT a
         // derived class -- the two are unrelated structs). Ref-typed call
@@ -7005,6 +8001,21 @@ public static class CodeGenerator
     // Returns null when the call collapses to a field read (EmitCallStmt
     // emits the field expression instead of a function call).
     //--------------------------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // PinvokeArgBridge -- P/Invoke native-ABI argument adaptation (see
+    // src/runtime/include/internal/il2cpp_pinvoke_bridge.h). The generated
+    // code does NOT restate the SDK prototype on Windows (windows.h owns it),
+    // so each argument is wrapped in the il2cpp_pinvoke_arg conversion object:
+    // its templated conversion operator deduces the NATIVE parameter type at
+    // the call target and performs the exact bridge (pointer target ->
+    // reinterpret_cast for IntPtr handles / char16_t* strings / mirror struct
+    // pointers, arithmetic target -> static_cast). A nullptr literal stays
+    // bare (reinterpret_cast from std::nullptr_t is ill-formed -- the
+    // NullSafePtrCast precedent; nullptr converts to any pointer implicitly).
+    //--------------------------------------------------------------------------
+    private static string PinvokeArgBridge(string code)
+        => code == "nullptr" ? code : $"il2cpp::runtime::il2cpp_pinvoke_arg({code})";
+
     private static string? EmitIcallCallArgs(ResolvedMethod r, List<Expr> args, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         if (r.CppName == "il2cpp::runtime::il2cpp_object_ctor_nop")
@@ -7043,7 +8054,10 @@ public static class CodeGenerator
         // cast codes (casts2) are indexed by ICALL slot -- the resolver wires
         // them in icall order (MethodMap.Array.cs ARG-ORDER CONSTRAINT), so
         // slot j reads casts2[j] while the EXPRESSION comes from args[order[j]].
-        IcallArgOrder.TryGetValue(r.CppName, out var argOrder);
+        IcallArgOrder.TryGetValue(r.CppName, out var tableOrder);
+        // B4 (dtoprobe): a per-resolution order wins over the table (shared
+        // icalls serve several shapes; the table keys CppName globally).
+        var argOrder = r.ArgOrder ?? tableOrder;
         var slotCount = argOrder != null ? argOrder.Length : args.Count;
         // M7 CG-FIX (lockcase cmake FAIL): Monitor.Enter(object, ref bool
         // lockTaken) -- the runtime signature is (Il2CppObject*, bool*), but
@@ -7066,6 +8080,10 @@ public static class CodeGenerator
         for (var j = 0; j < slotCount; j++)
         {
             var srcIdx = argOrder != null ? argOrder[j] : j;
+            // B4 (dtoprobe): slot literal -- -1 emits nullptr (a slot with
+            // no IL source). Placed BEFORE the bounds check (no args entry
+            // exists) and before cast handling (no cast applies).
+            if (srcIdx == -1) { parts.Add("nullptr"); continue; }
             if (srcIdx >= args.Count)
                 throw new NotSupportedException(
                     $"icall '{r.CppName}' arg-order slot {j} references IL argument {srcIdx} but the call carries only {args.Count} argument(s)");
@@ -7090,11 +8108,21 @@ public static class CodeGenerator
                 // carried EXPLICITLY by the "g" cast code (MethodMap.Guid.cs)
                 // -- "" stays a pure passthrough, exactly like the other
                 // no-cast receivers above.
-                parts.Add(code);
+                parts.Add(r.IsPInvoke ? PinvokeArgBridge(code) : code);
                 continue;
             }
-            if (cast == "drop") continue;
-            parts.Add(cast switch
+            if (cast == "drop")
+            {
+                // cultureprobe (provider routing): the double/decimal custom
+                // formatters upgraded their runtime ABI with a trailing
+                // IFormatProvider slot; the unit-pinned "drop" cast stays for
+                // the mapping SHAPE, but the flagged icalls must PASS the
+                // argument through (null/zh-CN/other -> runtime zh-CN path;
+                // invariant name -> invariant layout).
+                if (r.ProviderCulture) { parts.Add(code); }
+                continue;
+            }
+            var castPart = cast switch
             {
                 "i" => $"static_cast<int32_t>({code})",
                 "l" => $"static_cast<int64_t>({code})",
@@ -7165,6 +8193,30 @@ public static class CodeGenerator
                 "u16:System.String" => code,
                 "deref:i" => $"(*reinterpret_cast<int32_t*>({code}))",
                 "deref:l" => $"(*reinterpret_cast<int64_t*>({code}))",
+                // strictalias (2026-09-13): "deref:v" -- read the address's
+                // slot at its DECLARED type (no type pun). The IntPtr/UIntPtr
+                // value carrier is intptr_t on the widened paths (winforms1)
+                // but still int32_t on live paths (pinvokedeep2 loc7), so a
+                // fixed-width pointer cast is wrong for one of the two: an
+                // int32_t* read of an intptr_t slot trips GCC
+                // -Wstrict-aliasing (Cases_Winforms1.cpp:13787), and an
+                // intptr_t* read of an int32_t slot would over-read. *addr
+                // keeps the declared width and lets the icall parameter
+                // conversion sign-extend; it also lets the CHECKED
+                // il2cpp_intptr_to_int32 see the full pointer value again.
+                // nativint regression fix (2026-09-13): the receiver may be an
+                // ADDRESS EXPRESSION (ldloca/ldflda -- winforms1 loc303:
+                // `(*((&loc303)))`, declared-width deref, no pun) or a VALUE
+                // TEMP CARRYING AN ADDRESS as an intptr_t integer (nativint
+                // arr[i]: `t4 = reinterpret_cast<intptr_t>(il2cpp_array_get_elem_ptr(...))`
+                // -- `*(t4)` is ill-formed, `have 'intptr_t'`). Deref the
+                // carrier through its OWN declared type (decltype(t4)* =
+                // intptr_t*, the element's declared width) -- still no type
+                // pun, because the pointer's pointee type IS the temp's
+                // declared type.
+                "deref:v" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*({code}))"
+                    : $"(*reinterpret_cast<decltype({code})*>({code}))",
                 // batch 156c (asynccase): "deref:r" -- read an Il2CppObject*
                 // slot through its ADDRESS (the async state machine's
                 // TaskAwaiter<T> / AsyncTaskMethodBuilder<T> receivers are
@@ -7181,6 +8233,14 @@ public static class CodeGenerator
                 "deref:ul" => $"(*reinterpret_cast<uint64_t*>({code}))",
                 "deref:d" => $"(*reinterpret_cast<double*>({code}))",
                 "deref:b" => $"static_cast<bool>(*reinterpret_cast<int32_t*>({code}))",
+                // marshalrw (2026-09-13): "addr:v" -- pass the ADDRESS of a
+                // VALUE argument. StructureToPtr<T>'s T value reaches the
+                // runtime's value-path store as &value. Address expressions
+                // (ldloca -- the value already lives at the address) pass
+                // through; value expressions take their address.
+                "addr:v" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? code
+                    : $"&({code})",
                 // M7 ref/out wiring: "addr:*" -- a BYREF out/ref ARGUMENT whose
                 // slot already has the right C++ type (int32_t/int64_t/double
                 // locals). The ldloca address passes through as a TYPED pointer
@@ -7245,16 +8305,30 @@ public static class CodeGenerator
                 // the pointer; VALUE expressions (a Cases_Color local read)
                 // read it through `.`. EmitExpr never produces a plain int32
                 // here (the receiver is always the enum struct slot).
-                "enumval" => args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr
+                // enumparseic/enumdeep: when the slot is a plain int32 local
+                // (`Color outVal`/`c` declared int32_t), there is no struct
+                // -- dereference the address (VALUE form passes through).
+                "enumval" => args[srcIdx] is LocAddrExpr laVal && IsInt32Slot(laVal.Name)
+                    ? $"(*({code}))"
+                    : args[srcIdx] is LocExpr leVal && IsInt32Slot(leVal.Name)
+                    ? $"{code}"
+                    : args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr
                     ? $"({code})->value__"
                     : $"({code}).value__",
                 // batch 148e (Enum.TryParse out): the out slot's ADDRESS --
                 // the enum VALUE rides in value__ (offset 8 of the enum
                 // struct), so "addr:l" (a plain reinterpret of the struct
                 // base) would write the _obj carrier instead. Deref the
-                // value__ field and take its address.
-                "enumaddr" => args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr
+                // value__ field and take its address. When the out slot is
+                // a plain int32 local (the transpiler declares `Color outVal`
+                // as int32_t and reads it back as int32), there is no
+                // struct -- take the slot address directly.
+                "enumaddr" => args[srcIdx] is LocAddrExpr laEnum && IsInt32Slot(laEnum.Name)
+                    ? $"reinterpret_cast<int64_t*>({code})"
+                    : args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr
                     ? $"reinterpret_cast<int64_t*>((&(({code})->value__)))"
+                    : args[srcIdx] is LocExpr leEnum && IsInt32Slot(leEnum.Name)
+                    ? $"reinterpret_cast<int64_t*>((&({code})))"
                     : $"reinterpret_cast<int64_t*>((&(({code}).value__)))",
                 "unbox:i" => $"il2cpp::il2cpp_unbox_int32(static_cast<Il2CppObject*>({code}))",
                 "unbox:l" => $"il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))",
@@ -7330,7 +8404,13 @@ public static class CodeGenerator
                 // int64 carrier (unbox:l -- icall_unbox_long); the explicit
                 // Il2CppObject* wrap matches the write_line_s param type
                 // (Il2CppString* is not derived from Il2CppObject).
-                "enum:l" => $"static_cast<il2cpp::Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(nullptr, il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))))",
+                // FIX TIME-RC (timecase/timeops cmake FAIL): the wrap was a
+                // static_cast, which is ILL-FORMED between unrelated pointer
+                // types (Il2CppString* -> Il2CppObject*); the declared intent
+                // ("matches the param type") only needs the type, so the
+                // bridge must be reinterpret_cast (same rule as the XmlNode
+                // family fix).
+                "enum:l" => $"reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::runtime::il2cpp_enum_to_string(nullptr, il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))))",
                 // timezone domain (MethodMap.TimeZone.cs): "tzsec" -- the
                 // TimeZoneInfo.GetUtcOffset Local branch. The receiver
                 // expression is the folded null (no identity); the cast
@@ -7346,7 +8426,8 @@ public static class CodeGenerator
                 var pp when pp.StartsWith("P:", StringComparison.Ordinal) => code,
                 // unknown cast code: pass through (log for audit)
                 _ => code,
-            });
+            };
+            parts.Add(r.IsPInvoke ? PinvokeArgBridge(castPart) : castPart);
         }
         // M7R3 (hashtable2/hashtablecase): the injected 0 goes AFTER the
         // arguments -- the receiver must occupy the icall's FIRST parameter
@@ -7394,6 +8475,19 @@ public static class CodeGenerator
         // becomes a passthrough, r103 behavior). Imprecise but compilable;
         // the fold side still resolves the precise instance name.
         return "System.Object";
+    }
+
+    // R2b P2: whether a type token is a VAR (0x13) / MVAR (0x1E) TypeSpec --
+    // a generic parameter occurrence (default(T) in a generic body). The
+    // callers route these through the VAR closure channel instead of the
+    // canonical "System.Int32" name (which sanitizes to the undefined C++
+    // type `System_Int32`).
+    private static bool IsVarOrMvarTypeSpec(MetadataReader md, int token)
+    {
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.TypeSpecification) return false;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+        return sig.ReadByte() is 0x13 or 0x1E;
     }
 
     //--------------------------------------------------------------------------
@@ -7523,15 +8617,37 @@ public static class CodeGenerator
     {
         if (typeName == "System.Exception") return "System.Exception,System.Exception";
         var bases = new List<string>();
-        var cur = types.FirstOrDefault(t => t.FullName == typeName);
-        while (cur != null && cur.BaseType != null)
+        // Nested types (e.g. "Cases.Exops2+CxEx2") carry Namespace="" so
+        // TypeDef.FullName is the SHORT name ("CxEx2") -- the old equality
+        // lookup missed every nested throw type and the chain collapsed to
+        // System.Exception. MatchesFullName accepts both forms. Chain SEGMENTS
+        // must use the metadata '+' form (the generated catch matcher passes
+        // TypeTokenFullName, e.g. "Cases.Exops2+CxEx"), so a nested base is
+        // rendered declaring+name.
+        static string MetaName(TypeDef t) =>
+            t.IsNested && t.DeclaringTypeName.Length > 0
+                ? t.DeclaringTypeName + "+" + t.Name
+                : t.FullName;
+        var cur = types.FirstOrDefault(t => t.MatchesFullName(typeName));
+        // Base-chain walk: the loader's BaseType link is keyed by FullName, so
+        // a nested base ("Cases.Exops2+CxEx" vs FullName "CxEx") leaves the
+        // link null -- fall back to a MatchesFullName name lookup and keep
+        // walking until the terminal BCL base (e.g. System.Exception), whose
+        // name is the final segment.
+        var guard = 0;
+        while (cur != null && cur.BaseTypeName != "System.Object" && guard++ < 64)
         {
-            bases.Add(cur.BaseType.FullName);
-            cur = cur.BaseType;
+            var next = cur.BaseType ?? types.FirstOrDefault(x => x.MatchesFullName(cur.BaseTypeName));
+            if (next == null)
+            {
+                // Terminal base is a BCL type not in the translated set -- its
+                // metadata name is the last chain segment.
+                bases.Add(cur.BaseTypeName);
+                break;
+            }
+            bases.Add(MetaName(next));
+            cur = next;
         }
-        // The terminal base is a BCL type (e.g. System.Exception) not in the
-        // translated set -- its name is still the .NET base.
-        if (cur != null && cur.BaseTypeName != "System.Object") bases.Add(cur.BaseTypeName);
         if (bases.Count == 0 && BclExceptionBases.TryGetValue(typeName, out var bcl))
             bases.AddRange(bcl.Split(','));
         if (bases.Count == 0) bases.Add("System.Exception");
@@ -7601,6 +8717,13 @@ public static class CodeGenerator
         // C++ name would be an unknown type).
         return fullName == "System.EventHandler" || fullName == "System.EventHandler`1";
     }
+
+    // xmlenum: whether a FULL NAME names one of the System.Xml handle-gap
+    // types carried by xml_doc.h (raw pointers in Il2CppObject* slots, no
+    // runtime class descriptor -- the identity-cast set for isinst/castclass,
+    // the same contract as the custom-delegate arm above).
+    private static bool IsXmlHandleGapType(string fullName) => fullName is
+        "System.Xml.XmlNode" or "System.Xml.XmlElement" or "System.Xml.XmlDocument" or "System.Xml.XmlNodeList";
 
     // COM stage 17 batch 3 (com17type): whether a FULL NAME names an
     // INTERFACE TypeDef in the translated set. Interfaces have NO generated
@@ -7824,6 +8947,42 @@ public static class CodeGenerator
         }
         yield return s.Substring(start);
     }
+    // caudit2-fix: which argN slots are ADDRESSES in the generated C++ ABI:
+    //   * arg0 of a value-type instance method is `T*` (this by address);
+    //   * BYREF value/reference params (B:V: / B:r:) and raw pointers (P:)
+    //     are pointers/addresses;
+    //   * BY-VALUE struct params (V:) are plain C++ values.
+    // The map is indexed by arg slot exactly like the emitted names arg0..argN.
+    private static bool[] ArgAddressMap(MethodDef m, MethodBodyInfo info)
+    {
+        var map = new bool[info.ArgCount];
+        var slot = 0;
+        if (!m.IsStatic && slot < map.Length)
+        {
+            map[slot++] = m.Owner.IsValueType; // this: T* for value types only
+        }
+        if (m.ParamTypes.Length > 0)
+        {
+            foreach (var part in SplitTopLevel(m.ParamTypes))
+            {
+                if (slot >= map.Length) break;
+                var pk = part.Trim();
+                map[slot++] = pk.StartsWith("B:V:", StringComparison.Ordinal)
+                    || pk.StartsWith("B:r:", StringComparison.Ordinal)
+                    || pk.StartsWith("P:", StringComparison.Ordinal);
+            }
+        }
+        return map;
+    }
+
+    // caudit2-fix: true when the arg slot is address-typed in the C++ ABI.
+    private static bool IsAddressArg(string name)
+    {
+        if (!name.StartsWith("arg", StringComparison.Ordinal)) return false;
+        if (!int.TryParse(name.AsSpan(3), out var idx)) return false;
+        return idx >= 0 && idx < _curArgAddress.Length && _curArgAddress[idx];
+    }
+
     private static string[] ParamTypesCpp(MethodDef m, MethodBodyInfo info)
     {
         var types = new List<string>();
@@ -7835,8 +8994,20 @@ public static class CodeGenerator
             types.Add(m.Owner.IsValueType ? $"{TypeEmitter.TypeCppName(m.Owner)}*" : "Il2CppObject*");
         }
         if (m.ParamTypes.Length > 0)
-            foreach (var p in SplitTopLevel(m.ParamTypes))
-                types.Add(p switch
+        {
+            var parts = SplitTopLevel(m.ParamTypes).ToArray();
+            for (var i = 0; i < parts.Length; i++)
+            {
+                // R2b P2: a VAR parameter in a reference instantiation is the
+                // managed reference (Il2CppObject*); definitions and int
+                // instantiations keep the raw int32 slot.
+                if (m.ParamIsVar is { } piv && i < piv.Length && piv[i]
+                    && m.Owner.InstantiationSuffix != null)
+                {
+                    types.Add("Il2CppObject*");
+                    continue;
+                }
+                types.Add(parts[i] switch
                 {
                     // M5 wiring: 64-bit/double parameters get their real C++
                     // width -- an int32_t declaration truncates a double
@@ -7849,9 +9020,9 @@ public static class CodeGenerator
                     // full pointer width -- int32_t truncates the x64 HWND/
                     // WPARAM/LPARAM the WNDPROC ABI passes.
                     "n" => "intptr_t",
-                     var arr when arr.StartsWith("r:System.Array", StringComparison.Ordinal) => "Il2CppArray*",
-                     var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
-                     // fnptr domain b23: a `delegate*` parameter is a raw
+                    var arr when arr.StartsWith("r:System.Array", StringComparison.Ordinal) => "Il2CppArray*",
+                    var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
+                    // fnptr domain b23: a `delegate*` parameter is a raw
                     // function pointer -- typed void* (the pointer-sized slot
                     // the model uses for native pointers; the calli site
                     // casts to the target signature).
@@ -7862,9 +9033,15 @@ public static class CodeGenerator
                     // address (&arg0 as const Il2CppDecimal*). TypeCppName
                     // maps System.Decimal -> il2cpp::runtime::Il2CppDecimal
                     // (plus DateTime/TimeSpan/Guid/user structs).
+                    // caudit2-fix: a BY-REF value-type param (ref/out struct) is
+                    // an ADDRESS -- declare the struct POINTER (the int32_t default
+                    // truncated the x64 address and mis-typed the field access).
+                    var bv when bv.StartsWith("B:V:", StringComparison.Ordinal) => TypeCppName(bv[4..]) + "*",
                     var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
                     _ => "int32_t",
                 });
+            }
+        }
         return types.ToArray();
     }
 
@@ -7923,7 +9100,8 @@ public static class CodeGenerator
     // (documented simplification -- the registry answers only what it holds).
     // The registry key is the annotated type's METADATA full name -- the same
     // literal the typeof fold / get_custom_named query string carries
-    // (GetFullName on a TypeDefinitionHandle: short name for nested types).
+    // (GetFullName '+'-form for nested types; the attribute-CLASS lookup
+    // below matches either form via MatchesFullName).
     // Capacity: the runtime registry is fixed at kMaxAttributeTypes (32);
     // overflow must surface at COMPILE time, not as a runtime register=0.
     //--------------------------------------------------------------------------
@@ -7938,7 +9116,12 @@ public static class CodeGenerator
             var emitAttrs = new List<(CustomAttributeDef Def, TypeDef Cls)>();
             foreach (var ca in attrs)
             {
-                var cls = types.FirstOrDefault(t => t.FullName == ca.AttributeType);
+                // Nested attribute classes (e.g. Cases.AttrDeep+Tagged):
+                // the metadata attribute-type name is '+'-form while expanded
+                // nested TypeDefs key by SHORT FullName -- match either form
+                // or user attributes silently skip registration (attrdeep
+                // GetCustomAttribute(s) on nested types answer empty).
+                var cls = types.FirstOrDefault(t => t.MatchesFullName(ca.AttributeType));
                 if (cls == null)
                     continue; // BCL / non-translated attribute class: not constructible
                 emitAttrs.Add((ca, cls));

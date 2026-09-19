@@ -167,31 +167,19 @@ namespace Cases { public static class VirtBench {
     public static void Main() {
         int N = 20000000;
         int M = 5000000;
-        int t0, t1;
 
-        t0 = now_us();
+        // E2E oracle fix (2026-09-11, A1 ruling): the four per-mode
+        // "(t1-t0)/1000" millisecond prints were benchmark DATA, not
+        // assertions -- wall-clock timing can never be byte-identical across
+        // runtimes (the net48 oracle itself varies run to run), so they made
+        // the byte-diff oracle categorically unsatisfiable. The loops and the
+        // checksum accumulation are UNCHANGED (the devirt lowering under test
+        // and the byte-exact correctness anchor); timing measurement remains
+        // available in the tests/bench suites.
         checksum += IfaceLoop(N);
-        t1 = now_us();
-        Console.WriteLine("iface");
-        Console.WriteLine((t1 - t0) / 1000);
-
-        t0 = now_us();
         checksum += PolyLoop(N);
-        t1 = now_us();
-        Console.WriteLine("poly");
-        Console.WriteLine((t1 - t0) / 1000);
-
-        t0 = now_us();
         checksum += SealedLoop(N);
-        t1 = now_us();
-        Console.WriteLine("sealed");
-        Console.WriteLine((t1 - t0) / 1000);
-
-        t0 = now_us();
         checksum += MultiLoop(M);
-        t1 = now_us();
-        Console.WriteLine("imulti");
-        Console.WriteLine((t1 - t0) / 1000);
 
         Console.WriteLine("checksum");
         Console.WriteLine(checksum);

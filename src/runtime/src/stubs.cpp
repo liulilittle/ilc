@@ -41,6 +41,50 @@ void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)
     // no-op
 }
 
+// System.Exception message carrier (ilistException): {exception object ->
+// message} side table. Both slots live in fixed static storage rooted once
+// at insert (the M2 collector never moves objects, so raw-pointer keys stay
+// valid). Fixed capacity following the kMaxElementArrayClasses /
+// kMaxAttributeTypes precedents; overflow keeps the first entries (exceptions
+// carrying explicit messages are rare -- the e2e surface uses three).
+//------------------------------------------------------------------------------
+namespace {
+struct ExceptionMessageEntry { Il2CppObject* obj; Il2CppString* msg; };
+constexpr int32_t kMaxExceptionMessages = 64;
+ExceptionMessageEntry g_exceptionMessages[kMaxExceptionMessages];
+int32_t g_exceptionMessageCount = 0;
+} // namespace
+void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message)
+{
+    if (self == nullptr) return;
+    for (int32_t i = 0; i < g_exceptionMessageCount; ++i)
+    {
+        if (g_exceptionMessages[i].obj == self)
+        {
+            g_exceptionMessages[i].msg = message;
+            return;
+        }
+    }
+    if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
+    const int32_t i = g_exceptionMessageCount++;
+    g_exceptionMessages[i].obj = self;
+    g_exceptionMessages[i].msg = message;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_exceptionMessages[i].obj));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_exceptionMessages[i].msg));
+}
+Il2CppString* icall_exception_get_message(Il2CppObject* obj)
+{
+    if (obj != nullptr)
+    {
+        for (int32_t i = 0; i < g_exceptionMessageCount; ++i)
+        {
+            if (g_exceptionMessages[i].obj == obj && g_exceptionMessages[i].msg != nullptr)
+                return g_exceptionMessages[i].msg;
+        }
+    }
+    return il2cpp_string_new(nullptr, 0); // no captured message -> empty string
+}
+
 // System.Exception.GetExceptionCount
 int32_t icall_exception_get_exception_count()
 {
@@ -344,6 +388,31 @@ Il2CppObject* icall_appdomain_is_string_interned(Il2CppString*) { return nullptr
 Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString*) { return nullptr; }
 void icall_appdomain_n_unload(int32_t) {}
 int32_t icall_appdomain_get_id() { return 0; }
+
+// AppDomain manager / fusion PNSE stubs (net48 QCalls; declared in stubs.h)
+void icall_appdomain_disable_fusion_updates_from_ad_manager(int32_t /*domainId*/)
+{
+    il2cpp_throw_not_supported_exception(
+        "AppDomain.DisableFusionUpdatesFromADManager requires the fusion update model (not present in this runtime)");
+}
+
+void icall_appdomain_get_app_domain_manager_type(int32_t /*domainId*/, Il2CppString** /*assemblyName*/, Il2CppString** /*typeName*/)
+{
+    il2cpp_throw_not_supported_exception(
+        "AppDomain.GetAppDomainManagerType requires the AppDomain manager model (not present in this runtime)");
+}
+
+void icall_appdomain_set_app_domain_manager_type(int32_t /*domainId*/, Il2CppString* /*assemblyName*/, Il2CppString* /*typeName*/)
+{
+    il2cpp_throw_not_supported_exception(
+        "AppDomain.SetAppDomainManagerType requires the AppDomain manager model (not present in this runtime)");
+}
+
+void icall_appdomain_set_canonical_conditional_aptca_list(int32_t /*domainId*/, Il2CppString* /*list*/)
+{
+    il2cpp_throw_not_supported_exception(
+        "AppDomain.SetCanonicalConditionalAptcaList requires the security transparency model (not present in this runtime)");
+}
 
 //------------------------------------------------------------------------------
 // Full-framework audit-gap closure (2026-08-22): every remaining public

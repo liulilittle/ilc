@@ -205,22 +205,32 @@ Il2CppString* il2cpp_string_new(const char16_t* chars, int32_t length)
 //   and invalid sequences one or more U+FFFD per the net48 reference. The
 //   input must be null-terminated.
 //------------------------------------------------------------------------------
-Il2CppString* il2cpp_string_new_from_utf8(const char* utf8)
+Il2CppString* il2cpp_string_new_from_utf8_n(const char* utf8, int32_t byteLen)
 {
     EnsureStringRegistered();
-    if (utf8 == nullptr)
+    if (utf8 == nullptr || byteLen <= 0)
     {
         return il2cpp_string_new(nullptr, 0);
     }
-    const size_t byteLen = std::strlen(utf8);
+    const size_t n = static_cast<size_t>(byteLen);
     std::vector<char16_t> units;
-    units.reserve(byteLen); // upper bound: one unit per ASCII byte
+    units.reserve(n); // upper bound: one unit per ASCII byte
     size_t i = 0;
-    while (i < byteLen)
+    while (i < n)
     {
-        i += DecodeUtf8Sequence(utf8, byteLen, i, units);
+        i += DecodeUtf8Sequence(utf8, n, i, units);
     }
     return il2cpp_string_new(units.data(), static_cast<int32_t>(units.size()));
+}
+
+Il2CppString* il2cpp_string_new_from_utf8(const char* utf8)
+{
+    if (utf8 == nullptr)
+    {
+        EnsureStringRegistered();
+        return il2cpp_string_new(nullptr, 0);
+    }
+    return il2cpp_string_new_from_utf8_n(utf8, static_cast<int32_t>(std::strlen(utf8)));
 }
 
 //------------------------------------------------------------------------------

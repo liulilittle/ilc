@@ -17,15 +17,17 @@ using Xunit;
 //   UIntPtr.Add/Subtract/op_Equality/    -> the SAME helpers (the runtime
 //     CompareTo                          ->  reuses them for UIntPtr)
 //
-// Receiver handling for the INSTANCE methods: an IntPtr value rides in a
-// FULL-WIDTH carrier (an intptr_t slot -- batch 155b widened the IntPtr
-// value model and batch 177's "ptr" ResultKind declares intptr_t temps,
-// CodeGenerator.cs:5213), and the helpers take intptr_t. The
-// address-receiver cast width matches the value the method produces:
-//   * ToInt64 (full 64-bit value) -> "deref:l" (read the int64 slot -- a
-//     "deref:i" would truncate x64 pointers; batch 155b's "ToInt64 deref
-//     width fix (int64)")
-//   * ToInt32 / CompareTo (int32 result / int32 ordering) -> "deref:i"
+// Receiver handling for the INSTANCE methods: an IntPtr value rides in an
+// intptr_t slot on the widened paths (batch 155b widened the IntPtr value
+// model and batch 177's "ptr" ResultKind declares intptr_t temps,
+// CodeGenerator.cs:5213), but int32_t carriers are still live (pinvokedeep2
+// Marshal.OffsetOf locals). The helpers take intptr_t. Every address
+// receiver reads the slot at its DECLARED type:
+//   * ToInt64 / ToInt32 / CompareTo (ldloca address receiver) -> "deref:v"
+//     (a fixed-width pun is wrong for one of the two live carriers: an
+//     int32_t* read of an intptr_t slot trips GCC -Wstrict-aliasing, an
+//     intptr_t* read of an int32_t slot over-reads; "deref:v" also keeps
+//     the CHECKED ToInt32 range check able to see the full pointer value)
 //   * plain VALUE receiver (e.g. the result of Add -- a pointer-arithmetic
 //     chain like IntPtr.Add(p, 1).ToInt64()) -> "" pass-through (the
 //     intptr_t expression passes to the intptr_t parameter directly)
@@ -83,16 +85,13 @@ public class MethodMapTestsIntPtr
     // receiver shape (ldloca address -> deref, plain value -> pass-through).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_IntPtr_ToInt64_AddressReceiver_DerefsFullWidthSlot()
+    public void Resolve_IntPtr_ToInt64_AddressReceiver_ReadsDeclaredSlot()
     {
-        // instance int64 ToInt64(): receiver = ldloca address. An IntPtr
-        // value rides in a FULL-WIDTH carrier (intptr_t slot, batch 155b),
-        // and ToInt64 must produce the whole 64-bit value -- so the address
-        // receiver derefs the INT64 slot ("deref:l"). A "deref:i" (read the
-        // low int32 slot) would truncate the pointer value on x64; batch
-        // 155b's "ToInt64 deref width fix (int64)" made "deref:l" the
-        // correct expectation (this test pre-dated that fix and asserted the
-        // old int32 model).
+        // instance int64 ToInt64(): receiver = ldloca address. ToInt64 must
+        // produce the whole pointer value -- the address receiver reads the
+        // slot at its DECLARED type ("deref:v"), never a fixed-width pun
+        // (strictalias: the carrier may be intptr_t or int32_t, so a
+        // hard-coded int64_t*/int32_t* read is wrong for one of the two).
         var resolved = ResolveMember(Synthesize("System", "IntPtr", "ToInt64", Sig(0x0A)),
             "ToInt64", receiverIsAddress: true);
 
@@ -100,18 +99,20 @@ public class MethodMapTestsIntPtr
         Assert.True(resolved.IsInstance);
         Assert.Equal(0, resolved.ParamCount);
         Assert.Equal("l", resolved.ResultKind);
-        Assert.Equal("deref:l", resolved.ParamTypeNames![0]);
+        Assert.Equal("deref:v", resolved.ParamTypeNames![0]);
     }
 
     [Fact]
-    public void Resolve_IntPtr_ToInt32_AddressReceiver_DerefsInt32Slot()
+    public void Resolve_IntPtr_ToInt32_AddressReceiver_ReadsDeclaredSlot()
     {
+        // ToInt32 is a CHECKED conversion (intptr.h): "deref:v" passes the
+        // full declared-type value to the helper so the range check can fire.
         var resolved = ResolveMember(Synthesize("System", "IntPtr", "ToInt32", Sig(0x08)),
             "ToInt32", receiverIsAddress: true);
 
         Assert.Equal("il2cpp::runtime::il2cpp_intptr_to_int32", resolved.CppName);
         Assert.True(resolved.IsInstance);
-        Assert.Equal("deref:i", resolved.ParamTypeNames![0]);
+        Assert.Equal("deref:v", resolved.ParamTypeNames![0]);
         Assert.Null(resolved.ResultKind);
     }
 
@@ -154,7 +155,7 @@ public class MethodMapTestsIntPtr
         Assert.Equal("il2cpp::runtime::il2cpp_intptr_compare", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(1, resolved.ParamCount);
-        Assert.Equal("deref:i", resolved.ParamTypeNames![0]);
+        Assert.Equal("deref:v", resolved.ParamTypeNames![0]);
         Assert.Equal("", resolved.ParamTypeNames![1]); // the IntPtr argument passes through
     }
 
@@ -214,7 +215,7 @@ public class MethodMapTestsIntPtr
         Assert.Equal("il2cpp::runtime::il2cpp_intptr_compare", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(1, resolved.ParamCount);
-        Assert.Equal("deref:i", resolved.ParamTypeNames![0]);
+        Assert.Equal("deref:v", resolved.ParamTypeNames![0]);
         Assert.Equal("", resolved.ParamTypeNames![1]);
     }
 

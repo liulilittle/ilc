@@ -57,7 +57,9 @@
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <windows.h>
 #endif
 
@@ -7186,29 +7188,29 @@ Ole32Api LoadOle32()
         return api;
     }
     api.coCreateInstance = reinterpret_cast<CoCreateInstanceFn>(
-        ::GetProcAddress(h, "CoCreateInstance"));
+        reinterpret_cast<void*>(::GetProcAddress(h, "CoCreateInstance")));
     api.clsidFromProgID = reinterpret_cast<CLSIDFromProgIDFn>(
-        ::GetProcAddress(h, "CLSIDFromProgID"));
+        reinterpret_cast<void*>(::GetProcAddress(h, "CLSIDFromProgID")));
     api.coInitializeEx = reinterpret_cast<CoInitializeExFn>(
-        ::GetProcAddress(h, "CoInitializeEx"));
+        reinterpret_cast<void*>(::GetProcAddress(h, "CoInitializeEx")));
     // Stage-12 IStream (ole32): CreateStreamOnHGlobal / GetHGlobalFromStream
     // are resolved from the SAME ole32 module. They are DELIBERATELY not part
     // of api.ok -- GetOle32()'s "ole32.dll loaded" gate must keep its
     // semantics; the two stage-12 entry points are checked separately
     // (NotSupportedException when unresolvable, the EnsureOle32 precedent).
     api.createStreamOnHGlobal = reinterpret_cast<CreateStreamOnHGlobalFn>(
-        ::GetProcAddress(h, "CreateStreamOnHGlobal"));
+        reinterpret_cast<void*>(::GetProcAddress(h, "CreateStreamOnHGlobal")));
     api.getHGlobalFromStream = reinterpret_cast<GetHGlobalFromStreamFn>(
-        ::GetProcAddress(h, "GetHGlobalFromStream"));
+        reinterpret_cast<void*>(::GetProcAddress(h, "GetHGlobalFromStream")));
     // Stage-15 OLE drag-drop (ole32): RegisterDragDrop / RevokeDragDrop are
     // resolved from the SAME ole32 module. They are DELIBERATELY not part of
     // api.ok -- GetOle32()'s "ole32.dll loaded" gate must keep its semantics;
     // the two stage-15 entry points are checked separately
     // (NotSupportedException when unresolvable, the EnsureOle32 precedent).
     api.registerDragDrop = reinterpret_cast<RegisterDragDropFn>(
-        ::GetProcAddress(h, "RegisterDragDrop"));
+        reinterpret_cast<void*>(::GetProcAddress(h, "RegisterDragDrop")));
     api.revokeDragDrop = reinterpret_cast<RevokeDragDropFn>(
-        ::GetProcAddress(h, "RevokeDragDrop"));
+        reinterpret_cast<void*>(::GetProcAddress(h, "RevokeDragDrop")));
     // GetActiveObject is exported by OLEAUT32 (the automation DLL), not by
     // ole32 -- resolve it from a second module. Stage 11 resolves the BSTR
     // ownership functions (SysAllocStringLen / SysFreeString) from the SAME
@@ -7221,11 +7223,11 @@ Ole32Api LoadOle32()
     if (ha != nullptr)
     {
         api.getActiveObject = reinterpret_cast<GetActiveObjectFn>(
-            ::GetProcAddress(ha, "GetActiveObject"));
+            reinterpret_cast<void*>(::GetProcAddress(ha, "GetActiveObject")));
         api.sysAllocStringLen = reinterpret_cast<SysAllocStringLenFn>(
-            ::GetProcAddress(ha, "SysAllocStringLen"));
+            reinterpret_cast<void*>(::GetProcAddress(ha, "SysAllocStringLen")));
         api.sysFreeString = reinterpret_cast<SysFreeStringFn>(
-            ::GetProcAddress(ha, "SysFreeString"));
+            reinterpret_cast<void*>(::GetProcAddress(ha, "SysFreeString")));
     }
     api.ok = api.coCreateInstance != nullptr &&
              api.clsidFromProgID != nullptr &&

@@ -274,7 +274,7 @@ public class StackFoldTestsTypeChain
         var stmts = Fold(pe, md);
         var stmt = Assert.IsType<CallStmt>(stmts[0]);
         Assert.Equal("il2cpp::runtime::icall_console_write_line_object", stmt.Resolved!.CppName);
-        Assert.Equal(1, stmt.Args.Count);
+        Assert.Single(stmt.Args);
     }
 
     //--------------------------------------------------------------------------

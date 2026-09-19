@@ -29,8 +29,10 @@
 
 #include "il2cpp_time.h"
 
+#include "il2cpp_dtoffset.h" // Il2CppDateTimeOffset (B4 dtoffset hash)
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_string.h"
+#include "il2cpp_time_ext.h"        // icall_datetime_to_string_format (saudit5 "G")
 #include "il2cpp_value_semantics.h" // icall_int64_get_hash_code (TimeSpan.GetHashCode)
 
 #include <chrono>
@@ -278,19 +280,30 @@ Il2CppDateTime icall_datetime_utc_now()
     using Ticks100Ns = std::chrono::duration<int64_t, std::ratio<1, 10000000>>;
     const auto now = std::chrono::system_clock::now();
     const int64_t unixTicks = std::chrono::duration_cast<Ticks100Ns>(now.time_since_epoch()).count();
-    return Il2CppDateTime(unixTicks + kUnixEpochTicks);
+    return Il2CppDateTime(unixTicks + kUnixEpochTicks, 1 /* Utc */);
 }
 
 Il2CppDateTime icall_datetime_now()
 {
     const int64_t offset = LocalUtcOffsetSeconds();
     const Il2CppDateTime utc = icall_datetime_utc_now();
-    return Il2CppDateTime(utc.ticks + offset * kTicksPerSecond);
+    return Il2CppDateTime(utc.ticks + offset * kTicksPerSecond, 2 /* Local */);
 }
 
 //------------------------------------------------------------------------------
 // System.DateTime -- construction.
 //------------------------------------------------------------------------------
+// bcldeep: net48 ctor kind validation -- DateTime(y,m,d,h,mi,s,kind) and
+// DateTime(ticks, kind) throw ArgumentException (paramName "kind") for a
+// value outside {Unspecified=0, Utc=1, Local=2} (probe-pinned).
+static void ValidateCtorKind(int32_t kind)
+{
+    if (kind < 0 || kind > 2)
+    {
+        il2cpp_throw_argument_exception("The DateTimeKind is not valid.");
+    }
+}
+
 Il2CppDateTime icall_datetime_from_ymd(int32_t year, int32_t month, int32_t day)
 {
     ValidateDateParts(year, month, day);
@@ -321,6 +334,19 @@ Il2CppDateTime icall_datetime_from_ymdhms_ms(int32_t year, int32_t month, int32_
                           static_cast<int64_t>(millisecond) * 10000LL);
 }
 
+// bcldeep: DateTime(y,m,d,h,mi,s,DateTimeKind) -- same civil composition as
+// from_ymdhms plus the stored kind (net48 keeps the ticks raw; the Kind bits
+// only label the instant -- SpecifyKind is the identity on ticks).
+Il2CppDateTime icall_datetime_from_ymdhms_kind(int32_t year, int32_t month, int32_t day,
+                                               int32_t hour, int32_t minute, int32_t second,
+                                               int32_t kind)
+{
+    ValidateDateParts(year, month, day);
+    ValidateTimeParts(hour, minute, second);
+    ValidateCtorKind(kind);
+    return Il2CppDateTime(ComposeTicks(year, month, day, hour, minute, second), kind);
+}
+
 //------------------------------------------------------------------------------
 // icall_datetime_from_ticks -- DateTime(long ticks) (see the header).
 //------------------------------------------------------------------------------
@@ -331,6 +357,18 @@ Il2CppDateTime icall_datetime_from_ticks(int64_t ticks)
         il2cpp_throw_argument_out_of_range_exception("ticks", nullptr);
     }
     return Il2CppDateTime(ticks);
+}
+
+// bcldeep: DateTime(long ticks, DateTimeKind) -- the raw-ticks ctor plus the
+// stored kind (net48: no conversion, the bits label the value).
+Il2CppDateTime icall_datetime_from_ticks_kind(int64_t ticks, int32_t kind)
+{
+    if (ticks < 0 || ticks > kMaxDateTimeTicks)
+    {
+        il2cpp_throw_argument_out_of_range_exception("ticks", nullptr);
+    }
+    ValidateCtorKind(kind);
+    return Il2CppDateTime(ticks, kind);
 }
 
 //------------------------------------------------------------------------------
@@ -408,6 +446,32 @@ Il2CppDateTime icall_datetime_from_file_time_utc(int64_t fileTime)
     return Il2CppDateTime(ticks);
 }
 
+//------------------------------------------------------------------------------
+// DateTime.GetHashCode (D1 diffdt001 dt.hash): net48 ticks-fold --
+// unchecked((int)ticks) ^ (int)(ticks >> 32) (referencesource
+// mscorlib/system/datetime.cs GetHashCode; the HashInt64 pattern in
+// valuesemantics.cpp). Oracle: D6 (2020-02-29 12:34:56 UTC) ticks
+// 637185764960000000 -> -1061690093, byte-exact.
+//------------------------------------------------------------------------------
+int32_t icall_datetime_get_hash_code(Il2CppDateTime dt)
+{
+    const uint64_t u = static_cast<uint64_t>(dt.ticks);
+    return static_cast<int32_t>(u) ^ static_cast<int32_t>(u >> 32);
+}
+
+//------------------------------------------------------------------------------
+// DateTimeOffset.GetHashCode (B4 dtoprobe [hc]): net48 returns
+// UtcDateTime.GetHashCode() (referencesource mscorlib/system/
+// datetimeoffset.cs) -- the ticks-fold of the stored UTC instant (the
+// offset plays no role). Oracle: 2020-01-01 +00:00 -> -2085908915,
+// byte-exact.
+//------------------------------------------------------------------------------
+int32_t icall_dtoffset_get_hash_code(Il2CppDateTimeOffset dto)
+{
+    const uint64_t u = static_cast<uint64_t>(dto.utcTicks);
+    return static_cast<int32_t>(u) ^ static_cast<int32_t>(u >> 32);
+}
+
 int32_t icall_datetime_get_millisecond(Il2CppDateTime dt)
 {
     // .NET: Millisecond => (int)((UTicks / TicksPerMillisecond) % 1000).
@@ -470,26 +534,29 @@ Il2CppDateTime icall_datetime_add_seconds(Il2CppDateTime dt, double seconds)
 
 Il2CppDateTime icall_datetime_add_milliseconds(Il2CppDateTime dt, double milliseconds)
 {
-    return AddMillis(dt, milliseconds, 1.0);
+    return AddMillis(dt, milliseconds, 1);
 }
 
 //------------------------------------------------------------------------------
-// Kind support under the single-zone doctrine: this runtime IS a UTC host
-// (cf. cultureinfo get_current), so every DateTime reads as Kind.Utc -- whose
-// underlying value is 1 (.NET definition: Unspecified=0, Utc=1, Local=2) --
-// and SpecifyKind is the identity on ticks (the kind argument is accepted
-// and dropped, never honored as a local-time conversion).
+// net48 DateTime.Kind: the stored kind bits (get_Kind masks them; the value
+// is carried by every DateTime -- dtaudit1).
 //------------------------------------------------------------------------------
 int32_t icall_datetime_get_kind(Il2CppDateTime dt)
 {
-    (void)dt;
-    return 1; // DateTimeKind.Utc
+    return dt.kind;
 }
 
 Il2CppDateTime icall_datetime_specify_kind(Il2CppDateTime dt, int32_t kind)
 {
-    (void)kind;
-    return dt;
+    // net48: SpecifyKind stores the requested kind; the ticks are NEVER
+    // converted (the raw value stays). Only the three defined values are
+    // legal; anything else is a caller bug -> LOUD.
+    if (kind < 0 || kind > 2)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "kind", "The DateTimeKind is not valid.");
+    }
+    return Il2CppDateTime(dt.ticks, kind);
 }
 
 //------------------------------------------------------------------------------
@@ -634,12 +701,11 @@ bool icall_datetime_op_greater_or_equal(Il2CppDateTime left, Il2CppDateTime righ
 
 Il2CppObject* icall_datetime_to_string(Il2CppDateTime dt)
 {
-    // Fixed culture-neutral format "MM/dd/yyyy HH:mm:ss" (zero-padded).
-    const CivilTime t = GetCivilTime(dt);
-    char buffer[40];
-    std::snprintf(buffer, sizeof(buffer), "%02d/%02d/%04d %02d:%02d:%02d",
-                  t.month, t.day, t.year, t.hour, t.minute, t.second);
-    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(buffer));
+    // saudit5: the zh-CN general pattern "yyyy/M/d H:mm:ss" (the host
+    // oracle). The pattern engine is shared with ToString(format); the
+    // default and "G" MUST agree byte-for-byte.
+    return icall_datetime_to_string_format(
+        dt, reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("G")), nullptr);
 }
 
 //------------------------------------------------------------------------------
@@ -669,61 +735,59 @@ Il2CppTimeSpan icall_timespan_from_hms(int32_t hours, int32_t minutes, int32_t s
 // TicksPerMinute, rounded (net48: Milliseconds rounding of the double product).
 // FromHours/FromDays/FromSeconds share the same double-product shape.
 //------------------------------------------------------------------------------
-static Il2CppTimeSpan TimeSpanFromDoubleUnits(double units, double tickScale)
+// net48 IntervalFromDoubleTicks semantics: NaN -> ArgumentException (the
+// check runs on the VALUE before scaling), out-of-range -> OverflowException,
+// exactly MaxTicks -> MaxValue, otherwise TRUNCATION toward zero (the C#
+// (long) cast) -- probes dtaudit3/oracle-verified 2026-09-12.
+static Il2CppTimeSpan TimeSpanFromDoubleUnits(double value, double millisPerUnit)
 {
-    // units * TicksPerUnit, half-away-from-zero rounded into int64 ticks.
-    const double ticks = units * tickScale;
-    return Il2CppTimeSpan(static_cast<int64_t>(ticks >= 0 ? ticks + 0.5 : ticks - 0.5));
+    if (value != value) // NaN
+    {
+        il2cpp_throw_argument_exception(
+            "TimeSpan does not accept floating point Not-a-Number values.");
+    }
+    // net48 Interval(): the scaled value is rounded to the nearest
+    // MILLISECOND (half away from zero) and the range check runs on that
+    // millisecond value before the ticks scaling; the result is therefore
+    // always an exact multiple of TicksPerMillisecond (the (long) cast is a
+    // truncation, but the +/-0.5 shift makes it round-half-away-from-zero).
+    // dtaudit3 oracle probe (2026-09-13, 33 points match):
+    //   FromSeconds(1.5e-7).Ticks == 0, FromMilliseconds(0.5) == 10000,
+    //   FromSeconds(1234.5678) == 12345680000, 922337203685477.0 ms ->
+    //   OverflowException, NaN -> ArgumentException.
+    const double millis = value * millisPerUnit + (value >= 0.0 ? 0.5 : -0.5);
+    if (millis > 922337203685477.0 || millis < -922337203685477.0)
+    {
+        il2cpp_throw_overflow_exception(
+            "TimeSpan overflowed because the duration is too long.");
+    }
+    return Il2CppTimeSpan(static_cast<int64_t>(millis) * kTicksPerMillisecond);
 }
 
 Il2CppTimeSpan icall_timespan_from_minutes(double minutes)
 {
-    const double ticks = minutes * 600000000.0; // TicksPerMinute
-    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
-        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
-    {
-        ThrowArgOutOfRange();
-    }
-    return TimeSpanFromDoubleUnits(minutes, 600000000.0);
+    return TimeSpanFromDoubleUnits(minutes, static_cast<double>(kMillisPerMinute));
 }
 
 Il2CppTimeSpan icall_timespan_from_hours(double hours)
 {
-    const double ticks = hours * 36000000000.0; // TicksPerHour
-    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
-        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
-    {
-        ThrowArgOutOfRange();
-    }
-    return TimeSpanFromDoubleUnits(hours, 36000000000.0);
+    return TimeSpanFromDoubleUnits(hours, static_cast<double>(kMillisPerHour));
 }
 
 Il2CppTimeSpan icall_timespan_from_days(double days)
 {
-    const double ticks = days * 864000000000.0; // TicksPerDay
-    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
-        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
-    {
-        ThrowArgOutOfRange();
-    }
-    return TimeSpanFromDoubleUnits(days, 864000000000.0);
+    return TimeSpanFromDoubleUnits(days, 86400000.0);
 }
 
 Il2CppTimeSpan icall_timespan_from_seconds(double seconds)
 {
-    const double ticks = seconds * kTicksPerSecond;
-    if (!(ticks >= static_cast<double>(kMinTotalSeconds) * kTicksPerSecond)
-        || ticks > static_cast<double>(kMaxTotalSeconds) * kTicksPerSecond)
-    {
-        ThrowArgOutOfRange();
-    }
-    return TimeSpanFromDoubleUnits(seconds, static_cast<double>(kTicksPerSecond));
+    return TimeSpanFromDoubleUnits(seconds, static_cast<double>(kMillisPerSecond));
 }
 
-// FromMilliseconds: the same double-unit composition at the ticks/ms scale.
+// FromMilliseconds: the same double-unit composition at the millisecond scale.
 Il2CppTimeSpan icall_timespan_from_milliseconds(double milliseconds)
 {
-    return TimeSpanFromDoubleUnits(milliseconds, static_cast<double>(kTicksPerMillisecond));
+    return TimeSpanFromDoubleUnits(milliseconds, 1.0);
 }
 
 // FromTicks: the exact constructor (no range scaling -- the value IS ticks).

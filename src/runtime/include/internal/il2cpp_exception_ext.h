@@ -48,7 +48,7 @@ void il2cpp_throw_argument_exception(const char* message);
 
 // System.ArgumentNullException -- the message is composed from 'paramName'
 // in the .NET Framework two-line format: the zh-CN host text
-// "值不能为 null。" + "\n" + "参数名: <paramName>" (net48 oracle on the
+// "值不能为 null。" + "\r\n" + "参数名: <paramName>" (net48 oracle on the
 // zh-CN e2e host; NOT .NET Core's one-line "(Parameter 'x')" suffix); a
 // nullptr paramName yields the plain default text alone.
 void il2cpp_throw_argument_null_exception(const char* paramName);
@@ -57,7 +57,7 @@ void il2cpp_throw_argument_null_exception(const char* paramName);
 // EXACTLY (the runtime's pinned net48-resource-text convention for the
 // (paramName, message) shape -- test_listi4; real net48 would append the
 // parameter-name line, a documented divergence). A nullptr message composes
-// the zh-CN default "指定的参数已超出有效值的范围。" + "\n" + "参数名: <paramName>"
+// the zh-CN default "指定的参数已超出有效值的范围。" + "\r\n" + "参数名: <paramName>"
 // for a non-empty paramName (net48 1-arg ctor semantics -- excext).
 void il2cpp_throw_argument_out_of_range_exception(const char* paramName, const char* message);
 
@@ -84,6 +84,11 @@ void il2cpp_throw_overflow_exception(const char* message);
 // System.NotSupportedException -- 'message' or the standard default
 // ("Specified method is not supported.").
 void il2cpp_throw_not_supported_exception(const char* message);
+
+// System.TimeZoneNotFoundException -- 'message' or the standard default
+// ("The time zone was not found on the local computer."). TZEXC: the
+// TimeZoneInfo registry's unknown-id boundary uses this (net48 alignment).
+void il2cpp_throw_time_zone_not_found_exception(const char* message);
 
 // System.Collections.Generic.KeyNotFoundException -- 'message' or the standard
 // default ("The given key was not present in the dictionary.").

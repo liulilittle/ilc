@@ -762,7 +762,7 @@ int main()
     Expect(icall_stream_get_length(bwms) == 33,
            "BinaryWriter writes extend the wrapped stream's length");
 
-    Il2CppObject* bbytes = icall_stream_memory_to_array(bwms);
+    il2cpp::Il2CppArray* bbytes = icall_stream_memory_to_array(bwms);
     Expect(bbytes != nullptr, "BinaryWriter over MemoryStream snapshots via ToArray");
     il2cpp::Il2CppArray* barr = reinterpret_cast<il2cpp::Il2CppArray*>(bbytes);
     Expect(il2cpp_array_get_length(barr) == 33, "object writer stream is 33 bytes");
@@ -802,6 +802,27 @@ int main()
     Expect(icall_stream_get_position(bwms) == 33,
            "BinaryReader reads advance the SHARED stream position");
 
+    // WAVE2: ReadByte is the RAW-byte icall -- 0x02 must read back as 2, not
+    // the ReadBoolean normalization 1; the bool surface stays unchanged.
+    {
+        Il2CppObject* rbms = NewMemoryStream();
+        icall_stream_memory_ctor(rbms);
+        icall_stream_write_byte(rbms, 0xAB);
+        icall_stream_write_byte(rbms, 0x02);
+        icall_stream_write_byte(rbms, 0x00);
+        Expect(icall_stream_set_position(rbms, 0) == 0, "ReadByte fixture rewinds");
+        Il2CppObject* rbr = NewBinaryReader();
+        icall_binary_reader_ctor(rbr, rbms);
+        Expect(icall_binary_read_byte(rbr) == 0xAB,
+               "object ReadByte returns the RAW byte (0xAB, not normalized)");
+        Expect(icall_binary_read_byte(rbr) == 0x02,
+               "object ReadByte does NOT normalize (0x02 stays 2)");
+        Expect(icall_binary_read_bool(rbr) == 0,
+               "ReadBoolean still normalizes (0x00 -> false)");
+        Expect(icall_binary_read_byte(rbr) == 0,
+               "ReadByte at EOF returns 0 (M3 zero-value convention)");
+    }
+
     // String surface through the object writers/readers (7-bit prefixes +
     // net48-exact lone-surrogate encoding = EF BF BD).
     {
@@ -835,7 +856,7 @@ int main()
         icall_binary_writer_ctor(sw, sms);
         const char16_t lone[] = { 0x61, 0xD800, 0x62 }; // 'a' D800 'b'
         icall_binary_write_string(sw, Cs16(lone, 3));
-        Il2CppObject* sbytes = icall_stream_memory_to_array(sms);
+        il2cpp::Il2CppArray* sbytes = icall_stream_memory_to_array(sms);
         il2cpp::Il2CppArray* sarr = reinterpret_cast<il2cpp::Il2CppArray*>(sbytes);
         Expect(il2cpp_array_get_length(sarr) == 6 && WByte(sarr, 0) == 0x05 && WByte(sarr, 1) == 0x61
                && WByte(sarr, 2) == 0xEF && WByte(sarr, 3) == 0xBF && WByte(sarr, 4) == 0xBD

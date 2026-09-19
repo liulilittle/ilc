@@ -38,6 +38,7 @@
 
 #include "timeext2.h"
 
+#include "cultureinfo.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_string.h"
 #include "il2cpp_time_ext.h"
@@ -843,7 +844,14 @@ bool il2cpp_timespan_try_parse(Il2CppString* input, Il2CppTimeSpan* value)
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_datetime_to_string_format(Il2CppDateTime dt, Il2CppObject* format)
 {
-    return icall_datetime_to_string_format(dt, format);
+    // Canonical delegation stays INVARIANT (the pre-saudit5 contract this
+    // wrapper and its unit tests pin): pass the invariant culture carrier
+    // (empty name). The transpiled ToString(string) path passes nullptr
+    // (host default zh-CN) and ToString(string, IFormatProvider) passes the
+    // IL provider through (cultureprobe regression fix).
+    return icall_datetime_to_string_format(
+        dt, format,
+        reinterpret_cast<Il2CppObject*>(il2cpp_culture_get_invariant()));
 }
 
 int32_t il2cpp_datetime_compare(Il2CppDateTime left, Il2CppDateTime right)

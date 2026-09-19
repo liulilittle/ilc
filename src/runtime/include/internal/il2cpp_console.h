@@ -28,9 +28,11 @@
 //
 // Value-type marshalling convention (matches the generated-code ABI):
 //   bool    -> int32_t (0 / 1)
-//   char    -> int32_t (the 16-bit code-unit value; non-ASCII prints as '?'
-//              until encoding-aware output arrives -- same policy as the M1
-//              string icalls)
+//   char    -> int32_t (the 16-bit code-unit value; emitted in the active
+//              console output encoding -- UTF-8 under a 65001 console, the
+//              console code page otherwise (net48 Console.OutputEncoding
+//              default); a lone surrogate has no mapping -> '?' outside
+//              UTF-8, U+FFFD inside it -- same policy as the M1 string icalls)
 //   double  -> double
 //   ulong   -> uint64_t (the 8-byte slot value reinterpreted bit-preservingly
 //              by the generated "q" cast -- full-range decimal, never routed
@@ -50,6 +52,7 @@
 #include "il2cpp_object.h"
 
 #include <cstdint>
+#include <cstdio> // FILE (console_write_units target stream)
 #include <string>
 
 // System.IO.TextWriter::Null -- the BCL static-field storage slot (the
@@ -137,6 +140,19 @@ std::string console_format_double(double value);
 // into "\r\r\n".
 void console_write_newline();
 
+// Active console output code page (net48 Console.OutputEncoding default):
+// the Win32 console output CP (GetConsoleOutputCP); 65001 == UTF-8 mode,
+// 0 (no console) maps to 65001. Other platforms always report 65001.
+unsigned console_output_code_page();
+
+// Write UTF-16 code units in the active console output encoding to 'stream'
+// (net48 Console.OutputEncoding default -- the console output code page, for
+// both the terminal and the redirected channel). CP 65001 keeps the exact
+// legacy pair-aware UTF-8 policy (valid pair -> one 4-byte sequence,
+// unpaired -> U+FFFD); other code pages convert pair-aware, unmappable input
+// becoming '?' (net48 replacement fallback).
+void console_write_units(const char16_t* units, int32_t len, FILE* stream);
+
 //------------------------------------------------------------------------------
 // Console STREAM surface (console3 work order, 2026-08-09): Console.Out /
 // Console.Error are CONSOLE STREAM OBJECTS (header + an int32 kind: Out /
@@ -173,15 +189,15 @@ Il2CppObject* icall_console_get_error();
 void icall_console_set_out(Il2CppObject* writer);
 void icall_console_set_error(Il2CppObject* writer);
 
-// TextWriter.Write(text) on a console stream object: emits the text (UTF-8,
-// no newline) to the stream's target (stdout / stderr / discard). A null text
-// is a no-op (net48 TextWriter.Write(null)).
+// TextWriter.Write(text) on a console stream object: emits the text (active
+// console output encoding, no newline) to the stream's target (stdout /
+// stderr / discard). A null text is a no-op (net48 TextWriter.Write(null)).
 void icall_console_stream_write(Il2CppObject* self, Il2CppObject* text);
 
 // TextWriter.WriteLine(text) on a console stream object: emits the text
-// (UTF-8) followed by the line terminator. A null text (or the DEFAULT --
-// the transpiler's 0-arg WriteLine() emits just the receiver) writes only
-// the terminator (net48 TextWriter.WriteLine(null)).
+// (active console output encoding) followed by the line terminator. A null
+// text (or the DEFAULT -- the transpiler's 0-arg WriteLine() emits just the
+// receiver) writes only the terminator (net48 TextWriter.WriteLine(null)).
 void icall_console_stream_write_line(Il2CppObject* self, Il2CppObject* text = nullptr);
 
 }} // namespace il2cpp::runtime

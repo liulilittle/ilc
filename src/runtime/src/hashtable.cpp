@@ -198,7 +198,10 @@ bool IsBoxedValueKey(const Il2CppObject* key)
            std::strcmp(n, "System.Double") == 0 ||
            std::strcmp(n, "System.Char") == 0 ||
            std::strcmp(n, "System.Boolean") == 0 ||
-           std::strcmp(n, "System.Single") == 0;
+           std::strcmp(n, "System.Single") == 0 ||
+           std::strcmp(n, "System.Int64") == 0 ||
+           std::strcmp(n, "System.UInt32") == 0 ||
+           std::strcmp(n, "System.UInt64") == 0;
 }
 
 // The boxed-value payload slot: the aligned 8-byte slot after the object
@@ -211,6 +214,11 @@ constexpr int32_t kBoxPayloadOffset = 8;
 int32_t BoxedInt32Value(const Il2CppObject* boxed)
 {
     return *reinterpret_cast<const int32_t*>(reinterpret_cast<const char*>(boxed) + kBoxPayloadOffset);
+}
+
+int64_t BoxedInt64Value(const Il2CppObject* boxed)
+{
+    return *reinterpret_cast<const int64_t*>(reinterpret_cast<const char*>(boxed) + kBoxPayloadOffset);
 }
 
 double BoxedDoubleValue(const Il2CppObject* boxed)
@@ -303,6 +311,12 @@ int32_t BoxedValueHash(const Il2CppObject* boxed)
     {
         return BoxedFloatHash(boxed);
     }
+    if (std::strcmp(n, "System.Int64") == 0 || std::strcmp(n, "System.UInt64") == 0)
+    {
+        // net48 Int64/UInt64.GetHashCode: (int)value ^ (int)(value >> 32).
+        const int64_t v = BoxedInt64Value(boxed);
+        return static_cast<int32_t>(v) ^ static_cast<int32_t>(static_cast<uint64_t>(v) >> 32);
+    }
     return BoxedInt32Value(boxed);
 }
 
@@ -367,6 +381,10 @@ bool KeyEquals(Il2CppObject* a, Il2CppObject* b)
             const double va = BoxedDoubleValue(a);
             const double vb = BoxedDoubleValue(b);
             return va == vb || (std::isnan(va) && std::isnan(vb));
+        }
+        if (std::strcmp(n, "System.Int64") == 0 || std::strcmp(n, "System.UInt64") == 0)
+        {
+            return BoxedInt64Value(a) == BoxedInt64Value(b);
         }
         return BoxedInt32Value(a) == BoxedInt32Value(b);
     }

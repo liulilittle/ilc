@@ -289,6 +289,44 @@ int main()
     il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&g_mid));
     il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&g_last));
 
+    // --- 11. Length-aware literal interning (embedded NUL; A1NUL) -----------
+    {
+        auto lenOf = [](il2cpp::Il2CppObject* o) -> int32_t {
+            return reinterpret_cast<const il2cpp::Il2CppString*>(o)->length;
+        };
+        auto charsOf = [](il2cpp::Il2CppObject* o) -> const char16_t* {
+            return reinterpret_cast<const il2cpp::Il2CppString*>(o)->chars;
+        };
+        il2cpp::Il2CppObject* ab = il2cpp::il2cpp_string_intern_literal_n("A\0B", 3);
+        Expect(ab != nullptr && lenOf(ab) == 3 && charsOf(ab)[0] == u'A'
+                   && charsOf(ab)[1] == u'\0' && charsOf(ab)[2] == u'B',
+               "intern_literal_n keeps an embedded NUL in \"A\\0B\"");
+        Expect(il2cpp::il2cpp_string_intern_literal_n("A\0B", 3) == ab,
+               "intern_literal_n identity for embedded-NUL content");
+        il2cpp::Il2CppObject* z = il2cpp::il2cpp_string_intern_literal_n("\0", 1);
+        Expect(z != nullptr && lenOf(z) == 1 && charsOf(z)[0] == u'\0',
+               "intern_literal_n interns a lone NUL literal");
+        il2cpp::Il2CppObject* a0 = il2cpp::il2cpp_string_intern_literal_n("A\0", 2);
+        Expect(a0 != nullptr && lenOf(a0) == 2 && charsOf(a0)[0] == u'A' && charsOf(a0)[1] == u'\0',
+               "intern_literal_n keeps a trailing NUL");
+        il2cpp::Il2CppObject* b0 = il2cpp::il2cpp_string_intern_literal_n("\0B", 2);
+        Expect(b0 != nullptr && lenOf(b0) == 2 && charsOf(b0)[0] == u'\0' && charsOf(b0)[1] == u'B',
+               "intern_literal_n keeps a leading NUL");
+        il2cpp::Il2CppObject* multi = il2cpp::il2cpp_string_intern_literal_n("A\0B\0C", 5);
+        Expect(multi != nullptr && lenOf(multi) == 5 && charsOf(multi)[1] == u'\0'
+                   && charsOf(multi)[3] == u'\0' && charsOf(multi)[4] == u'C',
+               "intern_literal_n keeps multiple NULs");
+        il2cpp::Il2CppObject* cjk = il2cpp::il2cpp_string_intern_literal_n("\xE4\xB8\xAD\0\xE6\x96\x87", 7);
+        Expect(cjk != nullptr && lenOf(cjk) == 3 && charsOf(cjk)[0] == u'\u4E2D'
+                   && charsOf(cjk)[1] == u'\0' && charsOf(cjk)[2] == u'\u6587',
+               "intern_literal_n decodes multibyte + NUL content");
+        Expect(il2cpp::il2cpp_string_intern_literal("A") == il2cpp::il2cpp_string_intern_literal_n("A", 1),
+               "strlen wrapper and length-aware form share the pool entry");
+        Expect(il2cpp::il2cpp_string_intern_literal_n(nullptr, 0)
+                   == il2cpp::il2cpp_string_intern_literal(nullptr),
+               "null/zero length interns the empty literal");
+    }
+
     // --- Report ---
     if (g_failures != 0)
     {

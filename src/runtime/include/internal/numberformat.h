@@ -105,11 +105,12 @@ Il2CppObject* il2cpp_number_format_custom(int64_t value, Il2CppObject* format);
 // double -> simplified custom "0.00" family (see header). null -> "G".
 Il2CppObject* il2cpp_number_format_custom_double(double value, Il2CppObject* format);
 
-// D-CUL-1 (batch 118): the zh-CN NumberFormatInfo.CurrencySymbol getter --
-// U+00A5 '¥' (the verification host's net48 current culture; formatext.cpp's
-// C-format prefix symbol agrees; the invariant culture keeps U+00A4 in
-// cultureinfo.cpp). Returns the string in the reference slot (Il2CppObject*),
-// like the sibling numberformat helpers.
-Il2CppObject* il2cpp_number_format_currency_symbol();
+// saudit1/4: the culture-name receiver dispatch ("" = invariant -> U+00A4
+// '¤' / "Infinity" / "-Infinity"; any other name = the pinned zh-CN current
+// culture -> U+00A5 '¥' / U+221E '∞' / "-∞"). Returns the string in the
+// reference slot (Il2CppObject*), like the sibling numberformat helpers.
+Il2CppObject* il2cpp_number_format_currency_symbol(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_positive_infinity_symbol(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_negative_infinity_symbol(Il2CppObject* cultureName);
 
 }} // namespace il2cpp::runtime

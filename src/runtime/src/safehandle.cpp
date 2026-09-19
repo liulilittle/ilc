@@ -69,7 +69,11 @@ HandleEntry& FindOrCreate(Il2CppObject* obj)
         "Safe handle has been closed");
     // Defensive fallback: il2cpp_throw_new throws a C++ exception and never
     // returns; the abort also silences -Winvalid-noreturn (array.cpp precedent).
+#ifdef _MSC_VER
+    __assume(0);
+#else
     std::abort();
+#endif
 }
 
 } // namespace

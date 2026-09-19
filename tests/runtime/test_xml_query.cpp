@@ -263,7 +263,7 @@ void TestDescendant()
     // Document order (DFS pre-order): item1, item3, item2, item4.
     EXPECT_NODES(&g_root, "//item", g_item1, g_item3, g_item2, g_item4);
     EXPECT_NODES(&g_root, "/root//item", g_item1, g_item3, g_item2, g_item4);
-    EXPECT_NODES(&g_root, "/root//item[2]", g_item3); // the 2nd descendant item
+    EXPECT_NODES(&g_root, "/root//item[2]", g_item2); // [n] binds PER PARENT (xmaudit2; net48 oracle)
     EXPECT_NODES(&g_root, "/root/other//item", g_item4);
     EXPECT_NODES(&g_root, "/root/item//item", g_item3); // item1's descendant item
 }
@@ -278,15 +278,15 @@ void TestAttributes()
     Expect(idHit != nullptr && idHit->attributes.empty(), "属性命中无属性");
     il2cpp_xml_node_free(idHit);
 
-    // //@lang: the lang attribute of every descendant element (root itself
-    // is not a descendant, so root's lang is excluded).
-    Expect(QueryCount(&g_root, "//@lang") == 2, "//@lang 计数 == 2");
+    // //@lang: descendant-or-self::node()/@lang -- the ROOT's own attributes are in
+    // scope too (net48 oracle: en, fr, de).
+    Expect(QueryCount(&g_root, "//@lang") == 3, "//@lang count == 3 (root attrs in scope; net48 oracle)");
     XmlNode* lang1 = QueryNode(&g_root, "//@lang", 0);
     XmlNode* lang2 = QueryNode(&g_root, "//@lang", 1);
-    Expect(lang1 != nullptr && lang1->name == "@lang" && lang1->text == "fr",
-           "//@lang [0] == fr");
-    Expect(lang2 != nullptr && lang2->name == "@lang" && lang2->text == "de",
-           "//@lang [1] == de");
+    Expect(lang1 != nullptr && lang1->name == "@lang" && lang1->text == "en",
+           "//@lang [0] == en");
+    Expect(lang2 != nullptr && lang2->name == "@lang" && lang2->text == "fr",
+           "//@lang [1] == fr");
     il2cpp_xml_node_free(lang1);
     il2cpp_xml_node_free(lang2);
 

@@ -121,10 +121,16 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_pinvoke_string_from_utf16", 1, true, true, false, new[] { "p16" });
             // IntPtr AllocHGlobal(int) / AllocHGlobal(IntPtr): native heap
             // allocation (calloc-backed; the IntPtr overload's byte count is
-            // the same int32 slot). void* return -- see the carrier caveat.
+            // the same int32 slot). The runtime helper returns intptr_t
+            // (il2cpp_runtime.h:175) -- without an explicit "ptr" result kind
+            // the result temp falls back to int32_t whenever the call-site
+            // MemberRef encodes IntPtr as VALUETYPE 0x11 (real mscorlib blobs
+            // use the raw 0x18 and are rescued by UserCallResultKind; the
+            // synthetic 0x11 form is not). Same "ptr" contract as the sibling
+            // ReAllocHGlobal/StringToHGlobal* mappings (R2b strictalias).
             case "AllocHGlobal":
                 if (ps.Length != 1 || (ps[0] != 0x08 && !IsIntPtrByte(ps[0]))) return null;
-                return I("il2cpp::runtime::icall_marshal_alloc_hglobal", 1, true, false, false, new[] { "i" });
+                return I("il2cpp::runtime::icall_marshal_alloc_hglobal", 1, true, false, false, new[] { "i" }, "ptr");
             // void FreeHGlobal(IntPtr): release an AllocHGlobal buffer
             // (null is a no-op). void* arg -- see the carrier caveat.
             case "FreeHGlobal":
@@ -146,6 +152,25 @@ public static partial class MethodRefResolver
                 if (ps.Length != 2 || !IsIntPtrByte(ps[0]) || !IsIntPtrByte(ps[1])) return null;
                 return I("il2cpp::runtime::icall_marshal_realloc_hglobal", 2, true, false, false,
                     new[] { "n", "n" }, resultKind: "ptr");
+            // ---- marshalrw (2026-09-13): Marshal.Read/Write primitive family
+            // (marshalext.cpp + il2cpp_marshal_ext.h). IL shapes: Write* has
+            // (IntPtr, v) and (IntPtr, int, v); Read* has (IntPtr) and
+            // (IntPtr, int). The offset-0 shapes call the C++ overloads that
+            // forward 0; ps validation is exact per type (0x05 byte / 0x06
+            // int16 / 0x08 int32 / 0x0A int64 / IsIntPtrByte intptr) and the
+            // offset is the int32 0x08. net48 semantics: no bounds checks.
+            case "WriteByte":
+            case "WriteInt16":
+            case "WriteInt32":
+            case "WriteInt64":
+            case "WriteIntPtr":
+                return MapMarshalWriteRead(name, ps, true);
+            case "ReadByte":
+            case "ReadInt16":
+            case "ReadInt32":
+            case "ReadInt64":
+            case "ReadIntPtr":
+                return MapMarshalWriteRead(name, ps, false);
             // Copy: two 4-arg directions dispatch on arg order (array first
             // = managed -> native, IntPtr first = native -> managed). The
             // elem-width icalls (marshalext4.cpp) dispatch on arr->elemSize,
@@ -286,7 +311,27 @@ public static partial class MethodRefResolver
             // selects the per-struct store icall from the object's klass->name
             // (il2cpp_marshal_struct_store -- marshalext3.cpp). pc=3 (object+IntPtr+bool).
             case "StructureToPtr":
-                return I("il2cpp::runtime::il2cpp_marshal_struct_store", 3, false, false, false, new[] { "", "p", "b" });
+                // marshalrw (2026-09-13): the generic StructureToPtr<T>(T,
+                // IntPtr, bool) form (T = a value type whose VALUETYPE name is
+                // captured in genArgNames) routes to the VALUE store: the
+                // emitter passes &value ("addr:v") + the generated class
+                // descriptor (PrependTypeClass) + sizeof(T) (trailing
+                // literal) -- no box is materialized. The runtime keeps the
+                // net48 contract (registered kinds copy via the layout
+                // registry, reference-free user structs byte-copy,
+                // reference-bearing -> NotSupportedException). Registered
+                // struct names keep the legacy boxed-object dispatch below.
+                if (ps.Length == 3 && genArgNames is { Length: 1 } && genArgNames[0] != null
+                    && MarshalStructKindSuffix(genArgNames[0]) == null)
+                {
+                    return new ResolvedMethod(
+                        "il2cpp::runtime::il2cpp_marshal_struct_store_value", 3, false, false, false,
+                        new[] { false, false, false }, false,
+                        ParamTypeNames: new[] { "addr:v", "g", "b" },
+                        PrependTypeClass: genArgNames[0],
+                        AppendLiterals: new[] { $"sizeof({TypeEmitter.Sanitize(genArgNames[0])})" });
+                }
+                return I("il2cpp::runtime::il2cpp_marshal_struct_store", 3, false, false, false, new[] { "", "g", "b" });
             // GetFunctionPointerForDelegate/GetDelegateForFunctionPointer:
             // deliberately UNMAPPED (return null) -- the delegatecb work item
             // (#11) pins the MethodSpec-path error "generic instantiation of
@@ -481,6 +526,43 @@ public static partial class MethodRefResolver
                     new[] { "n" });
             default: return null;
         }
+    }
+
+    //--------------------------------------------------------------------------
+    // marshalrw: MapMarshalWriteRead -- the Marshal.Read/Write primitive arms
+    // (see the case block above). suffix/valueByte/resultKind pin one runtime
+    // primitive per managed type; the shapes are the IL overload arities
+    // (write: 2/3 args, read: 1/2 args). IntPtr value slots use the raw
+    // native-int encodings (0x17/0x18) or the Roslyn VALUETYPE shape (0x11).
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? MapMarshalWriteRead(string name, byte[] ps, bool write)
+    {
+        var (suffix, valueByte, resultKind) = name switch
+        {
+            "WriteByte" or "ReadByte" => ("byte", (byte)0x05, (string?)null),
+            "WriteInt16" or "ReadInt16" => ("int16", (byte)0x06, (string?)null),
+            "WriteInt32" or "ReadInt32" => ("int32", (byte)0x08, (string?)null),
+            "WriteInt64" or "ReadInt64" => ("int64", (byte)0x0A, "l"),
+            "WriteIntPtr" or "ReadIntPtr" => ("intptr", (byte)0x00, "ptr"),
+            _ => ("", (byte)0x00, (string?)null),
+        };
+        if (suffix.Length == 0) return null;
+        bool ValueOk(byte b) => valueByte == 0 ? IsIntPtrByte(b) : b == valueByte;
+        var cpp = $"il2cpp::runtime::il2cpp_marshal_{(write ? "write" : "read")}_{suffix}";
+        if (write)
+        {
+            var vcast = valueByte == 0 ? "n" : "";
+            if (ps.Length == 2 && IsIntPtrByte(ps[0]) && ValueOk(ps[1]))
+                return I(cpp, 2, false, false, false, new[] { "g", vcast });
+            if (ps.Length == 3 && IsIntPtrByte(ps[0]) && ps[1] == 0x08 && ValueOk(ps[2]))
+                return I(cpp, 3, false, false, false, new[] { "g", "i", vcast });
+            return null;
+        }
+        if (ps.Length == 1 && IsIntPtrByte(ps[0]))
+            return I(cpp, 1, true, false, false, new[] { "g" }, resultKind);
+        if (ps.Length == 2 && IsIntPtrByte(ps[0]) && ps[1] == 0x08)
+            return I(cpp, 2, true, false, false, new[] { "g", "i" }, resultKind);
+        return null;
     }
 
     //--------------------------------------------------------------------------

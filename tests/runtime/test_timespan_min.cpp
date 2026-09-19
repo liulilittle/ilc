@@ -2,16 +2,13 @@
 // test_timespan_min.cpp -- System.TimeSpan.FromMinutes(double) unit tests
 // (icall_timespan_from_minutes, il2cpp_time.h).
 //
-// Implementation contract (src/runtime/src/time.cpp): the double product
-// ticks = minutes * 600000000.0 (TicksPerMinute) is validated against the
-// TimeToTicks range [Int64_MIN/TicksPerSecond * TicksPerSecond,
-// Int64_MAX/TicksPerSecond * TicksPerSecond] (= +/-9223372036850000000;
-// violations throw ArgumentOutOfRangeException -- which is also the only
-// reachable "overflow" path, because validation precedes the int64 cast),
-// then rounded to whole ticks HALF AWAY FROM ZERO (+0.5/-0.5 before the
-// truncating cast). An exact .5-tick tie is not constructible through a
-// binary-double input ((k+0.5)/600000000 is never a dyadic rational), so the
-// rounding probes below sit safely on one side of any tie.
+// Implementation contract (src/runtime/src/time.cpp), net48 Interval():
+// millis = minutes * 60000.0 + (minutes >= 0 ? +0.5 : -0.5); |millis| >
+// 922337203685477.0 throws OverflowException; otherwise the result is
+// (int64)millis * TicksPerMillisecond -- rounding half away from zero at
+// MILLISECOND granularity (every result is a whole number of milliseconds).
+// NaN throws ArgumentException. Every expectation below is net48-oracle
+// verified (tspanprobe/probe2, 2026-09-13).
 //
 // Coverage:
 //   1. Exactness via ticks math: FromMinutes(90) == 90 * 600000000 ==
@@ -20,19 +17,17 @@
 //      Milliseconds/Days pins; agreement with TimeSpan(long ticks).
 //   2. Whole- and half-minute grid: 0, 1, 60, 1440, 0.5, 1.5, 90.5, 2.5,
 //      1.25 -- every x.5-minute value lands on an integral tick count.
-//   3. Sub-tick rounding (half away from zero): 1e-9 min -> 0.6 ticks -> 1;
-//      4e-10 -> 0.24 -> 0; 3e-9 -> 1.8 -> 2; negatives mirror (-1e-9 -> -1,
-//      -3e-9 -> -2, -4e-10 -> 0); negative zero stays +0; minute fractions
-//      that are exact seconds/milliseconds round onto their tick values.
+//   3. Sub-millisecond inputs (< 0.0005 ms in magnitude) all round to 0 ms
+//      == 0 ticks: 1e-9/2e-9/3e-9/4e-10 and their negatives; negative zero
+//      stays +0; minute fractions that are exact seconds/milliseconds land
+//      on their tick values.
 //   4. Negative values: -90/-1440 exact ticks, TotalHours == -1.5 bit-exact,
 //      accessor decomposition of -90 min (Days=0, Hours=-1, Minutes=-30 --
 //      .NET's sign-on-components convention, truncation toward zero).
 //   5. Range boundary: +/-15372286728 min == +/-9223372036800000000 ticks
-//      (largest minute-grid value inside the validated bound) accepted; one
-//      more minute overflows -> ArgumentOutOfRangeException.
-//   6. Error paths: NaN, +/-infinity, huge finite magnitudes all throw
-//      ArgumentOutOfRangeException (OverflowException is NOT used by this
-//      icall).
+//      accepted; one more minute overflows -> OverflowException.
+//   6. Error paths: NaN -> ArgumentException; +/-infinity and huge finite
+//      magnitudes -> OverflowException (the net48 Interval contract).
 //
 // Like the other runtime tests: plain executable, failed Expect() prints
 // FAIL and bumps the counter; the process exits non-zero on any failure.
@@ -142,24 +137,25 @@ int main()
     Expect(icall_timespan_from_minutes(1.25).ticks == 750000000LL,
            "FromMinutes(1.25) == 750000000 ticks");
 
-    // 3. Sub-tick rounding: the icall rounds HALF AWAY FROM ZERO on the tick
-    //    grid (ticks + 0.5 / - 0.5 before the truncating cast). Exact
-    //    .5-tick ties cannot be spelled as a binary double ((k+0.5)/6e8 is
-    //    never dyadic), so these probes are deterministic either way.
-    Expect(icall_timespan_from_minutes(1e-9).ticks == 1,
-           "FromMinutes(1e-9): 0.6 ticks rounds to 1");
-    Expect(icall_timespan_from_minutes(2e-9).ticks == 1,
-           "FromMinutes(2e-9): 1.2 ticks rounds to 1");
-    Expect(icall_timespan_from_minutes(3e-9).ticks == 2,
-           "FromMinutes(3e-9): 1.8 ticks rounds to 2");
+    // 3. Sub-millisecond rounding: net48 Interval() rounds to the nearest
+    //    MILLISECOND (half away from zero); every input below is smaller
+    //    than 0.0005 ms in magnitude, so all of them truncate to 0 ms ==
+    //    0 ticks. net48-oracle verified (probe2, 2026-09-13):
+    //    FromMinutes(1e-9/2e-9/3e-9/4e-10/-1e-9/-3e-9/-4e-10) == 0.
+    Expect(icall_timespan_from_minutes(1e-9).ticks == 0,
+           "FromMinutes(1e-9): 0.00006 ms rounds to 0");
+    Expect(icall_timespan_from_minutes(2e-9).ticks == 0,
+           "FromMinutes(2e-9): 0.00012 ms rounds to 0");
+    Expect(icall_timespan_from_minutes(3e-9).ticks == 0,
+           "FromMinutes(3e-9): 0.00018 ms rounds to 0");
     Expect(icall_timespan_from_minutes(4e-10).ticks == 0,
-           "FromMinutes(4e-10): 0.24 ticks rounds to 0");
-    Expect(icall_timespan_from_minutes(-1e-9).ticks == -1,
-           "FromMinutes(-1e-9): -0.6 ticks rounds to -1 (away from zero)");
-    Expect(icall_timespan_from_minutes(-3e-9).ticks == -2,
-           "FromMinutes(-3e-9): -1.8 ticks rounds to -2 (away from zero)");
+           "FromMinutes(4e-10): 0.000024 ms rounds to 0");
+    Expect(icall_timespan_from_minutes(-1e-9).ticks == 0,
+           "FromMinutes(-1e-9): -0.00006 ms rounds to 0");
+    Expect(icall_timespan_from_minutes(-3e-9).ticks == 0,
+           "FromMinutes(-3e-9): -0.00018 ms rounds to 0");
     Expect(icall_timespan_from_minutes(-4e-10).ticks == 0,
-           "FromMinutes(-4e-10): -0.24 ticks rounds to 0");
+           "FromMinutes(-4e-10): -0.000024 ms rounds to 0");
     Expect(icall_timespan_from_minutes(-0.0).ticks == 0,
            "FromMinutes(-0.0) == 0 (negative zero, not -1)");
     // Minute fractions that ARE exact seconds/milliseconds land on them.
@@ -194,40 +190,39 @@ int main()
     Expect(icall_timespan_from_minutes(-15372286728.0).ticks == -9223372036800000000LL,
            "FromMinutes(-15372286728) == -9223372036800000000 ticks (near min)");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(15372286729.0); },
-                          "System.ArgumentOutOfRangeException"),
-           "one minute past max throws ArgumentOutOfRange");
+                          "System.OverflowException"),
+           "one minute past max throws Overflow");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(-15372286729.0); },
-                          "System.ArgumentOutOfRangeException"),
-           "one minute past min throws ArgumentOutOfRange");
+                          "System.OverflowException"),
+           "one minute past min throws Overflow");
 
-    // 6. Error paths: every non-finite or out-of-range input funnels to
-    //    ArgumentOutOfRangeException (NaN fails the `>= min` guard; +/-inf
-    //    and huge magnitudes fail the range comparison). OverflowException
-    //    is not part of this icall's contract.
+    // 6. Error paths (net48 Interval contract, oracle-verified): NaN
+    //    throws ArgumentException; +/-infinity and every huge finite
+    //    magnitude throw OverflowException.
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(
                                     std::numeric_limits<double>::quiet_NaN()); },
-                          "System.ArgumentOutOfRangeException"),
-           "NaN throws ArgumentOutOfRange");
+                          "System.ArgumentException"),
+           "NaN throws Argument");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(
                                     std::numeric_limits<double>::infinity()); },
-                          "System.ArgumentOutOfRangeException"),
-           "+infinity throws ArgumentOutOfRange");
+                          "System.OverflowException"),
+           "+infinity throws Overflow");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(
                                     -std::numeric_limits<double>::infinity()); },
-                          "System.ArgumentOutOfRangeException"),
-           "-infinity throws ArgumentOutOfRange");
+                          "System.OverflowException"),
+           "-infinity throws Overflow");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(1e12); },
-                          "System.ArgumentOutOfRangeException"),
+                          "System.OverflowException"),
            "1e12 minutes overflows");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(-1e12); },
-                          "System.ArgumentOutOfRangeException"),
+                          "System.OverflowException"),
            "-1e12 minutes overflows");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(1e300); },
-                          "System.ArgumentOutOfRangeException"),
+                          "System.OverflowException"),
            "1e300 minutes overflows");
     Expect(ThrowsWithType([&] { (void)icall_timespan_from_minutes(
                                     std::numeric_limits<double>::max()); },
-                          "System.ArgumentOutOfRangeException"),
+                          "System.OverflowException"),
            "DBL_MAX minutes overflows");
 
     if (g_failures == 0)

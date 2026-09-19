@@ -92,6 +92,43 @@ public class MethodMapTestsTimeExt2
         Assert.True(resolved.IsInstance);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(1, resolved.ParamCount);
+        // The runtime ABI takes a trailing IFormatProvider; the format-only
+        // IL call appends the "nullptr" literal (host default zh-CN) -- the
+        // double/decimal appendLiterals precedent.
+        Assert.Equal(new[] { "deref:dt", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "nullptr" }, resolved.AppendLiterals);
+        Assert.False(resolved.ProviderCulture);
+    }
+
+    [Fact]
+    public void Resolve_DateTime_ToStringFormatWithProvider_PassesProviderThrough()
+    {
+        // ToString(string, IFormatProvider): the provider carrier must reach
+        // the trailing runtime slot (ProviderCulture; the double/decimal
+        // cultureprobe precedent) instead of being dropped -- the
+        // culturedeep/timeformat/datetime2 regression fix.
+        var resolved = ResolveMember(Synthesize("System", "DateTime", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_datetime_to_string_format", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "deref:dt", "", "drop" }, resolved.ParamTypeNames);
+        Assert.True(resolved.ProviderCulture);
+    }
+
+    [Fact]
+    public void Resolve_DateTime_ToStringProviderOnly_ThrowsLoud()
+    {
+        // ToString(IFormatProvider): provider-only. The trailing ABI slot
+        // would need the provider with a null format, which appendLiterals
+        // (append AFTER the argument list) cannot express -> LOUD, never a
+        // silent misroute of the provider into the format slot.
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System", "DateTime", "ToString",
+                new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString"));
+
+        Assert.Contains("ToString(IFormatProvider)", ex.Message);
     }
 
     [Fact]

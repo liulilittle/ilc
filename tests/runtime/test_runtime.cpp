@@ -124,8 +124,7 @@ int main()
         // GetManifestResourceStream returns a MemoryStream OBJECT (batch 90
         // contract -- net48: the manifest stream IS a Stream), not a raw
         // byte[]; ToArray() round-trips the payload back for comparison.
-        const Il2CppObject* arrObj = il2cpp::runtime::icall_stream_memory_to_array(stream);
-        const Il2CppArray* arr = reinterpret_cast<const Il2CppArray*>(arrObj);
+        const Il2CppArray* arr = il2cpp::runtime::icall_stream_memory_to_array(stream);
         Expect(arr != nullptr && arr->length == static_cast<int32_t>(sizeof(payload))
                    && std::memcmp(arr->data, payload, sizeof(payload)) == 0,
                "resource stream content matches the registered payload");

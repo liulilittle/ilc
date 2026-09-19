@@ -86,7 +86,6 @@ public static partial class MethodRefResolver
             case "SetEnvironmentVariable":
             case "get_UserDomainName":
             case "get_Version":
-            case "get_WorkingSet":
             case "get_HasShutdownStarted":
             case "get_StackTrace":
             case "get_SystemDirectory":

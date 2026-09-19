@@ -138,6 +138,17 @@ int32_t icall_gc_get_latency_mode()
 
 void icall_gc_set_latency_mode(int32_t mode)
 {
+    // net48 GCSettings.LatencyMode setter validates: only Batch(0)..
+    // SustainedLowLatency(3) are accepted; anything else throws
+    // ArgumentException (diffenv002 gc.latency.bad). Mirrors the gc.cpp
+    // range (kGcLatencyModeBatch..kGcLatencyModeSustainedLowLatency).
+    if (mode < 0 || mode > 3)
+    {
+        il2cpp::il2cpp_throw_new(
+            "System.ArgumentException,System.ArgumentException,"
+            "System.SystemException,System.Exception",
+            "Value was invalid.");
+    }
     g_gcLatencyMode = mode;
 }
 

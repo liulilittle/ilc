@@ -9,7 +9,8 @@
 // Format subset (net48 / en-US culture behavior pinned by the timeext e2e
 // oracle, run on .NET Framework 4.8 -- see tests/cases/timeext/timeext.cs):
 //
-//   Standard (single-letter, invariant-culture patterns):
+//   Standard (single-letter patterns; PROVIDER-AWARE: zh-CN by default,
+//   invariant with the empty-name carrier -- see PROVIDER ROUTING below):
 //     "d"  -> MM/dd/yyyy                    ("06/15/2020")
 //     "D"  -> dddd, dd MMMM yyyy            ("Monday, 15 June 2020")
 //     "t"  -> HH:mm                         ("13:45")
@@ -70,6 +71,16 @@
 // The format argument is an Il2CppObject* (managed string). Null is legal
 // (default format). Non-string objects are caller errors -- defensively
 // treated as null (no crash), like the other string-accepting icalls.
+//
+// PROVIDER ROUTING (cultureprobe regression fix): the trailing provider
+// argument selects the standard-pattern family --
+//   * nullptr -> host default zh-CN (the saudit5 oracle; also what the
+//     parameterless ToString() / ToString(string) call sites pass);
+//   * empty culture name (the InvariantCulture carrier) -> invariant
+//     patterns (culturedeep/timeformat/datetime2 pass InvariantCulture);
+//   * "zh-CN" -> zh-CN patterns;
+//   * any other name -> invariant fallback, logged when the
+//     IL2CPP_CULTURE_PROVIDER_LOG environment variable names a file.
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"
@@ -80,11 +91,13 @@
 namespace il2cpp {
 namespace runtime {
 
-// DateTime.ToString(string format): the format subset above; returns a new
-// managed string. Throws FormatException for an unknown SINGLE-letter format
-// (net48 contract); out-of-range DateTime components cannot occur (validated
-// at construction).
-Il2CppObject* icall_datetime_to_string_format(Il2CppDateTime dt, Il2CppObject* format);
+// DateTime.ToString(string format[, IFormatProvider]): the format subset
+// above in the provider-selected culture; returns a new managed string.
+// Throws FormatException for an unknown SINGLE-letter format (net48
+// contract); out-of-range DateTime components cannot occur (validated at
+// construction).
+Il2CppObject* icall_datetime_to_string_format(Il2CppDateTime dt, Il2CppObject* format,
+                                              Il2CppObject* provider);
 
 } // namespace runtime
 } // namespace il2cpp

@@ -36,6 +36,9 @@
 
 #include "il2cpp_time.h"
 
+#include "il2cpp_object.h" // Il2CppObject (zone handle)
+#include "il2cpp_string.h" // Il2CppString (zone id)
+
 #include <cstdint>
 
 namespace il2cpp {
@@ -61,6 +64,27 @@ Il2CppDateTime il2cpp_datetime_from_local(Il2CppDateTime local);
 // CRT fallback, 0 if that also fails. POSIX: tm_isdst > 0. Returns 0 when the
 // zone has no DST or the state cannot be determined.
 int32_t il2cpp_timezone_get_is_daylight_saving();
+
+//------------------------------------------------------------------------------
+// Minimal TimeZoneInfo subset (tzimpl, timezone_registry.cpp): a CLOSED zone
+// registry + per-date DST conversion for MethodMap.TimeZone.cs
+// FindSystemTimeZoneById / ConvertTimeFromUtc.
+//
+// Supported ids (exactly): "Eastern Standard Time" (UTC-5), "Pacific
+// Standard Time" (UTC-8), "Central Standard Time" (UTC-6) -- all with the US
+// 2007+ DST rules (DST starts the 2nd Sunday of March 02:00 local standard,
+// ends the 1st Sunday of November 02:00 local daylight) -- and "UTC" (no
+// DST, all years). find_by_id returns a STABLE handle (address of a static
+// zone entry reinterpreted as Il2CppObject*; never null, never GC-traced).
+//
+// LOUD boundaries: an unknown id throws NotSupportedException carrying the
+// id; a DST-zone instant before 2007 throws NotSupportedException carrying
+// the id (the historical rule tables are not modelled -- never a silent
+// wrong offset). convert_from_utc applies the per-date offset to the UTC
+// ticks and returns a DateTime with Kind == Unspecified (the net48 shape).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_timezone_find_by_id(Il2CppString* id);
+Il2CppDateTime il2cpp_timezone_convert_from_utc(Il2CppDateTime utc, Il2CppObject* tz);
 
 } // namespace runtime
 } // namespace il2cpp

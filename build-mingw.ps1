@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     MinGW-w64 交叉编译自动化脚本 — 从 Windows/Linux 主机交叉编译到 Windows x86_64。
 

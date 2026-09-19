@@ -1,13 +1,21 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 namespace Cases { public static class SwCase {
     // Stopwatch timing-chain probe (new domain: System.Diagnostics.Stopwatch).
     // net48 is the reference oracle. Deliberately NO exact-value asserts
     // (timer jitter): only range / monotonicity / state assertions, all
     // printed as bools. Every line is deterministic on net48.
+    // E2E oracle fix (2026-09-11): Burn's accumulation loop was a PURE double
+    // computation -- Release -O2 could remove most of it, so the interval
+    // before `t3 < t2` (Restart reset) and other timing probes eroded to
+    // ~0 ticks (same family as stopwatchdeep/threadpooldeep2). Each
+    // iteration now performs a real Interlocked.Increment (an icall the C++
+    // optimizer cannot eliminate); the counter value is never asserted.
+    static int g_burn;
     private static double Burn(int n) {
         double a = 0;
-        for (int i = 0; i < n; i++) a += i * 0.125;
+        for (int i = 0; i < n; i++) { a += i * 0.125; Interlocked.Increment(ref g_burn); }
         return a;
     }
     public static void Main() {

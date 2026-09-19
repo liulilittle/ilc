@@ -92,14 +92,12 @@ int32_t il2cpp_unbox_int32(Il2CppObject* obj)
     {
         il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
                          "Object reference not set to an instance of an object.");
-        return 0; // unreachable (il2cpp_throw_new always throws); well-formed path only
     }
     EnsureInt32BoxRegistered();
     if (obj->klass != &System_Int32_class && !il2cpp_is_instance(obj, &System_Int32_class))
     {
         il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
                          "Specified cast is not valid: object is not a boxed Int32.");
-        return 0; // unreachable (il2cpp_throw_new always throws); well-formed path only
     }
     return *reinterpret_cast<int32_t*>(reinterpret_cast<char*>(obj) + 8);
 }

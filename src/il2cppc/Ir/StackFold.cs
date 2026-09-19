@@ -223,6 +223,9 @@ public static class StackFold
                             throw new NotSupportedException($"join {labelName}: fall-through stack height {bottomToTop.Count} != join slots {joinVars.Count}");
                         for (var i = 0; i < joinVars.Count; i++)
                             stmts.Add(new AssignStmt { Target = joinVars[i], Value = bottomToTop[i], SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                        // A2 review: the fall-through arm repopulates the same
+                        // shared slots -- reconcile the hint identically.
+                        ReconcileJoinHint(joinVars, bottomToTop);
                         stmts.Add(new LabelStmt { Name = labelName, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
                         stack.Clear();
                         foreach (var jv in joinVars) stack.Push(new LocExpr { Name = jv });
@@ -652,22 +655,51 @@ public static class StackFold
                 case ILOpCode.Conv_i8:
                     // M5 wiring: int32 -> int64 widening (identity; the value
                     // is bit-identical -- the TYPE flows via the IL local/arg
-                    // kinds), int64 -> identity, double const/var ->
+                    // kinds), int64 -> identity, double const/var -> 
                     // icall_conv_i8_d (cvttsd2si semantics; NaN/overflow ->
                     // int64.Min).
+                    // C0 (2026-09-19): the double-source probe MUST use
+                    // ConvI4SourceWidth (tempWidths + expression trees), not
+                    // LocKindOf (locals only). A double-typed CALL RESULT /
+                    // temp / BinaryExpr reached here as a LocExpr/BinaryExpr
+                    // and fell through to the "identity" break -- `(long)d`
+                    // emitted the raw double bits (DoubleToInt64Bits) instead
+                    // of the numeric truncation (TimeSpan.TotalMilliseconds
+                    // probe: 123456.789 -> 4683220299151006858). The conv.i4
+                    // arm already used ConvI4SourceWidth (numchain/RND2-3);
+                    // conv.i8 was the odd one out.
                     if (stack.Count > 0 && stack.Peek() is IntConstExpr ic8)
                     {
                         stack.Pop();
                         Push(new Int64ConstExpr { Value = ic8.Value }, ins);
                     }
-                    else if (stack.Count > 0 && (stack.Peek() is DoubleConstExpr || LocKindOf(ctx, stack.Peek()) == "d"))
+                    else if (stack.Count > 0 && ConvI4SourceWidth(stack.Peek(), ctx, tempWidths) == "d")
                     {
                         var top = stack.Pop();
                         var conv = new CallExpr { Function = "il2cpp::runtime::icall_conv_i8_d", ResultKind = "l" };
                         conv.Args.Add(top);
                         Push(conv, ins);
                     }
-                    break; // int64/int32 identity
+                    else if (stack.Count > 0 && ConvI4SourceWidth(stack.Peek(), ctx, tempWidths) == "i")
+                    {
+                        // C0 (2026-09-19): int32 -> int64 is sign extension. It
+                        // is NOT an identity at the SLOT level: the int32 temp
+                        // stays 4 bytes, and a downstream int64 consumer that
+                        // binds the value through its address
+                        // (`*reinterpret_cast<int64_t*>(&tmp)` -- the inlined
+                        // callee argument path) reads 8 bytes from a 4-byte
+                        // slot (adjacent-stack garbage; strict-aliasing UB).
+                        // Emit the real widening icall so the result is a
+                        // genuine int64 temp. `TimeSpan.GetHashCode` (int32)
+                        // fed to `L(string,long)` exposed this: the emitted
+                        // int64 read of the int32 hash temp yielded a
+                        // 64-bit-varying garbage value.
+                        var topi = stack.Pop();
+                        var convi = new CallExpr { Function = "il2cpp::runtime::icall_conv_i8_i4", ResultKind = "l" };
+                        convi.Args.Add(topi);
+                        Push(convi, ins);
+                    }
+                    break; // int64 identity
                 case ILOpCode.Conv_u8:
                     // conv.u8 from a 32-bit source ZERO-extends (int32 ->
                     // uint32 -> int64): NOT an identity for negative int32
@@ -691,6 +723,16 @@ public static class StackFold
                         stack.Pop();
                         Push(new Int64ConstExpr { Value = (long)(uint)icu8.Value }, ins);
                     }
+                    else if (stack.Count > 0 && ConvI4SourceWidth(stack.Peek(), ctx, tempWidths) == "d")
+                    {
+                        // C0 (2026-09-19): (ulong)double -- was an identity
+                        // (raw double bits); the numeric truncation is
+                        // icall_conv_u8_d (cvttsd2si to unsigned semantics).
+                        var topd = stack.Pop();
+                        var convd = new CallExpr { Function = "il2cpp::runtime::icall_conv_u8_d", ResultKind = "l" };
+                        convd.Args.Add(topd);
+                        Push(convd, ins);
+                    }
                     else if (stack.Count > 0 && Is32BitConvU8Source(stack.Peek(), ctx, tempWidths))
                     {
                         var top = stack.Pop();
@@ -699,10 +741,21 @@ public static class StackFold
                         Push(conv, ins);
                     }
                     break; // int64 identity / double paths unchanged
+                case ILOpCode.Conv_u4:
+                    // C0 (2026-09-19): (uint)double -- was folded into the
+                    // identity group (raw double bits); numeric truncation is
+                    // icall_conv_u4_d (low 32 bits of the truncation).
+                    if (stack.Count > 0 && ConvI4SourceWidth(stack.Peek(), ctx, tempWidths) == "d")
+                    {
+                        var topu4 = stack.Pop();
+                        var convu4 = new CallExpr { Function = "il2cpp::runtime::icall_conv_u4_d" };
+                        convu4.Args.Add(topu4);
+                        Push(convu4, ins);
+                    }
+                    break;
                 case ILOpCode.Conv_r8:
                 case ILOpCode.Conv_r4:
                 case ILOpCode.Conv_r_un:
-                case ILOpCode.Conv_u4:
                 case ILOpCode.Conv_u1:
                 case ILOpCode.Conv_u2:
                 case ILOpCode.Conv_i1:
@@ -1194,6 +1247,18 @@ public static class StackFold
                         var newArr = new CallExpr { Function = $"newarr_{ins.Operand}", ReturnsRef = true };
                         newArr.Args.Add(stack.Pop());
                         Push(newArr, ins);
+                        // ilistException: `var arr = new Exception[2]` --
+                        // record the SZARRAY element type on the result temp
+                        // ("System.Exception[]", the ToArray convention) so a
+                        // later ldelem_ref off this array types its result
+                        // (arr[0].Message needs the element hint or it dies
+                        // at the P26 phantom guard). The temp flows into the
+                        // named local through the standard LocExpr store path.
+                        if (md != null && stack.Peek() is LocExpr nalt)
+                        {
+                            try { objTypes[nalt.Name] = TypeFullNameFromToken(md, (int)ins.Operand) + "[]"; }
+                            catch { }
+                        }
                     }
                     break;
                 case ILOpCode.Ldlen:
@@ -1239,6 +1304,17 @@ public static class StackFold
                         ld.Args.Add(ldArr);
                         ld.Args.Add(ldIdx);
                         Push(ld, ins);
+                        // ilistException: `arr[0].Message` -- a reference
+                        // element read off a type-tracked array
+                        // ("System.Exception[]" from the newarr site or a
+                        // ToArray-style ReturnTypeName) types the result temp
+                        // with the ELEMENT type, so later calls on it
+                        // (get_Message) resolve with a hint.
+                        if (ldelemIsRef && ldArr is LocExpr laa
+                            && objTypes.TryGetValue(laa.Name, out var aat)
+                            && aat.EndsWith("[]", StringComparison.Ordinal)
+                            && stack.Peek() is LocExpr ldr)
+                            objTypes[ldr.Name] = aat[..^2];
                     }
                     break;
                 case ILOpCode.Stelem_i4:
@@ -1686,6 +1762,11 @@ public static class StackFold
                     {
                         case HandleKind.TypeDefinition:
                         case HandleKind.TypeReference:
+                        // raudit1: typeof(List<int>) folds ldtoken with a
+                        // TypeSpecification operand (GenericInst). The marker
+                        // is the same; the name resolution happens at the
+                        // GetTypeFromHandle fold below.
+                        case HandleKind.TypeSpecification:
                             Push(new IntConstExpr { Value = ins.Operand }, ins); // marker for the GetTypeFromHandle fold
                             break;
                         case HandleKind.FieldDefinition:
@@ -1819,6 +1900,9 @@ public static class StackFold
                     throw new NotSupportedException($"join {targetLabel}: branch stack height {bottomToTop.Count} != registered {existing.Count}");
                 for (var i = 0; i < existing.Count; i++)
                     stmts.Add(new AssignStmt { Target = existing[i], Value = bottomToTop[i], SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                // A2 review: reused slot -- reconcile the recorded hint (drop
+                // on disagreement, keep on equal, adopt a first non-null).
+                ReconcileJoinHint(existing, bottomToTop);
                 return existing;
             }
             var names = new List<string>(bottomToTop.Count);
@@ -1829,6 +1913,10 @@ public static class StackFold
                 tempWidths[name] = ExprWidth(bottomToTop[i], ctx, tempWidths);
                 names.Add(name);
                 stmts.Add(new AssignStmt { Target = name, Value = bottomToTop[i], SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                // M5 receiver hint: a join temp spilled from a typed value must
+                // keep the managed type -- the receiver-aware resolver reads
+                // objTypes after the merge (TextReader::ReadToEnd shape).
+                PropagateObjType(name, bottomToTop[i]);
             }
             joinRestore[targetLabel] = names;
             return names;
@@ -1842,6 +1930,58 @@ public static class StackFold
             var list = new List<Expr>(arr.Length);
             for (var i = arr.Length - 1; i >= 0; i--) list.Add(arr[i]);
             return list;
+        }
+
+        // M5 join/store hint propagation: the managed-type rules for a value
+        // written into a local or a branch-join temp (objTypes is the receiver
+        // hint the BCL resolver reads after a merge point).
+        string? ObjTypeOf(Expr value)
+        {
+            if (value is LocExpr vl && objTypes.TryGetValue(vl.Name, out var vt))
+                return vt;
+            if (value is NullExpr nn && nn.TypeName != null)
+                return nn.TypeName;
+            if (value is ValueTypeNewExpr vn2)
+                return vn2.TypeFullName;
+            if (value is CallExpr rc && rc.Resolved?.ResultKind is string rk)
+            {
+                return rk switch
+                {
+                    "dt" => "System.DateTime",
+                    "ts" => "System.TimeSpan",
+                    "dec" => "System.Decimal",
+                    "guid" => "System.Guid",
+                    _ => null,
+                };
+            }
+            return null;
+        }
+
+        void PropagateObjType(string target, Expr value)
+        {
+            var t = ObjTypeOf(value);
+            if (t != null) objTypes[target] = t;
+        }
+
+        // M5-JOIN (A2 review): a REUSED join slot must not keep a stale hint
+        // -- if any arm's value type disagrees with the recorded one the join
+        // is AMBIGUOUS: drop the hint so the resolver defers instead of
+        // possibly misdispatching. Equal hints are kept.
+        void ReconcileJoinHint(List<string> slots, List<Expr> values)
+        {
+            for (var i = 0; i < slots.Count; i++)
+            {
+                var newType = ObjTypeOf(values[i]);
+                if (objTypes.TryGetValue(slots[i], out var oldType))
+                {
+                    if (!string.Equals(oldType, newType, StringComparison.Ordinal))
+                        objTypes.Remove(slots[i]);
+                }
+                else if (newType != null)
+                {
+                    objTypes[slots[i]] = newType;
+                }
+            }
         }
 
         // A stloc/starg assignment invalidates lazy references to its target
@@ -1875,27 +2015,7 @@ public static class StackFold
             // M5 wiring: propagate the recorded managed type through the
             // store (`object d = 3.14;` -- the box temp's type follows into
             // the local so WriteLine(d) resolves the boxed type).
-            if (value is LocExpr vl && objTypes.TryGetValue(vl.Name, out var vt))
-                objTypes[target] = vt;
-            // icallwide: a VALUE-TYPE ctor/newobj store propagates the value
-            // type name (TimeSpan loc = from_hours(...) -- later Object::
-            // ToString/GetHashCode callvirts on the local need the hint).
-            if (value is ValueTypeNewExpr vn2)
-                objTypes[target] = vn2.TypeFullName;
-            // icallwide: icall results with a BCL value-type ResultKind carry
-            // their declared type into the target local the same way.
-            if (value is CallExpr rc && rc.Resolved?.ResultKind is string rk)
-            {
-                var rkType = rk switch
-                {
-                    "dt" => "System.DateTime",
-                    "ts" => "System.TimeSpan",
-                    "dec" => "System.Decimal",
-                    "guid" => "System.Guid",
-                    _ => null,
-                };
-                if (rkType != null) objTypes[target] = rkType;
-            }
+            PropagateObjType(target, value);
         }
 
         // Whether the expression tree directly/indirectly references a local or
@@ -2150,7 +2270,7 @@ public static class StackFold
                 && IsGetTypeFromHandle(md, (int)ins.Operand))
             {
                 stack.Pop();
-                Push(new StringConstExpr { Value = TypeFullNameFromToken(md, (int)ldtMarker.Value) }, ins);
+                Push(new StringConstExpr { Value = TypeNameForReflection(md, (int)ldtMarker.Value) }, ins);
                 return;
             }
             // typeof-chain consumer folds (audit F1 follow-up): the
@@ -2229,6 +2349,71 @@ public static class StackFold
             {
                 if (md != null && IlCallReturnsValue(md, (int)ins.Operand))
                     Push(new DiscardedValueExpr { CallToken = (int)ins.Operand, Offset = ins.Offset }, ins);
+            }
+
+            // caudit2 (G6-N second layer): `EqualityComparer<T>.Default` for a
+            // USER value type T. net48's default comparer routes to
+            // IEquatable<T>.Equals, i.e. the call is SEMANTICALLY `a.Equals(b)`
+            // -- and the direct user-struct call already emits the concrete
+            // generated method. The BCL owner has no arm for a user
+            // instantiation (the generic-instance NAME channel collapses every
+            // VALUETYPE argument to "valuetype"), so fold the pair here:
+            //   call get_Default (0 params) -> a typed null receiver marker;
+            //   callvirt/call Equals(T,T) on that marker -> the user method
+            //   with this = &a and one explicit argument b (the comparer
+            //   receiver is dropped).
+            // Any OTHER receiver keeps the ordinary path (the P26 loud gap) --
+            // a user-supplied comparer must never be rewritten.
+            if (md != null && TryDecodeUserEqualityComparerMember(md, (int)ins.Operand,
+                    out var eqMemberName, out var eqTypeFullName)
+                && types?.FirstOrDefault(t => t.MatchesFullName(eqTypeFullName!)) is { IsValueType: true } eqType)
+            {
+                var eqPseudo = UserEqualityComparerPseudoType(eqTypeFullName!);
+                if (eqMemberName == "get_Default")
+                {
+                    Push(new NullExpr { TypeName = eqPseudo }, ins);
+                    return;
+                }
+                if (eqMemberName == "Equals" && stack.Count >= 3)
+                {
+                    var eqRecv = stack.ElementAt(2);
+                    var eqRecvTracked = eqRecv is NullExpr { TypeName: string ert } && ert == eqPseudo
+                        || eqRecv is LocExpr erl && objTypes.TryGetValue(erl.Name, out var erot) && erot == eqPseudo;
+                    var eqMethod = eqRecvTracked
+                        ? eqType.Methods.FirstOrDefault(m => m.Name == "Equals" && !m.IsStatic && m.ParamCount == 1
+                            && UserMethodParamTypeMatches(m.ParamTypes, TypeEmitter.ReflectionFullName(eqType)))
+                        : null;
+                    if (eqMethod != null)
+                    {
+                        var eqSig = MethodSignatureCoder.Decode(md,
+                            md.GetMemberReference((MemberReferenceHandle)MetadataTokens.Handle((int)ins.Operand)).Signature);
+                        var eqThis = stack.ElementAt(1) switch
+                        {
+                            LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr => stack.ElementAt(1),
+                            LocExpr el => (Expr)new LocAddrExpr { Name = el.Name },
+                            _ => null,
+                        };
+                        if (eqSig.ParamCount == 2 && eqThis != null)
+                        {
+                            var eqB = stack.Pop();
+                            _ = stack.Pop(); // the first T argument -- consumed as the by-address `this` above
+                            stack.Pop();     // the folded Default-comparer receiver
+                            var eqCall = new CallExpr
+                            {
+                                Function = $"call_{ins.Operand}",
+                                ReturnsRef = false,
+                                Resolved = new ResolvedMethod(
+                                    MethodRefResolver.UserMethodCppName(TypeEmitter.ReflectionFullName(eqType),
+                                        eqMethod.Name, eqMethod.ParamTypes),
+                                    1, false, true, false, new[] { false }, true),
+                            };
+                            eqCall.Args.Add(eqThis);
+                            eqCall.Args.Add(eqB);
+                            Push(eqCall, ins);
+                            return;
+                        }
+                    }
+                }
             }
 
             var resolved = md != null
@@ -2410,6 +2595,12 @@ public static class StackFold
                         // generated-name path; the tracked enumerator hint must
                         // re-resolve to the List enumerator icalls.
                         || recvType == "System.Collections.Generic.List`1.Enumerator"
+                        // listrefdeep: the reference-element expansions track
+                        // "...List`1.Enumerator_<element>" -- the tracked hint
+                        // must re-resolve the hint-less i4 enumerator icall to
+                        // the listobj enumerator arm (get_Current returns a
+                        // managed reference there).
+                        || (recvType != null && recvType.StartsWith("System.Collections.Generic.List`1.Enumerator_", StringComparison.Ordinal))
                         // P18 deflate: a DeflateStream receiver must re-resolve
                         // the inherited Stream Write/Read/Close to the deflate
                         // icalls -- the first resolution (TryMapStreamIO) returns
@@ -2425,7 +2616,36 @@ public static class StackFold
                         // (no-op) dict enumerator dispose with the deref:r cast.
                         || recvType == "System.Collections.Generic.Dictionary`2.Enumerator"
                         || recvType == "System.Collections.Generic.Dictionary`2.KeyCollection.Enumerator"
-                        || recvType == "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator"))
+                        || recvType == "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator"
+                        // Phase-1 dictgen: the int_string snapshot enumerator
+                        // needs the same ldloca'd foreach-finally Dispose
+                        // re-resolve (resolver maps it to the gen dispose
+                        // with deref:r).
+                        || recvType == "System.Collections.Generic.Dictionary`2.Enumerator_int_string"
+                        // G4 B2 (b2b8): the generic Queue`1<int> /
+                        // Stack`1<string> / HashSet<string> struct enumerator
+                        // tokens -- the foreach finally (IDisposable::Dispose
+                        // on the ldloca'd enumerator) must re-resolve from the
+                        // hint-less ienum_dispose fallback to the mapped
+                        // deref:r arm.
+                        // W1: the reference-element expansions track
+                        // "...Enumerator_<elem>" (the List precedent at :2603),
+                        // so the gate is a PREFIX match.
+                        || (recvType != null && recvType.StartsWith("System.Collections.Generic.Queue`1.Enumerator_", StringComparison.Ordinal))
+                        || (recvType != null && recvType.StartsWith("System.Collections.Generic.Stack`1.Enumerator_", StringComparison.Ordinal))
+                        || recvType == "System.Collections.Generic.HashSet`1.Enumerator_string"
+                        // T2 W2/W3: the SortedSet/HashSet long/double/uint/ref
+                        // struct enumerator tokens need the same ldloca'd
+                        // foreach-finally Dispose re-resolve.
+                        || (recvType != null && recvType.StartsWith("System.Collections.Generic.HashSet`1.Enumerator_", StringComparison.Ordinal))
+                        || (recvType != null && recvType.StartsWith("System.Collections.Generic.SortedSet`1.Enumerator_", StringComparison.Ordinal))
+                        // G4 residual (g4sorteddict): the SortedDictionary
+                        // KeyCollection snapshot enumerator -- same ldloca'd
+                        // foreach-finally Dispose re-resolve (the resolver arm
+                        // at MethodRefResolver's IDisposable gate maps it to
+                        // the sortedlist enumerator dispose with deref:r).
+                        || recvType == "System.Collections.Generic.SortedDictionary`2+KeyCollection.Enumerator"
+                        || recvType == "System.Collections.Generic.SortedDictionary`2.KeyCollection.Enumerator"))
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
                         recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr, recvType);
                 // P26 (bcldeep/charconv): FINAL resolution -- no further deferral
@@ -2611,7 +2831,15 @@ public static class StackFold
                 var vcall = new VirtualCallExpr
                 {
                     MethodToken = (int)ins.Operand,
-                    ReturnsRef = resolved?.ReturnsRef ?? false,
+                    // R2b P2 (ilistException): a VAR RETURN on a closed
+                    // reference instantiation (IMyList`1<class System.Exception>
+                    // -> System.Exception) IS a managed reference even when a
+                    // resolved fallback (generated-name path) claims otherwise
+                    // -- the receiver/slot declaration depends on it. A non-VAR
+                    // return (get_Count -> int32) keeps the resolver's answer.
+                    ReturnsRef = resolved?.ReturnsRef == true
+                        || (md != null && ReturnIsVar(md, (int)ins.Operand)
+                            && VarArgRefFullName(md, (int)ins.Operand) != null),
                     // Devirt S1 (G2): carry the receiver's tracked static type
                     // (objTypes/newobj/constrained results computed above) to
                     // the emitter -- EmitVirtualCall devirtualizes a call on an
@@ -2622,6 +2850,17 @@ public static class StackFold
                 if (resolved == null || resolved.ReturnsValue)
                 {
                     Push(vcall, ins);
+                    // R2b P2 (ilistException receiver tracking): a callvirt on
+                    // a closed generic instantiation whose method returns VAR
+                    // (T) yields the instantiation's CONCRETE T -- the parent
+                    // TypeSpec is authoritative. Record it on the result temp
+                    // so the next call (ex.Message) resolves with a receiver
+                    // hint. Only REFERENCE args are recorded (a value-type T
+                    // keeps the existing slot semantics).
+                    if (md != null && stack.Peek() is LocExpr rtv
+                        && ReturnIsVar(md, (int)ins.Operand)
+                        && VarArgRefFullName(md, (int)ins.Operand) is string varArg)
+                        objTypes[rtv.Name] = varArg;
                 }
                 else
                 {
@@ -2686,7 +2925,14 @@ public static class StackFold
                 // M5 wiring: value-type BCL receivers (Int32::ToString via
                 // ldloca + call) -- the receiver cast depends on the receiver
                 // being an ADDRESS (deref) vs a boxed object (unbox).
+                // listrefdeep: the ADDRESS form must ALSO hit the objTypes
+                // lookup by slot name -- the struct enumerator's members are
+                // emitted as non-virtual `call`s on an ldloca receiver, and
+                // without the hint the List<string> enumerator falls to the
+                // i4 arm (get_Current returns int32 -> uncompilable). Same
+                // P25 reasoning as the callvirt path above (line 2331).
                 var rvType = args[0] is LocExpr rl3 && objTypes.TryGetValue(rl3.Name, out var rt3) ? rt3
+                    : args[0] is LocAddrExpr rl3a && objTypes.TryGetValue(rl3a.Name, out var rt3a) ? rt3a
                     // timezone domain: the folded-null singletons
                     // (TimeZoneInfo.Local/Utc -- MethodMap.TimeZone.cs) carry
                     // the zone tag on the NullExpr; the call-path re-resolve
@@ -3178,8 +3424,23 @@ public static class StackFold
             temps.Add(name);
             objTypes[name] = typeFullName; // audit H8: the throw site needs the object.s type
             var isBclException = typeFullName.EndsWith("Exception", StringComparison.Ordinal)
+                // A5 (myIList): a generic INSTANTIATION over System.Exception
+                // ("List`1_System.Exception") is not an exception type -- the
+                // backtick marks an instantiation name. Without this guard
+                // the list itself took the BCL-exception null model (stfld
+                // nullptr) instead of a real allocation.
+                && !typeFullName.Contains('`')
                 && !(types?.Any(t => t.FullName == typeFullName) ?? false);
-            if (isBclException)
+            // ilistException: a System.Exception built with a message
+            // (`new Exception("a")`) and USED as a value (added to a list,
+            // .Message read) needs a REAL object identity -- the message
+            // side table keys by pointer, and a null model has no identity
+            // to key on. Allocate really (BclAllocExpr routes System.Exception
+            // to a plain-object allocation); the throw-site carrier path
+            // above is untouched. All other BCL exceptions keep the null
+            // model (throw-only paths).
+            var isMessageCarrierException = typeFullName == "System.Exception" && (resolved?.ParamCount ?? 0) >= 1;
+            if (isBclException && !isMessageCarrierException)
             {
                 stmts.Add(new AssignStmt
                 {
@@ -3238,7 +3499,12 @@ public static class StackFold
             // roundtrip (a struct does not convert to Il2CppObject*).
             if (ownerFullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
                 return true;
-            var t = types.FirstOrDefault(x => x.FullName == ownerFullName);
+            // Nested value types (async state machines): the field owner
+            // resolves via metadata GetFullName ('+' form) while expanded
+            // nested TypeDefs key by SHORT FullName -- match either form or
+            // the struct falls to the reference null-check path (static_cast
+            // of a struct pointer, asynccase cmake FAIL).
+            var t = types.FirstOrDefault(x => x.MatchesFullName(ownerFullName));
             return t != null && t.IsValueType;
         }
 
@@ -3250,7 +3516,7 @@ public static class StackFold
         static string? UnboxUserStructKind(string fullName, IReadOnlyList<TypeDef>? types)
         {
             if (types == null) return null;
-            var t = types.FirstOrDefault(x => x.FullName == fullName);
+            var t = types.FirstOrDefault(x => x.MatchesFullName(fullName));
             if (t == null || !t.IsValueType) return null;
             return "us:" + TypeEmitter.TypeCppName(t);
         }
@@ -3300,7 +3566,12 @@ public static class StackFold
                 };
                 name = md.GetString(mr.Name);
             }
-            return name == "Invoke" && IsDelegateType(owner, types);
+            return name == "Invoke" && (IsDelegateType(owner, types)
+                // excext (fold-skip family): the NON-generic System.Action --
+                // IsDelegateType matches the `N generic forms only; the
+                // parameterless BCL delegate still invokes through the same
+                // DelegateInvokeExpr multicast ABIs.
+                || owner == "System.Action");
         }
 
         // delechain: whether the call token is Equals(object) on a delegate
@@ -3626,12 +3897,14 @@ public static class StackFold
         }
 
         // Type full name -> short name (net48 semantics of typeof(X).Name):
-        // the segment after the last '.'; the full name when there is no
-        // namespace ("Cases.Base").
+        // the segment after the last '.' AND the last '+' (nested types
+        // carry the declaring chain as "Outer+Inner" -- Name is "Inner").
         static string ShortTypeName(string fullName)
         {
             var dot = fullName.LastIndexOf('.');
-            return dot < 0 ? fullName : fullName[(dot + 1)..];
+            var seg = dot < 0 ? fullName : fullName[(dot + 1)..];
+            var plus = seg.LastIndexOf('+');
+            return plus < 0 ? seg : seg[(plus + 1)..];
         }
 
         // Type full name -> TypeCode value: the net48 constant table, a mirror
@@ -3752,6 +4025,63 @@ public static class StackFold
             };
         }
 
+        // caudit2: `EqualityComparer`1<user T>` member detection. The token's
+        // parent is a TypeSpecification whose generic argument is the USER
+        // type -- the real identity the generic-instance NAME channel loses
+        // (VALUETYPE args collapse to "valuetype"). Returns the member name and
+        // the instantiation's generic-argument full name (only for a single
+        // VALUETYPE/CLASS argument of EqualityComparer`1).
+        static bool TryDecodeUserEqualityComparerMember(MetadataReader md, int token,
+            out string memberName, out string? typeArgFullName)
+        {
+            memberName = "";
+            typeArgFullName = null;
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeSpecification) return false;
+            var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+            if (sig.ReadByte() != 0x15) return false; // GENERICINST
+            _ = sig.ReadByte(); // CLASS/VALUETYPE marker of the generic definition
+            var defHandle = sig.ReadTypeHandle();
+            var defName = defHandle.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+                _ => null,
+            };
+            if (defName != "System.Collections.Generic.EqualityComparer`1") return false;
+            if (sig.ReadCompressedInteger() != 1) return false;
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            if (b is not (0x11 or 0x12)) return false;
+            var argHandle = sig.ReadTypeHandle();
+            typeArgFullName = argHandle.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)argHandle),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)argHandle),
+                _ => null,
+            };
+            if (typeArgFullName == null) return false;
+            memberName = md.GetString(mr.Name);
+            return true;
+        }
+
+        // caudit2: the tracked pseudo-type of the folded
+        // EqualityComparer<T>.Default receiver (the get_Default fold pushes it
+        // as a typed null marker; the Equals fold matches it back).
+        static string UserEqualityComparerPseudoType(string typeArgFullName)
+            => "System.Collections.Generic.EqualityComparer`1_" + typeArgFullName;
+
+        // caudit2: does a user method's encoded param list name this value type?
+        // ("V:Cases.St" / "B:V:Cases.St" / "r:Cases.St" encodings.)
+        static bool UserMethodParamTypeMatches(string paramTypes, string typeFullName)
+        {
+            var p = paramTypes;
+            if (p.StartsWith("B:V:", StringComparison.Ordinal)) p = p[4..];
+            else if (p.StartsWith("V:", StringComparison.Ordinal) || p.StartsWith("r:", StringComparison.Ordinal)) p = p[2..];
+            return p == typeFullName;
+        }
+
         static string TypeSpecName(MetadataReader md, TypeSpecificationHandle handle)
         {
             var sig = md.GetBlobReader(md.GetTypeSpecification(handle).Signature);
@@ -3761,6 +4091,100 @@ public static class StackFold
                 return "System.Int32";
             }
             return "System.Runtime.CompilerServices.TaskAwaiter`1";
+        }
+
+        // raudit1: the typeof(T) name resolution. Unlike TypeSpecName (legacy
+        // TaskAwaiter`1/Int32 strings consumed by other call sites), a
+        // GenericInst resolves to its DEFINITION's full name so the
+        // Type::get_Name fold (ShortTypeName) yields the net48 Name:
+        //   typeof(List<int>).Name            -> "List`1"
+        //   typeof(int?).Name                 -> "Nullable`1"
+        //   typeof(Dictionary<string,int>).Name -> "Dictionary`2"
+        static string TypeNameForReflection(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification)
+            {
+                return TypeFullNameFromToken(md, token);
+            }
+            var hs = (TypeSpecificationHandle)handle;
+            var sig = md.GetBlobReader(md.GetTypeSpecification(hs).Signature);
+            var b = sig.ReadByte();
+            if (b == 0x13) // VAR (single instantiation: T -> int32)
+            {
+                _ = sig.ReadCompressedInteger();
+                return "System.Int32";
+            }
+            if (b == 0x15) // GENERICINST
+            {
+                _ = sig.ReadByte(); // ELEMENT_TYPE_CLASS / VALUETYPE
+                var def = sig.ReadTypeHandle();
+                return def.Kind switch
+                {
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)def),
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)def),
+                    // nested generic instantiation (e.g. List<List<int>>):
+                    // recurse for the definition chain
+                    HandleKind.TypeSpecification => TypeNameForReflection(
+                        md, MetadataTokens.GetToken(def)),
+                    _ => throw new NotSupportedException(
+                        $"typeof TypeSpec definition kind {def.Kind} not supported"),
+                };
+            }
+            return TypeSpecName(md, hs); // remaining legacy shapes unchanged
+        }
+
+        // R2b P2 (ilistException receiver tracking): whether a call's RETURN
+        // signature slot is a generic parameter (0x13 VAR / 0x1E MVAR).
+        static bool ReturnIsVar(MetadataReader md, int token)
+        {
+            var h = MetadataTokens.Handle(token);
+            var sigHandle = h.Kind == HandleKind.MethodDefinition
+                ? md.GetMethodDefinition((MethodDefinitionHandle)h).Signature
+                : md.GetMemberReference((MemberReferenceHandle)h).Signature;
+            var rs = md.GetBlobReader(sigHandle);
+            var hdr = rs.ReadSignatureHeader();
+            if (hdr.IsGeneric) _ = rs.ReadCompressedInteger();
+            _ = rs.ReadCompressedInteger(); // parameter count
+            var rb = rs.ReadByte();
+            return rb is 0x13 or 0x1E;
+        }
+
+        // The CONCRETE reference type of a single-argument generic TypeSpec
+        // parent (IMyList`1<class System.Exception> -> "System.Exception").
+        // Null when the parent is not a 1-arg GenericInst or the argument is
+        // not a reference type (value-type args keep the existing slot
+        // semantics -- caller records only a non-null result).
+        static string? VarArgRefFullName(MetadataReader md, int token)
+        {
+            var h = MetadataTokens.Handle(token);
+            EntityHandle parent = h.Kind == HandleKind.MethodDefinition
+                ? md.GetMethodDefinition((MethodDefinitionHandle)h).GetDeclaringType()
+                : md.GetMemberReference((MemberReferenceHandle)h).Parent;
+            if (parent.Kind != HandleKind.TypeSpecification) return null;
+            var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)parent).Signature);
+            if (sig.ReadByte() != 0x15) return null; // GENERICINST
+            _ = sig.ReadByte();                      // CLASS(0x12)/VALUETYPE(0x11) marker
+            _ = sig.ReadTypeHandle();                // generic definition
+            if (sig.ReadCompressedInteger() != 1) return null;
+            var b = sig.ReadByte();
+            if (b is 0x11 or 0x40) return null;      // value type / TypeHandle: not a reference
+            if (b == 0x12)
+            {
+                var th = sig.ReadTypeHandle();
+                return th.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+                    _ => null,
+                };
+            }
+            return b switch
+            {
+                0x0E => "System.String",
+                0x1C => "System.Object",
+                _ => null,
+            };
         }
 
         // newobj token -> full name of the ctor's owning type ("Calc.Point" ->
@@ -3827,29 +4251,49 @@ public static class StackFold
         // The M3 generic-ARGUMENT byte table (0x15 = a NESTED generic
         // instantiation, e.g. IEnumerable`1<KeyValuePair`2<string,int>> --
         // recurse so the outer instance name carries the nested suffix).
-        static string ReadM3Arg(MetadataReader md, ref BlobReader s, byte b) => b switch
+        // ECMA-335 II.23.1.16: custom modifiers (0x1F CMOD_REQD / 0x20
+        // CMOD_OPT) are stripped before the modified type (SZARRAY is 0x1D
+        // only -- the historical 0x1F-as-SZARRAY convention was wrong).
+        static string ReadM3Arg(MetadataReader md, ref BlobReader s, byte b)
         {
-            0x02 => "bool",
-            0x03 => "char",
-            0x04 => "sbyte",
-            0x05 => "byte",
-            0x06 => "short",
-            0x07 => "ushort",
-            0x08 => "int", // int32 argument
-            0x09 => "uint",
-            0x0A => "long",
-            0x0B => "ulong",
-            0x0C => "float",
-            0x0D => "double",
-            0x0E => "string",
-            0x11 => "valuetype",
-            0x12 => "class",
-            0x13 => "int", // generic parameter argument (M3 single-instantiation convention: T -> int)
-            0x1C => "object",
-            0x1D or 0x1F => "array",
-            0x15 => ReadM3NestedGeneric(md, ref s),
-            var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
-        };
+            b = MethodSignatureCoder.SkipCustomModifiers(ref s, b);
+            return b switch
+            {
+                0x02 => "bool",
+                0x03 => "char",
+                0x04 => "sbyte",
+                0x05 => "byte",
+                0x06 => "short",
+                0x07 => "ushort",
+                0x08 => "int", // int32 argument
+                0x09 => "uint",
+                0x0A => "long",
+                0x0B => "ulong",
+                0x0C => "float",
+                0x0D => "double",
+                0x0E => "string",
+                 0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref s),
+                 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref s),
+                0x1C => "object",
+                0x1D => "array",
+                0x15 => ReadM3NestedGeneric(md, ref s),
+                // B2/B5 (boxunbox/generics): an OPEN TypeSpec arg (VAR 0x13 +
+                // index, e.g. `this.item` parented on Box<T> inside a generic
+                // definition body) denotes the enclosing closed clone's T --
+                // resolve through the body pass's InstantiationSuffixHint
+                // (the R2b P2 mechanism; MethodRefResolver's nested arm is
+                // the precedent). Outside a body pass the hint is null and
+                // the historical "int" encoding holds.
+                0x13 => ReadM3VarArg(ref s),
+                var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
+            };
+        }
+
+        static string ReadM3VarArg(ref BlobReader s)
+        {
+            s.ReadCompressedInteger(); // VAR index byte follows 0x13
+            return MethodRefResolver.InstantiationSuffixHint ?? "int";
+        }
 
         static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader s)
         {
@@ -4051,14 +4495,56 @@ public static class StackFold
         // Whether the field is a GC reference field. Read the field signature
         // bytes directly (FIELD=0x06 + type): 0x08 I4 -> value field;
         // 0x0E/0x12/0x1C -> reference fields; 0x13 generic T -> value by the
-        // M3 single-instantiation convention.
+        // M3 single-instantiation convention; 0x15 GENERICINST -> reference
+        // only for reference-carriers (IsGenericInstRefCarrier: CLASS
+        // instantiations + the async TaskAwaiter/builder family, which ride
+        // as task references -- other valuetype instantiations such as
+        // Nullable`1 stay value slots).
         static bool IsRefField(MetadataReader? md, IlInstruction ins)
         {
             if (md == null) return false;
             var (_, _, signature) = ResolveField(md, ins);
             if (signature.Length < 2) return false;
             var typeByte = int.Parse(signature.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
-            return typeByte is 0x0E or 0x12 or 0x1C;
+            if (typeByte is 0x0E or 0x12 or 0x1C) return true;
+            if (typeByte == 0x15 && md != null) return IsGenericInstRefCarrier(md, ins);
+            return false;
+        }
+
+        // Whether a GENERICINST (0x15) field type rides as a GC reference:
+        // CLASS instantiations always do; VALUETYPE instantiations do only
+        // for the async ref-carrier family (TaskAwaiter`1 /
+        // AsyncTaskMethodBuilder`1 -- batch 156c: the state-machine slots
+        // hold the task object). Decoded via BlobReader (the hex-signature
+        // fast path above cannot resolve the definition name); any decode
+        // failure keeps the historical value-slot behavior.
+        static bool IsGenericInstRefCarrier(MetadataReader md, IlInstruction ins)
+        {
+            try
+            {
+                var handle = MetadataTokens.Handle((int)ins.Operand);
+                BlobReader sig;
+                if (handle.Kind == HandleKind.FieldDefinition)
+                    sig = md.GetBlobReader(md.GetFieldDefinition((FieldDefinitionHandle)handle).Signature);
+                else if (handle.Kind == HandleKind.MemberReference)
+                    sig = md.GetBlobReader(md.GetMemberReference((MemberReferenceHandle)handle).Signature);
+                else return false;
+                if (sig.ReadByte() != 0x06) return false;
+                if (sig.ReadByte() != 0x15) return false;
+                var marker = sig.ReadByte();
+                if (marker == 0x12) return true;
+                if (marker != 0x11) return false;
+                var defHandle = sig.ReadTypeHandle();
+                var defName = defHandle.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+                    _ => "",
+                };
+                return defName.StartsWith("System.Runtime.CompilerServices.TaskAwaiter`1", StringComparison.Ordinal)
+                    || defName.StartsWith("System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1", StringComparison.Ordinal);
+            }
+            catch { return false; }
         }
 
         // Full name of the reference field's target type ("Calc.Node" ->
@@ -4071,6 +4557,10 @@ public static class StackFold
             var typeByte = int.Parse(signature.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
             if (typeByte == 0x0E) return "System.String";
             if (typeByte == 0x1C) return "System.Object";
+            // 0x15 GENERICINST reference-carriers (the async awaiter/builder
+            // slots) cast through the object identity -- no dedicated struct
+            // exists, so the target stays System.Object.
+            if (typeByte == 0x15) return IsGenericInstRefCarrier(md, ins) ? "System.Object" : "";
             // 0x12 CLASS: the type name is encoded in the signature's following
             // bytes -- M3 resolves it via MemberRef (generic scenario).
             // Simplified: a non-generic reference field's RefTarget resolved

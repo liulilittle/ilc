@@ -80,6 +80,7 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
+#include "il2cpp_string.h"
 
 #include <cstdint>
 
@@ -234,6 +235,8 @@ void icall_array_resize_i4(Il2CppArray** arraySlot, int32_t newSize);
 //   icall_array_empty_char   -- char[]   (elemSize 2, non-reference)
 //   icall_array_empty_int32  -- int32[]
 //   icall_array_empty_string -- string[] (reference elements)
+//   icall_array_empty_long   -- int64[]  (W7; elemSize 8, non-reference)
+//   icall_array_empty_double -- double[] (W7; elemSize 8, non-reference)
 // The allocation is the newarr shape with a constant length 0 (elemClass
 // null -- the primitive/reference distinction lives in the
 // elemSize/isRefElement pair, il2cpp_array.h). DOCUMENTED DEVIATION: .NET
@@ -243,6 +246,14 @@ Il2CppObject* icall_array_empty_char();
 Il2CppObject* icall_array_empty_int32();
 Il2CppObject* icall_array_empty_string();
 Il2CppObject* icall_array_empty_object();
+Il2CppObject* icall_array_empty_long();
+Il2CppObject* icall_array_empty_double();
+
+// The shared CULTURE string comparator used by Array.Sort/BinarySearch
+// (string[]) and the default Comparer<string> paths (defined in arrayext2.cpp;
+// see the header's string-comparison contract). Exposed so the default
+// comparer core (arraysort.cpp ComparerCompareCore) shares ONE implementation.
+int32_t CompareCulture(const Il2CppString* a, const Il2CppString* b);
 
 } // namespace runtime
 } // namespace il2cpp

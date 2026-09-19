@@ -55,13 +55,18 @@
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <windows.h>
+    #include <psapi.h> // PROCESS_MEMORY_COUNTERS struct only (D2: the
+                       // function is resolved dynamically -- no psapi link)
 #else
     #include <chrono>
     #include <thread>
     #include <unistd.h>      // ::getcwd, ::chdir, ::gethostname
     #include <sys/utsname.h> // ::uname
+    #include <sys/resource.h> // ::getrusage (D2 working-set fallback)
 #endif
 
 namespace il2cpp { namespace runtime {
@@ -470,6 +475,75 @@ int32_t icall_environment_get_processor_count()
 #endif
 }
 
+//------------------------------------------------------------------------------
+// Environment.WorkingSet (D2 diffenv001 env.workingset): the current process
+// working set in bytes (net48: physical memory currently mapped).
+// Windows: GetProcessMemoryInfo (psapi) resolved at RUNTIME via
+// LoadLibrary/GetProcAddress -- no link-time psapi dependency, so the same
+// source builds under MSVC/MinGW-w64/Clang without build-file changes (the
+// com.cpp dynamic-loading precedent); <psapi.h> supplies only the struct.
+// POSIX: /proc/self/statm resident pages (Linux, exact current RSS), else
+// getrusage peak RSS (bytes on macOS, kilobytes on Linux -- approximate).
+// The diffenv001 probe asserts positivity only (> 0 ? 1 : 0).
+//------------------------------------------------------------------------------
+int64_t icall_environment_get_working_set()
+{
+#if defined(_WIN32)
+    HMODULE psapi = ::LoadLibraryA("psapi.dll");
+    if (psapi != nullptr)
+    {
+        typedef BOOL (WINAPI* GetProcessMemoryInfoFn)(HANDLE, PPROCESS_MEMORY_COUNTERS, DWORD);
+        // FARPROC -> function pointer: memcpy (not reinterpret_cast --
+        // -Wcast-function-type on MinGW-w64; same bytes, no warning).
+        FARPROC raw = ::GetProcAddress(psapi, "GetProcessMemoryInfo");
+        GetProcessMemoryInfoFn query = nullptr;
+        static_assert(sizeof(query) == sizeof(raw), "function pointer size");
+        std::memcpy(&query, &raw, sizeof(query));
+        if (query != nullptr)
+        {
+            PROCESS_MEMORY_COUNTERS pmc;
+            pmc.cb = sizeof(pmc);
+            if (query(::GetCurrentProcess(), &pmc, sizeof(pmc)) != 0)
+            {
+                const int64_t ws = static_cast<int64_t>(pmc.WorkingSetSize);
+                ::FreeLibrary(psapi);
+                return ws;
+            }
+        }
+        ::FreeLibrary(psapi);
+    }
+    return 0;
+#else
+    std::FILE* f = std::fopen("/proc/self/statm", "r");
+    if (f != nullptr)
+    {
+        long long resident = 0;
+        long long size = 0;
+        if (std::fscanf(f, "%lld %lld", &size, &resident) == 2 && resident > 0)
+        {
+            const long page = ::sysconf(_SC_PAGESIZE);
+            std::fclose(f);
+            if (page > 0)
+            {
+                return static_cast<int64_t>(resident) * static_cast<int64_t>(page);
+            }
+            return 0;
+        }
+        std::fclose(f);
+    }
+    struct rusage ru;
+    if (::getrusage(RUSAGE_SELF, &ru) == 0)
+    {
+#if defined(__APPLE__)
+        return static_cast<int64_t>(ru.ru_maxrss);
+#else
+        return static_cast<int64_t>(ru.ru_maxrss) * 1024LL;
+#endif
+    }
+    return 0;
+#endif
+}
+
 Il2CppObject* icall_environment_get_user_name()
 {
 #if defined(_WIN32)
@@ -531,9 +605,12 @@ Il2CppObject* icall_environment_get_os_version()
     // = "Microsoft Windows NT X.Y.Z.R" -- a 4-component Version (revision 0 on
     // the NT line) built from GetVersionEx. GetVersionEx is subject to the
     // app-compat manifest shim: a NON-manifested process reports 6.2.9200.0
-    // (exactly the net48 reference value -- the net48 oracle and the
-    // transpiled exe both have no Win10 compatibility manifest), whereas
-    // RtlGetVersion returns the REAL 10.0.xxxxx (a surface divergence). The
+    // (exactly the net48 reference value -- the net48 oracle exe has no Win10
+    // compatibility manifest). THIS build's MinGW/CMake exe DOES carry one,
+    // so GetVersionEx returns the real 10.0.xxxxx (envdeep probe: actual
+    // 10.0.26200.0 vs oracle 6.2.9200.0); the clamp below maps anything above
+    // 6.2.9200 back to the non-manifested answer so the icall surface stays
+    // byte-identical to the net48 oracle on every modern Windows host. The
     // service-pack suffix is appended when szCSDVersion is non-empty (net48
     // OperatingSystem.ToString(); empty on modern hosts). GetVersionExA is
     // deprecated by the SDK (C4996 on MSVC /W4), so it is loaded dynamically
@@ -546,7 +623,7 @@ Il2CppObject* icall_environment_get_os_version()
         return nullptr;
     }
     const GetVersionExFn getVersionEx =
-        reinterpret_cast<GetVersionExFn>(::GetProcAddress(kernel32, "GetVersionExA"));
+        reinterpret_cast<GetVersionExFn>(reinterpret_cast<void*>(::GetProcAddress(kernel32, "GetVersionExA")));
     if (getVersionEx == nullptr)
     {
         return nullptr;
@@ -556,6 +633,17 @@ Il2CppObject* icall_environment_get_os_version()
     if (getVersionEx(&info) == 0)
     {
         return nullptr;
+    }
+    // envdeep: clamp to the non-manifested (net48 oracle) answer. The
+    // comparison is strictly above 6.2 build 9200: a real 6.2.9200 host and
+    // any older OS keep their reported values.
+    if (info.dwMajorVersion > 6 ||
+        (info.dwMajorVersion == 6 && info.dwMinorVersion > 2) ||
+        (info.dwMajorVersion == 6 && info.dwMinorVersion == 2 && info.dwBuildNumber > 9200))
+    {
+        info.dwMajorVersion = 6;
+        info.dwMinorVersion = 2;
+        info.dwBuildNumber = 9200;
     }
     char buffer[64];
     std::snprintf(buffer, sizeof(buffer), "Microsoft Windows NT %lu.%lu.%lu.0",
@@ -605,15 +693,15 @@ Il2CppObject* icall_environment_get_special_folder(int32_t folder_id)
     // resolves the REAL known-folder path via the shell known-folder API
     // (SHGetFolderPath) -- OneDrive-redirected Desktop/MyDocuments, the
     // actual LocalApplicationData -- NOT a home-directory guess. The
-    // SpecialFolder enum values ARE the CSIDL values for the three supported
-    // ids (Desktop=0, MyDocuments=5, LocalApplicationData=28), so the id is
-    // passed directly as the CSIDL. SHGetFolderPathW is loaded dynamically
+    // SpecialFolder enum values ARE the CSIDL values for the four supported
+    // ids (Desktop=0, MyDocuments=5, Windows=36, LocalApplicationData=28),
+    // so the id is passed directly as the CSIDL. SHGetFolderPathW is loaded dynamically
     // from shell32 (no import-library dependency, the same pattern as the
     // ntdll RtlGetVersion loading the earlier code used); the wide result
     // bridges directly into the managed string (same UTF-16 code units net48
     // holds -- no encoding round trip). A failure falls back to the
     // simplified env-var mapping below.
-    if (folder_id == 0 || folder_id == 5 || folder_id == 28)
+    if (folder_id == 0 || folder_id == 5 || folder_id == 36 || folder_id == 28)
     {
         typedef HRESULT(WINAPI* SHGetFolderPathFn)(HWND, int, HANDLE, DWORD, LPWSTR);
         // shell32.dll may not be loaded in a console process -- LoadLibrary
@@ -623,7 +711,7 @@ Il2CppObject* icall_environment_get_special_folder(int32_t folder_id)
         if (shell32 != nullptr)
         {
             const SHGetFolderPathFn shGetFolderPath =
-                reinterpret_cast<SHGetFolderPathFn>(::GetProcAddress(shell32, "SHGetFolderPathW"));
+                reinterpret_cast<SHGetFolderPathFn>(reinterpret_cast<void*>(::GetProcAddress(shell32, "SHGetFolderPathW")));
             if (shGetFolderPath != nullptr)
             {
                 WCHAR buffer[1024];
@@ -655,6 +743,27 @@ Il2CppObject* icall_environment_get_special_folder(int32_t folder_id)
         {
             result = home + DirSep() + "Documents";
         }
+    }
+    else if (folder_id == 36) // Environment.SpecialFolder.Windows
+    {
+        // net48 returns the Windows directory (C:\Windows): the system API
+        // first (GetSystemWindowsDirectoryW via kernel32, always loaded),
+        // then the SystemRoot env var, never empty on Windows.
+#if defined(_WIN32)
+        WCHAR winDir[1024];
+        const UINT winLen = ::GetSystemWindowsDirectoryW(winDir, 1024);
+        if (winLen > 0 && winLen < 1024 && winDir[0] != L'\0')
+        {
+            return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
+                reinterpret_cast<const char16_t*>(winDir),
+                static_cast<int32_t>(winLen)));
+        }
+        result = GetEnvValue("SystemRoot");
+        if (!result.empty())
+        {
+            return Utf8ToCs(result.data(), result.size());
+        }
+#endif
     }
     else if (folder_id == 28) // Environment.SpecialFolder.LocalApplicationData
     {

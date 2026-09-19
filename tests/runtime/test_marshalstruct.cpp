@@ -84,6 +84,15 @@ constexpr int32_t MsgNativeSize()
     return ((4 * P + 12) + P - 1) & ~(P - 1); // AlignUp(4P+12, P)
 }
 
+// ipaudit3: Marshal.SizeOf(Message) reports the net48 MANAGED layout
+// (marshalext3.cpp MessageNet48Size: 40 x64 / 20 x86), NOT the native tagMSG.
+constexpr int32_t MsgNet48Size()
+{
+    const int32_t P = static_cast<int32_t>(sizeof(void*));
+    const int32_t wParam = (P + 4 + (P - 1)) & ~(P - 1);
+    return wParam + 3 * P;
+}
+
 } // namespace
 
 int main()
@@ -95,8 +104,8 @@ int main()
            "SizeOf(typeof(Rectangle)) is 16");
     Expect(il2cpp_marshal_size_of_struct_named(Str("System.Drawing.Point")) == 8,
            "SizeOf(typeof(Point)) is 8");
-    Expect(il2cpp_marshal_size_of_struct_named(Str("System.Windows.Forms.Message")) == MsgNativeSize(),
-           "SizeOf(typeof(Message)) is the registry MSG size (48 x64 / 28 x86)");
+    Expect(il2cpp_marshal_size_of_struct_named(Str("System.Windows.Forms.Message")) == MsgNet48Size(),
+           "SizeOf(typeof(Message)) is the net48 managed size (40 x64 / 20 x86; ipaudit3)");
     Expect(ThrowsDotNet([&] { (void)il2cpp_marshal_size_of_struct_named(nullptr); }, kArgumentNull),
            "SizeOf((string)null) -> ArgumentNullException");
     Expect(ThrowsDotNet([&] { (void)il2cpp_marshal_size_of_struct_named(Str("System.Drawing.Widget")); }, kNotSupported),
@@ -105,8 +114,8 @@ int main()
     // --- 2. per-struct SizeOf<T>() forms ---
     Expect(il2cpp_marshal_size_of_struct_rect() == 16, "SizeOf<Rectangle>() is 16");
     Expect(il2cpp_marshal_size_of_struct_point() == 8, "SizeOf<Point>() is 8");
-    Expect(il2cpp_marshal_size_of_struct_msg() == MsgNativeSize(),
-           "SizeOf<Message>() is the registry MSG size");
+    Expect(il2cpp_marshal_size_of_struct_msg() == MsgNet48Size(),
+           "SizeOf<Message>() is the net48 managed size (40 x64 / 20 x86)");
 
     // --- 3. named OffsetOf (typeof(X),string) ---
     Expect(il2cpp_marshal_offset_of_struct_named(Str("System.Drawing.Rectangle"), Str("x")) == 0,

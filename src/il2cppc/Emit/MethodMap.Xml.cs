@@ -90,7 +90,9 @@ public static partial class MethodRefResolver
                 // object[] (returnTypeName tracks it as XmlNodeList so Count
                 // etc. resolve). Il2CppString* path via the "s" cast.
                 if (count == 1 && ps[0] == 0x0E)
-                    return I("il2cpp::runtime::il2cpp_xml_select_nodes", 1, false, true, true,
+                    // xmaudit2: the result is CONSUMED (XmlNodeList l = ...;
+                    // l.Count; l[0]) -- rv must be true, like SelectSingleNode.
+                    return I("il2cpp::runtime::il2cpp_xml_select_nodes", 1, true, true, true,
                         new[] { "node", "s" }, returnTypeName: "System.Xml.XmlNodeList");
                 return null;
             case "SelectSingleNode":
@@ -98,6 +100,29 @@ public static partial class MethodRefResolver
                 if (count == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::il2cpp_xml_select_single_node", 1, false, true, true,
                         new[] { "node", "s" }, returnTypeName: "System.Xml.XmlNode");
+                return null;
+            // xmaudit2 (codegen-decl): the XmlNodeList surface -- the
+            // SelectNodes hit list is an object[] of node handles, so Count
+            // reuses the array length and the indexer returns the slot with
+            // net48 XmlNodeList semantics (ArgumentOutOfRangeException).
+            case "get_Count":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_array_get_length", 0, true, false, true, new[] { "a" });
+                return null;
+            case "get_ItemOf":
+                if (count == 1 && ps.Length == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_xml_nodelist_get_item", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.Xml.XmlNode");
+                return null;
+            // xmlenum: XmlNodeList.GetEnumerator -> the snapshot enumerator
+            // object over the SelectNodes hit array (the returnTypeName tracks
+            // the enumerator pseudo-type so the IEnumerator::MoveNext /
+            // get_Current calls of a foreach resolve on the receiver hint --
+            // MethodMap.Collections.cs).
+            case "GetEnumerator":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_nodelist_get_enumerator", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Xml.XmlNodeList.Enumerator");
                 return null;
             case "GetAttribute":
                 // XmlElement.GetAttribute(string) -> string (missing -> empty).

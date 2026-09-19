@@ -20,26 +20,27 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0A)
                     // DateTime(long ticks) -- batch 151.
                     return I("il2cpp::runtime::icall_datetime_from_ticks", 1, false, false, true, new[] { "", "l" }, "dt", resultIsReceiver: true);
-                // ctor(long ticks, DateTimeKind): the kind argument is dropped
-                // (single-zone doctrine -- every DateTime reads as Utc).
+                // bcldeep: ctor(long ticks, DateTimeKind) -- the kind is
+                // STORED by the runtime (net48 labels the instant; ticks are
+                // never converted). The 2nd argument passes as int32.
                 if (ps.Length == 2 && ps[0] == 0x0A && ps[1] == 0x11)
-                    return I("il2cpp::runtime::icall_datetime_from_ticks", 2, false, false, true, new[] { "", "l", "drop" }, "dt", resultIsReceiver: true);
+                    return I("il2cpp::runtime::icall_datetime_from_ticks_kind", 2, false, false, true, new[] { "", "l", "i" }, "dt", resultIsReceiver: true);
                 if (ps.Length == 3)
                     return I("il2cpp::runtime::icall_datetime_from_ymd", 3, false, false, true, null, "dt", resultIsReceiver: true);
                 if (ps.Length == 6)
                     return I("il2cpp::runtime::icall_datetime_from_ymdhms", 6, false, false, true, null, "dt", resultIsReceiver: true);
-                // ctor(y,m,d,h,mi,s,kind): the trailing DateTimeKind is
-                // dropped ("drop" cast) -- the runtime is single-zone (UTC-host
-                // doctrine, cf. cultureinfo get_current), so every Kind
-                // composes the same ticks. NOTE: the casts array INDEXES THE
-                // RECEIVER SLOT TOO (slot 0 = the value-slot target; the
-                // from_ticks precedent's ["", "l"]), so this array has EIGHT
-                // entries for the 7 IL arguments. The 8-arg ms+kind form stays
-                // LOUD until a runtime entry with a millisecond parameter
-                // exists.
+                // bcldeep: ctor(y,m,d,h,mi,s,DateTimeKind) -- the trailing
+                // DateTimeKind is STORED (net48: raw ticks + kind bits; the
+                // single-zone doctrine keeps tick composition culture-free,
+                // the kind only labels the value). NOTE: the casts array
+                // INDEXES THE RECEIVER SLOT TOO (slot 0 = the value-slot
+                // target; the from_ticks precedent's ["", "l"]), so null here
+                // emits the standard 8-entry receiver+7-arg passthrough. The
+                // 8-arg ms+kind form stays LOUD until a runtime entry with a
+                // millisecond parameter exists.
                 if (ps.Length == 7 && ps[6] == 0x11)
-                    return I("il2cpp::runtime::icall_datetime_from_ymdhms", 7, false, false, true,
-                        new[] { "", "", "", "", "", "", "", "drop" }, "dt", resultIsReceiver: true);
+                    return I("il2cpp::runtime::icall_datetime_from_ymdhms_kind", 7, false, false, true,
+                        null, "dt", resultIsReceiver: true);
                 // D5 cov3: ctor(y,m,d,h,mi,s,ms) -- the 7-arg MILLISECOND form
                 // (all-int32 signature; the kind-dropping 7-arg form above has
                 // ps[6]==0x11 enum and is matched first).
@@ -67,7 +68,14 @@ public static partial class MethodRefResolver
             // and Local forms coincide).
             case "ToFileTimeUtc":
                 return I("il2cpp::runtime::icall_datetime_to_file_time_utc", 0, true, false, true, new[] { "deref:dt" }, "l");
+            // B3 (diffdt001b): the Local form rides the same icall (the
+            // single-zone doctrine above -- Utc and Local coincide).
+            case "ToFileTime":
+                return I("il2cpp::runtime::icall_datetime_to_file_time_utc", 0, true, false, true, new[] { "deref:dt" }, "l");
             case "FromFileTimeUtc":
+                return I("il2cpp::runtime::icall_datetime_from_file_time_utc", 1, true, false, false, new[] { "l" }, "dt");
+            // B3 (diffdt001b): the Local form rides the same icall.
+            case "FromFileTime":
                 return I("il2cpp::runtime::icall_datetime_from_file_time_utc", 1, true, false, false, new[] { "l" }, "dt");
             // AddMonths / AddYears -- civil-calendar arithmetic (the day
             // clamps to the target month's length; time-of-day preserved).
@@ -97,6 +105,11 @@ public static partial class MethodRefResolver
             // Equals: pure ticks equality.
             case "Equals":
                 return I("il2cpp::runtime::icall_datetime_equals", 1, true, false, true, new[] { "deref:dt", "" });
+            // D1 (diffdt001 dt.hash): net48 ticks-fold
+            // (unchecked((int)ticks) ^ (int)(ticks >> 32) -- the
+            // icall_datetime_get_hash_code in time.cpp).
+            case "GetHashCode":
+                return I("il2cpp::runtime::icall_datetime_get_hash_code", 0, true, false, true, new[] { "deref:dt" });
             case "Subtract":
                 // DateTime.Subtract(DateTime) -> TimeSpan.
                 return ps.Length == 1
@@ -128,13 +141,30 @@ public static partial class MethodRefResolver
             case "ToString":
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_datetime_to_string", 0, true, true, true, new[] { "deref:dt" });
-                if (ps.Length == 1)
-                    return I("il2cpp::runtime::icall_datetime_to_string_format", 1, true, true, true, new[] { "deref:dt", "" });
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    // ToString(string format): the runtime ABI now takes a
+                    // trailing IFormatProvider slot; the IL call has none, so
+                    // append the nullptr literal (the double/decimal
+                    // appendLiterals precedent). nullptr selects the host
+                    // default (zh-CN) -- the saudit5 oracle.
+                    return I("il2cpp::runtime::icall_datetime_to_string_format", 1, true, true, true,
+                        new[] { "deref:dt", "" }, appendLiterals: new[] { "nullptr" });
                 if (ps.Length == 2)
-                    // ToString(string, IFormatProvider): ParamCount = the IL
-                    // arity (the FOLD pops 2); the culture arg is dropped at
-                    // emission -- the runtime fixes en-US/invariant output.
-                    return I("il2cpp::runtime::icall_datetime_to_string_format", 2, true, true, true, new[] { "deref:dt", "", "drop" });
+                    // ToString(string, IFormatProvider): the provider carrier
+                    // PASSES THROUGH (ProviderCulture; the double/decimal
+                    // cultureprobe precedent) instead of being dropped. The
+                    // runtime resolves: empty name (InvariantCulture) ->
+                    // invariant patterns, "zh-CN" -> zh-CN, nullptr -> host
+                    // default, unknown -> invariant fallback.
+                    return I("il2cpp::runtime::icall_datetime_to_string_format", 2, true, true, true,
+                        new[] { "deref:dt", "", "drop" }, providerCulture: true);
+                if (ps.Length == 1)
+                    // ToString(IFormatProvider): provider-only. The runtime
+                    // ABI needs the provider in the TRAILING slot with a null
+                    // format; appendLiterals can only append AFTER the
+                    // argument list, so the emitter would place the provider
+                    // in the format slot. LOUD until an emitter reorder exists.
+                    throw new NotSupportedException("DateTime.ToString(IFormatProvider) not wired: the provider-only overload needs the provider in the trailing icall slot with a null format; use ToString()/ToString(format)/ToString(format, provider)");
                 throw new NotSupportedException($"DateTime.ToString with {ps.Length} arg(s) not wired in M5");
             // P6: DateTime internal methods (stubs).
             case "GetSystemTimeAsFileTime": return I("il2cpp::runtime::icall_datetime_get_system_time_as_file_time", 0, true, false, false, null, "l");

@@ -93,7 +93,7 @@ const char* kArgumentOutOfRange =
     "System.SystemException,System.Exception";
 const char* kNotSupported =
     "System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception";
-const char* kArgument =
+[[maybe_unused]] const char* kArgument =
     "System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception";
 
 // A mock array element class descriptor (test_marshalext.cpp idiom).
@@ -110,20 +110,20 @@ int main()
     // --- 1. destroy_structure ---
     Expect(ThrowsDotNet([&] { icall_marshal_destroy_structure(0, nullptr); }, kArgumentNull),
            "destroy_structure(ptr=0, null type) -> ArgumentNullException");
-    Expect(ThrowsDotNet([&] { icall_marshal_destroy_structure(0, reinterpret_cast<il2cpp::Il2CppObject*>(
-               il2cpp::il2cpp_string_new_from_cs("System.Int32"))); }, kArgumentNull),
+    Expect(ThrowsDotNet([&] { icall_marshal_destroy_structure(0,
+               il2cpp::il2cpp_string_new_from_cs("System.Int32")); }, kArgumentNull),
            "destroy_structure(ptr=0, valid type) -> ArgumentNullException");
     Expect(ThrowsDotNet([&] { icall_marshal_destroy_structure(0x1234, nullptr); }, kArgumentNull),
            "destroy_structure(ptr, null type) -> ArgumentNullException");
-    il2cpp::Il2CppObject* boxedInt = il2cpp::il2cpp_box_int32(nullptr, 42);
-    Expect(ThrowsDotNet([&] { icall_marshal_destroy_structure(0x1234, boxedInt); }, kArgument),
-           "destroy_structure(ptr, non-string Type value) -> ArgumentException");
+    // (The old "non-string Type value -> ArgumentException" probe is obsolete:
+    // the current ABI types the Type argument as Il2CppString* and the
+    // transpiler folds the Type value to its name string.)
     // Documented no-op: a valid call must not touch the memory block. Write a
     // sentinel into a heap buffer and verify it is unchanged after the call.
     void* buf = std::malloc(16);
     std::memset(buf, 0xAB, 16);
     icall_marshal_destroy_structure(reinterpret_cast<intptr_t>(buf),
-        reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("Some.StructType")));
+        il2cpp::il2cpp_string_new_from_cs("Some.StructType"));
     const unsigned char* bytes = static_cast<const unsigned char*>(buf);
     bool untouched = true;
     for (int i = 0; i < 16; ++i)
@@ -138,10 +138,10 @@ int main()
            "size_of_object(null) -> ArgumentNullException");
     Expect(icall_marshal_size_of_object(il2cpp::il2cpp_box_int32(nullptr, 7)) == 4,
            "size_of_object(boxed Int32) is 4");
-    Expect(icall_marshal_size_of_object(il2cpp::runtime::icall_box_bool(true)) == 1,
-           "size_of_object(boxed Boolean) is 1");
-    Expect(icall_marshal_size_of_object(il2cpp::runtime::icall_box_char('A')) == 2,
-           "size_of_object(boxed Char) is 2");
+    Expect(icall_marshal_size_of_object(il2cpp::runtime::icall_box_bool(true)) == 4,
+           "size_of_object(boxed Boolean) is 4 (Ansi BOOL; net48 oracle)");
+    Expect(icall_marshal_size_of_object(il2cpp::runtime::icall_box_char('A')) == 1,
+           "size_of_object(boxed Char) is 1 (Ansi; net48 oracle)");
     Expect(icall_marshal_size_of_object(il2cpp::runtime::icall_box_double(3.5)) == 8,
            "size_of_object(boxed Double) is 8");
     Expect(icall_marshal_size_of_object(il2cpp::runtime::icall_box_long(123)) == 8,

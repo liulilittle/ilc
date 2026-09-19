@@ -162,6 +162,8 @@ char16_t FoldCase(char16_t c)
 bool IsLowerAscii(char16_t c) { return c >= 'a' && c <= 'z'; }
 bool IsUpperAscii(char16_t c) { return c >= 'A' && c <= 'Z'; }
 
+} // namespace
+
 //------------------------------------------------------------------------------
 // CompareCulture -- culture-sensitive comparison of two managed strings with
 // the static null policy of .NET Framework Comparer<string>.Default (used by
@@ -226,6 +228,8 @@ int32_t CompareCulture(const Il2CppString* a, const Il2CppString* b)
     return 0;
 }
 
+namespace {
+
 //------------------------------------------------------------------------------
 // QuickSortRefs -- Hoare-partition quicksort on slots[lo..hi] (inclusive).
 //   Middle-element pivot: already-sorted input (the common case) splits
@@ -277,52 +281,6 @@ void QuickSortRefs(Il2CppObject** slots, int32_t lo, int32_t hi)
             hi = j;
         }
     }
-}
-
-//------------------------------------------------------------------------------
-// LowerBoundInt32 -- lower_bound on an ascending int32 array (half-open
-// [lo, hi) scan): the index of the FIRST element >= 'value', or 'hi' when
-// every element is smaller. This is both the match position and the
-// .NET insertion point.
-//------------------------------------------------------------------------------
-int32_t LowerBoundInt32(const int32_t* data, int32_t lo, int32_t hi, int32_t value)
-{
-    while (lo < hi)
-    {
-        const int32_t mid = lo + (hi - lo) / 2;
-        if (data[mid] < value)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
-    }
-    return lo;
-}
-
-//------------------------------------------------------------------------------
-// LowerBoundString -- lower_bound on a string (reference) array using the
-// culture comparison. 'value' may be null (sorts before everything).
-//------------------------------------------------------------------------------
-int32_t LowerBoundString(Il2CppObject** slots, int32_t lo, int32_t hi,
-                         const Il2CppString* value)
-{
-    while (lo < hi)
-    {
-        const int32_t mid = lo + (hi - lo) / 2;
-        const Il2CppString* element = reinterpret_cast<Il2CppString*>(slots[mid]);
-        if (CompareCulture(element, value) < 0)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
-    }
-    return lo;
 }
 
 //------------------------------------------------------------------------------
@@ -496,7 +454,9 @@ void icall_array_sort_strings(Il2CppObject* arr)
 
 //------------------------------------------------------------------------------
 // icall_array_binary_search_int32 -- Array.BinarySearch(int32[]) (see
-// header). Lower-bound scan; a miss returns the complement of the insertion
+// header). net48 semantics: probe the MIDPOINT and return it on the first
+// equality hit (a duplicate search yields one of the occurrences, not
+// necessarily the first); a miss returns the complement of the insertion
 // point. An empty array always returns -1 (= ~0).
 //------------------------------------------------------------------------------
 int32_t icall_array_binary_search_int32(Il2CppObject* arr, int32_t value)
@@ -504,18 +464,33 @@ int32_t icall_array_binary_search_int32(Il2CppObject* arr, int32_t value)
     Il2CppArray* a = RequireArrayExt2(arr);
     RequireInt32ArrayExt2(a);
     const int32_t* data = reinterpret_cast<const int32_t*>(a->data);
-    const int32_t at = LowerBoundInt32(data, 0, a->length, value);
-    if (at < a->length && data[at] == value)
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
     {
-        return at;
+        const int32_t i = lo + ((hi - lo) >> 1);
+        const int32_t element = data[i];
+        if (element == value)
+        {
+            return i;
+        }
+        if (element < value)
+        {
+            lo = i + 1;
+        }
+        else
+        {
+            hi = i - 1;
+        }
     }
-    return ~at; // missing: complement of the insertion point
+    return ~lo; // missing: complement of the insertion point
 }
 
 //------------------------------------------------------------------------------
 // icall_array_binary_search_string -- Array.BinarySearch(string[]) (see
-// header). Culture lower-bound scan; null 'value' matches only null
-// elements.
+// header). net48 midpoint-equality scan (see the int32 variant); null
+// 'value' compares as "sorts before everything" via CompareCulture, so it
+// matches only null elements.
 //------------------------------------------------------------------------------
 int32_t icall_array_binary_search_string(Il2CppObject* arr, Il2CppObject* value)
 {
@@ -523,13 +498,27 @@ int32_t icall_array_binary_search_string(Il2CppObject* arr, Il2CppObject* value)
     RequireRefArrayExt2(a);
     const Il2CppString* needle = AsStringOrNull(value);
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-    const int32_t at = LowerBoundString(slots, 0, a->length, needle);
-    if (at < a->length && CompareCulture(
-            reinterpret_cast<const Il2CppString*>(slots[at]), needle) == 0)
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
     {
-        return at;
+        const int32_t i = lo + ((hi - lo) >> 1);
+        const Il2CppString* element = reinterpret_cast<Il2CppString*>(slots[i]);
+        const int32_t order = CompareCulture(element, needle);
+        if (order == 0)
+        {
+            return i;
+        }
+        if (order < 0)
+        {
+            lo = i + 1;
+        }
+        else
+        {
+            hi = i - 1;
+        }
     }
-    return ~at; // missing: complement of the insertion point
+    return ~lo; // missing: complement of the insertion point
 }
 
 //------------------------------------------------------------------------------
@@ -1055,6 +1044,17 @@ Il2CppObject* icall_array_empty_object()
     // Array.Empty<T>() for a CLASS element (0x12) -- an empty object[] (the
     // element type is irrelevant for a zero-length array).
     return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(void*), true, 0));
+}
+
+// W7: the long/double empty factories (elemSize 8, non-reference).
+Il2CppObject* icall_array_empty_long()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(int64_t), false, 0));
+}
+
+Il2CppObject* icall_array_empty_double()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(double), false, 0));
 }
 
 } // namespace runtime

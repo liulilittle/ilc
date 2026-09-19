@@ -81,7 +81,7 @@ Il2CppClass* Int32BoxClass()
 // makes a catch of the thrown type ITSELF match (il2cpp_exception_matches
 // walks the segments after the first comma), and the base segments make
 // base-type catches (System.SystemException / System.Exception) match.
-void ThrowUnboxNull()
+[[noreturn]] void ThrowUnboxNull()
 {
     il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
                      "Object reference not set to an instance of an object.");
@@ -153,7 +153,6 @@ int32_t icall_unbox_int32(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBoxClassesRegistered();
     Il2CppClass* box = Int32BoxClass();
@@ -172,7 +171,6 @@ bool icall_unbox_bool(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return false; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBoxClassesRegistered();
     if (obj->klass != &System_Boolean_class && !il2cpp_is_instance(obj, &System_Boolean_class))
@@ -190,7 +188,6 @@ int32_t icall_unbox_char(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBoxClassesRegistered();
     if (obj->klass != &System_Char_class && !il2cpp_is_instance(obj, &System_Char_class))
@@ -208,7 +205,6 @@ double icall_unbox_double(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowUnboxNull();
-        return 0.0; // unreachable (ThrowUnboxNull always throws); well-formed path only
     }
     EnsureBoxClassesRegistered();
     if (obj->klass != &System_Double_class && !il2cpp_is_instance(obj, &System_Double_class))

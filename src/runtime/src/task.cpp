@@ -150,7 +150,6 @@ Il2CppObject* icall_task_delay(int32_t milliseconds)
     il2cpp::il2cpp_throw_new("System.NotSupportedException,System.Exception",
         "Task.Delay(n>0) is not representable in the synchronous-completion model "
         "(no suspension: every awaited task completes inside Start).");
-    return nullptr;
 }
 
 // Task<T>.Result -- the boxed result (completed-task contract). batch 156d:

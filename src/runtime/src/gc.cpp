@@ -849,9 +849,9 @@ int32_t g_lohCompactionMode = kGcLohCompactionModeDefault;
 // Full-GC notification registration state (blocking collector: always
 // succeeds). The thresholds are stored so a future notification mechanism
 // can honour them.
-bool    g_fullGcNotificationRegistered = false;
-int32_t g_fullGcMaxGenThreshold = 0;
-int32_t g_fullGcLohThreshold = 0;
+[[maybe_unused]] bool    g_fullGcNotificationRegistered = false;
+[[maybe_unused]] int32_t g_fullGcMaxGenThreshold = 0;
+[[maybe_unused]] int32_t g_fullGcLohThreshold = 0;
 
 // The collector's fixed memory budget for the cross-platform memory-load
 // statistic (1 GB of addressable managed heap; no OS-specific calls).

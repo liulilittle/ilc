@@ -20,13 +20,14 @@ namespace Il2Cpp.Transpiler.Emit;
 // EventResetMode enum uses "i" (0x11 VALUETYPE, int32 carrier).
 //
 // Wired surface:
-//   * Semaphore(int, int) ctor / WaitOne / Release() / Release(int)
-//   * Mutex() ctor / WaitOne / ReleaseMutex
-//   * EventWaitHandle(bool, EventResetMode) ctor / WaitOne / Set / Reset
+//   * Semaphore(int, int) ctor / WaitOne / WaitOne(int) / Release() / Release(int)
+//   * Mutex() ctor / WaitOne / WaitOne(int) / ReleaseMutex
+//   * EventWaitHandle(bool, EventResetMode) ctor / WaitOne / WaitOne(int) /
+//     Set / Reset
 //
 // Known-unwireable members return null (the generated-name path):
-//   * WaitOne(int) / WaitOne(TimeSpan) -- the timeout overloads are out of
-//     scope (the runtime has the blocking WaitOne only).
+//   * WaitOne(TimeSpan) -- the TimeSpan timeout form is out of scope (the
+//     runtime implements the int-milliseconds form only).
 //   * WaitAll / WaitAny / SignalAndWait -- the static multi-handle surface is
 //     out of scope.
 //   * Semaphore(int, int, string) / Mutex(bool, string) -- the named-handle
@@ -51,9 +52,15 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_waithandle_event_ctor", 2, false, false, true, new[] { "", "b", "i" });
                 return null;
             // bool WaitOne(): the blocking form (net48 success semantics).
+            // bool WaitOne(int millisecondsTimeout): the net48 timeout form
+            // (waithandle.cpp icall_waithandle_wait_one_timeout) -- 0 = single
+            // non-blocking probe, -1 = Timeout.Infinite (block), < -1 throws
+            // ArgumentOutOfRangeException; returns false on timeout.
             case "WaitOne":
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_waithandle_wait_one", 0, true, false, true);
+                if (ps.Length == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_waithandle_wait_one_timeout", 1, true, false, true);
                 return null;
             // int Release() / int Release(int releaseCount) -- Semaphore only.
             case "Release":

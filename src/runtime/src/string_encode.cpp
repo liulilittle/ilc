@@ -16,8 +16,14 @@ bool il2cpp_utf8_is_ascii(const char* utf8, size_t len) noexcept
         const uint8_t c0=p[i+0],c1=p[i+1],c2=p[i+2],c3=p[i+3],c4=p[i+4],c5=p[i+5],c6=p[i+6],c7=p[i+7];
         if ((c0|c1|c2|c3|c4|c5|c6|c7) & 0x80u) 
         {
-            if (c0 & 0x80) return false; if (c1 & 0x80) return false; if (c2 & 0x80) return false; if (c3 & 0x80) return false;
-            if (c4 & 0x80) return false; if (c5 & 0x80) return false; if (c6 & 0x80) return false; return false;
+            if (c0 & 0x80) return false;
+            if (c1 & 0x80) return false;
+            if (c2 & 0x80) return false;
+            if (c3 & 0x80) return false;
+            if (c4 & 0x80) return false;
+            if (c5 & 0x80) return false;
+            if (c6 & 0x80) return false;
+            return false;
         }
     }
     for (; i < len; ++i) if (p[i] & 0x80)  return false;
@@ -33,8 +39,14 @@ bool il2cpp_utf16_is_ascii_raw(const char16_t* chars, int32_t len) noexcept
         const char16_t c0=chars[i+0],c1=chars[i+1],c2=chars[i+2],c3=chars[i+3],c4=chars[i+4],c5=chars[i+5],c6=chars[i+6],c7=chars[i+7];
         if ((c0|c1|c2|c3|c4|c5|c6|c7) >= 0x80) 
         {
-            if (c0>=0x80) return false; if (c1>=0x80) return false; if (c2>=0x80) return false; if (c3>=0x80) return false;
-            if (c4>=0x80) return false; if (c5>=0x80) return false; if (c6>=0x80) return false; return false;
+            if (c0>=0x80) return false;
+            if (c1>=0x80) return false;
+            if (c2>=0x80) return false;
+            if (c3>=0x80) return false;
+            if (c4>=0x80) return false;
+            if (c5>=0x80) return false;
+            if (c6>=0x80) return false;
+            return false;
         }
     }
     for (; i < len; ++i) if (chars[i] >= 0x80)  return false;

@@ -66,6 +66,31 @@ T ToValue(Il2CppArray* value, const char* paramName, const char* message)
     return result;
 }
 
+// ToValueOffset<T>: net48 ToT(byte[] value, int startIndex) -- reads sizeof(T)
+// bytes little-endian starting at startIndex. Validation (net48):
+// null value -> ArgumentNullException("value"); startIndex outside
+// [0, length - sizeof(T)] -> ArgumentOutOfRangeException("startIndex")
+// (which derives from ArgumentException, so callers catching ArgumentException
+// observe the same behavior). D-A/D-B fix (2026-09-19): the startIndex was
+// previously DROPPED by the mapper and the runtime read from index 0.
+template <typename T>
+T ToValueOffset(Il2CppArray* value, int32_t startIndex, const char* message)
+{
+    (void)message; // net48 uses type-specific messages only for the short-array case
+    if (value == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("value");
+    }
+    if (startIndex < 0 || startIndex > value->length - static_cast<int32_t>(sizeof(T)))
+    {
+        il2cpp_throw_argument_out_of_range_exception("startIndex", nullptr);
+    }
+    T result = T{};
+    std::memcpy(&result, reinterpret_cast<const unsigned char*>(value->data) + startIndex,
+                sizeof(T));
+    return result;
+}
+
 // BitBridge<From, To>: pure bit-pattern reinterpretation (memcpy). This is
 // endianness-agnostic by construction: it moves the host representation
 // unchanged, exactly like .NET's DoubleToInt64Bits family.
@@ -190,6 +215,60 @@ float il2cpp_bitconverter_to_single(Il2CppArray* value)
 double il2cpp_bitconverter_to_double(Il2CppArray* value)
 {
     return ToValue<double>(value, "value", kNeed8Bytes);
+}
+
+// ToT(byte[], int startIndex) -- the offset forms (D-A/D-B fix, 2026-09-19).
+// bool reads ONE byte as uint8_t then normalizes (never memcpy an arbitrary
+// byte into a C++ bool: any value other than 0/1 is UB, and clang folds it
+// to False -- net48 is non-zero -> True, so {42} must read True).
+bool il2cpp_bitconverter_to_bool_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<uint8_t>(value, startIndex, kNeed2Bytes) != 0;
+}
+
+char16_t il2cpp_bitconverter_to_char_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<char16_t>(value, startIndex, kNeed2Bytes);
+}
+
+int16_t il2cpp_bitconverter_to_int16_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<int16_t>(value, startIndex, kNeed2Bytes);
+}
+
+uint16_t il2cpp_bitconverter_to_uint16_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<uint16_t>(value, startIndex, kNeed2Bytes);
+}
+
+int32_t il2cpp_bitconverter_to_int32_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<int32_t>(value, startIndex, kNeed4Bytes);
+}
+
+uint32_t il2cpp_bitconverter_to_uint32_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<uint32_t>(value, startIndex, kNeed4Bytes);
+}
+
+int64_t il2cpp_bitconverter_to_int64_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<int64_t>(value, startIndex, kNeed8Bytes);
+}
+
+uint64_t il2cpp_bitconverter_to_uint64_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<uint64_t>(value, startIndex, kNeed8Bytes);
+}
+
+float il2cpp_bitconverter_to_single_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<float>(value, startIndex, kNeed4Bytes);
+}
+
+double il2cpp_bitconverter_to_double_offset(Il2CppArray* value, int32_t startIndex)
+{
+    return ToValueOffset<double>(value, startIndex, kNeed8Bytes);
 }
 
 //------------------------------------------------------------------------------

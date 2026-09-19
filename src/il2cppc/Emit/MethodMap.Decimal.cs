@@ -67,8 +67,8 @@ public static partial class MethodRefResolver
                 {
                     switch (ret)
                     {
-                        case 0x0D: return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, false, new[] { "" }, "d");
-                        case 0x0C: return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "" }, "d");
+                        case 0x0D: return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, false, new[] { "dec" }, "d");
+                        case 0x0C: return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "dec" }, "d");
                         case 0x08: return I("il2cpp::runtime::icall_decimal_to_int32", 1, true, false, false, new[] { "dec" });
                         case 0x0A: return I("il2cpp::runtime::icall_decimal_to_int64", 1, true, false, false, new[] { "dec" }, "l");
                         case 0x09: return I("il2cpp::runtime::icall_decimal_to_uint32", 1, true, false, false, new[] { "dec" });
@@ -330,13 +330,13 @@ public static partial class MethodRefResolver
             // netcore21+ audit closure; decimal.cpp exact decomposition).
             case "ToDouble":
                 if (ps.Length == 1 && ps[0] == 0x11)
-                    return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, true, new[] { "" }, "d");
+                    return I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, true, new[] { "dec" }, "d");
                 return null;
             case "ToSingle":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     // float rides the double carrier (the M-stage
                     // float-in-double convention; no separate "f" kind).
-                    return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, true, new[] { "" }, "d");
+                    return I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, true, new[] { "dec" }, "d");
                 return null;
             // P6: Decimal.FCallToInt32 (stub).
             case "FCallToInt32": return I("il2cpp::runtime::icall_decimal_fcall_to_int32", 1, true, false, false, new[] { "" });

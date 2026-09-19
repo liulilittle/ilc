@@ -94,8 +94,8 @@ int main()
     Expect(il2cpp_marshal_size_of(11) == 8, "Int64 (11) is 8 bytes");
     Expect(il2cpp_marshal_size_of(14) == 8, "Double (14) is 8 bytes");
     Expect(il2cpp_marshal_size_of(13) == 4, "Single (13) is 4 bytes");
-    Expect(il2cpp_marshal_size_of(3) == 1, "Boolean (3) is 1 byte");
-    Expect(il2cpp_marshal_size_of(4) == 2, "Char (4) is 2 bytes");
+    Expect(il2cpp_marshal_size_of(3) == 4, "Boolean (3) is 4 bytes (Ansi CharSet BOOL; net48 oracle)");
+    Expect(il2cpp_marshal_size_of(4) == 1, "Char (4) is 1 byte (Ansi CharSet; net48 oracle)");
     Expect(il2cpp_marshal_size_of(5) == 1, "SByte (5) is 1 byte");
     Expect(il2cpp_marshal_size_of(6) == 1, "Byte (6) is 1 byte");
     Expect(il2cpp_marshal_size_of(7) == 2, "Int16 (7) is 2 bytes");
@@ -118,8 +118,8 @@ int main()
     Expect(il2cpp_marshal_offset_of(1, 3, mixedLayout) == 4, "offset of field 1 is 4");
     Expect(il2cpp_marshal_offset_of(2, 3, mixedLayout) == 12, "offset of field 2 is 12");
     int32_t smallLayout[3] = { 3, 13, 15 }; // bool, float, decimal
-    Expect(il2cpp_marshal_offset_of(1, 3, smallLayout) == 1, "bool+float: field 1 at 1");
-    Expect(il2cpp_marshal_offset_of(2, 3, smallLayout) == 5, "decimal field at 5");
+    Expect(il2cpp_marshal_offset_of(1, 3, smallLayout) == 4, "bool+float: field 1 at 4");
+    Expect(il2cpp_marshal_offset_of(2, 3, smallLayout) == 8, "decimal field at 8");
     Expect(ThrowsDotNet([&] { (void)il2cpp_marshal_offset_of(3, 3, mixedLayout); }, kArgumentOutOfRange),
            "fieldIndex == fieldCount -> ArgumentOutOfRangeException");
     Expect(ThrowsDotNet([&] { (void)il2cpp_marshal_offset_of(-1, 3, mixedLayout); }, kArgumentOutOfRange),

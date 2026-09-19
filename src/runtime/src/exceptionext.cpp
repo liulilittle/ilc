@@ -6,9 +6,9 @@
 // exception text in the OS culture and appends the parameter-name line to the
 // Message property. On the zh-CN e2e oracle host (net48 probe-verified):
 //   new ArgumentNullException("param").Message
-//     -> "值不能为 null。" "\n" "参数名: param"
+//     -> "值不能为 null。" "\r\n" "参数名: param"
 //   new ArgumentOutOfRangeException("index", "out of range").Message
-//     -> "out of range" "\n" "参数名: index"
+//     -> "out of range" "\r\n" "参数名: index"
 // The composed text below therefore uses the zh-CN host strings and the
 // .NET Framework two-line format (NOT .NET Core's one-line "(Parameter 'x')"
 // suffix). The zh-CN text is encoded as UTF-8 byte escapes (source-encoding
@@ -92,17 +92,20 @@ char* ComposeMessage(const char* const* parts, int32_t count)
 }
 
 // ArgumentNullException / ArgumentOutOfRangeException Message:
-// baseMessage + "\n" + "参数名: <paramName>" (net48 zh-CN format). The line is
-// appended only for a NON-empty paramName (net48 ArgumentException.Message
-// checks string.IsNullOrEmpty); a null/empty paramName yields the base
-// message alone.
+// baseMessage + "\r\n" + "参数名: <paramName>" (net48 zh-CN format). The
+// separator is CRLF: .NET Framework composes this line with
+// Environment.NewLine (byte-probe of the net48 oracle: `...null。` 0D 0A
+// `参数名: param`); a bare "\n" is 2 bytes short of the oracle output. The
+// line is appended only for a NON-empty paramName (net48 ArgumentException.
+// Message checks string.IsNullOrEmpty); a null/empty paramName yields the
+// base message alone.
 const char* ComposeParamNameMessage(const char* baseMessage, const char* paramName)
 {
     if (paramName == nullptr || paramName[0] == '\0')
     {
         return baseMessage;
     }
-    const char* parts[4] = { baseMessage, "\n", kParamNamePrefix, paramName };
+    const char* parts[4] = { baseMessage, "\r\n", kParamNamePrefix, paramName };
     return ComposeMessage(parts, 4);
 }
 
@@ -200,6 +203,19 @@ void il2cpp_throw_not_supported_exception(const char* message)
 {
     il2cpp_throw_new("System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
                      message != nullptr ? message : "Specified method is not supported.");
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_throw_time_zone_not_found_exception -- System.TimeZoneNotFoundException.
+// TZEXC: net48 hierarchy is TimeZoneNotFoundException : SystemException :
+// Exception; the registry's unknown-id boundary uses this factory so a typed
+// catch (TimeZoneNotFoundException) matches (chain leads with the real full
+// name, same contract as il2cpp_throw_key_not_found_exception below).
+//------------------------------------------------------------------------------
+void il2cpp_throw_time_zone_not_found_exception(const char* message)
+{
+    il2cpp_throw_new("System.TimeZoneNotFoundException,System.TimeZoneNotFoundException,System.SystemException,System.Exception",
+                     message != nullptr ? message : "The time zone was not found on the local computer.");
 }
 
 //------------------------------------------------------------------------------

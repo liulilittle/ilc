@@ -21,6 +21,10 @@ public sealed class FieldDef
     public required TypeDef Owner { get; init; }
     public bool IsStatic { get; init; }
     public bool IsLiteral { get; init; }   // const field
+    // net48 reflection visibility: GetField/GetFields bind Public by default;
+    // the runtime typeinfo table encodes this as il2cpp field flags bit0
+    // (raudit3/proprefl).
+    public bool IsPublic { get; init; }
     public string? ConstantValue { get; init; }
 
     // M2 field type classification (see TypeKind above):
@@ -47,6 +51,13 @@ public sealed class FieldDef
     // fix that fills TypeKind/FieldTypeName for static fields needs no model
     // change -- this FieldDef already carries it.
     public string FieldTypeName { get; init; } = "";
+
+    // R2b P2 (parallel VAR channel): the field signature's type byte is a
+    // generic parameter (0x13 VAR / 0x1E MVAR). TypeKind/FieldTypeName keep
+    // the M3 default (Int32/"") -- this flag lets a closed generic clone
+    // render T as its concrete C++ storage (Il2CppObject* for reference
+    // instantiations) without disturbing the definition's default-int path.
+    public bool IsGenericVar { get; init; }
 
     // IsReference (computed): the field is a managed GC reference
     // (TypeKind == Reference). Convenience mirror of TypeKind -- the reference/

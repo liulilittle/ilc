@@ -33,7 +33,8 @@ public class InlinePassTests
     private static Expr Bin(BinaryOp op, Expr l, Expr r) => new BinaryExpr { Op = op, Left = l, Right = r };
 
     private static InlineCandidate Candidate(string function, int paramCount, List<Stmt> body,
-        bool returnsVoid = false, bool returnsRef = false, bool eh = false, bool isVirtual = false) => new()
+        bool returnsVoid = false, bool returnsRef = false, bool eh = false, bool isVirtual = false,
+        string[]? localKinds = null) => new()
     {
         Function = function,
         ParamCount = paramCount,
@@ -42,6 +43,7 @@ public class InlinePassTests
         HasExceptionRegions = eh,
         IsVirtual = isVirtual,
         Body = body,
+        LocalKinds = localKinds ?? Array.Empty<string>(),
     };
 
     private static Func<string, InlineCandidate?> Lookup(params InlineCandidate[] c)
@@ -75,6 +77,57 @@ public class InlinePassTests
         FieldAssignStmt f => ExprContainsCall(f.Object) || ExprContainsCall(f.Value),
         _ => false,
     };
+
+    //--------------------------------------------------------------------------
+    // D1 gate (diffdt001 dt.hash): a body DEFINING a struct-typed local must
+    // not inline -- the emitter declares inline temps from expression kinds
+    // (int32 default for user calls), so HashProbe's `loc0 = D6()` would
+    // become `inl1 = D6()` with `int32_t inl1` (g++ "cannot convert
+    // Il2CppDateTime to int32_t").
+    //--------------------------------------------------------------------------
+
+    [Fact]
+    public void StructLocalDefiningBody_StaysACall_NoInline()
+    {
+        // void HashProbe() { loc0(DateTime) = D6(); ... } -- the loc0 def
+        // carries struct kind "v:System.DateTime".
+        var callee = Candidate("call_20", 0, new List<Stmt>
+        {
+            new AssignStmt { Target = "loc0", Value = new CallExpr { Function = "Cases_Prog_D6_xxx" } },
+            new RetStmt { Value = null },
+        }, returnsVoid: true, localKinds: new[] { "v:System.DateTime" });
+        var caller = new List<Stmt>
+        {
+            new CallStmt { Function = "call_20" },
+            new RetStmt { Value = null },
+        };
+
+        var result = InlinePass.Inline(caller, Lookup(callee));
+
+        Assert.Equal(0, result.Inlined);
+        Assert.IsType<CallStmt>(result.Stmts[0]);
+    }
+
+    [Fact]
+    public void IntLocalDefiningBody_StillInlines()
+    {
+        // Control: the same shape with an int32 local kind inlines as
+        // before (the gate only fires on struct kinds).
+        var callee = Candidate("call_21", 0, new List<Stmt>
+        {
+            new AssignStmt { Target = "loc0", Value = I(42) },
+            new RetStmt { Value = null },
+        }, returnsVoid: true, localKinds: new[] { "i" });
+        var caller = new List<Stmt>
+        {
+            new CallStmt { Function = "call_21" },
+            new RetStmt { Value = null },
+        };
+
+        var result = InlinePass.Inline(caller, Lookup(callee));
+
+        Assert.Equal(1, result.Inlined);
+    }
 
     //--------------------------------------------------------------------------
     // Basic expansion

@@ -120,7 +120,7 @@ void ExpectG(const Il2CppDecimal& d, const char* expected)
 void ExpectCustom(const Il2CppDecimal& d, const char* fmt, const char* expected)
 {
     il2cpp::Il2CppString* f = il2cpp::il2cpp_string_new_from_cs(fmt);
-    Expect(StringIs(icall_decimal_to_string_custom(&d, f), expected), expected);
+    Expect(StringIs(icall_decimal_to_string_custom(&d, f, nullptr), expected), expected);
 }
 
 // Custom-format must throw FormatException (invalid specifier contract).
@@ -129,7 +129,7 @@ void ExpectCustomThrowsFormat(const char* what, const Il2CppDecimal& d, const ch
     bool caught = false;
     try
     {
-        (void)icall_decimal_to_string_custom(&d, il2cpp::il2cpp_string_new_from_cs(fmt));
+        (void)icall_decimal_to_string_custom(&d, il2cpp::il2cpp_string_new_from_cs(fmt), nullptr);
     }
     catch (const il2cpp::DotNetException& e)
     {
@@ -226,7 +226,7 @@ int main()
     // null format == G; "" == G; "G"/"g" == G; precision ignored for G.
     {
         const Il2CppDecimal d = MakeDec(15, 1);
-        Expect(StringIs(icall_decimal_to_string_custom(&d, nullptr), "1.5"),
+        Expect(StringIs(icall_decimal_to_string_custom(&d, nullptr, nullptr), "1.5"),
                "custom(null format) == G");
     }
     ExpectCustom(MakeDec(15, 1), "", "1.5");
@@ -287,18 +287,18 @@ int main()
     // --- 6. C: currency (fixed '¥' culture contract, formatext precedent) ---
     {
         il2cpp::Il2CppString* s = icall_decimal_to_string_custom(
-            &(const Il2CppDecimal&)MakeDec(15, 1), il2cpp::il2cpp_string_new_from_cs("C"));
+            &(const Il2CppDecimal&)MakeDec(15, 1), il2cpp::il2cpp_string_new_from_cs("C"), nullptr);
         Expect(StringIs16(s, u"\u00A5""1.50", 5), "C of 1.5 == \"\xA5""1.50\"");
     }
     {
         il2cpp::Il2CppString* s = icall_decimal_to_string_custom(
-            &(const Il2CppDecimal&)MakeDec(15, 1), il2cpp::il2cpp_string_new_from_cs("C2"));
+            &(const Il2CppDecimal&)MakeDec(15, 1), il2cpp::il2cpp_string_new_from_cs("C2"), nullptr);
         Expect(StringIs16(s, u"\u00A5""1.50", 5), "C2 of 1.5 == \"\xA5""1.50\"");
     }
     {
         il2cpp::Il2CppString* s = icall_decimal_to_string_custom(
             &(const Il2CppDecimal&)MakeDec(12345, 1, true),
-            il2cpp::il2cpp_string_new_from_cs("C"));
+            il2cpp::il2cpp_string_new_from_cs("C"), nullptr);
         Expect(StringIs16(s, u"\u00A5-1,234.50", 10), "C of -1234.5 == \"\xA5-1,234.50\"");
     }
 

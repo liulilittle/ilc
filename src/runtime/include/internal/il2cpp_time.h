@@ -34,13 +34,15 @@
 namespace il2cpp {
 namespace runtime {
 
-// DateTime value: 100 ns ticks since 0001-01-01T00:00:00 (UTC semantics).
+// DateTimeKind: Unspecified=0, Utc=1, Local=2 (System.DateTimeKind).
 struct Il2CppDateTime
 {
     int64_t ticks;
+    int32_t kind; // default 0 = Unspecified (net48 part-ctors / zone-less Parse)
 
-    constexpr Il2CppDateTime() : ticks(0) {}
-    explicit constexpr Il2CppDateTime(int64_t value) : ticks(value) {}
+    constexpr Il2CppDateTime() : ticks(0), kind(0) {}
+    explicit constexpr Il2CppDateTime(int64_t value) : ticks(value), kind(0) {}
+    constexpr Il2CppDateTime(int64_t value, int32_t k) : ticks(value), kind(k) {}
 };
 
 // TimeSpan value: signed 100 ns tick count (a DateTime difference).
@@ -67,6 +69,11 @@ Il2CppDateTime icall_datetime_now();
 Il2CppDateTime icall_datetime_from_ymd(int32_t year, int32_t month, int32_t day);
 Il2CppDateTime icall_datetime_from_ymdhms(int32_t year, int32_t month, int32_t day,
                                           int32_t hour, int32_t minute, int32_t second);
+// bcldeep: DateTime(y,m,d,h,mi,s,DateTimeKind) -- the kind argument is STORED
+// (net48: ticks stay raw; kind must be 0..2, else ArgumentException "kind").
+Il2CppDateTime icall_datetime_from_ymdhms_kind(int32_t year, int32_t month, int32_t day,
+                                               int32_t hour, int32_t minute, int32_t second,
+                                               int32_t kind);
 // DateTime(y,m,d,h,mi,s,ms): the 7-arg millisecond ctor (D5 cov3); the ms
 // component (0..999) composes onto the second boundary.
 Il2CppDateTime icall_datetime_from_ymdhms_ms(int32_t year, int32_t month, int32_t day,
@@ -78,6 +85,9 @@ Il2CppDateTime icall_datetime_from_ymdhms_ms(int32_t year, int32_t month, int32_
 // (validated against the net48 range [0, kMaxDateTimeTicks]).
 //------------------------------------------------------------------------------
 Il2CppDateTime icall_datetime_from_ticks(int64_t ticks);
+// bcldeep: DateTime(long ticks, DateTimeKind) -- raw ticks + the stored kind
+// (kind validation as the ymdhms kind ctor above).
+Il2CppDateTime icall_datetime_from_ticks_kind(int64_t ticks, int32_t kind);
 
 // ToFileTimeUtc: ticks + the 1601-epoch offset (see time.cpp); a result
 // below zero throws ArgumentOutOfRangeException.
@@ -85,6 +95,13 @@ int64_t icall_datetime_to_file_time_utc(Il2CppDateTime dt);
 // FromFileTimeUtc: the inverse conversion; out-of-range input throws
 // ArgumentOutOfRangeException.
 Il2CppDateTime icall_datetime_from_file_time_utc(int64_t fileTime);
+
+// DateTime.GetHashCode (D1 diffdt001 dt.hash): net48 ticks-fold --
+// unchecked((int)ticks) ^ (int)(ticks >> 32) (referencesource
+// mscorlib/system/datetime.cs). Oracle: D6 ticks 637185764960000000 ->
+// -1061690093 (exact-integer verified, powershell float-division
+// misled once: hi=148356371, not 148356372).
+int32_t icall_datetime_get_hash_code(Il2CppDateTime dt);
 
 //------------------------------------------------------------------------------
 // System.DateTime -- component accessors (Year/Month/Day/Hour/Minute/Second).

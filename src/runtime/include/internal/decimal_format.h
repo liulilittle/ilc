@@ -78,9 +78,12 @@ Il2CppString* icall_decimal_to_string(const Il2CppDecimal* value);
 
 // ToString(string format): G/F/N/E/P/C subset per the header comment. null
 // and "" select G. Unknown specifier / precision > 99 / trailing junk ->
-// FormatException. 'format' may be null.
+// FormatException. 'format' may be null. 'provider' (cultureprobe): the
+// optional IFormatProvider -- nullptr/non-empty name -> zh-CN ("n%", U+00A5,
+// "¥-n"); empty-name (invariant) -> "n %" and U+00A4 with "(¤n)" negatives.
 Il2CppString* icall_decimal_to_string_custom(const Il2CppDecimal* value,
-                                             Il2CppString* format);
+                                             Il2CppString* format,
+                                             Il2CppObject* provider);
 
 // Parse(string): net48 semantics per the header comment. On success writes
 // the value into 'result'. Throws ArgumentNullException (null text),

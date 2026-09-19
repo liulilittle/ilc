@@ -34,6 +34,8 @@
 #include "arraysort.h"
 
 #include "dictsi_obj.h" // P25d: Dictionary<string,int> wrapper + snap enumerator
+#include "listobj.h" // ilistException: List<object> wrapper + snapshot enumerator re-use
+#include "il2cpp_array_ext2.h"
 #include "il2cpp_boxing_ext.h"
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception.h"
@@ -41,7 +43,9 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
+#include "string_compare.h" // a5reds: ordinal / ordinal-ignore-case helpers
 #include "sortedlist.h" // P25d: array snapshot enumerator re-use
+#include "sortedlistint_obj.h" // P3-extra: SortedList<string,int> values view enumerator
 #include "typeinfo.h"
 
 #include <cstdint>
@@ -84,6 +88,45 @@ Il2CppObject System_Collections_Comparer_singleton = {
     &System_Collections_Comparer_class,
 };
 
+//------------------------------------------------------------------------------
+// a5reds (strsort_ordinal): the System.StringComparer ordinal singletons.
+// Same contract as the Comparer.Default singleton above: static objects with
+// a name-bearing klass, identified by pointer identity in the comparer sort
+// (il2cpp_array_sort_icomparer) and in the defensive forward in
+// il2cpp_array_sort_ref_comparison. Registered lazily by the getters.
+//------------------------------------------------------------------------------
+Il2CppClass System_StringComparer_Ordinal_class = {
+    "System.StringComparer.Ordinal",                     // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize: header only
+    0u,                                          // refFieldBitmap
+    0,                                           // refFieldCount
+    nullptr,                                     // baseClass (System.Object root)
+    nullptr,                                     // vtable
+    0,                                           // vtableSize
+    nullptr,                                     // interfaces
+    0,                                           // interfaceCount
+};
+
+Il2CppObject System_StringComparer_Ordinal_singleton = {
+    &System_StringComparer_Ordinal_class,
+};
+
+Il2CppClass System_StringComparer_OrdinalIgnoreCase_class = {
+    "System.StringComparer.OrdinalIgnoreCase",           // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize: header only
+    0u,                                          // refFieldBitmap
+    0,                                           // refFieldCount
+    nullptr,                                     // baseClass (System.Object root)
+    nullptr,                                     // vtable
+    0,                                           // vtableSize
+    nullptr,                                     // interfaces
+    0,                                           // interfaceCount
+};
+
+Il2CppObject System_StringComparer_OrdinalIgnoreCase_singleton = {
+    &System_StringComparer_OrdinalIgnoreCase_class,
+};
+
 namespace {
 
 // The '[' prefix marks an array class descriptor (array.cpp convention).
@@ -91,6 +134,14 @@ const char kArrayClassMarker = '[';
 
 // The System.String descriptor name (string.cpp registration).
 const char kStringTypeName[] = "System.String";
+
+// net48 ArraySortHelper / List.Sort comparer-failure wrap message (zh-CN
+// oracle, see the patch header; UTF-8 byte escapes -- the exceptionext.cpp
+// convention).
+const char* kComparerFailedMessage =
+    "\xE6\x9C\xAA\xE8\x83\xBD\xE6\xAF\x94\xE8\xBE\x83\xE6\x95\xB0\xE7\xBB\x84"
+    "\xE4\xB8\xAD\xE7\x9A\x84\xE4\xB8\xA4\xE4\xB8\xAA\xE5\x85\x83\xE7\xB4\xA0"
+    "\xE3\x80\x82";
 
 // ArrayTypeMismatchException chain (type + base classes, exception.cpp
 // catch-matcher walks the chain after the first comma). The type is
@@ -470,6 +521,131 @@ void il2cpp_array_sort_string(Il2CppArray* arr)
 }
 
 //------------------------------------------------------------------------------
+// W7: the net48 floating-point total order (Double.CompareTo /
+// Single.CompareTo): NaN sorts before any non-NaN; NaN vs NaN equal; -0.0
+// == +0.0. Plain </> cannot express this (NaN compares false both ways),
+// so the double/float sorts and searches go through these verdicts.
+//------------------------------------------------------------------------------
+inline int32_t DoubleCompareTotal(double x, double y)
+{
+    if (x < y) return -1;
+    if (x > y) return 1;
+    if (x == y) return 0; // folds -0.0 == +0.0
+    const bool xn = x != x;
+    const bool yn = y != y;
+    if (xn) return yn ? 0 : -1; // NaN first; NaN vs NaN equal
+    return 1;
+}
+
+inline bool DoubleEqualsNet(double x, double y)
+{
+    // .NET Double.Equals: NaN == NaN true; +0.0 == -0.0 (== covers it).
+    return x == y || (x != x && y != y);
+}
+
+// Hoare-partition quicksort over doubles in the total order above
+// (same shape as QuickSortValues, ordered by verdict instead of </>).
+void QuickSortDoubles(double* data, int32_t lo, int32_t hi)
+{
+    while (lo < hi)
+    {
+        const double pivot = data[lo + (hi - lo) / 2];
+        int32_t i = lo;
+        int32_t j = hi;
+        while (i <= j)
+        {
+            while (DoubleCompareTotal(data[i], pivot) < 0)
+            {
+                ++i;
+            }
+            while (DoubleCompareTotal(data[j], pivot) > 0)
+            {
+                --j;
+            }
+            if (i <= j)
+            {
+                const double tmp = data[i];
+                data[i] = data[j];
+                data[j] = tmp;
+                ++i;
+                --j;
+            }
+        }
+        if (j - lo < hi - i)
+        {
+            QuickSortDoubles(data, lo, j);
+            lo = i;
+        }
+        else
+        {
+            QuickSortDoubles(data, i, hi);
+            hi = j;
+        }
+    }
+}
+
+// Same total order over float elements (comparison widens to double --
+// exact for every float bit pattern, including NaN and -0.0).
+void QuickSortFloats(float* data, int32_t lo, int32_t hi)
+{
+    while (lo < hi)
+    {
+        const float pivot = data[lo + (hi - lo) / 2];
+        int32_t i = lo;
+        int32_t j = hi;
+        while (i <= j)
+        {
+            while (DoubleCompareTotal(static_cast<double>(data[i]), static_cast<double>(pivot)) < 0)
+            {
+                ++i;
+            }
+            while (DoubleCompareTotal(static_cast<double>(data[j]), static_cast<double>(pivot)) > 0)
+            {
+                --j;
+            }
+            if (i <= j)
+            {
+                const float tmp = data[i];
+                data[i] = data[j];
+                data[j] = tmp;
+                ++i;
+                --j;
+            }
+        }
+        if (j - lo < hi - i)
+        {
+            QuickSortFloats(data, lo, j);
+            lo = i;
+        }
+        else
+        {
+            QuickSortFloats(data, i, hi);
+            hi = j;
+        }
+    }
+}
+
+void il2cpp_array_sort_double(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(double));
+    if (a->length > 1)
+    {
+        QuickSortDoubles(reinterpret_cast<double*>(a->data), 0, a->length - 1);
+    }
+}
+
+void il2cpp_array_sort_float(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(float));
+    if (a->length > 1)
+    {
+        QuickSortFloats(reinterpret_cast<float*>(a->data), 0, a->length - 1);
+    }
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_array_sort_object -- Array.Sort<T>(T[], Comparison<T>) (see
 // header). Reference-array quicksort driven by the caller's comparator
 // callback (the transpiler passes the compiled Comparison<T> as a plain
@@ -486,8 +662,15 @@ void il2cpp_array_sort_object(Il2CppArray* arr, ArrayCompareFn compare)
     }
     if (a->length > 1)
     {
-        QuickSortRefs(reinterpret_cast<Il2CppObject**>(a->data), 0, a->length - 1,
-                      compare);
+        try
+        {
+            QuickSortRefs(reinterpret_cast<Il2CppObject**>(a->data), 0, a->length - 1,
+                          compare);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
     }
 }
 
@@ -564,8 +747,15 @@ void il2cpp_array_sort_object(Il2CppArray* arr, int32_t index, int32_t length,
     }
     if (length > 1)
     {
-        QuickSortRefs(reinterpret_cast<Il2CppObject**>(a->data), index,
-                      index + length - 1, compare);
+        try
+        {
+            QuickSortRefs(reinterpret_cast<Il2CppObject**>(a->data), index,
+                          index + length - 1, compare);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
     }
 }
 
@@ -745,6 +935,26 @@ int32_t il2cpp_array_index_of_string(Il2CppArray* arr, Il2CppObject* value)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_array_index_of_double -- Array.IndexOf<double> (see header).
+// Linear first-match scan with Double.Equals semantics (a NaN needle finds
+// the first NaN slot, matching EqualityComparer<double>.Default).
+//------------------------------------------------------------------------------
+int32_t il2cpp_array_index_of_double(Il2CppArray* arr, double value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(double));
+    const double* data = reinterpret_cast<const double*>(a->data);
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        if (DoubleEqualsNet(data[i], value))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_array_binary_search_int32/int64 -- Array.BinarySearch<T> (see
 // header). Lower-bound scan; a miss returns the complement of the insertion
 // point. An empty array always returns -1 (= ~0).
@@ -795,6 +1005,92 @@ int32_t il2cpp_array_binary_search_string(Il2CppArray* arr, Il2CppObject* value)
         return at;
     }
     return ~at; // missing: complement of the insertion point
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_array_binary_search_double -- Array.BinarySearch<double> (see
+// header). Total-order lower bound on an ASCENDING double array (NaN sorts
+// first, so a NaN needle's insertion point is 0); a match uses
+// Double.Equals (NaN finds NaN); a miss returns the complement.
+//------------------------------------------------------------------------------
+int32_t il2cpp_array_binary_search_double(Il2CppArray* arr, double value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(double));
+    const double* data = reinterpret_cast<const double*>(a->data);
+    int32_t lo = 0;
+    int32_t hi = a->length;
+    while (lo < hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        if (DoubleCompareTotal(data[mid], value) < 0)
+        {
+            lo = mid + 1;
+        }
+        else
+        {
+            hi = mid;
+        }
+    }
+    if (lo < a->length && DoubleEqualsNet(data[lo], value))
+    {
+        return lo;
+    }
+    return ~lo; // missing: complement of the insertion point
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_array_last_index_of_double/long/string -- Array.LastIndexOf<T>
+// (see header). Reverse first-match scans; -1 when absent (also for an
+// empty array). Double uses Double.Equals (a NaN needle finds the last NaN
+// slot); string uses the ordinal comparison (a null needle matches the
+// last null slot).
+//------------------------------------------------------------------------------
+int32_t il2cpp_array_last_index_of_double(Il2CppArray* arr, double value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(double));
+    const double* data = reinterpret_cast<const double*>(a->data);
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        if (DoubleEqualsNet(data[i], value))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t il2cpp_array_last_index_of_long(Il2CppArray* arr, int64_t value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(int64_t));
+    const int64_t* data = reinterpret_cast<const int64_t*>(a->data);
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        if (data[i] == value)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t il2cpp_array_last_index_of_string(Il2CppArray* arr, Il2CppObject* value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRefArraySort(a);
+    const Il2CppString* needle = AsStringOrNull(value);
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        if (CompareOrdinal(reinterpret_cast<const Il2CppString*>(slots[i]),
+                           needle) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
 }
 
 //==============================================================================
@@ -948,6 +1244,8 @@ void QuickSortRefArray(Il2CppArray** pa, int32_t lo, int32_t hi, CompareRef comp
     }
 }
 
+} // namespace
+
 //------------------------------------------------------------------------------
 // FindVirtualSlotByName -- resolve a virtual slot by METHOD NAME through the
 // registered typeinfo (typeinfo.h). The transpiler emits one typeinfo per
@@ -974,6 +1272,44 @@ int32_t FindVirtualSlotByName(Il2CppObject* obj, const char* name)
     return m->virtualSlot;
 }
 
+//------------------------------------------------------------------------------
+// FindVirtualSlotByNameAndSignature -- baudit2: the overload-safe sibling of
+// FindVirtualSlotByName. Scans the receiver's typeinfo method table (own
+// table first, then the baseType chain -- an inherited override still
+// dispatches) for a method with the exact NAME whose encoded signature
+// CONTAINS signatureFragment, and returns its vtable slot. The fragment is
+// what makes the Object.Equals dispatch safe: a user type declaring
+// Equals(T) before Equals(object) has the IEquatable<T> slot first, and
+// calling it through the (this, object) ABI would break (the boxingext2
+// signature-matched dispatch precedent). -1 when nothing matches.
+//------------------------------------------------------------------------------
+int32_t FindVirtualSlotByNameAndSignature(Il2CppObject* obj, const char* name,
+                                          const char* signatureFragment)
+{
+    if (obj == nullptr || obj->klass == nullptr || obj->klass->name == nullptr ||
+        name == nullptr || signatureFragment == nullptr)
+    {
+        return -1;
+    }
+    for (const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(obj->klass->name);
+         info != nullptr; info = info->baseType)
+    {
+        for (int32_t i = 0; i < info->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = info->methods[i];
+            if (m.name != nullptr && m.signature != nullptr &&
+                std::strcmp(m.name, name) == 0 &&
+                std::strstr(m.signature, signatureFragment) != nullptr)
+            {
+                return m.virtualSlot;
+            }
+        }
+    }
+    return -1;
+}
+
+namespace {
+
 // The IComparable.CompareTo ABI: int32_t (*)(this, other).
 using IComparableCompareFn = int32_t (*)(Il2CppObject*, Il2CppObject*);
 
@@ -983,9 +1319,58 @@ using IComparerCompareFn = int32_t (*)(Il2CppObject*, Il2CppObject*, Il2CppObjec
 //------------------------------------------------------------------------------
 // ComparerCompareCore -- the DEFAULT comparer's Compare(object, object) (net48
 // Comparer semantics): null first (null == null, null < non-null), string
-// pairs ordinal, builtin boxes by value, everything else falls back to the
-// first argument's IComparable.CompareTo.
+// pairs CULTURE (Comparer<string>.Default -- String.CompareTo; shared
+// CompareCulture), builtin boxes by value with the SECOND operand's type
+// validated (net48 Int32.CompareTo(object) throws ArgumentException("Object
+// must be of type Int32.") for a foreign type), everything else falls back to
+// the first argument's IComparable.CompareTo.
 //------------------------------------------------------------------------------
+namespace {
+
+// The net48 ArgumentException message for a foreign second operand
+// ("Object must be of type Int32." etc.).
+void ThrowComparandTypeMismatch(const char* typeName)
+{
+    // "Object must be of type <name>." -- built without <string>.
+    char message[96];
+    int i = 0;
+    const char* prefix = "Object must be of type ";
+    while (*prefix != '\0' && i < 60)
+    {
+        message[i++] = *prefix++;
+    }
+    while (*typeName != '\0' && i < 90)
+    {
+        message[i++] = *typeName++;
+    }
+    message[i++] = '.';
+    message[i] = '\0';
+    il2cpp_throw_argument_exception(message);
+}
+
+bool SameKlassName(const Il2CppObject* a, const Il2CppObject* b)
+{
+    return b->klass != nullptr && b->klass->name != nullptr
+        && a->klass->name != nullptr
+        && std::strcmp(a->klass->name, b->klass->name) == 0;
+}
+
+bool HasVirtualSlot(Il2CppObject* obj, const char* name)
+{
+    const int32_t slot = FindVirtualSlotByName(obj, name);
+    return slot >= 0 && obj->klass->vtable != nullptr
+        && slot < obj->klass->vtableSize && obj->klass->vtable[slot] != nullptr;
+}
+
+int32_t CallVirtualInt32(Il2CppObject* obj, const char* name, Il2CppObject* other)
+{
+    const int32_t slot = FindVirtualSlotByName(obj, name);
+    using CompareToFn = int32_t (*)(Il2CppObject*, Il2CppObject*);
+    return reinterpret_cast<CompareToFn>(obj->klass->vtable[slot])(obj, other);
+}
+
+} // namespace
+
 int32_t ComparerCompareCore(Il2CppObject* a, Il2CppObject* b)
 {
     if (a == nullptr)
@@ -1003,13 +1388,19 @@ int32_t ComparerCompareCore(Il2CppObject* a, Il2CppObject* b)
     const char* const an = a->klass->name;
     if (std::strcmp(an, kStringTypeName) == 0)
     {
-        // String pair: ordinal (the ILC divergence, sortdeep precedent). A
-        // non-string 'b' with a string 'a' is a .NET type mismatch that this
-        // domain treats as an ordinal-vs-garbage hazard -- validate the second.
-        return CompareOrdinal(AsStringOrNull(a), AsStringOrNull(b));
+        // String pair: CULTURE (Comparer<string>.Default == String.CompareTo),
+        // the SAME comparator Array.Sort(string[]) uses. A non-string 'b' is
+        // the net48 type mismatch (String.CompareTo(object) throws).
+        if (!SameKlassName(a, b))
+        {
+            ThrowComparandTypeMismatch("String");
+        }
+        return runtime::CompareCulture(reinterpret_cast<const Il2CppString*>(a),
+                                       reinterpret_cast<const Il2CppString*>(b));
     }
     if (std::strcmp(an, "System.Int32") == 0)
     {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Int32");
         const int32_t x = *reinterpret_cast<int32_t*>(
             reinterpret_cast<char*>(a) + sizeof(void*));
         const int32_t y = *reinterpret_cast<int32_t*>(
@@ -1018,22 +1409,50 @@ int32_t ComparerCompareCore(Il2CppObject* a, Il2CppObject* b)
     }
     if (std::strcmp(an, "System.UInt32") == 0)
     {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("UInt32");
         const uint32_t x = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(
             reinterpret_cast<char*>(a) + sizeof(void*)));
         const uint32_t y = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(
             reinterpret_cast<char*>(b) + sizeof(void*)));
         return x < y ? -1 : (x > y ? 1 : 0);
     }
-    if (std::strcmp(an, "System.Int64") == 0 || std::strcmp(an, "System.UInt64") == 0)
+    if (std::strcmp(an, "System.Int64") == 0)
     {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Int64");
+        const int64_t x = *reinterpret_cast<int64_t*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const int64_t y = *reinterpret_cast<int64_t*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        return x < y ? -1 : (x > y ? 1 : 0);
+    }
+    if (std::strcmp(an, "System.UInt64") == 0)
+    {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("UInt64");
         const uint64_t x = *reinterpret_cast<uint64_t*>(
             reinterpret_cast<char*>(a) + sizeof(void*));
         const uint64_t y = *reinterpret_cast<uint64_t*>(
             reinterpret_cast<char*>(b) + sizeof(void*));
         return x < y ? -1 : (x > y ? 1 : 0);
     }
-    if (std::strcmp(an, "System.Double") == 0 || std::strcmp(an, "System.Single") == 0)
+    if (std::strcmp(an, "System.Single") == 0)
     {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Single");
+        // M4 ABI (boxingext2.cpp icall_box_float/AllocBoxed64): the
+        // System.Single box stores the float WIDENED TO DOUBLE in the aligned
+        // 8-byte payload slot (the type system carries float as double; the
+        // widening is exact). Reading a 4-byte float here truncated the
+        // payload -- -1.5f/1.5f both read back as +0.0f and every sign probe
+        // collapsed to 0 (comparerdeep regression). Read the double, exactly
+        // like the System.Double arm below.
+        const double x = *reinterpret_cast<double*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const double y = *reinterpret_cast<double*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        return x < y ? -1 : (x > y ? 1 : 0);
+    }
+    if (std::strcmp(an, "System.Double") == 0)
+    {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Double");
         const double x = *reinterpret_cast<double*>(
             reinterpret_cast<char*>(a) + sizeof(void*));
         const double y = *reinterpret_cast<double*>(
@@ -1042,6 +1461,7 @@ int32_t ComparerCompareCore(Il2CppObject* a, Il2CppObject* b)
     }
     if (std::strcmp(an, "System.Char") == 0)
     {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Char");
         const int32_t x = *reinterpret_cast<int32_t*>(
             reinterpret_cast<char*>(a) + sizeof(void*));
         const int32_t y = *reinterpret_cast<int32_t*>(
@@ -1050,14 +1470,32 @@ int32_t ComparerCompareCore(Il2CppObject* a, Il2CppObject* b)
     }
     if (std::strcmp(an, "System.Boolean") == 0)
     {
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Boolean");
         const bool x = *reinterpret_cast<int32_t*>(
             reinterpret_cast<char*>(a) + sizeof(void*)) != 0;
         const bool y = *reinterpret_cast<int32_t*>(
             reinterpret_cast<char*>(b) + sizeof(void*)) != 0;
         return x < y ? -1 : (x > y ? 1 : 0);
     }
-    // net48 fallback: ((IComparable)a).CompareTo(b).
-    return il2cpp_icomparable_compare_to(a, b);
+    // net48 Comparer.Compare fallback (caudit3):
+    //   a as IComparable -> a.CompareTo(b);
+    //   else b as IComparable -> -b.CompareTo(a);
+    //   else throw ArgumentException("At least one object must implement
+    //   IComparable.").
+    // The reflected virtual slot comes from the SAME typeinfo resolver the
+    // IComparable dispatcher uses (FindVirtualSlotByName -- shared via
+    // arraysort.h with the object-equals patch).
+    if (HasVirtualSlot(a, "CompareTo"))
+    {
+        return CallVirtualInt32(a, "CompareTo", b);
+    }
+    if (HasVirtualSlot(b, "CompareTo"))
+    {
+        return -CallVirtualInt32(b, "CompareTo", a);
+    }
+    il2cpp_throw_argument_exception(
+        "At least one object must implement IComparable.");
+    return 0; // unreachable (the factory throws)
 }
 
 //------------------------------------------------------------------------------
@@ -1110,21 +1548,72 @@ struct I4ComparerCompare
 };
 
 // The comparer-driven reference comparison (elements are already objects).
+// a5reds (strsort_ordinal): the StringComparer singletons get a dedicated
+// ordinal element comparison; everything else keeps the existing dispatch.
+enum class RefComparerMode
+{
+    Dispatch,         // a user IComparer object: il2cpp_icomparer_compare
+    Default,          // null / Comparer.Default singleton: ComparerCompareCore
+    Ordinal,          // StringComparer.Ordinal singleton
+    OrdinalIgnoreCase // StringComparer.OrdinalIgnoreCase singleton
+};
+
+// a5reds: the ordinal element comparison. net48 StringComparer null ordering:
+// null == null, null sorts before any non-null; a non-string element is the
+// comparer type mismatch (ArgumentException, the ComparerCompareCore
+// contract) because StringComparer.Compare casts both sides to string.
+int32_t CompareStringOrdinalElement(Il2CppObject* x, Il2CppObject* y, bool ignoreCase)
+{
+    if (x == nullptr)
+    {
+        return y == nullptr ? 0 : -1;
+    }
+    if (y == nullptr)
+    {
+        return 1;
+    }
+    const char* const xn = x->klass != nullptr ? x->klass->name : nullptr;
+    const char* const yn = y->klass != nullptr ? y->klass->name : nullptr;
+    if (xn == nullptr || yn == nullptr ||
+        std::strcmp(xn, kStringTypeName) != 0 || std::strcmp(yn, kStringTypeName) != 0)
+    {
+        ThrowComparandTypeMismatch("String");
+    }
+    const Il2CppString* sx = reinterpret_cast<const Il2CppString*>(x);
+    const Il2CppString* sy = reinterpret_cast<const Il2CppString*>(y);
+    return ignoreCase ? il2cpp_string_compare_ordinal_ignore_case(sx, sy)
+                      : il2cpp_string_compare_ordinal(sx, sy);
+}
+
 struct RefComparerCompare
 {
-    Il2CppObject** comparerSlot; // the ROOTED comparer local
-    bool           isDefault;
+    Il2CppObject**  comparerSlot; // the ROOTED comparer local
+    RefComparerMode mode;
 
     RefComparerCompare(Il2CppObject** slot, bool def)
-        : comparerSlot(slot), isDefault(def)
+        : comparerSlot(slot),
+          mode(def ? RefComparerMode::Default : RefComparerMode::Dispatch)
+    {
+    }
+
+    RefComparerCompare(Il2CppObject** slot, RefComparerMode m)
+        : comparerSlot(slot), mode(m)
     {
     }
 
     int32_t operator()(Il2CppObject* x, Il2CppObject* y) const
     {
-        return isDefault
-            ? ComparerCompareCore(x, y)
-            : il2cpp_icomparer_compare(*comparerSlot, x, y);
+        switch (mode)
+        {
+            case RefComparerMode::Ordinal:
+                return CompareStringOrdinalElement(x, y, false);
+            case RefComparerMode::OrdinalIgnoreCase:
+                return CompareStringOrdinalElement(x, y, true);
+            case RefComparerMode::Default:
+                return ComparerCompareCore(x, y);
+            default:
+                return il2cpp_icomparer_compare(*comparerSlot, x, y);
+        }
     }
 };
 
@@ -1228,6 +1717,24 @@ Il2CppObject* il2cpp_comparer_default(void)
 }
 
 //------------------------------------------------------------------------------
+// a5reds (strsort_ordinal): System.StringComparer::get_Ordinal /
+// get_OrdinalIgnoreCase. See arraysort.h; the singletons are recognized by
+// pointer identity in il2cpp_array_sort_icomparer (and forwarded there from
+// il2cpp_array_sort_ref_comparison).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_string_comparer_ordinal(void)
+{
+    il2cpp_class_register(&System_StringComparer_Ordinal_class);
+    return &System_StringComparer_Ordinal_singleton;
+}
+
+Il2CppObject* il2cpp_string_comparer_ordinal_ignore_case(void)
+{
+    il2cpp_class_register(&System_StringComparer_OrdinalIgnoreCase_class);
+    return &System_StringComparer_OrdinalIgnoreCase_singleton;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_comparer_compare -- System.Collections.Comparer::Compare(object,
 // object) (D-ICMP-2). See the header contract.
 //------------------------------------------------------------------------------
@@ -1256,8 +1763,17 @@ int32_t il2cpp_comparer_compare(Il2CppObject* self, Il2CppObject* a,
 void il2cpp_array_sort_icomparer(Il2CppArray* arr, Il2CppObject* comparer)
 {
     Il2CppArray* a = RequireArraySort(arr);
-    const bool isDefault =
-        comparer == nullptr || comparer == &System_Collections_Comparer_singleton;
+    // a5reds: null / Comparer.Default -> the default core; the StringComparer
+    // singletons -> ordinal element comparison; any other object -> IComparer
+    // dispatch.
+    const RefComparerMode mode =
+        comparer == nullptr || comparer == &System_Collections_Comparer_singleton
+            ? RefComparerMode::Default
+            : comparer == &System_StringComparer_Ordinal_singleton
+                  ? RefComparerMode::Ordinal
+                  : comparer == &System_StringComparer_OrdinalIgnoreCase_singleton
+                        ? RefComparerMode::OrdinalIgnoreCase
+                        : RefComparerMode::Dispatch;
     RootScopeSort roots;
     roots.Add(reinterpret_cast<void**>(&a));
     roots.Add(reinterpret_cast<void**>(&comparer));
@@ -1265,13 +1781,30 @@ void il2cpp_array_sort_icomparer(Il2CppArray* arr, Il2CppObject* comparer)
     {
         if (a->isRefElem)
         {
-            RefComparerCompare cmp(&comparer, isDefault);
-            QuickSortRefArray(&a, 0, a->length - 1, cmp);
+            try
+            {
+                RefComparerCompare cmp(&comparer, mode);
+                QuickSortRefArray(&a, 0, a->length - 1, cmp);
+            }
+            catch (const DotNetException&)
+            {
+                il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+            }
         }
         else if (a->elemSize == sizeof(int32_t))
         {
-            I4ComparerCompare cmp(&comparer, isDefault);
-            QuickSortI4Array(&a, 0, a->length - 1, cmp);
+            try
+            {
+                // The StringComparer singletons cannot compare int32 elements
+                // in net48 either; the dispatch path reports NotSupported (the
+                // singleton klass has no Compare slot). Unchanged behavior.
+                I4ComparerCompare cmp(&comparer, mode == RefComparerMode::Default);
+                QuickSortI4Array(&a, 0, a->length - 1, cmp);
+            }
+            catch (const DotNetException&)
+            {
+                il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+            }
         }
         else
         {
@@ -1299,8 +1832,15 @@ void il2cpp_array_sort_int32_comparison(Il2CppArray* arr, Il2CppObject* comparis
     roots.Add(reinterpret_cast<void**>(&comparison));
     if (a->length > 1)
     {
-        I4ComparisonCompare cmp(&comparison);
-        QuickSortI4Array(&a, 0, a->length - 1, cmp);
+        try
+        {
+            I4ComparisonCompare cmp(&comparison);
+            QuickSortI4Array(&a, 0, a->length - 1, cmp);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
     }
 }
 
@@ -1312,6 +1852,18 @@ void il2cpp_array_sort_ref_comparison(Il2CppArray* arr, Il2CppObject* comparison
 {
     Il2CppArray* a = RequireArraySort(arr);
     RequireRefArraySort(a);
+    // a5reds (strsort_ordinal): the generic Sort<T>(T[], IComparer<T>) and
+    // Sort<T>(T[], Comparison<T>) call sites can be indistinguishable when
+    // the comparer's tracked singleton type is lost (e.g. it rides an
+    // IComparer<T>-typed local): a StringComparer singleton arriving here is
+    // FORWARDED to the comparer sort instead of being misinterpreted as a
+    // delegate (garbage methodPtr -> crash).
+    if (comparison == &System_StringComparer_Ordinal_singleton ||
+        comparison == &System_StringComparer_OrdinalIgnoreCase_singleton)
+    {
+        il2cpp_array_sort_icomparer(arr, comparison);
+        return;
+    }
     if (comparison == nullptr)
     {
         il2cpp_throw_argument_null_exception("comparison");
@@ -1321,8 +1873,15 @@ void il2cpp_array_sort_ref_comparison(Il2CppArray* arr, Il2CppObject* comparison
     roots.Add(reinterpret_cast<void**>(&comparison));
     if (a->length > 1)
     {
-        RefComparisonCompare cmp(&comparison);
-        QuickSortRefArray(&a, 0, a->length - 1, cmp);
+        try
+        {
+            RefComparisonCompare cmp(&comparison);
+            QuickSortRefArray(&a, 0, a->length - 1, cmp);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
     }
 }
 
@@ -1559,6 +2118,12 @@ int32_t il2cpp_ienum_get_current_i4(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // P3-extra (g4sortedlist2vals): the SortedList snapshot enumerator over
+    // the boxed-int Values snapshot carries the i4 carrier directly (the
+    // concrete wrapper unboxes; get_current_ref below already forwards to the
+    // same core enumerator for the reference domain).
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+        return il2cpp::runtime::icall_sortedlist_si_enumerator_get_current(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentI4, "get_Current");
     return reinterpret_cast<IEnumFnI32>(
         RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
@@ -1640,11 +2205,23 @@ Il2CppObject* il2cpp_ienum_get_enumerator(Il2CppObject* receiver)
     // P25d: receivers with NO typeinfo route to their concrete enumerators --
     // a snapshot ARRAY (Keys/Values snapshots, klass name "["-prefixed)
     // becomes a snapshot array enumerator; the Dictionary<string,int> wrapper
-    // becomes the snapshot PAIR enumerator.
+    // becomes the snapshot PAIR enumerator; a List<object> wrapper snapshots
+    // its items (listobj_get_enumerator returns the same array enumerator
+    // the MoveNext/get_Current forwarders below already handle).
     if (receiver->klass->name != nullptr && receiver->klass->name[0] == kArrayClassMarker)
         return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(receiver);
+    // P3-extra (g4sortedlist2vals): the SortedList<string,int> Values view IS
+    // the list object itself (get_Values returns self), so a generic
+    // `foreach (int v in sl.Values)` reaches THIS dispatch with the list
+    // klass. Forward to the concrete values snapshot enumerator (boxed-int
+    // elements wrapped in the same Il2CppArrayEnumerator); the MoveNext /
+    // get_Current(i4) / Reset / Dispose forwarders below handle the result.
+    if (receiver->klass == &System_Collections_SortedList_class)
+        return il2cpp::runtime::icall_sortedlist_si_values_get_enumerator(receiver);
     if (receiver->klass == &System_Collections_Generic_Dictionary_2_string_int_class)
         return il2cpp_dict_si_get_enumerator(receiver);
+    if (il2cpp::il2cpp_is_list_obj(receiver))
+        return il2cpp::il2cpp_list_obj_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumerator, "GetEnumerator");
     return reinterpret_cast<IEnumFnRef>(
         RequireIEnumVtableSlot(receiver, slot, "GetEnumerator"))(receiver);
@@ -1661,6 +2238,8 @@ Il2CppObject* il2cpp_ienum_get_enumerator_nongeneric(Il2CppObject* receiver)
         return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(receiver);
     if (receiver->klass == &System_Collections_Generic_Dictionary_2_string_int_class)
         return il2cpp_dict_si_get_enumerator(receiver);
+    if (il2cpp::il2cpp_is_list_obj(receiver))
+        return il2cpp::il2cpp_list_obj_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumeratorObj, "GetEnumerator");
     return reinterpret_cast<IEnumFnRef>(
         RequireIEnumVtableSlot(receiver, slot, "GetEnumerator"))(receiver);

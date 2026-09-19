@@ -133,9 +133,23 @@ intptr_t il2cpp_stream_com_get_iunknown(Il2CppObject* stream);
 void icall_stream_file_ctor(Il2CppObject* self, Il2CppObject* path,
                             int32_t fileMode, int32_t fileAccess);
 
+// FileStream(string path, FileMode fileMode): the 2-arg net48 ctor. The
+// access default is the net48 rule -- FileMode.Append -> FileAccess.Write,
+// every other mode -> FileAccess.ReadWrite (FileShare.Read is not modeled,
+// same as the 3-arg ctor). Errors as icall_stream_file_ctor.
+void icall_stream_file_ctor2(Il2CppObject* self, Il2CppObject* path,
+                             int32_t fileMode);
+
 // MemoryStream(): an in-memory read-write stream (malloc-backed buffer).
 // Null receiver -> NullReferenceException.
 void icall_stream_memory_ctor(Il2CppObject* self);
+
+// P2 IO-symmetry (2026-09-19): the MemoryStream 1-arg ctors.
+//   MemoryStream(byte[] buffer): seeds the stream with a COPY of the array
+//   (pos 0). MemoryStream(int capacity): empty stream with that initial
+//   buffer capacity (length stays 0).
+void icall_stream_memory_ctor_data(Il2CppObject* self, Il2CppArray* data);
+void icall_stream_memory_ctor_capacity(Il2CppObject* self, int32_t capacity);
 
 // StreamReader(Stream stream): wraps an EXISTING stream object -- the reader
 // SHARES its backend state (refCounted; net48 ownership: closing the reader
@@ -143,6 +157,10 @@ void icall_stream_memory_ctor(Il2CppObject* self);
 // non-FileStream/MemoryStream receiver -> ArgumentException. Null receiver ->
 // NullReferenceException.
 void icall_stream_reader_ctor(Il2CppObject* self, Il2CppObject* stream);
+
+// P2 IO-symmetry (2026-09-19): StreamReader(string path) -- opens the file
+// read-only ("rb") and runs the same 3-byte BOM detection as the (Stream) ctor.
+void icall_stream_reader_path_ctor(Il2CppObject* self, Il2CppObject* path);
 
 // StreamWriter(Stream stream): wraps an EXISTING stream object -- the writer
 // SHARES its backend state (refCounted; net48 ownership: closing the writer
@@ -155,6 +173,28 @@ void icall_stream_writer_ctor(Il2CppObject* self, Il2CppObject* stream);
 // FileNotFoundException. Null receiver -> NullReferenceException. net48: the
 // single-arg string-path writer ctor (streamops e2e `new StreamWriter(file)`).
 void icall_stream_writer_path_ctor(Il2CppObject* self, Il2CppObject* path);
+
+// P2(5) IO-symmetry (2026-09-19): StreamWriter(string path, bool append) --
+// append=false is FileMode.Create (truncate), append=true is FileMode.Append;
+// the text encoder is UTF-8 (no preamble).
+void icall_stream_writer_path_append_ctor(Il2CppObject* self, Il2CppObject* path,
+                                          int32_t append);
+
+// StreamWriter(string path, bool append, Encoding encoding): the same open
+// modes plus the text encoder selected by the managed encoding object's
+// runtime class (UTF-8 / UTF-16LE / ASCII). A UTF-16 buffer preamble is
+// written before the first text write when the target starts empty -- the
+// net48 StreamWriter preamble rule.
+void icall_stream_writer_path_encoding_ctor(Il2CppObject* self, Il2CppObject* path,
+                                            int32_t append, Il2CppObject* encoding);
+
+// StreamWriter(string path, bool append, Encoding encoding, int bufferSize):
+// identical byte output; net48 validates bufferSize > 0
+// (ArgumentOutOfRangeException otherwise) and otherwise the size only affects
+// the internal buffer, never the written bytes.
+void icall_stream_writer_path_encoding_ctor4(Il2CppObject* self, Il2CppObject* path,
+                                             int32_t append, Il2CppObject* encoding,
+                                             int32_t bufferSize);
 
 //------------------------------------------------------------------------------
 // Object instance members (the receiver is Il2CppObject* self; the backend
@@ -248,10 +288,15 @@ Il2CppObject* icall_stream_read_to_end(Il2CppObject* self);
 // short write).
 int32_t icall_stream_write_line(Il2CppObject* self, Il2CppObject* line);
 
+// TextWriter/StreamWriter.Write(string): writes the text as UTF-8 WITHOUT
+// the line terminator (net48 TextWriter.Write). A null string emits nothing.
+// 0 on success, -1 on a closed receiver (the M3 silent-failure convention).
+int32_t icall_stream_write_text(Il2CppObject* self, Il2CppObject* text);
+
 // MemoryStream.ToArray(): a managed byte[] COPY of the stream content (bytes
 // written so far, regardless of the current position). nullptr for a closed
 // receiver or a non-memory stream.
-Il2CppObject* icall_stream_memory_to_array(Il2CppObject* self);
+Il2CppArray* icall_stream_memory_to_array(Il2CppObject* self);
 
 //------------------------------------------------------------------------------
 // Timeout surface (System.IO.Stream). FileStream and MemoryStream never
@@ -320,5 +365,11 @@ double       icall_binary_read_double(Il2CppObject* self);
 float        icall_binary_read_single(Il2CppObject* self);
 int32_t      icall_binary_read_bool(Il2CppObject* self);
 Il2CppObject* icall_binary_read_string(Il2CppObject* self);
+
+// BinaryReader.ReadByte: the RAW next byte (0..255 -- net48). Separate from
+// icall_binary_read_bool on purpose: the bool icall NORMALIZES to 0/1 (right
+// for ReadBoolean, wrong for ReadByte). Truncated: 0 (the M3 zero-value
+// convention -- see the EndOfStreamException divergence note above).
+int32_t      icall_binary_read_byte(Il2CppObject* self);
 
 }} // namespace il2cpp::runtime

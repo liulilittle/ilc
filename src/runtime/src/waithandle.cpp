@@ -19,7 +19,9 @@
 #include "il2cpp_exception.h"     // il2cpp_throw_new
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_out_of_range_exception
 #include "il2cpp_runtime.h"       // il2cpp_class_register
+#include "platform.h"             // plat_thread_current_id (OS thread id)
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -59,6 +61,9 @@ struct WaitHandleState
     int32_t kind;     // 0 = semaphore, 1 = mutex, 2 = event
     int32_t maxCount; // semaphore maximum (0 for mutex/event)
     int32_t mode;     // event: 0 = auto-reset, 1 = manual-reset
+
+    int32_t mutexOwner;      // mutex: owning thread id (0 = free)
+    int32_t mutexRecursion;  // mutex: reentrancy depth
 };
 
 namespace {
@@ -113,6 +118,8 @@ void icall_waithandle_mutex_ctor(Il2CppObject* self)
     auto* state = new WaitHandleState();
     state->count = 0;
     state->kind = kKindMutex;
+    state->mutexOwner = 0;
+    state->mutexRecursion = 0;
     AsWaitHandle(self)->state = state;
 }
 
@@ -142,18 +149,20 @@ bool icall_waithandle_wait_one(Il2CppObject* self)
     {
         il2cpp_throw_invalid_operation_exception("The wait handle is not initialized.");
     }
+    std::unique_lock<std::mutex> lock(state->mtx);
     if (state->kind == kKindMutex)
     {
-        // Mutex: acquire directly (blocks until free) and HOLD the mutex --
-        // the unique_lock path below would release it on function return.
-        // The mutex stays owned until icall_waithandle_mutex_release unlocks
-        // it. A re-entrant WaitOne on the same thread would deadlock (net48
-        // Mutex is re-entrant, but the simplified runtime mutex is not --
-        // documented divergence).
-        state->mtx.lock();
+        const int32_t me = plat_thread_current_id();
+        if (state->mutexOwner == me)
+        {
+            ++state->mutexRecursion;
+            return true;
+        }
+        state->cv.wait(lock, [&] { return state->mutexOwner == 0; });
+        state->mutexOwner = me;
+        state->mutexRecursion = 1;
         return true;
     }
-    std::unique_lock<std::mutex> lock(state->mtx);
     if (state->kind == kKindSemaphore)
     {
         state->cv.wait(lock, [&] { return state->count > 0; });
@@ -162,12 +171,74 @@ bool icall_waithandle_wait_one(Il2CppObject* self)
     else // event
     {
         state->cv.wait(lock, [&] { return state->count != 0; });
-        if (state->mode == 0) // auto-reset: clear the signal on a successful wait
+        if (state->mode == 0)
         {
             state->count = 0;
         }
     }
     return true;
+}
+
+//------------------------------------------------------------------------------
+// WaitOne(int millisecondsTimeout) -- net48 timeout form (thaudit2; the
+// mapping at MethodMap.WaitHandle.cs:63 previously pointed at a definition
+// that did not exist). -1 = Timeout.Infinite (block); 0 = single
+// non-blocking probe; > 0 = bounded wait; < -1 = ArgumentOutOfRangeException.
+//------------------------------------------------------------------------------
+bool icall_waithandle_wait_one_timeout(Il2CppObject* self, int32_t millisecondsTimeout)
+{
+    WaitHandleState* state = AsWaitHandle(self)->state;
+    if (state == nullptr)
+    {
+        il2cpp_throw_invalid_operation_exception("The wait handle is not initialized.");
+    }
+    if (millisecondsTimeout < -1)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "millisecondsTimeout", "The timeout must be -1 (infinite) or non-negative.");
+    }
+    std::unique_lock<std::mutex> lock(state->mtx);
+    const bool infinite = millisecondsTimeout == -1;
+    const std::chrono::milliseconds timeout(millisecondsTimeout < 0 ? 0 : millisecondsTimeout);
+    if (state->kind == kKindMutex)
+    {
+        const int32_t me = plat_thread_current_id();
+        if (state->mutexOwner == me)
+        {
+            ++state->mutexRecursion;
+            return true;
+        }
+        const bool acquired = infinite
+            ? (state->cv.wait(lock, [&] { return state->mutexOwner == 0; }), true)
+            : state->cv.wait_for(lock, timeout, [&] { return state->mutexOwner == 0; });
+        if (!acquired)
+        {
+            return false;
+        }
+        state->mutexOwner = me;
+        state->mutexRecursion = 1;
+        return true;
+    }
+    if (state->kind == kKindSemaphore)
+    {
+        const bool signalled = infinite
+            ? (state->cv.wait(lock, [&] { return state->count > 0; }), true)
+            : state->cv.wait_for(lock, timeout, [&] { return state->count > 0; });
+        if (signalled)
+        {
+            --state->count;
+        }
+        return signalled;
+    }
+    // event
+    const bool signalled = infinite
+        ? (state->cv.wait(lock, [&] { return state->count != 0; }), true)
+        : state->cv.wait_for(lock, timeout, [&] { return state->count != 0; });
+    if (signalled && state->mode == 0)
+    {
+        state->count = 0;
+    }
+    return signalled;
 }
 
 //------------------------------------------------------------------------------
@@ -212,7 +283,19 @@ void icall_waithandle_mutex_release(Il2CppObject* self)
     {
         il2cpp_throw_invalid_operation_exception("The wait handle is not initialized.");
     }
-    state->mtx.unlock();
+    std::unique_lock<std::mutex> lock(state->mtx);
+    const int32_t me = plat_thread_current_id();
+    if (state->mutexOwner != me)
+    {
+        // net48 ReleaseMutex ownership violation (same carrier as Monitor.Exit).
+        il2cpp_throw_new("System.ApplicationException,System.Exception",
+                         "Object synchronization method was called from an unsynchronized block of code.");
+    }
+    if (--state->mutexRecursion == 0)
+    {
+        state->mutexOwner = 0;
+        state->cv.notify_one();
+    }
 }
 
 //------------------------------------------------------------------------------

@@ -383,9 +383,13 @@ void AppendFormatArg(Il2CppObject** selfSlot, Il2CppObject* arg)
 // icall_format_composite_item -- net48 alignment/min-width semantics).
 // 'selfSlot' is the rooted builder-pointer address (see the file-top GC
 // notes); the callers root 'format' so its payload stays content-valid across
-// the append allocations.
+// the append allocations. 'provider' (saudit4) is the IFormatProvider of the
+// enclosing String.Format / AppendFormat call; it is threaded to the
+// composite engine so invariant-culture formatting works inside placeholders
+// (nullptr -- every provider-less caller -- keeps the zh-CN host layout).
 void AppendFormatCore(Il2CppObject** selfSlot, const Il2CppString* format,
-                      Il2CppObject* const* args, int32_t argCount)
+                      Il2CppObject* const* args, int32_t argCount,
+                      Il2CppObject* provider)
 {
     if (format == nullptr)
     {
@@ -524,7 +528,7 @@ void AppendFormatCore(Il2CppObject** selfSlot, const Il2CppString* format,
                     fmtObj = reinterpret_cast<Il2CppObject*>(il2cpp_string_new(units + fmtStart, fmtLen));
                     scope.Add(reinterpret_cast<void**>(&fmtObj));
                 }
-                Il2CppObject* text = runtime::icall_format_composite_item(args[index], fmtObj, alignment);
+                Il2CppObject* text = runtime::icall_format_composite_item(args[index], fmtObj, alignment, provider);
                 scope.Add(reinterpret_cast<void**>(&text));
                 const Il2CppString* s = reinterpret_cast<const Il2CppString*>(text);
                 AppendUnits(selfSlot, s->chars, s->length);
@@ -809,7 +813,7 @@ Il2CppObject* icall_stringbuilder_append_format_1(Il2CppObject* self, Il2CppObje
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&format));
     Il2CppObject* args[1] = { arg0 };
-    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 1);
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 1, nullptr);
     return self;
 }
 
@@ -820,7 +824,7 @@ Il2CppObject* icall_stringbuilder_append_format_2(Il2CppObject* self, Il2CppObje
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&format));
     Il2CppObject* args[2] = { arg0, arg1 };
-    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 2);
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 2, nullptr);
     return self;
 }
 
@@ -831,7 +835,7 @@ Il2CppObject* icall_stringbuilder_append_format_3(Il2CppObject* self, Il2CppObje
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&format));
     Il2CppObject* args[3] = { arg0, arg1, arg2 };
-    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 3);
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 3, nullptr);
     return self;
 }
 
@@ -850,9 +854,12 @@ Il2CppObject* icall_stringbuilder_append_format_3(Il2CppObject* self, Il2CppObje
 // 'format' null -> ArgumentNullException; malformed format / out-of-range
 // index -> FormatException (AppendFormatCore, unchanged). Format(string,
 // object[]) with a null ARRAY -> ArgumentNullException("args") (net48); an
-// empty array is legal (the format must then carry no index).
+// empty array is legal (the format must then carry no index). 'provider'
+// (saudit4) threads the IFormatProvider of String.Format(provider, ...)
+// through to the composite engine (nullptr for the provider-less overloads).
 //------------------------------------------------------------------------------
-Il2CppObject* FormatToString(const Il2CppString* format, Il2CppObject* const* args, int32_t argCount)
+Il2CppObject* FormatToString(const Il2CppString* format, Il2CppObject* const* args, int32_t argCount,
+                             Il2CppObject* provider)
 {
     Il2CppObject* sb = il2cpp_object_new(il2cpp_stringbuilder_class());
     RootScope scope;
@@ -860,61 +867,58 @@ Il2CppObject* FormatToString(const Il2CppString* format, Il2CppObject* const* ar
     Il2CppObject* fmtSlot = const_cast<Il2CppObject*>(reinterpret_cast<const Il2CppObject*>(format));
     scope.Add(reinterpret_cast<void**>(&fmtSlot));
     icall_stringbuilder_ctor_default(sb);
-    AppendFormatCore(&sb, format, args, argCount);
+    AppendFormatCore(&sb, format, args, argCount, provider);
     return icall_stringbuilder_to_string(sb);
 }
 
 Il2CppObject* icall_string_format_0(Il2CppObject* format)
 {
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), nullptr, 0);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), nullptr, 0, nullptr);
 }
 
-// Provider-prefixed wrappers (D5 envnf): String.Format(IFormatProvider, ...)
-// -- the runtime is invariant-culture, so the provider is ignored (the
-// explicit-culture probe contract is InvariantCulture anyway).
+// Provider-prefixed wrappers (D5 envnf, saudit4): String.Format(IFormatProvider,
+// ...) -- the provider is threaded into the composite engine; nullptr /
+// non-empty names keep the zh-CN host layout, the invariant name switches the
+// numeric C/P layouts inside placeholders (net48 oracle-pinned).
 Il2CppObject* icall_string_format_0_provider(Il2CppObject* provider, Il2CppObject* format)
 {
-    (void)provider;
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), nullptr, 0);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), nullptr, 0, provider);
 }
 
 Il2CppObject* icall_string_format_1(Il2CppObject* format, Il2CppObject* arg0)
 {
     Il2CppObject* args[1] = { arg0 };
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 1);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 1, nullptr);
 }
 
 Il2CppObject* icall_string_format_1_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0)
 {
-    (void)provider;
     Il2CppObject* args[1] = { arg0 };
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 1);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 1, provider);
 }
 
 Il2CppObject* icall_string_format_2(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
 {
     Il2CppObject* args[2] = { arg0, arg1 };
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 2);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 2, nullptr);
 }
 
 Il2CppObject* icall_string_format_2_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
 {
-    (void)provider;
     Il2CppObject* args[2] = { arg0, arg1 };
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 2);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 2, provider);
 }
 
 Il2CppObject* icall_string_format_3(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
 {
     Il2CppObject* args[3] = { arg0, arg1, arg2 };
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 3);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 3, nullptr);
 }
 
 Il2CppObject* icall_string_format_3_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
 {
-    (void)provider;
     Il2CppObject* args[3] = { arg0, arg1, arg2 };
-    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 3);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format), args, 3, provider);
 }
 
 Il2CppObject* icall_string_format(Il2CppObject* format, Il2CppObject* argsArray)
@@ -930,14 +934,22 @@ Il2CppObject* icall_string_format(Il2CppObject* format, Il2CppObject* argsArray)
     // index against arr->length before touching an element.
     return FormatToString(reinterpret_cast<const Il2CppString*>(format),
                           reinterpret_cast<Il2CppObject* const*>(arr->data),
-                          arr->length);
+                          arr->length, nullptr);
 }
 
-// String.Format(IFormatProvider, string, params object[]) -- provider ignored.
+// String.Format(IFormatProvider, string, params object[]) -- provider threaded
+// through (saudit4; see the composite engine contract).
 Il2CppObject* icall_string_format_provider(Il2CppObject* provider, Il2CppObject* format, Il2CppObject* argsArray)
 {
-    (void)provider;
-    return icall_string_format(format, argsArray);
+    if (argsArray == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'args')");
+    }
+    const Il2CppArray* arr = reinterpret_cast<const Il2CppArray*>(argsArray);
+    return FormatToString(reinterpret_cast<const Il2CppString*>(format),
+                          reinterpret_cast<Il2CppObject* const*>(arr->data),
+                          arr->length, provider);
 }
 
 //------------------------------------------------------------------------------

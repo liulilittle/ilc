@@ -30,6 +30,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_marshal_ext.h"
+#include "il2cpp_marshal_ext2.h"
 
 #include "il2cpp_array.h"
 #include "il2cpp_exception_ext.h"
@@ -38,6 +39,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace il2cpp {
@@ -355,6 +357,33 @@ void FieldNameFromManagedString(Il2CppString* fieldName, char* out, int32_t outS
     }
 }
 
+// net48 System.Windows.Forms.Message MANAGED marshal layout (ipaudit3): the
+// 5-field struct hwnd/msg/wParam/lParam/result -- 40 bytes x64 / 20 x86 --
+// distinct from the NATIVE tagMSG registry layout (48/28) that stays the
+// P/Invoke marshaling authority.
+int32_t MessageNet48WParamOffset()
+{
+    const int32_t p = static_cast<int32_t>(sizeof(void*));
+    return (p + 4 + (p - 1)) & ~(p - 1);
+}
+
+int32_t MessageNet48Size()
+{
+    const int32_t p = static_cast<int32_t>(sizeof(void*));
+    return MessageNet48WParamOffset() + 3 * p; // result (+ p)
+}
+
+int32_t MessageNet48FieldOffset(const char* field)
+{
+    const int32_t p = static_cast<int32_t>(sizeof(void*));
+    if (std::strcmp(field, "hwnd") == 0) return 0;
+    if (std::strcmp(field, "msg") == 0) return p;
+    if (std::strcmp(field, "wParam") == 0) return MessageNet48WParamOffset();
+    if (std::strcmp(field, "lParam") == 0) return MessageNet48WParamOffset() + p;
+    if (std::strcmp(field, "result") == 0) return MessageNet48WParamOffset() + 2 * p;
+    return -1; // unknown field -- caller raises the net48 ArgumentException
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -363,7 +392,45 @@ void FieldNameFromManagedString(Il2CppString* fieldName, char* out, int32_t outS
 //------------------------------------------------------------------------------
 int32_t il2cpp_marshal_size_of_struct_named(Il2CppString* typeName)
 {
-    const int32_t kind = StructKindFromManagedName(typeName);
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("type");
+    }
+    char name[64];
+    if (!Utf16ToAscii(typeName, name, static_cast<int32_t>(sizeof(name))))
+    {
+        il2cpp_throw_argument_exception(
+            "Marshal.SizeOf/OffsetOf: the type name must be a short ASCII full type name");
+    }
+    // ipaudit2: the PRIMITIVE typeof(X) names resolve through the same net48
+    // table as the object form (default Ansi CharSet: Boolean 4, Char 1).
+    static const struct { const char* full; int32_t code; } kPrimitives[] = {
+        { "System.Boolean", 3 }, { "System.Char", 4 }, { "System.SByte", 5 },
+        { "System.Byte", 6 }, { "System.Int16", 7 }, { "System.UInt16", 8 },
+        { "System.Int32", 9 }, { "System.UInt32", 10 }, { "System.Int64", 11 },
+        { "System.UInt64", 12 }, { "System.Single", 13 }, { "System.Double", 14 },
+        { "System.Decimal", 15 },
+    };
+    for (size_t i = 0; i < sizeof(kPrimitives) / sizeof(kPrimitives[0]); ++i)
+    {
+        if (std::strcmp(name, kPrimitives[i].full) == 0)
+        {
+            return il2cpp_marshal_size_of(kPrimitives[i].code);
+        }
+    }
+    if (std::strcmp(name, "System.IntPtr") == 0
+        || std::strcmp(name, "System.UIntPtr") == 0)
+    {
+        return static_cast<int32_t>(sizeof(void*));
+    }
+    if (std::strcmp(name, "System.Windows.Forms.Message") == 0)
+    {
+        return MessageNet48Size();
+    }
+    // ipaudit2 follow-up: an unregistered type must throw the managed
+    // NotSupportedException (same contract as the named OffsetOf path) -- the
+    // raw kind lookup can return -1 and passing it to the registry aborts.
+    const int32_t kind = StructKindByAsciiName(name);
     return il2cpp::il2cpp_pinvoke_struct_size(static_cast<Il2CppPinvokeStructKind>(kind));
 }
 
@@ -372,6 +439,16 @@ int32_t il2cpp_marshal_offset_of_struct_named(Il2CppString* typeName, Il2CppStri
     const int32_t kind = StructKindFromManagedName(typeName);
     char field[48];
     FieldNameFromManagedString(fieldName, field, static_cast<int32_t>(sizeof(field)));
+    if (kind == il2cpp::kPinvokeStructMsg)
+    {
+        const int32_t off = MessageNet48FieldOffset(field);
+        if (off < 0)
+        {
+            il2cpp_throw_argument_exception(
+                "Field name not found: the net48 Message fields are hwnd, msg, wParam, lParam, result");
+        }
+        return off;
+    }
     return StructFieldOffsetByAsciiName(kind, field);
 }
 
@@ -393,7 +470,9 @@ int32_t il2cpp_marshal_size_of_struct_rect()
 
 int32_t il2cpp_marshal_size_of_struct_msg()
 {
-    return il2cpp::il2cpp_pinvoke_struct_size(il2cpp::kPinvokeStructMsg);
+    // ipaudit3: SizeOf<T>() reports the NET48 managed Message size (40 x64),
+    // not the native tagMSG size.
+    return MessageNet48Size();
 }
 
 //------------------------------------------------------------------------------
@@ -524,10 +603,11 @@ void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDelet
     {
         il2cpp_throw_argument_null_exception("ptr");
     }
-    if (fDeleteOld)
-    {
-        std::free(dst);
-    }
+    // net48 fDeleteOld semantics: DestroyStructure runs on the block CONTENTS
+    // (releasing embedded reference members). For a blittable struct that is a
+    // no-op; the caller-owned block itself is NEVER freed. Reference-bearing
+    // structs stay NotSupported in the default arm below.
+    (void)fDeleteOld;
     const char* const fullName = structure->klass->name;
     const int32_t kind = il2cpp::il2cpp_pinvoke_struct_kind_by_name(fullName);
     const void* data = reinterpret_cast<const void*>(&structure[1]);
@@ -543,8 +623,74 @@ void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDelet
         il2cpp_marshal_struct_msg_store(dst, static_cast<const Il2CppPinvokeMsg*>(data));
         return;
     default:
+    {
+        // User blittable struct fallback (ipaudit1): no reference fields ->
+        // net48 copies the value layout byte for byte. The boxed payload
+        // starts at &structure[1]; its size is the descriptor's instanceSize
+        // minus the object header.
+        if (structure->klass != nullptr && structure->klass->refFieldCount == 0)
+        {
+            const int32_t payload = structure->klass->instanceSize
+                - static_cast<int32_t>(sizeof(Il2CppObject));
+            if (payload > 0)
+            {
+                std::memcpy(dst, reinterpret_cast<const void*>(&structure[1]),
+                            static_cast<size_t>(payload));
+            }
+            return;
+        }
         il2cpp_throw_not_supported_exception(
-            "StructureToPtr: the struct type is not a registered blittable struct -- only System.Drawing.Point, System.Drawing.Rectangle and System.Windows.Forms.Message have a native layout registry");
+            "StructureToPtr: the struct type carries reference fields or has no native layout -- only System.Drawing.Point, System.Drawing.Rectangle, System.Windows.Forms.Message and reference-free user structs are supported");
+        return;
+    }
+    }
+}
+
+//------------------------------------------------------------------------------
+// marshalrw (2026-09-13): il2cpp_marshal_struct_store_value -- the
+// StructureToPtr<T> VALUE form. The generic T crosses the icall boundary as
+// its native struct pointer (the transpiler passes &value + sizeof(T) + the
+// generated class descriptor); no box is materialized. net48 semantics match
+// il2cpp_marshal_struct_store above: fDeleteOld is the DestroyStructure-on-
+// contents no-op for blittable data, the caller-owned block is never freed,
+// reference-bearing / unknown structs stay NotSupported.
+//------------------------------------------------------------------------------
+void il2cpp_marshal_struct_store_value(Il2CppClass* klass, const void* value, void* dst,
+                                       bool fDeleteOld, size_t payloadSize)
+{
+    if (klass == nullptr || value == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("structure");
+    }
+    if (dst == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("ptr");
+    }
+    (void)fDeleteOld;
+    const int32_t kind = il2cpp::il2cpp_pinvoke_struct_kind_by_name(klass->name);
+    switch (kind)
+    {
+    case il2cpp::kPinvokeStructPoint:
+        il2cpp_marshal_struct_point_store(dst, static_cast<const Il2CppPinvokePoint*>(value));
+        return;
+    case il2cpp::kPinvokeStructRect:
+        il2cpp_marshal_struct_rect_store(dst, static_cast<const Il2CppPinvokeRect*>(value));
+        return;
+    case il2cpp::kPinvokeStructMsg:
+        il2cpp_marshal_struct_msg_store(dst, static_cast<const Il2CppPinvokeMsg*>(value));
+        return;
+    default:
+        // User blittable struct (P25b value form): the caller's payloadSize
+        // IS the struct size -- the P25b descriptor instanceSize is
+        // sizeof(T) WITHOUT the object header (unlike the boxed-object path
+        // above, whose descriptor size excludes the header by subtraction).
+        if (klass->refFieldCount == 0 && payloadSize > 0)
+        {
+            std::memcpy(dst, value, payloadSize);
+            return;
+        }
+        il2cpp_throw_not_supported_exception(
+            "StructureToPtr: the struct type carries reference fields or has no native layout -- only System.Drawing.Point, System.Drawing.Rectangle, System.Windows.Forms.Message and reference-free user structs are supported");
         return;
     }
 }

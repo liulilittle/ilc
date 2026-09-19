@@ -220,6 +220,10 @@ int32_t il2cpp_enum_parse_ic(Il2CppClass* enumClass, Il2CppObject* text,
 //------------------------------------------------------------------------------
 Il2CppString* il2cpp_enum_get_underlying_type(Il2CppClass* enumClass);
 
+// raudit4: the NAME variant of GetUnderlyingType (the transpiler passes the
+// folded typeof type-name string; same Int32 fallback for unregistered names).
+Il2CppString* il2cpp_enum_get_underlying_type_by_type_name(Il2CppObject* typeName);
+
 //------------------------------------------------------------------------------
 // il2cpp_enum_to_string -- enum ToString optimization.
 //

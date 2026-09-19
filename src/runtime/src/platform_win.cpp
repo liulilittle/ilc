@@ -15,7 +15,9 @@
 #if defined(_WIN32)
 
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <windows.h>
 
     #include <direct.h>    // ::_wmkdir, ::_wrmdir
@@ -554,7 +556,7 @@ std::string plat_os_version()
     if (ntdll != nullptr)
     {
         const RtlGetVersionFn rtlGetVersion =
-            reinterpret_cast<RtlGetVersionFn>(::GetProcAddress(ntdll, "RtlGetVersion"));
+            reinterpret_cast<RtlGetVersionFn>(reinterpret_cast<void*>(::GetProcAddress(ntdll, "RtlGetVersion")));
         if (rtlGetVersion != nullptr)
         {
             OsVersionInfo info;

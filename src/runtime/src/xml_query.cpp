@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace il2cpp { namespace runtime {
@@ -52,13 +53,21 @@ const char* kArgumentNullChain =
     // il2cpp_throw_new throws a C++ exception and never returns; abort is a
     // defensive backstop that also silences -Winvalid-noreturn (the same
     // pattern as convertbase64/monitor).
+#ifdef _MSC_VER
+    __assume(0);
+#else
     std::abort();
+#endif
 }
 
 [[noreturn]] void ThrowArgNull(const char* argument)
 {
     il2cpp_throw_new(kArgumentNullChain, argument);
+#ifdef _MSC_VER
+    __assume(0);
+#else
     std::abort();
+#endif
 }
 
 // A single path step (the parsed form).
@@ -125,6 +134,14 @@ std::vector<QueryStep> ParsePath(const char* path)
             ThrowXPath("step is missing its name");
         }
 
+        // xmaudit3: a prefixed name test (ns:root / @xml:lang) requires an
+        // XmlNamespaceManager; the string overload has none -> net48 throws
+        // XPathException instead of silently missing.
+        if (step.name.find(':') != std::string::npos)
+        {
+            ThrowXPath("prefixed XPath names require a namespace manager");
+        }
+
         if (*p == '[')
         {
             if (step.attribute)
@@ -174,27 +191,25 @@ std::vector<QueryStep> ParsePath(const char* path)
     return steps;
 }
 
-// Element-name match (matches element nodes only; text/cdata nodes have an
-// empty name in the T1 tree).
+// xmaudit3: per-query set of elements under a NON-EMPTY default xmlns. The
+// T1 tree has no parent links, so il2cpp_xml_query fills this by one DFS from
+// the root before evaluating steps. Single-threaded runtime model: the vector
+// is file-scope (no dangling on exception unwind) and rebuilt per query.
+std::vector<const XmlNode*> g_defaultNsElements;
+
+bool InDefaultNamespace(const XmlNode* node)
+{
+    return std::find(g_defaultNsElements.begin(), g_defaultNsElements.end(), node)
+        != g_defaultNsElements.end();
+}
+
+// Element-name match (element nodes only; text/cdata have an empty name).
+// xmaudit3: an unprefixed node test matches EMPTY-namespace elements only.
 bool NameMatches(const XmlNode* node, const char* name)
 {
     return node->kind == XmlNodeKind::element &&
-           node->name == name;
-}
-
-// Collect the pointers of all descendants of 'node' (depth >= 1) whose name
-// is 'name', in document order (DFS pre-order).
-void CollectDescendants(const XmlNode* node, const char* name,
-                        std::vector<const XmlNode*>& out)
-{
-    for (const XmlNode& child : node->children)
-    {
-        if (NameMatches(&child, name))
-        {
-            out.push_back(&child);
-        }
-        CollectDescendants(&child, name, out);
-    }
+           node->name == name &&
+           !InDefaultNamespace(node);
 }
 
 // Collect all descendant elements of 'node' (any name), in document order
@@ -208,6 +223,55 @@ void CollectAllDescendants(const XmlNode* node, std::vector<const XmlNode*>& out
             out.push_back(&child);
         }
         CollectAllDescendants(&child, out);
+    }
+}
+
+// Document-order index of every tree node (DFS pre-order), rebuilt per query.
+// XPath node-sets are in document order; element-step hits are sorted by this
+// index so a descendant step emits DFS order instead of per-parent
+// (parent-before-child) order.
+std::vector<const XmlNode*> g_docOrderSeq;
+std::unordered_map<const XmlNode*, int32_t> g_docOrderIndex;
+
+void CollectDocOrder(const XmlNode* node, std::vector<const XmlNode*>& out)
+{
+    out.push_back(node);
+    for (const XmlNode& child : node->children)
+    {
+        CollectDocOrder(&child, out);
+    }
+}
+
+int32_t DocOrderIndex(const XmlNode* node)
+{
+    const auto it = g_docOrderIndex.find(node);
+    return it == g_docOrderIndex.end() ? INT32_MAX : it->second;
+}
+
+// xmaudit3: mark every element whose effective default namespace is non-empty.
+// An element is in the default namespace when it (or an ancestor) declares a
+// non-empty `xmlns="uri"`; `xmlns=""` resets it to empty (XPath 1.0).
+void CollectDefaultNsElements(const XmlNode* node, bool inDefaultNs,
+                              std::vector<const XmlNode*>& out)
+{
+    bool effective = inDefaultNs;
+    for (const XmlAttr& attr : node->attributes)
+    {
+        if (attr.name == "xmlns")
+        {
+            effective = !attr.value.empty();
+        }
+    }
+    if (effective)
+    {
+        out.push_back(node);
+    }
+    for (const XmlNode& child : node->children)
+    {
+        if (child.kind == XmlNodeKind::element)
+        {
+            CollectDefaultNsElements(&child, effective, out);
+        }
     }
 }
 
@@ -235,8 +299,10 @@ void ApplyStep(const std::vector<const XmlNode*>& in, const QueryStep& step,
             std::vector<const XmlNode*> targets;
             if (step.descendant)
             {
-                // //@x: take the attribute of every descendant element of the
-                // candidate (depth >= 1).
+                // //@x: descendant-or-self::node()/@x -- the candidate's OWN
+                // attributes are in scope too (net48); then every descendant
+                // element's.
+                targets.push_back(candidate);
                 CollectAllDescendants(candidate, targets);
             }
             else
@@ -259,33 +325,44 @@ void ApplyStep(const std::vector<const XmlNode*>& in, const QueryStep& step,
 
     for (const XmlNode* candidate : in)
     {
-        std::vector<const XmlNode*> matched;
+        // xmaudit2: `//name` is descendant-or-self::node()/child::name, so a
+        // positional predicate binds PER PARENT (b's second x, not the second
+        // x of the merged list). Build the parent set: the candidate itself
+        // (self::node()) plus every descendant element.
+        std::vector<const XmlNode*> parents;
+        parents.push_back(candidate);
         if (step.descendant)
         {
-            CollectDescendants(candidate, step.name.c_str(), matched);
+            CollectAllDescendants(candidate, parents);
         }
-        else
+        for (const XmlNode* parent : parents)
         {
-            for (const XmlNode& child : candidate->children)
+            std::vector<const XmlNode*> matched;
+            for (const XmlNode& child : parent->children)
             {
                 if (NameMatches(&child, step.name.c_str()))
                 {
                     matched.push_back(&child);
                 }
             }
-        }
-        if (step.index > 0)
-        {
-            if (static_cast<size_t>(step.index) <= matched.size())
+            if (step.index > 0)
             {
-                out.push_back(matched[static_cast<size_t>(step.index) - 1]);
+                if (static_cast<size_t>(step.index) <= matched.size())
+                {
+                    out.push_back(matched[static_cast<size_t>(step.index) - 1]);
+                }
+            }
+            else
+            {
+                out.insert(out.end(), matched.begin(), matched.end());
             }
         }
-        else
-        {
-            out.insert(out.end(), matched.begin(), matched.end());
-        }
     }
+    // XPath node-sets are in document order: sort the accumulated hits by the
+    // DFS pre-order index (the per-parent [n] predicate is already applied).
+    std::sort(out.begin(), out.end(), [](const XmlNode* a, const XmlNode* b) {
+        return DocOrderIndex(a) < DocOrderIndex(b);
+    });
 }
 
 // Return the node text (managed string); nullptr means no text.
@@ -311,6 +388,17 @@ Il2CppArray* il2cpp_xml_query(const il2cpp::XmlNode* root, const char* path)
 
     std::vector<QueryStep> steps = ParsePath(path);
 
+    g_defaultNsElements.clear();
+    CollectDefaultNsElements(root, false, g_defaultNsElements);
+
+    g_docOrderSeq.clear();
+    g_docOrderIndex.clear();
+    CollectDocOrder(root, g_docOrderSeq);
+    for (size_t i = 0; i < g_docOrderSeq.size(); ++i)
+    {
+        g_docOrderIndex[g_docOrderSeq[i]] = static_cast<int32_t>(i);
+    }
+
     std::vector<const XmlNode*> current;
     const QueryStep& first = steps[0];
     if (!first.descendant && !first.attribute)
@@ -328,11 +416,19 @@ Il2CppArray* il2cpp_xml_query(const il2cpp::XmlNode* root, const char* path)
     }
     else
     {
-        // The first step is // or @: candidates start at root, handled by
-        // the unified step logic.
+        // The first step is // or @: candidates start at root. xmaudit2: the
+        // runtime tree has NO explicit document node, so a leading `//name`
+        // (document/descendant-or-self::node()/child::name) must ALSO match
+        // the root element itself -- its real parent is the implicit document.
         current.push_back(root);
         std::vector<const XmlNode*> next;
-        ApplyStep(current, first, next);
+        if (first.descendant && !first.attribute && NameMatches(root, first.name.c_str()))
+        {
+            next.push_back(root); // document-order first (deduped below)
+        }
+        std::vector<const XmlNode*> fromStep;
+        ApplyStep(current, first, fromStep);
+        next.insert(next.end(), fromStep.begin(), fromStep.end());
         current.swap(next);
     }
 

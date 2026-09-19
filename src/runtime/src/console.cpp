@@ -17,6 +17,10 @@
 // +-Infinity to .NET's text.
 //------------------------------------------------------------------------------
 
+#ifdef _MSC_VER
+    #define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "il2cpp_console.h"
 #include "il2cpp_runtime.h"          // icall_console_write_line_s (the M1 string printer)
 #include "il2cpp_string.h"
@@ -48,6 +52,10 @@ il2cpp::Il2CppObject* System_IO_TextWriter_sf_Null = nullptr;
     #include <conio.h>
     #include <fcntl.h>
     #include <io.h>
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #include <windows.h> // GetConsoleOutputCP / WideCharToMultiByte (net48 OutputEncoding default)
 #else
     #include <termios.h>
     #include <unistd.h>
@@ -83,14 +91,55 @@ ConsoleStreamInitializer g_consoleStreamInitializer;
 
 namespace {
 
-// Print one character: UTF-8 encode the 16-bit code unit (the same policy
-// the M1 string icalls apply to UTF-16 payloads -- see runtime.cpp
-// WriteStringUtf8). ASCII units go out as-is; BMP units as 2-3 bytes; a
-// surrogate code unit (a single char cannot form a pair) becomes U+FFFD,
-// the .NET default replacement fallback. The stream runs in binary mode, so
-// the bytes reach it verbatim. 'stream' selects the target (stdout for the
-// classic Console.Write/WriteLine icalls; the console STREAM writes pass
-// stdout/stderr per the stream object's kind).
+#ifdef _WIN32
+// Encode UTF-16 units to a non-UTF-8 console code page (pair-aware).
+// Unmappable input becomes '?' (net48 replacement fallback); best-fit mapping
+// stays enabled (dwFlags 0 -- net48 console best-fits U+00A5 to GBK, the
+// formatext precedent). A lone surrogate has no mapping -> '?'.
+void WriteUnitsAsCodePage(const char16_t* units, int32_t len, unsigned cp, FILE* stream)
+{
+    static_assert(sizeof(char16_t) == sizeof(WCHAR), "char16_t must match WCHAR for WideCharToMultiByte");
+    const UINT wcp = static_cast<UINT>(cp);
+    const LPCWCH w = reinterpret_cast<LPCWCH>(units);
+    int n = ::WideCharToMultiByte(wcp, 0, w, len, nullptr, 0, "?", nullptr);
+    if (n > 0)
+    {
+        std::string out(static_cast<size_t>(n), '\0');
+        ::WideCharToMultiByte(wcp, 0, w, len, &out[0], n, "?", nullptr);
+        std::fwrite(out.data(), 1, out.size(), stream);
+        return;
+    }
+    // Total failure (a lone surrogate defeats whole-buffer conversion): walk
+    // unit by unit -- valid pairs convert as one, anything else -> '?'.
+    for (int32_t i = 0; i < len;)
+    {
+        const char16_t u = units[i];
+        int32_t take = 1;
+        if (u >= 0xD800 && u <= 0xDBFF && i + 1 < len &&
+            units[i + 1] >= 0xDC00 && units[i + 1] <= 0xDFFF)
+            take = 2;
+        else if (u >= 0xD800 && u <= 0xDFFF)
+        {
+            std::fputc('?', stream);
+            ++i;
+            continue;
+        }
+        char buf[8];
+        const int m = ::WideCharToMultiByte(wcp, 0, reinterpret_cast<LPCWCH>(units + i),
+                                            take, buf, sizeof(buf), "?", nullptr);
+        if (m > 0)
+            std::fwrite(buf, 1, static_cast<size_t>(m), stream);
+        else
+            std::fputc('?', stream);
+        i += take;
+    }
+}
+#endif
+
+// Print one character in the active console output encoding (net48
+// Console.OutputEncoding default). CP 65001 keeps the exact legacy per-unit
+// UTF-8 policy below (harness byte-identical); other code pages convert the
+// single unit (a lone surrogate has no mapping -> '?').
 void PrintCharCode(int32_t codeUnit, FILE* stream)
 {
     if (stream == nullptr)
@@ -100,6 +149,17 @@ void PrintCharCode(int32_t codeUnit, FILE* stream)
         std::fputs("\xEF\xBF\xBD", stream); // caller bug: no negative char
         return;
     }
+#ifdef _WIN32
+    {
+        const unsigned cp = console_output_code_page();
+        if (cp != 65001u)
+        {
+            const char16_t u = static_cast<char16_t>(static_cast<uint32_t>(codeUnit) & 0xFFFFu);
+            WriteUnitsAsCodePage(&u, 1, cp, stream);
+            return;
+        }
+    }
+#endif
     const uint32_t u = static_cast<uint32_t>(codeUnit);
     if (u < 0x80)
     {
@@ -122,18 +182,84 @@ void PrintCharCode(int32_t codeUnit, FILE* stream)
     }
 }
 
-// Write a managed string as UTF-8 (the PrintCharCode per-code-unit policy) to
-// the target stream. A null text is a no-op (net48 TextWriter.Write(null)).
+// Write a managed string in the active console output encoding to the target
+// stream. A null text is a no-op (net48 TextWriter.Write(null)). CP 65001
+// keeps the exact legacy per-unit UTF-8 loop below (harness byte-identical);
+// other code pages convert pair-aware (surrogate pairs map as one character,
+// matching net48 multi-byte output).
 void WriteStringToStream(Il2CppObject* text, FILE* stream)
 {
     if (text == nullptr || stream == nullptr)
         return;
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(text);
+#ifdef _WIN32
+    if (console_output_code_page() != 65001u)
+    {
+        console_write_units(str->chars, str->length, stream);
+        return;
+    }
+#endif
     for (int32_t i = 0; i < str->length; ++i)
         PrintCharCode(str->chars[i], stream);
 }
 
 } // namespace
+
+// Active console output code page -- the net48 Console.OutputEncoding default.
+// (Harness pins 65001; native zh-CN terminal reports 936. Both terminal and
+// redirected output use these bytes: the oracle emits GBK bytes into a pipe
+// under a GBK console -- diffuri002 D6D0. Missing console (cp 0) keeps UTF-8.)
+// Exported (header) for the M1 string icalls in runtime.cpp.
+unsigned console_output_code_page()
+{
+#ifdef _WIN32
+    const unsigned cp = static_cast<unsigned>(::GetConsoleOutputCP());
+    return cp == 0 ? 65001u : cp;
+#else
+    return 65001u;
+#endif
+}
+
+// Write UTF-16 code units in the active console output encoding (net48
+// Console.OutputEncoding default: the console output code page, for both the
+// terminal and the redirected channel). CP 65001 keeps the exact legacy
+// pair-aware UTF-8 policy (harness byte-identical -- the old runtime.cpp
+// WriteStringUtf8 algorithm: valid pair -> one 4-byte sequence, unpaired ->
+// U+FFFD); other code pages convert pair-aware via WideCharToMultiByte.
+void console_write_units(const char16_t* units, int32_t len, FILE* stream)
+{
+    if (units == nullptr || stream == nullptr || len <= 0)
+        return;
+#ifdef _WIN32
+    {
+        const unsigned cp = console_output_code_page();
+        if (cp != 65001u)
+        {
+            WriteUnitsAsCodePage(units, len, cp, stream);
+            return;
+        }
+    }
+#endif
+    for (int32_t i = 0; i < len; ++i)
+    {
+        const uint32_t u = static_cast<uint32_t>(units[i]);
+        if (u >= 0xD800 && u <= 0xDBFF && i + 1 < len)
+        {
+            const uint32_t lo = static_cast<uint32_t>(units[i + 1]);
+            if (lo >= 0xDC00 && lo <= 0xDFFF)
+            {
+                const uint32_t cpv = 0x10000u + ((u - 0xD800u) << 10) + (lo - 0xDC00u);
+                std::fputc(static_cast<char>(0xF0 | (cpv >> 18)), stream);
+                std::fputc(static_cast<char>(0x80 | ((cpv >> 12) & 0x3F)), stream);
+                std::fputc(static_cast<char>(0x80 | ((cpv >> 6) & 0x3F)), stream);
+                std::fputc(static_cast<char>(0x80 | (cpv & 0x3F)), stream);
+                ++i;
+                continue;
+            }
+        }
+        PrintCharCode(static_cast<int32_t>(u), stream);
+    }
+}
 
 void console_write_newline()
 {
@@ -197,6 +323,17 @@ void icall_console_write_line_c(int32_t value)
 
 void icall_console_write_line_d(double value)
 {
+#ifdef _WIN32
+    // Non-UTF-8 console: the only non-ASCII double text is U+221E infinity
+    // (all other G15 outputs are ASCII and pass through any code page
+    // unchanged). U+221E has no GBK mapping -> net48 '?' replacement.
+    if (console_output_code_page() != 65001u && std::isinf(value))
+    {
+        std::fputs(std::signbit(value) ? "-?" : "?", stdout);
+        console_write_newline();
+        return;
+    }
+#endif
     const std::string text = console_format_double(value);
     std::fputs(text.c_str(), stdout);
     console_write_newline();
@@ -261,6 +398,14 @@ void icall_console_write_c(int32_t value)
 
 void icall_console_write_d(double value)
 {
+#ifdef _WIN32
+    // Same code-page rule as icall_console_write_line_d (no newline variant).
+    if (console_output_code_page() != 65001u && std::isinf(value))
+    {
+        std::fputs(std::signbit(value) ? "-?" : "?", stdout);
+        return;
+    }
+#endif
     const std::string text = console_format_double(value);
     std::fputs(text.c_str(), stdout);
 }
@@ -279,7 +424,11 @@ void icall_console_write_line_object(Il2CppObject* value)
         return;
     }
     Il2CppString* text = icall_object_to_string(value);
-    icall_console_write_line_s(reinterpret_cast<Il2CppObject*>(text));
+    // Code-page aware (not the M1 UTF-8-only printer): byte-identical to
+    // icall_console_write_line_s under 65001, GBK-correct otherwise. The M1
+    // string icalls in runtime.cpp stay UTF-8-only (separate work order).
+    WriteStringToStream(reinterpret_cast<Il2CppObject*>(text), stdout);
+    console_write_newline();
 }
 
 Il2CppObject* icall_console_read_line()

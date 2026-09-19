@@ -53,9 +53,11 @@ public static partial class MethodRefResolver
                         0x08 => I("il2cpp::il2cpp_array_sort_int32", 1, false, false, false, new[] { "a" }),
                         0x09 => I("il2cpp::il2cpp_array_sort_uint32", 1, false, false, false, new[] { "a" }),
                         0x0A => I("il2cpp::il2cpp_array_sort_int64", 1, false, false, false, new[] { "a" }),
+                        0x0C => I("il2cpp::il2cpp_array_sort_float", 1, false, false, false, new[] { "a" }),
+                        0x0D => I("il2cpp::il2cpp_array_sort_double", 1, false, false, false, new[] { "a" }),
                         0x0E => I("il2cpp::il2cpp_array_sort_string", 1, false, false, false, new[] { "a" }),
                         _ => throw new NotSupportedException(
-                            $"Array.Sort<T> generic argument 0x{genArgs[0]:X2} has no direct-call sort (only int32/uint32/int64/string arrays)"),
+                            $"Array.Sort<T> generic argument 0x{genArgs[0]:X2} has no direct-call sort (only int32/uint32/int64/float/double/string arrays)"),
                     };
                 }
                 if (count == 2)
@@ -77,9 +79,10 @@ public static partial class MethodRefResolver
                 {
                     0x08 => I("il2cpp::il2cpp_array_index_of_int32", 2, true, false, false, new[] { "a", "i" }),
                     0x0A => I("il2cpp::il2cpp_array_index_of_int64", 2, true, false, false, new[] { "a", "l" }),
+                    0x0D => I("il2cpp::il2cpp_array_index_of_double", 2, true, false, false, new[] { "a", "d" }),
                     0x0E => I("il2cpp::il2cpp_array_index_of_string", 2, true, false, false, new[] { "a", "" }),
                     _ => throw new NotSupportedException(
-                        $"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} has no direct-call (only int32/int64/string)"),
+                        $"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} has no direct-call (only int32/int64/double/string)"),
                 };
             case "BinarySearch":
                 if (genArgs == null) return null;
@@ -87,9 +90,10 @@ public static partial class MethodRefResolver
                 {
                     0x08 => I("il2cpp::il2cpp_array_binary_search_int32", 2, true, false, false, new[] { "a", "i" }),
                     0x0A => I("il2cpp::il2cpp_array_binary_search_int64", 2, true, false, false, new[] { "a", "l" }),
+                    0x0D => I("il2cpp::il2cpp_array_binary_search_double", 2, true, false, false, new[] { "a", "d" }),
                     0x0E => I("il2cpp::il2cpp_array_binary_search_string", 2, true, false, false, new[] { "a", "" }),
                     _ => throw new NotSupportedException(
-                        $"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} has no direct-call (only int32/int64/string)"),
+                        $"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} has no direct-call (only int32/int64/double/string)"),
                 };
             default: return null;
         }

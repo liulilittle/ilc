@@ -139,6 +139,20 @@ public class MethodMapStreamIOTests
     }
 
     [Fact]
+    public void Resolve_StreamWriter_WriteString_MapsToWriteTextIcall()
+    {
+        // WAVE2: StreamWriter/TextWriter.Write(string) -- UTF-8 text WITHOUT
+        // the line terminator (icall_stream_write_text; net48 Write vs
+        // WriteLine).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "Write", Sig(0x01, 0x0E)), "Write");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_write_text", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue); // runtime int32, .NET void
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
     public void Resolve_MemoryStream_ToArray_MapsToMemoryToArrayIcall()
     {
         // ret byte[] = 0x1D SZARRAY + element byte 0x05 (byte), 0 params.
@@ -168,14 +182,17 @@ public class MethodMapStreamIOTests
     }
 
     [Fact]
-    public void Resolve_FileStream_Ctor_TwoParams_ThrowsLoud()
+    public void Resolve_FileStream_Ctor_TwoParams_MapsToFileCtor2Icall()
     {
-        // FileStream(string, FileMode): 2 params -- no literal-injection
-        // mechanism for the mode constant, LOUD.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "FileStream", ".ctor", Sig(0x01, 0x0E, 0x08)), ".ctor"));
+        // WAVE2: FileStream(string, FileMode): 2 params, void -- the runtime
+        // derives the net48 FileAccess default (Append -> Write, otherwise
+        // ReadWrite).
+        var resolved = ResolveMember(Synthesize("System.IO", "FileStream", ".ctor", Sig(0x01, 0x0E, 0x08)), ".ctor");
 
-        Assert.Contains("System.IO.FileStream::.ctor", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_stream_file_ctor2", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -201,13 +218,16 @@ public class MethodMapStreamIOTests
     }
 
     [Fact]
-    public void Resolve_StreamReader_Ctor_String_ThrowsLoud()
+    public void Resolve_StreamReader_Ctor_String_MapsToReaderPathCtorIcall()
     {
-        // StreamReader(string): the object icall takes only (Stream), LOUD.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor", Sig(0x01, 0x0E)), ".ctor"));
+        // StreamReader(string path): wired in P2 IO-symmetry (2026-09-19) --
+        // the runtime opens "rb" and BOM-detects.
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x0E)), ".ctor");
 
-        Assert.Contains("System.IO.StreamReader::.ctor", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_path_ctor", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
     }
 
     [Fact]
@@ -316,6 +336,17 @@ public class MethodMapStreamIOTests
             ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01, 0x08)), "WriteLine"));
 
         Assert.Contains("System.IO.StreamWriter::WriteLine", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_WriteChar_ThrowsLoud()
+    {
+        // Write(char) (0x03) must NOT route through the WAVE2 Write(string)
+        // arm: the text icall takes exactly the string form (0x0E).
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.IO", "StreamWriter", "Write", Sig(0x01, 0x03)), "Write"));
+
+        Assert.Contains("System.IO.StreamWriter::Write", ex.Message);
     }
 
     //--------------------------------------------------------------------------

@@ -47,7 +47,7 @@ namespace runtime {
 // il2cpp_marshal_size_of -- Marshal.SizeOf(primitive) by net48 TypeCode (see
 // header). The supported codes and their sizes:
 //
-//   3 Boolean 1   4 Char 2   5 SByte 1   6 Byte 1
+//   3 Boolean 4   4 Char 1   5 SByte 1   6 Byte 1
 //   7 Int16 2     8 UInt16 2 9 Int32 4   10 UInt32 4
 //   11 Int64 8    12 UInt64 8 13 Single 4 14 Double 8
 //   15 Decimal 16
@@ -60,10 +60,10 @@ int32_t il2cpp_marshal_size_of(int32_t typeCode)
 {
     switch (typeCode)
     {
-        case 3:  return 1;  // Boolean
+        case 3:  return 4;  // Boolean (Win32 BOOL under the default Ansi CharSet)
         case 5:  return 1;  // SByte
         case 6:  return 1;  // Byte
-        case 4:  return 2;  // Char
+        case 4:  return 1;  // Char (Ansi, not the 2-byte managed char16)
         case 7:  return 2;  // Int16
         case 8:  return 2;  // UInt16
         case 9:  return 4;  // Int32

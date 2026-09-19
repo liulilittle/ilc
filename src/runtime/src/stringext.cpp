@@ -87,16 +87,43 @@ bool IsWhitespace(char16_t c)
     }
 }
 
-// ASCII upper-casing of a single unit: 'a'-'z' -> 'A'-'Z', others unchanged.
+// ASCII + the Unicode SIMPLE upper mappings for Latin-1 / Greek / Cyrillic
+// (saudit3: "ä" -> "Ä", "ς" -> "Σ", "ѐ" -> "Ѐ"). Multi-char expansions
+// (ß -> SS in some cultures) do NOT apply: net48 ToUpper keeps ß unchanged.
 char16_t ToUpperUnit(char16_t c)
 {
-    return (c >= u'a' && c <= u'z') ? static_cast<char16_t>(c - 32) : c;
+    if (c >= u'a' && c <= u'z') return static_cast<char16_t>(c - 32);
+    // Latin-1 supplement: à-ö, ø-þ are -0x20 from their capitals; ÷ (0x00F7)
+    // stays.
+    if ((c >= 0x00E0 && c <= 0x00F6) || (c >= 0x00F8 && c <= 0x00FE))
+        return static_cast<char16_t>(c - 0x20);
+    if (c == 0x00FF) return 0x0178; // ÿ -> Ÿ
+    // Greek: α-ω (0x03B1-0x03C9) minus 0x20; final sigma ς -> Σ.
+    if (c >= 0x03B1 && c <= 0x03C9) return static_cast<char16_t>(c - 0x20);
+    if (c == 0x03C2) return 0x03A3;
+    // Cyrillic: а-я and ѐ-џ.
+    if (c >= 0x0430 && c <= 0x044F) return static_cast<char16_t>(c - 0x20);
+    if (c >= 0x0450 && c <= 0x045F) return static_cast<char16_t>(c - 0x50);
+    return c;
 }
 
-// ASCII lower-casing of a single unit: 'A'-'Z' -> 'a'-'z', others unchanged.
+// Mirror of ToUpperUnit (same script scope): "Ä" -> "ä", "Ξ"/"Σ" -> "ξ"/"σ",
+// "Ѐ" -> "ѐ".
 char16_t ToLowerUnit(char16_t c)
 {
-    return (c >= u'A' && c <= u'Z') ? static_cast<char16_t>(c + 32) : c;
+    if (c >= u'A' && c <= u'Z') return static_cast<char16_t>(c + 32);
+    // Latin-1 supplement: À-Ö, Ø-Þ are +0x20 to their small forms; × stays.
+    if ((c >= 0x00C0 && c <= 0x00D6) || (c >= 0x00D8 && c <= 0x00DE))
+        return static_cast<char16_t>(c + 0x20);
+    if (c == 0x0178) return 0x00FF; // Ÿ -> ÿ
+    // Greek: Α-Ρ (0x0391-0x03A1) and Σ-Ω (0x03A3-0x03A9); 0x03A2 is
+    // unassigned and stays.
+    if ((c >= 0x0391 && c <= 0x03A1) || (c >= 0x03A3 && c <= 0x03A9))
+        return static_cast<char16_t>(c + 0x20);
+    // Cyrillic: А-Я and Ѐ-Џ.
+    if (c >= 0x0410 && c <= 0x042F) return static_cast<char16_t>(c + 0x20);
+    if (c >= 0x0400 && c <= 0x040F) return static_cast<char16_t>(c + 0x50);
+    return c;
 }
 
 // Allocate a managed string holding 'count' units copied from 'units'

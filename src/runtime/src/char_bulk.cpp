@@ -25,8 +25,14 @@ bool il2cpp_char_all_digit(const Il2CppString* s) noexcept
         char16_t c0=p[i+0],c1=p[i+1],c2=p[i+2],c3=p[i+3],c4=p[i+4],c5=p[i+5],c6=p[i+6],c7=p[i+7];
         if(!IsDigit(c0)||!IsDigit(c1)||!IsDigit(c2)||!IsDigit(c3)||!IsDigit(c4)||!IsDigit(c5)||!IsDigit(c6)||!IsDigit(c7)) 
         {
-            if(!IsDigit(c0)) return false; if(!IsDigit(c1)) return false; if(!IsDigit(c2)) return false; if(!IsDigit(c3)) return false;
-            if(!IsDigit(c4)) return false; if(!IsDigit(c5)) return false; if(!IsDigit(c6)) return false; return false;
+            if(!IsDigit(c0)) return false;
+            if(!IsDigit(c1)) return false;
+            if(!IsDigit(c2)) return false;
+            if(!IsDigit(c3)) return false;
+            if(!IsDigit(c4)) return false;
+            if(!IsDigit(c5)) return false;
+            if(!IsDigit(c6)) return false;
+            return false;
         }
     }
     for(; i < len; ++i) if(!IsDigit(p[i]))  return false;
@@ -42,8 +48,14 @@ bool il2cpp_char_all_letter(const Il2CppString* s) noexcept
         char16_t c0=p[i+0],c1=p[i+1],c2=p[i+2],c3=p[i+3],c4=p[i+4],c5=p[i+5],c6=p[i+6],c7=p[i+7];
         if(!IsLetter(c0)||!IsLetter(c1)||!IsLetter(c2)||!IsLetter(c3)||!IsLetter(c4)||!IsLetter(c5)||!IsLetter(c6)||!IsLetter(c7)) 
         {
-            if(!IsLetter(c0)) return false; if(!IsLetter(c1)) return false; if(!IsLetter(c2)) return false; if(!IsLetter(c3)) return false;
-            if(!IsLetter(c4)) return false; if(!IsLetter(c5)) return false; if(!IsLetter(c6)) return false; return false;
+            if(!IsLetter(c0)) return false;
+            if(!IsLetter(c1)) return false;
+            if(!IsLetter(c2)) return false;
+            if(!IsLetter(c3)) return false;
+            if(!IsLetter(c4)) return false;
+            if(!IsLetter(c5)) return false;
+            if(!IsLetter(c6)) return false;
+            return false;
         }
     }
     for(; i < len; ++i) if(!IsLetter(p[i]))  return false;
@@ -59,8 +71,14 @@ bool il2cpp_char_all_letter_or_digit(const Il2CppString* s) noexcept
         char16_t c0=p[i+0],c1=p[i+1],c2=p[i+2],c3=p[i+3],c4=p[i+4],c5=p[i+5],c6=p[i+6],c7=p[i+7];
         if(!IsLetterOrDigit(c0)||!IsLetterOrDigit(c1)||!IsLetterOrDigit(c2)||!IsLetterOrDigit(c3)||!IsLetterOrDigit(c4)||!IsLetterOrDigit(c5)||!IsLetterOrDigit(c6)||!IsLetterOrDigit(c7)) 
         {
-            if(!IsLetterOrDigit(c0)) return false; if(!IsLetterOrDigit(c1)) return false; if(!IsLetterOrDigit(c2)) return false; if(!IsLetterOrDigit(c3)) return false;
-            if(!IsLetterOrDigit(c4)) return false; if(!IsLetterOrDigit(c5)) return false; if(!IsLetterOrDigit(c6)) return false; return false;
+            if(!IsLetterOrDigit(c0)) return false;
+            if(!IsLetterOrDigit(c1)) return false;
+            if(!IsLetterOrDigit(c2)) return false;
+            if(!IsLetterOrDigit(c3)) return false;
+            if(!IsLetterOrDigit(c4)) return false;
+            if(!IsLetterOrDigit(c5)) return false;
+            if(!IsLetterOrDigit(c6)) return false;
+            return false;
         }
     }
     for(; i < len; ++i) if(!IsLetterOrDigit(p[i]))  return false;

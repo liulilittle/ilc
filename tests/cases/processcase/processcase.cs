@@ -5,12 +5,12 @@ using System.Diagnostics;
 // domain: the PID handle-gap mapping (MethodMap.Process.cs + pathproc.h).
 //
 // Probe (the task's core probe, environment-adapted): Start(exe, args) ->
-// WaitForExit() -> ExitCode == 42. The child is wscript.exe running
-// exit42.vbs (WScript.Quit 42) -- a GUI-subsystem child -- instead of
-// cmd.exe: net48's Process.Start(string, string) launches console children
-// via ShellExecuteEx, which creates a NEW console -- blocked in this
-// headless session (cmd/ping children hang forever; verified). A GUI child
-// needs no console and WScript.Quit(42) makes the exit code exact. The
+// WaitForExit() -> ExitCode == 42. The child is exit42.exe -- a GUI-subsystem
+// child built from exit42.c (WinMain returns 42) -- instead of cmd.exe:
+// net48's Process.Start(string, string) launches console children via
+// ShellExecuteEx, which creates a NEW console -- blocked in this headless
+// session (cmd/ping children hang forever; verified). A GUI child needs no
+// console and a fixed WinMain return value makes the exit code exact. The
 // transpiled side uses CreateProcessW directly (CREATE_NO_WINDOW, pathproc.h)
 // and is console-independent -- both sides must print the same line:
 //
@@ -22,7 +22,7 @@ using System.Diagnostics;
 // value slot) and get_Id folds to its receiver (the pid itself), so
 // Process.GetCurrentProcess().Id > 0 must print True on both sides.
 //
-// The relative vbs path resolves against the harness CWD (E:\il2cpp for
+// The relative exe path resolves against the harness CWD (E:\il2cpp for
 // both the net48 reference run and the generated exe run -- run-tests.ps1
 // does not change the caller's working directory).
 //
@@ -38,7 +38,7 @@ class ProcessCase
 {
     static void Main()
     {
-        Process p = Process.Start("wscript.exe", "tests/cases/processcase/exit42.vbs");
+        Process p = Process.Start("tests\\cases\\processcase\\exit42.exe", "");
         p.WaitForExit();
         Console.WriteLine("exit code 42: " + (p.ExitCode == 42));
         Console.WriteLine("current pid > 0: " + (Process.GetCurrentProcess().Id > 0));

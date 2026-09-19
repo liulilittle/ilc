@@ -32,13 +32,15 @@
         #define _WIN32_WINNT 0x0600 // Vista+ winsock (getaddrinfo/inet_ntop)
     #endif
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <winsock2.h>
     #include <ws2tcpip.h>
-    // MSVC and gcc-mingw honor #pragma comment(lib) (self-contained link);
-    // the llvm-mingw clang driver warns "unknown pragma" instead, so clang
-    // builds link with an explicit -lws2_32.
-    #if defined(_MSC_VER) || (defined(__MINGW32__) && !defined(__clang__))
+    // MSVC honors #pragma comment(lib) (self-contained link). GCC16 warns
+    // -Wunknown-pragmas and llvm-mingw clang warns "unknown pragma", so both
+    // link with an explicit -lws2_32 (CMakeLists PUBLIC ws2_32).
+    #if defined(_MSC_VER)
         #pragma comment(lib, "ws2_32.lib")
     #endif
     #include <mutex>

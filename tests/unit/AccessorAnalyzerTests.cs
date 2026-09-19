@@ -23,13 +23,22 @@ using Xunit;
 //------------------------------------------------------------------------------
 public class AccessorAnalyzerTests
 {
+    // The MetadataReader borrows its backing blocks from the PEReader; call
+    // sites keep using `md` after the tuple is destructured, so the handles
+    // must outlive the helper (dangling-reader class defect, see
+    // TypeEmitterNestedTests.Load). Retain for the process lifetime.
+    private static readonly List<PEReader> s_retainedReaders = new();
+
     private static (PEReader Pe, MetadataReader Md, List<TypeDef> Types) OpenFixture()
     {
         var path = FixturePath();
-        var stream = File.OpenRead(path);
-        var pe = new PEReader(stream);
+        var pe = new PEReader(new MemoryStream(File.ReadAllBytes(path), writable: false));
         var md = pe.GetMetadataReader();
         var types = MetadataLoader.LoadAssembly(path);
+        lock (s_retainedReaders)
+        {
+            s_retainedReaders.Add(pe);
+        }
         return (pe, md, types);
     }
 

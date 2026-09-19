@@ -22,11 +22,21 @@
 //------------------------------------------------------------------------------
 using System;
 using System.Diagnostics;
+using System.Threading;
 
 namespace Cases { public static class Stopwatchdeep {
+    // E2E oracle fix (2026-09-11): the accumulation loop below was a PURE
+    // double computation -- Release -O2 legally removed most/all of it, so
+    // Burn completed in ~0 ticks and the timing probes that require a
+    // measurable interval (`r2 < r1`, `r0 < c1`) flaked (observed: ILC
+    // False x2/6 vs the oracle's stable True). Each iteration now performs a
+    // real Interlocked.Increment -- an icall the C++ optimizer cannot
+    // eliminate -- preserving the intended busy interval. The counter value
+    // itself is never asserted (same pattern as threadpooldeep2's g_spin).
+    static int g_burn;
     private static double Burn(int n) {
         double a = 0;
-        for (int i = 0; i < n; i++) a += i * 0.125;
+        for (int i = 0; i < n; i++) { a += i * 0.125; Interlocked.Increment(ref g_burn); }
         return a;
     }
     public static void Main() {

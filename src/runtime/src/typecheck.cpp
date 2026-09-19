@@ -96,7 +96,7 @@ bool TypeIsInstance(Il2CppObject* obj, Il2CppClass* klass)
 // Null-receiver failure: .NET throws NullReferenceException. The chain
 // suffix (",System.Exception") is the transpiler's chain format -- it lets
 // il2cpp_exception_matches accept a catch of System.Exception.
-void ThrowNullReference()
+[[noreturn]] void ThrowNullReference()
 {
     il2cpp_throw_new("System.NullReferenceException,System.Exception",
                      "Object reference not set to an instance of an object.");
@@ -104,7 +104,7 @@ void ThrowNullReference()
 
 // Null-argument failure: .NET throws ArgumentNullException. Same carrier
 // convention as ThrowNullReference.
-void ThrowArgumentNull()
+[[noreturn]] void ThrowArgumentNull()
 {
     il2cpp_throw_new("System.ArgumentNullException,System.Exception",
                      "Value cannot be null.");
@@ -167,14 +167,12 @@ int32_t icall_type_is_subclass_of(Il2CppClass* derived, Il2CppClass* base)
         // null receiver: .NET ((Type)null).IsSubclassOf(x) throws
         // NullReferenceException (net48 probe-verified).
         ThrowNullReference();
-        return 0; // unreachable (ThrowNullReference always throws)
     }
     if (base == nullptr)
     {
         // null argument: .NET IsSubclassOf(null) throws ArgumentNullException
         // with ParamName "type" (net48 probe-verified).
         ThrowArgumentNull();
-        return 0; // unreachable (ThrowArgumentNull always throws)
     }
     // .NET IsSubclassOf excludes self: the walk starts at derived->baseClass,
     // never at derived itself.
@@ -203,7 +201,6 @@ int32_t icall_object_get_type_code(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowNullReference();
-        return 1; // unreachable (ThrowNullReference always throws); well-formed path only
     }
     const char* name = (obj->klass != nullptr) ? obj->klass->name : nullptr;
     if (name == nullptr)
@@ -287,7 +284,6 @@ Il2CppObject* icall_object_get_type(Il2CppObject* obj)
     if (obj == nullptr)
     {
         ThrowNullReference();
-        return nullptr; // unreachable (ThrowNullReference always throws)
     }
     const char* name = (obj->klass != nullptr && obj->klass->name != nullptr)
         ? obj->klass->name
@@ -309,35 +305,37 @@ Il2CppObject* icall_object_get_type(Il2CppObject* obj)
 //------------------------------------------------------------------------------
 // il2cpp_type_get_short_name -- Type.Name on a Type VALUE (see header).
 //
-// The Type value is the FULL name string; .NET Type.Name is the segment
-// after the last '.' ("System.Int32" -> "Int32"; net48 probe: boxed int
-// GetType().Name == "Int32" while GetType().ToString() == "System.Int32").
-// A name with no '.' (no namespace) is already the short name -- return the
-// input unchanged (identity, no allocation). The truncation rule mirrors the
-// transpiler's ShortTypeName fold (typeof(X).Name) -- both paths agree.
+// The Type value is the FULL name string; .NET Type.Name is the last
+// identifier segment -- after the last '.' (namespace) AND after the last
+// '+' (nested-type separator): "System.Int32" -> "Int32",
+// "Cases.Exops2+CxEx2" -> "CxEx2" (net48 nested-type probe; the old
+// dot-only split returned "Exops2+CxEx2" -- the exops2 Type.Name diff).
+// A name with neither separator (no namespace) is already the short name --
+// return the input unchanged (identity, no allocation). The truncation rule
+// mirrors the transpiler's ShortTypeName fold (typeof(X).Name) -- both paths
+// agree.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_type_get_short_name(Il2CppObject* typeName)
 {
     if (typeName == nullptr)
     {
         ThrowNullReference();
-        return nullptr; // unreachable (ThrowNullReference always throws)
     }
     auto s = reinterpret_cast<Il2CppString*>(typeName);
-    int32_t dot = -1;
+    int32_t cut = -1;
     for (int32_t i = 0; i < s->length; i++)
     {
-        if (s->chars[i] == u'.')
+        if (s->chars[i] == u'.' || s->chars[i] == u'+')
         {
-            dot = i;
+            cut = i;
         }
     }
-    if (dot < 0)
+    if (cut < 0)
     {
         return typeName; // no namespace: the name IS the short name
     }
     return reinterpret_cast<Il2CppObject*>(
-        il2cpp_string_new(s->chars + dot + 1, s->length - dot - 1));
+        il2cpp_string_new(s->chars + cut + 1, s->length - cut - 1));
 }
 
 } // namespace runtime

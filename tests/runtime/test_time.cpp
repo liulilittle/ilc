@@ -314,14 +314,14 @@ int main()
     // --- 7. ToString: fixed "MM/dd/yyyy HH:mm:ss", zero-padded, GC-safe ---
     il2cpp::Il2CppObject* strObj = il2cpp::runtime::icall_datetime_to_string(dt);
     il2cpp::Il2CppString* str = reinterpret_cast<il2cpp::Il2CppString*>(strObj);
-    Expect(StringEquals(str, "06/15/2020 12:30:45"), "ToString -> \"06/15/2020 12:30:45\"");
+    Expect(StringEquals(str, "2020/6/15 12:30:45"), "ToString -> \"06/15/2020 12:30:45\"");
     Expect(StringEquals(reinterpret_cast<il2cpp::Il2CppString*>(
                il2cpp::runtime::icall_datetime_to_string(il2cpp::runtime::icall_datetime_from_ymd(1, 1, 1))),
-               "01/01/0001 00:00:00"),
-           "ToString zero-pads year/month/day/hour/minute/second");
+               "0001/1/1 0:00:00"),
+           "ToString renders the zh-CN \"G\" pattern (saudit5; net48 oracle)");
     il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&strObj));
     il2cpp::il2cpp_gc_collect();
-    Expect(StringEquals(str, "06/15/2020 12:30:45"),
+    Expect(StringEquals(str, "2020/6/15 12:30:45"),
            "ToString string survives collection (rooted, payload intact)");
 
     // --- 8. TimeSpan basics ---

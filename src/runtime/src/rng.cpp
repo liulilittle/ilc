@@ -37,7 +37,9 @@
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
+    #ifndef NOMINMAX
     #define NOMINMAX
+    #endif
     #include <windows.h>
 #else
     #include <cerrno>
@@ -88,7 +90,7 @@ BcryptGenRandomFn BcryptGenRandomProc()
         {
             return nullptr;
         }
-        return reinterpret_cast<BcryptGenRandomFn>(GetProcAddress(h, "BCryptGenRandom"));
+        return reinterpret_cast<BcryptGenRandomFn>(reinterpret_cast<void*>(GetProcAddress(h, "BCryptGenRandom")));
     }();
     return proc;
 }
@@ -102,7 +104,7 @@ RtlGenRandomFn RtlGenRandomProc()
         {
             return nullptr;
         }
-        return reinterpret_cast<RtlGenRandomFn>(GetProcAddress(h, "SystemFunction036"));
+        return reinterpret_cast<RtlGenRandomFn>(reinterpret_cast<void*>(GetProcAddress(h, "SystemFunction036")));
     }();
     return proc;
 }

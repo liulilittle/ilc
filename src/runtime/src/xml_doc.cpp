@@ -18,14 +18,58 @@
 #include "xml_query.h"       // il2cpp_xml_query (SelectNodes engine)
 
 #include "il2cpp_exception.h" // il2cpp_throw_new (DotNetException carrier)
+#include "il2cpp_exception_ext.h" // il2cpp_throw_null_reference_exception
+#include "il2cpp_gcroot.h"    // GcRoot (enumerator allocation rooting)
+#include "il2cpp_runtime.h"   // il2cpp_object_new / il2cpp_class_register
 #include "il2cpp_string.h"    // il2cpp_string_new_from_cs
 
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
 
+//------------------------------------------------------------------------------
+// xmlenum: the XmlNodeList snapshot-enumerator runtime descriptor.
+// GLOBAL scope (external linkage) like System_Collections_Stack_Enumerator_class
+// (stackqueue.cpp): allocated through il2cpp_object_new by
+// il2cpp_xml_nodelist_get_enumerator, registered lazily there.
+//   instanceSize sizeof(Il2CppXmlNodeListEnumerator) (obj 8 + nodes 8 + index 4,
+//     padded to alignment), refFieldBitmap bit 1: 'nodes' (the frozen hit array)
+//     is the only GC ref.
+//------------------------------------------------------------------------------
+il2cpp::Il2CppClass System_Xml_XmlNodeListEnumerator_class = {
+    "System.Xml.XmlNodeListEnumerator", // name (net48 internal type name)
+    static_cast<int32_t>(sizeof(il2cpp::runtime::Il2CppXmlNodeListEnumerator)), // instanceSize
+    0b00010u,                   // refFieldBitmap: bit 1 = nodes
+    1,                          // refFieldCount
+    nullptr,                    // baseClass
+    nullptr,                    // vtable
+    0,                          // vtableSize
+    nullptr,                    // interfaces
+    0,                          // interfaceCount
+};
+
 namespace {
+
+// xmlenum: layout verification -- the enumerator descriptor's refFieldBitmap
+// bit 1 (nodes) must track the struct slot; index is an int (not scanned).
+static_assert(offsetof(il2cpp::runtime::Il2CppXmlNodeListEnumerator, nodes) == 1 * sizeof(void*),
+              "Il2CppXmlNodeListEnumerator: nodes must sit at slot 1 (bitmap bit 1)");
+static_assert(offsetof(il2cpp::runtime::Il2CppXmlNodeListEnumerator, index) == 2 * sizeof(void*),
+              "Il2CppXmlNodeListEnumerator: index sits at slot 2 (NOT in the bitmap)");
+
+bool g_xmlNodeListEnumeratorRegistered = false;
+
+// Lazy descriptor registration (constraint #12: no global-ctor allocation;
+// idempotent). GC must scan the enumerator's frozen hit array (bitmap bit 1).
+void EnsureXmlNodeListEnumeratorRegistered()
+{
+    if (g_xmlNodeListEnumeratorRegistered) return;
+    il2cpp::il2cpp_class_register(&System_Xml_XmlNodeListEnumerator_class);
+    g_xmlNodeListEnumeratorRegistered = true;
+}
 
 const char* kArgumentNullChain =
     "System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception";
@@ -33,7 +77,11 @@ const char* kArgumentNullChain =
 [[noreturn]] void ThrowArgNull(const char* argument)
 {
     il2cpp::il2cpp_throw_new(kArgumentNullChain, argument);
+#ifdef _MSC_VER
+    __assume(0);
+#else
     std::abort(); // defensive backstop (same pattern as xml_query.cpp)
+#endif
 }
 
 // UTF-16 -> UTF-8: BMP units direct, astral surrogate pairs expanded to
@@ -144,11 +192,14 @@ void Utf8ToUtf16(const std::string& utf8, std::vector<char16_t>& out)
     }
 }
 
-// Text content: escape & < > so a re-parse yields the identical text node.
+// Text content: escape & < > (plus C0 control characters other than
+// tab/LF/CR, which net48 re-escapes as &#xN;) so a re-parse yields the
+// identical text node.
 void EscapeText(const std::string& in, std::string& out)
 {
     for (const char ch : in)
     {
+        const unsigned char u = static_cast<unsigned char>(ch);
         if (ch == '&')
         {
             out += "&amp;";
@@ -160,6 +211,12 @@ void EscapeText(const std::string& in, std::string& out)
         else if (ch == '>')
         {
             out += "&gt;";
+        }
+        else if (u < 0x20u && u != 0x09u && u != 0x0Au && u != 0x0Du)
+        {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "&#x%X;", u);
+            out += buf;
         }
         else
         {
@@ -226,7 +283,7 @@ void SerializeNode(const il2cpp::XmlNode& node, std::string& out)
             }
             if (node.children.empty())
             {
-                out += "/>"; // empty element renders self-closing
+                out += " />"; // empty element: self-closing with a space (net48)
                 break;
             }
             out.push_back('>');
@@ -310,6 +367,91 @@ Il2CppArray* il2cpp_xml_select_nodes(const il2cpp::XmlNode* root,
     }
     const std::string utf8 = Utf16ToUtf8(path->chars, path->length);
     return il2cpp_xml_query(root, utf8.c_str());
+}
+
+Il2CppObject* il2cpp_xml_nodelist_get_item(Il2CppObject* list, int32_t index)
+{
+    if (list == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(list);
+    if (index < 0 || index >= arr->length)
+    {
+        return nullptr; // net48 XPathNodeList.Item: out-of-range yields null
+    }
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(arr->data);
+    return slots[index];
+}
+
+//------------------------------------------------------------------------------
+// xmlenum: XmlNodeList enumeration (foreach over SelectNodes).
+//
+// The list is the managed object[] of node handles; the enumerator wraps the
+// FROZEN array (the query result) plus a cursor. net48 reference semantics
+// (System.Xml.XmlNodeListEnumerator, pinned by the xmlenumops oracle):
+// get_Current before the first MoveNext and after the end is NULL (not
+// InvalidOperationException), Reset rewinds, MoveNext after the end stays
+// false. The enumerator is NOT IDisposable, so a foreach over the non-generic
+// IEnumerator emits no Dispose.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_xml_nodelist_get_enumerator(Il2CppObject* list)
+{
+    if (list == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    EnsureXmlNodeListEnumeratorRegistered();
+    // One allocation below can trigger a compacting collection: root the list
+    // for the whole body and re-read it after the allocation.
+    GcRoot<Il2CppObject*> root(list, "icall_xml_nodelist_get_enumerator");
+    Il2CppXmlNodeListEnumerator* en = reinterpret_cast<Il2CppXmlNodeListEnumerator*>(
+        il2cpp_object_new(&System_Xml_XmlNodeListEnumerator_class));
+    list = root.Get();
+    en->nodes = reinterpret_cast<Il2CppArray*>(list);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->nodes),
+                         reinterpret_cast<Il2CppObject*>(en->nodes));
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
+}
+
+int32_t il2cpp_xml_nodelist_enumerator_move_next(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    Il2CppXmlNodeListEnumerator* en = reinterpret_cast<Il2CppXmlNodeListEnumerator*>(self);
+    const int32_t count = il2cpp_array_get_length(en->nodes);
+    if (en->index < count)
+    {
+        ++en->index;
+    }
+    return en->index < count ? 1 : 0;
+}
+
+Il2CppObject* il2cpp_xml_nodelist_enumerator_get_current(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    Il2CppXmlNodeListEnumerator* en = reinterpret_cast<Il2CppXmlNodeListEnumerator*>(self);
+    const int32_t count = il2cpp_array_get_length(en->nodes);
+    if (en->index < 0 || en->index >= count)
+    {
+        return nullptr; // net48: Current before the first / after the last -> null
+    }
+    return *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(en->nodes, en->index));
+}
+
+void il2cpp_xml_nodelist_enumerator_reset(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    reinterpret_cast<Il2CppXmlNodeListEnumerator*>(self)->index = -1;
 }
 
 il2cpp::XmlNode* il2cpp_xml_select_single_node(const il2cpp::XmlNode* root,

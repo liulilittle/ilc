@@ -1,5 +1,12 @@
 namespace Il2Cpp.Transpiler.Emit;
 
+using System;
+using System.Linq;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
 //------------------------------------------------------------------------------
 // MethodMap.Exception -- System.Exception -- the callvirt surface inherited
 // from System.Object (GetType) and the get_Message carrier read.
@@ -41,7 +48,22 @@ public static partial class MethodRefResolver
                 if (receiverType == "System.Type")
                     return I("il2cpp::il2cpp_string_intern_literal(__il2cpp_ex.message_text()",
                         0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
+                // ilistException: get_Message on a tracked Exception receiver
+                // (e.g. an element read from List<Exception>). The message was
+                // captured at ctor time into the runtime side table; read it
+                // back through the runtime icall (miss -> empty string).
+                if (receiverType == "System.Exception")
+                    return I("il2cpp::runtime::icall_exception_get_message", 0, true, true, true, new[] { "" }, returnTypeName: "System.String");
                 throw new NotSupportedException($"Exception.get_Message on receiver '{receiverType}' not wired: only catch variables (tracked as the exception entry, in scope with the DotNetException carrier __il2cpp_ex) carry a message in the M3 carrier model");
+            case ".ctor":
+                // ilistException: System.Exception::.ctor(string) -- the BCL
+                // exception ctor is a no-op carrier in M3, but the message
+                // must be captured into the runtime side table so
+                // get_Message can answer it later. Map the string-ctor to
+                // the runtime icall that does both (nop + capture).
+                if (count == 1 && ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_exception_ctor_message", 1, false, false, true, new[] { "", "s" });
+                return null;
             case "ToString":
                 // Exception.ToString() on the carrier cannot render; fall
                 // through to the vtable path (loud downstream failure).

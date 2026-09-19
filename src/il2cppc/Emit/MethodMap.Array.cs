@@ -37,7 +37,7 @@ public static partial class MethodRefResolver
                         // direct-call domain for uint32/int64 (arraysort.h).
                         0x0E when count == 1 => I("il2cpp::runtime::icall_array_sort_strings", 1, false, false, false),
                         0x08 when count == 1 => I("il2cpp::runtime::icall_array_sort", 1, false, false, false),
-                        0x09 or 0x0A when count == 1 => null,
+                        0x09 or 0x0A or 0x0C or 0x0D when count == 1 => null,
                         // Array.Sort<T>(T[], Comparison<T>) count==2 -- the
                         // DELEGATE sort (cg8-b23). The System.Comparison`1
                         // delegate construction (newobj placeholder + ctor
@@ -50,7 +50,19 @@ public static partial class MethodRefResolver
                         // compare raw element values; string/object/class arrays
                         // pass the element slots (ref comparison).
                         0x08 when count == 2 => I("il2cpp::il2cpp_array_sort_int32_comparison", 2, false, false, false, new[] { "a", "" }),
-                        0x0E or 0x1C or 0x12 when count == 2 => I("il2cpp::il2cpp_array_sort_ref_comparison", 2, false, false, false, new[] { "a", "" }),
+                        // a5reds (strsort_ordinal): the SAME generic Sort<T>
+                        0x0E or 0x1C or 0x12 when count == 2 =>
+                            arg0Type is "System.StringComparer.Ordinal" or "System.StringComparer.OrdinalIgnoreCase"
+                                // The second argument is a StringComparer
+                                // singleton (MethodMap.Collections.cs
+                                // TryMapStringComparer ReturnTypeName), NOT a
+                                // Comparison<T> delegate: route to the
+                                // comparer-driven sort (arraysort.cpp
+                                // recognizes the singletons; IL order is
+                                // (array, comparer) -- the same slot order as
+                                // the non-generic arm below).
+                                ? I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" })
+                                : I("il2cpp::il2cpp_array_sort_ref_comparison", 2, false, false, false, new[] { "a", "" }),
                         _ => throw new NotSupportedException($"Array.Sort<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) not wired in M5"),
                     };
                 }
@@ -77,7 +89,8 @@ public static partial class MethodRefResolver
                         // domain (il2cpp_array_binary_search_int64); only
                         // the 2-arg form (ArraySort.cs maps any count to
                         // the 2-param call, so wider arities stay LOUD).
-                        0x0A when count == 2 => null,
+                        // W7: double follows the same yield.
+                        0x0A or 0x0D when count == 2 => null,
                         _ => throw new NotSupportedException($"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
                     };
                 }
@@ -91,7 +104,8 @@ public static partial class MethodRefResolver
                         // M6: int64/string yield to the ArraySort direct-call
                         // domain (il2cpp_array_index_of_int64/_string); only
                         // the 2-arg form (same arity caveat as BinarySearch).
-                        0x0A or 0x0E when count == 2 => null,
+                        // W7: double follows the same yield.
+                        0x0A or 0x0D or 0x0E when count == 2 => null,
                         _ => throw new NotSupportedException($"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
                     };
                 }
@@ -99,7 +113,12 @@ public static partial class MethodRefResolver
             case "LastIndexOf":
                 if (genArgs != null)
                 {
+                    // W7: the double/string/long reverse scans (arraysort.h).
+                    // Only the 2-arg form (array, value) is wired.
                     if (genArgs[0] == 0x08) return I("il2cpp::runtime::icall_array_last_index_of_int32", 2, true, false, false);
+                    if (genArgs[0] == 0x0D && count == 2) return I("il2cpp::il2cpp_array_last_index_of_double", 2, true, false, false, new[] { "a", "d" });
+                    if (genArgs[0] == 0x0E && count == 2) return I("il2cpp::il2cpp_array_last_index_of_string", 2, true, false, false, new[] { "a", "" });
+                    if (genArgs[0] == 0x0A && count == 2) return I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" });
                     throw new NotSupportedException($"Array.LastIndexOf<T> generic argument 0x{genArgs[0]:X2} not wired in M5");
                 }
                 throw new NotSupportedException("Array.LastIndexOf(Array, object) non-generic not wired in M5");
@@ -126,6 +145,9 @@ public static partial class MethodRefResolver
                         // return an empty object[].
                         0x12 => I("il2cpp::runtime::icall_array_empty_object", 0, true, true, false),
                         0x1C => I("il2cpp::runtime::icall_array_empty_object", 0, true, true, false),
+                        // W7: long/double typed empty factories (arrayext2).
+                        0x0A => I("il2cpp::runtime::icall_array_empty_long", 0, true, true, false),
+                        0x0D => I("il2cpp::runtime::icall_array_empty_double", 0, true, true, false),
                         _ => throw new NotSupportedException($"Array.Empty<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
                     };
                 }
@@ -145,12 +167,31 @@ public static partial class MethodRefResolver
                         return genArgs[0] switch
                         {
                             0x08 => I("il2cpp::runtime::icall_array_reverse", 1, false, false, false),
+                            // W7: long reuses the arrayextra int64 1-arg
+                            // reverser (mapping-only); double is its 8-byte
+                            // twin (new, arrayextra).
+                            0x0A => I("il2cpp::il2cpp_array_reverse_int64", 1, false, false, false, new[] { "a" }),
+                            0x0D => I("il2cpp::il2cpp_array_reverse_double", 1, false, false, false, new[] { "a" }),
                             0x0E => I("il2cpp::il2cpp_array_reverse_string", 1, false, false, false, new[] { "a" }),
                             0x1C or 0x12 => I("il2cpp::il2cpp_array_reverse_object", 1, false, false, false, new[] { "a" }),
                             _ => throw new NotSupportedException($"Array.Reverse<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
                         };
                     }
-                    return I("il2cpp::runtime::icall_array_reverse", 1, false, false, false);
+                    // Non-generic Reverse(Array): genArgs is null (the
+                    // MemberReference path passes none). The tracked first-
+                    // argument type names the real element width -- routing
+                    // a typed array to the int32-only contract throws
+                    // RequireInt32Array at runtime (g4arrval RED: long[] via
+                    // Reverse(Array) binding). Untyped/unknown stays on the
+                    // historical int32 contract (zero behavior change).
+                    return arg0Type switch
+                    {
+                        "System.Int64[]" => I("il2cpp::il2cpp_array_reverse_int64", 1, false, false, false, new[] { "a" }),
+                        "System.Double[]" => I("il2cpp::il2cpp_array_reverse_double", 1, false, false, false, new[] { "a" }),
+                        "System.String[]" => I("il2cpp::il2cpp_array_reverse_string", 1, false, false, false, new[] { "a" }),
+                        "System.Object[]" => I("il2cpp::il2cpp_array_reverse_object", 1, false, false, false, new[] { "a" }),
+                        _ => I("il2cpp::runtime::icall_array_reverse", 1, false, false, false),
+                    };
                 }
                 return I("il2cpp::runtime::icall_array_reverse_range", 3, false, false, false);
             case "Copy":
@@ -295,7 +336,14 @@ public static partial class MethodRefResolver
             case "GetUpperBound":
                 return I("il2cpp::runtime::icall_array_get_upper_bound", 1, true, false, true, new[] { "", "i" });
             case "get_Length":
-                return I("il2cpp::il2cpp_array_get_length", 0, true, false, true);
+                // a5reds (raudit4): the receiver cast "a" is REQUIRED -- a
+                // System.Array-typed receiver arrives as Il2CppObject* (e.g.
+                // the `(Array)Enum.GetValues(...)` isinst result) and the
+                // inline header helper takes Il2CppArray*; without the cast
+                // the emitted argument is a raw Il2CppObject* (C++ error).
+                // Normal `arr.Length` rides IL ldlen (CodeGenerator wraps it),
+                // so only this callvirt path needed the cast.
+                return I("il2cpp::il2cpp_array_get_length", 0, true, false, true, new[] { "a" });
             case "get_Rank":
                 // Array.get_Rank: the number of dimensions (net48: a multi-
                 // dimensional array returns its rank, a one-dimensional array
