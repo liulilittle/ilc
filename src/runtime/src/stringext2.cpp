@@ -31,6 +31,7 @@
 #include "il2cpp_format.h"
 #include "il2cpp_string_intern.h"
 #include "il2cpp_value_semantics.h"
+#include "il2cpp_gc.h"
 
 #include <cstdint>
 #include <cstring>
@@ -318,6 +319,36 @@ bool IsObjectArray(Il2CppArray* array)
     return false; // every non-null element is a string (string[] or ambiguous)
 }
 
+// 2026-09-23 (perf): the 1MB Gen0 segment makes large arrays (64KB..1MB,
+// previously oversized/non-moving) ordinary MOVABLE young objects. A
+// collection during JoinFromArray's pass-1 element conversions can therefore
+// move the array/separator under this function; the RAII scope roots both so
+// Phase C rewrites the locals, and unregisters on every exit path (including
+// the length-overflow throw). Same shape as stringbuilder.cpp's RootScope
+// (keep the two copies in sync).
+class RootScope
+{
+public:
+    RootScope() : m_count(0) {}
+    ~RootScope()
+    {
+        while (m_count > 0)
+        {
+            il2cpp_gc_remove_static_root(m_slots[m_count - 1]);
+            --m_count;
+        }
+    }
+    void Add(void** slot)
+    {
+        il2cpp_gc_add_static_root(slot);
+        m_slots[m_count++] = slot;
+    }
+
+private:
+    void** m_slots[4];
+    int32_t m_count;
+};
+
 // string.Join core: separator (a string, possibly null -> empty) BETWEEN
 // consecutive elements only, never leading/trailing. Elements are strings
 // or null, OR any object reachable through the object[] overload -- the
@@ -344,6 +375,15 @@ Il2CppString* JoinFromArray(Il2CppArray* array, const Il2CppString* sep)
     {
         il2cpp_throw_argument_null_exception("value");
     }
+    // Root the array + separator for the whole call: pass-1 element
+    // conversions allocate, and a collection can move them (1MB segments
+    // made large arrays movable); Phase C rewrites these slots. The
+    // separator is const at the call site, so root a non-const alias.
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&array));
+    Il2CppString* sepAlias = const_cast<Il2CppString*>(sep);
+    scope.Add(reinterpret_cast<void**>(&sepAlias));
+    sep = sepAlias;
     if (array->length <= 0)
     {
         return il2cpp_string_new(nullptr, 0);
@@ -379,7 +419,7 @@ Il2CppString* JoinFromArray(Il2CppArray* array, const Il2CppString* sep)
         }
         return ValueArrayElement(array, 0);
     }
-    const int32_t sepLen = SegmentLength(sep);
+    const int32_t sepLen = SegmentLength(sepAlias);
 
     // Pass 1: total length in 64-bit arithmetic (overflow-safe accumulation).
     // Every element length is read HERE, before any allocation of this call.
@@ -423,7 +463,7 @@ Il2CppString* JoinFromArray(Il2CppArray* array, const Il2CppString* sep)
         }
         if (i + 1 < count && sepLen > 0)
         {
-            std::memcpy(scratch + offset, sep->chars,
+            std::memcpy(scratch + offset, sepAlias->chars,
                         static_cast<size_t>(sepLen) * sizeof(char16_t));
             offset += static_cast<size_t>(sepLen);
         }

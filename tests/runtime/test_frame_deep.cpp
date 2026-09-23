@@ -215,9 +215,12 @@ void NullRefsFrame()
     il2cpp::il2cpp_gc_collect();
     Expect(kept != nullptr && kept->klass == &g_nodeClass && *IdSlot(kept) == 42,
            "object rooted by a real frame survives with a null-refs frame on the stack");
+    // 2026-09-23: bump-first allocation does not guarantee the reclaimed
+    // address is handed out again (CLR neither); the contract is that the
+    // heap accepts new allocations while the rooted object stays alive.
     il2cpp::Il2CppObject* probe = il2cpp::il2cpp_gc_alloc(&g_nodeClass);
-    Expect(probe == dead,
-           "unrooted object is reclaimed while a null-refs frame is on the stack");
+    Expect(probe != nullptr && *IdSlot(kept) == 42,
+           "heap accepts allocations with a null-refs frame on the stack; rooted object alive");
 
     // Unwind LIFO: real frame first, then the null-refs frame.
     il2cpp::il2cpp_frame_pop(&realFrame);

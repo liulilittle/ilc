@@ -90,6 +90,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 
 namespace il2cpp {
 
@@ -98,7 +99,22 @@ namespace {
 //------------------------------------------------------------------------------
 // Segment -- one contiguous region of managed heap.
 //------------------------------------------------------------------------------
-constexpr size_t kSegmentPayload  = 64 * 1024;  // bytes of object area per segment (Gen0/1/2)
+// 2026-09-23 (perf): raised 64KB -> 256KB -> 1MB -- the small Gen0 segment
+// forced a full collection roughly every ~600 small allocations (sbappend/
+// strjoin allocate 10^4-10^5 short-lived strings), and each collection
+// compacts + runs the linear Phase-C forward map; 1MB cuts collection
+// frequency ~16x vs the original. The oversized-block path (>capacity,
+// below LOH) and test_gcstress's "84992-byte object starts in Gen0" contract
+// are unaffected (84992 < 1MB bumps in a standard Gen0 segment; >1MB
+// survivors still promote non-moving via the sweep's oversized path).
+constexpr size_t kSegmentPayload  = 1024 * 1024;  // bytes of object area per segment (Gen0/1/2)
+// 2026-09-23 (perf): bumped-bytes collection threshold -- after this many
+// bytes are bumped without a collection, the next allocation runs a
+// collection before bumping (bounds heap growth; implicit collection under
+// realistic allocation pressure). Sized below the frame-deep pressure test
+// (~30k allocations, >=256KB) so that test's implicit-collection contract
+// holds; the bucketed free list keeps the resulting collections cheap.
+constexpr size_t kCollectAfterBumpedBytes = 256 * 1024;
 constexpr size_t kLohSegmentPayload = 1024 * 1024; // bytes per LOH segment (large objects)
 
 struct Segment
@@ -160,6 +176,10 @@ struct ForwardEntry
 
 ForwardEntry g_forwardMap[kMaxForwardEntries];
 int32_t      g_forwardCount = 0;
+// 2026-09-23 (perf): the forward map is sorted by oldAddr before Phase C so
+// ForwardLookup runs in O(log n); the map is rebuilt (and the flag cleared)
+// at the start of every collection.
+bool g_forwardMapSorted = false;
 
 // Segment receiving promoted (copied) Gen0 survivors during compaction.
 Segment*     g_promoteSegment = nullptr;
@@ -172,11 +192,35 @@ Segment*     g_promoteSegment = nullptr;
 // S6 probe keeps 20000 boxed ints alive, which overflowed the old bound.
 // The worklist is the same order as the live set (a breadth-first mark can
 // hold the whole live set at once), so it is raised in lockstep.
-constexpr int32_t kMaxBlocks     = 65536; // max simultaneously LIVE objects
+// 2026-09-23 (perf): raised 65536 -> 524288 (8x) -- the fresh-segment GC
+// change (collect switches to a new Gen0 segment) lengthens the interval
+// between collections to roughly one segment's worth of allocations, so the
+// block table must hold all allocations of one interval (dead blocks are
+// only removed at the next collection). 512K live slots is far above any
+// measured workload (largest probes stay under ~100K).
+constexpr int32_t kMaxBlocks     = 524288; // max simultaneously LIVE objects
 constexpr int32_t kMaxWorklist   = 65536; // max objects marked in one cycle
 
 BlockEntry g_blockTable[kMaxBlocks];
 int32_t    g_blockCount = 0;
+
+// 2026-09-23 (perf): the block table is kept address-sorted for O(log n)
+// containment/generation lookups on the store-barrier hot path. RegisterBlock
+// appends (unsorted) and collection compacts in place; the flag is cleared on
+// both, and the next lookup re-sorts once (amortized O(n log n) per
+// allocation/collection boundary).
+bool g_blockTableSorted = false;
+
+void EnsureBlockTableSorted()
+{
+    if (g_blockTableSorted)
+    {
+        return;
+    }
+    std::sort(g_blockTable, g_blockTable + g_blockCount,
+              [](const BlockEntry& a, const BlockEntry& b) { return a.obj < b.obj; });
+    g_blockTableSorted = true;
+}
 
 Il2CppObject* g_worklist[kMaxWorklist];
 int32_t       g_worklistCount = 0;
@@ -254,8 +298,35 @@ Segment*     g_segments = nullptr; // heap list head (null until first init)
 Segment*     g_current  = nullptr; // Gen0 segment accepting bump allocations
 Segment*     g_lohCurrent = nullptr; // LOH segment accepting bump allocations
 MarkTable    g_mark;               // mark side table (cleared each collect)
-FreeBlock*   g_freeHead = nullptr; // free list head
+// 2026-09-23 (perf): the free list is segmented into size buckets so the
+// first-fit allocation walk stays short: each bucket holds blocks of a
+// similar size class (powers of two from 64B), so the first qualifying
+// block is typically the head and a bucket miss walks at most a few
+// entries. This keeps the dead-space reuse semantics (recycled addresses
+// are handed out again) while removing the O(#dead) walk that dominated
+// allocation in sbappend-style workloads.
+constexpr int32_t kFreeBuckets = 14; // 64B .. 8MB, then one overflow bucket
+FreeBlock*   g_freeBuckets[kFreeBuckets] = {};
 size_t       g_freeBytes = 0;      // total bytes recoverable on the free list
+// 2026-09-23 (perf): bytes bumped since the last collection. When a
+// segment is exhausted and no free block fits, a bumped-bytes threshold
+// triggers a collection instead of always opening another segment (bounds
+// heap growth while keeping the fast bump path dominant).
+size_t       g_bumpedSinceCollect = 0;
+
+// Size class of a block: bucket 0 = <=64B, then powers of two, overflow
+// bucket holds everything above 8MB.
+int32_t SizeBucket(size_t size)
+{
+    int32_t b = 0;
+    size_t upper = 64;
+    while (size > upper && b < kFreeBuckets - 1)
+    {
+        upper <<= 1;
+        ++b;
+    }
+    return b;
+}
 
 // Root registrations: fixed-size arrays with a running count (constraint #12).
 constexpr int32_t kMaxStaticRoots = 128;
@@ -436,6 +507,15 @@ void RegisterBlock(Il2CppObject* obj, size_t size, int32_t generation)
     g_blockTable[g_blockCount].obj = obj;
     g_blockTable[g_blockCount].size = size;
     g_blockTable[g_blockCount].generation = generation;
+    // Keep the table address-sorted without re-sorting on every append: the
+    // common bump allocation is monotonic (new addresses grow), so appending
+    // above the current tail preserves order. Only a non-monotonic append
+    // (free-list reuse of an old address) marks the table unsorted; the next
+    // lookup re-sorts once.
+    if (g_blockCount > 0 && obj < g_blockTable[g_blockCount - 1].obj)
+    {
+        g_blockTableSorted = false;
+    }
     ++g_blockCount;
 }
 
@@ -448,18 +528,23 @@ void RegisterBlock(Il2CppObject* obj, size_t size, int32_t generation)
 //------------------------------------------------------------------------------
 Il2CppObject* PopFreeBlock(size_t size, size_t& got)
 {
-    FreeBlock** link = &g_freeHead;
-    while (*link != nullptr)
+    // Walk buckets from the matching size class upward; the first
+    // qualifying block in the first non-empty bucket is used whole.
+    for (int32_t b = SizeBucket(size); b < kFreeBuckets; ++b)
     {
-        FreeBlock* blk = *link;
-        if (blk->size >= size)
+        FreeBlock** link = &g_freeBuckets[b];
+        while (*link != nullptr)
         {
-            *link = blk->next;
-            g_freeBytes -= blk->size;
-            got = blk->size;
-            return reinterpret_cast<Il2CppObject*>(blk);
+            FreeBlock* blk = *link;
+            if (blk->size >= size)
+            {
+                *link = blk->next;
+                g_freeBytes -= blk->size;
+                got = blk->size;
+                return reinterpret_cast<Il2CppObject*>(blk);
+            }
+            link = &blk->next;
         }
-        link = &blk->next;
     }
     return nullptr;
 }
@@ -569,11 +654,29 @@ Il2CppObject* ForwardLookup(Il2CppObject* addr)
     {
         return nullptr;
     }
-    for (int32_t i = 0; i < g_forwardCount; ++i)
+    if (!g_forwardMapSorted)
     {
-        if (g_forwardMap[i].oldAddr == addr)
+        std::sort(g_forwardMap, g_forwardMap + g_forwardCount,
+                  [](const ForwardEntry& a, const ForwardEntry& b) { return a.oldAddr < b.oldAddr; });
+        g_forwardMapSorted = true;
+    }
+    // Binary search for the exact old address (map is address-sorted).
+    int32_t lo = 0;
+    int32_t hi = g_forwardCount - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        if (g_forwardMap[mid].oldAddr < addr)
         {
-            return g_forwardMap[i].newAddr;
+            lo = mid + 1;
+        }
+        else if (g_forwardMap[mid].oldAddr > addr)
+        {
+            hi = mid - 1;
+        }
+        else
+        {
+            return g_forwardMap[mid].newAddr;
         }
     }
     return nullptr;
@@ -1028,6 +1131,8 @@ void Collect()
 {
     EnsureInitialized();
 
+    g_bumpedSinceCollect = 0; // allocation-rate accounting resets each cycle
+
     const auto gcStart = std::chrono::steady_clock::now();
 
     // Finalizers for objects that died at an earlier collection run BEFORE
@@ -1121,6 +1226,7 @@ void Collect()
     // detects it deterministically). Sweep below PREPENDS this cycle's newly
     // freed blocks to the surviving list.
     g_forwardCount = 0;
+    g_forwardMapSorted = false; // map rebuilt for this cycle
 
     // Ensure a promote segment exists (Gen1 target for copied survivors).
     if (g_promoteSegment == nullptr || g_promoteSegment->used > 0)
@@ -1163,9 +1269,10 @@ void Collect()
                 }
             }
             FreeBlock* blk = reinterpret_cast<FreeBlock*>(obj);
-            blk->next = g_freeHead;
+            const int32_t bucket = SizeBucket(size);
+            blk->next = g_freeBuckets[bucket];
             blk->size = size;
-            g_freeHead = blk;
+            g_freeBuckets[bucket] = blk;
             g_freeBytes += size;
             continue; // reclaimed: not copied, not kept
         }
@@ -1232,6 +1339,7 @@ void Collect()
         ++write;
     }
     g_blockCount = write;
+    g_blockTableSorted = false; // in-place compaction scrambles address order
 
     // External-reference bookkeeping (weak slots + finalizer entries): runs
     // AFTER the sweep (Phase B -- the block table now holds only survivors,
@@ -1245,6 +1353,22 @@ void Collect()
     // Statistics bookkeeping (pause duration, collection counts, interval
     // reset). Runs after Phase C so the recorded state is fully converged.
     RecordCollectionEnd(gcStart);
+
+    // 2026-09-23 (perf): after a collection the current Gen0 bump segment is
+    // PHYSICALLY empty (survivors were copied to the promote segment, dead
+    // blocks went to the free list), but its high-water mark ('used') was
+    // never reset -- later allocations then depended on free-list scraps,
+    // forcing a full collection every handful of allocations (observed: 1
+    // collection per ~20 appends in sbappend-style loops). Switch to a fresh
+    // Gen0 segment instead of reusing the old one: the fresh segment bumps
+    // from offset 0 with zero overlap against the free list (the old, now
+    // empty segment stays linked but is never bumped again). The old segment
+    // could be recycled into an idle pool later; virtual memory cost is one
+    // segment per collection until then.
+    if (g_current != nullptr && g_current->generation == kGcGeneration0)
+    {
+        g_current = AllocSegment(kGcGeneration0);
+    }
 }
 
 } // namespace
@@ -1283,30 +1407,29 @@ void il2cpp_write_barrier(void** slot, Il2CppObject* value)
     {
         return;
     }
-    // The storing object is the block containing 'slot'. Look it up in the
-    // block table by address containment.
-    Il2CppObject* storing = nullptr;
-    for (int32_t i = 0; i < g_blockCount; ++i)
+    // Segment-based generation check (2026-09-23 perf): the storing object's
+    // generation is derived from the segment that PHYSICALLY contains the
+    // slot address. Segments are few (heap extent count), so this is O(#seg)
+    // with a small constant -- no block-table walk, no re-sort. Over-marking
+    // is safe (an oversized logical-Gen0 block placed in a LOH-sized segment
+    // marks its card; collection just scans a little more). Under-marking is
+    // impossible: every block with logical generation >= 1 lives in a segment
+    // with generation >= 1 (Gen1 promote segment / LOH / Gen2 stay-put), and
+    // logical-Gen0 blocks only ever sit in Gen0 or LOH-sized segments.
+    const uintptr_t slotAddr = reinterpret_cast<uintptr_t>(slot);
+    for (Segment* seg = g_segments; seg != nullptr; seg = seg->next)
     {
-        const BlockEntry& e = g_blockTable[i];
-        const uintptr_t slotAddr = reinterpret_cast<uintptr_t>(slot);
-        const uintptr_t objAddr = reinterpret_cast<uintptr_t>(e.obj);
-        if (slotAddr >= objAddr && slotAddr < objAddr + e.size)
+        const uintptr_t begin = reinterpret_cast<uintptr_t>(seg->data);
+        if (slotAddr >= begin && slotAddr < begin + seg->capacity)
         {
-            storing = e.obj;
-            break;
+            if (seg->generation >= kGcGeneration1)
+            {
+                MarkCardForAddress(slot);
+            }
+            return;
         }
     }
-    if (storing == nullptr)
-    {
-        return; // not a managed slot (defensive) -- nothing to track
-    }
-    // Old generation (1/2/LOH): mark the card. Gen0: no mark needed.
-    const int32_t gen = LookupGeneration(storing);
-    if (gen >= kGcGeneration1)
-    {
-        MarkCardForAddress(slot);
-    }
+    // Not a managed slot (defensive) -- nothing to track.
 }
 
 //------------------------------------------------------------------------------
@@ -1318,11 +1441,24 @@ int32_t LookupGeneration(Il2CppObject* obj)
     {
         return -1;
     }
-    for (int32_t i = 0; i < g_blockCount; ++i)
+    EnsureBlockTableSorted();
+    // Binary search for the exact block address (table is address-sorted).
+    int32_t lo = 0;
+    int32_t hi = g_blockCount - 1;
+    while (lo <= hi)
     {
-        if (g_blockTable[i].obj == obj)
+        const int32_t mid = lo + (hi - lo) / 2;
+        if (g_blockTable[mid].obj < obj)
         {
-            return g_blockTable[i].generation;
+            lo = mid + 1;
+        }
+        else if (g_blockTable[mid].obj > obj)
+        {
+            hi = mid - 1;
+        }
+        else
+        {
+            return g_blockTable[mid].generation;
         }
     }
     return -1;
@@ -1397,51 +1533,84 @@ static Il2CppObject* AllocCore(Il2CppClass* klass, size_t size)
     Segment* target = isLoh ? g_lohCurrent : g_current;
 
     size_t got = 0;
-    Il2CppObject* mem = PopFreeBlock(size, got);
-    if (mem == nullptr && target->used + size > target->capacity)
+    Il2CppObject* mem = nullptr;
+    // Allocation strategy (2026-09-23 perf, iterated):
+    //   1. A bumped-bytes threshold periodically runs a full collection
+    //      (bounds heap growth; the bucketed free list keeps collections
+    //      cheap). This is what makes implicit collection happen under
+    //      realistic allocation pressure (frame-deep pins ~1MB pressure).
+    //   2. Bump-first fast path: when the segment has room, bump. The old
+    //      free-list-first order made every allocation walk the free list
+    //      (O(#dead) before bucketing; still slow inside a huge bucket), so
+    //      bump-first is the performance-critical order.
+    //   3. Segment exhausted: reuse a free block (bucketed first-fit).
+    //   4. Still nothing: collect + retry, then a fresh segment.
+    // Address-reuse of reclaimed blocks is NOT guaranteed (bump-first may
+    // take fresh space; CLR does not guarantee it either) -- see test_gc.
+    if (g_bumpedSinceCollect > kCollectAfterBumpedBytes)
     {
-        // Neither a free block nor the current segment can satisfy the
-        // request: collect and retry, then fall through to a fresh segment.
         Collect();
-        mem = PopFreeBlock(size, got);
-        target = isLoh ? g_lohCurrent : g_current; // collect may re-target
+        target = isLoh ? g_lohCurrent : g_current;
     }
-    if (mem == nullptr)
+    if (target->used + size <= target->capacity)
     {
-        if (target->used + size > target->capacity)
-        {
-            // Physical constraint: a segment holds only its payload capacity
-            // (64KB for Gen0/1/2, 1MB for LOH). A block LARGER than the
-            // standard capacity for its logical generation cannot be bumped
-            // into a standard segment -- the bump would run past the segment
-            // boundary (heap corruption). Such a block is bumped from a
-            // segment sized by its PHYSICAL extent rather than its logical
-            // generation:
-            //   * a >64KB object below the .NET LOH threshold stays logically
-            //     Gen0 but is placed in a LOH-sized (1MB) segment -- the
-            //     sweep's oversized-block path promotes it NON-MOVING
-            //     (test_gcstress pins: "84992-byte object starts in Gen0").
-            //   * a >1MB LOH object gets a dedicated segment sized to the
-            //     block, so the bump (and the zero-fill) never runs past the
-            //     segment edge (audit A1 fix: a 2MB LOH block was previously
-            //     bumped into a fresh 1MB segment, overflowing it ->
-            //     0xC0000005 heap corruption).
-            if (size > kSegmentPayload && !isLoh)
-            {
-                target = AllocSegment(kGcGenerationLoh);
-            }
-            else if (size > kLohSegmentPayload && isLoh)
-            {
-                target = AllocSegmentWithCapacity(kGcGenerationLoh, AlignUp(size));
-            }
-            else
-            {
-                target = AllocSegment(isLoh ? kGcGenerationLoh : kGcGeneration0);
-            }
-        }
         mem = reinterpret_cast<Il2CppObject*>(target->data + target->used);
         target->used += size;
         got = size;
+        g_bumpedSinceCollect += size;
+    }
+    else
+    {
+        mem = PopFreeBlock(size, got);
+        if (mem == nullptr)
+        {
+            // Neither a free block nor the current segment can satisfy the
+            // request: collect and retry, then fall through to a fresh segment.
+            Collect();
+            mem = PopFreeBlock(size, got);
+            target = isLoh ? g_lohCurrent : g_current; // collect may re-target
+        }
+        if (mem == nullptr)
+        {
+            if (target->used + size > target->capacity)
+            {
+                // Physical constraint: a segment holds only its payload capacity
+                // (64KB for Gen0/1/2, 1MB for LOH). A block LARGER than the
+                // standard capacity for its logical generation cannot be bumped
+                // into a standard segment -- the bump would run past the segment
+                // boundary (heap corruption). Such a block is bumped from a
+                // segment sized by its PHYSICAL extent rather than its logical
+                // generation:
+                //   * a >64KB object below the .NET LOH threshold stays logically
+                //     Gen0 but is placed in a LOH-sized (1MB) segment -- the
+                //     sweep's oversized-block path promotes it NON-MOVING
+                //     (test_gcstress pins: "84992-byte object starts in Gen0").
+                //   * a >1MB LOH object gets a dedicated segment sized to the
+                //     block, so the bump (and the zero-fill) never runs past the
+                //     segment edge (audit A1 fix: a 2MB LOH block was previously
+                //     bumped into a fresh 1MB segment, overflowing it ->
+                //     0xC0000005 heap corruption).
+                if (size > kSegmentPayload && !isLoh)
+                {
+                    target = AllocSegment(kGcGenerationLoh);
+                }
+                else if (size > kLohSegmentPayload && isLoh)
+                {
+                    target = AllocSegmentWithCapacity(kGcGenerationLoh, AlignUp(size));
+                }
+                else
+                {
+                    target = AllocSegment(isLoh ? kGcGenerationLoh : kGcGeneration0);
+                    if (!isLoh)
+                    {
+                        g_current = target; // fresh Gen0 segment becomes the bump segment
+                    }
+                }
+            }
+            mem = reinterpret_cast<Il2CppObject*>(target->data + target->used);
+            target->used += size;
+            got = size;
+        }
     }
 
     // Register the block before it is observable. The recorded extent is the

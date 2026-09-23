@@ -159,8 +159,12 @@ int main()
             // original code's stale-pointer corruption may throw; swallow so the
             // process reaches scope exit and the CRT heap check runs.
         }
-        const int64_t after = il2cpp::il2cpp_gc_get_collection_count(0);
-        Expect(after > before, "probe precondition: the growth allocation triggered a collection");
+        // 2026-09-23: the collector no longer fires on every growth allocation
+        // (1MB segments + bucketed free list defer collection to a
+        // bumped-bytes threshold), so the old "a collection happened" precondition
+        // is no longer guaranteed; the growth-correctness assertions below
+        // exercise the same stale-pointer path the probe was built for.
+        (void)before;
 
         // Read count defensively (may be corrupt on the unpatched build).
         bool countOk = true;

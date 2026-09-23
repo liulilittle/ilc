@@ -131,15 +131,20 @@ int main()
     // (separators) = 58889. Previously crashed with 0xC0000374.
     loc3 = reinterpret_cast<Il2CppObject*>(RefArr(10000));
     {
-        Il2CppArray* big = reinterpret_cast<Il2CppArray*>(loc3);
+        // 2026-09-23: 1MB segments make the 80KB array a MOVABLE Gen0 object,
+        // so a raw 'big' local (unrooted) goes stale when a threshold
+        // collection fires mid-fill; derive the array from the rooted loc3
+        // immediately before every store (the allocating calls above may
+        // collect and move the array).
         for (int i = 0; i < 10000; ++i)
         {
             Il2CppString* digits = il2cpp::runtime::icall_int32_to_string(i);
             Il2CppString* joined = il2cpp::runtime::il2cpp_string_concat_many(
                 2, reinterpret_cast<Il2CppString*>(strE), digits);
+            Il2CppArray* big = reinterpret_cast<Il2CppArray*>(loc3);
             SetElem(big, i, reinterpret_cast<Il2CppObject*>(joined));
         }
-        Expect(big->length == 10000, "10000-element string[] built");
+        Expect(reinterpret_cast<Il2CppArray*>(loc3)->length == 10000, "10000-element string[] built");
     }
 
     loc4 = il2cpp::runtime::icall_string_join(strComma, loc3);
