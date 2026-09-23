@@ -100,14 +100,36 @@ void WriteUnitsAsCodePage(const char16_t* units, int32_t len, unsigned cp, FILE*
 {
     static_assert(sizeof(char16_t) == sizeof(WCHAR), "char16_t must match WCHAR for WideCharToMultiByte");
     const UINT wcp = static_cast<UINT>(cp);
-    const LPCWCH w = reinterpret_cast<LPCWCH>(units);
-    int n = ::WideCharToMultiByte(wcp, 0, w, len, nullptr, 0, "?", nullptr);
-    if (n > 0)
+    // 2026-09-24: a surrogate PAIR in a non-UTF-8 code page must become ONE
+    // replacement ('?', net48 Encoding.GetBytes semantics). The whole-buffer
+    // WideCharToMultiByte call replaces each half with its own '?' (two
+    // bytes), so whenever a pair is present, skip it and convert pair-aware
+    // in the unit walk below (which also normalizes a double-'?' API result).
+    bool hasPair = false;
+    for (int32_t i = 0; i + 1 < len; ++i)
     {
-        std::string out(static_cast<size_t>(n), '\0');
-        ::WideCharToMultiByte(wcp, 0, w, len, &out[0], n, "?", nullptr);
-        std::fwrite(out.data(), 1, out.size(), stream);
-        return;
+        const uint32_t u = static_cast<uint32_t>(units[i]);
+        if (u >= 0xD800u && u <= 0xDBFFu)
+        {
+            const uint32_t lo = static_cast<uint32_t>(units[i + 1]);
+            if (lo >= 0xDC00u && lo <= 0xDFFFu)
+            {
+                hasPair = true;
+                break;
+            }
+        }
+    }
+    if (!hasPair)
+    {
+        const LPCWCH w = reinterpret_cast<LPCWCH>(units);
+        int n = ::WideCharToMultiByte(wcp, 0, w, len, nullptr, 0, "?", nullptr);
+        if (n > 0)
+        {
+            std::string out(static_cast<size_t>(n), '\0');
+            ::WideCharToMultiByte(wcp, 0, w, len, &out[0], n, "?", nullptr);
+            std::fwrite(out.data(), 1, out.size(), stream);
+            return;
+        }
     }
     // Total failure (a lone surrogate defeats whole-buffer conversion): walk
     // unit by unit -- valid pairs convert as one, anything else -> '?'.
@@ -117,7 +139,25 @@ void WriteUnitsAsCodePage(const char16_t* units, int32_t len, unsigned cp, FILE*
         int32_t take = 1;
         if (u >= 0xD800 && u <= 0xDBFF && i + 1 < len &&
             units[i + 1] >= 0xDC00 && units[i + 1] <= 0xDFFF)
+        {
             take = 2;
+            char buf[8];
+            const int m = ::WideCharToMultiByte(wcp, 0, reinterpret_cast<LPCWCH>(units + i),
+                                                take, buf, sizeof(buf), "?", nullptr);
+            // A pair that the API cannot map (or maps to a double '?') is a
+            // single net48 replacement: emit one '?'.
+            const bool doubleQ = m == 2 && buf[0] == '?' && buf[1] == '?';
+            if (m <= 0 || doubleQ)
+            {
+                std::fputc('?', stream);
+            }
+            else
+            {
+                std::fwrite(buf, 1, static_cast<size_t>(m), stream);
+            }
+            i += take;
+            continue;
+        }
         else if (u >= 0xD800 && u <= 0xDFFF)
         {
             std::fputc('?', stream);

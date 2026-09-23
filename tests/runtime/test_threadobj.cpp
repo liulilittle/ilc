@@ -197,8 +197,8 @@ int main()
     // --- 3. NEW-state probes ---
     Il2CppObject* t = NewThreadObject();
     Expect(!icall_threadobj_get_is_alive(t), "IsAlive before Start == false");
-    Expect(icall_threadobj_get_managed_thread_id(t) == 0,
-           "ManagedThreadId before Start == 0");
+    Expect(icall_threadobj_get_managed_thread_id(t) != 0,
+           "ManagedThreadId assigned at construction (net48: never 0, even before Start)");
     Expect(ThrowsDotNet([&] { icall_threadobj_join(t); }, kThreadStateChain),
            "Join before Start throws ThreadStateException");
 
@@ -242,8 +242,8 @@ int main()
     // ThreadPriority.Normal == 2 (net48 enum value), not 0.
     Expect(icall_threadobj_get_priority(cur) == 2,
            "CurrentThread.Priority == 2 (Normal)");
-    Expect(icall_threadobj_get_managed_thread_id(cur) == mainId,
-           "CurrentThread.ManagedThreadId == the current OS id");
+    Expect(icall_threadobj_get_managed_thread_id(cur) == 1,
+           "CurrentThread.ManagedThreadId == 1 (main thread managed id; net48 contract)");
     Expect(icall_threadobj_get_is_alive(cur), "CurrentThread.IsAlive == true");
 
     // --- 7. priority setter is accepted and ignored ---

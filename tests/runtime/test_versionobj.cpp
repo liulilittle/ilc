@@ -261,8 +261,8 @@ int main()
     // --- 11. descriptor identity + layout ---
     Expect(il2cpp_uri_class() == &System_Uri_class, "il2cpp_uri_class() returns &System_Uri_class");
     Expect(System_Uri_class.instanceSize == sizeof(Il2CppUriObject), "System_Uri_class.instanceSize == sizeof(Il2CppUriObject)");
-    Expect(System_Uri_class.refFieldBitmap == 0b11110u, "System_Uri_class.refFieldBitmap == bits 1,2,3,4 (scheme/host/path/opaque are GC refs)");
-    Expect(System_Uri_class.refFieldCount == 4, "System_Uri_class.refFieldCount == 4");
+    Expect(System_Uri_class.refFieldBitmap == 0b111110u, "System_Uri_class.refFieldBitmap == bits 1..5 (scheme/host/path/opaque/original are GC refs)");
+    Expect(System_Uri_class.refFieldCount == 5, "System_Uri_class.refFieldCount == 5");
     Expect(il2cpp_class_by_name("System.Uri") == &System_Uri_class, "System.Uri resolves by name (registered)");
 
     // --- 12. ctor(string) + getters (net48 oracle: https://example.com/path) ---
@@ -275,8 +275,8 @@ int main()
 
     // --- 13. ToString round-trips (verbatim -- the domain round-trip rule) ---
     Expect(ManagedText(icall_uri_to_string(u)) == "https://example.com/path/to?q=1", "ToString round-trips the original");
-    Expect(ManagedText(icall_uri_to_string(UriFrom("http://host"))) == "http://host", "ToString round-trips without a path");
-    Expect(ManagedText(icall_uri_get_path(UriFrom("http://host"))) == "", "no path -> empty path slot");
+    Expect(ManagedText(icall_uri_to_string(UriFrom("http://host"))) == "http://host/", "ToString round-trips without a path (net48: trailing slash)");
+    Expect(ManagedText(icall_uri_get_path(UriFrom("http://host"))) == "/", "no path -> AbsolutePath \"/\" (net48 oracle)");
     Expect(ManagedText(icall_uri_to_string(UriFrom("ftp://a/b/c"))) == "ftp://a/b/c", "ToString round-trips ftp");
     Expect(ManagedText(icall_uri_to_string(UriFrom("file://x/y"))) == "file://x/y", "ToString round-trips file");
     Expect(ManagedText(icall_uri_get_host(UriFrom("scheme://h:8080/p"))) == "h:8080",

@@ -461,14 +461,17 @@ Il2CppArray* il2cpp_dict_si_get_keys(Il2CppDictSI* d)
     Il2CppArray* result = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(void*)), true, live);
     Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(result->data);
+    // 2026-09-24: enumerate in the net48 hash-bucket order -- buckets
+    // ascending 0..bucketCount-1, within a bucket the chain head-first
+    // (most recently added first; add() head-inserts). Previously walked the
+    // slot array in index order, which differs once buckets/insertion diverge.
     int32_t n = 0;
-    for (int32_t i = 0; i < d->count && n < live; ++i)
+    for (int32_t b = 0; b < d->bucketCount && n < live; ++b)
     {
-        if (d->entries[i].hashCode < 0)
+        for (int32_t i = d->buckets[b]; i >= 0 && n < live; i = d->entries[i].next)
         {
-            continue; // free slot
+            dst[n++] = reinterpret_cast<Il2CppObject*>(d->entries[i].key);
         }
-        dst[n++] = reinterpret_cast<Il2CppObject*>(d->entries[i].key);
     }
     return result;
 }
@@ -485,13 +488,12 @@ Il2CppArray* il2cpp_dict_si_get_values(Il2CppDictSI* d)
         nullptr, static_cast<int32_t>(sizeof(int32_t)), false, live);
     int32_t* dst = reinterpret_cast<int32_t*>(result->data);
     int32_t n = 0;
-    for (int32_t i = 0; i < d->count && n < live; ++i)
+    for (int32_t b = 0; b < d->bucketCount && n < live; ++b)
     {
-        if (d->entries[i].hashCode < 0)
+        for (int32_t i = d->buckets[b]; i >= 0 && n < live; i = d->entries[i].next)
         {
-            continue; // free slot
+            dst[n++] = d->entries[i].value;
         }
-        dst[n++] = d->entries[i].value;
     }
     return result;
 }
