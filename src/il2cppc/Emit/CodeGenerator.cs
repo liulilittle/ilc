@@ -1907,7 +1907,7 @@ public static class CodeGenerator
         {
             if (!reachable[i]) continue;
             if (stmts[i] is AssignStmt aDec
-                && aDec.Value is CallExpr cDec && cDec.Resolved?.ResultKind == "dec")
+                && aDec.Value is CallExpr cDec && cDec.Resolved?.ResultKind is "dec" or "dec2")
             {
                 locKind[aDec.Target] = "il2cpp::Il2CppDecimal";
             }
@@ -2364,9 +2364,10 @@ public static class CodeGenerator
                 w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppBigInteger {d};");
                 continue;
             }
-            // decimal-domain T3: decimal icall results -> the 16-byte runtime
-            // value struct (decimal.h -- included by generated.h).
-            if (kind == "dec")
+            // decimal-domain T3 (+T4b "dec2" out-last): decimal icall results
+            // -> the 16-byte runtime value struct (decimal.h -- included by
+            // generated.h).
+            if (kind == "dec" || kind == "dec2")
             {
                 w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppDecimal {d};");
                 continue;
@@ -3247,7 +3248,7 @@ public static class CodeGenerator
                 // becomes a statement call with the target slot as the
                 // output buffer (`t = fn(...)` is not compilable C++: the
                 // icall takes the buffer, not the value).
-                if (a.Value is CallExpr gcal && gcal.Resolved is { ResultKind: "guid" or "dec" or "ip4" or "bi" } gres)
+                if (a.Value is CallExpr gcal && gcal.Resolved is { ResultKind: "guid" or "dec" or "dec2" or "ip4" or "bi" } gres)
                 {
                     if (a.Target.Contains('.'))
                         throw new NotSupportedException("Guid static-field store not wired: TypeEmitter static storage is int32_t and a 16-byte Guid write would overrun it");
@@ -3268,6 +3269,18 @@ public static class CodeGenerator
                         // plain `(&{name})` form is always correct here.
                         w.LineAligned($"{gres.CppName}((&{EmitTarget(a.Target)}){(garg.Length > 0 ? ", " + garg : "")});",
                             $"IL {At(a.SourceOpName, a.SourceOffset)} -- write decimal value into (&{EmitTarget(a.Target)}) (16-byte value slot)");
+                    }
+                    else if (gres.ResultKind == "dec2")
+                    {
+                        // T4b: decimal-producing icalls with the result slot
+                        // LAST (icall_binary_read_decimal(self, out) -- the
+                        // "dec" prepend contract would put it first, wrong
+                        // order here): `t = ReadDecimal()` becomes
+                        // `icall_binary_read_decimal(self, (&t))`.
+                        w.LineAligned(garg.Length > 0
+                                ? $"{gres.CppName}({garg}, (&{EmitTarget(a.Target)}));"
+                                : $"{gres.CppName}((&{EmitTarget(a.Target)}));",
+                            $"IL {At(a.SourceOpName, a.SourceOffset)} -- write decimal value into (&{EmitTarget(a.Target)}) (out-last slot)");
                     }
                     else if (gres.ResultKind == "bi")
                     {
@@ -4534,7 +4547,7 @@ public static class CodeGenerator
         // Guid icall results are 16-byte raw value slots (uint8_t[16]; the
         // icalls WRITE through the output buffer -- the "guid" kind carries
         // the slot shape to the declaration site).
-        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
+        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "dec2" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
         // P25b (user struct box): the unbox of a user value type carries
         // "us:{CppName}" (StackFold.UnboxUserStructKind) -- strip the prefix to
         // the C++ struct type so the result temp is declared `{T} t;` and the
@@ -7807,8 +7820,8 @@ public static class CodeGenerator
         // reaching the EXPRESSION path means the fold's single-use temp
         // inlining consumed it directly (e.g. `return Guid.Parse(s)`) --
         // reject LOUDLY instead of emitting uncompilable C++.
-        if (resolved2?.ResultKind is "guid" or "dec" or "ip4" or "bi")
-            throw new NotSupportedException($"{(resolved2.ResultKind == "dec" ? "decimal icall" : resolved2.ResultKind == "ip4" ? "IPAddress.Parse" : resolved2.ResultKind == "bi" ? "BigInteger icall" : "Guid.NewGuid/Parse")} call in expression position: the icall takes the result slot as an explicit parameter, so the result must be assigned to a value slot (the fold inlined the single-use temp into the consumer -- StackFold must keep {resolved2.ResultKind}-kind calls in their assignment)");
+        if (resolved2?.ResultKind is "guid" or "dec" or "dec2" or "ip4" or "bi")
+            throw new NotSupportedException($"{(resolved2.ResultKind == "dec" ? "decimal icall" : resolved2.ResultKind == "dec2" ? "decimal icall(dec2)" : resolved2.ResultKind == "ip4" ? "IPAddress.Parse" : resolved2.ResultKind == "bi" ? "BigInteger icall" : "Guid.NewGuid/Parse")} [{resolved2.CppName}] call in expression position: the icall takes the result slot as an explicit parameter, so the result must be assigned to a value slot (the fold inlined the single-use temp into the consumer -- StackFold must keep {resolved2.ResultKind}-kind calls in their assignment)");
         if (resolved2?.ParamTypeNames is { Length: > 0 } fcap && fcap[0] == "fcap")
             return EmitIcallCallArgs(resolved2, c.Args, md, types)!;
         // M7 CG-FIX (boxdeep2 cmake FAIL): Object::ToString on a boxed uint /
@@ -8074,9 +8087,12 @@ public static class CodeGenerator
         // NO try_enter overload (the threadext2 un-park failed the C++
         // build at HEAD). The 1-arg TryEnter(obj) never reaches here: its
         // last slot is the object ref, not a LocAddrExpr.
+        // parity-T8: the same flag-cast covers the 3-arg TryEnter(object,
+        // timeoutMs, ref bool) -- its runtime overload takes bool* too and
+        // the flag is likewise the LAST slot.
         var isMonitorEnter = r.CppName == "il2cpp::runtime::il2cpp_monitor_enter";
         var isMonitorTryEnterFlag = r.CppName == "il2cpp::runtime::il2cpp_monitor_try_enter"
-            && r.ParamCount == 2;
+            && (r.ParamCount == 2 || r.ParamCount == 3);
         for (var j = 0; j < slotCount; j++)
         {
             var srcIdx = argOrder != null ? argOrder[j] : j;
@@ -8192,6 +8208,13 @@ public static class CodeGenerator
                 // native declaration is const char16_t*).
                 "u16:System.String" => code,
                 "deref:i" => $"(*reinterpret_cast<int32_t*>({code}))",
+                // binrw3 residual: "deref:u1"/"deref:u2" -- read a 1/2-byte
+                // cell through a NATIVE-width pointer (ldelema of byte[]/
+                // char[] points at a 1/2-byte element; deref:i over-reads
+                // neighbor bytes -- b4=12345). The int32 icalls take the
+                // promoted value; byte/char ranges make the digits exact.
+                "deref:u1" => $"(*reinterpret_cast<uint8_t*>({code}))",
+                "deref:u2" => $"(*reinterpret_cast<uint16_t*>({code}))",
                 "deref:l" => $"(*reinterpret_cast<int64_t*>({code}))",
                 // strictalias (2026-09-13): "deref:v" -- read the address's
                 // slot at its DECLARED type (no type pun). The IntPtr/UIntPtr
@@ -8273,6 +8296,13 @@ public static class CodeGenerator
                 // struct VALUE (the icall takes it by value).
                 "deref:dt" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>({code}))",
                 "deref:ts" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>({code}))",
+                // parity-T8: "ts_ticks" -- a TimeSpan VALUE reaching the
+                // int64_t ticks param of il2cpp_monitor_wait_timespan.
+                // Il2CppTimeSpan is { int64_t ticks } (il2cpp_time.h:49): VALUE
+                // expressions read .ticks, ADDRESS expressions (->ticks).
+                "ts_ticks" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(({code})->ticks)"
+                    : $"(({code}).ticks)",
                 // P13 dtoffset: DateTimeOffset value-type receivers -- the
                 // ldloca address dereferences to the struct VALUE (the icall
                 // takes it by value, DateTime/TimeSpan precedent).
@@ -8338,8 +8368,22 @@ public static class CodeGenerator
                     : $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({code}))",
                 // batch 148 (enum ToString box path): pass the BOXED object
                 // through uncast -- the icall reads the klass identity from
-                // the box itself (il2cpp_enum_boxed_to_string(_format)).
+                // the box itself (il2cpp_enum_to_string(_format)).
                 "boxed" => code,
+                // exc001 (Task.Run): "run:i" / "run:r" -- synchronously
+                // invoke a ZERO-ARG delegate and use its return value as the
+                // icall argument (Task.Run(f) ≡ FromResult(f.Invoke()) in
+                // the synchronous-completion model). int32-family results
+                // ride the i4 multicast ABI (4 trailing zeros pad the
+                // (list,a0..a3) signature -- the DelegateInvokeExpr emission
+                // precedent); managed-reference results ride the r ABI (LAST
+                // leaf wins -- net48 multicast Invoke semantics). The
+                // delegate object is already Il2CppObject* (no cast). Only
+                // these two ABIs exist -- long/double/float carriers stay
+                // LOUD in the Run arm, never raw-dispatched (a multicast
+                // container's `first` field would be called as code).
+                "run:i" => $"il2cpp::runtime::icall_multicast_invoke_i4({code}, 0, 0, 0, 0)",
+                "run:r" => $"il2cpp::runtime::icall_multicast_invoke_r({code})",
                 // decimal-domain C44 (decgap): boxed uint32/uint64 payloads --
                 // the unsigned unboxers (icall_unbox_uint/ulong) keep the
                 // unsigned type so a uint32_t/uint64_t icall param gets NO

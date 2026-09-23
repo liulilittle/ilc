@@ -209,39 +209,49 @@ int32_t icall_overlapped_data_get_pending_count(Il2CppObject*) { return 0; }
 int32_t icall_overlapped_data_get_wait_handle(Il2CppObject*) { return 0; }
 int32_t icall_overlapped_data_get_error_code(Il2CppObject*) { return 0; }
 
-// Crypto/X509 stubs
-Il2CppObject* icall_crypto_utils_create_csp(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_decrypt_data(Il2CppObject*, Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_encrypt_data(Il2CppObject*, Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_export_key(Il2CppObject*, Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_generate_key(int32_t) { return nullptr; }
+// Crypto/X509 stubs -- LOUD by doctrine (parity-T7, 2026-09-20): these
+// QCall-shaped helpers are transpile-WIRED (MethodMap.GC), so a silent
+// nullptr would surface far downstream as a NullReferenceException. The
+// CSP/X509 models do not exist in this runtime; every object-returning stub
+// throws NotSupportedException at the true gap location. (The four int32
+// constant stubs stay untouched -- out of the nullptr family; follow-up to
+// verify each constant against net48.)
+#define IL2CPP_CRYPTO_X509_LOUD(what) \
+    il2cpp_throw_not_supported_exception(what); \
+    return nullptr; // unreachable (the throw never returns)
+Il2CppObject* icall_crypto_utils_create_csp(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto CSP creation requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_decrypt_data(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto decryption requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_encrypt_data(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto encryption requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_export_key(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto key export requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_generate_key(int32_t) { IL2CPP_CRYPTO_X509_LOUD("Crypto key generation requires the CryptoAPI model (not present in this runtime)"); }
 int32_t icall_crypto_utils_get_enforce_fips_policy_setting() { return 0; }
-Il2CppObject* icall_crypto_utils_get_key_parameter(Il2CppObject*, Il2CppString*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_get_key_set_security_info(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_get_provider_parameter(Il2CppObject*, Il2CppString*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_get_user_key(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_import_bulk_key(Il2CppObject*, Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_import_csp_blob(Il2CppObject*, Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_crypto_utils_import_key(Il2CppObject*, Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_get_key_parameter(Il2CppObject*, Il2CppString*) { IL2CPP_CRYPTO_X509_LOUD("Crypto key parameters require the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_get_key_set_security_info(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto key security info requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_get_provider_parameter(Il2CppObject*, Il2CppString*) { IL2CPP_CRYPTO_X509_LOUD("Crypto provider parameters require the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_get_user_key(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto user keys require the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_import_bulk_key(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto bulk-key import requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_import_csp_blob(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto CSP-blob import requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_import_key(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto key import requires the CryptoAPI model (not present in this runtime)"); }
 int32_t icall_crypto_utils_produce_legacy_hmac_values() { return 0; }
-Il2CppObject* icall_crypto_utils_open_csp(Il2CppObject*, int32_t) { return nullptr; }
-Il2CppObject* icall_crypto_utils_acquire_csp(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_add_certificate_to_store(Il2CppObject*, Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject*, Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_cert_raw_data(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_date_not_after(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_crypto_utils_open_csp(Il2CppObject*, int32_t) { IL2CPP_CRYPTO_X509_LOUD("Crypto CSP open requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_crypto_utils_acquire_csp(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("Crypto CSP acquire requires the CryptoAPI model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_add_certificate_to_store(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 certificate stores require the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_export_certificates_to_blob(Il2CppObject*, Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 certificate export requires the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_cert_raw_data(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 certificate data requires the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_date_not_after(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 certificate dates require the X509 model (not present in this runtime)"); }
 
 // Remaining X509 stubs
-Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject*) { return nullptr; }
-Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject*) { return nullptr; }
+Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 certificate dates require the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_issuer_name(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 issuer names require the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_public_key_oid(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 public keys require the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_public_key_parameters(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 public keys require the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_public_key_value(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 public keys require the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_subject_info(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 subject info requires the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_serial_number(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 serial numbers require the X509 model (not present in this runtime)"); }
+Il2CppObject* icall_x509_utils_get_thumbprint(Il2CppObject*) { IL2CPP_CRYPTO_X509_LOUD("X509 thumbprints require the X509 model (not present in this runtime)"); }
 int32_t icall_x509_utils_query_cert_blob_type(Il2CppObject*) { return 0; }
 int32_t icall_x509_utils_query_cert_file_type(Il2CppString*) { return 0; }
+#undef IL2CPP_CRYPTO_X509_LOUD
 
 // Remaining Environment stubs
 Il2CppObject* icall_environment_get_environment_variable_native(Il2CppString*) { return nullptr; }

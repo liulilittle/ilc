@@ -667,4 +667,33 @@ bool il2cpp_monitor_wait(Il2CppObject* obj, int32_t timeoutMs)
     return pulsed;
 }
 
+//------------------------------------------------------------------------------
+// Monitor.Wait TimeSpan / exitContext variants (parity-T8, 2026-09-20).
+//------------------------------------------------------------------------------
+bool il2cpp_monitor_wait_timespan(Il2CppObject* obj, int64_t ticks)
+{
+    // net48 Wait(object, TimeSpan): TotalMilliseconds truncates toward zero
+    // ((long)(ticks / 10000.0)); Timeout.InfiniteTimeSpan (-10000 ticks)
+    // converts to exactly -1 (infinite). Outside [-1, INT32_MAX] ->
+    // ArgumentOutOfRangeException ("timeout", net48 parameter name).
+    // Integer division truncates toward zero in C++ -- identical, with no
+    // floating-point rounding hazard at the boundary magnitudes.
+    const int64_t ms = ticks / 10000LL;
+    if (ms < -1LL || ms > 2147483647LL)
+    {
+        il2cpp_throw_argument_out_of_range_exception("timeout", nullptr);
+    }
+    return il2cpp_monitor_wait(obj, static_cast<int32_t>(ms));
+}
+
+bool il2cpp_monitor_wait_exit(Il2CppObject* obj, int32_t timeoutMs, int32_t exitContext)
+{
+    // net48 Wait(object, int, bool exitContext) exits the remoting
+    // synchronization context when exitContext is true. This runtime models
+    // NO synchronization contexts, so the flag is observably a no-op: the
+    // call is exactly Wait(object, timeoutMs) (validation order included).
+    (void)exitContext;
+    return il2cpp_monitor_wait(obj, timeoutMs);
+}
+
 }} // namespace il2cpp::runtime

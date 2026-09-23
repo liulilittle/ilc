@@ -118,17 +118,22 @@ public class MethodMapTestsTimeExt2
     }
 
     [Fact]
-    public void Resolve_DateTime_ToStringProviderOnly_ThrowsLoud()
+    public void Resolve_DateTime_ToStringProviderOnly_RoutesProviderToTrailingSlot()
     {
-        // ToString(IFormatProvider): provider-only. The trailing ABI slot
-        // would need the provider with a null format, which appendLiterals
-        // (append AFTER the argument list) cannot express -> LOUD, never a
-        // silent misroute of the provider into the format slot.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "DateTime", "ToString",
-                new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString"));
+        // ToString(IFormatProvider): provider-only. The runtime ABI takes
+        // (dt, format, provider); ArgOrder [0,-1,1] places the provider in
+        // the TRAILING slot with a null-format literal (-1, General "G" in
+        // the selected culture) -- the DateTimeOffset B4 (dtoprobe)
+        // precedent. dtprov1 e2e-pins the byte contract on three channels.
+        var resolved = ResolveMember(Synthesize("System", "DateTime", "ToString",
+            new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString");
 
-        Assert.Contains("ToString(IFormatProvider)", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_datetime_to_string_format", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "deref:dt", "", "drop" }, resolved.ParamTypeNames);
+        Assert.True(resolved.ProviderCulture);
+        Assert.Equal(new[] { 0, -1, 1 }, resolved.ArgOrder);
     }
 
     [Fact]

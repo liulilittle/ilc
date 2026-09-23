@@ -97,3 +97,34 @@ cmpgrid.txt
 /r*shard/
 /dump_*/
 *.bak*
+
+# e2e diff-run generated output dirs observed untracked at freeze (c093c6d9);
+# per-family patterns (NOT tests/cases/*/gen*/: gen_v*/gen_stab/... snapshots
+# are intentionally tracked in several cases and must stay addable)
+tests/cases/*/gen_diff*/
+tests/cases/*/gen_a3verify/
+tests/cases/*/gen_d2/
+tests/cases/*/gen_mingw/
+tests/cases/*/gen_msvc/
+tests/cases/*/gen_new/
+tests/cases/*/gen_p1/
+tests/cases/*/gen_p2/
+tests/cases/*/gen_pre/
+tests/cases/*/gen-bin-r3/
+tests/cases/*/gen-prew2/
+tests/cases/*/gen-scan/
+# e2e staging dirs (out_stage, out_stage_mingw/msvc/clang/diff)
+tests/cases/*/out_stage*/
+# bench/tool output dirs (tests/bench/out8/...)
+tests/*/out*/
+# probe scratch (repo root + nested in e2e cases)
+w2probe_tmp/
+# per-case run captures (sweep_run.out/.err, transpile.log)
+tests/cases/*/*.log
+tests/cases/*/*.out
+tests/cases/*/*.err
+
+# root report output (scripts/gen-diffprobes.ps1 default output dir)
+/final-report/
+# other AI tool memory dir
+/.workbuddy-ai/

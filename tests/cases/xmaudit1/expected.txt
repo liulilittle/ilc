@@ -1,0 +1,5 @@
+p1_load=ok
+p1_outer=[<a />]
+p2_load=ok
+p2_outer=[<a>&#x1;</a>]
+p2_len=12

@@ -43,6 +43,7 @@
 #include "il2cpp_array.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_runtime.h"
+#include "stubs.h" // crypto/x509 LOUD stubs (parity-T7 section below)
 
 #include <cstdint>
 #include <cstdio>
@@ -571,6 +572,24 @@ int main()
                           "System.ArgumentNullException"),
                "RNG Fill(null) -> ArgumentNullException");
         il2cpp::runtime::icall_rng_dispose(reinterpret_cast<Il2CppObject*>(rng));
+    }
+
+    // --- T7. Crypto/X509 object stubs are LOUD (parity-T7): the CSP/X509
+    // models do not exist, so every object-returning helper throws
+    // NotSupportedException instead of returning a silent nullptr.
+    {
+        Expect(ThrowsType([]() { il2cpp::runtime::icall_crypto_utils_import_csp_blob(nullptr, nullptr); },
+                          "System.NotSupportedException"),
+               "ImportCspBlob stub is LOUD (NotSupportedException, not nullptr)");
+        Expect(ThrowsType([]() { il2cpp::runtime::icall_crypto_utils_create_csp(nullptr); },
+                          "System.NotSupportedException"),
+               "CreateCsp stub is LOUD (NotSupportedException, not nullptr)");
+        Expect(ThrowsType([]() { il2cpp::runtime::icall_x509_utils_get_issuer_name(nullptr); },
+                          "System.NotSupportedException"),
+               "GetIssuerName stub is LOUD (NotSupportedException, not nullptr)");
+        Expect(ThrowsType([]() { il2cpp::runtime::icall_x509_utils_get_thumbprint(nullptr); },
+                          "System.NotSupportedException"),
+               "GetThumbprint stub is LOUD (NotSupportedException, not nullptr)");
     }
 
     if (g_failures != 0)

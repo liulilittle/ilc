@@ -1210,6 +1210,20 @@ public static partial class MethodRefResolver
                         && (receiverType.StartsWith("System.Collections.Generic.Queue`1.Enumerator_", StringComparison.Ordinal)
                             || receiverType.StartsWith("System.Collections.Generic.Stack`1.Enumerator_", StringComparison.Ordinal)))
                         return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // disprobe: the NON-GENERIC snapshot enumerator tokens
+                    // (System.Collections.Stack.Enumerator /
+                    // System.Collections.Queue.Enumerator -- the C42
+                    // GetEnumerator ReturnTypeName). The struct enumerators
+                    // do NOT implement IDisposable (net48: an explicit
+                    // ((IDisposable)e).Dispose() throws InvalidCastException
+                    // at the castclass -- the thrower owns the throw), so a
+                    // Dispose call past a successful cast is unreachable;
+                    // the shared null-safe no-op keeps the dead call
+                    // compilable (plain ref receiver, the P26 arm shape).
+                    var stackQueueEnumLike = receiverType ?? arg0Type;
+                    if (stackQueueEnumLike is "System.Collections.Stack.Enumerator"
+                            or "System.Collections.Queue.Enumerator")
+                        return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true);
                     // P25d (dictp25): the Dictionary<string,int> enumerator
                     // structs implement IDisposable EXPLICITLY, so the foreach
                     // finally's `constrained..callvirt IDisposable::Dispose`
@@ -1338,7 +1352,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 if (owner is "System.IO.TextReader" or "System.IO.TextWriter" && receiverType == null)
                     return null; // base owner, first pass -- defer to the receiver-aware re-resolve
                 return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);            case "System.IO.BinaryReader":
-            case "System.IO.BinaryWriter": return TryMapBinaryIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.IO.BinaryWriter": return TryMapBinaryIO(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Text.Encoding":
             case "System.Text.UTF8Encoding":
             case "System.Text.ASCIIEncoding":
@@ -1685,9 +1699,12 @@ var userRecvLike = receiverType ?? arg0Type;
         bool appendZero = false, string[]? appendLiterals = null,
         string[]? tupleReturnFields = null, bool providerCulture = false, int[]? argOrder = null)
     {
+        // exc001 (Task.Run): "run:i"/"run:r" ride the FromResult value slot
+        // (int32-family "" / ref "" shape) -- the invoke wrapper consumes
+        // the delegate object exactly where the plain/ref value would sit.
         var refs = casts == null
             ? Enumerable.Repeat(rr, pc).ToArray() // placeholder, replaced below
-            : casts.Select(c => c.Length == 0 || c == "drop" || c.StartsWith("fcap", StringComparison.Ordinal)).ToArray();
+            : casts.Select(c => c.Length == 0 || c == "drop" || c is "run:i" or "run:r" || c.StartsWith("fcap", StringComparison.Ordinal)).ToArray();
         return new ResolvedMethod(cpp, pc, isConsole, rv, rr, refs, inst,
             ParamTypeNames: casts, ResultKind: resultKind,
             PrependCountArg: prependCount, PrependZeroArg: prependZero,

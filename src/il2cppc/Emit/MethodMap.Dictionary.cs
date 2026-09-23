@@ -52,9 +52,11 @@ public static partial class MethodRefResolver
         // silently take the string->int32 arm. Otherwise the folded receiver
         // name decides; a null tag keeps the historical int32 mapping.
         var instTag = instName ?? receiverType;
+        // RISK5 R2: a null tag DEFERS (fold re-resolves with tracked receiver).
+        if (instTag is null) return null;
         // The fold-tracked receiver instance name (when present) must be the
         // string->int32 expansion Dictionary`2_string_int.
-        var siReceiver = instTag is null or "System.Collections.Generic.Dictionary`2_string_int";
+        var siReceiver = instTag is "System.Collections.Generic.Dictionary`2_string_int";
         // Phase-2 absorption: the string->string expansion rides the SHARED
         // generic table (dictgen.h) through the ref-key twins
         // (icall_dict_gen_*_o with kind literals ["0","0"]) -- the dictss

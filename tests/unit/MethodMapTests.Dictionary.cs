@@ -58,7 +58,8 @@ public class MethodMapTestsDictionary
     public void Resolve_Dictionary_CtorParameterless_AppendsZeroArgument()
     {
         // real dictcase blob: 20 00 01 (HAS_THIS, 0 params, void)
-        var resolved = ResolveMember(Synthesize(".ctor", Blob(0x20, 0x00, 0x01)), ".ctor");
+        var resolved = ResolveMember(Synthesize(".ctor", Blob(0x20, 0x00, 0x01)), ".ctor",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_ctor", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -72,7 +73,8 @@ public class MethodMapTestsDictionary
     public void Resolve_Dictionary_CtorCapacity_MapsToCtor()
     {
         // capacity ctor: the int32 param is the ONE concrete byte (0x08)
-        var resolved = ResolveMember(Synthesize(".ctor", Blob(0x20, 0x01, 0x01, 0x08)), ".ctor");
+        var resolved = ResolveMember(Synthesize(".ctor", Blob(0x20, 0x01, 0x01, 0x08)), ".ctor",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_ctor", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -84,7 +86,8 @@ public class MethodMapTestsDictionary
     public void Resolve_Dictionary_Add_MapsToDictSiAdd()
     {
         // instance void Add(TKey,TValue): real blob 20 02 01 13 00 13 01
-        var resolved = ResolveMember(Synthesize("Add", Blob(0x20, 0x02, 0x01, 0x13, 0x00, 0x13, 0x01)), "Add");
+        var resolved = ResolveMember(Synthesize("Add", Blob(0x20, 0x02, 0x01, 0x13, 0x00, 0x13, 0x01)), "Add",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_add", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -97,7 +100,8 @@ public class MethodMapTestsDictionary
     public void Resolve_Dictionary_SetItem_MapsToDictSiSet()
     {
         // indexer SET: same VAR [13,13] shape as Add (insert-or-replace)
-        var resolved = ResolveMember(Synthesize("set_Item", Blob(0x20, 0x02, 0x01, 0x13, 0x00, 0x13, 0x01)), "set_Item");
+        var resolved = ResolveMember(Synthesize("set_Item", Blob(0x20, 0x02, 0x01, 0x13, 0x00, 0x13, 0x01)), "set_Item",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_set", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -113,7 +117,8 @@ public class MethodMapTestsDictionary
         // (0x13 0x01) -- RawSignature does not consume a VAR-return index, so
         // the leaked index byte occupies ps[0]; the mapping guards on COUNT
         // ONLY (List get_Item precedent).
-        var resolved = ResolveMember(Synthesize("get_Item", Blob(0x20, 0x01, 0x13, 0x01, 0x13, 0x00)), "get_Item");
+        var resolved = ResolveMember(Synthesize("get_Item", Blob(0x20, 0x01, 0x13, 0x01, 0x13, 0x00)), "get_Item",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_get", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -128,7 +133,8 @@ public class MethodMapTestsDictionary
         // bool TryGetValue(TKey, out TValue): real blob 20 02 02 13 00 10 13 01
         // -- the BYREF (0x10) consumes its element (VAR 0x13), so ps is
         // [13,13] like Add; the out param is the ldloca ADDRESS ("").
-        var resolved = ResolveMember(Synthesize("TryGetValue", Blob(0x20, 0x02, 0x02, 0x13, 0x00, 0x10, 0x13, 0x01)), "TryGetValue");
+        var resolved = ResolveMember(Synthesize("TryGetValue", Blob(0x20, 0x02, 0x02, 0x13, 0x00, 0x10, 0x13, 0x01)), "TryGetValue",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_try_get_value", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -143,7 +149,8 @@ public class MethodMapTestsDictionary
     public void Resolve_Dictionary_OneVarParamMembers_MapToBoolIcalls(string name, string expectedIcall)
     {
         // bool ContainsKey(TKey) / bool Remove(TKey): real blob 20 01 02 13 00
-        var resolved = ResolveMember(Synthesize(name, Blob(0x20, 0x01, 0x02, 0x13, 0x00)), name);
+        var resolved = ResolveMember(Synthesize(name, Blob(0x20, 0x01, 0x02, 0x13, 0x00)), name,
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal(expectedIcall, resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -156,7 +163,8 @@ public class MethodMapTestsDictionary
     public void Resolve_Dictionary_GetCount_MapsToDictSiGetCount()
     {
         // instance int32 get_Count(): real blob 20 00 08
-        var resolved = ResolveMember(Synthesize("get_Count", Blob(0x20, 0x00, 0x08)), "get_Count");
+        var resolved = ResolveMember(Synthesize("get_Count", Blob(0x20, 0x00, 0x08)), "get_Count",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_get_count", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -168,7 +176,8 @@ public class MethodMapTestsDictionary
     public void Resolve_Dictionary_Clear_MapsToDictSiClear()
     {
         // instance void Clear(): real blob 20 00 01
-        var resolved = ResolveMember(Synthesize("Clear", Blob(0x20, 0x00, 0x01)), "Clear");
+        var resolved = ResolveMember(Synthesize("Clear", Blob(0x20, 0x00, 0x01)), "Clear",
+            receiverType: "System.Collections.Generic.Dictionary`2_string_int");
 
         Assert.Equal("il2cpp::runtime::icall_dict_si_clear", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -317,7 +326,8 @@ public class MethodMapTestsDictionary
         // Dictionary`2 definition signature (TKey/TValue always arrive as VAR
         // 0x13) -- LOUD, not mapped.
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("Add", Blob(0x20, 0x02, 0x01, 0x0E, 0x08)), "Add"));
+            ResolveMember(Synthesize("Add", Blob(0x20, 0x02, 0x01, 0x0E, 0x08)), "Add",
+                receiverType: "System.Collections.Generic.Dictionary`2_string_int"));
 
         Assert.Contains("System.Collections.Generic.Dictionary`2::Add", ex.Message);
     }

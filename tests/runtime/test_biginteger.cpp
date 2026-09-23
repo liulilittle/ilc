@@ -10,7 +10,8 @@
 //   3. Multiplication: schoolbook (123456789 * 987654321), negative signs,
 //      zero.
 //   4. Division / remainder: 100 / 7 = 14 rem 2, negative dividend sign,
-//      divide by zero (DivideByZeroException).
+//      divide by zero (DivideByZeroException), quotient limbs reaching
+//      0xFFFFFFFF (single- and multi-limb, bigaudit1 uint64-bound fix).
 //   5. Negation.
 //   6. Comparison / equality: sign + magnitude ordering, antisymmetry.
 //   7. ToString: decimal representation of known values (2^100, 50!).
@@ -231,6 +232,50 @@ int main()
                    Rem(FromI32(1), FromI32(0));
                }, "System.DivideByZeroException"),
                "remainder by zero throws DivideByZeroException");
+    }
+
+    // --- 4b. Division: quotient limbs reaching 0xFFFFFFFF ---
+    // bigaudit1: DivModMagnitude's digit binary search must span the full
+    // [0, 2^32] range. Reference values are exact factorizations, no oracle.
+    {
+        // Single-limb full-range digit: (2^32 - 1) / 1.
+        Expect(TextEquals(il2cpp::runtime::icall_biginteger_to_string(
+                              Div(FromI64(4294967295LL), FromI32(1))),
+                          "4294967295"),
+               "(2^32-1) / 1 = 4294967295");
+        Expect(il2cpp::runtime::icall_biginteger_to_int32(
+                   Rem(FromI64(4294967295LL), FromI32(1))) == 0,
+               "(2^32-1) % 1 = 0");
+        // Multi-limb, every quotient digit full-range: (2^64 - 1) / 1.
+        const Il2CppBigInteger max64 = Add(
+            Mul(FromI64(4294967295LL), FromI64(4294967296LL)),
+            FromI64(4294967295LL));
+        Expect(TextEquals(il2cpp::runtime::icall_biginteger_to_string(max64),
+                          "18446744073709551615"),
+               "fixture (2^32-1)*2^32 + (2^32-1) = 2^64-1");
+        Expect(TextEquals(il2cpp::runtime::icall_biginteger_to_string(
+                              Div(max64, FromI32(1))),
+                          "18446744073709551615"),
+               "(2^64-1) / 1 = 18446744073709551615");
+        // Multi-limb divisor, exact: (2^64-1) = (2^32-1)*(2^32+1).
+        const Il2CppBigInteger two32p1 =
+            Add(FromI64(4294967296LL), FromI32(1));
+        Expect(TextEquals(il2cpp::runtime::icall_biginteger_to_string(
+                              Div(max64, two32p1)),
+                          "4294967295"),
+               "(2^64-1) / (2^32+1) = 2^32-1");
+        Expect(il2cpp::runtime::icall_biginteger_to_int32(
+                   Rem(max64, two32p1)) == 0,
+               "(2^64-1) % (2^32+1) = 0");
+        // Zero divisor with a multi-limb dividend: same net48 exception.
+        Expect(ThrowsWithType([&] {
+                   Div(max64, FromI32(0));
+               }, "System.DivideByZeroException"),
+               "multi-limb division by zero throws DivideByZeroException");
+        Expect(ThrowsWithType([&] {
+                   Rem(max64, FromI32(0));
+               }, "System.DivideByZeroException"),
+               "multi-limb remainder by zero throws DivideByZeroException");
     }
 
     // --- 5. Negation ---

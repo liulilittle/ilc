@@ -79,6 +79,11 @@ Il2CppDateTime icall_datetime_from_ymdhms_kind(int32_t year, int32_t month, int3
 Il2CppDateTime icall_datetime_from_ymdhms_ms(int32_t year, int32_t month, int32_t day,
                                              int32_t hour, int32_t minute, int32_t second,
                                              int32_t millisecond);
+// dtprov1: DateTime(y,m,d,h,mi,s,ms,DateTimeKind) -- the 8-arg millisecond+
+// kind ctor (ms 0..999 and kind 0..2 validated; the kind is STORED).
+Il2CppDateTime icall_datetime_from_ymdhms_ms_kind(int32_t year, int32_t month, int32_t day,
+                                                 int32_t hour, int32_t minute, int32_t second,
+                                                 int32_t millisecond, int32_t kind);
 
 //------------------------------------------------------------------------------
 // DateTime(long ticks) -- batch 151: the raw 100ns-since-0001-01-01 ticks

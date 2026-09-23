@@ -209,6 +209,63 @@ public class MethodMapValueTypeTests
             recv, true, null, null);
     }
 
+    //--------------------------------------------------------------------------
+    // binrw3 residual: Byte/Char ToString on an ADDRESS receiver must read
+    // the NATIVE cell width (ldelema of byte[]/char[] points at a 1/2-byte
+    // cell; deref:i reads neighbor garbage -- b4=12345). An int32-slot byte
+    // local keeps high bytes zero, so the narrow read is exact in both
+    // shapes.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Byte_ToStringAddressReceiver_UsesNarrowDeref()
+    {
+        var resolved = ResolveMemberWithAddress("System", "Byte", "ToString",
+            new byte[] { 0x00, 0x00, 0x0E });
+
+        Assert.Equal("il2cpp::runtime::icall_int32_to_string", resolved.CppName);
+        Assert.Equal(new[] { "deref:u1" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Char_ToStringAddressReceiver_UsesNarrowDeref()
+    {
+        var resolved = ResolveMemberWithAddress("System", "Char", "ToString",
+            new byte[] { 0x00, 0x00, 0x0E });
+
+        Assert.Equal("il2cpp::runtime::icall_char_to_string", resolved.CppName);
+        Assert.Equal(new[] { "deref:u2" }, resolved.ParamTypeNames);
+    }
+
+    private static ResolvedMethod ResolveMemberWithAddress(string ns, string typeName,
+        string memberName, byte[] signature)
+    {
+        using var reader = new PEReader(SynthesizeMember(ns, typeName, memberName, signature));
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            null, true, null, null);
+    }
+
+    private static MemoryStream SynthesizeMember(string ns, string typeName,
+        string memberName, byte[] signature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
+        var root = new MetadataRootBuilder(mdb, "v4.0.30319");
+        var peBuilder = new ManagedPEBuilder(new PEHeaderBuilder(
+                machine: Machine.I386,
+                imageCharacteristics: Characteristics.ExecutableImage | Characteristics.Dll),
+            root, new BlobBuilder());
+        var blob = new BlobBuilder();
+        peBuilder.Serialize(blob);
+        return new MemoryStream(blob.ToArray());
+    }
+
     // A FIELD signature: 0x06 marker + element byte (+ optional trailing coded
     // index for 0x12/0x11). isStatic marks the field static (skipped by the
     // classifier -- the documented rule ignores static fields).

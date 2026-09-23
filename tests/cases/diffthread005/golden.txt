@@ -1,0 +1,10 @@
+﻿-- shard thread005 start --
+[th.name.default] <null>
+[th.name.setget] 1
+[th.name.setget.value] abc
+[th.name.set.twice] 1
+[th.name.set.null] 1
+[th.name.crossthread.read] 1
+[th.name.crossthread.value] worker
+[th.name.main.default] 1
+-- shard thread005 end --

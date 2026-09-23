@@ -25,13 +25,10 @@ namespace Il2Cpp.Transpiler.Emit;
 //   block forever). Verified 2026-08-04 on a transpiled lock statement.
 //
 // Known-unwireable overloads throw NotSupportedException (LOUD):
-//   * TryEnter(obj, timeout)     -- no timeout variant of the try_enter
-//     icall exists; silently dropping the timeout would turn a bounded
-//     wait into a single poll (semantics lie), so it stays loud.
-//   * Wait(obj[, TimeSpan][, exitContext]) -- the wait icall requires an
-//     explicit int32 timeout; there is no emitter mechanism to inject
-//     Timeout.Infinite (-1) or convert TimeSpan, so these stay loud.
-//     Wait(obj, int) is the wired form.
+//   * Wait(obj) -- no way to inject Timeout.Infinite (-1) into the timeout
+//     parameter; use Wait(object, int).
+// (parity-T8: TryEnter(obj, timeout[, lockTaken]) and Wait(obj, TimeSpan) /
+// Wait(obj, timeout, exitContext) ride the landed monitor.h overloads.)
 //
 // PulseAll maps to the same pulse icall: monitor.h documents the
 // SIMPLIFIED runtime semantics as "one Pulse wakes ALL waiters" -- i.e.
@@ -78,7 +75,17 @@ public static partial class MethodRefResolver
                     // the call's return.
                     ? I("il2cpp::runtime::il2cpp_monitor_try_enter", 2, false, false, false, new[] { "", "" })
                     : ps.Length == 2 && ps[0] == 0x1C && ps[1] is 0x08 or 0x11
-                    ? throw new NotSupportedException("TryEnter(object, timeout) -- the runtime icall has no timeout variant; add one to monitor.h first")
+                    // parity-T8: TryEnter(object, timeoutMs) -- the landed
+                    // 2-arg overload (monitor.h:124; A2). -1 blocks until
+                    // acquired, 0 polls once, < -1 throws AORE in runtime.
+                    ? I("il2cpp::runtime::il2cpp_monitor_try_enter", 2, true, false, false, new[] { "", "i" })
+                    : ps.Length == 3 && ps[0] == 0x1C && ps[1] == 0x08 && ps[2] == 0x02
+                    // parity-T8: TryEnter(object, timeoutMs, ref bool
+                    // lockTaken) -- the landed 3-arg overload (monitor.h:133).
+                    // The flag ADDRESS passes through (Enter 2-arg precedent).
+                    // net48 is VOID (the result rides the flag -- the runtime
+                    // bool return is dropped, the 2-arg ref-bool precedent).
+                    ? I("il2cpp::runtime::il2cpp_monitor_try_enter", 3, false, false, false, new[] { "", "i", "" })
                     : null;
             case "Pulse":
             case "PulseAll":
@@ -92,10 +99,18 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::runtime::il2cpp_monitor_wait", 2, true, false, false, new[] { "", "i" })
                     : ps.Length == 1 && ps[0] == 0x1C
                     ? throw new NotSupportedException("Wait(object) -- no way to inject Timeout.Infinite (-1) into the timeout parameter; use Wait(object, int)")
-                    : ps.Length >= 2 && ps[0] == 0x1C && ps[1] == 0x11
-                    ? throw new NotSupportedException("Wait(object, TimeSpan) -- no TimeSpan-to-milliseconds conversion in the emitter; use Wait(object, int)")
-                    : ps.Length >= 2 && ps[0] == 0x1C && ps[1] is 0x08 or 0x11
-                    ? throw new NotSupportedException("Wait(object, timeout, exitContext) -- exitContext is not modeled; use the two-argument form")
+                    : ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x11
+                    // parity-T8: Wait(object, TimeSpan) -- the landed
+                    // wait_timespan overload (monitor.h:143; A2). The TimeSpan
+                    // rides raw ticks ("ts_ticks" reads Il2CppTimeSpan.ticks;
+                    // the runtime converts with net48 truncation semantics).
+                    ? I("il2cpp::runtime::il2cpp_monitor_wait_timespan", 2, true, false, false, new[] { "", "ts_ticks" })
+                    : ps.Length == 3 && ps[0] == 0x1C && ps[1] == 0x08 && ps[2] == 0x02
+                    // parity-T8: Wait(object, timeoutMs, exitContext) -- the
+                    // landed wait_exit overload (monitor.h:150; A2). No sync
+                    // contexts are modeled, so the flag is an observably exact
+                    // no-op; the bool slot rides the int32 carrier ("i").
+                    ? I("il2cpp::runtime::il2cpp_monitor_wait_exit", 3, true, false, false, new[] { "", "i", "i" })
                     : null;
             default: return null;
         }

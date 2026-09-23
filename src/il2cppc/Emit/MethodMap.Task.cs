@@ -279,6 +279,42 @@ namespace Il2Cpp.Transpiler.Emit
                         return I("il2cpp::runtime::icall_task_get_awaiter", 0, true, true, true,
                             returnTypeName: "System.Runtime.CompilerServices.TaskAwaiter`1");
                     return null;
+                case "Run":
+                    // exc001: static Task<T> Run<T>(Func<T> function) -- the
+                    // synchronous-completion model runs the delegate NOW and
+                    // wraps the value in a completed task (Run(f) ≡
+                    // FromResult(f.Invoke())). Generic over carriers by the
+                    // same table as FromResult (int-family -> plain, ref
+                    // carriers -> _s); the value slot's "run:i"/"run:r" cast
+                    // synchronously invokes the zero-arg delegate through the
+                    // existing multicast ABIs (CodeGenerator.cs). The outer
+                    // call shape (icall/ParamCount/ReturnTypeName) is
+                    // IDENTICAL to FromResult, so Run<T> and FromResult<T>
+                    // stay one mechanism -- no per-method emission.
+                    // LOUD (null) faces, each a documented unsupported shape:
+                    // non-Task owner (Task<T> declares no Run), != 1 arg
+                    // (CancellationToken overloads), non-CLASS param (never a
+                    // delegate -- GenericInst Func<T> is 0x15), non-generic
+                    // shape (Run(Action) has no MethodSpec), non-Func
+                    // delegate hint, T outside the allowlist (long/ulong/
+                    // double/float have no zero-arg multicast ABI -- raw
+                    // methodPtr would read a multicast container as code;
+                    // VALUETYPE structs need unbuilt 16-byte carriers; OPEN
+                    // VAR/MVAR, nested GenericInst (Task<T> unwrapping needs
+                    // a monad join), POINTER/native-int are never exact).
+                    if (owner == "System.Threading.Tasks.Task" && count == 1 && ps[0] is 0x12 or 0x15
+                        && genArgs is { Length: 1 }
+                        && (arg0Type == null || arg0Type.StartsWith("System.Func`", StringComparison.Ordinal))
+                        && genArgs[0] is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09
+                            or 0x0E or 0x1C or 0x12 or 0x1D or 0x1F)
+                    {
+                        var isRunRef = genArgs[0] is 0x0E or 0x1C or 0x12 or 0x1D or 0x1F;
+                        var runSuffix = isRunRef ? "_s" : "";
+                        var invokeCast = isRunRef ? "run:r" : "run:i";
+                        return I($"il2cpp::runtime::icall_task_from_result{runSuffix}", 1, true, true, false,
+                            new[] { invokeCast, "" }, returnTypeName: "System.Threading.Tasks.Task`1");
+                    }
+                    return null;
                 default:
                     return null;
             }

@@ -4987,15 +4987,18 @@ public static class StackFold
             }
 
             // 3. forward substitution of a value-typed call result.
-            // decimal-domain C44 (decgap): value-slot icalls ("dec"/"guid"/
-            // "ip4" -- the icall writes through an explicit RESULT SLOT
-            // parameter, fn(&t, ...)) MUST keep their assignment statement;
-            // inlining them into an expression position (return / arg /
-            // condition) is uncompilable -- the emitter LOUD-rejects it
-            // (CodeGenerator "call in expression position"). `return x + y`
-            // on decimals folds `t0 = add(x,y); return t0` and was inlined
-            // into `return add(x,y)` here -- the C43/C44 temp-slot conflict.
-            if (a.Value is CallExpr cslot && cslot.ResultKind is "dec" or "guid" or "ip4")
+            // decimal-domain C44 (decgap): value-slot icalls ("dec"/"dec2"/
+            // "guid"/"ip4"/"bi" -- the icall writes through an explicit
+            // RESULT SLOT parameter, fn(&t, ...)) MUST keep their assignment
+            // statement; inlining them into an expression position (return /
+            // arg / condition) is uncompilable -- the emitter LOUD-rejects it
+            // (CodeGenerator "call in expression position" guards exactly
+            // guid/dec/dec2/ip4/bi). `return x + y` on decimals folds
+            // `t0 = add(x,y); return t0` and was inlined into
+            // `return add(x,y)` here -- the C43/C44 temp-slot conflict.
+            // binrw3: r.ReadDecimal() is "dec2" (out-last); `"d=" + Read`
+            // inlined it into the concat arg without this exclusion.
+            if (a.Value is CallExpr cslot && cslot.ResultKind is "dec" or "dec2" or "guid" or "ip4" or "bi")
                 continue;
             if (a.Value is CallExpr or VirtualCallExpr
                 && !HasRefResult(a.Value)

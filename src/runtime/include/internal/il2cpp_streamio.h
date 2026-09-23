@@ -42,6 +42,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_array.h"     // Il2CppArray (byte[] Read/Write icalls)
+#include "decimal.h"            // Il2CppDecimal (binary decimal protocol)
 #include "il2cpp_object.h"    // Il2CppObject
 #include "il2cpp_metadata.h"  // Il2CppClass descriptor type; System_Object_class
 #include "il2cpp_com.h"       // stage 12/13: the COM icalls (CreateStreamOnHGlobal / BSTR bridge) the generated code calls
@@ -355,6 +356,30 @@ void icall_binary_write_single(Il2CppObject* self, float value);
 void icall_binary_write_bool(Il2CppObject* self, int32_t value);
 void icall_binary_write_string(Il2CppObject* self, Il2CppObject* value);
 
+// BinaryWriter fixed narrow/ulong widths (parity-T4a): the value's low 1/2/8
+// bytes little-endian. Narrow values ride int32 carriers (M2 slot model);
+// ulong rides uint64. Same closed/no-op + non-writable-throws contract.
+void icall_binary_write_byte(Il2CppObject* self, int32_t value);
+void icall_binary_write_sbyte(Il2CppObject* self, int32_t value);
+void icall_binary_write_int16(Il2CppObject* self, int32_t value);
+void icall_binary_write_uint16(Il2CppObject* self, int32_t value);
+void icall_binary_write_uint64(Il2CppObject* self, uint64_t value);
+
+// BinaryWriter decimal / array / char widths (parity-T4b): decimal emits
+// decimal.GetBits() order (lo, mid, hi, flags -- 16 bytes LE); byte[] writes
+// RAW bytes (no length prefix); char/char[] encode UTF-8 (pairing resolved
+// within the written range). Decimal arrives as a raw value-slot pointer
+// (the decimal-domain Guid precedent). Null array/decimal slots throw
+// ArgumentNullException; bad index/count throws ArgumentOutOfRangeException.
+void icall_binary_write_decimal(Il2CppObject* self, const Il2CppDecimal* value);
+void icall_binary_write_bytes_full(Il2CppObject* self, Il2CppArray* buffer);
+void icall_binary_write_bytes(Il2CppObject* self, Il2CppArray* buffer,
+                              int32_t index, int32_t count);
+void icall_binary_write_char(Il2CppObject* self, int32_t value);
+void icall_binary_write_chars_full(Il2CppObject* self, Il2CppArray* chars);
+void icall_binary_write_chars(Il2CppObject* self, Il2CppArray* chars,
+                              int32_t index, int32_t count);
+
 // BinaryReader.ReadInt32/... : decode the next value from the wrapped stream
 // at its current position. Truncated / malformed (string length > remaining,
 // or a 7-bit length prefix longer than 5 bytes): the zero value / null.
@@ -371,5 +396,21 @@ Il2CppObject* icall_binary_read_string(Il2CppObject* self);
 // for ReadBoolean, wrong for ReadByte). Truncated: 0 (the M3 zero-value
 // convention -- see the EndOfStreamException divergence note above).
 int32_t      icall_binary_read_byte(Il2CppObject* self);
+
+// BinaryReader fixed narrow/ulong widths (parity-T4a): sbyte/int16
+// sign-extend into the int32 carrier, ushort zero-extends, ulong rides
+// uint64. Truncated: 0.
+int32_t      icall_binary_read_sbyte(Il2CppObject* self);
+int32_t      icall_binary_read_int16(Il2CppObject* self);
+int32_t      icall_binary_read_uint16(Il2CppObject* self);
+uint64_t     icall_binary_read_uint64(Il2CppObject* self);
+
+// BinaryReader decimal / char widths (parity-T4b): decimal inverts the
+// writer (16 bytes -> value slot; truncated -> the zero decimal); ReadChar
+// decodes one UTF-8 scalar (astral scalars split across two calls via the
+// StreamState stash, net48 Decoder statefulness; malformed -> U+FFFD with
+// Utf8ToCs consumption; EOF -> 0). Char rides an int32 carrier.
+void         icall_binary_read_decimal(Il2CppObject* self, Il2CppDecimal* out);
+int32_t      icall_binary_read_char(Il2CppObject* self);
 
 }} // namespace il2cpp::runtime

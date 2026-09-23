@@ -148,28 +148,26 @@ public class MethodMapBase64Tests
     }
 
     //--------------------------------------------------------------------------
-    // Float/double SOURCES of the integer narrowings stay LOUD: net48 rounds
-    // half-to-even BEFORE the range check; the existing ovf_*_d helpers
-    // truncate first (Convert.ToByte(3.5) == 4 vs 3) -- silently different,
-    // so never mapped (rounding-aware icalls are on the edit_convert.md
-    // needs-new list).
+    // Float/double SOURCES of the integer narrowings map to the rounding-aware
+    // icall_convert_to_<kind>_d family (parity-T1; the old ovf_*_d truncate).
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData("ToByte")]
-    [InlineData("ToSByte")]
-    [InlineData("ToInt16")]
-    [InlineData("ToUInt16")]
-    [InlineData("ToUInt32")]
-    [InlineData("ToUInt64")]
-    public void Resolve_Convert_NarrowingFamily_FloatDoubleSource_ThrowsLoud(string member)
+    [InlineData("ToByte", "il2cpp::runtime::icall_convert_to_byte_d", null)]
+    [InlineData("ToSByte", "il2cpp::runtime::icall_convert_to_sbyte_d", null)]
+    [InlineData("ToInt16", "il2cpp::runtime::icall_convert_to_int16_d", null)]
+    [InlineData("ToUInt16", "il2cpp::runtime::icall_convert_to_uint16_d", null)]
+    [InlineData("ToUInt32", "il2cpp::runtime::icall_convert_to_uint32_d", null)]
+    [InlineData("ToUInt64", "il2cpp::runtime::icall_convert_to_uint64_d", "l")]
+    public void Resolve_Convert_NarrowingFamily_FloatDoubleSource_MapsToRoundingIcall(string member, string expected, string? resultKind)
     {
-        var floatEx = Assert.Throws<NotSupportedException>(() =>
-            ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, 0x0C }));
-        Assert.Contains($"System.Convert::{member}", floatEx.Message);
+        foreach (var src in new byte[] { 0x0C, 0x0D })
+        {
+            var resolved = ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, src });
 
-        var doubleEx = Assert.Throws<NotSupportedException>(() =>
-            ResolveConvert(member, new byte[] { 0x00, 0x01, 0x05, 0x0D }));
-        Assert.Contains($"System.Convert::{member}", doubleEx.Message);
+            Assert.Equal(expected, resolved.CppName);
+            Assert.Equal(new[] { "d" }, resolved.ParamTypeNames);
+            Assert.Equal(resultKind, resolved.ResultKind);
+        }
     }
 
     //--------------------------------------------------------------------------

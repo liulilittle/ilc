@@ -347,6 +347,24 @@ Il2CppDateTime icall_datetime_from_ymdhms_kind(int32_t year, int32_t month, int3
     return Il2CppDateTime(ComposeTicks(year, month, day, hour, minute, second), kind);
 }
 
+// dtprov1: DateTime(y,m,d,h,mi,s,ms,DateTimeKind) -- the mechanical union of
+// the millisecond arm (ms composes onto the second boundary, 0..999) and
+// the kind arm (kind STORED, 0..2).
+Il2CppDateTime icall_datetime_from_ymdhms_ms_kind(int32_t year, int32_t month, int32_t day,
+                                                 int32_t hour, int32_t minute, int32_t second,
+                                                 int32_t millisecond, int32_t kind)
+{
+    ValidateDateParts(year, month, day);
+    ValidateTimeParts(hour, minute, second);
+    if (millisecond < 0 || millisecond > 999)
+    {
+        il2cpp_throw_argument_out_of_range_exception("millisecond", nullptr);
+    }
+    ValidateCtorKind(kind);
+    return Il2CppDateTime(ComposeTicks(year, month, day, hour, minute, second) +
+                          static_cast<int64_t>(millisecond) * 10000LL, kind);
+}
+
 //------------------------------------------------------------------------------
 // icall_datetime_from_ticks -- DateTime(long ticks) (see the header).
 //------------------------------------------------------------------------------

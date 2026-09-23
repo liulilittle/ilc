@@ -32,6 +32,7 @@
 #include "il2cpp_runtime.h"       // il2cpp_class_register
 #include "platform.h"             // plat_path_is_file (exclusive-create probe)
 #include "il2cpp_streamio.h"      // the object model (this file's surface)
+#include "decimal.h"              // Il2CppDecimal (binary decimal protocol)
 #include "il2cpp_encoding.h"      // P2(5) A1: the Encoding object (page/emitBom)
 #include "il2cpp_string.h"
 
@@ -98,6 +99,12 @@ struct StreamState
     // detection result). Default 0 == the historical UTF-8 behaviour.
     int32_t        writerEncoding;
     bool           writerBomPending; // emit the encoding preamble before the first text write (net48: only when the target starts at position 0)
+    // T4b ReadChar astral stash: a 4-byte UTF-8 sequence decodes to a
+    // surrogate PAIR, but ReadChar returns one UTF-16 unit per call. The
+    // first call returns the high surrogate and stashes the low surrogate
+    // here for the next ReadChar (-1 = empty). Cleared by every seek
+    // (repositioning invalidates decoder state, like the pushback ring).
+    int32_t        pendingChar;
 };
 
 namespace {
@@ -512,6 +519,7 @@ il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
     s->appendStart = appendStart;
     s->writerEncoding = 0;
     s->writerBomPending = false;
+    s->pendingChar = -1; // T4b: ReadChar astral stash starts empty
     return s;
 }
 
@@ -741,6 +749,7 @@ int32_t il2cpp_stream_set_position(il2cpp_stream_t stream, int64_t position)
             return -1; // position unchanged on failure
         }
         s->pendingCount = 0; // explicit reposition discards the pushback ring
+        s->pendingChar = -1; // ... and the ReadChar astral stash (T4b)
         return 0;
     }
 #endif
@@ -748,6 +757,7 @@ int32_t il2cpp_stream_set_position(il2cpp_stream_t stream, int64_t position)
     {
         s->pos = position; // seeking past the end is allowed; writes extend
         s->pendingCount = 0;
+        s->pendingChar = -1;
         return 0;
     }
     if (STREAM_FSEEK(s->fp, position, SEEK_SET) != 0)
@@ -755,6 +765,7 @@ int32_t il2cpp_stream_set_position(il2cpp_stream_t stream, int64_t position)
         return -1; // position unchanged on failure
     }
     s->pendingCount = 0;
+    s->pendingChar = -1;
     return 0;
 }
 
@@ -1161,6 +1172,7 @@ int64_t il2cpp_stream_seek(il2cpp_stream_t stream, int64_t offset, int32_t origi
             return -1; // position unchanged on failure
         }
         s->pendingCount = 0; // explicit reposition discards the pushback ring
+        s->pendingChar = -1; // ... and the ReadChar astral stash (T4b)
         return out;
     }
 #endif
@@ -1168,6 +1180,7 @@ int64_t il2cpp_stream_seek(il2cpp_stream_t stream, int64_t offset, int32_t origi
     {
         s->pos = newPos; // seeking past the end is allowed; writes extend
         s->pendingCount = 0;
+        s->pendingChar = -1;
         return newPos;
     }
     if (STREAM_FSEEK(s->fp, newPos, SEEK_SET) != 0)
@@ -1175,6 +1188,7 @@ int64_t il2cpp_stream_seek(il2cpp_stream_t stream, int64_t offset, int32_t origi
         return -1; // position unchanged on failure
     }
     s->pendingCount = 0;
+    s->pendingChar = -1;
     return newPos;
 }
 
@@ -1276,6 +1290,7 @@ il2cpp_stream_t il2cpp_stream_memory_create(void)
     s->appendStart = 0;
     s->writerEncoding = 0;
     s->writerBomPending = false;
+    s->pendingChar = -1; // T4b: ReadChar astral stash starts empty
     return s;
 }
 
@@ -1493,6 +1508,19 @@ bool IsWrappableStream(const Il2CppObject* stream)
 // over the wrapped StreamState, instead of an in-memory buffer).
 //------------------------------------------------------------------------------
 
+// Little-endian 2-byte encoder/decoder (parity-T4a short/ushort widths).
+void BinaryEncodeLE16(uint8_t* out, uint16_t value)
+{
+    out[0] = static_cast<uint8_t>(value & 0xFFu);
+    out[1] = static_cast<uint8_t>((value >> 8) & 0xFFu);
+}
+
+uint16_t BinaryDecodeLE16(const uint8_t* b)
+{
+    return static_cast<uint16_t>(static_cast<uint16_t>(b[0])
+        | (static_cast<uint16_t>(b[1]) << 8));
+}
+
 // Little-endian 4-byte encoder (explicit shifts: layout is LE on any host).
 void BinaryEncodeLE32(uint8_t* out, uint32_t value)
 {
@@ -1541,23 +1569,16 @@ void BinaryAppend7BitLen(std::vector<uint8_t>& out, uint32_t value)
     out.push_back(static_cast<uint8_t>(value));
 }
 
-// Managed string -> UTF-8 bytes with net48-exact lone-surrogate handling
-// (U+D800/U+DC00 without a partner encode as EF BF BD -- the U+FFFD
-// replacement). The line codec above (CsToUtf8) is a best-effort 3-byte
-// encoder, so the BINARY string writer needs this exact copy of the
-// binaryio.cpp encoder (binaryio.cpp CsToUtf8, same per-TU convention).
-std::string BinaryCsToUtf8(Il2CppObject* obj)
+// Managed UTF-16 units -> UTF-8 bytes with net48-exact lone-surrogate
+// handling (U+D800/U+DC00 without a partner encode as EF BF BD -- the U+FFFD
+// replacement). Shared by the binary string writer (whole strings) and the
+// char/char[] writers (single units / subranges -- pairing is resolved
+// WITHIN the written range, matching net48 Encoding.GetBytes(subarray)).
+void BinaryEncodeUnits(const char16_t* units, int32_t length, std::string& out)
 {
-    std::string out;
-    const Il2CppString* s = reinterpret_cast<Il2CppString*>(obj);
-    if (s == nullptr)
+    for (int32_t i = 0; i < length; ++i)
     {
-        return out;
-    }
-    out.reserve(static_cast<size_t>(s->length));
-    for (int32_t i = 0; i < s->length; ++i)
-    {
-        const char16_t c = s->chars[i];
+        const char16_t c = units[i];
         if (c < 0x80)
         {
             out.push_back(static_cast<char>(c));
@@ -1567,12 +1588,12 @@ std::string BinaryCsToUtf8(Il2CppObject* obj)
             out.push_back(static_cast<char>(0xC0 | (c >> 6)));
             out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
         }
-        else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length
-                 && s->chars[i + 1] >= 0xDC00 && s->chars[i + 1] <= 0xDFFF)
+        else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < length
+                 && units[i + 1] >= 0xDC00 && units[i + 1] <= 0xDFFF)
         {
             const uint32_t cp = 0x10000u
                 + (static_cast<uint32_t>(c - 0xD800) << 10)
-                + static_cast<uint32_t>(s->chars[i + 1] - 0xDC00);
+                + static_cast<uint32_t>(units[i + 1] - 0xDC00);
             out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
             out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
             out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
@@ -1592,6 +1613,23 @@ std::string BinaryCsToUtf8(Il2CppObject* obj)
             out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
         }
     }
+}
+
+// Managed string -> UTF-8 bytes with net48-exact lone-surrogate handling
+// (U+D800/U+DC00 without a partner encode as EF BF BD -- the U+FFFD
+// replacement). The line codec above (CsToUtf8) is a best-effort 3-byte
+// encoder, so the BINARY string writer needs this exact copy of the
+// binaryio.cpp encoder (binaryio.cpp CsToUtf8, same per-TU convention).
+std::string BinaryCsToUtf8(Il2CppObject* obj)
+{
+    std::string out;
+    const Il2CppString* s = reinterpret_cast<Il2CppString*>(obj);
+    if (s == nullptr)
+    {
+        return out;
+    }
+    out.reserve(static_cast<size_t>(s->length));
+    BinaryEncodeUnits(s->chars, s->length, out);
     return out;
 }
 
@@ -1802,6 +1840,7 @@ Il2CppObject* il2cpp_stream_com_create(intptr_t iStream, int32_t deleteOnRelease
     s->refCount = 1;
     s->closed = false;
     s->pendingCount = 0;
+    s->pendingChar = -1; // T4b: repositioning invalidates the ReadChar stash
     s->textEncoding = 0;
     s->appendMode = false;
     s->appendStart = 0;
@@ -2573,6 +2612,267 @@ void icall_binary_write_string(Il2CppObject* self, Il2CppObject* value)
     (void)il2cpp_stream_write(s, out.data(), static_cast<int32_t>(out.size()));
 }
 
+//------------------------------------------------------------------------------
+// BinaryWriter fixed narrow/ulong widths (parity-T4a, 2026-09-20): net48
+// writes the value's low 1/2/8 bytes little-endian (Write(byte) emits ONE
+// byte -- routing through write_int32 would corrupt the protocol with 4).
+// Narrow values ride int32 carriers (M2 slot model); ulong rides uint64.
+//------------------------------------------------------------------------------
+void icall_binary_write_byte(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    const uint8_t byte = static_cast<uint8_t>(value & 0xFF);
+    (void)il2cpp_stream_write(s, &byte, 1);
+}
+
+void icall_binary_write_sbyte(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    const uint8_t byte = static_cast<uint8_t>(value & 0xFF);
+    (void)il2cpp_stream_write(s, &byte, 1);
+}
+
+void icall_binary_write_int16(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    uint8_t b[2];
+    BinaryEncodeLE16(b, static_cast<uint16_t>(value & 0xFFFF));
+    (void)il2cpp_stream_write(s, b, 2);
+}
+
+void icall_binary_write_uint16(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    uint8_t b[2];
+    BinaryEncodeLE16(b, static_cast<uint16_t>(value & 0xFFFF));
+    (void)il2cpp_stream_write(s, b, 2);
+}
+
+void icall_binary_write_uint64(Il2CppObject* self, uint64_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    uint8_t b[8];
+    BinaryEncodeLE64(b, value);
+    (void)il2cpp_stream_write(s, b, 8);
+}
+
+//------------------------------------------------------------------------------
+// BinaryWriter decimal / array / char widths (parity-T4b, 2026-09-20).
+//------------------------------------------------------------------------------
+
+void icall_binary_write_decimal(Il2CppObject* self, const Il2CppDecimal* value)
+{
+    ThrowIfNullReceiver(self);
+    if (value == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("value");
+        return;
+    }
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    // net48 BinaryWriter.Write(decimal) emits decimal.GetBits() in order:
+    // lo, mid, hi, flags -- four little-endian int32s (16 bytes). The
+    // Il2CppDecimal packs lo64 = mid<<32|lo, so split it back out.
+    uint8_t b[16];
+    BinaryEncodeLE32(b, static_cast<uint32_t>(value->lo64 & 0xFFFFFFFFu));
+    BinaryEncodeLE32(b + 4, static_cast<uint32_t>(value->lo64 >> 32));
+    BinaryEncodeLE32(b + 8, value->hi32);
+    BinaryEncodeLE32(b + 12, static_cast<uint32_t>(value->flags));
+    (void)il2cpp_stream_write(s, b, 16);
+}
+
+void icall_binary_write_bytes_full(Il2CppObject* self, Il2CppArray* buffer)
+{
+    ThrowIfNullReceiver(self);
+    if (buffer == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("buffer");
+        return;
+    }
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    // net48 Write(byte[]) emits the RAW bytes (no length prefix).
+    if (buffer->length > 0)
+    {
+        (void)il2cpp_stream_write(s, reinterpret_cast<const uint8_t*>(buffer->data),
+                                  buffer->length);
+    }
+}
+
+void icall_binary_write_bytes(Il2CppObject* self, Il2CppArray* buffer,
+                              int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    if (buffer == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("buffer");
+        return;
+    }
+    ThrowIfRangeInvalid(buffer, index, count);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    if (count > 0)
+    {
+        (void)il2cpp_stream_write(s, reinterpret_cast<const uint8_t*>(buffer->data) + index,
+                                  count);
+    }
+}
+
+void icall_binary_write_char(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    // net48 Write(char) encodes the SINGLE unit (no pairing across calls --
+    // a lone surrogate encodes as EF BF BD, same as the string writer).
+    const char16_t unit = static_cast<char16_t>(value & 0xFFFF);
+    std::string utf8;
+    BinaryEncodeUnits(&unit, 1, utf8);
+    (void)il2cpp_stream_write(s, reinterpret_cast<const uint8_t*>(utf8.data()),
+                              static_cast<int32_t>(utf8.size()));
+}
+
+void icall_binary_write_chars_full(Il2CppObject* self, Il2CppArray* chars)
+{
+    ThrowIfNullReceiver(self);
+    if (chars == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("chars");
+        return;
+    }
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    // net48 Write(char[]) encodes the whole array (pairing WITHIN it).
+    std::string utf8;
+    BinaryEncodeUnits(reinterpret_cast<const char16_t*>(chars->data), chars->length, utf8);
+    if (!utf8.empty())
+    {
+        (void)il2cpp_stream_write(s, reinterpret_cast<const uint8_t*>(utf8.data()),
+                                  static_cast<int32_t>(utf8.size()));
+    }
+}
+
+void icall_binary_write_chars(Il2CppObject* self, Il2CppArray* chars,
+                              int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    if (chars == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("chars");
+        return;
+    }
+    ThrowIfRangeInvalid(chars, index, count);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed)
+    {
+        return;
+    }
+    if (!s->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    // net48 Write(chars, index, count) encodes the SUBRANGE (pairing within
+    // it -- a pair split by the window edges encodes as two replacements).
+    std::string utf8;
+    BinaryEncodeUnits(reinterpret_cast<const char16_t*>(chars->data) + index, count, utf8);
+    if (!utf8.empty())
+    {
+        (void)il2cpp_stream_write(s, reinterpret_cast<const uint8_t*>(utf8.data()),
+                                  static_cast<int32_t>(utf8.size()));
+    }
+}
+
 int32_t icall_binary_read_int32(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
@@ -2666,6 +2966,193 @@ int32_t icall_binary_read_byte(Il2CppObject* self)
         return 0;
     }
     return static_cast<int32_t>(b);
+}
+
+//------------------------------------------------------------------------------
+// BinaryReader fixed narrow/ulong widths (parity-T4a, 2026-09-20): decode 1/2/8
+// little-endian bytes; sbyte/int16 sign-extend into the int32 carrier (M2
+// slot model), ushort zero-extends, ulong rides uint64. Truncated: 0.
+//------------------------------------------------------------------------------
+int32_t icall_binary_read_sbyte(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    uint8_t b = 0;
+    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, &b, 1))
+    {
+        return 0;
+    }
+    return static_cast<int32_t>(static_cast<int8_t>(b));
+}
+
+int32_t icall_binary_read_int16(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    uint8_t b[2];
+    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 2))
+    {
+        return 0;
+    }
+    return static_cast<int32_t>(static_cast<int16_t>(BinaryDecodeLE16(b)));
+}
+
+int32_t icall_binary_read_uint16(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    uint8_t b[2];
+    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 2))
+    {
+        return 0;
+    }
+    return static_cast<int32_t>(BinaryDecodeLE16(b));
+}
+
+uint64_t icall_binary_read_uint64(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    uint8_t b[8];
+    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 8))
+    {
+        return 0;
+    }
+    return BinaryDecodeLE64(b);
+}
+
+//------------------------------------------------------------------------------
+// BinaryReader decimal / char widths (parity-T4b, 2026-09-20).
+//------------------------------------------------------------------------------
+
+void icall_binary_read_decimal(Il2CppObject* self, Il2CppDecimal* out)
+{
+    ThrowIfNullReceiver(self);
+    if (out == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("out");
+        return;
+    }
+    StreamState* s = StreamStateOf(self);
+    uint8_t b[16];
+    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 16))
+    {
+        // Truncated: the zero decimal (M3 zero-value convention -- net48
+        // throws EndOfStreamException, the documented divergence).
+        out->flags = 0;
+        out->hi32 = 0;
+        out->lo64 = 0;
+        return;
+    }
+    // Inverse of the writer: lo, mid, hi, flags (four LE int32s).
+    const uint32_t lo = BinaryDecodeLE32(b);
+    const uint32_t mid = BinaryDecodeLE32(b + 4);
+    out->hi32 = BinaryDecodeLE32(b + 8);
+    out->flags = static_cast<int32_t>(BinaryDecodeLE32(b + 12));
+    out->lo64 = (static_cast<uint64_t>(mid) << 32) | lo;
+}
+
+int32_t icall_binary_read_char(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* s = StreamStateOf(self);
+    if (s == nullptr || s->closed || !s->canRead)
+    {
+        return 0;
+    }
+    // A stashed low surrogate from a split astral read goes first.
+    if (s->pendingChar >= 0)
+    {
+        const int32_t unit = s->pendingChar;
+        s->pendingChar = -1;
+        return unit;
+    }
+    uint8_t lead = 0;
+    if (!BinaryReadBytes(s, &lead, 1))
+    {
+        return 0; // EOF: the M3 zero value (net48 throws EndOfStreamException)
+    }
+    if (lead < 0x80)
+    {
+        return static_cast<int32_t>(lead);
+    }
+    // Multi-byte sequence: length from the lead byte (mirrors the Utf8ToCs
+    // decoder above -- overlong / surrogate / out-of-range encodings decode
+    // as U+FFFD, consuming exactly the lead byte like Utf8ToCs's ++i).
+    int32_t need = 0;
+    uint32_t cp = 0;
+    if ((lead & 0xE0) == 0xC0)
+    {
+        need = 1;
+        cp = static_cast<uint32_t>(lead & 0x1Fu) << 6;
+    }
+    else if ((lead & 0xF0) == 0xE0)
+    {
+        need = 2;
+        cp = static_cast<uint32_t>(lead & 0x0Fu) << 12;
+    }
+    else if ((lead & 0xF8) == 0xF0)
+    {
+        need = 3;
+        cp = static_cast<uint32_t>(lead & 0x07u) << 18;
+    }
+    else
+    {
+        return 0xFFFD; // lone continuation / impossible lead -> replacement
+    }
+    uint8_t cont[3] = { 0, 0, 0 };
+    int32_t nread = 0;
+    bool ok = true;
+    for (int32_t i = 0; i < need; ++i)
+    {
+        if (!BinaryReadBytes(s, &cont[i], 1))
+        {
+            ok = false; // truncated mid-sequence
+            break;
+        }
+        ++nread; // consumed (valid or not -- unmirrored below on failure)
+        if (!IsContinuationByte(cont[i]))
+        {
+            ok = false; // malformed continuation
+            break;
+        }
+    }
+    if (!ok)
+    {
+        // Mirror Utf8ToCs's ++i rule: only the lead byte is consumed; every
+        // trailing byte replays (truncated input replays into EOF).
+        int32_t back[3];
+        for (int32_t i = 0; i < nread; ++i)
+        {
+            back[i] = cont[i];
+        }
+        StreamUnread(s, back, nread);
+        return 0xFFFD;
+    }
+    for (int32_t i = 0; i < need; ++i)
+    {
+        cp |= static_cast<uint32_t>(cont[i] & 0x3Fu) << (6 * (need - 1 - i));
+    }
+    // Range validation mirrors Utf8ToCs: overlong / surrogate / > U+10FFFF
+    // encode as U+FFFD.
+    if (need == 1)
+    {
+        return (cp >= 0x80) ? static_cast<int32_t>(cp) : 0xFFFD;
+    }
+    if (need == 2)
+    {
+        return (cp >= 0x800 && (cp < 0xD800 || cp > 0xDFFF))
+            ? static_cast<int32_t>(cp) : 0xFFFD;
+    }
+    if (cp < 0x10000 || cp > 0x10FFFF)
+    {
+        return 0xFFFD;
+    }
+    // Astral scalar: split the surrogate pair across two ReadChar calls
+    // (net48 Decoder statefulness); stash the low surrogate.
+    const uint32_t v = cp - 0x10000;
+    s->pendingChar = static_cast<int32_t>(0xDC00 + (v & 0x3FFu));
+    return static_cast<int32_t>(0xD800 + (v >> 10));
 }
 
 Il2CppObject* icall_binary_read_string(Il2CppObject* self)

@@ -24,9 +24,9 @@ using Xunit;
 //   Monitor.Wait(object, int)                -> il2cpp_monitor_wait (bool)
 //
 // Known-unwireable overloads must be LOUD (NotSupportedException):
-//   TryEnter(object, timeout) -- no timeout try_enter icall exists
 //   Wait(object)              -- cannot inject Timeout.Infinite (-1)
-//   Wait(object, TimeSpan[..])-- no TimeSpan conversion in the emitter
+// (parity-T8: TryEnter(object, timeout[, lockTaken]) and Wait(object,
+// TimeSpan) / Wait(object, timeout, exitContext) map to monitor.h.)
 //
 // The PEs are synthesized with System.Reflection.Metadata's writer, like
 // MethodMapTests.IntPtr. Signatures are real ECMA blobs: a byref parameter
@@ -110,17 +110,6 @@ public class MethodMapTestsMonitor
     }
 
     [Fact]
-    public void Resolve_TryEnter_ObjectTimeout_ThrowsLoud()
-    {
-        // static bool TryEnter(object, int): no timeout try_enter icall --
-        // dropping the timeout would turn a bounded wait into a single poll.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("TryEnter", Sig(0x02, B(0x1C), B(0x08))), "TryEnter"));
-
-        Assert.Contains("System.Threading.Monitor::TryEnter", ex.Message);
-    }
-
-    [Fact]
     public void Resolve_Pulse_Object_MapsToMonitorPulse()
     {
         var resolved = ResolveMember(Synthesize("Pulse", Sig(0x00, B(0x1C))), "Pulse");
@@ -165,14 +154,74 @@ public class MethodMapTestsMonitor
         Assert.Contains("System.Threading.Monitor::Wait", ex.Message);
     }
 
+    //--------------------------------------------------------------------------
+    // parity-T8: timeout forms over the landed runtime overloads (A2).
+    //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Wait_ObjectTimeSpan_ThrowsLoud()
+    public void Resolve_Wait_ObjectTimeSpan_OldThrowRetired()
     {
-        // static bool Wait(object, TimeSpan): no TimeSpan conversion exists.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("Wait", Sig(0x02, B(0x1C), B(0x11, 0x05))), "Wait"));
+        // The old ThrowsLoud contract is retired: Wait(object, TimeSpan) now
+        // maps (see MapsToWaitTimespanIcall below). Kept as a tombstone so a
+        // reverted arm fails loudly here instead of silently.
+        var resolved = ResolveMember(Synthesize("Wait", Sig(0x02, B(0x1C), B(0x11, 0x05))), "Wait");
+        Assert.Equal("il2cpp::runtime::il2cpp_monitor_wait_timespan", resolved.CppName);
+    }
 
-        Assert.Contains("System.Threading.Monitor::Wait", ex.Message);
+    //--------------------------------------------------------------------------
+    // parity-T8: timeout forms over the landed runtime overloads (A2).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_TryEnter_ObjectTimeout_MapsToTimeoutIcall()
+    {
+        // static bool TryEnter(object, int timeoutMs)
+        var resolved = ResolveMember(Synthesize("TryEnter", Sig(0x02, B(0x1C), B(0x08))), "TryEnter");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_monitor_try_enter", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_TryEnter_ObjectTimeoutRefBool_MapsToTimeoutFlagIcall()
+    {
+        // static void TryEnter(object, int timeoutMs, ref bool lockTaken) --
+        // the flag ADDRESS passes through (Enter/TryEnter 2-arg precedent).
+        // net48 is VOID (the result rides the flag).
+        var resolved = ResolveMember(Synthesize("TryEnter", Sig(0x02, B(0x1C), B(0x08), B(0x10, 0x02))), "TryEnter");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_monitor_try_enter", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Wait_ObjectTimeSpan_MapsToWaitTimespanIcall()
+    {
+        // static bool Wait(object, TimeSpan) -- the TimeSpan rides raw ticks
+        // ("ts_ticks" cast reads Il2CppTimeSpan.ticks; the runtime converts
+        // with net48 truncation semantics).
+        var resolved = ResolveMember(Synthesize("Wait", Sig(0x02, B(0x1C), B(0x11, 0x05))), "Wait");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_monitor_wait_timespan", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "ts_ticks" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Wait_ObjectIntBool_MapsToWaitExitIcall()
+    {
+        // static bool Wait(object, int timeoutMs, bool exitContext) -- the
+        // exitContext is an observably exact no-op (no sync contexts); the
+        // bool slot rides the int32 carrier ("i").
+        var resolved = ResolveMember(Synthesize("Wait", Sig(0x02, B(0x1C), B(0x08), B(0x02))), "Wait");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_monitor_wait_exit", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]

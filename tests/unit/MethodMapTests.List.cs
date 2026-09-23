@@ -315,7 +315,8 @@ public class MethodMapTestsList
         // A string-shaped parameter (0x0E) is NOT the List`1 definition
         // signature (T always arrives as VAR 0x13) -- LOUD, not mapped.
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x0E)), "Add"));
+            ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x0E)), "Add",
+                receiverType: "System.Collections.Generic.List`1_int"));
 
         Assert.Contains("System.Collections.Generic.List`1::Add", ex.Message);
     }

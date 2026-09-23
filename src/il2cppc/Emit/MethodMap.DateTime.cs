@@ -47,6 +47,14 @@ public static partial class MethodRefResolver
                 if (ps.Length == 7)
                     return I("il2cpp::runtime::icall_datetime_from_ymdhms_ms", 7, false, false, true,
                         null, "dt", resultIsReceiver: true);
+                // dtprov1: ctor(y,m,d,h,mi,s,ms,DateTimeKind) -- the 8-arg
+                // millisecond+kind form (trailing 0x11 VALUETYPE enum, the
+                // 7-arg kind precedent above). ms composes onto the second
+                // boundary (0..999 validated); the kind is STORED (0..2
+                // validated) -- the mechanical union of the two 7-arg arms.
+                if (ps.Length == 8 && ps[7] == 0x11)
+                    return I("il2cpp::runtime::icall_datetime_from_ymdhms_ms_kind", 8, false, false, true,
+                        null, "dt", resultIsReceiver: true);
                 throw new NotSupportedException($"DateTime ctor with {ps.Length} arg(s) not wired in M5 (the runtime has from_ticks/from_ymd/from_ymdhms only)");
             case "get_UtcNow":
                 return I("il2cpp::runtime::icall_datetime_utc_now", 0, true, false, false, null, "dt");
@@ -158,13 +166,18 @@ public static partial class MethodRefResolver
                     // default, unknown -> invariant fallback.
                     return I("il2cpp::runtime::icall_datetime_to_string_format", 2, true, true, true,
                         new[] { "deref:dt", "", "drop" }, providerCulture: true);
+                if (ps.Length == 1 && ps[0] == 0x12)
+                    // ToString(IFormatProvider): provider-only (the single
+                    // arg is a CLASS -- the interface marker). The runtime
+                    // ABI takes (dt, format, provider); the ArgOrder
+                    // [0,-1,1] places the provider in the TRAILING slot with
+                    // a null-format literal (-1, General "G" in the selected
+                    // culture), so the provider never lands in the format
+                    // slot. The DateTimeOffset B4 (dtoprobe) precedent.
+                    return I("il2cpp::runtime::icall_datetime_to_string_format", 1, true, true, true,
+                        new[] { "deref:dt", "", "drop" }, providerCulture: true, argOrder: new[] { 0, -1, 1 });
                 if (ps.Length == 1)
-                    // ToString(IFormatProvider): provider-only. The runtime
-                    // ABI needs the provider in the TRAILING slot with a null
-                    // format; appendLiterals can only append AFTER the
-                    // argument list, so the emitter would place the provider
-                    // in the format slot. LOUD until an emitter reorder exists.
-                    throw new NotSupportedException("DateTime.ToString(IFormatProvider) not wired: the provider-only overload needs the provider in the trailing icall slot with a null format; use ToString()/ToString(format)/ToString(format, provider)");
+                    throw new NotSupportedException($"DateTime.ToString with single {ps[0]:X2} arg not wired in M5");
                 throw new NotSupportedException($"DateTime.ToString with {ps.Length} arg(s) not wired in M5");
             // P6: DateTime internal methods (stubs).
             case "GetSystemTimeAsFileTime": return I("il2cpp::runtime::icall_datetime_get_system_time_as_file_time", 0, true, false, false, null, "l");

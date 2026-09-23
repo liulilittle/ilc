@@ -652,6 +652,54 @@ int main()
         il2cpp_monitor_exit(&obj);
     }
 
+    // --- 24. wait TimeSpan / exitContext variants (parity-T8) ---
+    // Deterministic (0-ms polls, no sleeps): ticks/10000 truncation,
+    // InfiniteTimeSpan mapping, AORE bounds, exitContext no-op.
+    {
+        Il2CppObject obj{};
+        // 0 ticks -> 0 ms poll on an owned monitor: false, ownership kept.
+        il2cpp_monitor_enter(&obj);
+        Expect(!il2cpp_monitor_wait_timespan(&obj, 0),
+               "wait_timespan(obj, 0 ticks) polls once: false without a pulse");
+        Expect(il2cpp_monitor_try_enter(&obj),
+               "wait_timespan(0) restored ownership (reentrant try_enter)");
+        il2cpp_monitor_exit(&obj);
+        il2cpp_monitor_exit(&obj);
+        // Ticks-to-ms truncation is pinned through the AORE boundaries
+        // (-20000 ticks = -2 ms; INT64_MAX ticks saturates the upper bound).
+        // InfiniteTimeSpan (-10000 ticks -> exactly -1) shares the 1-arg
+        // infinite path, which §21 already covers end-to-end.
+        Expect(ThrowsDotNetPrefix([&]() { il2cpp_monitor_wait_timespan(&obj, -20000); },
+                                  "System.ArgumentOutOfRangeException"),
+               "wait_timespan(obj, -20000 ticks = -2 ms) throws ArgumentOutOfRangeException");
+        // > INT32_MAX ms: 9223372036854775807 ticks saturates the bound.
+        Expect(ThrowsDotNetPrefix([&]() { il2cpp_monitor_wait_timespan(&obj, INT64_MAX); },
+                                  "System.ArgumentOutOfRangeException"),
+               "wait_timespan(obj, INT64_MAX ticks) throws ArgumentOutOfRangeException");
+        // Conversion precedes validation: overflow fires before the null check.
+        Expect(ThrowsDotNetPrefix([&]() { il2cpp_monitor_wait_timespan(nullptr, INT64_MAX); },
+                                  "System.ArgumentOutOfRangeException"),
+               "wait_timespan(null, overflow ticks) throws AORE before ArgumentNullException");
+        Expect(ThrowsDotNetPrefix([&]() { il2cpp_monitor_wait_timespan(nullptr, 0); },
+                                  kArgNull),
+               "wait_timespan(null, 0) throws ArgumentNullException (null beats the legal range)");
+        // exitContext is an exact no-op: same 0-ms poll contract either way.
+        il2cpp_monitor_enter(&obj);
+        Expect(!il2cpp_monitor_wait_exit(&obj, 0, 0),
+               "wait_exit(obj, 0, false) polls once: false without a pulse");
+        Expect(!il2cpp_monitor_wait_exit(&obj, 0, 1),
+               "wait_exit(obj, 0, true) is identical: exitContext is a no-op");
+        Expect(il2cpp_monitor_try_enter(&obj),
+               "wait_exit restored ownership (reentrant try_enter)");
+        il2cpp_monitor_exit(&obj);
+        il2cpp_monitor_exit(&obj);
+        Expect(ThrowsDotNetPrefix([&]() { il2cpp_monitor_wait_exit(&obj, -2, 1); },
+                                  "System.ArgumentOutOfRangeException"),
+               "wait_exit(obj, -2, true) throws AORE (same validation as Wait(object, int))");
+        Expect(ThrowsDotNetPrefix([&]() { il2cpp_monitor_wait_exit(nullptr, 0, 0); }, kArgNull),
+               "wait_exit(null, 0, false) throws ArgumentNullException");
+    }
+
     if (g_failures == 0)
     {
         std::printf("all runtime monitor tests passed\n");

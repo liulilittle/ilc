@@ -21,9 +21,9 @@ using Xunit;
 //     String) -- result kinds and ref-ness
 //   * LOUD rejection of close-but-wrong mappings (Write(byte) must NOT route
 //     through write_int32; ReadByte must NOT route through read_bool)
-//   * LOUD rejection of the unwired surface (char/array writes, BaseStream,
-//     the Stream-taking ctor) and the generated-name fallback for
-//     out-of-scope members (Read7BitEncodedInt)
+//   * LOUD rejection of the unwired surface (narrow writes other than char,
+//     untracked-element array writes, BaseStream) and the generated-name
+//     fallback for out-of-scope members (Read7BitEncodedInt)
 //
 // The PEs are synthesized with System.Reflection.Metadata's own writer
 // (MetadataBuilder + ManagedPEBuilder): a real ECMA-335 assembly whose only
@@ -113,7 +113,6 @@ public class MethodMapBinaryIOTests
     [InlineData(0x05)] // byte
     [InlineData(0x06)] // short
     [InlineData(0x07)] // ushort
-    [InlineData(0x03)] // char
     [InlineData(0x0B)] // ulong
     public void Resolve_BinaryWriter_WriteNarrowPrimitive_ThrowsLoud(byte paramByte)
     {
@@ -124,15 +123,13 @@ public class MethodMapBinaryIOTests
     }
 
     [Fact]
-    public void Resolve_BinaryWriter_WriteCharArray_ThrowsLoud()
+    public void Resolve_BinaryWriter_WriteChar_MapsToWriteCharIcall()
     {
-        // char[] = 0x1D SZARRAY whose element byte (0x03) is consumed by the
-        // signature decoder; RawSignature sees 0x1D.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "BinaryWriter", "Write",
-                new byte[] { 0x00, 0x01, 0x01, 0x1D, 0x03 }), "Write"));
+        // T4b: char rides the int32 carrier ("i") into write_char.
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryWriter", "Write", Sig(0x01, 0x03)), "Write");
 
-        Assert.Contains("System.IO.BinaryWriter::Write", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_binary_write_char", resolved.CppName);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

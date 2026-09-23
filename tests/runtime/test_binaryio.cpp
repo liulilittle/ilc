@@ -218,6 +218,8 @@ const char kNullRefChain[] =
     "System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception";
 const char kNotSupportedChain[] =
     "System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception";
+const char kArgOutOfRangeChain[] =
+    "System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception";
 
 // Allocate fresh objects through the runtime descriptors (the same shape
 // generated newobj emits -- the ctor icall then arms the handle).
@@ -922,6 +924,181 @@ int main()
         Expect(icall_stream_memory_to_array(cms) == nullptr,
                "the wrapped MemoryStream is closed after the BinaryWriter closed it");
         Expect(icall_stream_close(cms) == 0, "MemoryStream double-close is a no-op");
+    }
+
+    // T4a fixed narrow/ulong widths (parity): byte-exact LE layout +
+    // round-trips through the OBJECT wrappers. byte/sbyte = 1 byte,
+    // int16/uint16 = 2 bytes LE, uint64 = 8 bytes LE; sbyte/int16
+    // sign-extend, ushort zero-extends. Total fixture: 1+1+2+2+8 = 14 bytes.
+    {
+        Il2CppObject* wms = NewMemoryStream();
+        icall_stream_memory_ctor(wms);
+        Il2CppObject* ww = NewBinaryWriter();
+        icall_binary_writer_ctor(ww, wms);
+        icall_binary_write_byte(ww, 0xAB);
+        icall_binary_write_sbyte(ww, -2);
+        icall_binary_write_int16(ww, 0x0102);
+        icall_binary_write_uint16(ww, 0xFEFF);
+        icall_binary_write_uint64(ww, 0x0102030405060708ULL);
+        Expect(icall_stream_get_length(wms) == 14, "narrow/ulong writes occupy 1+1+2+2+8 = 14 bytes");
+        il2cpp::Il2CppArray* wbytes = icall_stream_memory_to_array(wms);
+        il2cpp::Il2CppArray* warr = reinterpret_cast<il2cpp::Il2CppArray*>(wbytes);
+        Expect(WByte(warr, 0) == 0xAB, "Write(byte) emits the single raw byte");
+        Expect(WByte(warr, 1) == 0xFE, "Write(sbyte -2) emits 0xFE (low byte only, never a 4-byte int32)");
+        Expect(WByte(warr, 2) == 0x02 && WByte(warr, 3) == 0x01,
+               "Write(int16 0x0102) little-endian (02 01)");
+        Expect(WByte(warr, 4) == 0xFF && WByte(warr, 5) == 0xFE,
+               "Write(uint16 0xFEFF) little-endian (FF FE)");
+        Expect(WByte(warr, 6) == 0x08 && WByte(warr, 13) == 0x01,
+               "Write(uint64) little-endian (08 .. 01)");
+        Expect(icall_stream_set_position(wms, 0) == 0, "narrow/ulong fixture rewinds");
+        Il2CppObject* rr = NewBinaryReader();
+        icall_binary_reader_ctor(rr, wms);
+        Expect(icall_binary_read_byte(rr) == 0xAB, "ReadByte still raw (0xAB)");
+        Expect(icall_binary_read_sbyte(rr) == -2, "ReadSByte sign-extends (0xFE -> -2)");
+        Expect(icall_binary_read_int16(rr) == 0x0102, "ReadInt16 round-trips");
+        Expect(icall_binary_read_uint16(rr) == 0xFEFF, "ReadUInt16 zero-extends (0xFEFF)");
+        Expect(icall_binary_read_uint64(rr) == 0x0102030405060708ULL, "ReadUInt64 round-trips");
+        Expect(icall_stream_close(rr) == 0, "narrow/ulong reader Close");
+        Expect(icall_stream_close(wms) == 0, "narrow/ulong stream Close (no-op)");
+    }
+
+    // --- 18c. T4b decimal / array / char / ReadChar (parity) ---
+    // Decimal emits GetBits order (lo, mid, hi, flags -- 16 bytes LE);
+    // byte[] writes RAW bytes; char/char[] encode UTF-8 (pairing within the
+    // written range); ReadChar decodes one scalar (astral splits across two
+    // calls, malformed -> U+FFFD, EOF -> 0).
+    {
+        Il2CppObject* dms = NewMemoryStream();
+        icall_stream_memory_ctor(dms);
+        Il2CppObject* dw = NewBinaryWriter();
+        icall_binary_writer_ctor(dw, dms);
+        // 1.50m: mantissa 150, scale 2 -> flags 0x00020000.
+        Il2CppDecimal onefifty;
+        onefifty.flags = 0x00020000;
+        onefifty.hi32 = 0;
+        onefifty.lo64 = 150;
+        icall_binary_write_decimal(dw, &onefifty);
+        // -2m: flags sign bit, mantissa 2.
+        Il2CppDecimal negtwo;
+        negtwo.flags = static_cast<int32_t>(0x80000000);
+        negtwo.hi32 = 0;
+        negtwo.lo64 = 2;
+        icall_binary_write_decimal(dw, &negtwo);
+        Expect(icall_stream_get_length(dms) == 32, "two decimal writes occupy 16 bytes each");
+        il2cpp::Il2CppArray* dbytes = icall_stream_memory_to_array(dms);
+        il2cpp::Il2CppArray* darr = reinterpret_cast<il2cpp::Il2CppArray*>(dbytes);
+        Expect(WByte(darr, 0) == 0x96 && WByte(darr, 1) == 0x00 && WByte(darr, 2) == 0x00 && WByte(darr, 3) == 0x00,
+               "decimal lo 150 little-endian (96 00 00 00)");
+        Expect(WByte(darr, 12) == 0x00 && WByte(darr, 13) == 0x00 && WByte(darr, 14) == 0x02 && WByte(darr, 15) == 0x00,
+               "decimal flags scale 2 little-endian (00 00 02 00)");
+        Expect(WByte(darr, 16) == 0x02 && WByte(darr, 28) == 0x00 && WByte(darr, 31) == 0x80,
+               "second decimal lo=2 with sign-bit flags (02 .. 00 00 00 80)");
+        Expect(icall_stream_set_position(dms, 0) == 0, "decimal fixture rewinds");
+        Il2CppObject* dr = NewBinaryReader();
+        icall_binary_reader_ctor(dr, dms);
+        Il2CppDecimal back150;
+        icall_binary_read_decimal(dr, &back150);
+        Expect(back150.flags == 0x00020000 && back150.hi32 == 0 && back150.lo64 == 150,
+               "ReadDecimal round-trips 1.50m (flags/hi/lo)");
+        Il2CppDecimal backneg;
+        icall_binary_read_decimal(dr, &backneg);
+        Expect(backneg.flags == static_cast<int32_t>(0x80000000) && backneg.hi32 == 0 && backneg.lo64 == 2,
+               "ReadDecimal round-trips -2m (sign bit preserved)");
+        Expect(ThrowsDotNet([&] { icall_binary_write_decimal(dw, nullptr); }, kArgNullExceptionChain),
+               "Write(decimal null slot) throws ArgumentNullException");
+        Expect(icall_stream_close(dr) == 0, "decimal reader Close");
+        Expect(icall_stream_close(dms) == 0, "decimal stream Close (no-op)");
+    }
+    // Truncated decimal read -> the zero decimal (M3 zero-value convention).
+    {
+        Il2CppObject* tms = NewMemoryStream();
+        icall_stream_memory_ctor(tms);
+        Il2CppObject* tw = NewBinaryWriter();
+        icall_binary_writer_ctor(tw, tms);
+        icall_binary_write_byte(tw, 0xAA);
+        icall_binary_write_byte(tw, 0xBB);
+        icall_binary_write_byte(tw, 0xCC);
+        Expect(icall_stream_set_position(tms, 0) == 0, "truncated decimal fixture rewinds");
+        Il2CppObject* tr = NewBinaryReader();
+        icall_binary_reader_ctor(tr, tms);
+        Il2CppDecimal zero;
+        zero.flags = 1;
+        zero.hi32 = 1;
+        zero.lo64 = 1;
+        icall_binary_read_decimal(tr, &zero);
+        Expect(zero.flags == 0 && zero.hi32 == 0 && zero.lo64 == 0,
+               "ReadDecimal on a 3-byte stream yields the zero decimal");
+        Expect(icall_stream_close(tr) == 0, "truncated decimal reader Close");
+        Expect(icall_stream_close(tms) == 0, "truncated decimal stream Close (no-op)");
+    }
+    // byte[] / char[] / char writes + ReadChar round-trips.
+    {
+        Il2CppObject* ams = NewMemoryStream();
+        icall_stream_memory_ctor(ams);
+        Il2CppObject* aw = NewBinaryWriter();
+        icall_binary_writer_ctor(aw, ams);
+        Il2CppArray* bytes = il2cpp::il2cpp_array_new(nullptr, 1, false, 4);
+        uint8_t* bp = reinterpret_cast<uint8_t*>(bytes->data);
+        bp[0] = 0xDE; bp[1] = 0xAD; bp[2] = 0xBE; bp[3] = 0xEF;
+        icall_binary_write_bytes_full(aw, bytes);
+        icall_binary_write_bytes(aw, bytes, 1, 2); // AD BE subrange
+        Expect(icall_stream_get_length(ams) == 6, "byte[] full (4) + range (2) occupy 6 raw bytes");
+        il2cpp::Il2CppArray* abytes = icall_stream_memory_to_array(ams);
+        il2cpp::Il2CppArray* aarr = reinterpret_cast<il2cpp::Il2CppArray*>(abytes);
+        Expect(WByte(aarr, 0) == 0xDE && WByte(aarr, 3) == 0xEF && WByte(aarr, 4) == 0xAD && WByte(aarr, 5) == 0xBE,
+               "byte[] writes are raw copies (no length prefix)");
+        Expect(ThrowsDotNet([&] { icall_binary_write_bytes_full(aw, nullptr); }, kArgNullExceptionChain),
+               "Write(byte[] null) throws ArgumentNullException");
+        Expect(ThrowsDotNet([&] { icall_binary_write_bytes(aw, bytes, -1, 2); }, kArgOutOfRangeChain),
+               "Write(byte[], -1, 2) throws ArgumentOutOfRangeException");
+        Expect(ThrowsDotNet([&] { icall_binary_write_bytes(aw, bytes, 3, 2); }, kArgOutOfRangeChain),
+               "Write(byte[], 3, 2) throws ArgumentOutOfRangeException");
+        // chars: 'h' 'i' + astral pair U+1F600 + lone D800.
+        Il2CppArray* chars = il2cpp::il2cpp_array_new(nullptr, 2, false, 5);
+        char16_t* cp = reinterpret_cast<char16_t*>(chars->data);
+        cp[0] = u'h'; cp[1] = u'i'; cp[2] = 0xD83D; cp[3] = 0xDE00; cp[4] = 0xD800;
+        icall_binary_write_chars_full(aw, chars);   // hi + F0 9F 98 80 + EF BF BD
+        icall_binary_write_chars(aw, chars, 0, 1);  // 'h' subrange
+        icall_binary_write_char(aw, 0x4E2D);        // E4 B8 AD
+        icall_binary_write_char(aw, 0xD800);        // lone surrogate -> EF BF BD
+        Expect(icall_stream_get_length(ams) == 6 + 2 + 4 + 3 + 1 + 3 + 3,
+               "char writes occupy hi(2) + astral(4) + lone(3) + h(1) + BMP(3) + lone(3)");
+        Expect(icall_stream_set_position(ams, 6) == 0, "char fixture rewinds past the byte[] record");
+        Il2CppObject* ar = NewBinaryReader();
+        icall_binary_reader_ctor(ar, ams);
+        Expect(icall_binary_read_char(ar) == u'h', "ReadChar 'h' round-trips");
+        Expect(icall_binary_read_char(ar) == u'i', "ReadChar 'i' round-trips");
+        Expect(icall_binary_read_char(ar) == 0xD83D, "ReadChar astral returns the HIGH surrogate first");
+        Expect(icall_binary_read_char(ar) == 0xDE00, "ReadChar astral returns the stashed LOW surrogate next");
+        Expect(icall_binary_read_char(ar) == 0xFFFD, "ReadChar lone surrogate decodes as U+FFFD");
+        Expect(icall_binary_read_char(ar) == u'h', "ReadChar subrange 'h' round-trips");
+        Expect(icall_binary_read_char(ar) == 0x4E2D, "ReadChar BMP round-trips");
+        Expect(icall_binary_read_char(ar) == 0xFFFD, "ReadChar single-lone-surrogate write decodes as U+FFFD");
+        Expect(icall_binary_read_char(ar) == 0, "ReadChar at EOF returns 0");
+        Expect(ThrowsDotNet([&] { icall_binary_write_chars_full(aw, nullptr); }, kArgNullExceptionChain),
+               "Write(char[] null) throws ArgumentNullException");
+        Expect(ThrowsDotNet([&] { icall_binary_write_chars(aw, chars, 4, 2); }, kArgOutOfRangeChain),
+               "Write(chars, 4, 2) throws ArgumentOutOfRangeException");
+        Expect(icall_stream_close(ar) == 0, "char reader Close");
+        Expect(icall_stream_close(ams) == 0, "char stream Close (no-op)");
+    }
+    // ReadChar malformed input: C3 28 -> U+FFFD consuming only the lead,
+    // so the next ReadChar observes '('.
+    {
+        Il2CppObject* mms = NewMemoryStream();
+        icall_stream_memory_ctor(mms);
+        Il2CppObject* mw = NewBinaryWriter();
+        icall_binary_writer_ctor(mw, mms);
+        icall_binary_write_byte(mw, 0xC3);
+        icall_binary_write_byte(mw, 0x28);
+        Expect(icall_stream_set_position(mms, 0) == 0, "malformed fixture rewinds");
+        Il2CppObject* mr = NewBinaryReader();
+        icall_binary_reader_ctor(mr, mms);
+        Expect(icall_binary_read_char(mr) == 0xFFFD, "ReadChar malformed lead decodes as U+FFFD");
+        Expect(icall_binary_read_char(mr) == 0x28, "ReadChar after malformed lead observes the unconsumed byte");
+        Expect(icall_stream_close(mr) == 0, "malformed reader Close");
+        Expect(icall_stream_close(mms) == 0, "malformed stream Close (no-op)");
     }
 
     // --- Report ---

@@ -19,6 +19,10 @@ namespace Il2Cpp.Transpiler.Emit;
 // tracked System.Int32[] loads with ldelem.i4. instName is AUTHORITATIVE
 // (the List/Dictionary/HashSet precedent); a null tag keeps the historical
 // non-generic mapping.
+// A4 虚派发: GetEnumerator 为全实例化通用臂 (token 统一计算); get_Current 未知
+// token 落 object 共享臂. int/long/double 的 Enqueue/Dequeue/Peek/Contains/
+// ToArray/get_Current 快路径为机械派生 (box->共享->unbox, queueint_obj.cpp),
+// 因 ABI 不同 + 无泛型 box 发射而保留, 逐条见回程特例化审计.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -26,6 +30,15 @@ public static partial class MethodRefResolver
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null)
     {
         var instTag = instName ?? receiverType;
+        // Null-tag deferral (RISK5 R4) applies to GENERIC instantiations
+        // only: a null tag on the explicit non-generic owner keeps the
+        // historical mapping -- newobj .ctor resolution carries no
+        // receiver/instName by construction (StackFold.EmitNewObj resolves
+        // for ParamCount only, CodeGenerator.ResolveByToken resolves with a
+        // null hint), so deferring it emits an undefined
+        // System_Collections_Queue__ctor_* symbol (613 mingw regression).
+        var nonGeneric = owner is "System.Collections.Queue" || instTag is "System.Collections.Queue";
+        if (instTag is null && !nonGeneric) return null;
         var intReceiver = instTag is "System.Collections.Generic.Queue`1_int";
         // T2 W4: typed value elements ride box/unbox forwarders (queueint_obj).
         var longReceiver = instTag is "System.Collections.Generic.Queue`1_long";
@@ -37,7 +50,6 @@ public static partial class MethodRefResolver
             or "System.Collections.Generic.Queue`1_object"
             or "System.Collections.Generic.Queue`1_class"
             || IsQueueDottedRefTag(instTag);
-        var nonGeneric = instTag is null or "System.Collections.Queue";
 
         switch (name)
         {
@@ -116,22 +128,15 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::il2cpp_queue_to_array", 0, true, true, true)
                     : null;
             case "GetEnumerator":
-                if (intReceiver)
-                    return I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
-                        returnTypeName: "System.Collections.Generic.Queue`1.Enumerator_int");
-                if (longReceiver)
-                    return I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
-                        returnTypeName: "System.Collections.Generic.Queue`1.Enumerator_long");
-                if (doubleReceiver)
-                    return I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
-                        returnTypeName: "System.Collections.Generic.Queue`1.Enumerator_double");
-                return refReceiver
-                        ? I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
-                            returnTypeName: QueueEnumeratorTrackedType(instTag))
-                        : nonGeneric
-                            ? I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
-                                returnTypeName: "System.Collections.Queue.Enumerator")
-                            : null;
+                // A4 虚派发: 全实例化单一通用臂 -- 同一快照 icall, token 由统一函数
+                // 机械计算, 消灭按 int/long/double/string/object/class/dotted 分臂
+                // (泛型禁重复特例化铁律). 未知值型实例化 token 为 null -> LOUD
+                // (无泛型 box 发射, 不得误走 object 臂).
+                var enumToken = QueueEnumeratorTrackedType(instTag);
+                return enumToken == null
+                    ? null
+                    : I("il2cpp::il2cpp_queue_get_enumerator", 0, true, true, true, new[] { "" },
+                        returnTypeName: enumToken);
             default: return null;
         }
     }
@@ -175,6 +180,9 @@ public static partial class MethodRefResolver
 
     private static string? QueueEnumeratorTrackedType(string? instTag) => instTag switch
     {
+        // A4 虚派发: 非泛型 + 全已知实例化 token 统一计算 (通用臂唯一 token 源).
+        null or "System.Collections.Queue" => "System.Collections.Queue.Enumerator",
+        "System.Collections.Generic.Queue`1_int" => "System.Collections.Generic.Queue`1.Enumerator_int",
         "System.Collections.Generic.Queue`1_string" => "System.Collections.Generic.Queue`1.Enumerator_string",
         "System.Collections.Generic.Queue`1_object" => "System.Collections.Generic.Queue`1.Enumerator_object",
         "System.Collections.Generic.Queue`1_class" => "System.Collections.Generic.Queue`1.Enumerator_class",
@@ -216,6 +224,9 @@ public static partial class MethodRefResolver
                     : null;
             case "get_Current":
                 if (count != 0) return null;
+                // 值型快路径 (机械派生, 见审计): 快照共享, 仅拆箱按 kind 分.
+                if (receiverType == "System.Collections.Generic.Queue`1.Enumerator_int")
+                    return I("il2cpp::runtime::icall_queue_int_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
                 if (receiverType == "System.Collections.Generic.Queue`1.Enumerator_long")
                     return I("il2cpp::runtime::icall_queue_long_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
                 if (receiverType == "System.Collections.Generic.Queue`1.Enumerator_double")
@@ -235,7 +246,9 @@ public static partial class MethodRefResolver
                 return QueueElemTypeName(receiverType) is { } refElem
                     ? I("il2cpp::il2cpp_queue_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
                         returnTypeName: refElem)
-                    : I("il2cpp::runtime::icall_queue_int_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
+                    // 铁律: 无约束/未知 token 落 object 共享臂 (禁静默 int 回退).
+                    : I("il2cpp::il2cpp_queue_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
+                        returnTypeName: "System.Object");
             case "Reset":
                 return count == 0
                     ? I("il2cpp::il2cpp_queue_enumerator_reset", 0, false, false, true, new[] { "deref:r" })

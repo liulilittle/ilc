@@ -75,6 +75,23 @@ int32_t icall_convert_to_int32_i8(int64_t value);
 // -2147483648.5 -> int32.MinValue. NaN / +-Infinity -> OverflowException.
 int32_t icall_convert_to_int32_d(double value);
 
+// Convert.ToInt64/ToUInt32/ToUInt64/ToByte/ToSByte/ToUInt16/ToInt16(double):
+// same contract as ToInt32(double) -- round half-to-even FIRST (NOT the
+// conv.ovf truncation), then range-check the ROUNDED value against the
+// destination: int64 [-2^63, 2^63), uint32 [0, 2^32), uint64 [0, 2^64),
+// byte [0, 256), sbyte [-128, 128), ushort [0, 65536), short [-32768, 32768).
+// NaN / +-Infinity -> OverflowException; unsigned targets also throw for ANY
+// negative input (even fractions rounding to -0.0), -0.0 itself yields 0.
+// Narrow widths ride int32 carriers
+// (M2 slot model); float sources widen to double at the call site.
+int64_t icall_convert_to_int64_d(double value);
+uint32_t icall_convert_to_uint32_d(double value);
+uint64_t icall_convert_to_uint64_d(double value);
+int32_t icall_convert_to_byte_d(double value);
+int32_t icall_convert_to_sbyte_d(double value);
+int32_t icall_convert_to_uint16_d(double value);
+int32_t icall_convert_to_int16_d(double value);
+
 // Convert.ToDouble(int32): exact widening, never throws.
 double icall_convert_to_double_i4(int32_t value);
 

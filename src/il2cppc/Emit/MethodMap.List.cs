@@ -46,7 +46,10 @@ public static partial class MethodRefResolver
         // take the int32 arm); otherwise the tracked receiver name decides.
         // A null tag keeps the historical int32 mapping.
         var instTag = instName ?? receiverType;
-        var i4Receiver = instTag is null or "System.Collections.Generic.List`1_int";
+        // RISK5 R1: a null tag DEFERS (the fold re-resolves with the tracked
+        // receiver) instead of silently taking the int32 arm.
+        if (instTag is null) return null;
+        var i4Receiver = instTag is "System.Collections.Generic.List`1_int";
         // Reference-element instantiations ride the listobj reference domain
         // (listobj.h). The TypeSpec decoder names the element by its metadata
         // form: CLASS (0x12) -> "_class", STRING (0x0E) -> "_string",

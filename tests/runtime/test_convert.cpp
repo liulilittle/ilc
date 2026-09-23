@@ -115,6 +115,13 @@ void ExpectConvertThrows(const char* what, const char* typeTag, void (*fn)())
 int32_t NoThrowToInt32String(il2cpp::Il2CppString* s) { return il2cpp::runtime::icall_convert_to_int32_string(s); }
 int32_t NoThrowToInt32I8(int64_t v) { return il2cpp::runtime::icall_convert_to_int32_i8(v); }
 int32_t NoThrowToInt32D(double v) { return il2cpp::runtime::icall_convert_to_int32_d(v); }
+int64_t NoThrowToInt64D(double v) { return il2cpp::runtime::icall_convert_to_int64_d(v); }
+uint32_t NoThrowToUInt32D(double v) { return il2cpp::runtime::icall_convert_to_uint32_d(v); }
+uint64_t NoThrowToUInt64D(double v) { return il2cpp::runtime::icall_convert_to_uint64_d(v); }
+int32_t NoThrowToByteD(double v) { return il2cpp::runtime::icall_convert_to_byte_d(v); }
+int32_t NoThrowToSByteD(double v) { return il2cpp::runtime::icall_convert_to_sbyte_d(v); }
+int32_t NoThrowToUInt16D(double v) { return il2cpp::runtime::icall_convert_to_uint16_d(v); }
+int32_t NoThrowToInt16D(double v) { return il2cpp::runtime::icall_convert_to_int16_d(v); }
 double NoThrowToDoubleString(il2cpp::Il2CppString* s) { return il2cpp::runtime::icall_convert_to_double_string(s); }
 int64_t NoThrowToInt64String(il2cpp::Il2CppString* s) { return il2cpp::runtime::icall_convert_to_int64_string(s); }
 int32_t NoThrowToCharI4(int32_t v) { return il2cpp::runtime::icall_convert_to_char_i4(v); }
@@ -207,6 +214,76 @@ int main()
     ExpectConvertThrows("to_int32_d(-2147483649.0) throws OverflowException",
                         "System.OverflowException",
                         [] { (void)NoThrowToInt32D(-2147483649.0); });
+
+    // --- 3b. Convert.ToInt64/ToUInt32/ToUInt64/ToByte/ToSByte/ToUInt16/
+    // ToInt16(double): same half-to-even-first contract (parity-T1). ---
+    Expect(il2cpp::runtime::icall_convert_to_int64_d(2.5) == 2LL, "to_int64_d(2.5) == 2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_int64_d(3.5) == 4LL, "to_int64_d(3.5) == 4 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_int64_d(-2.5) == -2LL, "to_int64_d(-2.5) == -2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_int64_d(-9223372036854775808.0) == INT64_MIN,
+           "to_int64_d(-2^63) == INT64_MIN (legal boundary)");
+    Expect(il2cpp::runtime::icall_convert_to_int64_d(9223372036854774784.0) == 9223372036854774784LL,
+           "to_int64_d(2^63-1024) legal (largest double below 2^63)");
+    ExpectConvertThrows("to_int64_d(NaN) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToInt64D(std::nan("")); });
+    ExpectConvertThrows("to_int64_d(2^63) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToInt64D(9223372036854775807.0); });
+    ExpectConvertThrows("to_int64_d(-2^63-2048) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToInt64D(-9223372036854777856.0); });
+    Expect(il2cpp::runtime::icall_convert_to_uint32_d(2.5) == 2U, "to_uint32_d(2.5) == 2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_uint32_d(3.5) == 4U, "to_uint32_d(3.5) == 4 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_uint32_d(4294967295.0) == UINT32_MAX,
+           "to_uint32_d(2^32-1) == UINT32_MAX (legal boundary)");
+    Expect(il2cpp::runtime::icall_convert_to_uint32_d(-0.0) == 0U, "to_uint32_d(-0.0) == 0 (negative zero passes)");
+    ExpectConvertThrows("to_uint32_d(-0.4) throws OverflowException (any negative throws for unsigned targets)",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToUInt32D(-0.4); });
+    ExpectConvertThrows("to_uint32_d(4294967295.5) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToUInt32D(4294967295.5); });
+    ExpectConvertThrows("to_uint32_d(-1.0) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToUInt32D(-1.0); });
+    Expect(il2cpp::runtime::icall_convert_to_uint64_d(2.5) == 2ULL, "to_uint64_d(2.5) == 2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_uint64_d(18446744073709549568.0) == 18446744073709549568ULL,
+           "to_uint64_d(2^64-2048) legal (largest double below 2^64)");
+    ExpectConvertThrows("to_uint64_d(2^64-1-as-double) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToUInt64D(18446744073709551615.0); });
+    ExpectConvertThrows("to_uint64_d(-0.5) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToUInt64D(-0.5); });
+    Expect(il2cpp::runtime::icall_convert_to_byte_d(2.5) == 2, "to_byte_d(2.5) == 2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_byte_d(3.5) == 4, "to_byte_d(3.5) == 4 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_byte_d(255.0) == 255, "to_byte_d(255) == 255 (legal boundary)");
+    ExpectConvertThrows("to_byte_d(255.5) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToByteD(255.5); });
+    ExpectConvertThrows("to_byte_d(-0.5) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToByteD(-0.5); });
+    Expect(il2cpp::runtime::icall_convert_to_sbyte_d(2.5) == 2, "to_sbyte_d(2.5) == 2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_sbyte_d(-128.0) == -128, "to_sbyte_d(-128) == -128 (legal boundary)");
+    Expect(il2cpp::runtime::icall_convert_to_sbyte_d(-128.5) == -128,
+           "to_sbyte_d(-128.5) == -128 (half-to-even at the min boundary)");
+    ExpectConvertThrows("to_sbyte_d(127.5) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToSByteD(127.5); });
+    Expect(il2cpp::runtime::icall_convert_to_uint16_d(1.5) == 2, "to_uint16_d(1.5) == 2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_uint16_d(65535.0) == 65535,
+           "to_uint16_d(65535) == 65535 (legal boundary)");
+    ExpectConvertThrows("to_uint16_d(65535.5) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToUInt16D(65535.5); });
+    Expect(il2cpp::runtime::icall_convert_to_int16_d(2.5) == 2, "to_int16_d(2.5) == 2 (half-to-even)");
+    Expect(il2cpp::runtime::icall_convert_to_int16_d(-32768.0) == -32768,
+           "to_int16_d(-32768) == -32768 (legal boundary)");
+    ExpectConvertThrows("to_int16_d(32767.5) throws OverflowException",
+                        "System.OverflowException",
+                        [] { (void)NoThrowToInt16D(32767.5); });
 
     // --- 4. Convert.ToDouble(int32): exact widening. ---
     Expect(il2cpp::runtime::icall_convert_to_double_i4(0) == 0.0, "to_double_i4(0) == 0.0");

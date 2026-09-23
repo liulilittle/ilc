@@ -102,11 +102,14 @@ public static partial class MethodRefResolver
                                 // (values >= 2^63 throw); the ovf form tests
                                 // exactly that on the raw slot pattern.
                                 0x0B => I("il2cpp::runtime::icall_conv_ovf_i8_u8", 1, true, false, false, new[] { "q" }, "l"),
-                                // NEEDS-NEW: net48 rounds double/float half-to-even
-                                // then checks the int64 range; the only existing
-                                // double->i8 helpers TRUNCATE (conv family), which
-                                // silently differs (3.5). See edit_convert.md.
-                                _ => throw new NotSupportedException($"Convert.ToInt64 param type 0x{ps[0]:X2} not wired (double/float need a rounding icall_convert_to_int64_d; decimal/string+provider on the needs-new list)"),
+                                // T1 parity: net48 rounds double/float half-to-even
+                                // then checks the int64 range (the landed
+                                // icall_convert_to_int64_d; the conv-family
+                                // helpers truncate, which silently differs).
+                                // Float rides the double slot ("d" widening,
+                                // the ToInt32 0x0C precedent).
+                                0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_int64_d", 1, true, false, false, new[] { "d" }, "l"),
+                                _ => throw new NotSupportedException($"Convert.ToInt64 param type 0x{ps[0]:X2} not wired (decimal/string+provider on the needs-new list)"),
                             };
                         throw new NotSupportedException($"Convert.ToInt64 with {ps.Length} param(s) not wired");
                     case "ToDouble":

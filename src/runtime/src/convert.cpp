@@ -342,6 +342,112 @@ int32_t icall_convert_to_int32_d(double value)
     return static_cast<int32_t>(rounded);
 }
 
+// Round-half-to-even double conversions for the remaining Convert integer
+// targets (parity-T1, 2026-09-20). Each mirrors icall_convert_to_int32_d:
+// NaN/inf throw, nearbyint (FE_TONEAREST == half-to-even) rounds FIRST, the
+// ROUNDED value is range-checked, and the final cast is strictly defined
+// C++ (the guards leave an exact integer inside the destination range).
+// Unsigned targets test the ORIGINAL value for negativity (net48 throws for
+// ANY negative input, even fractions that would round to -0.0); -0.0 itself
+// passes through to 0.
+int64_t icall_convert_to_int64_d(double value)
+{
+    if (std::isnan(value) || std::isinf(value))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int64.");
+    }
+    const double rounded = std::nearbyint(value);
+    if (rounded >= 9223372036854775808.0 || rounded < -9223372036854775808.0)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int64.");
+    }
+    return static_cast<int64_t>(rounded);
+}
+
+uint32_t icall_convert_to_uint32_d(double value)
+{
+    if (std::isnan(value) || std::isinf(value))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt32.");
+    }
+    const double rounded = std::nearbyint(value);
+    if (rounded >= 4294967296.0 || value < 0.0)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt32.");
+    }
+    return static_cast<uint32_t>(rounded);
+}
+
+uint64_t icall_convert_to_uint64_d(double value)
+{
+    if (std::isnan(value) || std::isinf(value))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt64.");
+    }
+    const double rounded = std::nearbyint(value);
+    if (rounded >= 18446744073709551616.0 || value < 0.0)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt64.");
+    }
+    return static_cast<uint64_t>(rounded);
+}
+
+int32_t icall_convert_to_byte_d(double value)
+{
+    if (std::isnan(value) || std::isinf(value))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Byte.");
+    }
+    const double rounded = std::nearbyint(value);
+    if (rounded >= 256.0 || value < 0.0)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Byte.");
+    }
+    return static_cast<int32_t>(rounded);
+}
+
+int32_t icall_convert_to_sbyte_d(double value)
+{
+    if (std::isnan(value) || std::isinf(value))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a SByte.");
+    }
+    const double rounded = std::nearbyint(value);
+    if (rounded >= 128.0 || rounded < -128.0)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a SByte.");
+    }
+    return static_cast<int32_t>(rounded);
+}
+
+int32_t icall_convert_to_uint16_d(double value)
+{
+    if (std::isnan(value) || std::isinf(value))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt16.");
+    }
+    const double rounded = std::nearbyint(value);
+    if (rounded >= 65536.0 || value < 0.0)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt16.");
+    }
+    return static_cast<int32_t>(rounded);
+}
+
+int32_t icall_convert_to_int16_d(double value)
+{
+    if (std::isnan(value) || std::isinf(value))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Int16.");
+    }
+    const double rounded = std::nearbyint(value);
+    if (rounded >= 32768.0 || rounded < -32768.0)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Int16.");
+    }
+    return static_cast<int32_t>(rounded);
+}
+
 int32_t icall_convert_to_char_i4(int32_t value)
 {
     // net48 Convert.ToChar(int) is a CHECKED conversion: the value must be a

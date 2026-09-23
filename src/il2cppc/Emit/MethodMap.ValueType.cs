@@ -109,9 +109,13 @@ public static partial class MethodRefResolver
                     };
                 return null;
             case "System.Char":
+                // binrw3 residual: the ADDRESS form reads the NATIVE cell
+                // width (deref:u2 -- ldelema of char[] points at a 2-byte
+                // cell; deref:i over-reads). An int32-slot char keeps high
+                // bytes zero, so the narrow read is exact in both shapes.
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_char_to_string", 0, true, true, true,
-                        new[] { receiverIsAddress ? "deref:i" : "unbox:c" });
+                        new[] { receiverIsAddress ? "deref:u2" : "unbox:c" });
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -166,15 +170,17 @@ public static partial class MethodRefResolver
             // in the current case surface (boxext2 e2e). The runtime dispatches the
             // box classes itself (il2cpp_boxing_ext2.h).
             case "System.Byte":
-                // M8 parsecase unblock (2026-08-08): Byte.ToString() -- a byte
-                // lives in an INT32 slot (the ldloc/ldobj uint8_t path is only
-                // for array elements), so the parameterless form formats the
-                // slot's value via the int32 formatter (byte range 0..255, so
-                // the decimal output is identical to net48). The boxed form
-                // unboxes the payload via the boxing_ext2 dispatcher.
+                // M8 parsecase unblock (2026-08-08): Byte.ToString() formats
+                // via the int32 formatter (byte range 0..255 -> identical
+                // decimal output). The ADDRESS form reads the NATIVE cell
+                // width (deref:u1 -- binrw3 residual: ldelema of byte[]
+                // points at a 1-byte cell; deref:i over-read neighbor bytes,
+                // b4=12345). An int32-slot byte keeps high bytes zero, so the
+                // narrow read is exact in both shapes. The boxed form unboxes
+                // the payload via the boxing_ext2 dispatcher.
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_int32_to_string", 0, true, true, true,
-                        new[] { receiverIsAddress ? "deref:i" : "unbox:i" });
+                        new[] { receiverIsAddress ? "deref:u1" : "unbox:i" });
                 // M7 ref/out wiring: TryParse(string, out byte) -- byte lives
                 // in an int32 slot; icall_try_parse_byte takes int32_t*. The
                 // BYREF element byte is 0x05 (ELEMENT_TYPE_U1 -- exe probe

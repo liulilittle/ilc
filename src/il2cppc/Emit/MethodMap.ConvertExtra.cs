@@ -63,13 +63,13 @@ public static partial class MethodRefResolver
             {
                 if (ps.Length != 1)
                     throw new NotSupportedException($"Convert.{name} with {ps.Length} param(s) not wired");
-                // (icall suffix, net48 checked range)
-                var (suffix, range) = name switch
+                // (icall suffix, net48 checked range, rounding-_d icall infix)
+                var (suffix, _, dName) = name switch
                 {
-                    "ToByte" => ("u1", "[0, 255]"),
-                    "ToSByte" => ("i1", "[-128, 127]"),
-                    "ToInt16" => ("i2", "[-32768, 32767]"),
-                    _ => ("u2", "[0, 65535]"),
+                    "ToByte" => ("u1", "[0, 255]", "byte"),
+                    "ToSByte" => ("i1", "[-128, 127]", "sbyte"),
+                    "ToInt16" => ("i2", "[-32768, 32767]", "int16"),
+                    _ => ("u2", "[0, 65535]", "uint16"),
                 };
                 return ps[0] switch
                 {
@@ -84,10 +84,10 @@ public static partial class MethodRefResolver
                     // Semantics NOT pinned against net48 yet (ToInt32(char) is;
                     // these are not) -- pin before wiring, never guess.
                     0x03 => throw new NotSupportedException($"Convert.{name}(char): net48 semantics not pinned by any e2e run (pin before wiring; see edit_convert.md)"),
-                    // NEEDS-NEW: rounding-aware icall_convert_to_byte_d-style
-                    // helpers (the existing ovf_*_d TRUNCATE; net48 rounds
-                    // half-to-even first -- silently different results).
-                    0x0C or 0x0D => throw new NotSupportedException($"Convert.{name}(float/double) needs a new rounding icall (net48 rounds half-to-even then checks {range}; the existing icall_conv_ovf_{suffix}_d truncates first)"),
+                    // T1 parity: rounding-aware icall_convert_to_<kind>_d
+                    // (net48 rounds half-to-even first; the ovf_*_d truncate).
+                    // Float rides the double slot ("d", the ToInt32 precedent).
+                    0x0C or 0x0D => I($"il2cpp::runtime::icall_convert_to_{dName}_d", 1, true, false, false, new[] { "d" }),
                     // NEEDS-NEW: throwing parser with the null-means-zero rule
                     // (only the no-throw Byte.TryParse-contract helper exists).
                     0x0E => throw new NotSupportedException($"Convert.{name}(string) needs a throwing parse icall with the null-means-zero rule (only the TryParse-contract helper exists)"),
@@ -114,7 +114,9 @@ public static partial class MethodRefResolver
                     // char: zero-extend, never throws (the pinned ToInt32(char)
                     // family behavior; [0, 65535] always fits uint32).
                     0x03 => I("il2cpp::runtime::icall_convert_to_int32_char", 1, true, false, false),
-                    0x0C or 0x0D => throw new NotSupportedException("Convert.ToUInt32(float/double) needs a new rounding icall (net48 rounds half-to-even then checks [0, 4294967295]; the existing ovf_u4_d truncates first)"),
+                    // T1 parity: rounding-aware icall_convert_to_uint32_d
+                    // (ovf_u4_d truncates; net48 rounds half-to-even first).
+                    0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint32_d", 1, true, false, false, new[] { "d" }),
                     0x0E => throw new NotSupportedException("Convert.ToUInt32(string) needs a throwing parse icall with the null-means-zero rule (no uint parser exists at all)"),
                     _ => throw new NotSupportedException($"Convert.ToUInt32 param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
                 };
@@ -137,7 +139,9 @@ public static partial class MethodRefResolver
                     // ulong identity: bit-pattern round-trip through the
                     // i8<->u8 reinterpret helper.
                     0x0B => I("il2cpp::runtime::icall_conv_i8_u8", 1, true, false, false, new[] { "q" }, "l"),
-                    0x0C or 0x0D => throw new NotSupportedException("Convert.ToUInt64(float/double) needs a new rounding icall (net48 rounds half-to-even then checks [0, 2^64); the existing ovf_u8_d truncates first)"),
+                    // T1 parity: rounding-aware icall_convert_to_uint64_d ("l"
+                    // carries the uint64 slot, the ovf_u8 precedent).
+                    0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint64_d", 1, true, false, false, new[] { "d" }, "l"),
                     0x0E => throw new NotSupportedException("Convert.ToUInt64(string) needs a throwing parse icall with the null-means-zero rule (no ulong parser exists at all)"),
                     _ => throw new NotSupportedException($"Convert.ToUInt64 param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
                 };

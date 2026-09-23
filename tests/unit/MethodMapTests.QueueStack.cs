@@ -40,7 +40,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Queue_EnqueueObject_MapsToEnqueueIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Enqueue", Sig(0x01, 0x1C)), "Enqueue");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Enqueue", Sig(0x01, 0x1C)), "Enqueue", receiverType: "System.Collections.Queue");
 
         Assert.Equal("il2cpp::il2cpp_queue_enqueue", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -51,7 +51,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Queue_Dequeue_MapsToDequeueIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Dequeue", Sig(0x1C)), "Dequeue");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Dequeue", Sig(0x1C)), "Dequeue", receiverType: "System.Collections.Queue");
 
         Assert.Equal("il2cpp::il2cpp_queue_dequeue", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -63,7 +63,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Queue_Peek_MapsToPeekIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Peek", Sig(0x1C)), "Peek");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Peek", Sig(0x1C)), "Peek", receiverType: "System.Collections.Queue");
 
         Assert.Equal("il2cpp::il2cpp_queue_peek", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -74,7 +74,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Queue_GetCount_MapsToCountIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "get_Count", Sig(0x08)), "get_Count");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "get_Count", Sig(0x08)), "get_Count", receiverType: "System.Collections.Queue");
 
         Assert.Equal("il2cpp::il2cpp_queue_get_count", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -86,7 +86,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Queue_Clear_MapsToClearIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Clear", Sig(0x01)), "Clear");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "Clear", Sig(0x01)), "Clear", receiverType: "System.Collections.Queue");
 
         Assert.Equal("il2cpp::il2cpp_queue_clear", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -97,7 +97,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Queue_CtorParameterless_DropsReceiverOnCreateIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01)), ".ctor");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01)), ".ctor", receiverType: "System.Collections.Queue");
 
         Assert.Equal("il2cpp::il2cpp_queue_create", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -112,6 +112,34 @@ public class MethodMapQueueStackTests
     public void Resolve_Queue_CtorCapacity_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01, 0x08)), ".ctor", receiverType: "System.Collections.Queue"));
+
+        Assert.Contains("System.Collections.Queue::.ctor", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Queue_CtorParameterless_NullReceiver_MapsToCreateIcall()
+    {
+        // 613 regression pin: the newobj .ctor path resolves with NO receiver
+        // hint (StackFold.EmitNewObj + CodeGenerator.ResolveByToken) -- a null
+        // tag on the explicit non-generic owner must keep the create mapping,
+        // not defer to the mangled-name fallback (undefined symbol at link).
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01)), ".ctor");
+
+        Assert.Equal("il2cpp::il2cpp_queue_create", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("drop", resolved.ParamTypeNames![0]);
+    }
+
+    [Fact]
+    public void Resolve_Queue_CtorCapacity_NullReceiver_ThrowsLoud()
+    {
+        // The parameterized ctor stays LOUD on the null-tag path too (the
+        // owner guard only restores the parameterless create mapping).
+        var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01, 0x08)), ".ctor"));
 
         Assert.Contains("System.Collections.Queue::.ctor", ex.Message);
@@ -124,7 +152,7 @@ public class MethodMapQueueStackTests
         // an EXACT-LENGTH object[] in HEAD-FIRST ring-aware order. Return
         // 0x1D SZARRAY + element 0x1C (object).
         var resolved = ResolveMember(Synthesize("System.Collections", "Queue", "ToArray",
-            new byte[] { 0x00, 0x00, 0x1D, 0x1C }), "ToArray");
+            new byte[] { 0x00, 0x00, 0x1D, 0x1C }), "ToArray", receiverType: "System.Collections.Queue");
 
         Assert.Equal("il2cpp::il2cpp_queue_to_array", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -139,7 +167,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Stack_PushObject_MapsToPushIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Push", Sig(0x01, 0x1C)), "Push");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Push", Sig(0x01, 0x1C)), "Push", receiverType: "System.Collections.Stack");
 
         Assert.Equal("il2cpp::il2cpp_stack_push", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -150,7 +178,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Stack_Pop_MapsToPopIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Pop", Sig(0x1C)), "Pop");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Pop", Sig(0x1C)), "Pop", receiverType: "System.Collections.Stack");
 
         Assert.Equal("il2cpp::il2cpp_stack_pop", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -162,7 +190,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Stack_Peek_MapsToPeekIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Peek", Sig(0x1C)), "Peek");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Peek", Sig(0x1C)), "Peek", receiverType: "System.Collections.Stack");
 
         Assert.Equal("il2cpp::il2cpp_stack_peek", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -173,7 +201,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Stack_GetCount_MapsToCountIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "get_Count", Sig(0x08)), "get_Count");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "get_Count", Sig(0x08)), "get_Count", receiverType: "System.Collections.Stack");
 
         Assert.Equal("il2cpp::il2cpp_stack_get_count", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -185,7 +213,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Stack_Clear_MapsToClearIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Clear", Sig(0x01)), "Clear");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "Clear", Sig(0x01)), "Clear", receiverType: "System.Collections.Stack");
 
         Assert.Equal("il2cpp::il2cpp_stack_clear", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -196,7 +224,7 @@ public class MethodMapQueueStackTests
     [Fact]
     public void Resolve_Stack_CtorParameterless_DropsReceiverOnCreateIcall()
     {
-        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01)), ".ctor");
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01)), ".ctor", receiverType: "System.Collections.Stack");
 
         Assert.Equal("il2cpp::il2cpp_stack_create", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -211,6 +239,34 @@ public class MethodMapQueueStackTests
     public void Resolve_Stack_CtorCapacity_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01, 0x08)), ".ctor", receiverType: "System.Collections.Stack"));
+
+        Assert.Contains("System.Collections.Stack::.ctor", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Stack_CtorParameterless_NullReceiver_MapsToCreateIcall()
+    {
+        // 613 regression pin: the newobj .ctor path resolves with NO receiver
+        // hint (StackFold.EmitNewObj + CodeGenerator.ResolveByToken) -- a null
+        // tag on the explicit non-generic owner must keep the create mapping,
+        // not defer to the mangled-name fallback (undefined symbol at link).
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01)), ".ctor");
+
+        Assert.Equal("il2cpp::il2cpp_stack_create", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("drop", resolved.ParamTypeNames![0]);
+    }
+
+    [Fact]
+    public void Resolve_Stack_CtorCapacity_NullReceiver_ThrowsLoud()
+    {
+        // The parameterized ctor stays LOUD on the null-tag path too (the
+        // owner guard only restores the parameterless create mapping).
+        var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01, 0x08)), ".ctor"));
 
         Assert.Contains("System.Collections.Stack::.ctor", ex.Message);
@@ -223,7 +279,7 @@ public class MethodMapQueueStackTests
         // an EXACT-LENGTH object[] in TOP-OF-STACK order. Return 0x1D SZARRAY
         // + element 0x1C (object).
         var resolved = ResolveMember(Synthesize("System.Collections", "Stack", "ToArray",
-            new byte[] { 0x00, 0x00, 0x1D, 0x1C }), "ToArray");
+            new byte[] { 0x00, 0x00, 0x1D, 0x1C }), "ToArray", receiverType: "System.Collections.Stack");
 
         Assert.Equal("il2cpp::il2cpp_stack_to_array", resolved.CppName);
         Assert.True(resolved.IsInstance);

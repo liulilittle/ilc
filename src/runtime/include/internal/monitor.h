@@ -132,4 +132,21 @@ bool il2cpp_monitor_try_enter(Il2CppObject* obj, int32_t timeoutMs);
 // The flag is left untouched on every throw path.
 bool il2cpp_monitor_try_enter(Il2CppObject* obj, int32_t timeoutMs, bool* lockTaken);
 
+// Monitor.Wait(object obj, TimeSpan timeout) -> bool (parity-T8). The
+// TimeSpan arrives as raw ticks (the emitter has no ticks-to-ms conversion);
+// the runtime converts with net48 TotalMilliseconds truncation semantics:
+// ms = ticks / 10000 (toward zero); Timeout.InfiniteTimeSpan (-10000 ticks)
+// yields exactly -1 (infinite). ms outside [-1, INT32_MAX] throws
+// ArgumentOutOfRangeException ("timeout") BEFORE the null/ownership checks
+// (the conversion precedes the wait validation, mirroring net48 where the
+// overflow check fires first).
+bool il2cpp_monitor_wait_timespan(Il2CppObject* obj, int64_t ticks);
+
+// Monitor.Wait(object obj, int32 timeoutMs, bool exitContext) -> bool
+// (parity-T8). exitContext exits the remoting synchronization context on
+// net48; this runtime models NO synchronization contexts, so the flag is an
+// observably exact no-op -- the call is Wait(object, timeoutMs) with the
+// same validation order. The flag rides an int32 carrier (M2 bool slot).
+bool il2cpp_monitor_wait_exit(Il2CppObject* obj, int32_t timeoutMs, int32_t exitContext);
+
 }} // namespace il2cpp::runtime

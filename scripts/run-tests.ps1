@@ -155,20 +155,39 @@ function Stop-ResidualCaseProcess {
 }
 # 结果表：每用例一条记录 {Case, Status(PASS/FAIL), Stage(失败阶段或错误信息)}
 $results = [System.Collections.Generic.List[object]]::new()
-# 用例 = tests/cases 下每个独立目录（tests/cases/<name>/<name>.cs + <name>.csproj）
+# 用例 = tests/cases 下每个独立目录（tests/cases/<name>/<name>.cs + <name>.csproj）。
+# wf1probe 二期：同目录变体工程可被精确点名 —— `-Case <variant>` 先按目录名匹配；
+# 目录未命中时再精确匹配 tests/cases/*/<variant>.csproj（恰好一处；零处沿用原报错，
+# 多处报歧义）。命中变体后：记录/日志/锁/产物名一律用变体工程名（与既有单例同格式，
+# 可进 check-final 聚合）；目录级共享路径（gen/build/out/staging）沿用所在目录并在
+# 每次运行前重建（与主例同）；变体与主例不得并发（锁名不同，门只跑目录池，变体仅
+# 手工单例串行调用）。
 $caseDirs = Get-ChildItem "$Root/tests/cases" -Directory | Sort-Object Name
+$projName = ""
 if ($Case) {
     $match = $caseDirs | Where-Object Name -eq $Case
-    if (-not $match) { throw "case '$Case' not found under tests/cases" }
+    if (-not $match) {
+        $variantFiles = @(Get-ChildItem "$Root/tests/cases/*/$Case.csproj" -ErrorAction SilentlyContinue)
+        if ($variantFiles.Count -eq 0 -or $null -eq $variantFiles[0]) { throw "case '$Case' not found under tests/cases" }
+        if ($variantFiles.Count -gt 1) { throw "case '$Case' is ambiguous (multiple variant projects)" }
+        $match = $variantFiles[0].Directory
+        $projName = $Case
+    }
     $caseDirs = @($match)
 }
 $total = $caseDirs.Count
 
 foreach ($caseDir in $caseDirs) {
-    $name = $caseDir.Name
+    # 变体点名时记录名用工程名（目录名仅定位共享路径）；主例/全池时两者一致。
+    # 所有落盘工作目录一律按所在目录键（$dirName），与主例共享并在每次运行前重建；
+    # 变体工程名（$name）仅用于记录 Case、日志名、锁名（锁按目录取，与主例互斥串行）、
+    # 产物 exe 名与隔离工作区。如此转译器的 caseRoot（程序集上两级）恒为真实 case
+    # 目录，P/Invoke 垫片（kernel32/…）相对路径恒可解。
+    $name = if ($projName) { $projName } else { $caseDir.Name }
+    $dirName = $caseDir.Name
     Write-Host "=== case: $name ($Compiler) ==="
     # RT-fix: 同 case 跨通道串行化（共享 out/gen 的读写互斥）; 持锁期间回收残留进程。
-    $caseLock = Enter-CaseLock $name
+    $caseLock = Enter-CaseLock $dirName
     try {
     try {
 
@@ -201,12 +220,12 @@ foreach ($caseDir in $caseDirs) {
     }
 
     # 1. 编译为 net48 程序集（fixtures 模式：net48 Exe → 产物是 <name>.exe，非 dll）
-    $csproj = "$Root/tests/cases/$name/$name.csproj"
+    $csproj = "$Root/tests/cases/$($caseDir.Name)/$name.csproj"
     if (-not (Test-Path $csproj)) { throw "missing $csproj" }
     # RT-fix: 参考输出构建进本通道私有 staging（不写共享 out，免疫残留进程文件锁）;
     # 持 case 锁后先按精确路径回收锁住 out/staging 镜像的残留进程。
-    $outDir = "$Root/tests/cases/$name/out"
-    $staging = "$Root/tests/cases/$name/out_stage_$Compiler"
+    $outDir = "$Root/tests/cases/$dirName/out"
+    $staging = "$Root/tests/cases/$dirName/out_stage_$Compiler"
     Stop-ResidualCaseProcess "$outDir/$name.exe"
     Stop-ResidualCaseProcess "$staging/$name.exe"
     Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
@@ -220,8 +239,8 @@ foreach ($caseDir in $caseDirs) {
 
     # 1.5 M4 P/Invoke: 用例自带原生库（mylib/ 目录）→ 构建 DLL 供 net48 参考运行动态加载。
     # net48 参考运行是 Windows 进程 → 始终构建 mylib.dll（Windows 侧 g++）。
-    if (Test-Path "$Root/tests/cases/$name/mylib") {
-        $mylibSrc = Get-ChildItem "$Root/tests/cases/$name/mylib" -Filter *.cpp | Select-Object -First 1
+    if (Test-Path "$Root/tests/cases/$dirName/mylib") {
+        $mylibSrc = Get-ChildItem "$Root/tests/cases/$dirName/mylib" -Filter *.cpp | Select-Object -First 1
         if ($mylibSrc) {
             g++ -shared -o "$staging/mylib.dll" $mylibSrc.FullName
             if ($LASTEXITCODE -ne 0) { throw "build mylib.dll for $name failed" }
@@ -243,7 +262,7 @@ foreach ($caseDir in $caseDirs) {
     # 托管的 dll（apphost 的 exe 没有托管元数据，PEReader.GetMetadataBlock 失败）；
     # net48 用例只产 exe（无 dll），保持原有 exe 路径。判定：out/<name>.dll 存在。
     $transpileInput = if (Test-Path "$staging/$name.dll") { "$staging/$name.dll" } else { "$staging/$name.exe" }
-    $gen = "$Root/tests/cases/$name/gen"
+    $gen = "$Root/tests/cases/$dirName/gen"
     Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
     $transpilerDll = "$Root/src/il2cppc/bin/Debug/net8.0/il2cppc.dll"
     if (Test-Path $transpilerDll) {
@@ -254,7 +273,7 @@ foreach ($caseDir in $caseDirs) {
     if ($LASTEXITCODE -ne 0) { throw "transpile $name failed" }
 
     # 4. 三编译器构建 + 运行
-    $buildDir = "$Root/tests/cases/$name/build_$Compiler"
+    $buildDir = "$Root/tests/cases/$dirName/build_$Compiler"
     if ($Compiler -eq "wsl") {
         # WSL cmake 3.10.2 无 -S/-B（3.13 引入）→ cd 进 build 目录 + 绝对源路径；
         # -d Ubuntu1804 显式锁定 GCC 7.5 兼容基线发行版

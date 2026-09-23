@@ -36,7 +36,9 @@ public static partial class MethodRefResolver
         // The TypeSpec instantiation is authoritative (the List/Dictionary
         // precedent); otherwise the folded receiver name decides.
         var instTag = instName ?? receiverType;
-        var stringReceiver = instTag is null or "System.Collections.Generic.HashSet`1_string";
+        // RISK5 R3: a null tag DEFERS (fold re-resolves with tracked receiver).
+        if (instTag is null) return null;
+        var stringReceiver = instTag is "System.Collections.Generic.HashSet`1_string";
         var intReceiver = instTag is "System.Collections.Generic.HashSet`1_int";
         var longReceiver = instTag is "System.Collections.Generic.HashSet`1_long";
         var doubleReceiver = instTag is "System.Collections.Generic.HashSet`1_double";
