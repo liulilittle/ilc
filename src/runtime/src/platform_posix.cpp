@@ -40,6 +40,7 @@
     #endif
 
     #include <cerrno>    // errno / ENOENT / EEXIST (file & dir domain)
+    #include <algorithm> // std::replace (path normalization)
     #include <chrono>
     #include <cstdlib>
     #include <cstring>
@@ -259,24 +260,41 @@ int64_t plat_clock_frequency()
 //------------------------------------------------------------------------------
 // 4. File domain.
 //------------------------------------------------------------------------------
+
+// Windows-flavoured paths ('\' separators) arriving from managed code are
+// normalized to POSIX '/' before any filesystem call so create/probe/delete
+// agree on ONE name space. Without this, mkdir("a\b") creates a LITERAL
+// backslash entry that the '/'-joined recursive tree walk never matches and
+// Directory.Exists can then hit as a stale relative name (NDK residual-delete
+// regression: iocase nested_before flipped 0->1 across two runs).
+std::string NormalizeNativePath(const char* path)
+{
+    std::string norm = path;
+    std::replace(norm.begin(), norm.end(), '\\', '/');
+    return norm;
+}
+
 FILE* plat_file_open(const char* utf8_path, const char* mode)
 {
     // POSIX fopen is byte-based: UTF-8 passes through unchanged.
-    return ::fopen(utf8_path, mode);
+    const std::string norm = NormalizeNativePath(utf8_path);
+    return ::fopen(norm.c_str(), mode);
 }
 
 bool plat_file_remove(const char* utf8_path)
 {
     // POSIX remove is byte-based; ENOENT counts as success (File.Delete
     // silent-success semantics, header contract).
-    return ::remove(utf8_path) == 0 || errno == ENOENT;
+    const int rc = ::remove(NormalizeNativePath(utf8_path).c_str());
+    return rc == 0 || errno == ENOENT;
 }
 
 bool plat_path_full(const char* utf8_path, std::string& out)
 {
     // realpath resolves symlinks and requires the path to EXIST
     // (GetFullPathNameW does not -- documented difference in the header).
-    char* resolved = ::realpath(utf8_path, nullptr);
+    const std::string norm = NormalizeNativePath(utf8_path);
+    char* resolved = ::realpath(norm.c_str(), nullptr);
     if (resolved == nullptr)
     {
         return false;
@@ -405,31 +423,36 @@ bool plat_env_set(const char* name, const char* value, bool overwrite)
 bool plat_dir_exists(const char* path)
 {
     struct stat st;
-    return ::stat(path, &st) == 0;
+    const std::string norm = NormalizeNativePath(path);
+    return ::stat(norm.c_str(), &st) == 0;
 }
 
 bool plat_dir_mkdir(const char* path)
 {
     // mkdir creates ONE level (no parents); EEXIST is not an error --
     // the contract is "true when it now exists".
-    return ::mkdir(path, 0755) == 0 || errno == EEXIST;
+    const std::string norm = NormalizeNativePath(path);
+    return ::mkdir(norm.c_str(), 0755) == 0 || errno == EEXIST;
 }
 
 bool plat_dir_rmdir(const char* path)
 {
-    return ::rmdir(path) == 0;
+    const std::string norm = NormalizeNativePath(path);
+    return ::rmdir(norm.c_str()) == 0;
 }
 
 bool plat_path_is_dir(const char* path)
 {
     struct stat st;
-    return ::stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+    const std::string norm = NormalizeNativePath(path);
+    return ::stat(norm.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 bool plat_path_is_file(const char* path)
 {
     struct stat st;
-    return ::stat(path, &st) == 0 && S_ISREG(st.st_mode);
+    const std::string norm = NormalizeNativePath(path);
+    return ::stat(norm.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
 //------------------------------------------------------------------------------

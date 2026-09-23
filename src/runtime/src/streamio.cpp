@@ -51,6 +51,7 @@
 #else
     // POSIX (GCC 7.5 baseline: no std::filesystem, fseeko/ftello are the
     // 64-bit-capable surface on 32-bit hosts).
+    #include <algorithm>   // std::replace (path normalization)
     #include <sys/types.h>
     #include <unistd.h> // fileno / ftruncate (SetLength file backend)
     #define STREAM_FSEEK(f, o, w) ::fseeko((f), (o), (w))
@@ -58,6 +59,19 @@
 #endif
 
 namespace il2cpp { namespace runtime {
+
+#if !defined(_WIN32)
+// Normalize Windows-style '\' separators from managed paths to the POSIX '/'
+// the host filesystem requires (create/probe/delete must agree on one name
+// space -- NDK residual-delete regression: File.Open("a\b") used to fopen a
+// literal backslash entry).
+std::string NormalizePosixSlash(const std::string& path)
+{
+    std::string norm = path;
+    std::replace(norm.begin(), norm.end(), '\\', '/');
+    return norm;
+}
+#endif
 
 //------------------------------------------------------------------------------
 // Stream backend state (opaque to callers; see streamio.h).
@@ -459,7 +473,7 @@ il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
 #endif
     }
 #else
-    const std::string& p = utf8;
+    const std::string p = NormalizePosixSlash(utf8);
     if (createEmptyFirst && !plat_path_is_file(p.c_str()))
     {
         FILE* seed = std::fopen(p.c_str(), "wb");

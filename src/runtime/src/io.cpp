@@ -54,6 +54,7 @@
 #include "platform.h"         // plat_file_open / plat_file_remove (UTF-8 file domain)
 #include "timezone.h"         // il2cpp_datetime_to_local (GetLastWriteTime local ticks)
 
+#include <algorithm>   // std::replace (POSIX path normalization)
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -128,6 +129,20 @@ Il2CppClass* il2cpp_fileinfo_class()
 namespace il2cpp { namespace runtime {
 
 namespace {
+
+#if !defined(_WIN32)
+// Windows-flavoured path names ('\' separators) arriving from managed code
+// are normalized to POSIX '/' before touching the real filesystem -- the
+// CreateDirectory/Delete/Exists observables must agree on ONE name space
+// (NDK residual-delete regression: mkdir("a\b") used to create a LITERAL
+// backslash entry that RemoveDirTreeUtf8's '/'-joined walk never matched).
+std::string NativePosixPath(const std::string& path)
+{
+    std::string norm = path;
+    std::replace(norm.begin(), norm.end(), '\\', '/');
+    return norm;
+}
+#endif
 
 //------------------------------------------------------------------------------
 // Filesystem probes.
@@ -766,9 +781,9 @@ int32_t CopyBytesAndMode(const std::string& src, const std::string& dst)
     if (ok && closeOk)
     {
         struct stat st;
-        if (::stat(src.c_str(), &st) == 0)
+        if (::stat(NativePosixPath(src).c_str(), &st) == 0)
         {
-            (void)::chmod(dst.c_str(), st.st_mode & 07777);
+            (void)::chmod(NativePosixPath(dst).c_str(), st.st_mode & 07777);
         }
         return 0;
     }
@@ -963,7 +978,7 @@ int32_t icall_file_get_attributes(Il2CppObject* path)
         return 0;
     }
     struct stat st;
-    if (::stat(p.c_str(), &st) != 0)
+    if (::stat(NativePosixPath(p).c_str(), &st) != 0)
     {
         return 0;
     }
@@ -1008,7 +1023,7 @@ int32_t icall_file_set_attributes(Il2CppObject* path, int32_t attributes)
         return 1;
     }
     struct stat st;
-    if (::stat(p.c_str(), &st) != 0)
+    if (::stat(NativePosixPath(p).c_str(), &st) != 0)
     {
         return 1;
     }
@@ -1058,7 +1073,7 @@ Il2CppDateTime icall_file_get_last_write_time(Il2CppObject* path)
         return il2cpp_datetime_to_local(Il2CppDateTime(kIoFileTimeEpochTicks));
     }
     struct stat st;
-    if (::stat(p.c_str(), &st) != 0)
+    if (::stat(NativePosixPath(p).c_str(), &st) != 0)
     {
         return il2cpp_datetime_to_local(Il2CppDateTime(kIoFileTimeEpochTicks));
     }
@@ -1267,13 +1282,45 @@ int32_t RemoveDirTreeWide(const std::wstring& path)
     return 0;
 }
 #else
+// Retry a single POSIX removal (unlink or rmdir) a bounded number of times.
+// Android emulated/FUSE storage and network mounts can report a TRANSIENT
+// failure (EBUSY, ENOTEMPTY, EPERM, EACCES) while a directory entry is still
+// being flushed to the backend by the servicing thread; a short bounded
+// backoff lets the stale transient state settle before the final verdict.
+// A missing entry counts as success (a concurrent removal already finished).
+// Returns 0 on success, non-zero after the final failed attempt.
+int32_t TryRemoveEntry(const char* path, bool isDir)
+{
+    for (int attempt = 0; attempt < 4; ++attempt)
+    {
+        const int rc = isDir ? ::rmdir(path) : ::unlink(path);
+        if (rc == 0)
+        {
+            return 0;
+        }
+        const int e = errno;
+        if (e == ENOENT)
+        {
+            return 0; // already gone
+        }
+        if (e == EBUSY || e == ENOTEMPTY || e == EPERM || e == EACCES)
+        {
+            ::usleep(25000 << attempt); // 25/50/100/200ms backoff
+            continue;
+        }
+        break;
+    }
+    return 1;
+}
+
 // Remove the whole tree rooted at 'path' (UTF-8 byte path -- POSIX names are
 // already exact). Post-order: files via ::unlink, subdirectories recurse
 // first, then the directory itself via ::rmdir. Returns 0 on success, 1 on
 // failure (an unremovable entry aborts and the status signals it).
 int32_t RemoveDirTreeUtf8(const std::string& path)
 {
-    DIR* dir = ::opendir(path.c_str());
+    const std::string norm = NativePosixPath(path);
+    DIR* dir = ::opendir(norm.c_str());
     if (dir == nullptr)
     {
         return 1; // missing path / cannot enumerate
@@ -1287,7 +1334,7 @@ int32_t RemoveDirTreeUtf8(const std::string& path)
         {
             continue;
         }
-        const std::string child = path + "/" + name;
+        const std::string child = norm + "/" + name;
         struct stat st;
         if (::lstat(child.c_str(), &st) != 0)
         {
@@ -1304,8 +1351,11 @@ int32_t RemoveDirTreeUtf8(const std::string& path)
         }
         else
         {
-            if (::unlink(child.c_str()) != 0)
+            if (TryRemoveEntry(child.c_str(), false) != 0)
             {
+                std::fprintf(stderr,
+                             "[io] RemoveDirTreeUtf8: unlink of '%s' failed "
+                             "(errno=%d)\n", child.c_str(), errno);
                 ok = false;
                 break;
             }
@@ -1316,7 +1366,13 @@ int32_t RemoveDirTreeUtf8(const std::string& path)
     {
         return 1;
     }
-    return ::rmdir(path.c_str()) == 0 ? 0 : 1;
+    if (TryRemoveEntry(norm.c_str(), true) != 0)
+    {
+        std::fprintf(stderr, "[io] RemoveDirTreeUtf8: rmdir of '%s' failed "
+                             "(errno=%d)\n", norm.c_str(), errno);
+        return 1;
+    }
+    return 0;
 }
 #endif
 
