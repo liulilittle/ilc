@@ -459,7 +459,15 @@ public static class TypeEmitter
             // be sanitized like the base name or the struct name carries a
             // '.' (generated.h "expected unqualified-id"). Short suffixes
             // ("int"/"string"/...) are Sanitize-fixed points.
-            return baseName + "_" + Sanitize(t.InstantiationSuffix ?? "int");
+            // P-G2 (arity>1): the M3 default instantiation is "int" PER
+            // generic parameter ("Pair`2" default = "int_int"), so the
+            // definition's own name matches the method-body's expanded
+            // instance cast (`Pair_2_int_int`) and the shared "object"×arity
+            // clone name is symmetric.
+            var defSuffix = t.InstantiationSuffix;
+            if (defSuffix == null && t.GenericArity > 1)
+                defSuffix = string.Join("_", Enumerable.Repeat("int", t.GenericArity));
+            return baseName + "_" + Sanitize(defSuffix ?? "int");
         }
         return baseName;
     }

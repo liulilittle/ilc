@@ -38,6 +38,36 @@ namespace Il2Cpp.Transpiler.Opt;
 //------------------------------------------------------------------------------
 public static class GenericUsageAnalyzer
 {
+    //--------------------------------------------------------------------------
+    // Active-share set (generation-session scope). During code generation this
+    // holds the FULL NAMES ("Box`1", "Pair`2") of every definition whose share
+    // mask was accepted -- the coding side (MethodRefResolver/StackFold/
+    // CodeGenerator GenericInstantiationName) collapses ANY reference to those
+    // definitions onto the single "object" instantiation name. Set by
+    // CodeGenerator.Generate before emission; null = sharing disabled.
+    //--------------------------------------------------------------------------
+    public static HashSet<string>? SharedGenericDefs { get; set; }
+
+    //--------------------------------------------------------------------------
+    // Collapse a closed instantiation's argument list onto plain "object"
+    // when the definition is in the active share set (all parameters are
+    // shareable -- the mask is all-true). Mutates args in place; returns true
+    // when the instantiation was collapsed (caller emits {def_name}_{object
+    // ...}).
+    //--------------------------------------------------------------------------
+    public static bool CollapseInstantiation(string defName, string[] args)
+    {
+        if (SharedGenericDefs == null || !SharedGenericDefs.Contains(defName)) return false;
+        // The all-"int" instantiation is the M3 definition default itself
+        // (TypeCppName "_int"); it is NOT collapsed -- today's per-instance
+        // path stays for it (EnsureClone's gSuffix=="int" early return is the
+        // mirror rule). Every OTHER closed instantiation collapses: all
+        // parameters become "object" (the single shared clone).
+        if (args.All(a => a == "int")) return false;
+        for (var i = 0; i < args.Length; i++) args[i] = "object";
+        return true;
+    }
+
     // Object members a shared clone can still call directly (the slot is a
     // real object -- these dispatch through object semantics, no exact type).
     private static readonly HashSet<string> s_objectMembers = new(StringComparer.Ordinal)

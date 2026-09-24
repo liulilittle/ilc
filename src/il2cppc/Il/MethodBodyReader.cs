@@ -505,9 +505,18 @@ public static class MethodBodyReader
         if (defHandle.Kind != HandleKind.TypeDefinition) return null; // BCL/other-assembly: keep legacy kind
         var td = md.GetTypeDefinition((TypeDefinitionHandle)defHandle);
         if ((td.Attributes & System.Reflection.TypeAttributes.Interface) != 0) return null;
-        if (sig.ReadCompressedInteger() != 1) return null; // single-argument only (R3 gap otherwise)
-        var suffix = SimpleGenericArgSuffix(md, ref sig, out _);
-        if (suffix == null) return null; // complex argument: keep legacy kind
+        // P-G2: multi-argument instantiations (Pair`2<int,string>) are also
+        // cloned when every arg decodes (the share mask collapses closed args
+        // onto "object" per arity, so the arg count must be preserved).
+        var argc = sig.ReadCompressedInteger();
+        var parts = new string[argc];
+        for (var i = 0; i < argc; i++)
+        {
+            var s = SimpleGenericArgSuffix(md, ref sig, out _);
+            if (s == null) return null; // complex argument: keep legacy kind
+            parts[i] = s;
+        }
+        var suffix = string.Join("_", parts);
         return $"g:{md.GetFullName((TypeDefinitionHandle)defHandle)}:{suffix}";
     }
 

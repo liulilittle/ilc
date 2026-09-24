@@ -2,6 +2,7 @@ using System;
 using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Il;
 using Il2Cpp.Transpiler.Model;
+using Il2Cpp.Transpiler.Opt;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -4245,6 +4246,7 @@ public static class StackFold
             // int32 -> "int"). The emitter's TypeCppName sanitizes (` -> _),
             // aligning with TypeEmitter's generic instance name
             // {TypeCppName}_int ("Box`1" -> "Box_1_int").
+            GenericUsageAnalyzer.CollapseInstantiation(defName, args); // P-G2 shared collapse
             return defName + "_" + string.Join("_", args);
         }
 

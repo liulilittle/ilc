@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using Il2Cpp.Transpiler.Model;
+using Il2Cpp.Transpiler.Opt;
 
 namespace Il2Cpp.Transpiler.Emit;
 
@@ -2134,6 +2135,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
             };
         }
+        GenericUsageAnalyzer.CollapseInstantiation(defName, args); // P-G2 shared collapse
         return defName + "_" + string.Join("_", args);
     }
 

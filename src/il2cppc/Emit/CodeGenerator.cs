@@ -449,25 +449,65 @@ public static class CodeGenerator
         // name -- A3 constraints C3/C4); TypeDef.InstantiationKey (FullName +
         // "|" + suffix) is the planner dedup key.
         var genericInstTypes = new Dictionary<string, TypeDef>(StringComparer.Ordinal);
+        // P-G2 active share set: every generic definition whose usage analysis
+        // accepted plain-object sharing collapses ALL its closed
+        // instantiations onto one "object" clone (see
+        // GenericUsageAnalyzer.CollapseInstantiation). Conservative phase:
+        // only fully object-compatible templates share; anything directed
+        // stays on today's per-instance path.
+        var shareSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var st in types)
+        {
+            if (st.GenericArity <= 0 || st.IsInterface || st.IsValueType) continue;
+            // P-G2 inheritance guard: when another type derives from THIS
+            // generic definition (VirtStr : VirtBase<string>), sharing it as
+            // "object" would rewrite the derived vtable/BaseType slots to the
+            // object clone while the base C++ layout/signatures stay per-suffix
+            // -- a layout mismatch that faulted at runtime (genericvirtstr
+            // 0xC0000005). Derived inheritance needs the exact per-instance
+            // base, so a shared base is refused.
+            var isBaseOf = types.Any(t => !ReferenceEquals(t, st) && !t.IsInterface
+                && t.BaseTypeName?.StartsWith(st.FullName + "<", StringComparison.Ordinal) == true);
+            if (isBaseOf) continue;
+            var mask = GenericUsageAnalyzer.GetShareMask(
+                md, st,
+                m => { try { return MethodBodyReader.Read(pe, md, st, m); } catch { return null; } });
+            if (mask is { } mm && mm.All(x => x)) shareSet.Add(st.FullName);
+        }
+        GenericUsageAnalyzer.SharedGenericDefs = shareSet;
         // R2b scan source helper: synthesize a clone for one (defFullName,
         // suffix) pair from the definition in this assembly (same helper the
         // local-kind scan uses; also fed by the newobj/TypeSpec and model
         // string scans below -- newobj-only instantiations have no local kind).
         void EnsureClone(string gDef, string gSuffix)
         {
+            var def = types.FirstOrDefault(x => x.FullName == gDef && x.InstantiationSuffix == null);
+            if (def == null) return;
             // R2b: the "int" instantiation IS the definition itself under the
             // M3 single-instantiation convention (TypeCppName default "_int");
             // a clone would emit a second same-named type/method set (allSrc
-            // overwrite/duplicate definition). Keep the definition.
-            if (gSuffix == "int") return;
-            var gKey = gDef + "|" + gSuffix;
-            if (genericInstTypes.ContainsKey(gKey)) return;
-            var def = types.FirstOrDefault(x => x.FullName == gDef && x.InstantiationSuffix == null);
-            if (def == null) return;
+            // overwrite/duplicate definition). Keep the definition. P-G2: the
+            // default instantiation is "int" PER parameter for arity>1 defs
+            // ("Pair`2" default == "int_int"), so the guard must compare
+            // against the arity-wide int suffix, not a bare "int".
+            var defaultSuffix = string.Join("_", Enumerable.Repeat("int", def.GenericArity));
+            if (gSuffix == defaultSuffix) return;
             // R2b scope: reference CLASS instantiations only. Interface/struct
             // instantiations keep the legacy path (R3 / P2 concerns: interface
             // dispatch maps and value-type slots need their own closure).
             if (def.IsInterface || def.IsValueType) return;
+            // P-G2: a shared definition collapses every closed instantiation
+            // onto the single "object" clone (the share mask guarantees the
+            // body only uses object-compatible operations). The clone suffix is
+            // "object" repeated per arity so it matches the call side
+            // (GenericUsageAnalyzer.CollapseInstantiation rewrites EACH
+            // argument to "object").
+            if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(gDef) == true)
+            {
+                gSuffix = string.Join("_", Enumerable.Repeat("object", def.GenericArity));
+            }
+            var gKey = gDef + "|" + gSuffix;
+            if (genericInstTypes.ContainsKey(gKey)) return;
             var clone = new TypeDef
             {
                 Name = def.Name,
@@ -3468,6 +3508,12 @@ public static class CodeGenerator
                     }
                     else if (!ReturnTypeIsRef(_curReturnType) && retKind is "ref" or "ptr")
                         retExpr = IntPtrBridge(ReturnTypeCpp(_curReturnType), retExpr);
+                    // P-G2 (paircase Make): a SZArray return (T1[]) is declared
+                    // Il2CppArray* by ReturnTypeCpp, but the returned value is a
+                    // newarr result held as Il2CppObject* -- bridge the object
+                    // slot to the array signature so the body links.
+                    else if ((byte)_curReturnType == 0x1D && retKind is "ref" or "r")
+                        retExpr = $"reinterpret_cast<Il2CppArray*>({retExpr})";
                     w.LineAligned($"return {retExpr};",
                         $"IL {At(r.SourceOpName, r.SourceOffset)} -- exit method returning the computed value");
                 }
@@ -6369,6 +6415,7 @@ public static class CodeGenerator
             var b = sig.ReadByte();
             args[i] = ReadM3Arg(md, ref sig, b);
         }
+        GenericUsageAnalyzer.CollapseInstantiation(defName, args); // P-G2 shared collapse
         return defName + "_" + string.Join("_", args);
     }
 
