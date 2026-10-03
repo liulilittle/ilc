@@ -114,6 +114,11 @@ public sealed class MethodDef
     // (Il2CppObject* for reference instantiations).
     public bool[]? ParamIsVar { get; init; }
     public bool ReturnIsVar { get; init; }
+    // P-G3: BYREF-wrapped generic-parameter slots (0x10 BYREF + 0x13/0x1E --
+    // `ref T` / `out T`). In the shared object ABI these declare as
+    // Il2CppObject** (a slot holding the BOXED T object); the byref-VAR
+    // channel feeds ParamTypesCpp / ArgAddressMap.
+    public bool[]? ParamIsByrefVar { get; init; }
 }
 
 //------------------------------------------------------------------------------

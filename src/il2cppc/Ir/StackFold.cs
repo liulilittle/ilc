@@ -1955,6 +1955,12 @@ public static class StackFold
                     _ => null,
                 };
             }
+            // P-G3 D1: a SHARED clone's VAR/MVAR return is the boxed T slot --
+            // the stloc store into a local carries the concrete T so a later
+            // value-type BCL call on the local (ldloca + Int32::ToString)
+            // knows the slot holds a BOXED value, not an int32 address.
+            if (value is VirtualCallExpr vc && md != null && vc.ReturnsRef)
+                return SharedReturnConcreteType(md, vc.MethodToken);
             return null;
         }
 
@@ -2217,6 +2223,22 @@ public static class StackFold
             {
                 var first = stack.Peek();
                 if (first is LocExpr fl && objTypes.TryGetValue(fl.Name, out var tt)) arg0Type = tt;
+                // P-G3 D1: a SHARED clone's VALUE-slot return is the BOXED
+                // object (decision A -- the shared object ABI). When the IL
+                // address-takes such a slot for a value-type BCL method
+                // (`ldloca slot; call int32::ToString()`), the slot is an
+                // Il2CppObject* holding the boxed value -- the receiver is the
+                // OBJECT (unbox:i), not an int32 address (deref:i would read
+                // the boxed pointer's low bytes). Swap the address for the
+                // object and let the resolver pick the unbox arm.
+                if (first is LocAddrExpr la && objTypes.TryGetValue(la.Name, out var laType)
+                    && IsBoxedValueSlotName(laType))
+                {
+                    stack.Pop();
+                    stack.Push(new LocExpr { Name = la.Name });
+                    arg0Type = laType;
+                    first = stack.Peek();
+                }
                 // typeof-chain wiring: a bare string-literal argument IS a
                 // string -- Console.WriteLine(object) with a folded Type
                 // value (or any (object)"literal") routes through the string
@@ -2523,8 +2545,28 @@ public static class StackFold
                     if (cHandle.Kind is HandleKind.TypeReference or HandleKind.TypeDefinition
                         or HandleKind.TypeSpecification)
                     {
-                        recvType = TypeFullNameFromToken(md, (int)constrainedMarker.Operand);
+                        // P-G3/paircase Cmp: a VAR TypeSpec constrained marker
+                        // resolves through the enclosing clone's suffix (the
+                        // concrete T), not the M3 "int" default -- the
+                        // interface callvirt on a generic parameter then gets
+                        // the real receiver hint.
+                        recvType = ConstrainedRecvFullName(md, (int)constrainedMarker.Operand);
                         constrainedRecvType = recvType;
+                        // P-G3/paircase Cmp: the constrained callvirt's receiver
+                        // is loaded BY ADDRESS (csc emits `ldarga.s` -- the
+                        // generic param may be a value type). In a REFERENCE
+                        // clone (T1=string) the VAR slot holds the managed object
+                        // directly: `&arg1` is an Il2CppObject**, but the BCL
+                        // interface icalls (icall_string_compare_to /
+                        // il2cpp_icomparable_compare_to) take the OBJECT
+                        // (Il2CppObject*). Deref the address receiver to the
+                        // object value for a reference-typed clone arg.
+                        if (args[0] is LocAddrExpr recvAddr
+                            && MethodRefResolver.SharedCloneVarTypeIsRef(md, (int)constrainedMarker.Operand, types))
+                        {
+                            args[0] = new LocExpr { Name = recvAddr.Name };
+                            arg0IsAddr = false;
+                        }
                     }
                 }
                 // G2 (audit recurse-recheck f14b): callvirt Object::ToString on
@@ -2840,7 +2882,8 @@ public static class StackFold
                     // return (get_Count -> int32) keeps the resolver's answer.
                     ReturnsRef = resolved?.ReturnsRef == true
                         || (md != null && ReturnIsVar(md, (int)ins.Operand)
-                            && VarArgRefFullName(md, (int)ins.Operand) != null),
+                            && (VarArgRefFullName(md, (int)ins.Operand) != null
+                                || SharedDefReturningObject(md, MetadataTokens.Handle((int)ins.Operand)))),
                     // Devirt S1 (G2): carry the receiver's tracked static type
                     // (objTypes/newobj/constrained results computed above) to
                     // the emitter -- EmitVirtualCall devirtualizes a call on an
@@ -2858,10 +2901,16 @@ public static class StackFold
                     // so the next call (ex.Message) resolves with a receiver
                     // hint. Only REFERENCE args are recorded (a value-type T
                     // keeps the existing slot semantics).
+                    // P-G3 D1: a SHARED clone's VAR return is the boxed object
+                    // slot (decision A -- the shared object ABI). Record the
+                    // concrete T for VALUE instantiations too, so a later
+                    // `ldloca slot; call int32::ToString()` knows the slot
+                    // holds a BOXED value (the object, not an int32 address)
+                    // and consumes it via unbox (SharedReturnConcreteType).
                     if (md != null && stack.Peek() is LocExpr rtv
                         && ReturnIsVar(md, (int)ins.Operand)
-                        && VarArgRefFullName(md, (int)ins.Operand) is string varArg)
-                        objTypes[rtv.Name] = varArg;
+                        && (VarArgRefFullName(md, (int)ins.Operand) ?? SharedReturnConcreteType(md, (int)ins.Operand)) is string sharedRet)
+                        objTypes[rtv.Name] = sharedRet;
                 }
                 else
                 {
@@ -3175,6 +3224,15 @@ public static class StackFold
             // I8/U8 -> "l" (int64_t), R4/R8 -> "d" (double); BCL mappings
             // already carry ResultKind and win.
             call.ResultKind = resolved?.ResultKind ?? UserCallResultKind(md, (int)ins.Operand);
+            // P-G3 shared-clone result: a call to a SHARED generic object clone
+            // (Pair`2<...>/Box`1<string> -- CppName carries the
+            // "_object"@arity instance suffix) returns the T slot as
+            // Il2CppObject*. UserCallResultKind's VAR byte yields null (M3
+            // int default) and would declare the result temp int32_t -- the
+            // shared object return then type-mismatches the caller slot.
+            if (call.ResultKind == null && call.Resolved?.CppName is { } cn
+                && cn.Contains("_object_", StringComparison.Ordinal))
+                call.ResultKind = "r";
             call.Args.AddRange(args);
 
             // Audit H5: P/Invoke string arguments must NOT share the runtime's
@@ -3208,6 +3266,65 @@ public static class StackFold
                     pinvokeFreeTemps.Add((mtemp, isUtf16));
                 }
                 call.StringArgIndices.Clear(); // args are pre-marshalled now
+            }
+            // P-G3 R-E (GENERIC-SHARE-DESIGN.md §5.2): a SHARED generic
+            // method's byref T params are Il2CppObject** slots (the shared
+            // object ABI). A VALUE argument (int32 local) must be BOXED into a
+            // bridge temp whose ADDRESS is passed, then UNBOXED back into the
+            // local after the call:
+            //   tN = il2cpp_box_int32(x);   call(fn, &tN);  x = il2cpp_unbox_int32(tN);
+            // A REFERENCE slot (&string local) passes through untouched (the
+            // slot already IS an Il2CppObject*, reinterpreted as
+            // Il2CppObject**). The bridge temp is declared Il2CppObject*
+            // (ExprKind of the box call -> "ref") and GC-rooted.
+            var byrefBridgeSuffix = new List<AssignStmt>();
+            var sharedByref = md != null ? SharedByrefVarSlots(md, (int)ins.Operand) : null;
+            if (sharedByref != null)
+            {
+                var argOffset = resolved is { IsInstance: true } ? 1 : 0; // this precedes explicit params
+                for (var bi = 0; bi < sharedByref.Length && bi + argOffset < call.Args.Count; bi++)
+                {
+                    if (!sharedByref[bi]) continue;
+                    var bArgIdx = bi + argOffset;
+                    if (call.Args[bArgIdx] is not LocAddrExpr laB || LocWidth(laB.Name, ctx, tempWidths) == "r")
+                        continue; // reference slot: &slot is Il2CppObject**-compatible (zero-copy)
+                    var btemp = $"t{temps.Count}";
+                    temps.Add(btemp);
+                    tempWidths[btemp] = "r";
+                    var boxCall = new CallExpr
+                    {
+                        Function = "il2cpp::il2cpp_box_int32",
+                        ReturnsRef = true,
+                        Resolved = new ResolvedMethod("il2cpp::il2cpp_box_int32", 2, false, true, true,
+                            new[] { false, false }, false, ParamTypeNames: new[] { "", "deref:i" }),
+                    };
+                    boxCall.Args.Add(new NullExpr());
+                    boxCall.Args.Add(laB);
+                    stmts.Add(new AssignStmt
+                    {
+                        Target = btemp,
+                        Value = boxCall,
+                        SourceOffset = ins.Offset,
+                        SourceOpName = OpName(ins.OpCode),
+                    });
+                    call.Args[bArgIdx] = new LocAddrExpr { Name = btemp };
+                    var unboxCall = new CallExpr
+                    {
+                        Function = "il2cpp::il2cpp_unbox_int32",
+                        ReturnsRef = false,
+                        ResultKind = "i",
+                        Resolved = new ResolvedMethod("il2cpp::il2cpp_unbox_int32", 1, false, true, false,
+                            new[] { true }, false),
+                    };
+                    unboxCall.Args.Add(new LocExpr { Name = btemp });
+                    byrefBridgeSuffix.Add(new AssignStmt
+                    {
+                        Target = laB.Name,
+                        Value = unboxCall,
+                        SourceOffset = ins.Offset,
+                        SourceOpName = OpName(ins.OpCode),
+                    });
+                }
             }
             if (resolved == null || resolved.ReturnsValue)
             {
@@ -3247,6 +3364,11 @@ public static class StackFold
                 // "dup on empty stack" -- see DiscardedValueExpr).
                 PushDiscardSlot(ins);
             }
+            // P-G3 R-E suffix: write the swapped values back into the caller's
+            // locals AFTER the shared call completed (the callee mutated the
+            // boxed bridge objects; unboxing reads the final object).
+            foreach (var suf in byrefBridgeSuffix)
+                stmts.Add(suf);
         }
 
         // Rule 2j property folding: fold a confirmed simple accessor call into
@@ -4094,6 +4216,59 @@ public static class StackFold
             return "System.Runtime.CompilerServices.TaskAwaiter`1";
         }
 
+        // P-G3/paircase Cmp: resolve a `constrained. !T` marker's concrete
+        // receiver type THROUGH the enclosing clone (InstantiationSuffixHint
+        // -- the R2b P2 mechanism). A VAR (0x13) TypeSpec in a closed clone
+        // body names that clone's generic argument ("string_string" -> VAR:0 =
+        // "string" -> System.String), so the interface callvirt on a generic
+        // parameter (IComparable::CompareTo on `where T : IComparable`) gets
+        // the real concrete hint instead of the M3 "int" default. Outside a
+        // body pass the hint is null and the historical Int32 default holds.
+        static string ConstrainedRecvFullName(MetadataReader md, int token)
+        {
+            var h = MetadataTokens.Handle(token);
+            if (h.Kind == HandleKind.TypeSpecification)
+            {
+                var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)h).Signature);
+                if (sig.ReadByte() == 0x13)
+                {
+                    var vIdx = sig.ReadCompressedInteger();
+                    var hint = MethodRefResolver.InstantiationSuffixHint;
+                    if (hint != null)
+                    {
+                        var parts = hint.Split('_');
+                        if (vIdx < parts.Length)
+                            return SuffixToManagedTypeName(parts[vIdx]);
+                    }
+                    return "System.Int32"; // M3 single-instantiation default
+                }
+            }
+            return TypeFullNameFromToken(md, token);
+        }
+
+        // Map one clone-suffix generic argument (ReadM3GenericArg's short
+        // encoding: "int"/"string"/"object"/...) to the managed TYPE FULL NAME
+        // (the objTypes receiver-hint form the BCL mappers dispatch on).
+        static string SuffixToManagedTypeName(string suffix) => suffix switch
+        {
+            "int" => "System.Int32",
+            "uint" => "System.UInt32",
+            "long" => "System.Int64",
+            "ulong" => "System.UInt64",
+            "double" => "System.Double",
+            "float" => "System.Single",
+            "bool" => "System.Boolean",
+            "char" => "System.Char",
+            "byte" => "System.Byte",
+            "sbyte" => "System.SByte",
+            "short" => "System.Int16",
+            "ushort" => "System.UInt16",
+            "string" => "System.String",
+            "object" => "System.Object",
+            "array" => "System.Array",
+            _ => suffix, // user class args already carry their full name
+        };
+
         // raudit1: the typeof(T) name resolution. Unlike TypeSpecName (legacy
         // TaskAwaiter`1/Int32 strings consumed by other call sites), a
         // GenericInst resolves to its DEFINITION's full name so the
@@ -4869,7 +5044,193 @@ public static class StackFold
         // M4.5: native-int returns (0x17 ELEMENT_TYPE_I / 0x18 ELEMENT_TYPE_U --
         // the RAW IntPtr/UIntPtr encodings, reverse_static blob 00-01-18-0E)
         // get the "ptr" width like I8/R8 get "l"/"d".
+        // P-G3: a VAR/MVAR (0x13/0x1E) return from a SHARED generic definition
+        // (Pair`2<...>/Box`1<string>) is the object slot -- the shared clone
+        // returns Il2CppObject*. The M3 single-instantiation default (null =
+        // int32) would declare the result temp int32_t; the shared object
+        // return then type-mismatches the caller slot. Non-shared definitions
+        // keep the legacy null (M3 int default).
+        if (ret is (byte)0x13 or (byte)0x1E)
+            return SharedDefReturningObject(md, handle) ? "r" : null;
         return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : null;
+    }
+
+    // P-G3: whether the method token's DECLARING generic definition is in the
+    // active share set AND the call is a CLOSED SHARED INSTANCE whose clones
+    // return the T slots as Il2CppObject*. The all-int default instantiation
+    // (Box`1<Int32> -- the definition itself) is NOT collapsed onto the
+    // object clone (CollapseInstantiation keeps it per-instance), so its
+    // calls return the raw int32 slot and must NOT be labeled object-returning
+    // (genericvirtdeep regression: `Il2CppObject* t = Box_1_int_Get(...)`
+    // with an int32_t return -> ill-formed). A MethodDef token likewise names
+    // the definition's own default-int method -- never the shared clone.
+    static bool SharedDefReturningObject(MetadataReader md, Handle callHandle)
+    {
+        return callHandle.Kind switch
+        {
+            // P-G3: MethodDef = the definition's default-int body (all-int
+            // instantiation is per-instance); its VAR returns are int32.
+            HandleKind.MethodDefinition => false,
+            HandleKind.MemberReference => md.GetMemberReference((MemberReferenceHandle)callHandle).Parent is { Kind: HandleKind.TypeSpecification } par
+                && !GenericInstAllInt(md, (TypeSpecificationHandle)par)
+                ? GenericInstDefName(md, (TypeSpecificationHandle)par) is { } gdn
+                    && GenericUsageAnalyzer.SharedGenericDefs?.Contains(gdn) == true
+                : false,
+            _ => false,
+        };
+    }
+
+    // P-G3: whether a closed generic-instance TypeSpec's arguments are ALL the
+    // int32 default (0x08) -- the M3 definition-default instantiation that
+    // CollapseInstantiation refuses to share. Mirrors
+    // CodeGenerator.SharedCallInstanceAllInt's decode (same blob shape).
+    static bool GenericInstAllInt(MetadataReader md, TypeSpecificationHandle tsHandle)
+    {
+        var sig = md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature);
+        if (sig.ReadByte() != 0x15) return false; // not a GenericInst
+        sig.ReadByte();                          // CLASS/VALUETYPE marker
+        sig.ReadTypeHandle();
+        var argc = sig.ReadCompressedInteger();
+        for (var i = 0; i < argc; i++)
+        {
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            if (b != 0x08) return false; // only the exact int32 default counts
+        }
+        return true;
+    }
+
+    // P-G3 D1: whether an objTypes entry names a BOXED primitive VALUE slot
+    // (a shared clone's value T return / a `box` result) -- the slot holds an
+    // Il2CppObject* whose payload must be UNBOXED, never dereferenced as an
+    // int32 address. User value types / enums are intentionally not listed
+    // (their managed type names are also reference-receiver hints; the
+    // primitive box set is the reachable shared-value surface).
+    static bool IsBoxedValueSlotName(string name) => name is
+        "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64"
+        or "System.Single" or "System.Double" or "System.Boolean" or "System.Char"
+        or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16";
+
+    // P-G3 R-E: the per-explicit-parameter byref-VAR flags of a call to a
+    // SHARED generic method (SwapRef<T> -> [true, true]). The shared object
+    // ABI declares those params Il2CppObject** and the caller must bridge
+    // VALUE slots (box -> &temp -> unbox). Returns null for non-shared calls
+    // (genlist's Id<T> etc. keep the legacy M6 path untouched). Decode the
+    // underlying MethodDefinition signature (MethodSpec on a MethodDef, or a
+    // plain MethodDef token); MemberRef MethodSpecs (cross-assembly) are
+    // out of the current shared surface.
+    static bool[]? SharedByrefVarSlots(MetadataReader md, int token)
+    {
+        if (md == null) return null;
+        var h = MetadataTokens.Handle(token);
+        MethodDefinitionHandle mdh;
+        switch (h.Kind)
+        {
+            case HandleKind.MethodSpecification:
+                var ms = md.GetMethodSpecification((MethodSpecificationHandle)h);
+                if (ms.Method.Kind != HandleKind.MethodDefinition) return null;
+                mdh = (MethodDefinitionHandle)ms.Method;
+                break;
+            case HandleKind.MethodDefinition:
+                mdh = (MethodDefinitionHandle)h;
+                break;
+            default:
+                return null;
+        }
+        var dm = md.GetMethodDefinition(mdh);
+        if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) != true)
+            return null;
+        var (_, _, byrefVar) = MethodSignatureCoder.DecodeVarFlags(md, dm.Signature);
+        return byrefVar;
+    }
+
+    // P-G3: the generic DEFINITION FullName of a closed generic instance TypeSpec
+    // (Pair`2<int,string> -> "Pair`2"), reading the GenericInst's def handle.
+    static string? GenericInstDefName(MetadataReader md, TypeSpecificationHandle tsHandle)
+    {
+        var sig = md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature);
+        if (sig.ReadByte() != 0x15) return null; // not a GenericInst
+        sig.ReadByte();                          // CLASS/VALUETYPE marker
+        var defHandle = sig.ReadTypeHandle();
+        return defHandle.Kind switch
+        {
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+            _ => null,
+        };
+    }
+
+    // P-G3 D1: the CONCRETE generic-argument type of a SHARED clone's VAR/MVAR
+    // return (Pair`2<int,string>.GetFirst -> "System.Int32", Box`1<string>.Get
+    // -> "System.String"). The shared clone returns the T slot as a boxed
+    // Il2CppObject*; the caller's downstream value consumption needs the
+    // concrete T to unbox/dispatch. Decode the MemberRef signature's return
+    // VAR index, then read that TypeSpec GenericInst argument. Returns null
+    // for non-instance tokens, non-VAR returns, open (VAR/MVAR) arguments, or
+    // undecodable shapes (the caller keeps the existing slot semantics).
+    static string? SharedReturnConcreteType(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.MemberReference) return null;
+        var mr = md.GetMemberReference((MemberReferenceHandle)h);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return null;
+        var par = (TypeSpecificationHandle)mr.Parent;
+        // Only closed SHARED instances (MemberRef-on-TypeSpec, non-all-int) --
+        // the same gate as SharedDefReturningObject.
+        if (GenericInstAllInt(md, par)) return null;
+        var gdn = GenericInstDefName(md, par);
+        if (gdn == null || GenericUsageAnalyzer.SharedGenericDefs?.Contains(gdn) != true) return null;
+        var sig = md.GetBlobReader(mr.Signature);
+        sig.ReadByte();                    // calling convention
+        sig.ReadCompressedInteger();       // param count
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        int varIdx;
+        if (ret is 0x13 or 0x1E) varIdx = sig.ReadCompressedInteger(); else return null;
+        var ts = md.GetBlobReader(md.GetTypeSpecification(par).Signature);
+        if (ts.ReadByte() != 0x15) return null; // not a GenericInst
+        ts.ReadByte();                    // CLASS/VALUETYPE marker
+        ts.ReadTypeHandle();
+        var argc = ts.ReadCompressedInteger();
+        var argBytes = new byte[argc];
+        for (var i = 0; i < argc; i++)
+            argBytes[i] = MethodSignatureCoder.SkipCustomModifiers(ref ts, ts.ReadByte());
+        if ((uint)varIdx >= (uint)argBytes.Length) return null;
+        var b = argBytes[varIdx];
+        if (b is 0x11 or 0x12)
+        {
+            // Re-read the concrete argument's TypeDefOrRef full name.
+            var ts2 = md.GetBlobReader(md.GetTypeSpecification(par).Signature);
+            if (ts2.ReadByte() != 0x15) return null;
+            ts2.ReadByte();
+            ts2.ReadTypeHandle();
+            var argc2 = ts2.ReadCompressedInteger();
+            for (var i = 0; i < varIdx; i++)
+                _ = MethodSignatureCoder.SkipCustomModifiers(ref ts2, ts2.ReadByte());
+            var th = ts2.ReadTypeHandle();
+            return th.Kind switch
+            {
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+                _ => null,
+            };
+        }
+        return b switch
+        {
+            0x02 => "System.Boolean",
+            0x03 => "System.Char",
+            0x04 => "System.SByte",
+            0x05 => "System.Byte",
+            0x06 => "System.Int16",
+            0x07 => "System.UInt16",
+            0x08 => "System.Int32",
+            0x09 => "System.UInt32",
+            0x0A => "System.Int64",
+            0x0B => "System.UInt64",
+            0x0C => "System.Single",
+            0x0D => "System.Double",
+            0x0E => "System.String",
+            0x1C => "System.Object",
+            _ => null, // arrays/nested-generic/open-VAR: keep the legacy semantics
+        };
     }
 
     //--------------------------------------------------------------------------

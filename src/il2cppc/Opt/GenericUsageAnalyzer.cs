@@ -87,7 +87,11 @@ public static class GenericUsageAnalyzer
     public static bool[]? GetShareMask(
         MetadataReader md, TypeDef def, Func<MethodDef, MethodBodyInfo?> bodyReader)
     {
-        if (def.GenericArity <= 0) return null;
+        // P-G3: a non-generic class whose METHODS are generic (SwapRef<T> --
+        // method-level sharing, GENERIC-SHARE-DESIGN.md §5) is a sharing
+        // candidate too; a class with no generics at all never shares.
+        var hasGenericMethod = def.Methods.Any(m => m.GenericArity > 0);
+        if (def.GenericArity <= 0 && !hasGenericMethod) return null;
         if (def.IsInterface || def.IsValueType) return null;
 
         // (A) Constraints: a directed constraint kills THAT parameter.
@@ -108,21 +112,36 @@ public static class GenericUsageAnalyzer
             anyDirected |= directed;
         }
 
-        // Any generic METHOD on the definition needs method-level sharing
-        // (P-G3); keep those definitions on the per-instance path for now.
-        if (def.Methods.Any(m => m.GenericArity > 0)) return null;
-
-        // (B) Body scan: mark parameters used directionally anywhere.
+        // (B) Method-level MVAR scan (P-G3): a generic METHOD is shareable only
+        // when every MVAR parameter is a byref T slot (the object ABI renders
+        // them Il2CppObject**) and the body only uses the MVAR in pure slot
+        // moves (ldobj/stobj on the byref slot). Any by-value MVAR param, MVAR
+        // return, or directed MVAR use keeps the whole definition per-instance.
         foreach (var m in def.Methods)
         {
-            if (m.IsPInvoke || m.IsAbstract) continue;
+            if (m.GenericArity <= 0 || m.IsPInvoke || m.IsAbstract) continue;
             var bio = bodyReader(m);
-            if (bio == null) return null;           // undecodable -> conservative
-            var directed = ScanBodyDirectedParams(md, bio.IlBytes);
-            if (directed == null) return null;      // MVAR / generic-method call
-            foreach (var idx in directed)
+            if (bio == null) return null;   // undecodable -> conservative
+            if (!MethodMvarShareable(md, m, bio)) return null;
+        }
+
+        // (C) Class-level body scan: mark parameters used directionally anywhere.
+        // Only arity>0 defs have class-level VARs to track; an arity-0 def's
+        // body carries ONLY MVAR TypeSpecs (its generic methods), which the
+        // method-level scan above already judged.
+        if (def.GenericArity > 0)
+        {
+            foreach (var m in def.Methods)
             {
-                if ((uint)idx < (uint)mask.Length) { mask[idx] = false; anyDirected = true; }
+                if (m.IsPInvoke || m.IsAbstract) continue;
+                var bio = bodyReader(m);
+                if (bio == null) return null;           // undecodable -> conservative
+                var directed = ScanBodyDirectedParams(md, bio.IlBytes);
+                if (directed == null) return null;      // MVAR / generic-method call
+                foreach (var idx in directed)
+                {
+                    if ((uint)idx < (uint)mask.Length) { mask[idx] = false; anyDirected = true; }
+                }
             }
         }
         // Conservative first phase: any directed parameter keeps the WHOLE
@@ -155,6 +174,105 @@ public static class GenericUsageAnalyzer
             return arr;
         }
         return null;
+    }
+
+    //--------------------------------------------------------------------------
+    // Method-level MVAR compatibility scan (P-G3, GENERIC-SHARE-DESIGN.md §5):
+    // a generic METHOD (`SwapRef<T>`) is shareable under the object ABI only
+    // when:
+    //   ① every MVAR parameter is a BYREF T slot (0x10 BYREF wrapping 0x1E) --
+    //      the shared clone renders those as Il2CppObject** object slots;
+    //   ② the method has no MVAR return (a shared MVAR return needs the
+    //      return-slot unbox bridge -- future work, D9);
+    //   ③ every body IL use of an MVAR TypeSpec is a pure slot move
+    //      (ldobj/stobj/cpobj/initobj on the byref slot) -- arithmetic, member
+    //      calls, casts, newarr/sizeof on T are directed and keep the
+    //      definition per-instance (conservative: never mis-share).
+    //--------------------------------------------------------------------------
+    private static bool MethodMvarShareable(MetadataReader md, MethodDef m, MethodBodyInfo bio)
+    {
+        var (returnIsVar, paramIsVar, paramIsByrefVar) =
+            MethodSignatureCoder.DecodeVarFlags(md, md.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(bio.MethodToken)).Signature);
+        // (1) MVAR return -> not shareable (return-slot bridge is future work).
+        if (returnIsVar) return false;
+        // (2) EVERY MVAR parameter must be BYREF-wrapped (else by-value MVAR
+        // slots / arithmetic bodies like Add<T> would be mis-shared).
+        for (var i = 0; i < paramIsVar.Length; i++)
+        {
+            if (paramIsVar[i] && !paramIsByrefVar[i]) return false;
+        }
+        // (3) Body: MVAR TypeSpec uses must be pure slot moves.
+        foreach (var ins in IlDecoder.DecodeMethod(bio.IlBytes, md))
+        {
+            if (ins.OperandKind != IlOperandKind.TypeToken) continue;
+            if (!TypeSpecCarriesMvar(md, (int)ins.Operand)) continue;
+            switch (ins.OpCode)
+            {
+                case ILOpCode.Ldobj:
+                case ILOpCode.Stobj:
+                case ILOpCode.Cpobj:
+                case ILOpCode.Initobj:
+                    continue; // byref-slot move: object-compatible
+                default:
+                    return false; // box/unbox/castclass/newarr/sizeof/...: directed
+            }
+        }
+        return true;
+    }
+
+    // Whether a TypeSpec token's signature blob references a METHOD-level MVAR
+    // (0x1E) anywhere (the definition-body shape for a byref T ldobj/stobj).
+    private static bool TypeSpecCarriesMvar(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.TypeSpecification) return false;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)h).Signature);
+        try
+        {
+            return TypeSigMvarScanCore(md, ref sig);
+        }
+        catch (BadImageFormatException)
+        {
+            return false; // undecodable -> treat as no MVAR (conservative scan side)
+        }
+    }
+
+    private static bool TypeSigMvarScanCore(MetadataReader md, ref BlobReader sig)
+    {
+        var b = sig.ReadByte();
+        switch (b)
+        {
+            case 0x13: // VAR -- class-level generic parameter
+                _ = sig.ReadCompressedInteger();
+                return false;
+            case 0x1E: // MVAR -- method-level generic parameter
+                _ = sig.ReadCompressedInteger();
+                return true;
+            case 0x11: // VALUETYPE
+            case 0x12: // CLASS
+            case 0x40: // nested type-handle
+                _ = sig.ReadTypeHandle();
+                return false;
+            case 0x15: // GenericInst
+            {
+                _ = sig.ReadByte();
+                _ = sig.ReadTypeHandle();
+                var n = sig.ReadCompressedInteger();
+                for (var i = 0; i < n; i++)
+                    if (TypeSigMvarScanCore(md, ref sig)) return true;
+                return false;
+            }
+            case 0x1B:
+                return TypeSigMvarScanCore(md, ref sig);
+            case 0x1D:
+            case 0x14:
+                return TypeSigMvarScanCore(md, ref sig);
+            case 0x1F or 0x20:
+                _ = sig.ReadCompressedInteger();
+                return TypeSigMvarScanCore(md, ref sig);
+            default:
+                return false;
+        }
     }
 
     //--------------------------------------------------------------------------

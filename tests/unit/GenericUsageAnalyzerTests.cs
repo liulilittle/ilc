@@ -104,4 +104,36 @@ public class GenericUsageAnalyzerTests
         Assert.NotNull(mask);
         Assert.Equal(new[] { true }, mask);
     }
+
+    //--------------------------------------------------------------------------
+    // P-G3 method-level sharing channel (GENERIC-SHARE-DESIGN.md §5): a
+    // NON-generic class whose METHODS are generic (SwapRef<T> -- a byref T slot
+    // swap) is a sharing candidate. The verdict for an arity-0 def is the empty
+    // mask (vacuously all-true); MethodMvarShareable gates it on:
+    //   (a) every MVAR parameter being a BYREF T slot,
+    //   (b) no MVAR return,
+    //   (c) body MVAR uses being pure ldobj/stobj slot moves.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void SwapRef_ByrefSlotSwap_MethodLevelShareable()
+    {
+        var (types, md, pe) = Load("swapcase");
+        var swap = types.Single(t => t.Name == "Swap" && !t.IsNested);
+        var mask = GenericUsageAnalyzer.GetShareMask(md, swap, BodyReader(pe, md, swap));
+        Assert.NotNull(mask); // arity-0: empty mask == shareable via method channel
+        Assert.Empty(mask);
+        Assert.True(GenericUsageAnalyzer.IsObjectShareable(md, swap, BodyReader(pe, md, swap)));
+    }
+
+    // P-G3 method-level gate (GENERIC-SHARE-DESIGN.md §5.1 rule ①): a generic
+    // METHOD with a BY-VALUE MVAR parameter (Id<T>(T x)) is NOT shareable --
+    // only byref-wrapped MVAR slots are object-ABI compatible. The whole
+    // definition stays per-instance.
+    [Fact]
+    public void Id_ByValueMvarParam_BlocksMethodLevelShare()
+    {
+        var (types, md, pe) = Load("genlist");
+        var genList = types.Single(t => t.Name == "GenList" && !t.IsNested);
+        Assert.Null(GenericUsageAnalyzer.GetShareMask(md, genList, BodyReader(pe, md, genList)));
+    }
 }

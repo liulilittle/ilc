@@ -302,6 +302,16 @@ public static partial class MethodRefResolver
             if (ms.Method.Kind == HandleKind.MethodDefinition)
             {
                 var dm = md.GetMethodDefinition((MethodDefinitionHandle)ms.Method);
+                // P-G3 R-C: a generic METHOD on a SHARED definition (SwapRef<T>
+                // -- the arity-0 class Swap is in the active share set) collapses
+                // EVERY instantiation onto the definition's single shared object
+                // body (the definition IS the object template; its byref T
+                // params are Il2CppObject**). Bypass the M6 `_string` pass-through
+                // variant (which is only emitted for NON-shared pure-passthrough
+                // methods like genlist's Id<T>) and the EnsureInt32 default gate
+                // so int and string calls bind to the SAME shared symbol.
+                if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) == true)
+                    return ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
                 // M7 genlist: a single STRING (0x0E) generic argument routes to
                 // the emitted string-typed variant of the definition
                 // ({defCppName}_string -- CodeGenerator emits a pass-through
@@ -1591,6 +1601,15 @@ var userRecvLike = receiverType ?? arg0Type;
     private static ResolvedMethod? TryMapComparerInterface(string owner, string name, int count,
         IReadOnlyList<TypeDef> knownTypes, string? recvType)
     {
+        // P-G3/paircase Cmp: IComparable::CompareTo(object) on a STRING
+        // receiver lowers to the instance string comparator (stringext.cpp
+        // icall_string_compare_to -- clamped -1/0/+1, net48 CompareTo sign).
+        // The receiver is the first arg (Il2CppObject*), the other the boxed
+        // object; a box of a reference T is identity, so the value reaches
+        // the icall directly.
+        if (owner == "System.IComparable" && name == "CompareTo" && count == 1
+            && recvType == "System.String")
+            return I("il2cpp::runtime::icall_string_compare_to", 1, true, false, true);
         if (recvType == null) return null;
         var t = knownTypes.FirstOrDefault(tt => tt.FullName == recvType
             || (tt.GenericArity > 0 && recvType.StartsWith(tt.FullName + "_", StringComparison.Ordinal)));
@@ -2069,6 +2088,64 @@ var userRecvLike = receiverType ?? arg0Type;
     // outside a body pass (load time, non-generic contexts) see null and
     // keep the historical "int" encoding.
     public static string? InstantiationSuffixHint { get; set; }
+
+    // P-G3/paircase Cmp: resolve a VAR (0x13) TypeSpec to the CONCRETE type
+    // name through the enclosing clone's suffix (InstantiationSuffixHint --
+    // the R2b P2 mechanism). "string_string" -> VAR:0 = "string" -> the
+    // managed full name "System.String"; null when the token is not a VAR
+    // TypeSpec or no suffix is active (a definition body / non-generic pass).
+    public static string? SharedCloneVarTypeName(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.TypeSpecification) return null;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)h).Signature);
+        if (sig.ReadByte() != 0x13) return null;
+        var vIdx = sig.ReadCompressedInteger();
+        var hint = InstantiationSuffixHint;
+        if (hint == null) return null;
+        var parts = hint.Split('_');
+        if (vIdx >= parts.Length) return null;
+        return SuffixToManagedTypeName(parts[vIdx]);
+    }
+
+    // P-G3/paircase Cmp: true when the VAR TypeSpec's concrete clone arg is a
+    // REFERENCE type (System.String / a user class). The boxed value types and
+    // user structs are false. Used to (a) deref a constrained callvirt receiver
+    // loaded by address (ldarga.s) back to the object, and (b) turn `box !0`
+    // into identity for a reference-typed T.
+    public static bool SharedCloneVarTypeIsRef(MetadataReader md, int token, IReadOnlyList<TypeDef>? types)
+    {
+        var concrete = SharedCloneVarTypeName(md, token);
+        if (concrete == null) return false;
+        var t = types?.FirstOrDefault(x => x.FullName == concrete);
+        if (t != null) return !t.IsValueType;
+        return concrete is not ("System.Int32" or "System.Int64" or "System.UInt64"
+            or "System.Double" or "System.Single" or "System.Boolean" or "System.Char"
+            or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16"
+            or "System.UInt32" or "System.Decimal");
+    }
+
+    // Map one clone-suffix generic argument (the M3 short encoding) to the
+    // managed TYPE FULL NAME. Shared with StackFold's constrained-marker decode.
+    private static string SuffixToManagedTypeName(string suffix) => suffix switch
+    {
+        "int" => "System.Int32",
+        "uint" => "System.UInt32",
+        "long" => "System.Int64",
+        "ulong" => "System.UInt64",
+        "double" => "System.Double",
+        "float" => "System.Single",
+        "bool" => "System.Boolean",
+        "char" => "System.Char",
+        "byte" => "System.Byte",
+        "sbyte" => "System.SByte",
+        "short" => "System.Int16",
+        "ushort" => "System.UInt16",
+        "string" => "System.String",
+        "object" => "System.Object",
+        "array" => "System.Array",
+        _ => suffix, // user class args already carry their full name
+    };
 
     private static string GenericInstantiationName(MetadataReader md, TypeSpecificationHandle handle)
     {

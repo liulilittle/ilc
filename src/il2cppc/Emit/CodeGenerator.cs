@@ -458,7 +458,11 @@ public static class CodeGenerator
         var shareSet = new HashSet<string>(StringComparer.Ordinal);
         foreach (var st in types)
         {
-            if (st.GenericArity <= 0 || st.IsInterface || st.IsValueType) continue;
+            // P-G3: a non-generic class whose METHODS are generic (SwapRef<T>)
+            // is a method-level sharing candidate (its definition IS the object
+            // template -- no clone, arity 0). Non-generic classes never share.
+            var hasGenericMethod = st.Methods.Any(m => m.GenericArity > 0);
+            if ((st.GenericArity <= 0 && !hasGenericMethod) || st.IsInterface || st.IsValueType) continue;
             // P-G2 inheritance guard: when another type derives from THIS
             // generic definition (VirtStr : VirtBase<string>), sharing it as
             // "object" would rewrite the derived vtable/BaseType slots to the
@@ -558,6 +562,7 @@ public static class CodeGenerator
                     PinvokeFlags = m.PinvokeFlags, PinvokeSetLastError = m.PinvokeSetLastError,
                     GenericArity = m.GenericArity,
                     ParamIsVar = m.ParamIsVar, ReturnIsVar = m.ReturnIsVar,
+                    ParamIsByrefVar = m.ParamIsByrefVar,
                 });
             foreach (var p in def.Properties)
                 clone.Properties.Add(new PropertyDef
@@ -1293,6 +1298,17 @@ public static class CodeGenerator
                     returnType = "Il2CppObject*";
                 _curInstantiationSuffix = t.InstantiationSuffix;
                 _curReturnIsVar = m.ReturnIsVar;
+                // P-G3: the SHARED implementation faces are (a) the arity-0
+                // generic-METHOD definition (Swap -- no clone exists, the
+                // definition body IS the object template) and (b) the shared
+                // "object" clone of an arity>0 def. The all-int definition of
+                // a shared def stays per-instance (its suffix is null AND its
+                // methods are not generic -- the arity-0 clause below excludes
+                // it). The object clone's suffix is never the "int" default.
+                _curMethodShare = t.InstantiationSuffix != null && t.InstantiationSuffix != "int"
+                    || (t.InstantiationSuffix == null && t.GenericArity == 0
+                        && t.Methods.Any(mm => mm.GenericArity > 0))
+                        && GenericUsageAnalyzer.SharedGenericDefs?.Contains(t.FullName) == true;
                 _curStructReturnCpp = managedRetStruct != null ? returnType : null;
                 List<Stmt> stmts;
                 // R2b P2: the resolution hint for VAR (0x13) TypeSpec args in
@@ -3263,6 +3279,13 @@ public static class CodeGenerator
     // instantiations render VAR slots as Il2CppObject*.
     private static string? _curInstantiationSuffix;
     private static bool _curReturnIsVar;
+    // P-G3 (method-level sharing): whether the type whose method is currently
+    // emitted is a SHARED generic implementation -- either the arity-0 generic
+    // definition itself (Swap -- the definition IS the object template) or the
+    // shared "object" clone of an arity>0 def (Pair_2_object_object). The
+    // shared ABI renders byref VAR/MVAR slots as Il2CppObject** and stobj on a
+    // VAR/MVAR slot as a double-pointer write.
+    private static bool _curMethodShare;
     // caudit2-fix: per-argument "is an address" map for the CURRENT method body
     // (arg0 = value-type this pointer, B:V:/B:r: by-ref, P: raw pointer).
     // FieldAccess consults it instead of the old name-prefix heuristic.
@@ -3734,6 +3757,20 @@ public static class CodeGenerator
                     var stobjName = TypeTokenFullName(md, stobjTok);
                     var stobjAddr = EmitExpr(c.Args[0], md, types);
                     var stobjVal = EmitExpr(c.Args[1], md, types);
+                    // P-G3 R-B: a VAR/MVAR TypeSpec stobj in a SHARED method is
+                    // a byref object slot -- the shared ABI reads/writes an
+                    // Il2CppObject* THROUGH the address (Il2CppObject**), the
+                    // same depth ldobj uses (7871). A single-pointer write on
+                    // the shared arg (declared Il2CppObject**) would assign
+                    // the object value INTO the pointer slot ("no match for
+                    // 'operator='", operand types Il2CppObject vs
+                    // Il2CppObject*).
+                    if (IsVarOrMvarTypeSpec(md, stobjTok) && _curMethodShare)
+                    {
+                        w.LineAligned($"(*reinterpret_cast<Il2CppObject**>({stobjAddr}) = static_cast<Il2CppObject*>({stobjVal}));",
+                            $"IL {At(c.SourceOpName, c.SourceOffset)} -- store the boxed object into the byref T slot (shared object ABI)");
+                        break;
+                    }
                     w.LineAligned($"(*reinterpret_cast<{TypeCppName(stobjName)}*>({stobjAddr}) = {stobjVal});",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- store value-type value through pointer");
                     break;
@@ -5102,6 +5139,20 @@ public static class CodeGenerator
         var (owner, sig) = VirtualTarget(md, v.MethodToken, types);
         var retCpp = VirtualReturnTypeCpp(md, v.MethodToken);
         var paramCpp = VirtualParamTypesCpp(md, v.MethodToken); // excludes this; this is always Il2CppObject*
+        // P-G3 shared-callee ABI: a SHARED generic definition (Pair`2) exposes
+        // EVERY generic slot as Il2CppObject* (the D3 object clone), regardless
+        // of the per-argument M3 verdict. The vtable C++ signature must match
+        // the clone's declared shape (CallSiteVarIsRef marks only reference
+        // instantiation slots -- Pair<int,string> would otherwise keep the raw
+        // int32 slot and the fnPtr cast would never link).
+        var sharedCallee = owner.GenericArity > 0
+            && GenericUsageAnalyzer.SharedGenericDefs?.Contains(owner.FullName) == true
+            && !SharedCallInstanceAllInt(md, v.MethodToken);
+        if (sharedCallee)
+        {
+            for (var i = 0; i < paramCpp.Length; i++) paramCpp[i] = "Il2CppObject*";
+            if (retCpp != "void" && retCpp != "Il2CppObject*") retCpp = "Il2CppObject*";
+        }
         // R2b P2 (interface-instantiation ABI): the method signature encodes
         // T as the int32 default; the CALL-SITE TypeSpec is authoritative.
         // When the target's parent instantiates T with a reference arg
@@ -5113,13 +5164,30 @@ public static class CodeGenerator
             var sigH = MetadataTokens.Handle(v.MethodToken).Kind == HandleKind.MethodDefinition
                 ? md.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(v.MethodToken)).Signature
                 : md.GetMemberReference((MemberReferenceHandle)MetadataTokens.Handle(v.MethodToken)).Signature;
-            var (retVar2, paramVars2) = MethodSignatureCoder.DecodeVarFlags(md, sigH);
+            var (retVar2, paramVars2, _) = MethodSignatureCoder.DecodeVarFlags(md, sigH);
             if (retVar2) retCpp = "Il2CppObject*";
             for (var pi = 0; pi < paramCpp.Length && pi < paramVars2.Length; pi++)
                 if (paramVars2[pi]) paramCpp[pi] = "Il2CppObject*";
         }
         var receiver = v.Args.Count > 0 ? v.Args[0] : throw new NotSupportedException("callvirt without receiver");
-        var args = v.Args.Skip(1).Select(a => EmitExpr(a, md, types)).ToList();
+        var args = v.Args.Skip(1).Select((a, pi) =>
+        {
+            var expr = EmitExpr(a, md, types);
+            // P-G3 shared-callee box bridge: a shared clone's generic slots
+            // are Il2CppObject*; a VALUE argument (paircase Set(11, str)) must
+            // be boxed to a managed object before the call -- a raw int into
+            // the object slot is a hard C++ error. Reference args pass through
+            // unchanged (they already ARE the object).
+            if (sharedCallee && pi < paramCpp.Length && paramCpp[pi] == "Il2CppObject*")
+            {
+                var k = TypeKindResolver.ResolveExprKind(a, _curLocKinds);
+                if (k is "ref" or "r" or "ptr") return expr;
+                if (k is "l")
+                    return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_box_long(static_cast<int64_t>({expr})))";
+                return $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({expr}))";
+            }
+            return expr;
+        }).ToList();
         var receiverCode = EmitExpr(receiver, md, types);
         var receiverChecked = $"il2cpp_null_check(static_cast<Il2CppObject*>({receiverCode}))";
 
@@ -5189,7 +5257,24 @@ public static class CodeGenerator
                 }
                 var fnName = MethodCppName(targetTypeDef, targetMethod);
                 var callArgs2 = string.Join(", ", new[] { receiverCode }.Concat(args));
-                return $"{fnName}({callArgs2})";
+                // P-G3 D1 (decision A): the shared clone returns the T slot as
+                // Il2CppObject* (boxed for value arguments). The return stays
+                // BOXED -- the IL's own box:/unbox.any conversions at the
+                // consumer side handle the value extraction (a box:i on an
+                // already-object value is identity, CodeGenerator box:i arm).
+                // Unboxing here would contradict the fold's ReturnsRef=true
+                // (the result temp is declared Il2CppObject*) and produce
+                // `Il2CppObject* t = il2cpp_unbox_int32(...)` -- ill-formed.
+                // SZArray-return bridge (paircase Make): a T1[] return declares
+                // Il2CppArray* in the callee (ReturnTypeCpp 0x1D) while the
+                // fold labels the caller result temp a managed reference
+                // (Il2CppObject* -- SZArray is a reference type) -- reinterpret
+                // the array pointer to the uniform object slot (the same
+                // bridge EmitTask9Call applies on the `call` path).
+                var directResult = $"{fnName}({callArgs2})";
+                if (retCpp == "Il2CppArray*")
+                    directResult = $"reinterpret_cast<Il2CppObject*>({directResult})";
+                return directResult;
             }
         }
 
@@ -5197,7 +5282,18 @@ public static class CodeGenerator
         var fnSig = string.Join(", ", new[] { "Il2CppObject*" }.Concat(paramCpp));
         var fnPtr = $"(({retCpp}(*)({fnSig})){dispatch})";
         var callArgs = string.Join(", ", new[] { receiverCode }.Concat(args));
-        return $"{fnPtr}({callArgs})";
+        // P-G3 D1 (decision A): the shared clone returns the T slot as
+        // Il2CppObject* -- the return stays boxed (see the direct-callvirt
+        // arm above); the downstream box:/unbox.any conversion extracts the
+        // value. Unboxing at this call point would contradict the fold's
+        // ReturnsRef=true result-temp declaration (Il2CppObject*).
+        // SZArray-return bridge: the callee fnPtr declares Il2CppArray* while
+        // the caller's result temp is the managed-reference Il2CppObject* --
+        // reinterpret the array pointer to the object slot (paircase Make).
+        var fnPtrResult = $"{fnPtr}({callArgs})";
+        return retCpp == "Il2CppArray*"
+            ? $"reinterpret_cast<Il2CppObject*>({fnPtrResult})"
+            : fnPtrResult;
     }
 
     //--------------------------------------------------------------------------
@@ -5388,8 +5484,68 @@ public static class CodeGenerator
                 var marker = sig.ReadByte();                 // nested GenericInst
                 return marker != 0x11;                       // CLASS inst -> ref; VALUETYPE -> value
             }
-            default: return false;                           // primitives/VAR(handled by caller)/TypedRef: not a reference
+default: return false;                           // primitives/VAR(handled by caller)/TypedRef: not a reference
+            }
         }
+
+    // P-G3: for a SHARED callee's return slot, whether THIS closed instance's
+    // T (the method return's VAR index) is a VALUE type (the caller must
+    // unbox) or a reference (pass the object through). Decode the MemberRef
+    // Parent TypeSpec (Pair`2<System.Int32,System.String>) instance args and
+    // compare against the method return's VAR index. Pair<int,string>.GetFirst
+    // returns the int32 (value); Pair<string,string>.GetFirst returns the
+    // managed reference. MethodDef / non-instance targets default to "value".
+    private static bool SharedReturnSlotIsValue(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind == HandleKind.MethodDefinition) return true;
+        if (h.Kind != HandleKind.MemberReference) return true;
+        var mr = md.GetMemberReference((MemberReferenceHandle)h);
+        var sig = md.GetBlobReader(mr.Signature);
+        sig.ReadByte();                    // calling convention
+        sig.ReadCompressedInteger();       // param count
+        var ret = sig.ReadByte();          // return element type
+        int varRet;
+        if (ret is 0x13 or 0x1E) varRet = sig.ReadCompressedInteger(); else return true; // non-VAR return: value slot
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return true;
+        var ts = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+        if (ts.ReadByte() != 0x15) return true; // not a GenericInst instance
+        ts.ReadByte();                     // CLASS/VALUETYPE marker
+        ts.ReadTypeHandle();
+        var argc = ts.ReadCompressedInteger();
+        for (var i = 0; i < argc; i++)
+        {
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref ts, ts.ReadByte());
+            if (i == varRet)
+                return b is not (0x0E or 0x12 or 0x1C or 0x1D or 0x15); // string/class/object/array/nested-inst = reference
+            if (b is 0x1D or 0x15 or 0x11) // skip trailing data of array/nested-generic/value-type args we don't care about
+                ts.ReadTypeHandle();
+        }
+        return true;
+    }
+
+    // P-G3: whether THIS call's closed instance is the ALL-INT M3 default
+    // (Box`1<Int32>, the definition itself) -- it does NOT collapse onto the
+    // shared object clone (CollapseInstantiation keeps the "int" default
+    // per-instance), so its call site uses the raw int32 signature. Only
+    // non-all-int instances (Box`1<String>) take the shared object ABI.
+    private static bool SharedCallInstanceAllInt(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.MemberReference) return false;
+        var mr = md.GetMemberReference((MemberReferenceHandle)h);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return false;
+        var ts = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+        if (ts.ReadByte() != 0x15) return false; // not a GenericInst instance
+        ts.ReadByte();                    // CLASS/VALUETYPE marker
+        ts.ReadTypeHandle();
+        var argc = ts.ReadCompressedInteger();
+        for (var i = 0; i < argc; i++)
+        {
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref ts, ts.ReadByte());
+            if (b != 0x08) return false;  // only the exact int32 default counts
+        }
+        return true;
     }
 
     private static string[] VirtualParamTypesCpp(MetadataReader md, int token)
@@ -7426,6 +7582,29 @@ public static class CodeGenerator
             // extends on demand).
             var boxType = TypeTokenFullName(md, boxTok);
             var boxVal = EmitExpr(c.Args[0], md, types);
+            // P-G3/paircase Cmp: `box !0` on a REFERENCE-typed generic
+            // parameter (the constrained IComparable callvirt's argument) is
+            // identity -- the value is ALREADY the managed object (a string/
+            // object clone slot). The M3 default decodes the VAR TypeSpec to
+            // "System.Int32" and would box_int32 the string POINTER (a
+            // garbage box). Resolve the concrete T through the enclosing
+            // clone's suffix (InstantiationSuffixHint) and treat a reference
+            // arg as a no-op.
+            var boxConcreteVar = MethodRefResolver.SharedCloneVarTypeName(md, boxTok);
+            if (boxConcreteVar != null)
+            {
+                var boxConcreteDef = types.FirstOrDefault(x => x.MatchesFullName(boxConcreteVar));
+                var isValueConcrete = boxConcreteDef != null && boxConcreteDef.IsValueType
+                    || boxConcreteVar is "System.Int32" or "System.Int64" or "System.UInt64"
+                        or "System.Double" or "System.Single" or "System.Boolean" or "System.Char"
+                        or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16"
+                        or "System.UInt32" or "System.Decimal";
+                if (!isValueConcrete)
+                {
+                    return boxVal; // box of a reference-typed T is identity
+                }
+boxType = boxConcreteVar; // value-typed T: box the concrete type
+            }
             var boxTypeDef = types.FirstOrDefault(x => x.MatchesFullName(boxType));
             if (boxTypeDef != null && boxTypeDef.BaseTypeName == "System.Enum")
                 return $"il2cpp::runtime::icall_box_enum({BoxClassDescriptorCpp(boxType)}, static_cast<int64_t>({boxVal}))";
@@ -9054,10 +9233,18 @@ public static class CodeGenerator
         }
         if (m.ParamTypes.Length > 0)
         {
-            foreach (var part in SplitTopLevel(m.ParamTypes))
+            var parts = SplitTopLevel(m.ParamTypes).ToArray();
+            for (var pi = 0; pi < parts.Length && slot < map.Length; pi++)
             {
-                if (slot >= map.Length) break;
-                var pk = part.Trim();
+                var pk = parts[pi].Trim();
+                // P-G3: a BYREF-wrapped generic parameter (`ref T` / `out T`)
+                // of a shared method is the byref object slot (Il2CppObject**)
+                // -- an ADDRESS in the C++ ABI (same as B:V:/B:r:/P:).
+                if (m.ParamIsByrefVar is { } pibv && pi < pibv.Length && pibv[pi] && _curMethodShare)
+                {
+                    map[slot++] = true;
+                    continue;
+                }
                 map[slot++] = pk.StartsWith("B:V:", StringComparison.Ordinal)
                     || pk.StartsWith("B:r:", StringComparison.Ordinal)
                     || pk.StartsWith("P:", StringComparison.Ordinal);
@@ -9089,6 +9276,19 @@ public static class CodeGenerator
             var parts = SplitTopLevel(m.ParamTypes).ToArray();
             for (var i = 0; i < parts.Length; i++)
             {
+                // P-G3 (method-level shared ABI): a BYREF-wrapped generic
+                // parameter (`ref T` / `out T` -- "B:i") of a SHARED
+                // implementation is the byref OBJECT slot: Il2CppObject** (a
+                // slot holding the BOXED T object). The shared body's ldobj/
+                // stobj on it read/write an Il2CppObject* through the pointer;
+                // the call side passes the address of a boxed bridge temp
+                // (value T) or the reference slot itself (reference T).
+                if (m.ParamIsByrefVar is { } pibv && i < pibv.Length && pibv[i]
+                    && _curMethodShare)
+                {
+                    types.Add("Il2CppObject**");
+                    continue;
+                }
                 // R2b P2: a VAR parameter in a reference instantiation is the
                 // managed reference (Il2CppObject*); definitions and int
                 // instantiations keep the raw int32 slot.

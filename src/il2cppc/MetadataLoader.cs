@@ -150,7 +150,7 @@ public static class MetadataLoader
                 var (paramCount, returnType, paramTypes, returnTypeName) = MethodSignatureCoder.Decode(md, mdInfo.Signature);
                 // R2b P2: parallel VAR channel (0x13/0x1E positions) -- the raw
                 // encodings above stay untouched (hash contract).
-                var (returnIsVar, paramIsVars) = MethodSignatureCoder.DecodeVarFlags(md, mdInfo.Signature);
+                var (returnIsVar, paramIsVars, paramIsByrefVars) = MethodSignatureCoder.DecodeVarFlags(md, mdInfo.Signature);
                 var attrs = mdInfo.Attributes;
                 // P/Invoke (M4 Task 1): the ImplMap entry names the native
                 // library + imported symbol ([DllImport] in source).
@@ -195,6 +195,7 @@ public static class MetadataLoader
                     // R2b P2: parallel VAR channel for closed clones.
                     ParamIsVar = paramIsVars,
                     ReturnIsVar = returnIsVar,
+                    ParamIsByrefVar = paramIsByrefVars,
                 });
             }
 

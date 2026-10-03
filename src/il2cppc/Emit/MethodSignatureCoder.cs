@@ -82,8 +82,13 @@ public static class MethodSignatureCoder
     /// drift); a closed generic clone consumes THESE flags to render T as its
     /// concrete C++ type (Il2CppObject* for reference instantiations) without
     /// touching the hash input.
+    /// P-G3 (ParamIsByrefVar): a BYREF-wrapped generic parameter (0x10 BYREF +
+    /// 0x13/0x1E -- `ref T` / `out T`) is the byref object slot (Il2CppObject**
+    /// in the shared object ABI) -- the third channel the definition-side
+    /// emitter consumes to declare the byref T parameters. A by-value VAR/MVAR
+    /// is NOT byref-VAR.
     /// </summary>
-    public static (bool ReturnIsVar, bool[] ParamIsVar) DecodeVarFlags(MetadataReader md, BlobHandle sigHandle)
+    public static (bool ReturnIsVar, bool[] ParamIsVar, bool[] ParamIsByrefVar) DecodeVarFlags(MetadataReader md, BlobHandle sigHandle)
     {
         var sig = md.GetBlobReader(sigHandle);
         var header = sig.ReadSignatureHeader();
@@ -93,13 +98,24 @@ public static class MethodSignatureCoder
         var returnIsVar = returnByte is 0x13 or 0x1E;
         ConsumeVarSigType(md, ref sig, returnByte);
         var flags = new bool[paramCount];
+        var byrefFlags = new bool[paramCount];
         for (var i = 0; i < paramCount; i++)
         {
             var b = SkipCustomModifiers(ref sig, sig.ReadByte());
-            flags[i] = b is 0x13 or 0x1E;
-            ConsumeVarSigType(md, ref sig, b);
+            if (b == 0x10) // BYREF wrapper: the POINTEE decides the slot
+            {
+                var pointee = SkipCustomModifiers(ref sig, sig.ReadByte());
+                flags[i] = pointee is 0x13 or 0x1E;
+                byrefFlags[i] = pointee is 0x13 or 0x1E;
+                ConsumeVarSigType(md, ref sig, pointee);
+            }
+            else
+            {
+                flags[i] = b is 0x13 or 0x1E;
+                ConsumeVarSigType(md, ref sig, b);
+            }
         }
-        return (returnIsVar, flags);
+        return (returnIsVar, flags, byrefFlags);
     }
 
     // Consume one signature type byte plus its trailing payload (the minimal
