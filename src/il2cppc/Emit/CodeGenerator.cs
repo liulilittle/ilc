@@ -6934,8 +6934,23 @@ default: return false;                           // primitives/VAR(handled by ca
     {
         if (m.ReturnType is SignatureTypeCode.IntPtr) return "intptr_t";
         if (m.ReturnType is SignatureTypeCode.UIntPtr) return "uintptr_t";
+        // P-D1 P0-1 (full-width returns): int64/double/float/uint64 DllImport
+        // returns were silently declared int32_t (a double return read EAX,
+        // a long return sign-extended the truncated EAX -- both P-D1 audits
+        // §4). The result TEMP is already sized by StackFold's
+        // UserCallResultKind ("l"/"d"/"ptr"), so only the extern "C"
+        // declaration must name the native return width -- the C++ compiler
+        // then reads the correctly-typed return register/converts the SDL.
+        if (m.ReturnType is SignatureTypeCode.Int64) return "int64_t";
+        if (m.ReturnType is SignatureTypeCode.UInt64) return "uint64_t";
+        if (m.ReturnType is SignatureTypeCode.Single) return "float";
+        if (m.ReturnType is SignatureTypeCode.Double) return "double";
         var structRet = PinvokeReturnStructName(md, m);
         if (structRet != null) return structRet;
+        // Small native-int-family remains int32_t (the CLR expands BOOL/short/
+        // byte/char P/Invoke slots to 4-byte native ints). A STRING-typed
+        // return (native char* -> managed string) still collapses here too --
+        // out of P0 scope, recorded as a P2 future item.
         return "int32_t";
     }
 
@@ -7014,7 +7029,41 @@ default: return false;                           // primitives/VAR(handled by ca
             // wf2 (winforms1): CharSet.Unicode P/Invoke string param -> UTF-16
             // (const char16_t*), else UTF-8 (const char*).
             if (p == "r:System.String") return utf16PInvoke ? "const char16_t*" : "const char*";
-            return p == "n" ? "intptr_t" : "int32_t";
+            // P-D1 P0: the marshalling type matrix is COMPLETE -- every branch
+            // is either a real native type or a LOUD rejection (never the old
+            // flat int32_t fallback). The CLR expands the narrow scalar
+            // family (bool/char/sbyte/byte/short/ushort/typedref) to 4-byte
+            // native int slots; native-int stays intptr_t.
+            // P-D1 P0-1 (full-width scalars): int64/uint64/double/float params
+            // were silently declared int32_t and truncated by the
+            // il2cpp_pinvoke_arg bridge (static_cast to the int32_t decl) --
+            // both P-D1 audits §4. They now declare their real width; the
+            // call-site arg bridge (EmitIcallCallArgs + PinvokeArgBridge)
+            // deduces the native type and converts the managed slot.
+            return p switch
+            {
+                "l" => "int64_t",
+                "q" => "uint64_t",
+                "f" => "float",
+                "d" => "double",
+                "n" => "intptr_t",
+                "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" or "tr" => "int32_t",
+                // P-D1 P0-2 (delegate-typed DllImport params): a delegate (or
+                // any other reference-typed / fnptr / pointer / byref) param
+                // is LOUDLY rejected -- the old fallback emitted int32_t for
+                // an Il2CppObject* delegate (silent compile + runtime crash;
+                // delegatecb.cs:19-27 claims this rejection but no code
+                // existed). fnptr (F:) and pointer (P:) params are the P-D3
+                // work items; they must not silently downgrade either.
+                var r when r.StartsWith("r:", StringComparison.Ordinal)
+                    || r.StartsWith("F:", StringComparison.Ordinal)
+                    || r.StartsWith("P:", StringComparison.Ordinal)
+                    || r.StartsWith("B:", StringComparison.Ordinal) =>
+                    throw new NotSupportedException(
+                        $"P/Invoke parameter type '{r}' on {m.Name} is not supported: reference-typed (delegate/array/object), fnptr, pointer and by-ref DllImport parameters are LOUDLY rejected (no marshalling bridge exists -- P-D3 wires fnptr)"),
+                var other => throw new NotSupportedException(
+                    $"P/Invoke parameter encoding '{other}' on {m.Name} is not supported"),
+            };
         }));
     }
 

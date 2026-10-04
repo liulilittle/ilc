@@ -1321,6 +1321,77 @@ public class CodeGeneratorTests
     }
 
     //--------------------------------------------------------------------------
+    // P-D1 P0-1 (full-width P/Invoke marshalling matrix): int64/double/float/
+    // uint64 DllImport params and returns must declare their REAL native
+    // widths. PinvokeParamList/PinvokeReturnTypeCpp used to collapse every
+    // non-IntPtr/non-struct type to int32_t -- a long param was truncated at
+    // the call site and a double return read EAX (silent ABI corruption, both
+    // P-D1 audit reports §4). Fixture: the real pinvokewide case exe.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_PinvokeWideTypes_DeclareFullWidth()
+    {
+        var exe = CaseExePath("pinvokewide");
+        var types = MetadataLoader.LoadAssembly(exe);
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CodeGenerator.Generate(types, dir, exe);
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_PinvokeWide.cpp"));
+            // extern "C" decls: the native ABI contract for each width
+            Assert.Contains("extern \"C\" int64_t add_longs(int64_t, int64_t);", cpp);
+            Assert.Contains("extern \"C\" double add_doubles(double, double);", cpp);
+            Assert.Contains("extern \"C\" float scale_float(float);", cpp);
+            Assert.Contains("extern \"C\" uint64_t sum_ulongs(uint64_t, uint64_t);", cpp);
+            // never the silent int32_t downgrade
+            Assert.DoesNotContain("extern \"C\" int32_t add_longs", cpp);
+            Assert.DoesNotContain("extern \"C\" int32_t add_doubles", cpp);
+            Assert.DoesNotContain("extern \"C\" int32_t scale_float", cpp);
+            Assert.DoesNotContain("extern \"C\" int32_t sum_ulongs", cpp);
+            // the native-ABI arg bridge stays active at the call sites (the
+            // templated conversion now deduces the full-width native type)
+            Assert.Contains("add_longs(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            Assert.Contains("add_doubles(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            Assert.Contains("scale_float(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            Assert.Contains("sum_ulongs(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            // the header carries the same full-width decls (other TUs call)
+            var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
+            Assert.Contains("extern \"C\" int64_t add_longs(int64_t, int64_t);", header);
+            Assert.Contains("extern \"C\" double add_doubles(double, double);", header);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D1 P0-2 (delegate-typed DllImport parameter): a delegate (or any other
+    // reference-typed) DllImport parameter must be LOUDLY REJECTED at
+    // transpile time -- the old path emitted `extern "C" int32_t
+    // call_with_delegate(int32_t, int32_t)` for an Il2CppObject* delegate
+    // (silent compile + runtime crash; delegatecb.cs:19-27 claimed the reject
+    // but no code existed). Fixture: tests/fixtures/pinvokedelegate.dll --
+    // deliberately NOT a tests/cases e2e case, because its transpile is
+    // EXPECTED to fail.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_PinvokeDelegateParam_LoudlyRejected()
+    {
+        var types = MetadataLoader.LoadAssembly(FixturePath("pinvokedelegate"));
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var ex = Assert.Throws<NotSupportedException>(() => CodeGenerator.Generate(types, dir, FixturePath("pinvokedelegate")));
+            Assert.Contains("call_with_delegate", ex.Message);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
     // P0-1/P0-2 wiring regression: the Normalize pass runs between StackFold and
     // EmitBody -- the generated shapes of methods WITHOUT identity candidates
     // must be byte-identical to the pre-Normalize output.
