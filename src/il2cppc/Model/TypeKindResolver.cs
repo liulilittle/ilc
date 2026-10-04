@@ -87,6 +87,7 @@ public static class TypeKindResolver
             Ir.CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "ptr" or "ip4" or "dto" or "bi" => c.ResultKind,
             Ir.CallExpr c when c.ReturnsRef => "ref",
             Ir.VirtualCallExpr v when v.ReturnsRef => "ref",
+            Ir.DelegateInvokeExpr d when d.ResultKind is "l" or "d" or "float" => d.ResultKind,
             Ir.DelegateInvokeExpr d when d.ReturnsRef => "ref",
             Ir.FieldExpr f when f.IsRefField => "ref",
             Ir.StaticFieldExpr sf => StaticFieldExprKind(sf.FieldName),

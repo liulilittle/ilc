@@ -4757,6 +4757,12 @@ public static class CodeGenerator
         CallExpr c when c.ResultKind?.StartsWith("us:", StringComparison.Ordinal) == true => c.ResultKind["us:".Length..],
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
+        // P2-HARDEN #3: a delegate Invoke returning long/double/float carries
+        // ResultKind ("l"/"d"/"float") -- the full-width P-D2 #1 helper result
+        // lands on a COMPILER temp (branch-merge join slots etc.); without
+        // this arm the temp fell through to "val" and the int64_t/double/float
+        // helper result was truncated into an int32_t slot.
+        DelegateInvokeExpr d when d.ResultKind is "l" or "d" or "float" => d.ResultKind,
         DelegateInvokeExpr d when d.ReturnsRef => "ref",
         FieldExpr f when f.IsRefField => "ref",
         LocExpr l when locKind.TryGetValue(l.Name, out var k) => k,
@@ -6109,7 +6115,7 @@ default: return false;                           // primitives/VAR(handled by ca
                 case DelegateInvokeExpr d:
                 {
                     var changed = false;
-                    var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+                    var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
                     for (var i = 0; i < d.Args.Count; i++)
                     {
                         var na = Rewrite(d.Args[i]);

@@ -344,6 +344,30 @@ public class MethodMapMarshalTests
     }
 
     //--------------------------------------------------------------------------
+    // P2-HARDEN #2: a NON-delegate class that happens to declare an Invoke
+    // method must NOT be classified as a GFPD delegate (the old
+    // ResolveDelegateGfpSignature matched on "full name + has Invoke" only).
+    // A non-MulticastDelegate-derived class used as the GFPD generic argument
+    // would otherwise resolve to a GfpS dispatcher and the runtime would
+    // flatten a non-delegate object's garbage as invocation-list leaves.
+    // The base-chain check (System.MulticastDelegate / System.Delegate) makes
+    // it fall through to the conservative icall_delegate_get_fn_ptr baseline
+    // instead (defensive hardening; zero corpus hits).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Marshal_GetFunctionPointerForDelegate_NonDelegateWithInvoke_FallsThroughToGetFnPtr()
+    {
+        using var reader = new PEReader(SynthesizeDelegateGfpNonDelegate());
+        var md = reader.GetMetadataReader();
+        var token = MetadataTokens.GetToken(MetadataTokens.MethodSpecificationHandle(1));
+        var m = MethodRefResolver.Resolve(md, token, Array.Empty<TypeDef>(), null, false, "Cases.Fake");
+
+        Assert.Equal("il2cpp::runtime::icall_delegate_get_fn_ptr", m.CppName);
+        Assert.Equal("ptr", m.ResultKind);
+        Assert.DoesNotContain("il2cpp_delegate_gfp_", m.CppName);
+    }
+
+    //--------------------------------------------------------------------------
     // P-D2 #3: GetDelegateForFunctionPointer<T>(IntPtr) -- the generic
     // MethodSpec form wraps a native function pointer into a single-cast
     // delegate of type T (net48: the returned delegate.Invoke() is a direct
@@ -840,6 +864,38 @@ public class MethodMapMarshalTests
             mdb.GetOrAddBlob(MemberRefSig(Ret(0x13, 0x00), VarParam())));
         mdb.AddMethodSpecification(memberRef,
             mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, 0x12, (byte)(MetadataTokens.GetRowNumber(cb) << 2) }));
+        return Serialize(mdb);
+    }
+
+    // P2-HARDEN #2: a synthetic PE with a NON-delegate TypeDef (Cases.Fake --
+    // System.Object base, but with an Invoke MethodDef the OLD name+Invoke
+    // heuristic would match) + the GetFunctionPointerForDelegate<T> MethodSpec
+    // instantiated at Cases.Fake.
+    private static MemoryStream SynthesizeDelegateGfpNonDelegate()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var objRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        // Cases.Fake : System.Object with a long Invoke(long) -- NOT a
+        // MulticastDelegate subclass.
+        var invoke = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            mdb.GetOrAddString("Invoke"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x01, 0x0A, 0x0A }),
+            0, default(ParameterHandle));
+        var fake = mdb.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Fake"), objRef, default, invoke);
+        var marshalRef = mdb.AddTypeReference(asmRef,
+            mdb.GetOrAddString("System.Runtime.InteropServices"), mdb.GetOrAddString("Marshal"));
+        var memberRef = mdb.AddMemberReference(marshalRef, mdb.GetOrAddString("GetFunctionPointerForDelegate"),
+            mdb.GetOrAddBlob(MemberRefSig(Ret(0x13, 0x00), VarParam())));
+        mdb.AddMethodSpecification(memberRef,
+            mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, 0x12, (byte)(MetadataTokens.GetRowNumber(fake) << 2) }));
         return Serialize(mdb);
     }
 

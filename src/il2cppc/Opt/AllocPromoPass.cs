@@ -415,7 +415,7 @@ public static class AllocPromoPass
                 foreach (var a in v.Args) nv.Args.Add(RewriteExpr(a, alias, root));
                 return nv;
             case DelegateInvokeExpr d:
-                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
                 foreach (var a in d.Args) nd.Args.Add(RewriteExpr(a, alias, root));
                 return nd;
             case DelegateNewExpr dn:

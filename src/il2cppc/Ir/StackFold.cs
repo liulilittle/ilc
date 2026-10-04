@@ -2866,7 +2866,13 @@ public static class StackFold
                     var invoke = new DelegateInvokeExpr
                     {
                         MethodToken = (int)ins.Operand,
-                        ReturnsRef = resolved?.ReturnsRef ?? false
+                        ReturnsRef = resolved?.ReturnsRef ?? false,
+                        // P2-HARDEN #3: carry the Invoke RETURN width so a
+                        // result landing on a compiler temp (branch-merge join
+                        // slots) is declared wide (int64_t/double/float) -- the
+                        // full-width P-D2 #1 helper result must not truncate to
+                        // an int32_t slot.
+                        ResultKind = DelegateInvokeResultKind(md, (int)ins.Operand),
                     };
                     invoke.Args.AddRange(args);
                     if (resolved == null || resolved.ReturnsValue)
@@ -5088,6 +5094,101 @@ public static class StackFold
         // full-width raw function pointer (the old null collapsed to int32_t,
         // truncating the x64 address before the calli could cast it).
         return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : ret is 0x1B ? "p" : null;
+    }
+
+    // P2-HARDEN #3: the RESULT WIDTH of a delegate Invoke call (the
+    // DelegateInvokeExpr ResultKind channel). The P-D2 #1 multicast helper /
+    // ref-ABI icall returns the full-width leaf type; a result stored on a
+    // COMPILER temp must be declared that width. Decodes the Invoke signature's
+    // return element type: I8/U8 -> "l", R8 -> "d", R4 -> "float" (the helper
+    // returns float for a float delegate, not double). null = int32-family.
+    // BCL generic delegates (Func`N<...>) carry a VAR/MVAR return substituted
+    // through the parent TypeSpec's generic args.
+    static string? DelegateInvokeResultKind(MetadataReader? md, int token)
+    {
+        if (md == null) return null;
+        var handle = MetadataTokens.Handle(token);
+        BlobHandle sigHandle;
+        var genArgs = Array.Empty<byte>();
+        if (handle.Kind == HandleKind.MethodDefinition)
+        {
+            sigHandle = md.GetMethodDefinition((MethodDefinitionHandle)handle).Signature;
+        }
+        else if (handle.Kind == HandleKind.MemberReference)
+        {
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            sigHandle = mr.Signature;
+            if (mr.Parent.Kind == HandleKind.TypeSpecification)
+                genArgs = DelegateInvokeTypeSpecGenBytes(md, (TypeSpecificationHandle)mr.Parent);
+        }
+        else
+        {
+            return null; // MethodSpec etc.: int32 default
+        }
+        var sig = md.GetBlobReader(sigHandle);
+        var header = sig.ReadSignatureHeader();
+        if (header.IsGeneric) _ = sig.ReadCompressedInteger(); // generic param count
+        _ = sig.ReadCompressedInteger();                       // param count
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        if (ret is 0x13 or 0x1E) // VAR/MVAR: resolve through the TypeSpec genargs
+        {
+            var idx = sig.ReadCompressedInteger();
+            if (idx < genArgs.Length) ret = genArgs[idx];
+        }
+        return ret is 0x0A or 0x0B ? "l" : ret is 0x0D ? "d" : ret is 0x0C ? "float" : null;
+    }
+
+    // P2-HARDEN #3: read a generic delegate TypeSpec's instantiation args as
+    // their LEADING type bytes (mirrors CodeGenerator.DelegateTypeSpecGenericArgs
+    // -- the width mapping only needs the element byte).
+    static byte[] DelegateInvokeTypeSpecGenBytes(MetadataReader md, TypeSpecificationHandle handle)
+    {
+        var spec = md.GetTypeSpecification(handle);
+        var sig = md.GetBlobReader(spec.Signature);
+        if (sig.ReadByte() != 0x15) return Array.Empty<byte>();
+        sig.ReadByte(); // CLASS/VALUETYPE marker
+        _ = sig.ReadTypeHandle();
+        var count = sig.ReadCompressedInteger();
+        var args = new byte[count];
+        for (var i = 0; i < count; ++i)
+            args[i] = ConsumeDelegateTypeLead(md, ref sig);
+        return args;
+    }
+
+    // P2-HARDEN #3: consume one type byte + trailing payload; return the
+    // leading byte (mirrors CodeGenerator.ConsumeDelegateTypeByte).
+    static byte ConsumeDelegateTypeLead(MetadataReader md, ref BlobReader sig)
+    {
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        switch (b)
+        {
+            case 0x10: return ConsumeDelegateTypeLead(md, ref sig); // BYREF
+            case 0x11 or 0x12 or 0x40: _ = sig.ReadTypeHandle(); break;
+            case 0x1D or 0x1F: _ = ConsumeDelegateTypeLead(md, ref sig); break; // SZARRAY element
+            case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); break;          // VAR/MVAR index
+            case 0x15:                                                        // GenericInst
+                sig.ReadByte();
+                _ = sig.ReadTypeHandle();
+                var n = sig.ReadCompressedInteger();
+                for (var i = 0; i < n; i++) _ = ConsumeDelegateTypeLead(md, ref sig);
+                break;
+            case 0x14:                                                        // multidim ARRAY
+                _ = ConsumeDelegateTypeLead(md, ref sig);
+                _ = sig.ReadCompressedInteger(); // rank
+                var sizes = sig.ReadCompressedInteger();
+                for (var i = 0; i < sizes; i++) _ = sig.ReadCompressedInteger();
+                var lob = sig.ReadCompressedInteger();
+                for (var i = 0; i < lob; i++) _ = sig.ReadCompressedInteger();
+                break;
+            case 0x0F: _ = ConsumeDelegateTypeLead(md, ref sig); break;        // PTR pointee
+            case 0x1B:                                                        // FNPTR
+                sig.ReadByte(); // calling convention
+                var nf = sig.ReadCompressedInteger();
+                _ = ConsumeDelegateTypeLead(md, ref sig); // return type
+                for (var i = 0; i < nf; i++) _ = ConsumeDelegateTypeLead(md, ref sig);
+                break;
+        }
+        return b;
     }
 
     // P-G3: whether the method token's DECLARING generic definition is in the

@@ -391,7 +391,14 @@ foreach ($caseDir in $caseDirs) {
     } else {
         cmake -S $gen -B $buildDir -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
-        cmake --build $buildDir --config Release | Out-Null
+        # P2-HARDEN #4: g++ strict-aliasing warnings (interlocked.cpp etc.) go to
+        # STDERR; under PS 5.1 + $ErrorActionPreference=Stop they surface as
+        # NativeCommandError and abort the whole run (manual cmake was fine).
+        # Route the build stderr to nul (cmd /c carries the exit code through
+        # $LASTEXITCODE; Out-Null alone still lets the host turn stderr into an
+        # error record). Diagnostics: warnings remain visible in a plain console
+        # cmake; this only suppresses them on the harness pipeline.
+        cmd /c "cmake --build `"$buildDir`" --config Release 2>nul"
         if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
         Deploy-NativeLibs $buildDir
         $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd

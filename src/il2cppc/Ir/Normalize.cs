@@ -261,7 +261,7 @@ public static class Normalize
             }
             case DelegateInvokeExpr d:
             {
-                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
                 foreach (var a in d.Args) nd.Args.Add(StrengthReduce(a));
                 return nd;
             }
@@ -415,7 +415,7 @@ public static class Normalize
             }
             case DelegateInvokeExpr d:
             {
-                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
                 foreach (var a in d.Args) nd.Args.Add(Rewrite(a, knownNonNull));
                 return nd;
             }

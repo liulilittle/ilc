@@ -3,6 +3,7 @@ using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Il;
 using Il2Cpp.Transpiler.Ir;
 using Il2Cpp.Transpiler.Model;
+using Il2Cpp.Transpiler.Opt;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -513,6 +514,34 @@ public class FnPtrTests
             : default(StandaloneSignatureHandle);
         var result = MethodSignatureCoder.DecodeStandalone(md, md.GetStandaloneSignature(handle).Signature);
         return (result.CallingConvention, result.HasThis, result.ParamCount, result.ReturnType, result.ParamTypes);
+    }
+
+    //--------------------------------------------------------------------------
+    // P2-HARDEN #1: TempSlotPass classification of a fnptr void* call result
+    // (ResultKind "p" -- calli / fnptr DllImport returns). A "p" result stored
+    // in a temp MUST classify "p" (void* slot), never fall through to "val":
+    // a "val" classification would make the temp an eligible int32 candidate
+    // and MERGE it with a disjoint int32 temp -- the emitter then declares the
+    // shared slot int32_t while storing a full-width void* (x64 truncation /
+    // C++ LOUD). "p" is not in EligibleKinds, so the classified temp is
+    // excluded from sharing (the dec/ip4/bi/dto precedent).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void TempSlotPass_FnPtrResultKindTemp_Excluded()
+    {
+        var stmts = new List<Stmt>
+        {
+            new AssignStmt { Target = "t0", Value = new CallExpr { Function = "fnptrcall", ResultKind = "p" } },
+            new ExprStmt { Value = new LocExpr { Name = "t0" } },
+            new AssignStmt { Target = "t1", Value = new CallExpr { Function = "f1" } },
+            new ExprStmt { Value = new LocExpr { Name = "t1" } },
+        };
+
+        var result = TempSlotPass.Rename(stmts);
+
+        Assert.Equal(2, result.SlotsAfter);
+        Assert.Equal("t0", Assert.IsType<AssignStmt>(result.Stmts[0]).Target);
+        Assert.Equal("t1", Assert.IsType<AssignStmt>(result.Stmts[2]).Target);
     }
 
     private static void LdFtn(InstructionEncoder e, int token)

@@ -198,6 +198,13 @@ public sealed class DelegateInvokeExpr : Expr
 {
     public required int MethodToken { get; init; }
     public required bool ReturnsRef { get; init; }
+    // P2-HARDEN #3: the delegate Invoke RETURN width. The P-D2 #1 multicast
+    // helper / ref-ABI icalls return the full-width leaf type (int64_t /
+    // double / float); a result landing on a COMPILER temp (branch-merge join
+    // slots etc.) must declare that width -- without it, ExprKind/TempSlotPass
+    // classify the temp "val" and truncate the widened helper result to
+    // int32_t. "l" / "d" / "float" are set by the fold; null = int32-family.
+    public string? ResultKind { get; init; }
     public List<Expr> Args { get; } = new();
 }
 
@@ -309,7 +316,7 @@ public static partial class IrNode
         UnaryExpr u => $"({(u.Op == UnaryOp.Neg ? "-" : "~")}{SerializeExpr(u.Operand)})",
         CallExpr c => SerializeCall("Call", c.Function, c.ReturnsRef, c.ResultKind, c.Resolved, c.StringArgIndices, c.SetLastError, c.Args),
         VirtualCallExpr v => $"VirtualCall({v.MethodToken}, {Args(v.Args)}){(v.ReturnsRef ? "@ref" : "")}",
-        DelegateInvokeExpr d => $"DelegateInvoke({d.MethodToken}, {Args(d.Args)}){(d.ReturnsRef ? "@ref" : "")}",
+        DelegateInvokeExpr d => $"DelegateInvoke({d.MethodToken}, {Args(d.Args)}){(d.ReturnsRef ? "@ref" : "")}{(d.ResultKind != null ? $" :{d.ResultKind}" : "")}",
         DelegateNewExpr dn => $"DelegateNew({dn.MethodToken}, {SerializeExpr(dn.Target)})",
         MarshalUtf8Expr m => $"MarshalUtf8({SerializeExpr(m.Arg)}){(m.Utf16 ? "@u16" : "")}",
         FieldExpr f => $"Field({SerializeExpr(f.Object)}, {f.OwnerFullName}.{f.FieldCppName}){(f.IsRefField ? "@ref" : "")}{(f.IsValueTypeObject ? "{vt}" : "")}",
@@ -453,7 +460,7 @@ public static partial class IrNode
 
     private static DelegateInvokeExpr CloneDelegate(DelegateInvokeExpr d)
     {
-        var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+        var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
         foreach (var a in d.Args) nd.Args.Add(CloneExpr(a));
         return nd;
     }

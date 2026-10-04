@@ -845,7 +845,7 @@ public static class InlinePass
                 }
                 if (dPrelude.Count > 0 || dInlined > 0)
                 {
-                    newE = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+                    newE = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
                     ((DelegateInvokeExpr)newE).Args.AddRange(dArgs);
                     prelude = dPrelude;
                     expInlined = dInlined;
@@ -971,7 +971,7 @@ public static class InlinePass
         Dictionary<string, string> argMap, Dictionary<string, string> locMap,
         HashSet<string> usedNames, ref int freshId)
     {
-        var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+        var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
         foreach (var a in d.Args) nd.Args.Add(RewriteExpr(a, argMap, locMap, usedNames, ref freshId));
         return nd;
     }

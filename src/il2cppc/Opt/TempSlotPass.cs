@@ -254,10 +254,21 @@ public static class TempSlotPass
             // here (CodeGenerator.cs ExprKind lists them) -- a decimal temp
             // classified "val" shared an int32 slot and the 16-byte
             // icall_decimal_* write overran it.
+            // P2-HARDEN #1 (fnptr domain b23): "p" was missing too -- a fnptr
+            // void* call result (calli / fnptr DllImport return) classified
+            // "val" became an eligible int32 candidate and could share an
+            // int32 slot while storing a full-width pointer. "p" stays out of
+            // EligibleKinds, so the classified temp is never merged and the
+            // emitter declares it void*.
             CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "ptr"
-                or "dec" or "ip4" or "bi" or "dto" => c.ResultKind,
+                or "dec" or "ip4" or "bi" or "dto" or "p" => c.ResultKind,
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
+        // P2-HARDEN #3: a delegate Invoke returning long/double/float carries
+        // ResultKind ("l"/"d"/"float") -- a width-classified temp must not fall
+        // to "val" and share an int32 slot with an int64/double/full-width
+        // store (the same conflation the dec/ip4 "p" arms close for icalls).
+        DelegateInvokeExpr d when d.ResultKind is "l" or "d" or "float" => d.ResultKind,
         DelegateInvokeExpr d when d.ReturnsRef => "ref",
         FieldExpr f when f.IsRefField => "ref",
         LocExpr l when locKind.TryGetValue(l.Name, out var k) => k,
@@ -384,7 +395,7 @@ public static class TempSlotPass
                 foreach (var a in v.Args) nv.Args.Add(RewriteExpr(a, rename));
                 return nv;
             case DelegateInvokeExpr d:
-                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
                 foreach (var a in d.Args) nd.Args.Add(RewriteExpr(a, rename));
                 return nd;
             case MarshalUtf8Expr m:

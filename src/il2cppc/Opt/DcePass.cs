@@ -588,7 +588,7 @@ public static class DcePass
                 foreach (var a in v.Args) nv.Args.Add(ReplaceLoc(a, name, value));
                 return nv;
             case DelegateInvokeExpr d:
-                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef };
+                var nd = new DelegateInvokeExpr { MethodToken = d.MethodToken, ReturnsRef = d.ReturnsRef, ResultKind = d.ResultKind };
                 foreach (var a in d.Args) nd.Args.Add(ReplaceLoc(a, name, value));
                 return nd;
             case DelegateNewExpr dn:

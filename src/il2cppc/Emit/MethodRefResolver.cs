@@ -2098,6 +2098,14 @@ var userRecvLike = receiverType ?? arg0Type;
         foreach (var th in md.TypeDefinitions)
         {
             if (md.GetFullName(th) != delegateTypeName) continue;
+            // P2-HARDEN #2: the type must be a REAL delegate -- its base chain
+            // reaches System.MulticastDelegate / System.Delegate. The old
+            // name+Invoke heuristic misclassified a non-delegate class that
+            // happens to declare an Invoke method (a GFPD generic argument),
+            // and the runtime would flatten the non-delegate object's garbage
+            // as invocation-list leaves. Corpus had zero such hits -- pure
+            // defensive hardening (mirrors StackFold.IsDelegateType's chain).
+            if (!IsDelegateSubclass(md, th)) return null;
             foreach (var mh in md.GetTypeDefinition(th).GetMethods())
             {
                 var m = md.GetMethodDefinition(mh);
@@ -2120,6 +2128,38 @@ var userRecvLike = receiverType ?? arg0Type;
             return null; // the type is found but has no Invoke method
         }
         return null;
+    }
+
+    // P2-HARDEN #2: whether a TypeDef's base-class chain reaches
+    // System.MulticastDelegate / System.Delegate (the metadata-only mirror of
+    // StackFold.IsDelegateType's model walk -- the resolver has no TypeDef
+    // list here). In-module user bases (HandleKind.TypeDefinition) are walked;
+    // an out-of-module base (BCL / cross-assembly TypeReference) is terminal:
+    // a real custom delegate's DIRECT base is the MulticastDelegate TypeRef,
+    // so a terminal non-MulticastDelegate name (e.g. System.Object) proves it
+    // is not a delegate.
+    private static bool IsDelegateSubclass(MetadataReader md, TypeDefinitionHandle handle)
+    {
+        for (var cur = handle; !cur.IsNil;)
+        {
+            var baseHandle = md.GetTypeDefinition(cur).BaseType;
+            if (baseHandle.IsNil) return false;
+            string? name;
+            TypeDefinitionHandle? next = null;
+            if (baseHandle.Kind == HandleKind.TypeReference)
+                name = md.GetFullName((TypeReferenceHandle)baseHandle);
+            else if (baseHandle.Kind == HandleKind.TypeDefinition)
+            {
+                name = md.GetFullName((TypeDefinitionHandle)baseHandle);
+                next = (TypeDefinitionHandle)baseHandle;
+            }
+            else
+                return false; // TypeSpec base (generic) -- never a delegate
+            if (name == "System.MulticastDelegate" || name == "System.Delegate") return true;
+            if (next == null) return false;
+            cur = next.Value;
+        }
+        return false;
     }
 
     // Return-type -> leaf-ABI C++ (ReturnTypeCpp-equivalent; float RETURN is
