@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -294,6 +295,100 @@ public class MethodMapMarshalTests
         var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "GetFunctionPointerForDelegate", Sig(Ret(0x11, 0x05), 0x1C)), "GetFunctionPointerForDelegate");
 
         Assert.StartsWith("System_Runtime_InteropServices_Marshal_GetFunctionPointerForDelegate_", m.CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D2 #2: GetFunctionPointerForDelegate<T>(T) -- the INSTANCE-binding
+    // signature. The delegate type is resolved from the tracked argument type
+    // (arg0Type) and its Invoke MethodDef signature decoded into the full-width
+    // leaf-ABI C++ types (SAME mapping as the #1 multicast helper cast table).
+    // The resolver registers a per-signature GfpS module (thunks + strong-root
+    // slots + dispatcher -- see GfpModuleDefs) and returns the dispatcher as
+    // the call target: the emitter emits `il2cpp_delegate_gfp_<hash>(d)` and
+    // its void* result rides the IntPtr "ptr" carrier. The dispatcher keeps the
+    // net48 byte-for-byte contract for the static single-cast case (returns the
+    // raw methodPtr -- the icall_delegate_get_fn_ptr path was byte-identical).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Marshal_GetFunctionPointerForDelegate_MethodSpec_MapsToGfpDispatch()
+    {
+        var m = ResolveDelegateGfpMethodSpec(SynthesizeDelegateGfp());
+
+        var hash = SigHash.Hash("int32_t(int32_t)");
+        Assert.Equal("il2cpp_delegate_gfp_" + hash, m.CppName);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.IsInstance);
+        Assert.False(m.ReturnsRef);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "" }, m.ParamTypeNames);
+        Assert.Equal("ptr", m.ResultKind);
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D2 #2 (guard): a delegate signature that CANNOT be resolved from the
+    // input assembly metadata (a BCL generic delegate like Func`N -- absent
+    // from the metadata) falls through to the existing
+    // icall_delegate_get_fn_ptr mapping (the conservative baseline: static
+    // single-cast works, instance-bound stays LOUD at runtime).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Marshal_GetFunctionPointerForDelegate_MethodSpec_UnresolvableSignature_FallsThrough()
+    {
+        using var reader = new PEReader(SynthesizeDelegateGfp());
+        var md = reader.GetMetadataReader();
+        var token = MetadataTokens.GetToken(MetadataTokens.MethodSpecificationHandle(1));
+        var m = MethodRefResolver.Resolve(md, token, Array.Empty<TypeDef>(), null, false, "System.Func`2_System_Int32_System_Int32");
+
+        Assert.Equal("il2cpp::runtime::icall_delegate_get_fn_ptr", m.CppName);
+        Assert.Equal("ptr", m.ResultKind);
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D2 #3: GetDelegateForFunctionPointer<T>(IntPtr) -- the generic
+    // MethodSpec form wraps a native function pointer into a single-cast
+    // delegate of type T (net48: the returned delegate.Invoke() is a direct
+    // native call). The delegate-type ID -- FNV-1a of T's full name, the SAME
+    // SigHash.UInt64Literal stamp DelegateNewExpr applies (StackFold.cs:3541)
+    // -- rides as a trailing literal (AppendLiterals) so Combine/Equals type
+    // checks on GDFFP-created delegates work. The IntPtr arg rides the
+    // intptr_t carrier ("n" cast); the result is the delegate object ("ref"
+    // ResultKind -> Il2CppObject*). The non-generic Type form is NOT wired
+    // (falls through to the generated-name path -- no typeId resolvable).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Marshal_GetDelegateForFunctionPointer_MethodSpec_MapsToFromFnPtrIcall()
+    {
+        // MemberRef signature: T GetDelegateForFunctionPointer<T>(native int).
+        // The MethodSpec generic arg is a CLASS TypeHandle (coded index 0x05 =
+        // TypeRef row 1, the only TypeRef the synthetic PE adds -- the Marshal
+        // owner itself; the resolved name feeds the typeId literal).
+        var m = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Runtime.InteropServices", "Marshal", "GetDelegateForFunctionPointer",
+            MemberRefSig(Ret(0x13, 0x00), new byte[] { 0x18 }), new byte[] { 0x0A, 0x01, 0x12, 0x05 }));
+
+        Assert.Equal("il2cpp::runtime::icall_delegate_from_fn_ptr", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal("ref", m.ResultKind);
+        Assert.Equal(new[] { "n" }, m.ParamTypeNames);
+        Assert.Equal(SigHash.UInt64Literal("System.Runtime.InteropServices.Marshal"), m.AppendLiterals![0]);
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D2 #3 (guard): the NON-generic GetDelegateForFunctionPointer(IntPtr,
+    // Type) form -- the runtime-Type overload left to a later milestone -- must
+    // NOT map (a type object argument is not resolvable to a typeId at
+    // transpile time). The fallthrough to the generated-name path keeps the
+    // existing LOUD contract.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Marshal_GetDelegateForFunctionPointer_NonGenericTypeForm_FallsThrough()
+    {
+        var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "GetDelegateForFunctionPointer",
+            Sig(Ret(0x11, 0x05), 0x18, 0x12, 0x05)), "GetDelegateForFunctionPointer");
+
+        Assert.StartsWith("System_Runtime_InteropServices_Marshal_GetDelegateForFunctionPointer_", m.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -709,6 +804,52 @@ public class MethodMapMarshalTests
     private static byte[] VarParam() => new byte[] { 0x13, 0x00 }; // VAR index 0
 
     private static byte[] GenericSig(byte genericArg) => new byte[] { 0x0A, 0x01, genericArg };
+
+    // P-D2 #2: a synthetic PE with a REAL delegate TypeDef (Cases.Cb --
+    // System.MulticastDelegate base, runtime .ctor(object, native int) +
+    // int32 Invoke(int32)) and one MethodSpec row: the generic
+    // Marshal.GetFunctionPointerForDelegate<T>(T) MemberRef instantiated at
+    // Cases.Cb (TypeDefOrRef coded index = rowId << 2).
+    private static MemoryStream SynthesizeDelegateGfp()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var objRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var mcDelRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("MulticastDelegate"));
+        var ctor = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodImplAttributes.Runtime,
+            mdb.GetOrAddString(".ctor"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x02, 0x01, 0x12, 0x05, 0x1C }),
+            0, default(ParameterHandle));
+        var invoke = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            MethodImplAttributes.Runtime,
+            mdb.GetOrAddString("Invoke"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x01, 0x08, 0x08 }),
+            0, default(ParameterHandle));
+        var cb = mdb.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Cb"), mcDelRef, default, ctor);
+        var marshalRef = mdb.AddTypeReference(asmRef,
+            mdb.GetOrAddString("System.Runtime.InteropServices"), mdb.GetOrAddString("Marshal"));
+        var memberRef = mdb.AddMemberReference(marshalRef, mdb.GetOrAddString("GetFunctionPointerForDelegate"),
+            mdb.GetOrAddBlob(MemberRefSig(Ret(0x13, 0x00), VarParam())));
+        mdb.AddMethodSpecification(memberRef,
+            mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, 0x12, (byte)(MetadataTokens.GetRowNumber(cb) << 2) }));
+        return Serialize(mdb);
+    }
+
+    private static ResolvedMethod ResolveDelegateGfpMethodSpec(MemoryStream pe)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var token = MetadataTokens.GetToken(MetadataTokens.MethodSpecificationHandle(1));
+        return MethodRefResolver.Resolve(md, token, Array.Empty<TypeDef>(), null, false, "Cases.Cb");
+    }
 
     private static MemoryStream Serialize(MetadataBuilder mdb)
     {

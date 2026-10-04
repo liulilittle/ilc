@@ -555,6 +555,25 @@ void* icall_delegate_get_fn_ptr(Il2CppObject* d)
 }
 
 //------------------------------------------------------------------------------
+// P-D2 #3: icall_delegate_from_fn_ptr -- GetDelegateForFunctionPointer<T>
+// (see the header): wrap a native function pointer into a single-cast
+// delegate. Null pointer -> ArgumentNullException; otherwise the delegate is
+// allocated through il2cpp_delegate_new with a null target and the supplied
+// typeId (the transpiler stamps T's FNV-1a type ID so Combine/Equals type
+// checks work -- the SAME stamp a normally-created delegate of T carries).
+// The wrapped delegate's Invoke is a DIRECT native call through methodPtr.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_delegate_from_fn_ptr(intptr_t ptr, uint64_t typeId)
+{
+    if (ptr == 0)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null.\nParameter name: ptr");
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_delegate_new(reinterpret_cast<void*>(ptr), nullptr, typeId));
+}
+
+//------------------------------------------------------------------------------
 // icall_delegate_get_fn_ptr_target -- (methodPtr, target) extraction that
 // ACCEPTS an instance-bound delegate (see the header). Used by the ThreadStart
 // ctor: the target rides back to the caller so the spawned thread can invoke

@@ -221,6 +221,15 @@ Il2CppObject* icall_multicast_invoke_r(Il2CppObject* list);
 // Only a static-method single-cast delegate yields a pointer.
 void* icall_delegate_get_fn_ptr(Il2CppObject* d);
 
+// P-D2 #3: GetDelegateForFunctionPointer<T>(IntPtr) -- wrap a native function
+// pointer into a SINGLE-CAST delegate object (the wrapped delegate's Invoke
+// calls the native function directly -- the methodPtr IS the code address).
+// A null pointer raises an ArgumentNullException; otherwise the delegate is
+// allocated through il2cpp_delegate_new with a null target and the supplied
+// typeId (the transpiler stamps T's FNV-1a type ID so Combine/Equals type
+// checks work). Returns the delegate object (Il2CppObject*).
+Il2CppObject* icall_delegate_from_fn_ptr(intptr_t ptr, uint64_t typeId);
+
 // Delegate -> (methodPtr, target) for the THREADING domain: unlike
 // icall_delegate_get_fn_ptr this ALSO accepts an INSTANCE-method delegate
 // (target != null) -- a spawned Thread's ThreadStart callback may be an

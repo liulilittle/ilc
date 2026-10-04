@@ -1575,6 +1575,23 @@ public static class CodeGenerator
             var bar = def.IndexOf('|');
             generatedHeader.Line($"struct {def[..bar]} {{ {def[(bar + 1)..]}; }};");
         }
+        // P-D2 #1: flush every delegate multicast helper as a FILE-SCOPE inline
+        // definition -- generated.h is included by every .cpp, so any Invoke
+        // call site in ANY method body sees one shared helper (deduped by
+        // signature hash; inline = no ODR across translation units).
+        foreach (var def in DelegateHelperDefs)
+            generatedHeader.Line(def);
+        // P-D2 #2: flush every GfpS instance-binding module (see GfpModuleDefs).
+        // The modules use std::fprintf/std::abort (overflow / invalid-slot loud
+        // abort) -- <cstdio>/<cstdlib> are not guaranteed transitively, emit them
+        // explicitly before the definitions.
+        if (GfpModuleDefs.Count > 0)
+        {
+            generatedHeader.Line("#include <cstdio>");
+            generatedHeader.Line("#include <cstdlib>");
+        }
+        foreach (var def in GfpModuleDefs)
+            generatedHeader.Line(def);
         // Guid.Empty static-field reads: System.Guid has no TypeDef storage,
         // so ldsfld emits the shared file-scope all-zero 16-byte slot (the
         // Guid value representation; "g"-cast receivers take its address).
@@ -3258,6 +3275,27 @@ public static class CodeGenerator
     // scope -- a second method using the same tuple type saw an undefined
     // type (the macro guard only deduped TEXT, not C++ visibility).
     private static readonly SortedSet<string> TupleDefsNeeded = new(StringComparer.Ordinal);
+    // P-D2 #1: delegate multicast helper DEFINITIONS collected during body
+    // emission and flushed FILE-SCOPE into generated.h (inline -- shared by
+    // every translation unit through the generated.h include, deduped by
+    // signature hash, no ODR). One helper per distinct non-4-shape delegate
+    // Invoke signature: flattens the invocation list through the exported
+    // icall_delegate_get_invocation_list and calls every leaf's methodPtr with
+    // the per-leaf static/instance dispatch, returning the LAST result.
+    private static readonly SortedSet<string> DelegateHelperDefs = new(StringComparer.Ordinal);
+    // P-D2 #2: GetFunctionPointerForDelegate instance-binding module
+    // DEFINITIONS collected during resolution and flushed FILE-SCOPE into
+    // generated.h (inline -- see DelegateGfpModuleDef). One module per distinct
+    // delegate Invoke signature: a shared strong-GC-root slot array, one unique
+    // thunk per slot, and the GfpS dispatcher (static single-cast -> raw
+    // methodPtr; instance-bound -> (methodPtr, target) identity slot).
+    internal static readonly SortedSet<string> GfpModuleDefs = new(StringComparer.Ordinal);
+    // P-D2 #2: register a GfpS module (called by the resolver when a
+    // GetFunctionPointerForDelegate call site resolves its delegate signature).
+    internal static void RegisterDelegateGfpModule(string retCpp, string[] paramCpp, string hash)
+    {
+        GfpModuleDefs.Add(DelegateGfpModuleDef(retCpp, paramCpp, hash));
+    }
     // Set when any method body reads System.Guid.Empty (the file-scope
     // il2cpp_guid_empty_bytes definition is flushed with the tuple defs).
     private static bool _guidEmptyNeeded;
@@ -4571,26 +4609,21 @@ public static class CodeGenerator
                          return $"il2cpp::runtime::icall_multicast_invoke_r(({receiverCode}))";
                      }
 
-                     // BUG-1 (batch 172): any OTHER void shape (mixed-param /
-                     // 3+-ref / >4-arg) falls back to raw methodPtr dispatch.
-                     // Single-cast only; multicast of those is a documented gap
-                     // (il2cpp_delegate.h). The i4 / r_void / rr_void paths above
-                     // cover the common multicast ABIs.
-                     if (retCpp == "void")
-                     {
-                         var fnSigLo = string.Join(", ", paramCpp);
-                         var callArgsLo = string.Join(", ", args);
-                         var dLo = $"(reinterpret_cast<Il2CppDelegate*>(il2cpp_null_check(static_cast<Il2CppObject*>({receiverCode}))))";
-                         return $"(({retCpp}(*)({fnSigLo})){dLo}->methodPtr)({callArgsLo})";
-                     }
-                    // Remaining non-void shapes (ref-returning delegates like
-                    // Func<string>, ref-arg int-return like int Invoke(object)):
-                    // keep the direct methodPtr dispatch -- single-cast only,
-                    // the documented gap (il2cpp_delegate.h).
-                    var fnSig = string.Join(", ", paramCpp);
-                    var callArgs3 = string.Join(", ", args);
-                    var d = $"(reinterpret_cast<Il2CppDelegate*>(il2cpp_null_check(static_cast<Il2CppObject*>({receiverCode}))))";
-                    return $"(({retCpp}(*)({fnSig})){d}->methodPtr)({callArgs3})";
+                     // P-D2 #1: ANY OTHER signature routes through the
+                     // per-signature MULTICAST helper (il2cpp_delegate_multicast_*,
+                     // emitted file-scope into generated.h by the DelegateHelperDefs
+                     // flush). This replaces the raw methodPtr dispatch below
+                     // (single-cast only -- multicast read a container's `first`
+                     // field as code -> 0xC0000005) AND fixes the silent int32
+                     // truncation/ABI-tearing the old 2-class decode produced for
+                     // int64/double/float returns & params. The helper flattens the
+                     // invocation list through the exported
+                     // icall_delegate_get_invocation_list and calls every leaf with
+                     // the per-leaf static/instance dispatch, returning the LAST
+                     // result (.NET multicast semantics -- the same per-leaf rule
+                     // the 4 runtime fast-path icalls use).
+                     var helperName = DelegateMulticastHelperName(retCpp, paramCpp);
+                     return $"{helperName}(({receiverCode}){(args.Count > 0 ? ", " + string.Join(", ", args) : "")})";
                 }
             default:
                 throw new NotSupportedException($"IR expression {e.GetType().Name} is not supported by M1 emission");
@@ -6660,6 +6693,20 @@ default: return false;                           // primitives/VAR(handled by ca
         // multicast-capable delegate ever falls through to the raw methodPtr
         // dispatch (which reads a multicast container's `first` field as code
         // -> 0xC0000005).
+        //
+        // P-D2 #1 (delegate signature generalization): the decode is FULL-WIDTH
+        // now. The old 2-class classification (Il2CppObject* vs int32_t)
+        // silently collapsed int64/double/float params AND returns to int32_t,
+        // which (a) routed `Func<long>` / `Func<int,double>` single-cast
+        // delegates onto the i4 multicast icall -- the runtime called the leaf
+        // through an int32_t ABI, reading EAX (int64 return truncated) or
+        // passing a torn int32 slot into an int64/double param -- and (b) left
+        // the leading int64/double shapes uncallable as multicast. The C++ type
+        // of every param/return now matches the leaf method's REAL generated
+        // ABI (ParamTypesCpp / ReturnTypeCpp -- the SAME mapping the #1
+        // multicast helper cast table uses, so the helper and the leaf always
+        // agree). Value-type / fnptr / pointer / TypeHandle / byref shapes
+        // LOUD-reject (the old default->int32_t silently tore them).
         private static (string Ret, string[] Params) DelegateSignature(MetadataReader md, int token)
         {
             // BUG-1: a GENERIC delegate (System.Action<T>, Func<T,U>, ...) has
@@ -6674,30 +6721,41 @@ default: return false;                           // primitives/VAR(handled by ca
                 var mr = md.GetMemberReference((MemberReferenceHandle)handle);
                 if (mr.Parent.Kind == HandleKind.TypeSpecification)
                     return DelegateSignatureGeneric(md, (TypeSpecificationHandle)mr.Parent, mr.Signature);
+                // P-D2 #1: a NON-typeSpec MemberRef Invoke (BCL non-generic --
+                // EventHandler.Invoke(object, EventArgs)) decodes straight from
+                // its signature blob (replaces the Resolve-based 2-class path).
+                return DelegateSignatureBlob(md, mr.Signature, Array.Empty<byte>());
             }
+            if (handle.Kind == HandleKind.MethodDefinition)
+            {
+                // Custom delegate Invoke MethodDef (Roslyn: MethodImplAttributes
+                // Runtime, no IL body -- the transpiler skips emission but must
+                // decode its signature for the routing decision below).
+                var m = md.GetMethodDefinition((MethodDefinitionHandle)handle);
+                return DelegateSignatureBlob(md, m.Signature, Array.Empty<byte>());
+            }
+            throw new NotSupportedException($"delegate Invoke token kind {handle.Kind} not supported in P-D2 #1 signature decode");
+        }
 
-            var resolved = MethodRefResolver.Resolve(md, token, Array.Empty<TypeDef>());
-            var paramCpp = resolved.ParamIsRef.Select(p => p ? "Il2CppObject*" : "int32_t").ToArray();
-            // batch 162 (eventcase): a VOID-returning delegate (EventHandler etc.)
-            // decodes to "void" (ReturnsValue false); ref returns -> Il2CppObject*;
-            // value returns stay int32_t.
-            // FIX-162b (winforms1 crash, regression introduced by 162b): a
-            // void-returning ZERO-ARG delegate (ClickHandler etc.) is
-            // MULTICAST-capable (+= combines chains); with retCpp "void" the i4
-            // multicast route below is skipped and the raw methodPtr dispatch
-            // reads a container's `first` field as code -> 0xC0000005. A
-            // zero-arg void delegate keeps the int32 ABI so it stays on the i4
-            // multicast path (the void return is discarded by the caller's void
-            // context -- the i4 icall's 0..0 return is never consumed).
-            // BUG-1 (batch 172): void-N-int-arg (N<=4, all int32) stays "void"
-            // here but the DelegateInvokeExpr i4 route below accepts it (same
-            // int32 ABI, void return discarded); void-1-ref stays "void" and
-            // routes the new r_void icall; other void shapes LOUD-reject at the
-            // emit site.
-            var retCpp = resolved.ReturnsRef ? "Il2CppObject*"
-                : resolved.ReturnsValue ? "int32_t"
-                : paramCpp.Length == 0 ? "int32_t"
-                : "void";
+        // P-D2 #1: decode a raw delegate Invoke signature blob into the
+        // full-width leaf-ABI C++ types (see DelegateSignature surviving retCpp
+        // contract -- the void + 0-param shape keeps the int32 ABI so the i4
+        // multicast route stays multicast-capable).
+        private static (string Ret, string[] Params) DelegateSignatureBlob(MetadataReader md,
+            BlobHandle sigHandle, byte[] genArgs)
+        {
+            var sig = md.GetBlobReader(sigHandle);
+            var header = sig.ReadSignatureHeader();
+            if (header.IsGeneric) sig.ReadCompressedInteger(); // Invoke is never generic; kept for alignment
+            var paramCount = sig.ReadCompressedInteger();
+            var retCpp = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn: true, out var retIsVoid);
+            var paramCpp = new string[paramCount];
+            for (var i = 0; i < paramCount; ++i)
+                paramCpp[i] = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn: false, out _);
+            // FIX-162b: a void-returning ZERO-ARG delegate stays on the int32
+            // ABI (multicast-capable via the i4 icall; the void return is
+            // discarded by the caller's void context).
+            if (retIsVoid && paramCount == 0) retCpp = "int32_t";
             return (retCpp, paramCpp);
         }
 
@@ -6705,28 +6763,15 @@ default: return false;                           // primitives/VAR(handled by ca
         // carries generic VAR/MVAR params that MUST be substituted with the
         // TypeSpec's instantiation args (Action<string> -> the param is a
         // managed ref; Action<int> -> int32). Decodes the Invoke blob with the
-        // TypeSpec generic args as the substitution table.
+        // TypeSpec generic args as the substitution table. P-D2 #1: the decode
+        // is FULL-WIDTH (the genArgs bytes map to the leaf-ABI C++ types via
+        // ConsumeDelegateSigByte), so `Func<long,int>` / `Func<int,double>`
+        // no longer collapse to int32_t.
         private static (string Ret, string[] Params) DelegateSignatureGeneric(MetadataReader md,
             TypeSpecificationHandle parent, BlobHandle sigHandle)
         {
             var genArgs = DelegateTypeSpecGenericArgs(md, parent);
-            var sig = md.GetBlobReader(sigHandle);
-            var header = sig.ReadSignatureHeader();
-            if (header.IsGeneric) sig.ReadCompressedInteger(); // Invoke is never generic; kept for alignment
-            var paramCount = sig.ReadCompressedInteger();
-            var (retIsRef, retIsVoid) = ConsumeDelegateSigType(md, ref sig, genArgs);
-            var paramRefs = new bool[paramCount];
-            for (var i = 0; i < paramCount; ++i)
-            {
-                var (isRef, _) = ConsumeDelegateSigType(md, ref sig, genArgs);
-                paramRefs[i] = isRef;
-            }
-            var paramCpp = paramRefs.Select(p => p ? "Il2CppObject*" : "int32_t").ToArray();
-            var retCpp = retIsRef ? "Il2CppObject*"
-                : !retIsVoid ? "int32_t"
-                : paramCpp.Length == 0 ? "int32_t"
-                : "void";
-            return (retCpp, paramCpp);
+            return DelegateSignatureBlob(md, sigHandle, genArgs);
         }
 
         // BUG-1: read a generic delegate TypeSpec's instantiation args (the
@@ -6786,59 +6831,281 @@ default: return false;                           // primitives/VAR(handled by ca
             return b;
         }
 
-        // BUG-1: classify one delegate Invoke signature type (return or param)
-        // with generic VAR/MVAR substitution. Returns (isRef, isVoid); the type
-        // byte and its trailing payload are consumed.
-        private static (bool IsRef, bool IsVoid) ConsumeDelegateSigType(MetadataReader md, ref BlobReader sig,
-            byte[] genArgs)
+        // P-D2 #1: decode ONE delegate Invoke signature type (return or param)
+        // with generic VAR/MVAR substitution into the leaf-ABI C++ type the
+        // generated method declares (ParamTypesCpp / ReturnTypeCpp -- the SAME
+        // mapping the #1 multicast helper cast table must use, otherwise the
+        // cast table and the leaf declaration misalign = silent ABI tearing).
+        // The type byte and its trailing payload are consumed. Unsupported
+        // shapes (value types 0x11, fnptr 0x1B, pointers 0x0F, TypeHandle 0x40,
+        // byref 0x10, typedref 0x16) LOUD-reject -- the old default->int32_t
+        // silently tore them.
+        private static string ConsumeDelegateSigFull(MetadataReader md, ref BlobReader sig,
+            byte[] genArgs, bool isReturn, out bool isVoid)
         {
             // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) first.
             var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            isVoid = false;
             switch (b)
             {
-                case 0x01: return (false, true);               // void
-                case 0x10: return ConsumeDelegateSigType(md, ref sig, genArgs); // BYREF
-                case 0x11: _ = sig.ReadTypeHandle(); return (false, false);     // VALUETYPE
-                case 0x12 or 0x40: _ = sig.ReadTypeHandle(); return (true, false);
-                case 0x0E or 0x1C: return (true, false);       // STRING / OBJECT
-                case 0x1D or 0x1F: _ = ConsumeDelegateSigType(md, ref sig, genArgs); return (true, false);
+                case 0x01: isVoid = true; return "void";
+                case 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09:
+                    return "int32_t";                          // bool/char/sbyte/byte/short/ushort/int/uint (int32 slots)
+                case 0x0A or 0x0B: return "int64_t";           // long/ulong
+                case 0x0C:
+                    // FLOAT-ASYMMETRY (P-D2 #1): a float RETURN is float
+                    // (ReturnTypeCpp 0x0C -> float) but a float PARAMETER
+                    // arrives as double (ParamTypesCpp "f" -> double -- the
+                    // leaf's generated parameter declares double). The helper
+                    // cast table must use the same width or the leaf ABI tears.
+                    return isReturn ? "float" : "double";
+                case 0x0D: return "double";
+                case 0x0E: return "Il2CppObject*";             // STRING
+                case 0x12: _ = sig.ReadTypeHandle(); return "Il2CppObject*"; // CLASS
+                case 0x1C: return "Il2CppObject*";             // OBJECT
+                case 0x1D or 0x1F: _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _); return "Il2CppObject*"; // SZARRAY
                 case 0x13 or 0x1E:                            // VAR/MVAR -> instantiation arg
                 {
                     var idx = sig.ReadCompressedInteger();
                     if (idx < genArgs.Length)
-                    {
-                        return genArgs[idx] switch
-                        {
-                            0x0E or 0x12 or 0x14 or 0x15 or 0x1C or 0x1D or 0x1F or 0x40 => (true, false),
-                            0x01 => (false, true),
-                            _ => (false, false),
-                        };
-                    }
-                    return (false, false); // unresolved VAR -> value (M3 T->int convention)
+                        return ConsumeDelegateSigByte(md, genArgs[idx], isReturn, out isVoid);
+                    return "int32_t"; // unresolved VAR -> value (M3 T->int convention)
                 }
                 case 0x15:                                    // GenericInst
-                    sig.ReadByte();
+                {
+                    // The marker byte (0x11 VALUETYPE / 0x12 CLASS) decides:
+                    // a VALUETYPE generic-instantiation is a struct value -- not
+                    // expressible in the helper -- LOUD-reject.
+                    var marker = sig.ReadByte();
                     _ = sig.ReadTypeHandle();
                     var n = sig.ReadCompressedInteger();
-                    for (var i = 0; i < n; i++) _ = ConsumeDelegateSigType(md, ref sig, genArgs);
-                    return (true, false);
+                    for (var i = 0; i < n; i++) _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    if (marker == 0x11)
+                        throw new NotSupportedException("delegate Invoke with a VALUETYPE generic-instantiation parameter/return is not supported: the multicast helper cannot express a struct value");
+                    return "Il2CppObject*";
+                }
                 case 0x14:                                    // multidim ARRAY (ref)
-                    _ = ConsumeDelegateSigType(md, ref sig, genArgs);
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
                     _ = sig.ReadCompressedInteger();
                     var sizes = sig.ReadCompressedInteger();
                     for (var i = 0; i < sizes; i++) _ = sig.ReadCompressedInteger();
                     var lob = sig.ReadCompressedInteger();
                     for (var i = 0; i < lob; i++) _ = sig.ReadCompressedInteger();
-                    return (true, false);
-                case 0x0F: _ = ConsumeDelegateSigType(md, ref sig, genArgs); return (false, false); // PTR
-                case 0x1B:                                    // FNPTR
+                    return "Il2CppObject*";
+                case 0x18: return "intptr_t";                  // native int (ELEMENT_TYPE_I)
+                case 0x11:                                     // VALUETYPE
+                    _ = sig.ReadTypeHandle();
+                    throw new NotSupportedException("delegate Invoke with a VALUETYPE (0x11) parameter/return is not supported: the multicast helper cannot express a struct value (the old decode silently collapsed it to int32_t)");
+                case 0x40:                                     // TypeHandle
+                    _ = sig.ReadTypeHandle();
+                    throw new NotSupportedException("delegate Invoke with a TypeHandle (0x40) parameter/return is not supported: the multicast helper cannot express it");
+                case 0x0F:                                     // PTR
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    throw new NotSupportedException("delegate Invoke with an unmanaged-pointer (0x0F) parameter/return is not supported: the multicast helper cannot express it");
+                case 0x1B:                                     // FNPTR
                     sig.ReadByte();
                     var nf = sig.ReadCompressedInteger();
-                    _ = ConsumeDelegateSigType(md, ref sig, genArgs);
-                    for (var i = 0; i < nf; i++) _ = ConsumeDelegateSigType(md, ref sig, genArgs);
-                    return (false, false);
-                default: return (false, false);               // numeric primitives
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    for (var i = 0; i < nf; i++) _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    throw new NotSupportedException("delegate Invoke with a function-pointer (0x1B) parameter/return is not supported: the multicast helper cannot express it");
+                case 0x10:                                     // BYREF (ref/out param)
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    throw new NotSupportedException("delegate Invoke with a byref (0x10) parameter/return is not supported: the multicast helper cannot express the address ABI");
+                case 0x16:                                     // TYPEDREF
+                    throw new NotSupportedException("delegate Invoke with a TypedReference (0x16) parameter/return is not supported");
+                default:
+                    throw new NotSupportedException($"delegate Invoke signature type byte 0x{b:X2} not supported in P-D2 #1 decode");
             }
+        }
+
+        // P-D2 #1: map a TypeSpec generic-argument LEADING byte (from
+        // DelegateTypeSpecGenericArgs) to the leaf-ABI C++ type, mirroring
+        // ConsumeDelegateSigFull for the bytes the substitution can carry.
+        // (The generic-arg byte carries no trailing payload -- a CLASS/VALUETYPE
+        // arg is stored as its bare marker byte.)
+        private static string ConsumeDelegateSigByte(MetadataReader md, byte byteCode, bool isReturn,
+            out bool isVoid)
+        {
+            isVoid = false;
+            switch (byteCode)
+            {
+                case 0x01: isVoid = true; return "void";
+                case 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 or 0x13 or 0x1E:
+                    return "int32_t";
+                case 0x0A or 0x0B: return "int64_t";
+                case 0x0C: return isReturn ? "float" : "double";
+                case 0x0D: return "double";
+                case 0x0E or 0x12 or 0x14 or 0x15 or 0x1C or 0x1D or 0x1F: return "Il2CppObject*";
+                case 0x18: return "intptr_t";
+                case 0x11:
+                    throw new NotSupportedException("delegate Invoke with a VALUETYPE generic argument is not supported: the multicast helper cannot express a struct value");
+                case 0x40:
+                    throw new NotSupportedException("delegate Invoke with a TypeHandle generic argument is not supported: the multicast helper cannot express it");
+                case 0x0F:
+                    throw new NotSupportedException("delegate Invoke with an unmanaged-pointer generic argument is not supported");
+                case 0x1B:
+                    throw new NotSupportedException("delegate Invoke with a function-pointer generic argument is not supported");
+                case 0x10:
+                    throw new NotSupportedException("delegate Invoke with a byref generic argument is not supported");
+                case 0x16:
+                    throw new NotSupportedException("delegate Invoke with a TypedReference generic argument is not supported");
+                default:
+                    throw new NotSupportedException($"delegate Invoke generic argument type byte 0x{byteCode:X2} not supported in P-D2 #1 decode");
+            }
+        }
+
+        // P-D2 #1: register (dedupe) + return the per-signature multicast helper
+        // name for a non-4-shape delegate Invoke. The NAME is the FNV-1a hash
+        // over the full-width (retCpp, paramCpp) signature -- deterministic
+        // across TUs, so every call site AND the generated.h definition agree.
+        private static string DelegateMulticastHelperName(string retCpp, string[] paramCpp)
+        {
+            var hash = SigHash.Hash(retCpp + "(" + string.Join(",", paramCpp) + ")");
+            var name = $"il2cpp_delegate_multicast_{hash}";
+            DelegateHelperDefs.Add(DelegateMulticastHelperDef(retCpp, paramCpp, name));
+            return name;
+        }
+
+        // P-D2 #1: build the file-scope inline multicast helper body for ONE
+        // distinct delegate Invoke signature (see DelegateHelperDefs). The
+        // helper uses ONLY the exported runtime API:
+        //   * il2cpp_null_check(list) FIRST -- icall_delegate_get_invocation_list
+        //     returns nullptr for null input (delegateext.cpp:311-312), so the
+        //     .NET NullReferenceException must be raised before the flatten;
+        //   * icall_delegate_get_invocation_list(list) -- the exported flatten
+        //     (returns the leaf delegates as a reference array);
+        //   * il2cpp_array_get_length / il2cpp_array_get_elem_ptr -- walk the
+        //     leaves (the generated-code array access pair).
+        // Every leaf is reinterpreted to Il2CppDelegate* and dispatched by
+        // binding: target != null -> (ret(*)(Il2CppObject*, params))methodPtr
+        // (target, args); target == null -> (ret(*)(params))methodPtr (args) --
+        // the SAME per-leaf rule the 4 runtime fast-path icalls use. The LAST
+        // leaf's result wins (.NET multicast return-value semantics). Param and
+        // return C++ types are the FULL-WIDTH leaf ABI (float RETURN = float,
+        // float PARAM = double -- the P-D2 #1 asymmetry).
+        private static string DelegateMulticastHelperDef(string retCpp, string[] paramCpp, string name)
+        {
+            var sb = new System.Text.StringBuilder();
+            var paramDecls = paramCpp.Length == 0
+                ? "Il2CppObject* list"
+                : "Il2CppObject* list, " + string.Join(", ", paramCpp.Select((t, i) => $"{t} p{i}"));
+            var leafStaticSig = string.Join(", ", paramCpp);
+            var leafThisSig = string.Join(", ", new[] { "Il2CppObject*" }.Concat(paramCpp));
+            var callArgs = string.Join(", ", paramCpp.Select((_, i) => $"p{i}"));
+            var zero = retCpp == "Il2CppObject*" ? "nullptr" : "0";
+            var hasRet = retCpp != "void";
+            var head = hasRet
+                ? "        __res = "
+                : "";
+            var instCall = $"reinterpret_cast<{retCpp}(*)({leafThisSig})>(__leaf->methodPtr)(__leaf->target{(callArgs.Length > 0 ? ", " + callArgs : "")})";
+            var statCall = $"reinterpret_cast<{retCpp}(*)({leafStaticSig})>(__leaf->methodPtr)({callArgs})";
+            sb.AppendLine($"inline {retCpp} {name}({paramDecls})");
+            sb.AppendLine("{");
+            sb.AppendLine("    Il2CppArray* __dels = reinterpret_cast<Il2CppArray*>(il2cpp::runtime::icall_delegate_get_invocation_list(il2cpp_null_check(list)));");
+            if (hasRet) sb.AppendLine($"    {retCpp} __res = {zero};");
+            sb.AppendLine("    for (int32_t __i = 0; __i < il2cpp::il2cpp_array_get_length(__dels); ++__i)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        Il2CppDelegate* __leaf = reinterpret_cast<Il2CppDelegate*>(*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(__dels, __i)));");
+            sb.AppendLine("        if (__leaf->target != nullptr)");
+            sb.AppendLine($"            {head}{instCall};");
+            sb.AppendLine("        else");
+            sb.AppendLine($"            {head}{statCall};");
+            sb.AppendLine("    }");
+            if (hasRet) sb.AppendLine("    return __res;");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        // P-D2 #2: build ONE GetFunctionPointerForDelegate instance-binding
+        // module (see GfpModuleDefs) for a distinct delegate Invoke signature.
+        // Runtime primitives (all EXPORTED -- no runtime source change):
+        //   * il2cpp_null_check                -- NRE on null (delegateext NRE contract)
+        //   * icall_delegate_get_invocation_list + il2cpp_array_get_length/
+        //     il2cpp_array_get_elem_ptr        -- multicast detection (length > 1)
+        //   * Il2CppDelegate { methodPtr, target } -- the per-leaf binding
+        //   * il2cpp_gc_add_static_root        -- PERMANENT strong root (the slot
+        //     holds the delegate; a native-held thunk pointer stays valid forever)
+        // Per-slot THUNK: unique function per slot (the native side stores the
+        // thunk ADDRESS, so each slot needs a distinct, stable function). The
+        // slot array is a function-local static of an inline function -- ONE
+        // shared instance across every translation unit (a delegate asked for its
+        // pointer in any method of any TU returns the SAME thunk address; the
+        // collector rewrites the root slot under compaction, so the thunk always
+        // reads the fresh address).
+        private static string DelegateGfpModuleDef(string retCpp, string[] paramCpp, string hash)
+        {
+            const int kMax = 64;
+            var sb = new System.Text.StringBuilder();
+            var paramDecls = string.Join(", ", paramCpp.Select((t, i) => $"{t} p{i}"));
+            var leafStaticSig = string.Join(", ", paramCpp);
+            var leafThisSig = string.Join(", ", new[] { "Il2CppObject*" }.Concat(paramCpp));
+            var callArgs = string.Join(", ", paramCpp.Select((_, i) => $"p{i}"));
+            var hasRet = retCpp != "void";
+            var ret = hasRet
+                ? "return "
+                : "";
+            sb.AppendLine($"constexpr int32_t il2cpp_gfp_kMax_{hash} = {kMax};");
+            sb.AppendLine($"inline Il2CppObject** il2cpp_gfp_slots_{hash}()");
+            sb.AppendLine("{");
+            sb.AppendLine($"    static Il2CppObject* s[il2cpp_gfp_kMax_{hash}] = {{ }};");
+            sb.AppendLine("    return s;");
+            sb.AppendLine("}");
+            for (var slot = 0; slot < kMax; slot++)
+            {
+                sb.AppendLine($"inline {retCpp} il2cpp_gfp_thunk_{hash}_{slot}({paramDecls})");
+                sb.AppendLine("{");
+                sb.AppendLine($"    Il2CppDelegate* __leaf = reinterpret_cast<Il2CppDelegate*>(il2cpp_gfp_slots_{hash}()[{slot}]);");
+                sb.AppendLine("    if (__leaf->target != nullptr)");
+                sb.AppendLine($"        {ret}reinterpret_cast<{retCpp}(*)({leafThisSig})>(__leaf->methodPtr)(__leaf->target{(callArgs.Length > 0 ? ", " + callArgs : "")});");
+                sb.AppendLine("    else");
+                sb.AppendLine($"        {ret}reinterpret_cast<{retCpp}(*)({leafStaticSig})>(__leaf->methodPtr)({callArgs});");
+                sb.AppendLine("}");
+            }
+            sb.AppendLine($"inline intptr_t il2cpp_gfp_thunk_addr_{hash}(int32_t __i)");
+            sb.AppendLine("{");
+            sb.AppendLine("    switch (__i)");
+            sb.AppendLine("    {");
+            for (var slot = 0; slot < kMax; slot++)
+                sb.AppendLine($"        case {slot}: return reinterpret_cast<intptr_t>(&il2cpp_gfp_thunk_{hash}_{slot});");
+            sb.AppendLine("        default:");
+            sb.AppendLine("            std::fprintf(stderr, \"il2cpp_delegate_gfp: invalid thunk slot %d\\n\", static_cast<int>(__i));");
+            sb.AppendLine("            std::abort();");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine($"inline intptr_t il2cpp_delegate_gfp_{hash}(Il2CppObject* d)");
+            sb.AppendLine("{");
+            sb.AppendLine("    d = il2cpp_null_check(d);");
+            sb.AppendLine("    Il2CppArray* __inv = reinterpret_cast<Il2CppArray*>(il2cpp::runtime::icall_delegate_get_invocation_list(d));");
+            sb.AppendLine("    if (il2cpp::il2cpp_array_get_length(__inv) > 1)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        il2cpp::il2cpp_throw_new(\"System.InvalidOperationException,System.Exception\", \"A multicast delegate has no single native function pointer.\");");
+            sb.AppendLine("    }");
+            sb.AppendLine("    Il2CppDelegate* __leaf = reinterpret_cast<Il2CppDelegate*>(*reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(__inv, 0)));");
+            sb.AppendLine("    if (__leaf->target == nullptr)");
+            sb.AppendLine("        return reinterpret_cast<intptr_t>(__leaf->methodPtr);");
+            sb.AppendLine($"    Il2CppObject** __slots = il2cpp_gfp_slots_{hash}();");
+            sb.AppendLine($"    for (int32_t __i = 0; __i < il2cpp_gfp_kMax_{hash}; ++__i)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        if (__slots[__i] != nullptr)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            Il2CppDelegate* __bound = reinterpret_cast<Il2CppDelegate*>(__slots[__i]);");
+            sb.AppendLine("            if (__bound->methodPtr == __leaf->methodPtr && __bound->target == __leaf->target)");
+            sb.AppendLine($"                return il2cpp_gfp_thunk_addr_{hash}(__i);");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine($"    for (int32_t __i = 0; __i < il2cpp_gfp_kMax_{hash}; ++__i)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        if (__slots[__i] == nullptr)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            __slots[__i] = d;");
+            sb.AppendLine("            il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&__slots[__i]));");
+            sb.AppendLine($"            return il2cpp_gfp_thunk_addr_{hash}(__i);");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine($"    std::fprintf(stderr, \"il2cpp_delegate_gfp_{hash}: instance-binding slot pool overflow ({kMax})\\n\");");
+            sb.AppendLine("    std::abort();");
+            sb.AppendLine("}");
+            return sb.ToString();
         }
 
     // Whether a method token is a REAL value-type ctor (.ctor whose declaring
@@ -7050,17 +7317,32 @@ default: return false;                           // primitives/VAR(handled by ca
                 "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" or "tr" => "int32_t",
                 // P-D1 P0-2 (delegate-typed DllImport params): a delegate (or
                 // any other reference-typed / fnptr / pointer / byref) param
-                // is LOUDLY rejected -- the old fallback emitted int32_t for
-                // an Il2CppObject* delegate (silent compile + runtime crash;
-                // delegatecb.cs:19-27 claims this rejection but no code
-                // existed). fnptr (F:) and pointer (P:) params are the P-D3
-                // work items; they must not silently downgrade either.
-                var r when r.StartsWith("r:", StringComparison.Ordinal)
-                    || r.StartsWith("F:", StringComparison.Ordinal)
-                    || r.StartsWith("P:", StringComparison.Ordinal)
-                    || r.StartsWith("B:", StringComparison.Ordinal) =>
-                    throw new NotSupportedException(
-                        $"P/Invoke parameter type '{r}' on {m.Name} is not supported: reference-typed (delegate/array/object), fnptr, pointer and by-ref DllImport parameters are LOUDLY rejected (no marshalling bridge exists -- P-D3 wires fnptr)"),
+            // P-D2 #4 (delegate-typed DllImport params): a DELEGATE param
+            // marshals through the per-signature GfpS dispatcher -- the native
+            // side receives the intptr_t function pointer (the SAME carrier an
+            // explicit GetFunctionPointerForDelegate hands over). The
+            // declaration path RESOLVES the delegate Invoke signature and
+            // REGISTERS the GfpS module (generated.h flush), so the call site
+            // arg bridge wraps the delegate argument in the dispatcher.
+            // Non-delegate reference params (arrays/objects/BCL generic
+            // delegates absent from the input assembly metadata) keep the
+            // P-D1 P0-2 LOUD rejection below.
+            var rDel when rDel.StartsWith("r:", StringComparison.Ordinal)
+                && MethodRefResolver.DelegateGfpForPinvokeParam(md, rDel[2..]) is { } gfpName
+                => "intptr_t",
+            // P-D1 P0-2 (delegate-typed DllImport params): a delegate (or any
+            // other reference-typed / fnptr / pointer / byref) param is
+            // LOUDLY rejected -- the old fallback emitted int32_t for
+            // an Il2CppObject* delegate (silent compile + runtime crash;
+            // delegatecb.cs:19-27 claims this rejection but no code
+            // existed). fnptr (F:) and pointer (P:) params are the P-D3
+            // work items; they must not silently downgrade either.
+            var r when r.StartsWith("r:", StringComparison.Ordinal)
+                || r.StartsWith("F:", StringComparison.Ordinal)
+                || r.StartsWith("P:", StringComparison.Ordinal)
+                || r.StartsWith("B:", StringComparison.Ordinal) =>
+                throw new NotSupportedException(
+                    $"P/Invoke parameter type '{r}' on {m.Name} is not supported: reference-typed (delegate/array/object), fnptr, pointer and by-ref DllImport parameters are LOUDLY rejected (no marshalling bridge exists -- P-D3 wires fnptr)"),
                 var other => throw new NotSupportedException(
                     $"P/Invoke parameter encoding '{other}' on {m.Name} is not supported"),
             };
@@ -8732,6 +9014,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "tzsec" => $"il2cpp::runtime::il2cpp_timezone_get_utc_offset() * 10000000LL",
                 // B:r: / B:V: by-ref interface/value: pass address through
                 var br when br.StartsWith("B:r:", StringComparison.Ordinal) || br.StartsWith("B:V:", StringComparison.Ordinal) => $"&({code})",
+                // P-D2 #4: a DELEGATE-typed P/Invoke argument -- wrap the
+                // delegate object in the per-signature GfpS dispatcher (the
+                // declaration is intptr_t, so the dispatcher's intptr_t result
+                // feeds the native fn-pointer parameter; the explicit
+                // Il2CppObject* cast covers a non-object carrier).
+                var rcDel when rcDel.StartsWith("r:", StringComparison.Ordinal)
+                    && MethodRefResolver.DelegateGfpForPinvokeParam(md, rcDel[2..]) is { } gfpNameDel
+                    => gfpNameDel + "(static_cast<Il2CppObject*>(" + code + "))",
                 // r: reference type cast: pass through (already Il2CppObject*)
                 var rc when rc.StartsWith("r:", StringComparison.Ordinal) => code,
                 // P:i / P:v pinning: pass through (pin handled by runtime)

@@ -128,3 +128,6 @@ tests/cases/*/*.err
 /final-report/
 # other AI tool memory dir
 /.workbuddy-ai/
+
+# git worktree isolation dirs (P-DX parallel execution)
+/.worktrees/

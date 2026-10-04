@@ -191,6 +191,34 @@ int main()
            "get_fn_ptr on the moved delegate still returns the methodPtr");
     il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&root));
 
+    // --- 12. P-D2 #3: icall_delegate_from_fn_ptr (GetDelegateForFunctionPointer<T>)
+    // wraps a native function pointer into a single-cast delegate ---
+    // null ptr -> ArgumentNullException
+    Expect(ThrowsDotNet([&]() { il2cpp::runtime::icall_delegate_from_fn_ptr(0, 0); },
+                        "System.ArgumentNullException,System.Exception"),
+           "from_fn_ptr(null) raises the ArgumentNullException carrier");
+    // normal path: the returned delegate carries the pointer + typeId, and the
+    // pointer invokes the native function (the wrapped delegate's methodPtr IS
+    // the native function -- GetDelegateForFunctionPointer wraps raw code).
+    il2cpp::Il2CppObject* gd = il2cpp::runtime::icall_delegate_from_fn_ptr(
+        reinterpret_cast<intptr_t>(FnA), 0x1234ULL);
+    il2cpp::Il2CppDelegate* gdLeaf = reinterpret_cast<il2cpp::Il2CppDelegate*>(gd);
+    Expect(gdLeaf != nullptr, "from_fn_ptr returns a delegate object");
+    Expect(gdLeaf->methodPtr == reinterpret_cast<void*>(FnA),
+           "from_fn_ptr wraps the supplied function pointer as methodPtr");
+    Expect(gdLeaf->typeId == 0x1234ULL, "from_fn_ptr stores the supplied typeId");
+    Expect(gdLeaf->target == nullptr,
+           "from_fn_ptr produces a static (target-free) delegate");
+    Expect(reinterpret_cast<I4Fn>(gdLeaf->methodPtr)(40, 0, 0, 0) == 41,
+           "the wrapped pointer calls the native function (40 -> 41)");
+    // the wrapped delegate combines with a same-type single-cast delegate
+    // (identical typeId) -- the net48 GDFFP Combine surface
+    il2cpp::Il2CppDelegate* gd2 = il2cpp::il2cpp_delegate_new(
+        reinterpret_cast<void*>(FnB), nullptr, 0x1234ULL);
+    il2cpp::Il2CppObject* combo = il2cpp::runtime::icall_delegate_combine(gd,
+        reinterpret_cast<il2cpp::Il2CppObject*>(gd2));
+    Expect(combo != nullptr, "from_fn_ptr delegate combines with a same-typeId delegate");
+
     // --- Report ---
     if (g_failures != 0)
     {

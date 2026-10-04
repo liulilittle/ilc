@@ -1366,24 +1366,36 @@ public class CodeGeneratorTests
     }
 
     //--------------------------------------------------------------------------
-    // P-D1 P0-2 (delegate-typed DllImport parameter): a delegate (or any other
-    // reference-typed) DllImport parameter must be LOUDLY REJECTED at
-    // transpile time -- the old path emitted `extern "C" int32_t
-    // call_with_delegate(int32_t, int32_t)` for an Il2CppObject* delegate
-    // (silent compile + runtime crash; delegatecb.cs:19-27 claimed the reject
-    // but no code existed). Fixture: tests/fixtures/pinvokedelegate.dll --
-    // deliberately NOT a tests/cases e2e case, because its transpile is
-    // EXPECTED to fail.
+    // P-D2 #4 (delegate-typed DllImport parameter): a delegate param now
+    // MARSHALS through the per-signature GfpS dispatcher (the P-D1 P0-2 path
+    // used to LOUDLY reject it -- extern "C" int32_t truncation). The extern
+    // "C" declaration declares the NATIVE function-pointer width (intptr_t),
+    // and the call sites wrap the delegate argument in il2cpp_delegate_gfp_
+    // <hash> (one GfpS module per Invoke signature: int32_t(int32_t) for
+    // IntFn, int32_t(int32_t,int32_t) for IntFn2). Non-delegate reference
+    // params (arrays/objects) keep the LOUD rejection. Fixture: the REAL case
+    // exe (tests/cases/pinvokedelegate -- Main calls the imports directly).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Generate_PinvokeDelegateParam_LoudlyRejected()
+    public void Generate_PinvokeDelegateParam_DeclaresIntptrT()
     {
-        var types = MetadataLoader.LoadAssembly(FixturePath("pinvokedelegate"));
+        var exe = CaseExePath("pinvokedelegate");
+        var types = MetadataLoader.LoadAssembly(exe);
+        using (var pe = new PEReader(File.OpenRead(exe)))
+            TypeEmitter.ExpandNestedTypes(pe.GetMetadataReader(), types);
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
-            var ex = Assert.Throws<NotSupportedException>(() => CodeGenerator.Generate(types, dir, FixturePath("pinvokedelegate")));
-            Assert.Contains("call_with_delegate", ex.Message);
+            CodeGenerator.Generate(types, dir, exe);
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_PinvokeDelegate.cpp"));
+            var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
+            // intptr_t (the native fn-pointer carrier), not int32_t (truncation)
+            Assert.Contains("extern \"C\" int32_t call_with_delegate(intptr_t, int32_t);", cpp);
+            Assert.Contains("extern \"C\" int32_t call_with_delegate2(intptr_t, int32_t, int32_t);", cpp);
+            // the call sites wrap the delegate args in the GfpS dispatchers
+            Assert.Contains("il2cpp_delegate_gfp_", cpp);
+            // both Invoke signatures' GfpS dispatchers are registered
+            Assert.Contains("inline intptr_t il2cpp_delegate_gfp_", header);
         }
         finally
         {
@@ -1925,11 +1937,13 @@ public class CodeGeneratorTests
             // CG6: a native-int (IntPtr) P/Invoke param declares intptr_t (an
             // int32_t declaration truncates the x64 function-pointer address).
             Assert.Contains("extern \"C\" int32_t call_callback(intptr_t, int32_t);", cpp);
-            // The IntPtr arg reaches the intptr_t param via the "n" cast, and
-            // icall_delegate_get_fn_ptr (returns void*) is normalized to the
-            // intptr_t "ptr" carrier slot. P/Invoke args ride the native-ABI
-            // bridge wrapper (il2cpp_pinvoke_arg).
-            Assert.Contains("reinterpret_cast<intptr_t>(il2cpp::runtime::icall_delegate_get_fn_ptr(", cpp);
+            // P-D2 #2: the GFPD call now routes through the per-signature GfpS
+            // dispatcher (il2cpp_delegate_gfp_<hash> -- the static single-cast
+            // delegate returns its raw methodPtr at runtime, the net48 byte
+            // contract; instance-bound delegates get a permanent slot thunk).
+            // The void* result rides the intptr_t "ptr" carrier slot. P/Invoke
+            // args ride the native-ABI bridge wrapper (il2cpp_pinvoke_arg).
+            Assert.Contains("il2cpp_delegate_gfp_4f6d2a1c5276bdc6(", cpp);
             Assert.Contains("call_callback(il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<intptr_t>(t1)), il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<int32_t>(14LL)", cpp);
         }
         finally

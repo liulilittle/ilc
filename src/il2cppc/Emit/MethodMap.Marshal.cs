@@ -350,6 +350,26 @@ public static partial class MethodRefResolver
                 if (ps.Length != 1 || genArgs == null) return null;
                 return I("il2cpp::runtime::icall_delegate_get_fn_ptr", 1, true, false, false,
                     new[] { "" }, "ptr");
+            // P-D2 #3: T GetDelegateForFunctionPointer<T>(IntPtr) -- wraps a
+            // native function pointer into a single-cast delegate of type T
+            // (net48: the wrapped delegate's Invoke calls the native function
+            // DIRECTLY -- the methodPtr IS the wrapped code address). The
+            // MethodSpec generic argument T is resolvable at TRANSPILE time;
+            // its delegate-TYPE ID -- FNV-1a of T's full name, the same
+            // SigHash.UInt64Literal stamp DelegateNewExpr applies (the Combine/
+            // Equals type check) -- is emitted as a trailing literal. The IntPtr
+            // arg rides the intptr_t carrier ("n" cast); the result is the
+            // delegate object ("ref" ResultKind -> Il2CppObject*). A null
+            // pointer raises ArgumentNullException in the runtime icall. The
+            // NON-generic (IntPtr, Type) form is NOT wired (a runtime Type
+            // object cannot be resolved to a typeId at transpile time) -- it
+            // falls through to the generated-name path (existing LOUD contract).
+            case "GetDelegateForFunctionPointer":
+                if (ps.Length != 1 || !IsIntPtrByte(ps[0]) || genArgs is not { Length: 1 }
+                    || genArgNames is not { Length: 1 } || genArgNames[0] is not { Length: > 0 })
+                    return null;
+                return I("il2cpp::runtime::icall_delegate_from_fn_ptr", 1, true, true, false,
+                    new[] { "n" }, "ref", appendLiterals: new[] { SigHash.UInt64Literal(genArgNames[0]) });
             // IntPtr UnsafeAddrOfPinnedArrayElement(Array, int): the address of
             // element 'index' (array data base + index * elemSize) as the IntPtr
             // carrier (icall returns intptr_t -- "ptr" result kind). ps[0] is

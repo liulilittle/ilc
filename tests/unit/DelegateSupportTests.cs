@@ -54,8 +54,15 @@ public class DelegateSupportTests
         }
     }
 
+    // P-D2 #1: a ONE-ref-arg + int32-return delegate (int Invoke(object)) is a
+    // NON-4-shape signature (the 4 runtime fast paths require all-int32 params
+    // + int32/void ret, void + 1/2 ref params, or 0-param ref return) -- it
+    // routes through the transpiler-generated per-signature MULTICAST helper.
+    // (Before P-D2 #1 the raw methodPtr dispatch stayed, single-cast only;
+    // multicast of that signature read a container's `first` field as code ->
+    // 0xC0000005 -- the documented gap this test previously pinned.)
     [Fact]
-    public void Generate_CustomDelegateInvoke_RefArgSignature_KeepsMethodPtrDispatch()
+    public void Generate_RefArgNonFastPathSignature_EmitsMulticastHelper()
     {
         var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_del_" + Guid.NewGuid().ToString("N") + ".dll");
         File.WriteAllBytes(tmp, SynthesizeCustomDelegate(refArg: true).ToArray());
@@ -66,11 +73,10 @@ public class DelegateSupportTests
             CodeGenerator.Generate(types, dir, tmp);
             var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_Program.cpp"));
 
-            // ref-arg delegates have no runtime multicast icall -- the direct
-            // methodPtr dispatch stays (single-cast only; multicast of those
-            // signatures is a documented gap in il2cpp_delegate.h).
-            Assert.Contains("->methodPtr", cpp);
+            // non-fast-path delegate Invoke routes through the multicast helper
+            Assert.Contains("il2cpp_delegate_multicast_", cpp);
             Assert.DoesNotContain("icall_multicast_invoke_i4", cpp);
+            Assert.DoesNotContain("->methodPtr", cpp);
         }
         finally
         {
@@ -143,6 +149,80 @@ public class DelegateSupportTests
 
             Assert.Contains("il2cpp::runtime::icall_delegate_equals", cpp);
             Assert.Contains("== 0", cpp);
+        }
+        finally
+        {
+            File.Delete(tmp);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    // P-D2 #1 (delegate Invoke signature generalization): a NON-4-shape
+    // delegate signature (int64 param + int64 return -- the silent
+    // int32_t-truncation P0 bug) must route through the transpiler-generated
+    // per-signature MULTICAST helper (il2cpp_delegate_multicast_* in
+    // generated.h), NOT the i4 fast path (which would read EAX/truncate the
+    // int64 return) and NOT the raw methodPtr dispatch (multicast -> reading
+    // a container's `first` field as code -> 0xC0000005).
+    [Fact]
+    public void Generate_NonFourShapeDelegateInvoke_EmitsMulticastHelper()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_del_" + Guid.NewGuid().ToString("N") + ".dll");
+        File.WriteAllBytes(tmp, SynthesizeCustomDelegateLong().ToArray());
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var types = MetadataLoader.LoadAssembly(tmp);
+            CodeGenerator.Generate(types, dir, tmp);
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_Program.cpp"));
+            var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
+
+            // the long-returning/long-param invoke routes through the per-signature
+            // multicast helper (int64 ABI preserved -- no int32 truncation)
+            Assert.Contains("il2cpp_delegate_multicast_", cpp);
+            Assert.DoesNotContain("icall_multicast_invoke_i4", cpp);
+            Assert.DoesNotContain("->methodPtr", cpp);
+            // the helper itself is emitted file-scope into generated.h
+            Assert.Contains("il2cpp_delegate_multicast_", header);
+        }
+        finally
+        {
+            File.Delete(tmp);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    // P-D2 #2: GetFunctionPointerForDelegate<T>(T) on an INSTANCE-bound delegate
+    // (Counter c = new Counter(); Cb cb = c.Inc; Marshal.GetFunctionPointerFor
+    // Delegate(cb)) -- the resolver tracks the delegate argument type (arg0Type
+    // from the delegate newobj) and routes the call through the per-signature
+    // GfpS dispatcher (il2cpp_delegate_gfp_<hash>, emitted FILE-SCOPE into
+    // generated.h: the shared strong-root slot array + per-slot thunks + the
+    // dispatcher -- the static single-cast case returns the raw methodPtr
+    // (net48 byte contract), the instance case returns a per-process-stable
+    // thunk address whose bound delegate stays strongly rooted).
+    [Fact]
+    public void Generate_GetFunctionPointerForDelegate_InstanceBound_EmitsGfpDispatch()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_gfp_" + Guid.NewGuid().ToString("N") + ".dll");
+        File.WriteAllBytes(tmp, SynthesizeGfpDelegateCall().ToArray());
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var types = MetadataLoader.LoadAssembly(tmp);
+            CodeGenerator.Generate(types, dir, tmp);
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_Program.cpp"));
+            var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
+
+            // the instance-bound GFPD call routes through the GfpS dispatcher
+            Assert.Contains("il2cpp_delegate_gfp_", cpp);
+            // the dispatcher + slot array + thunks are emitted file-scope
+            // (the dispatcher RETURNS intptr_t -- the "ptr" result carrier --
+            // so `intptr_t t = il2cpp_delegate_gfp_<hash>(d)` compiles without
+            // a void* conversion; no emitter special-case needed)
+            Assert.Contains("inline intptr_t il2cpp_delegate_gfp_", header);
+            Assert.Contains("il2cpp_gfp_slots_", header);
+            Assert.Contains("il2cpp_gc_add_static_root", header);
         }
         finally
         {
@@ -381,7 +461,76 @@ public class DelegateSupportTests
         return Serialize(mdb, stream.Builder);
     }
 
-        // Cases.Program.Main with a delegate receiver + `callvirt
+        // Cases.MyDelegate : System.MulticastDelegate (runtime-provided .ctor +
+    // long Invoke(long)) + Cases.Program.Inc(long) + Main:
+    //   ldnull; ldftn Inc; newobj MyDelegate::.ctor; stloc.0; ldloc.0;
+    //   ldc.i8 5; callvirt Invoke; stloc.1; ret
+    // -- the NON-4-shape P-D2 #1 probe shape: 1 int64 param + int64 return
+    // (the old 2-class decode silently collapsed both to int32_t and routed
+    // the i4 multicast icall -> EAX-truncated int64 return / ABI-tearing
+    // int32 slot for the int64 param).
+    private static MemoryStream SynthesizeCustomDelegateLong()
+    {
+        var mdb = NewBuilder();
+        var objRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var mcDelRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("MulticastDelegate"));
+
+        var ctor = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodImplAttributes.Runtime,
+            mdb.GetOrAddString(".ctor"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x02, 0x01, 0x12, 0x05, 0x1C }),
+            0, default(ParameterHandle));
+        // long Invoke(long): ret 0x0A, param 0x0A
+        var invoke = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            MethodImplAttributes.Runtime,
+            mdb.GetOrAddString("Invoke"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x01, 0x0A, 0x0A }),
+            0, default(ParameterHandle));
+        mdb.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("MyDelegate"), mcDelRef, default, ctor);
+
+        var stream = new MethodBodyStreamEncoder(new BlobBuilder());
+        var incEnc = new InstructionEncoder(new BlobBuilder());
+        incEnc.OpCode(ILOpCode.Ldarg_0);
+        incEnc.OpCode(ILOpCode.Ret);
+        var incBodyOffset = stream.AddMethodBody(incEnc, 1, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        var inc = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            mdb.GetOrAddString("Inc"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x01, 0x0A, 0x0A }),
+            incBodyOffset, default(ParameterHandle));
+
+        var mainEnc = new InstructionEncoder(new BlobBuilder());
+        mainEnc.OpCode(ILOpCode.Ldnull);
+        mainEnc.OpCode(ILOpCode.Ldftn);
+        mainEnc.Token(MetadataTokens.GetToken(inc));
+        mainEnc.OpCode(ILOpCode.Newobj);
+        mainEnc.Token(MetadataTokens.GetToken(ctor));
+        mainEnc.OpCode(ILOpCode.Stloc_0);
+        mainEnc.OpCode(ILOpCode.Ldloc_0);
+        mainEnc.OpCode(ILOpCode.Ldc_i4_5);
+        mainEnc.OpCode(ILOpCode.Conv_i8);
+        mainEnc.OpCode(ILOpCode.Callvirt);
+        mainEnc.Token(MetadataTokens.GetToken(invoke));
+        mainEnc.OpCode(ILOpCode.Stloc_1);
+        mainEnc.OpCode(ILOpCode.Ret);
+        var mainBodyOffset = stream.AddMethodBody(mainEnc, 4, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        var main = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            mdb.GetOrAddString("Main"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+            mainBodyOffset, default(ParameterHandle));
+        mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.Abstract,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Program"), objRef, default, inc);
+        return Serialize(mdb, stream.Builder);
+    }
+
+    // Cases.Program.Main with a delegate receiver + `callvirt
     // System.Object::Equals(object)` (csc's shape for `delegate.Equals(x)`):
     //   ldnull; ldftn Inc; newobj MyDelegate::.ctor; stloc.0; ldloc.0;
     //   ldloc.0; callvirt Object::Equals; stloc.1; ret
@@ -555,8 +704,97 @@ public class DelegateSupportTests
         return Serialize(mdb, stream.Builder);
     }
 
-    // Cases.Program.Inc(int) + Cases.Program.Main:
-    //   ldnull; ldftn Inc; newobj <System.Predicate`1<int>::.ctor>; stloc.0; ret
+    // Cases.Cb : MulticastDelegate (runtime .ctor + int Invoke(int)),
+    // Cases.Counter (instance target .ctor + int Inc(int)) and Program.Main:
+    //   Counter c = new Counter(); Cb cb = c.Inc;
+    //   IntPtr p = Marshal.GetFunctionPointerForDelegate(cb);
+    // -- the EXACT P-D2 #2 instance-binding GFPD shape (the resolver must track
+    // cb's type from the delegate newobj to select the GfpS dispatcher).
+    private static MemoryStream SynthesizeGfpDelegateCall()
+    {
+        var mdb = NewBuilder();
+        var objRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var mcDelRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("MulticastDelegate"));
+
+        // Cases.Cb: runtime .ctor(object, native int) + int32 Invoke(int32).
+        var delCtor = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodImplAttributes.Runtime,
+            mdb.GetOrAddString(".ctor"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x02, 0x01, 0x12, 0x05, 0x1C }),
+            0, default(ParameterHandle));
+        var invoke = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            MethodImplAttributes.Runtime,
+            mdb.GetOrAddString("Invoke"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x01, 0x08, 0x08 }),
+            0, default(ParameterHandle));
+        var cb = mdb.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Cb"), mcDelRef, default, delCtor);
+
+        // Cases.Counter: .ctor + int Inc(int x) => x (instance delegate target).
+        var stream = new MethodBodyStreamEncoder(new BlobBuilder());
+        var counterCtorEnc = new InstructionEncoder(new BlobBuilder());
+        counterCtorEnc.OpCode(ILOpCode.Ret);
+        var counterCtorBodyOffset = stream.AddMethodBody(counterCtorEnc, 1, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        var counterCtor = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            mdb.GetOrAddString(".ctor"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }),
+            counterCtorBodyOffset, default(ParameterHandle));
+        var incEnc = new InstructionEncoder(new BlobBuilder());
+        incEnc.OpCode(ILOpCode.Ldarg_1);
+        incEnc.OpCode(ILOpCode.Ret);
+        var incBodyOffset = stream.AddMethodBody(incEnc, 1, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        var inc = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            mdb.GetOrAddString("Inc"),
+            mdb.GetOrAddBlob(new byte[] { 0x20, 0x01, 0x08, 0x08 }),
+            incBodyOffset, default(ParameterHandle));
+        mdb.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Counter"), objRef, default, counterCtor);
+
+        // Marshal.GetFunctionPointerForDelegate<T>(T) MemberRef + MethodSpec at
+        // Cases.Cb (TypeDefOrRef coded index = row << 2).
+        var marshalRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb),
+            mdb.GetOrAddString("System.Runtime.InteropServices"), mdb.GetOrAddString("Marshal"));
+        var memberRef = mdb.AddMemberReference(marshalRef, mdb.GetOrAddString("GetFunctionPointerForDelegate"),
+            mdb.GetOrAddBlob(new byte[] { 0x10, 0x01, 0x01, 0x13, 0x00, 0x13, 0x00 }));
+        var spec = mdb.AddMethodSpecification(memberRef,
+            mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, 0x12, (byte)(MetadataTokens.GetRowNumber(cb) << 2) }));
+
+        // Program.Main: Counter c = new Counter(); Cb cb = c.Inc;
+        // IntPtr p = Marshal.GetFunctionPointerForDelegate(cb); ret
+        var mainEnc = new InstructionEncoder(new BlobBuilder());
+        mainEnc.OpCode(ILOpCode.Newobj);
+        mainEnc.Token(MetadataTokens.GetToken(counterCtor));
+        mainEnc.OpCode(ILOpCode.Stloc_0);
+        mainEnc.OpCode(ILOpCode.Ldloc_0);
+        mainEnc.OpCode(ILOpCode.Ldftn);
+        mainEnc.Token(MetadataTokens.GetToken(inc));
+        mainEnc.OpCode(ILOpCode.Newobj);
+        mainEnc.Token(MetadataTokens.GetToken(delCtor));
+        mainEnc.OpCode(ILOpCode.Stloc_1);
+        mainEnc.OpCode(ILOpCode.Ldloc_1);
+        mainEnc.OpCode(ILOpCode.Call);
+        mainEnc.Token(MetadataTokens.GetToken(spec));
+        mainEnc.OpCode(ILOpCode.Stloc_2);
+        mainEnc.OpCode(ILOpCode.Ret);
+        var mainBodyOffset = stream.AddMethodBody(mainEnc, 3, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        var main = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            mdb.GetOrAddString("Main"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+            mainBodyOffset, default(ParameterHandle));
+        mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.Abstract,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Program"), objRef, default, main);
+        return Serialize(mdb, stream.Builder);
+    }
     // -- the EXACT BCL generic delegate shape findidx exercises (ldftn + newobj
     // of a Predicate`1<int>, whose ctor MemberRef parent is the Predicate<int>
     // TypeSpec). StackFold.IsDelegateType does NOT fold this one, so the

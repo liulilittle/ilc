@@ -78,10 +78,3 @@ Copy-Item "$Root/tests/fixtures/out/mainargs.exe" "$Root/tests/fixtures/out/main
 dotnet build "$Root/tests/fixtures/multidim/multidim.csproj" -c Release -o "$Root/tests/fixtures/out"
 if ($LASTEXITCODE -ne 0) { throw "fixture multidim build failed" }
 Copy-Item "$Root/tests/fixtures/out/multidim.exe" "$Root/tests/fixtures/out/multidim.dll" -Force
-
-# pinvokedelegate (P-D1 P0): a delegate-typed DllImport parameter must make
-# CodeGenerator.Generate LOUDLY reject (NotSupportedException). Unit-only
-# fixture -- never an e2e case (its transpile is expected to fail).
-dotnet build "$Root/tests/fixtures/pinvokedelegate/pinvokedelegate.csproj" -c Release -o "$Root/tests/fixtures/out"
-if ($LASTEXITCODE -ne 0) { throw "fixture pinvokedelegate build failed" }
-Copy-Item "$Root/tests/fixtures/out/pinvokedelegate.exe" "$Root/tests/fixtures/out/pinvokedelegate.dll" -Force

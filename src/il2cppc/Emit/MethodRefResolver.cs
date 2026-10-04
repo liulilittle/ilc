@@ -288,13 +288,10 @@ public static partial class MethodRefResolver
             var argc = genSig.ReadCompressedInteger();
             var genArgs = new byte[argc];
             for (var i = 0; i < argc; i++) genArgs[i] = ReadParamByte(md, ref genSig);
-            // D-MAR-1 (Marshal struct family): the generic-argument byte alone
-            // cannot name a VALUETYPE argument (SizeOf<Rectangle>() and
-            // SizeOf<Point>() are both [0x11]) -- the Marshal SizeOf/OffsetOf
-            // mappings need the arg's FULL TYPE NAME to select the per-struct
-            // runtime function. Re-read the MethodSpec signature to capture
-            // the name of every VALUETYPE argument (null for the others).
-            var genArgNames = GenericArgValueTypeNames(md, ms.Signature, genArgs);
+            // D-MAR-1 (Marshal struct family) + P-D2 #3 (GDFFP typeId): the
+            // generic-argument FULL NAMES (VALUETYPE structs AND CLASS/GenericInst
+            // delegate types -- GenericArgFullNames; null for the others).
+            var genArgNames = GenericArgFullNames(md, ms.Signature, genArgs);
 
             // M6: same-assembly instantiations (Id<int>) -- Roslyn emits the
             // MethodSpec on the MethodDefinition (genlist evidenced; the probe's
@@ -341,6 +338,21 @@ public static partial class MethodRefResolver
                 (name == "get_Rest" || name.StartsWith("get_Item", StringComparison.Ordinal)))
             {
                 return new ResolvedMethod(Sanitize(owner) + "_" + name, 0, true, false, false, Array.Empty<bool>(), false, false, null, false, null, false, false, false, null, false, null, null, null, false);
+            }
+            // P-D2 #2: GetFunctionPointerForDelegate<T>(T) routes through the
+            // per-signature GfpS dispatcher (il2cpp_delegate_gfp_<hash> --
+            // static single-cast delegates keep returning the raw methodPtr,
+            // instance-bound delegates get a permanent strong-rooted slot thunk).
+            // The delegate Invoke signature is resolved from the TRACKED
+            // argument type (arg0Type -- StackFold objTypes); a signature that
+            // cannot be resolved (e.g. a BCL generic delegate absent from the
+            // input assembly metadata) falls through to the existing
+            // icall_delegate_get_fn_ptr mapping below (static only, instance
+            // stays LOUD at runtime -- the conservative baseline).
+            if (owner == "System.Runtime.InteropServices.Marshal" && name == "GetFunctionPointerForDelegate")
+            {
+                var gfp = BuildDelegateGfpDispatch(md, arg0Type);
+                if (gfp != null) return gfp;
             }
             // D-LINQC-1: thread the receiver/arg-type hints into the MethodSpec
             // BCL resolution. Before this, the generic operators (Enumerable.
@@ -1923,14 +1935,16 @@ var userRecvLike = receiverType ?? arg0Type;
         return b;
     }
 
-    // D-MAR-1 (Marshal struct family): capture the FULL TYPE NAME of every
-    // VALUETYPE generic argument in a MethodSpec signature (SizeOf<Rectangle>()
-    // needs "System.Drawing.Rectangle", not the raw 0x11 byte). The blob is
-    // re-read from the start with the SAME consumption rules as ReadParamByte,
+    // D-MAR-1 + P-D2 #3: capture the FULL TYPE NAME of every nameful generic
+    // argument in a MethodSpec signature -- VALUETYPE (0x11, the Marshal struct
+    // family SizeOf<Rectangle>() needs "System.Drawing.Rectangle"), CLASS (0x12)
+    // and TypeHandle (0x40, custom delegate types -- the GDFFP typeId source)
+    // and GenericInst (0x15, Func`N/Action`N delegate instantiations). The blob
+    // is re-read from the start with the SAME consumption rules as ReadParamByte,
     // so the returned array stays parallel to the caller's genArgs byte array.
-    // Returns null when NO argument is a VALUETYPE (the common case -- the
-    // callers avoid the extra work).
-    private static string[]? GenericArgValueTypeNames(MetadataReader md, BlobHandle sigHandle, byte[] genArgs)
+    // Returns null when NO argument is nameful (the common case -- the callers
+    // avoid the extra work).
+    private static string[]? GenericArgFullNames(MetadataReader md, BlobHandle sigHandle, byte[] genArgs)
     {
         var sig = md.GetBlobReader(sigHandle);
         if (sig.ReadByte() != 0x0A) return null; // not GENERICINST(0x0A)
@@ -1940,25 +1954,26 @@ var userRecvLike = receiverType ?? arg0Type;
         var any = false;
         for (var i = 0; i < argc; i++)
         {
-            var b = sig.ReadByte();
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             switch (b)
             {
-                case 0x11:
+                case 0x11 or 0x12 or 0x40:
                 {
-                    var th = sig.ReadTypeHandle();
-                    var n = th.Kind switch
-                    {
-                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
-                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
-                        _ => null,
-                    };
+                    var n = ResolveGenericArgTypeName(md, sig.ReadTypeHandle());
                     names[i] = n;
                     any = true;
                     break;
                 }
-                case 0x12 or 0x40:
-                    _ = sig.ReadTypeHandle();
+                // P-D2 #3: a GenericInst argument (GetDelegateForFunctionPointer
+                // <Func`N/..>) -- named with the same canonical M3 instance name a
+                // delegate newobj of that instantiation stamps (so the GDFFP
+                // typeId matches a normally-created delegate's at Combine/Equals).
+                case 0x15:
+                {
+                    names[i] = GenericInstArgName(md, ref sig);
+                    any = true;
                     break;
+                }
                 case 0x1D or 0x1F:
                     _ = sig.ReadByte(); // SZARRAY: one element byte follows
                     break;
@@ -1969,6 +1984,155 @@ var userRecvLike = receiverType ?? arg0Type;
         }
         return any ? names.Select(n => n ?? "?").ToArray() : null;
     }
+
+    private static string? ResolveGenericArgTypeName(MetadataReader md, EntityHandle th) =>
+        th.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+            HandleKind.TypeSpecification => GenericDefinitionName(md, (TypeSpecificationHandle)th),
+            _ => null,
+        };
+
+    // P-D2 #3: GenericInst generic-argument name -- the canonical M3 instance
+    // name "{definition name}_{arg...}" (the EXACT form StackFold's
+    // GenericInstantiationName produces for a delegate newobj typeId input),
+    // decoded from the MethodSpec blob position (marker + definition handle +
+    // count + one byte per arg).
+    private static string GenericInstArgName(MetadataReader md, ref BlobReader sig)
+    {
+        sig.ReadByte(); // CLASS/VALUETYPE marker byte
+        var defHandle = sig.ReadTypeHandle();
+        string defName = defHandle.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+            HandleKind.TypeSpecification => GenericDefinitionName(md, (TypeSpecificationHandle)defHandle),
+            _ => "?",
+        };
+        var n = sig.ReadCompressedInteger();
+        var args = new string[n];
+        for (var i = 0; i < n; i++)
+        {
+            var ab = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            args[i] = ab switch
+            {
+                // Mirrors StackFold.ReadM3Arg (the M3 generic-arg name table) --
+                // kept in sync so a GDFFP<Func<..>> typeId equals a delegate
+                // newobj's typeId.
+                0x02 => "bool", 0x03 => "char", 0x04 => "sbyte", 0x05 => "byte",
+                0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
+                0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
+                0x0E => "string", 0x1C => "object", 0x1D => "array",
+                0x11 or 0x12 or 0x40 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+                0x15 => GenericInstArgName(md, ref sig),
+                // 0x13/0x1E VAR: a resolver-context nested generic parameter
+                // resolves to the M3 default "int" (StackFold ReadM3Arg would
+                // use InstantiationSuffixHint, null outside a body pass).
+                0x13 or 0x1E => "int",
+                var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in P-D2 #3 GDFFP typeId naming"),
+            };
+        }
+        return defName + "_" + string.Join("_", args);
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D2 #2: GetFunctionPointerForDelegate -> GfpS dispatch resolution.
+    // The delegate argument's Invoke signature (full-width leaf-ABI C++ types,
+    // the SAME mapping as the #1 multicast helper cast table) determines the
+    // GfpS module (thunks + strong-root slots + dispatcher) the resolver
+    // registers; the returned ResolvedMethod names the dispatcher so the
+    // emitter emits `il2cpp_delegate_gfp_<hash>(d)` (void* / "ptr" result).
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? BuildDelegateGfpDispatch(MetadataReader md, string? delegateTypeName)
+    {
+        var name = DelegateGfpForPinvokeParam(md, delegateTypeName);
+        if (name == null) return null;
+        return I(name, 1, true, false, false, new[] { "" }, "ptr");
+    }
+
+    // P-D2 #2/#4 SHARED helper: resolve a delegate type name to its per-signature
+    // GfpS dispatcher -- decodes the Invoke MethodDef signature (full-width
+    // leaf-ABI C++ types), registers the GfpS module for the generated.h flush,
+    // and returns the dispatcher name ("il2cpp_delegate_gfp_<hash>"). Null when
+    // the name is not a resolvable delegate (absent from the input assembly
+    // metadata / array / object / BCL generic types).
+    internal static string? DelegateGfpForPinvokeParam(MetadataReader md, string? delegateTypeName)
+    {
+        if (string.IsNullOrEmpty(delegateTypeName)) return null;
+        var sig = ResolveDelegateGfpSignature(md, delegateTypeName);
+        if (sig == null) return null;
+        var hash = SigHash.Hash(sig.Value.Ret + "(" + string.Join(",", sig.Value.Params) + ")");
+        CodeGenerator.RegisterDelegateGfpModule(sig.Value.Ret, sig.Value.Params, hash);
+        return $"il2cpp_delegate_gfp_{hash}";
+    }
+
+    // P-D2 #2: find the delegate TypeDef (full name match in the input
+    // assembly metadata -- the SAME md.GetFullName form StackFold's tracked
+    // arg0Type carries) and decode its Invoke MethodDef signature into the
+    // leaf-ABI C++ types. Null when the type is absent / has no Invoke / has an
+    // unsupported signature arm (the caller falls back to the conservative
+    // icall_delegate_get_fn_ptr path).
+    private static (string Ret, string[] Params)? ResolveDelegateGfpSignature(MetadataReader md, string? delegateTypeName)
+    {
+        if (string.IsNullOrEmpty(delegateTypeName)) return null;
+        foreach (var th in md.TypeDefinitions)
+        {
+            if (md.GetFullName(th) != delegateTypeName) continue;
+            foreach (var mh in md.GetTypeDefinition(th).GetMethods())
+            {
+                var m = md.GetMethodDefinition(mh);
+                if (md.GetString(m.Name) != "Invoke") continue;
+                var (_, returnType, paramTypes, _) = MethodSignatureCoder.Decode(md, m.Signature);
+                var retCpp = DelegateGfpReturnCpp(returnType);
+                if (retCpp == null) return null;
+                var parts = paramTypes.Length == 0
+                    ? Array.Empty<string>()
+                    : CodeGenerator.SplitTopLevel(paramTypes).ToArray();
+                var paramCpp = new string[parts.Length];
+                for (var i = 0; i < parts.Length; i++)
+                {
+                    var pc = DelegateGfpParamCpp(parts[i]);
+                    if (pc == null) return null;
+                    paramCpp[i] = pc;
+                }
+                return (retCpp, paramCpp);
+            }
+            return null; // the type is found but has no Invoke method
+        }
+        return null;
+    }
+
+    // Return-type -> leaf-ABI C++ (ReturnTypeCpp-equivalent; float RETURN is
+    // float -- the #1 asymmetry). Null = unsupported (value type / fnptr /
+    // byref / ptr / typedref / generic params).
+    private static string? DelegateGfpReturnCpp(SignatureTypeCode code) => code switch
+    {
+        SignatureTypeCode.Void => "void",
+        SignatureTypeCode.Boolean or SignatureTypeCode.Char or SignatureTypeCode.SByte or
+        SignatureTypeCode.Byte or SignatureTypeCode.Int16 or SignatureTypeCode.UInt16 or
+        SignatureTypeCode.Int32 or SignatureTypeCode.UInt32 => "int32_t",
+        SignatureTypeCode.Int64 or SignatureTypeCode.UInt64 => "int64_t",
+        SignatureTypeCode.Single => "float",
+        SignatureTypeCode.Double => "double",
+        SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr => "intptr_t",
+        SignatureTypeCode.String or SignatureTypeCode.Object or SignatureTypeCode.SZArray or
+        SignatureTypeCode.Array or SignatureTypeCode.GenericTypeInstance or SignatureTypeCode.TypeHandle => "Il2CppObject*",
+        (SignatureTypeCode)0x12 => "Il2CppObject*", // CLASS return (raw byte convention)
+        _ => null,
+    };
+
+    // Parameter part -> leaf-ABI C++ (ParamTypesCpp-equivalent; float PARAM is
+    // double -- the #1 asymmetry). Null = unsupported (V:/F:/P:/B:/T:).
+    private static string? DelegateGfpParamCpp(string part) => part switch
+    {
+        "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" or "tr" => "int32_t",
+        "l" or "q" => "int64_t",
+        "f" or "d" => "double",
+        "n" => "intptr_t",
+        var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
+        _ => null,
+    };
 
     // Whether the return type is a managed reference. Note:
     // System.Reflection.Metadata.SignatureTypeCode has no Class member (0x12 CLASS
