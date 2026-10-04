@@ -143,6 +143,18 @@ public static partial class MethodRefResolver
                 // 'Il2CppClass*'". Identity via the shared marker (the
                 // CultureInfo.get_Name precedent, MethodMap.CultureInfo.cs).
                 return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true);
+            // Type.IsInstanceOfType(object o) -- instance: whether the OBJECT
+            // argument o is an instance of this type (the .NET isinst
+            // conformance test). Descriptor channel mirror of IsAssignableFrom
+            // (above): the runtime primitive icall_type_is_instance(obj, klass)
+            // (typecheck.cpp) puts the object FIRST and the class descriptor
+            // SECOND, while IL pushes the receiver (this Type) before the
+            // object -- the per-resolution ArgOrder {1,0} swaps the IL
+            // argument order into the runtime slot order (the CG7 table keys
+            // icalls globally and this shape is per-resolution).
+            case "IsInstanceOfType":
+                return I("il2cpp::runtime::icall_type_is_instance", 1, true, false, true,
+                    new[] { "", "" }, argOrder: new[] { 1, 0 });
             // Type.IsSubclassOf(Type c) -- instance: whether this type derives
             // from c. The receiver is this, the argument is c (both Type values).
             case "IsSubclassOf":

@@ -201,6 +201,26 @@ public class TypeEmitterTypeInfoTests
     }
 
     [Fact]
+    public void EmitTypeInfo_InstanceValueTypeField_CarriesRealTypeName()
+    {
+        // P2 refl audit (TypeEmitter.cs:1258): a non-reference INSTANCE field
+        // whose model carries a real value-type name (the 0x11 VALUETYPE
+        // decode -- DecodeNestedFieldSignature returns
+        // (FieldTypeKind.Int32, "<value type full name>")) must emit that name
+        // in the TypeInfo field table, NOT the hardcoded "System.Int32"
+        // (FieldInfo.FieldType would report the wrong type).
+        var t = MakeNode();
+        t.InstanceFields.Add(new FieldDef
+        {
+            Name = "Pt", Owner = t, TypeKind = FieldTypeKind.Int32,
+            FieldTypeName = "Cases.Point", // value-type field (M3 VALUETYPE carrier)
+        });
+        var code = TypeEmitter.EmitTypeInfo(t);
+        Assert.Contains("{ \"Pt\", \"Cases.Point\", 24, 0, nullptr, 0 },", code);
+        Assert.DoesNotContain("{ \"Pt\", \"System.Int32\",", code);
+    }
+
+    [Fact]
     public void EmitTypeInfo_StaticField_OffsetMinusOneWithStaticAddr()
     {
         var t = MakeNode();

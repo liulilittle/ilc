@@ -127,6 +127,31 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // IsInstanceOfType -- instance: whether the OBJECT argument is an instance
+    // of this type. Mirror of the IsAssignableFrom descriptor channel: the
+    // runtime primitive icall_type_is_instance(obj, klass) takes the object
+    // FIRST and the class descriptor SECOND (typecheck.cpp), while IL pushes
+    // the receiver (this Type) before the object -- the resolution carries the
+    // ArgOrder {1,0} swap so the emitted call passes (obj, this) in runtime
+    // slot order.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_IsInstanceOfType_MapsToInstanceIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "IsInstanceOfType",
+            new byte[] { 0x00, 0x01, 0x02, 0x1C }), "IsInstanceOfType"); // (object)
+
+        Assert.Equal("il2cpp::runtime::icall_type_is_instance", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        // Descriptor channel: the object arg fills the runtime (obj) slot, the
+        // receiver fills the (klass) slot -- the opposite of IL push order.
+        Assert.Equal(new[] { 1, 0 }, resolved.ArgOrder);
+    }
+
+    //--------------------------------------------------------------------------
     // Equals -- instance type identity, wired only for a TRACKED Type
     // argument (a non-Type argument cannot be passed to the descriptor-
     // taking icall; .NET's "false for non-Type" has no runtime support).

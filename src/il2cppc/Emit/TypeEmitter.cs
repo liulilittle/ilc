@@ -1254,8 +1254,16 @@ public static class TypeEmitter
         }
 
         // Field sub-table (instance + static, metadata order).
+        // P2 refl audit: a non-reference INSTANCE field's typeName used to be
+        // the constant "System.Int32" (FieldInfo.FieldType would report the
+        // wrong type for any value-type field). The model carries the real
+        // value-type full name in FieldTypeName for VALUETYPE (0x11) and
+        // native-int (0x18/0x19) instance fields (DecodeNestedFieldSignature /
+        // MetadataLoader.DecodeFieldSignature); use it when present, keeping
+        // the "System.Int32" fallback for the widthless-typed value slots
+        // (int32 carrier with no name).
         var fieldEntries = t.InstanceFields
-            .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference ? f.FieldTypeName : "System.Int32",
+            .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference || !string.IsNullOrEmpty(f.FieldTypeName) ? f.FieldTypeName : "System.Int32",
                 Offset: f.SlotIndex * IntPtr.Size, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
                 Addr: "nullptr", Flags: f.IsPublic ? 1 : 0))
             .Concat(t.StaticFields.Select(f =>
