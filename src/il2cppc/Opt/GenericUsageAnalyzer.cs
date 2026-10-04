@@ -223,10 +223,13 @@ public static class GenericUsageAnalyzer
                             return false; // box/unbox/castclass/newarr/sizeof/...: directed
                     }
                 case IlOperandKind.MethodToken:
-                    // P-G4 F3: a generic-method call whose MethodSpec genArgs
-                    // carry this method's MVAR (0x1E) passes the MVAR to a
-                    // per-instance generic method -> directed, not shareable.
-                    if (MethodSpecCarriesMvar(md, (int)ins.Operand)) return false;
+                    // P-G4 F3 / P-G5 FINDING-1: a generic-method call whose
+                    // MethodSpec genArgs carry this method's MVAR (0x1E), OR an
+                    // instance constructed/`new`ed through a MemberRef whose
+                    // Parent TypeSpec carries the MVAR (new Box2`1<!!0>(), an
+                    // instance call on it), passes the MVAR onward -> directed,
+                    // not shareable.
+                    if (MethodTokenCarriesMvar(md, (int)ins.Operand)) return false;
                     continue;
                 case IlOperandKind.FieldToken:
                     // P-G4 F3: a field whose DECLARED TYPE carries this
@@ -239,25 +242,52 @@ public static class GenericUsageAnalyzer
         return true;
     }
 
-    // P-G4 F3: whether a MethodSpecification token's GenericInst signature
-    // (0x0A blob: genArg count + one type sig per arg) carries a METHOD-level
-    // MVAR (0x1E) in ANY generic argument. A generic-method call such as
-    // `Wrapper.Pass<!!0>(...)` inside a shared method body would require the
-    // exact type -> the definition must stay per-instance.
-    private static bool MethodSpecCarriesMvar(MetadataReader md, int token)
+    // P-G4 F3 / P-G5 FINDING-1: whether a MethodToken operand carries a
+    // METHOD-level MVAR (0x1E) in a shape that would require the exact type
+    // inside a shared method body. Two shapes:
+    //   * MethodSpecification: the GENERICINST blob (0x0A) -- a generic-method
+    //     call such as `Wrapper.Pass<!!0>(...)` passes this method's MVAR as
+    //     the exact type argument -> directed;
+    //   * MemberReference whose PARENT is a TypeSpecification carrying the
+    //     MVAR (P-G5 FINDING-1) -- `new Box2`1<!!0>()` / an instance call on
+    //     `Box2`1<!!0>` instantiates the receiver with this method's MVAR ->
+    //     directed. Mirrors the FieldToken branch's parent-TypeSpec scan
+    //     (FieldTokenDeclaredTypeCarriesMvar).
+    // Any other shape (plain method, concrete receiver) returns false (no MVAR
+    // carried); undecodable -> false (conservative scan side).
+    private static bool MethodTokenCarriesMvar(MetadataReader md, int token)
     {
         var h = MetadataTokens.Handle(token);
-        if (h.Kind != HandleKind.MethodSpecification) return false;
-        var genSig = md.GetBlobReader(md.GetMethodSpecification((MethodSpecificationHandle)h).Signature);
         try
         {
-            if (genSig.ReadByte() != 0x0A) return false; // not GENERICINST
-            var argc = genSig.ReadCompressedInteger();
-            for (var i = 0; i < argc; i++)
+            switch (h.Kind)
             {
-                if (TypeSigMvarScanCore(md, ref genSig)) return true;
+                case HandleKind.MethodSpecification:
+                {
+                    var genSig = md.GetBlobReader(md.GetMethodSpecification((MethodSpecificationHandle)h).Signature);
+                    if (genSig.ReadByte() != 0x0A) return false; // not GENERICINST
+                    var argc = genSig.ReadCompressedInteger();
+                    for (var i = 0; i < argc; i++)
+                    {
+                        if (TypeSigMvarScanCore(md, ref genSig)) return true;
+                    }
+                    return false;
+                }
+                case HandleKind.MemberReference:
+                {
+                    var mr = md.GetMemberReference((MemberReferenceHandle)h);
+                    // Parent TypeSpec instantiation (Box2`1<!!0>::.ctor)
+                    // instantiates the receiver with this method's own MVAR.
+                    if (mr.Parent.Kind == HandleKind.TypeSpecification)
+                    {
+                        var parentSig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+                        if (TypeSigMvarScanCore(md, ref parentSig)) return true;
+                    }
+                    return false;
+                }
+                default:
+                    return false;
             }
-            return false;
         }
         catch (BadImageFormatException)
         {

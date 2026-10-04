@@ -54,6 +54,21 @@
 
 using System;
 public class Box<T> { public T item; public T Get() { return item; } public void Set(T v) { item = v; } }
+// P-G5 D6 probe: a SHARED generic CLASS method whose RETURN TYPE is an SZArray
+// of the class parameter (T[]), passed through directly (直传 -- `newarr T` is
+// directed, so straight pass-through is the ONLY SZArray-returning shape a
+// shared clone can carry). Probes the def-side return bridge
+// (CodeGenerator.cs:3546), the callvirt direct arm (:5283), and the fnPtr arm
+// (:5302) on the shared "object" clone (ArrWrap<string> -- reference arg, so
+// the instantiation collapses onto the shared clone).
+public class ArrWrap<T> { public T[] Make(T[] a) { return a; } }
+// P-G5 D6 (fnPtr arm): a generic INTERFACE whose method returns T[] -- with
+// TWO implementers the interface call is NOT devirtualizable (S3 requires a
+// single implementer or an effectively-sealed receiver) and takes the vtable
+// fnPtr dispatch arm (CodeGenerator.cs:5301-5303 bridge).
+public interface IArrSrc<T> { T[] Take(T[] a); }
+public class ArrWrapB<T> : IArrSrc<T> { public T[] Take(T[] a) { return a; } }
+public class ArrWrapC<T> : IArrSrc<T> { public T[] Take(T[] a) { return a; } }
 namespace Cases { public static class BoxUnbox {
     public static void Main() {
         // ---- boxed GetHashCode: value + cross-box consistency (Int32 only) ----
@@ -97,5 +112,35 @@ namespace Cases { public static class BoxUnbox {
         object bo = bx.Get();
         Console.WriteLine((int)bo == 42);                                   // True
         Console.WriteLine(bo.GetType().Name == "Int32");                    // True
+
+        // ---- P-G5 D6: shared SZArray direct-pass return probe ----
+        // A SHARED clone (ArrWrap<string> collapses onto the "object" clone)
+        // returning T[] exercises the def-side Il2CppArray* bridge and the
+        // call-site object-slot bridge (which the sharedCallee retCpp override
+        // turns into an implicit upcast). `sb == sa` proves the ROUND-TRIP is
+        // the SAME array (直传 identity, not a copy).
+        ArrWrap<string> aw = new ArrWrap<string>();
+        string[] sa = new string[] { "p", "q" };
+        string[] sb = aw.Make(sa);
+        Console.WriteLine(sb.Length == 2);                                  // True
+        Console.WriteLine(sb[1] == "q");                                    // True
+        Console.WriteLine(sb == sa);                                        // True
+
+        // ---- P-G5 D6 (fnPtr arm): interface dispatch on a shared clone
+        // returning T[] -- TWO implementers force the vtable fnPtr arm
+        // (:5301-5303 bridge, not the devirt S3 direct arm).
+        IArrSrc<string> isrc = new ArrWrapC<string>();
+        string[] sc = isrc.Take(sa);
+        Console.WriteLine(sc[0] == "p");                                    // True
+        Console.WriteLine(sc == sa);                                        // True
+
+        // ---- P-G5 D6 (fnPtr arm, forced): the receiver's static type is the
+        // INTERFACE (interface-typed parameter), so devirt S3 cannot resolve a
+        // concrete sealed class -- the call MUST take the vtable fnPtr arm.
+        string[] sd = TakeVia(isrc, sa);
+        Console.WriteLine(sd[1] == "q");                                    // True
+        Console.WriteLine(sd == sa);                                        // True
     }
+
+    static string[] TakeVia(IArrSrc<string> s, string[] a) { return s.Take(a); }
 }}

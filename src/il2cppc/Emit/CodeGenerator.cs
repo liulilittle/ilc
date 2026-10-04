@@ -5159,7 +5159,17 @@ public static class CodeGenerator
         if (sharedCallee)
         {
             for (var i = 0; i < paramCpp.Length; i++) paramCpp[i] = "Il2CppObject*";
-            if (retCpp != "void" && retCpp != "Il2CppObject*") retCpp = "Il2CppObject*";
+            // P-G5 D6: keep a concrete SZArray return DECLARED Il2CppArray*.
+            // The caller-side bridges (:5283/:5302) reinterpret the array
+            // pointer to the caller's Il2CppObject* result temp EXACTLY on
+            // `retCpp == "Il2CppArray*"`; overriding it to Il2CppObject*
+            // (the generic-slot rule below) emits the raw array pointer into
+            // the object temp -> C++ "cannot convert Il2CppArray* to
+            // Il2CppObject*" (Il2CppArray embeds Il2CppObject obj as a DATA
+            // MEMBER, not inheritance -- il2cpp_array.h:44-53). The shared
+            // clone's declared return IS Il2CppArray* (ReturnTypeCpp 0x1D),
+            // so the vtable/fnPtr cast also must use Il2CppArray*.
+            if (retCpp != "void" && retCpp != "Il2CppObject*" && retCpp != "Il2CppArray*") retCpp = "Il2CppObject*";
         }
         // R2b P2 (interface-instantiation ABI): the method signature encodes
         // T as the int32 default; the CALL-SITE TypeSpec is authoritative.
@@ -5213,7 +5223,7 @@ public static class CodeGenerator
         // relies on method-body self-checks).
         if (v.ReceiverTypeName != null)
         {
-            var direct = TryDevirtualize(v, owner, sig, types, receiverChecked, args);
+            var direct = TryDevirtualize(v, owner, sig, types, receiverChecked, args, retCpp);
             if (direct != null) return direct;
         }
 
@@ -5395,11 +5405,22 @@ public static class CodeGenerator
     }
 
     private static string? TryDevirtualize(VirtualCallExpr v, TypeDef owner, string sig,
-        IReadOnlyList<TypeDef> types, string receiverChecked, List<string> args)
+        IReadOnlyList<TypeDef> types, string receiverChecked, List<string> args, string retCpp)
     {
         if (v.ReceiverTypeName == null || owner.IsValueType) return null;
         var recvType = ResolveInstantiationOwner(types, v.ReceiverTypeName);
         if (recvType == null || recvType.IsInterface || recvType.IsValueType) return null;
+
+        // P-G5 D6: a devirtualized DIRECT call returning an SZArray declares
+        // the callee as Il2CppArray* (ReturnTypeCpp 0x1D) while the caller's
+        // result temp is a managed-reference Il2CppObject* (ReturnsRef labels
+        // 0x1D a reference) -- reinterpret the array pointer to the object
+        // slot, exactly like the non-devirt direct arm (:5283) and fnPtr arm
+        // (:5302). Il2CppArray embeds the object header as a data member, so
+        // the raw assignment would not compile.
+        string SzArrayBridge(string call) => retCpp == "Il2CppArray*"
+            ? $"reinterpret_cast<Il2CppObject*>({call})"
+            : call;
 
         // Devirt S3 (devirtualization-plan.md §4 S3): interface dispatch on a
         // receiver whose static type is known lowers to a DIRECT call when the
@@ -5422,7 +5443,7 @@ public static class CodeGenerator
             if (ifaceImpl == null || ifaceImpl.IsAbstract) return null;
             var ifaceFn = MethodCppName(ifaceImpl.Owner, ifaceImpl);
             var ifaceArgs = string.Join(", ", new[] { receiverChecked }.Concat(args));
-            return $"{ifaceFn}({ifaceArgs})";
+            return SzArrayBridge($"{ifaceFn}({ifaceArgs})");
         }
 
         // Gate ④: the receiver must be assignable to the declaring owner.
@@ -5441,7 +5462,7 @@ public static class CodeGenerator
         if (!recvType.IsEffectivelySealed && !impl.IsFinal) return null;
         var fnName = MethodCppName(impl.Owner, impl);
         var callArgs = string.Join(", ", new[] { receiverChecked }.Concat(args));
-        return $"{fnName}({callArgs})";
+        return SzArrayBridge($"{fnName}({callArgs})");
     }
 
     private static bool IsSubtypeOf(TypeDef t, TypeDef baseType)

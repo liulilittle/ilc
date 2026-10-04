@@ -166,6 +166,40 @@ public class GenericUsageAnalyzerTests
     }
 
     //--------------------------------------------------------------------------
+    // P-G5 FINDING-1 (MethodToken MemberRef-Parent-TypeSpec-MVAR): a byref-only
+    // generic method whose body `new`s a generic instance through a
+    // MemberReference whose PARENT TypeSpec carries the method's own MVAR
+    // (Maker.Make<T>() => new Box2<T>() -- the GenericInst return 0x15 wraps
+    // the MVAR so rule ① returnIsVar does NOT catch it, and the body's only
+    // token is the newobj MemberRef) must be refused: the MethodToken branch
+    // must mirror the FieldToken branch and scan the member-ref parent TypeSpec
+    // for 0x1E.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void ByrefOnlyMethod_NewobjParentTypeSpecCarryingOwnMvar_BlocksShare()
+    {
+        var (types, md, pe) = Load("mvarusecase");
+        var maker = types.Single(t => t.Name == "Maker" && !t.IsNested);
+        Assert.Null(GenericUsageAnalyzer.GetShareMask(md, maker, BodyReader(pe, md, maker)));
+    }
+
+    //--------------------------------------------------------------------------
+    // P-G5 D5 assertion (regression lock -- NO D5 implementation this round):
+    // the decisioner keeps refusing a method with a PURE MVAR return (0x1E,
+    // rule ① MethodMvarShareable: the return-slot unbox bridge is future
+    // work). Pick<T>(ref T a) => a returns the byref slot's value directly,
+    // so GetShareMask must stay null. This locks the current conservative
+    // contract against a future premature D5 release.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void MvarReturnMethod_ByrefParameter_BlocksShare()
+    {
+        var (types, md, pe) = Load("mvarusecase");
+        var picker = types.Single(t => t.Name == "PickUser2" && !t.IsNested);
+        Assert.Null(GenericUsageAnalyzer.GetShareMask(md, picker, BodyReader(pe, md, picker)));
+    }
+
+    //--------------------------------------------------------------------------
     // P-G4 D7 -- TypeSpecCarriesMvar blob coverage. The scanner's TypeSig macro
     // tree lives in TypeSigMvarScanCore; the D7 surface is the TypeSpec SHAPE
     // knots that wrap a METHOD-level MVAR (0x1E): the 0x1B GenericInst knot,

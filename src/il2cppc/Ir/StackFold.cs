@@ -5202,10 +5202,18 @@ public static class StackFold
     // "宁可特例化").
     static bool FieldCppIsReference(MetadataReader md, string ownerFullName, string fieldCppName)
     {
-        var ownerShort = ownerFullName[(ownerFullName.LastIndexOf('+') + 1)..];
+        // P-G5 FINDING-2: match the OWNER by its FULL name. GetFullName on a
+        // TypeDefinitionHandle returns the componentized full name (nested
+        // types are "Outer+Inner", MetadataExtensions.cs:18-28); truncating to
+        // the last '+' segment ("Inner") could never match a nested owner, so a
+        // nested type's reference-typed field was wrongly reported as a value
+        // slot (over-rejected, safe but FALSE-NEGATIVE). Match the full owner
+        // name verbatim; a generic-instantiation owner string (ResolveField's
+        // GenericInstantiationName, e.g. "Box`1_string") still never matches a
+        // TypeDefinition full name -> stays a value slot (conservative reject).
         foreach (var tdh in md.TypeDefinitions)
         {
-            if (md.GetFullName(tdh) != ownerShort) continue;
+            if (md.GetFullName(tdh) != ownerFullName) continue;
             var td = md.GetTypeDefinition(tdh);
             foreach (var fh in td.GetFields())
             {
