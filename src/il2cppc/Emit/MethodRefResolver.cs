@@ -315,7 +315,18 @@ public static partial class MethodRefResolver
                 // methods like genlist's Id<T>) and the EnsureInt32 default gate
                 // so int and string calls bind to the SAME shared symbol.
                 if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) == true)
-                    return ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                {
+                    var sharedRes = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                    // D5: a SHARED method-level generic method whose signature
+                    // returns an MVAR renders the return as the boxed object
+                    // slot (Il2CppObject* -- the shared clone's C++ return
+                    // type). The raw decode classifies a GenericMethodParameter
+                    // return as a value slot; lift it to a reference so the
+                    // caller result temp is declared Il2CppObject*.
+                    return sharedRes.ReturnsRef || !MethodSignatureReturnsMvar(md, dm.Signature)
+                        ? sharedRes
+                        : sharedRes with { ReturnsRef = true };
+                }
                 // M7 genlist: a single STRING (0x0E) generic argument routes to
                 // the emitted string-typed variant of the definition
                 // ({defCppName}_string -- CodeGenerator emits a pass-through
@@ -407,6 +418,19 @@ public static partial class MethodRefResolver
     //--------------------------------------------------------------------------
     public static string UserMethodCppName(string ownerFullName, string name, string paramTypes)
         => $"{Sanitize(ownerFullName)}_{Sanitize(name)}_{SigHash.Hash(ownerFullName + "." + name + "(" + paramTypes + ")")}";
+
+    // D5: whether a method signature's RETURN element is a METHOD-level generic
+    // parameter (0x1E MVAR). A SHARED method-level generic method renders an
+    // MVAR return as the boxed object slot; the caller result must be a
+    // reference (the shared clone's C++ return type is Il2CppObject*).
+    private static bool MethodSignatureReturnsMvar(MetadataReader md, BlobHandle sigHandle)
+    {
+        var sig = md.GetBlobReader(sigHandle);
+        var hdr = sig.ReadSignatureHeader();
+        if (hdr.IsGeneric) sig.ReadCompressedInteger();
+        sig.ReadCompressedInteger(); // param count
+        return MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte()) == 0x1E;
+    }
 
     private static ResolvedMethod ResolveMethodDefinition(MetadataReader md, MethodDefinitionHandle handle)
     {

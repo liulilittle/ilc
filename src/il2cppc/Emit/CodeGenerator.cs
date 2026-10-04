@@ -1367,7 +1367,16 @@ public static class CodeGenerator
                 }
                 // R2b P2: a VAR return in a reference instantiation renders as
                 // the managed reference (Il2CppObject*).
-                if (managedRetStruct == null && m.ReturnIsVar && t.InstantiationSuffix != null)
+                // D5 (arity-0 def): a SHARED method-level generic definition's
+                // MVAR return ALSO renders as Il2CppObject* -- the definition
+                // body IS the shared object template and its MVAR return slot
+                // is the boxed T object. Per-instance arity-0 defs (genlist
+                // Id<T>) keep the int32 default.
+                var defShared = GenericUsageAnalyzer.SharedGenericDefs?.Contains(t.FullName) == true;
+                var methodLevelSharedDef = defShared && t.InstantiationSuffix == null
+                    && t.GenericArity == 0 && t.Methods.Any(mm => mm.GenericArity > 0);
+                if (managedRetStruct == null && m.ReturnIsVar
+                    && (t.InstantiationSuffix != null || methodLevelSharedDef))
                     returnType = "Il2CppObject*";
                 _curInstantiationSuffix = t.InstantiationSuffix;
                 _curReturnIsVar = m.ReturnIsVar;
@@ -1385,7 +1394,6 @@ public static class CodeGenerator
                 // of a shared def stays per-instance (its suffix is null AND its
                 // methods are not generic -- the arity-0 clause below excludes
                 // it). The object clone's suffix is never the "int" default.
-                var defShared = GenericUsageAnalyzer.SharedGenericDefs?.Contains(t.FullName) == true;
                 _curMethodShare = defShared && (
                       t.InstantiationSuffix != null && t.InstantiationSuffix != "int"
                    || (t.InstantiationSuffix == null && t.GenericArity == 0
@@ -3636,7 +3644,10 @@ public static class CodeGenerator
                     // declared Il2CppObject* at EmitBody entry -- a reference
                     // expression is a plain upcast (the generic bridges below
                     // would reinterpret through int32_t).
-                    if (_curReturnIsVar && _curInstantiationSuffix != null && retKind is "ref" or "ptr")
+                    // D5: a SHARED method-level generic definition's MVAR
+                    // return (arity-0 def, InstantiationSuffix == null) is the
+                    // same boxed-object slot -- the upcast applies to it too.
+                    if (_curReturnIsVar && (_curInstantiationSuffix != null || _curMethodShare) && retKind is "ref" or "ptr")
                         retExpr = $"static_cast<Il2CppObject*>({retExpr})";
                     else if ((_curReturnType == SignatureTypeCode.Int32 || _curReturnType == SignatureTypeCode.Int64) && retKind is "ref" or "ptr")
                         retExpr = IntPtrBridge(ReturnTypeCpp(_curReturnType), retExpr);

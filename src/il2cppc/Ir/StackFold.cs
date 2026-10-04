@@ -3328,14 +3328,27 @@ public static class StackFold
                     var btemp = $"t{temps.Count}";
                     temps.Add(btemp);
                     tempWidths[btemp] = "r";
+                    // D5 (surface 4): the box/unbox bridge is TYPE-AWARE --
+                    // a VALUE slot's box/unbox helper is keyed on the shared
+                    // MVAR param's CONCRETE type (the MethodSpec genArg:
+                    // int32 -> il2cpp_box_int32, double -> icall_box_double,
+                    // ...). The old int32-only bridge read only the low 32
+                    // bits of a double/int64 slot.
+                    var (boxFn, boxDeref, unboxFn, unboxKind) =
+                        SharedByrefConcreteBridge(md!, (int)ins.Operand, bi)
+                        ?? ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i");
                     var boxCall = new CallExpr
                     {
-                        Function = "il2cpp::il2cpp_box_int32",
+                        Function = boxFn,
                         ReturnsRef = true,
-                        Resolved = new ResolvedMethod("il2cpp::il2cpp_box_int32", 2, false, true, true,
-                            new[] { false, false }, false, ParamTypeNames: new[] { "", "deref:i" }),
+                        Resolved = boxFn == "il2cpp::il2cpp_box_int32"
+                            ? new ResolvedMethod(boxFn, 2, false, true, true,
+                                new[] { false, false }, false, ParamTypeNames: new[] { "", boxDeref })
+                            : new ResolvedMethod(boxFn, 1, false, true, true,
+                                new[] { false }, false, ParamTypeNames: new[] { boxDeref }),
                     };
-                    boxCall.Args.Add(new NullExpr());
+                    if (boxFn == "il2cpp::il2cpp_box_int32")
+                        boxCall.Args.Add(new NullExpr());
                     boxCall.Args.Add(laB);
                     stmts.Add(new AssignStmt
                     {
@@ -3347,10 +3360,10 @@ public static class StackFold
                     call.Args[bArgIdx] = new LocAddrExpr { Name = btemp };
                     var unboxCall = new CallExpr
                     {
-                        Function = "il2cpp::il2cpp_unbox_int32",
+                        Function = unboxFn,
                         ReturnsRef = false,
-                        ResultKind = "i",
-                        Resolved = new ResolvedMethod("il2cpp::il2cpp_unbox_int32", 1, false, true, false,
+                        ResultKind = unboxKind,
+                        Resolved = new ResolvedMethod(unboxFn, 1, false, true, false,
                             new[] { true }, false),
                     };
                     unboxCall.Args.Add(new LocExpr { Name = btemp });
@@ -3379,6 +3392,16 @@ public static class StackFold
                     objTypes[gt2.Name] = "System.Type"; // GetType() -> the type NAME string; .Name on it is identity
                 else if (resolved?.ReturnTypeName != null && stack.Peek() is LocExpr rt2)
                     objTypes[rt2.Name] = resolved.ReturnTypeName;
+                // D5 (surface 4): a SHARED method-level generic method's MVAR
+                // return (PickUser2::Pick<int> -- the callee emits the boxed
+                // object slot) records the CONCRETE T on the result temp. The
+                // callvirt arm already does this via SharedReturnConcreteType;
+                // a STATIC shared method arrives through the `call` path, so it
+                // is recorded here too -- the consumer (Console.WriteLine /
+                // Int32::ToString) then unboxes by the tracked type.
+                else if (md != null && stack.Peek() is LocExpr rtc
+                    && SharedReturnConcreteType(md, (int)ins.Operand) is string callSharedRet)
+                    objTypes[rtc.Name] = callSharedRet;
                 foreach (var mt in pinvokeFreeTemps)
                     stmts.Add(new CallStmt { Function = mt.Utf16 ? "pinvoke_utf16_free" : "pinvoke_utf8_free", Args = { new LocExpr { Name = mt.Name } }, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
             }
@@ -4351,10 +4374,25 @@ public static class StackFold
         // signature slot is a generic parameter (0x13 VAR / 0x1E MVAR).
         static bool ReturnIsVar(MetadataReader md, int token)
         {
+            // D5: a MethodSpec token recurses to the generic method's own
+            // signature (a shared method-level def call -- the spec wraps the
+            // underlying MethodDef). Cross-assembly (MemberRef) specs stay BCL.
             var h = MetadataTokens.Handle(token);
-            var sigHandle = h.Kind == HandleKind.MethodDefinition
-                ? md.GetMethodDefinition((MethodDefinitionHandle)h).Signature
-                : md.GetMemberReference((MemberReferenceHandle)h).Signature;
+            BlobHandle sigHandle;
+            switch (h.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                    sigHandle = md.GetMethodDefinition((MethodDefinitionHandle)h).Signature;
+                    break;
+                case HandleKind.MethodSpecification:
+                    var ms = md.GetMethodSpecification((MethodSpecificationHandle)h);
+                    if (ms.Method.Kind != HandleKind.MethodDefinition) return false;
+                    sigHandle = md.GetMethodDefinition((MethodDefinitionHandle)ms.Method).Signature;
+                    break;
+                default:
+                    sigHandle = md.GetMemberReference((MemberReferenceHandle)h).Signature;
+                    break;
+            }
             var rs = md.GetBlobReader(sigHandle);
             var hdr = rs.ReadSignatureHeader();
             if (hdr.IsGeneric) _ = rs.ReadCompressedInteger();
@@ -5072,8 +5110,19 @@ public static class StackFold
             sigHandle = md.GetMethodDefinition((MethodDefinitionHandle)handle).Signature;
         else if (handle.Kind == HandleKind.MemberReference)
             sigHandle = md.GetMemberReference((MemberReferenceHandle)handle).Signature;
+        else if (handle.Kind == HandleKind.MethodSpecification)
+        {
+            // D5: a MethodSpec on a MethodDef may name a SHARED method-level
+            // generic method (PickUser2::Pick<int>). Decode the underlying
+            // definition signature so a 0x1E MVAR return can be classified
+            // against the share set below. Cross-assembly MethodSpecs
+            // (MemberReference) stay BCL-mapped (their ResultKind).
+            var ms = md.GetMethodSpecification((MethodSpecificationHandle)handle);
+            if (ms.Method.Kind != HandleKind.MethodDefinition) return null;
+            sigHandle = md.GetMethodDefinition((MethodDefinitionHandle)ms.Method).Signature;
+        }
         else
-            return null; // MethodSpecification: BCL-only, mapped with ResultKind
+            return null;
         var sig = md.GetBlobReader(sigHandle);
         sig.ReadByte();              // calling convention
         sig.ReadCompressedInteger(); // param count
@@ -5212,6 +5261,15 @@ public static class StackFold
                 ? GenericInstDefName(md, (TypeSpecificationHandle)par) is { } gdn
                     && GenericUsageAnalyzer.SharedGenericDefs?.Contains(gdn) == true
                 : false,
+            // D5: a MethodSpec call names a generic method of a SHARED
+            // definition (PickUser2::Pick<int> -- the arity-0 def's method-level
+            // share body). The VAR/MVAR-return guard at the callers means this
+            // only fires for those signatures; the shared clone returns the
+            // boxed object slot. Cross-assembly (MemberRef) MethodSpecs stay BCL.
+            HandleKind.MethodSpecification => md.GetMethodSpecification((MethodSpecificationHandle)callHandle).Method.Kind
+                    == HandleKind.MethodDefinition
+                && GenericUsageAnalyzer.SharedGenericDefs
+                    ?.Contains(md.GetFullName(md.GetMethodDefinition((MethodDefinitionHandle)md.GetMethodSpecification((MethodSpecificationHandle)callHandle).Method).GetDeclaringType())) == true,
             _ => false,
         };
     }
@@ -5277,6 +5335,70 @@ public static class StackFold
             return null;
         var (_, _, byrefVar) = MethodSignatureCoder.DecodeVarFlags(md, dm.Signature);
         return byrefVar;
+    }
+
+    // D5: the box/unbox bridge pair for a SHARED method-level generic method's
+    // byref MVAR param, keyed on the MethodSpec's CONCRETE generic argument
+    // (the value slot's managed type: int32 -> il2cpp_box_int32 /
+    // il2cpp_unbox_int32, double -> icall_box_double / icall_unbox_double, ...).
+    // The old bridge hardcoded int32; a double slot would box/unbox only its
+    // low 32 bits. Returns the legacy int32 pair for undecodable concrete types
+    // (conservative -- the pre-D5 default) and null for non-shared / non-byref
+    // shapes (caller keeps the zero-copy pass-through).
+    static (string BoxFn, string BoxDeref, string UnboxFn, string UnboxKind)? SharedByrefConcreteBridge(
+        MetadataReader md, int token, int paramIndex)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.MethodSpecification) return null;
+        var ms = md.GetMethodSpecification((MethodSpecificationHandle)h);
+        if (ms.Method.Kind != HandleKind.MethodDefinition) return null;
+        var dm = md.GetMethodDefinition((MethodDefinitionHandle)ms.Method);
+        if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) != true) return null;
+        var mvIdx = ByrefParamMvarIndex(md, dm, paramIndex);
+        if (mvIdx < 0) return null;
+        return MethodSpecGenArgFullName(md, ms.Signature, mvIdx) switch
+        {
+            "System.Double" => ("il2cpp::runtime::icall_box_double", "deref:d", "il2cpp::runtime::icall_unbox_double", "d"),
+            "System.Int64" => ("il2cpp::runtime::icall_box_long", "deref:l", "il2cpp::runtime::icall_unbox_long", "l"),
+            "System.Boolean" => ("il2cpp::runtime::icall_box_bool", "deref:b", "il2cpp::runtime::icall_unbox_bool", "b"),
+            "System.Char" => ("il2cpp::runtime::icall_box_char", "deref:c", "il2cpp::runtime::icall_unbox_char", "c"),
+            "System.Byte" => ("il2cpp::runtime::icall_box_byte", "deref:u1", "il2cpp::runtime::icall_unbox_byte", "b"),
+            "System.SByte" => ("il2cpp::runtime::icall_box_sbyte", "deref:i", "il2cpp::runtime::icall_unbox_sbyte", "b"),
+            "System.Int16" => ("il2cpp::runtime::icall_box_short", "deref:u2", "il2cpp::runtime::icall_unbox_short", "b"),
+            "System.UInt16" => ("il2cpp::runtime::icall_box_ushort", "deref:u2", "il2cpp::runtime::icall_unbox_ushort", "c"),
+            "System.UInt32" => ("il2cpp::runtime::icall_box_uint", "deref:ui", "il2cpp::runtime::icall_unbox_uint", "i"),
+            "System.UInt64" => ("il2cpp::runtime::icall_box_ulong", "deref:ul", "il2cpp::runtime::icall_unbox_ulong", "l"),
+            "System.Single" => ("il2cpp::runtime::icall_box_float", "deref:d", "il2cpp::runtime::icall_unbox_float", "d"),
+            // Int32 / undecodable concrete type -> the legacy int32 pair.
+            _ => ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i"),
+        };
+    }
+
+    // D5: the METHOD-level generic parameter index (!!i) of a BYREF-wrapped
+    // generic parameter at the given explicit-param index of a method
+    // definition, or -1 when the param is not a byref MVAR. The shared object
+    // ABI only shares methods whose MVAR params are byref T slots.
+    static int ByrefParamMvarIndex(MetadataReader md, MethodDefinition dm, int paramIndex)
+    {
+        var sig = md.GetBlobReader(dm.Signature);
+        var hdr = sig.ReadSignatureHeader();
+        if (hdr.IsGeneric) sig.ReadCompressedInteger();
+        var pc = sig.ReadCompressedInteger();
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        if (ret is 0x13 or 0x1E) sig.ReadCompressedInteger();
+        else if (ret is 0x11 or 0x12 or 0x40) sig.ReadTypeHandle();
+        for (var i = 0; i < pc; i++)
+        {
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            var mvar = -1;
+            if (b == 0x10) // BYREF wrapper
+            {
+                var pointee = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+                if (pointee == 0x1E) mvar = sig.ReadCompressedInteger();
+            }
+            if (i == paramIndex) return mvar;
+        }
+        return -1;
     }
 
     // P-G4 ②: whether a shared-byref ARGUMENT that is a FIELD ADDRESS (ldflda
@@ -5389,6 +5511,11 @@ public static class StackFold
     static string? SharedReturnConcreteType(MetadataReader md, int token)
     {
         var h = MetadataTokens.Handle(token);
+        // D5: a MethodSpec call to a SHARED method-level generic method
+        // (PickUser2::Pick<System.Int32>) -- the MVAR return's CONCRETE T is
+        // the instantiation's genArg, not a MemberRef parent TypeSpec.
+        if (h.Kind == HandleKind.MethodSpecification)
+            return MethodSpecMvarReturnConcreteType(md, (MethodSpecificationHandle)h);
         if (h.Kind != HandleKind.MemberReference) return null;
         var mr = md.GetMemberReference((MemberReferenceHandle)h);
         if (mr.Parent.Kind != HandleKind.TypeSpecification) return null;
@@ -5425,6 +5552,78 @@ public static class StackFold
             for (var i = 0; i < varIdx; i++)
                 _ = MethodSignatureCoder.SkipCustomModifiers(ref ts2, ts2.ReadByte());
             var th = ts2.ReadTypeHandle();
+            return th.Kind switch
+            {
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+                _ => null,
+            };
+        }
+        return b switch
+        {
+            0x02 => "System.Boolean",
+            0x03 => "System.Char",
+            0x04 => "System.SByte",
+            0x05 => "System.Byte",
+            0x06 => "System.Int16",
+            0x07 => "System.UInt16",
+            0x08 => "System.Int32",
+            0x09 => "System.UInt32",
+            0x0A => "System.Int64",
+            0x0B => "System.UInt64",
+            0x0C => "System.Single",
+            0x0D => "System.Double",
+            0x0E => "System.String",
+            0x1C => "System.Object",
+            _ => null, // arrays/nested-generic/open-VAR: keep the legacy semantics
+        };
+    }
+
+    // D5: the CONCRETE generic-argument type of a SHARED method-level generic
+    // method's MVAR return (PickUser2::Pick<System.Int32> -> "System.Int32").
+    // The shared clone returns the boxed object slot; the caller unboxes by
+    // this concrete T. Decode the underlying MethodDef signature's return
+    // VAR/MVAR index, then read that MethodSpec genArg. Returns null for
+    // non-shared callees, non-VAR returns, open arguments, or undecodable
+    // shapes (the caller keeps the existing slot semantics).
+    static string? MethodSpecMvarReturnConcreteType(MetadataReader md, MethodSpecificationHandle msHandle)
+    {
+        var ms = md.GetMethodSpecification(msHandle);
+        if (ms.Method.Kind != HandleKind.MethodDefinition) return null;
+        var dm = md.GetMethodDefinition((MethodDefinitionHandle)ms.Method);
+        if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) != true) return null;
+        var sig = md.GetBlobReader(dm.Signature);
+        var hdr = sig.ReadSignatureHeader();
+        if (hdr.IsGeneric) sig.ReadCompressedInteger();
+        sig.ReadCompressedInteger(); // param count
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        int mvarIdx;
+        if (ret is 0x13 or 0x1E) mvarIdx = sig.ReadCompressedInteger(); else return null;
+        return MethodSpecGenArgFullName(md, ms.Signature, mvarIdx);
+    }
+
+    // Read the concrete generic-argument FULL NAME at genIndex from a MethodSpec
+    // GENERICINST (0x0A) blob, or null when the argument is open/unboxable.
+    // The same byte table as SharedReturnConcreteType's MemberRef TypeSpec-arg
+    // decode (primitives/string/object/class/value-type).
+    static string? MethodSpecGenArgFullName(MetadataReader md, in BlobHandle genSigHandle, int genIndex)
+    {
+        var gsig = md.GetBlobReader(genSigHandle);
+        if (gsig.ReadByte() != 0x0A) return null; // not GENERICINST
+        var argc = gsig.ReadCompressedInteger();
+        if ((uint)genIndex >= (uint)argc) return null;
+        byte b = 0;
+        for (var i = 0; i <= genIndex; i++)
+            b = MethodSignatureCoder.SkipCustomModifiers(ref gsig, gsig.ReadByte());
+        if (b is 0x11 or 0x12)
+        {
+            // Re-read the concrete argument's TypeDefOrRef full name.
+            var gs2 = md.GetBlobReader(genSigHandle);
+            if (gs2.ReadByte() != 0x0A) return null;
+            var argc2 = gs2.ReadCompressedInteger();
+            for (var i = 0; i < genIndex; i++)
+                _ = MethodSignatureCoder.SkipCustomModifiers(ref gs2, gs2.ReadByte());
+            var th = gs2.ReadTypeHandle();
             return th.Kind switch
             {
                 HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),

@@ -193,8 +193,12 @@ public static class GenericUsageAnalyzer
     {
         var (returnIsVar, paramIsVar, paramIsByrefVar) =
             MethodSignatureCoder.DecodeVarFlags(md, md.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(bio.MethodToken)).Signature);
-        // (1) MVAR return -> not shareable (return-slot bridge is future work).
-        if (returnIsVar) return false;
+        // (1) D5: an MVAR return no longer blocks method-level sharing -- the
+        // shared object ABI (GENERIC-SHARE-DESIGN.md §5) renders the return
+        // slot as the boxed T object (Il2CppObject*), and the caller unboxes by
+        // the MethodSpec concrete argument (D5 return-unbox bridge). The
+        // conservatism is preserved by rules (2)/(3) below: byref-only MVAR
+        // params AND a body whose only MVAR uses are pure slot moves.
         // (2) EVERY MVAR parameter must be BYREF-wrapped (else by-value MVAR
         // slots / arithmetic bodies like Add<T> would be mis-shared).
         for (var i = 0; i < paramIsVar.Length; i++)

@@ -184,19 +184,36 @@ public class GenericUsageAnalyzerTests
     }
 
     //--------------------------------------------------------------------------
-    // P-G5 D5 assertion (regression lock -- NO D5 implementation this round):
-    // the decisioner keeps refusing a method with a PURE MVAR return (0x1E,
-    // rule ① MethodMvarShareable: the return-slot unbox bridge is future
-    // work). Pick<T>(ref T a) => a returns the byref slot's value directly,
-    // so GetShareMask must stay null. This locks the current conservative
-    // contract against a future premature D5 release.
+    // P2-D5 assertion (the D5-4 surface #3 decisioner relaxation): a generic
+    // METHOD with a PURE MVAR return (0x1E) is NOW shareable when every MVAR
+    // parameter is BYREF-wrapped (the byref T slots are Il2CppObject** object
+    // slots) and the body is pure slot moves -- the definition-side MVAR return
+    // is the boxed object slot (Il2CppObject*) and the call site unboxes by
+    // concrete T (the return-slot unbox bridge, StackFold). PickUser2.Pick<T>
+    // (ref T a) => a is exactly that shape -> the arity-0 def gets the empty
+    // (vacuously all-true) share mask via the method-level channel.
     //--------------------------------------------------------------------------
     [Fact]
-    public void MvarReturnMethod_ByrefParameter_BlocksShare()
+    public void MvarReturnMethod_ByrefParameter_IsShareable()
     {
         var (types, md, pe) = Load("mvarusecase");
         var picker = types.Single(t => t.Name == "PickUser2" && !t.IsNested);
-        Assert.Null(GenericUsageAnalyzer.GetShareMask(md, picker, BodyReader(pe, md, picker)));
+        var mask = GenericUsageAnalyzer.GetShareMask(md, picker, BodyReader(pe, md, picker));
+        Assert.NotNull(mask);
+        Assert.Empty(mask);
+        Assert.True(GenericUsageAnalyzer.IsObjectShareable(md, picker, BodyReader(pe, md, picker)));
+    }
+
+    // P2-D5: the SAME verdict on the mvarreturncase e2e fixture's Picker (the
+    // call-site unbox bridge is verified at runtime by the case itself).
+    [Fact]
+    public void Picker_MvarReturnByrefSlot_IsShareable()
+    {
+        var (types, md, pe) = Load("mvarreturncase");
+        var picker = types.Single(t => t.Name == "Picker" && !t.IsNested);
+        var mask = GenericUsageAnalyzer.GetShareMask(md, picker, BodyReader(pe, md, picker));
+        Assert.NotNull(mask);
+        Assert.Empty(mask);
     }
 
     //--------------------------------------------------------------------------

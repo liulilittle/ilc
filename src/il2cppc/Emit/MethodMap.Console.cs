@@ -12,6 +12,41 @@ public static partial class MethodRefResolver
         if (name == "WriteLine")
         {
             if (ps.Length == 0) return I("il2cpp::runtime::icall_console_write_line_n", 0, false, false, false, null, null, false, false, true);
+            // D5 (surface 4): a SHARED method-level generic method's MVAR
+            // return lands in the caller slot as the BOXED object
+            // (Il2CppObject*). A subsequent `Console.WriteLine(<that slot>)`
+            // whose IL signature is the VALUE type (WriteLine(int) after
+            // `int y = Pick<int>(ref x)`) must UNBOX by the tracked box type
+            // -- the arg expression is an object, the icall takes an int32/
+            // double/... . Only fires when arg0Type names a tracked boxed
+            // value (a genuine int local is never objTypes-tracked), so the
+            // plain value-path stays byte-identical.
+            if (ps[0] is 0x08 or 0x09 or 0x0A or 0x0B or 0x0C or 0x0D or 0x02 or 0x03
+                && arg0Type is "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64"
+                    or "System.Double" or "System.Single" or "System.Boolean" or "System.Char")
+            {
+                var boxedCast = arg0Type switch
+                {
+                    "System.Int32" => "unbox:i",
+                    "System.UInt32" => "unbox:ui",
+                    "System.Int64" => "unbox:l",
+                    "System.UInt64" => "unbox:ul",
+                    "System.Double" or "System.Single" => "unbox:d",
+                    "System.Boolean" => "unbox:b",
+                    _ => "unbox:c",
+                };
+                return ps[0] switch
+                {
+                    0x08 => I("il2cpp::runtime::icall_console_write_line_i", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                    0x09 => I("il2cpp::runtime::icall_console_write_line_u32", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                    0x0A => I("il2cpp_console_write_line_l", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                    0x0B => I("il2cpp::runtime::icall_console_write_line_u64", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                    0x0D => I("il2cpp::runtime::icall_console_write_line_d", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                    0x0C => I("il2cpp::runtime::icall_console_write_line_d", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                    0x02 => I("il2cpp::runtime::icall_console_write_line_b", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                    _ => I("il2cpp::runtime::icall_console_write_line_c", 1, false, false, false, new[] { boxedCast }, null, false, false, true),
+                };
+            }
             return ps[0] switch
             {
                 0x08 => I("il2cpp::runtime::icall_console_write_line_i", 1, false, false, false, null, null, false, false, true),
