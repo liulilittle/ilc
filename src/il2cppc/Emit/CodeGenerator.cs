@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.RegularExpressions;
 using Il2Cpp.Transpiler.Il;
 using Il2Cpp.Transpiler.Ir;
 using Il2Cpp.Transpiler.Model;
@@ -52,6 +53,53 @@ public static class CodeGenerator
     // under _poolLock; cleared at the top of every GenerateCore.
     private static readonly HashSet<int> _delegateMethodTokens = new();
 
+    //--------------------------------------------------------------------------
+    // P-D4 (mixed loading): per-library static/dynamic routing.
+    //
+    // A [DllImport] library is STATIC (direct extern "C" call, linked into the
+    // exe) when the case directory carries a library dir whose CMakeLists does
+    // NOT build it SHARED (mylib STATIC; system DLLs via INTERFACE import-lib
+    // targets like kernel32). It is DYNAMIC (resolved at runtime through
+    // il2cpp_pinvoke_resolve) when the case's library dir is absent
+    // (out-of-manifest) or builds the library SHARED (e2e extdll). Dynamic
+    // libraries must NOT emit an extern "C" declaration (the symbol would be
+    // an undefined link reference -- the very failure dynamic resolution was
+    // meant to avoid) and must NOT be target_link_libraries'd.
+    //
+    // The manifest decision is made ONCE per Generate (under _poolLock, so
+    // parallel xUnit Generate calls never race): the case directory is derived
+    // from the assembly path exactly as EmitCmake derives it.
+    //--------------------------------------------------------------------------
+    private static HashSet<string> _dynamicPinvokeModules = new(StringComparer.OrdinalIgnoreCase);
+    // (moduleBase, entry) -> the native C++ signature ({"Ret","Params"}) of a
+    // DYNAMIC P/Invoke, keyed for the call-site resolve cast. Built alongside
+    // the dynamic-module set; only dynamic entries are stored (static calls
+    // keep the extern "C" decl and need no cast).
+    private static readonly Dictionary<(string Module, string Entry), (string Ret, string Params)> _pinvokeDynamicSig =
+        new();
+
+    // The discriminated decision + signature for one P/Invoke module.
+    private static bool PinvokeModuleIsDynamic(string module)
+        => _dynamicPinvokeModules.Contains(module);
+
+    // Whether this resolved call is a DYNAMIC P/Invoke (out-of-manifest lib).
+    private static bool TryPinvokeDynamicSig(string module, string entry, out string retCpp, out string paramsCpp)
+    {
+        // A bare module key (the resolver may yield the raw name; normalize
+        // the .dll suffix as the manifest keys do).
+        var baseKey = module.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? module.Substring(0, module.Length - 4) : module;
+        if (_pinvokeDynamicSig.TryGetValue((baseKey, entry), out var sig))
+        {
+            retCpp = sig.Ret;
+            paramsCpp = sig.Params;
+            return true;
+        }
+        retCpp = "";
+        paramsCpp = "";
+        return false;
+    }
+
     private static GenerateResult GenerateCore(List<TypeDef> types, string outDir, string assemblyPath, SequencePointMap? symMap,
         CliOptions? options)
     {
@@ -65,6 +113,7 @@ public static class CodeGenerator
         using var stream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(stream);
         var md = pe.GetMetadataReader();
+        ComputePinvokeManifest(types, md, assemblyPath, outDir);
 
         var generatedHeader = new CppWriter();
         generatedHeader.Line("#pragma once");
@@ -1129,6 +1178,30 @@ public static class CodeGenerator
                             }
                         }
                         catch { }
+                    }
+                    // P-D4 P1: an ordinal EntryPoint ("#N") can never compile
+                    // ('#' is not a C++ identifier) and plat_dl_sym resolves
+                    // by name -- LOUD-reject at the declaration side (the
+                    // resolver guards the called path; this guards even a
+                    // declared-but-never-called entry). Full ordinal support
+                    // is deferred to P3.
+                    var piEntry = m.PinvokeEntryName ?? m.Name;
+                    if (!string.IsNullOrEmpty(piEntry) && piEntry.StartsWith("#", StringComparison.Ordinal))
+                        throw new NotSupportedException(
+                            $"P/Invoke EntryPoint='{piEntry}' (ordinal entry) is not supported: '#' is not a valid native symbol name in this transpiler (P-D4)");
+                    // P-D4 (mixed loading): a DYNAMIC library (out-of-manifest
+                    // or SHARED) gets NO extern "C" declaration -- the symbol
+                    // would be an undefined link reference, defeating the
+                    // runtime resolution every call site emits. Only the
+                    // static-link libraries keep the declaration (zero-overhead
+                    // direct calls, the established ABI).
+                    var pinvokeDynamic = PinvokeModuleIsDynamic(m.PinvokeModule ?? "");
+                    if (pinvokeDynamic)
+                    {
+                        w.Line($"// P/Invoke (P-D4): dynamic import from '{m.PinvokeModule}' -- resolved at RUNTIME via il2cpp_pinvoke_resolve (no extern \"C\" declaration: the library is not linked into the exe).");
+                        generatedHeader.Line($"// P/Invoke (P-D4): dynamic import from '{m.PinvokeModule}' -- resolved at RUNTIME via il2cpp_pinvoke_resolve (no extern \"C\" declaration: the library is not linked into the exe).");
+                        w.Line();
+                        continue;
                     }
                     var piRet = PinvokeReturnTypeCpp(md, m);
                     var piParams = PinvokeParamList(md, m);
@@ -8413,6 +8486,21 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         var callCode2 = IsMessageCarrierCppName(cppName2)
             ? cppName2 + ")"
             : $"{cppName2}({callArgs2})";
+        // P-D4 (mixed loading): a DYNAMIC P/Invoke call site routes through
+        // the runtime resolver -- the transpiler casts the resolved pointer to
+        // the native signature (the SAME types the extern "C" declaration
+        // would have named) and calls through it:
+        //   ((Ret(*)(Params))il2cpp::il2cpp_pinvoke_resolve("dll","entry"))(args)
+        // The args already carry the il2cpp_pinvoke_arg bridge (the cast's
+        // parameter types deduce the native conversions). The runtime caches
+        // per (dll, entry), so repeated calls are a table lookup. Failure
+        // (library/symbol missing) is a managed exception at the call
+        // boundary -- DllNotFoundException / EntryPointNotFoundException.
+        if (resolved2 is { IsPInvoke: true, PinvokeModule: not null } pm
+            && TryPinvokeDynamicSig(pm.PinvokeModule, cppName2, out var dynRet, out var dynParams))
+        {
+            callCode2 = $"(({dynRet}(*)({dynParams}))il2cpp::il2cpp_pinvoke_resolve(\"{pm.PinvokeModule}\",\"{cppName2}\"))({callArgs2})";
+        }
         // P/Invoke "ptr" result bridge (il2cpp_pinvoke_bridge.h): the native
         // return may be an SDK pointer/size type (HWND/HMODULE/LRESULT/...)
         // while the managed carrier is the intptr_t temp. Wrap the call in the
@@ -10159,30 +10247,126 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         File.WriteAllText(Path.Combine(outDir, "src", "host.cpp"), h.ToString());
     }
 
+    //--------------------------------------------------------------------------
+    // ComputePinvokeManifest -- derive the P-D4 static/dynamic P/Invoke
+    // manifest ONCE per Generate (called right after the metadata reader is
+    // opened; under _poolLock).
+    //
+    // A [DllImport] library is STATIC when the case directory carries a
+    // library dir whose CMakeLists does NOT build it SHARED (mylib STATIC;
+    // system DLL INTERFACE import-lib targets like kernel32). It is DYNAMIC
+    // (runtime resolve via il2cpp_pinvoke_resolve) when the case's library
+    // dir is ABSENT (out-of-manifest, e.g. nosuchlib_d4) or builds the
+    // library SHARED (the P-D4 extdll e2e). "QCall" is never a DLL and stays
+    // on the legacy static decl path. The dynamic-set keys carry BOTH the raw
+    // module name and the ".dll"-stripped base so call-site lookups (raw) and
+    // dir-keyed lookups (base) both hit.
+    //--------------------------------------------------------------------------
+    private static void ComputePinvokeManifest(IReadOnlyList<TypeDef> types, MetadataReader md, string assemblyPath, string outDir)
+    {
+        _dynamicPinvokeModules = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        _pinvokeDynamicSig.Clear();
+        var modules = types
+            .SelectMany(t => t.Methods)
+            .Where(m => m.IsPInvoke && m.PinvokeModule != null)
+            .Select(m => m.PinvokeModule!)
+            .Distinct()
+            .ToList();
+        foreach (var mod in modules)
+        {
+            if (mod.Equals("QCall", StringComparison.Ordinal)) continue;
+            var modBase = mod.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? mod.Substring(0, mod.Length - 4) : mod;
+            var libDir = FindPinvokeLibDir(assemblyPath, outDir, modBase);
+            var isDynamic = libDir == null; // out-of-manifest
+            if (!isDynamic)
+            {
+                var cmakePath = Path.Combine(libDir!, "CMakeLists.txt");
+                if (File.Exists(cmakePath))
+                {
+                    var text = File.ReadAllText(cmakePath);
+                    // add_library(<name> SHARED ...) => the library is BUILT
+                    // shared and NOT linked into the exe (dynamic resolution).
+                    if (Regex.IsMatch(text,
+                        $@"add_library\s*\(\s*{Regex.Escape(modBase)}\s+SHARED\b",
+                        RegexOptions.IgnoreCase))
+                        isDynamic = true;
+                }
+            }
+            if (!isDynamic) continue;
+            _dynamicPinvokeModules.Add(mod);
+            _dynamicPinvokeModules.Add(modBase);
+            // Record the native signature for each dynamic entry -- the call
+            // site casts the resolve pointer with the SAME types the extern
+            // "C" declaration would have named (single source of truth).
+            foreach (var m in types.SelectMany(t => t.Methods)
+                         .Where(m => m.IsPInvoke && string.Equals(m.PinvokeModule, mod, StringComparison.OrdinalIgnoreCase)))
+            {
+                var entry = m.PinvokeEntryName ?? m.Name;
+                if (string.IsNullOrEmpty(entry)) continue;
+                var key = (modBase, entry);
+                if (!_pinvokeDynamicSig.ContainsKey(key))
+                    _pinvokeDynamicSig[key] = (PinvokeReturnTypeCpp(md, m), PinvokeParamList(md, m));
+            }
+        }
+    }
+
+    // Find the native-library directory (a folder holding CMakeLists.txt) for
+    // a P/Invoke module. The assembly may sit at several layouts -- e2e
+    // staging (tests/cases/<case>/out_stage_<compiler>/), unit-fixture
+    // obj/Release/net48/, or a repo-root sibling -- so WALK UP from the
+    // assembly's directory to a directory that contains <modBase>/
+    // CMakeLists.txt (bounded walk; the first hit on the leaf-most layout).
+    // Falls back to outDir/<modBase>; null = OUT-OF-MANIFEST (dynamic).
+    private static string? FindPinvokeLibDir(string assemblyPath, string outDir, string modBase)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(assemblyPath));
+        for (var depth = 0; dir != null && depth < 16; ++depth)
+        {
+            var candidate = Path.Combine(dir, modBase);
+            if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "CMakeLists.txt")))
+                return candidate;
+            dir = Path.GetDirectoryName(dir);
+        }
+        var outLib = Path.Combine(Path.GetFullPath(outDir), modBase);
+        if (Directory.Exists(outLib) && File.Exists(Path.Combine(outLib, "CMakeLists.txt")))
+            return outLib;
+        return null;
+    }
+
     private static void EmitCmake(string outDir, List<string> srcs, string assemblyPath, IReadOnlyList<TypeDef> types)
     {
         var w = new CppWriter();
         w.Line("cmake_minimum_required(VERSION 3.10)");
         w.Line("project(il2cpp_gen CXX)");
         w.Line($"add_subdirectory({RuntimeRelativePath(outDir, assemblyPath)} ${{CMAKE_BINARY_DIR}}/runtime)");
-        // M4 Task 1: P/Invoke -- link the native library referenced by the
-        // transpiled [DllImport] methods (mylib lives next to the assembly).
+        // M4 Task 1 / P-D4: P/Invoke native libraries. STATIC modules (mylib
+        // STATIC, system DLL INTERFACE targets) are add_subdirectory'd AND
+        // linked (target_link_libraries). DYNAMIC modules (out-of-manifest or
+        // SHARED builds) are add_subdirectory'd -- the .dll still needs to be
+        // BUILT for runtime deployment -- but are NOT linked (the generated
+        // call sites resolve them at runtime). A module whose case directory
+        // does not exist gets NO add_subdirectory at all (the old emission
+        // made cmake configure fail on it).
         var pinvokeModules = types
             .SelectMany(t => t.Methods)
             .Where(m => m.IsPInvoke && m.PinvokeModule != null)
             .Select(m => m.PinvokeModule!)
             .Distinct()
             .ToList();
+        var linkedPinvokeModules = new List<string>();
         foreach (var mod in pinvokeModules)
         {
             // The native library lives in the CASE directory (one level above
             // the assembly output dir): tests/cases/<name>/mylib/.
-            var caseRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(assemblyPath)));
-            var mylibDir = caseRoot != null && Directory.Exists(Path.Combine(caseRoot, mod))
-                ? Path.Combine(caseRoot, mod)
-                : Path.Combine(Path.GetFullPath(outDir), mod);
-            var rel = RelTo(outDir, mylibDir);
-            w.Line($"add_subdirectory({rel} ${{CMAKE_BINARY_DIR}}/{mod})");
+            var modBase = mod.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? mod.Substring(0, mod.Length - 4) : mod;
+            var libDir = FindPinvokeLibDir(assemblyPath, outDir, modBase);
+            if (libDir == null) continue; // out-of-manifest: build nothing here
+            var rel = RelTo(outDir, libDir);
+            w.Line($"add_subdirectory({rel} ${{CMAKE_BINARY_DIR}}/{modBase})");
+            if (PinvokeModuleIsDynamic(mod)) continue; // SHARED: build only, no link
+            linkedPinvokeModules.Add(modBase);
         }
         // M4 Task 7: the PRODUCT form is a static library (il2cpp_gen) that
         // external programs link against; il2cpp_gen_exe remains the
@@ -10194,7 +10378,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         w.Line("    src/entry.cpp");
         w.Line(")");
         w.Line("target_include_directories(il2cpp_gen PUBLIC include/internal)");
-        w.Line("target_link_libraries(il2cpp_gen PUBLIC il2cpp_runtime" + (pinvokeModules.Count > 0 ? " " + string.Join(" ", pinvokeModules) : "") + ")");
+        w.Line("target_link_libraries(il2cpp_gen PUBLIC il2cpp_runtime" + (linkedPinvokeModules.Count > 0 ? " " + string.Join(" ", linkedPinvokeModules) : "") + ")");
         w.Line("target_compile_features(il2cpp_gen PUBLIC cxx_std_17)");
         w.Line("if(MSVC)");
         w.Line("  target_compile_options(il2cpp_gen PRIVATE /W4 /EHsc /bigobj)");

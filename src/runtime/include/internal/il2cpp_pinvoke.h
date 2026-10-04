@@ -1,6 +1,6 @@
 #pragma once
 //------------------------------------------------------------------------------
-// il2cpp_pinvoke.h -- P/Invoke dynamic resolution (M4 Task 2).
+// il2cpp_pinvoke.h -- P/Invoke dynamic resolution (M4 Task 2, P-D4).
 //
 //   void* il2cpp_pinvoke_resolve(const char* dll, const char* entry);
 //
@@ -14,11 +14,16 @@
 //   for DYNAMIC binding. STATIC binding (M4 Task 1) links the library at
 //   build time and calls the symbol directly -- both paths are supported;
 //   the transpiler chooses per-library (a library present in the build as a
-//   static lib uses static binding; everything else resolves dynamically).
+//   static lib uses static binding; everything else -- an out-of-manifest or
+//   SHARED library -- resolves dynamically, with the extern "C" declaration
+//   suppressed so the unlinked symbol never reaches the linker).
 //
-//   Failure (library or symbol not found) aborts loudly -- a missing
-//   P/Invoke target is a programming error (EntryPointNotFoundException
-//   semantics; the managed exception arrives with the reflection milestone).
+//   Failure semantics (P-D4): a library that cannot be loaded throws the
+//   managed DllNotFoundException carrier, a symbol that cannot be found the
+//   EntryPointNotFoundException carrier (both catchable through the generated
+//   try/catch via the type chain, matching net48). NULL arguments and table
+//   OVERFLOW remain an abort -- internal/programming errors with no net48
+//   counterpart.
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"

@@ -193,7 +193,14 @@ public sealed record ResolvedMethod(
     // argument). Null = the IcallArgOrder table, then identity. The CG7
     // table stays untouched (it keys shared icalls globally; a
     // per-resolution order would collide shapes there).
-    int[]? ArgOrder = null)
+    int[]? ArgOrder = null,
+    // P-D4: the [DllImport] library name ("mylib" / "kernel32" / ...). Only a
+    // REAL DllImport carries it -- a mapped QCall that resolves to an icall
+    // (MethodMap.Emit.cs `with { IsPInvoke = true }`) leaves it null. The
+    // emitter uses it to route the call site: a library absent from the
+    // static-link manifest is resolved DYNAMICALLY via il2cpp_pinvoke_resolve
+    // (and its extern "C" declaration is suppressed). Null = static direct call.
+    string? PinvokeModule = null)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -414,6 +421,15 @@ public static partial class MethodRefResolver
         if (!import.Module.IsNil)
         {
             var entry = md.GetString(import.Name);
+            // P-D4 P1: an ordinal entry point (net48 EntryPoint="#N") cannot
+            // be expressed -- '#' is not a valid C++ identifier (the old
+            // emission produced uncompilable generated code) and plat_dl_sym
+            // resolves by NAME only. Reject LOUDLY at resolution (the decl
+            // emitter guards the declared-but-never-called path); full ordinal
+            // support is deferred to P3.
+            if (entry.StartsWith("#", StringComparison.Ordinal))
+                throw new NotSupportedException(
+                    $"P/Invoke EntryPoint='{entry}' (ordinal entry) is not supported: '#' is not a valid native symbol name in this transpiler (P-D4)");
             // QCall short-circuit fix: same-assembly QCall callees never
             // reach the MethodMap tables (MemberReference path only), so a
             // mapped QCall (e.g. Environment.GetProcessorCount) would emit a
@@ -459,7 +475,10 @@ public static partial class MethodRefResolver
                 // M4.5: IntPtr/UIntPtr-returning P/Invoke -> "ptr" result kind
                 // (the emitter declares the result temp intptr_t instead of
                 // int32_t -- an int32_t temp truncates the x64 pointer).
-                ResultKind: returnType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null);
+                ResultKind: returnType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
+                // P-D4: carry the [DllImport] library name so the call site
+                // can route static vs dynamic (see the record field).
+                PinvokeModule: importModuleName);
         }
         return new ResolvedMethod(
             UserMethodCppName(ownerFullName, name, paramTypes),

@@ -58,6 +58,20 @@ function Invoke-NativeRun {
     }
 }
 
+# D4 (P-D4): 把用例的 SHARED 原生库 .dll 部署到转译后 exe 旁（清单外 resolve 在
+# 运行期经 LoadLibrary 加载——Windows 首先搜索 exe 所在目录）。MinGW/clang 把
+# .dll 落在库目标自身的二进制子目录（buildDir/<mod>/）；MSVC 还多一层 config
+# 子目录。静态库（mylib.a/.lib）与 INTERFACE 垫片（kernel32）无 .dll，天然跳过。
+function Deploy-NativeLibs([string]$buildDir) {
+    $exeDir = (Resolve-Path $buildDir).Path
+    $dlls = Get-ChildItem $buildDir -Recurse -Filter *.dll -ErrorAction SilentlyContinue
+    foreach ($d in $dlls) {
+        if ($d.DirectoryName -eq $exeDir) { continue }
+        try { Copy-Item $d.FullName "$buildDir/" -Force -ErrorAction Stop }
+        catch { Write-Warning "deploy native lib dll failed (non-fatal): $_" }
+    }
+}
+
 # 捕获文本按行拆分（统一 CRLF/LF、去掉末尾空行）——与原 & 捕获的按行数组语义一致。
 function Split-CaptureLines([string]$text) {
     if ($null -eq $text) { return @() }
@@ -237,13 +251,27 @@ foreach ($caseDir in $caseDirs) {
     cmd /c "dotnet build `"$csproj`" -c Release -o `"$staging`" > `"$dotnetLog`" 2>&1"
     if ($LASTEXITCODE -ne 0) { throw "build $name failed" }
 
-    # 1.5 M4 P/Invoke: 用例自带原生库（mylib/ 目录）→ 构建 DLL 供 net48 参考运行动态加载。
-    # net48 参考运行是 Windows 进程 → 始终构建 mylib.dll（Windows 侧 g++）。
-    if (Test-Path "$Root/tests/cases/$dirName/mylib") {
-        $mylibSrc = Get-ChildItem "$Root/tests/cases/$dirName/mylib" -Filter *.cpp | Select-Object -First 1
-        if ($mylibSrc) {
-            g++ -shared -o "$staging/mylib.dll" $mylibSrc.FullName
-            if ($LASTEXITCODE -ne 0) { throw "build mylib.dll for $name failed" }
+    # 3/1.5 转译输入判定必须在本步骤（原生库构建之前）完成：net8+ 用例的产物是
+    # 原生 apphost exe + 托管 dll（转译读 dll）；net48 只产 exe（转译读 exe）。
+    # 原生库（如 extdll 与用例同名）随后会进入 staging 生成 <name>.dll，若此时
+    # 才判定会把原生 dll 误当托管程序集（"PE image does not have metadata"）。
+    $transpileInput = if (Test-Path "$staging/$name.dll") { "$staging/$name.dll" } else { "$staging/$name.exe" }
+
+    # 1.5 M4/D4 P/Invoke: 用例自带原生库目录（mylib/ 与 SHARED 库如 extdll/）→
+    # 构建 DLL 供 net48 参考运行动态加载（net48 是 Windows 进程 → 始终 g++ -shared）。
+    # 库名取自目录的 CMakeLists project()（无则用目录名）；无 .cpp 的目录（系统
+    # DLL 的 INTERFACE 垫片 kernel32/user32/...）自然跳过。
+    $nativeLibDirs = @(Get-ChildItem "$Root/tests/cases/$dirName" -Directory -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path (Join-Path $_.FullName 'CMakeLists.txt') })
+    foreach ($libDir in $nativeLibDirs) {
+        $cmakeTxt = Get-Content (Join-Path $libDir.FullName 'CMakeLists.txt') -Raw -ErrorAction SilentlyContinue
+        $libName = ''
+        if ($cmakeTxt -and $cmakeTxt -match 'project\(\s*([A-Za-z0-9_]+)') { $libName = $Matches[1] }
+        if (-not $libName) { $libName = $libDir.Name }
+        $libSrc = Get-ChildItem $libDir.FullName -Filter *.cpp | Select-Object -First 1
+        if ($libSrc) {
+            g++ -shared -o "$staging/$libName.dll" $libSrc.FullName
+            if ($LASTEXITCODE -ne 0) { throw "build $libName.dll for $name failed" }
         }
     }
 
@@ -257,11 +285,7 @@ foreach ($caseDir in $caseDirs) {
         Copy-Item "$staging/*" $outDir -Recurse -Force -ErrorAction Stop
     } catch { Write-Warning "publish to out failed (non-fatal): $_" }
 
-    # 3. 转译：输入用 net48 exe PE（PEReader 不区分扩展名，与 fixtures 的 calc.dll 同 PE）
-    # P25f (dhprobe)：net8+ 用例的产物是 原生 apphost exe + 托管 dll —— 转译必须读
-    # 托管的 dll（apphost 的 exe 没有托管元数据，PEReader.GetMetadataBlock 失败）；
-    # net48 用例只产 exe（无 dll），保持原有 exe 路径。判定：out/<name>.dll 存在。
-    $transpileInput = if (Test-Path "$staging/$name.dll") { "$staging/$name.dll" } else { "$staging/$name.exe" }
+    # 3. 转译：输入用转译输入（net8 dll / net48 exe，见前判定）
     $gen = "$Root/tests/cases/$dirName/gen"
     Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
     $transpilerDll = "$Root/src/il2cppc/bin/Debug/net8.0/il2cppc.dll"
@@ -341,6 +365,7 @@ foreach ($caseDir in $caseDirs) {
             if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
             cmake --build $buildDir --parallel 2 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
+            Deploy-NativeLibs $buildDir
             $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
         } else {
             Clear-IfGeneratorMismatch $buildDir "Visual Studio 17 2022"
@@ -348,6 +373,7 @@ foreach ($caseDir in $caseDirs) {
             if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
             cmake --build $buildDir --config Release | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
+            Deploy-NativeLibs $buildDir
             $actual = Invoke-NativeRun "$buildDir/Release/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
         }
     } elseif ($Compiler -eq "clang") {
@@ -360,12 +386,14 @@ foreach ($caseDir in $caseDirs) {
         if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
         cmake --build $buildDir --config Release | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
+        Deploy-NativeLibs $buildDir
         $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
     } else {
         cmake -S $gen -B $buildDir -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
         cmake --build $buildDir --config Release | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
+        Deploy-NativeLibs $buildDir
         $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
     }
 

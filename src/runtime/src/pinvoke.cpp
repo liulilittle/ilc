@@ -16,6 +16,7 @@
 
 #include "il2cpp_pinvoke.h"
 
+#include "il2cpp_exception.h"
 #include "il2cpp_string.h"
 #include "platform.h" // plat_dl_open / plat_dl_sym (the platform layer owns
                       // the per-platform branches and the POSIX .dll name
@@ -68,6 +69,46 @@ struct LibraryHandle
 LibraryHandle g_libraryHandles[kMaxPinvokeEntries];
 int32_t       g_libraryCount = 0;
 
+//------------------------------------------------------------------------------
+// P-D4 failed-resolution semantics: a missing LIBRARY throws the managed
+// DllNotFoundException carrier, a missing SYMBOL the EntryPointNotFoundException
+// carrier (net48 parity -- both are catchable managed exceptions). The message
+// is composed into a thread-local scratch (DotNetException carries pointers
+// WITHOUT copying -- the same lifetime contract as exceptionext.cpp's
+// ComposeMessage; a later composed-message call overwrites the scratch, so a
+// catch handler reads it before the next throw). NULL arguments and table
+// OVERFLOW keep the abort: they are internal/programming errors with no
+// net48 counterpart (the entry cannot be a library-load outcome).
+//------------------------------------------------------------------------------
+thread_local char g_resolveMessage[160];
+
+const char* kDllNotFoundChain =
+    "System.DllNotFoundException,System.DllNotFoundException,System.SystemException,System.Exception";
+const char* kEntryPointNotFoundChain =
+    "System.EntryPointNotFoundException,System.EntryPointNotFoundException,System.SystemException,System.Exception";
+
+// Compose "prefix<name>suffix" into the thread-local scratch (manual bounded
+// copy -- avoids -Wformat-truncation, matches the exceptionext.cpp pattern).
+char* ComposeResolveMessage(const char* prefix, const char* name, const char* suffix)
+{
+    char* p = g_resolveMessage;
+    const char* const end = g_resolveMessage + sizeof(g_resolveMessage) - 1;
+    while (*prefix != '\0' && p < end)
+    {
+        *p++ = *prefix++;
+    }
+    while (*name != '\0' && p < end)
+    {
+        *p++ = *name++;
+    }
+    while (*suffix != '\0' && p < end)
+    {
+        *p++ = *suffix++;
+    }
+    *p = '\0';
+    return g_resolveMessage;
+}
+
 // Look up a cached symbol; returns null when not cached.
 void* LookupCached(const char* dll, const char* entry)
 {
@@ -111,6 +152,8 @@ void* GetLibraryHandle(const char* dll)
 //------------------------------------------------------------------------------
 void* il2cpp_pinvoke_resolve(const char* dll, const char* entry)
 {
+    // Null dll/entry: an internal/programming error (the transpiler always
+    // emits literals) -- no net48 scenario; abort is intentional.
     if (dll == nullptr || entry == nullptr)
     {
         std::fprintf(stderr, "il2cpp_pinvoke_resolve: null dll/entry\n");
@@ -121,18 +164,23 @@ void* il2cpp_pinvoke_resolve(const char* dll, const char* entry)
     {
         return cached;
     }
+    // P-D4: a failed library load is a managed DllNotFoundException (net48
+    // parity -- catchable by the generated try/catch through the type chain).
     void* handle = GetLibraryHandle(dll);
     if (handle == nullptr)
     {
-        std::fprintf(stderr, "il2cpp_pinvoke_resolve: cannot load library '%s'\n", dll);
-        std::abort();
+        il2cpp_throw_new(kDllNotFoundChain,
+                         ComposeResolveMessage("Unable to load DLL '", dll, "'."));
     }
     void* symbol = runtime::plat_dl_sym(handle, entry);
     if (symbol == nullptr)
     {
-        std::fprintf(stderr, "il2cpp_pinvoke_resolve: symbol '%s' not found in '%s'\n", entry, dll);
-        std::abort();
+        // P-D4: a missing symbol is a managed EntryPointNotFoundException.
+        il2cpp_throw_new(kEntryPointNotFoundChain,
+                         ComposeResolveMessage("Unable to find an entry point named '", entry, "'."));
     }
+    // Table overflow: an internal capacity error (the 256-entry flat cache);
+    // no net48 scenario -- abort is intentional.
     if (g_pinvokeCount >= kMaxPinvokeEntries)
     {
         std::fprintf(stderr, "il2cpp_pinvoke_resolve: cache overflow\n");

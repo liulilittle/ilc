@@ -1,12 +1,16 @@
 //------------------------------------------------------------------------------
 // test_pinvoke.cpp -- P/Invoke dynamic resolution unit tests.
 //
-// Coverage (normal + error paths):
+// Coverage (success + caching paths):
 //   1. il2cpp_pinvoke_resolve finds a well-known system library symbol:
 //      Windows: kernel32!GetTickCount; POSIX: libc!strlen.
 //   2. Resolution is CACHED (the second call returns the same pointer).
-//   3. A missing symbol aborts loudly (EntryPointNotFound semantics) --
-//      verified via the e2e path (a direct call would kill the test).
+//   3. The resolved symbol is callable.
+//
+// The FAILURE paths (missing library / missing symbol) now throw managed
+// DllNotFoundException / EntryPointNotFoundException carriers -- they are
+// covered by test_pinvoke_fail.cpp (a direct missing-symbol call here would
+// unwind the test main, not kill it).
 //
 // Plain executable + minimal assertion harness (see test_object.cpp).
 //------------------------------------------------------------------------------
