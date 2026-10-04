@@ -162,7 +162,11 @@ public class GenericsSignatureTests
         try
         {
             var types = MetadataLoader.LoadAssembly(tmp);
-            var ex = Assert.Throws<NotSupportedException>(() => CodeGenerator.Generate(types, dir, tmp));
+            // G2 (friendly-compiler S4): the generator re-wraps loud NS rejection
+            // into MethodContextException (an NS subclass carrying the owning
+            // type::method context). Assert.ThrowsAny covers the subclass; the
+            // inner message stays verbatim in the wrapped message.
+            var ex = Assert.ThrowsAny<NotSupportedException>(() => CodeGenerator.Generate(types, dir, tmp));
             Assert.Contains("not wired in M5", ex.Message);
         }
         finally

@@ -157,7 +157,9 @@ via NDK). Toolchains are discovered from the environment (`IL2CPP_MINGW_ROOT`,
 `IL2CPP_MSVC_GENERATOR`, `IL2CPP_WSL_DISTRO`, `IL2CPP_NDK_ROOT`) — no machine
 paths are hardcoded. `-LibName <name>` overrides the output library name
 (`lib<name>.a`/`<name>.dll`/`lib<name>.so`); `-Clean` resets the per-app
-`gen_app/` workspace; `-OutDir <dir>` overrides the artifact directory.
+`gen_app/` workspace; `-OutDir <dir>` overrides the artifact directory;
+`-Log <file>` forwards `--log <file>` to the transpiler (tee the transpile
+stdout+stderr into a log file).
 
 **SHARED form note**: `il2cpp_gen_shared` is a loadable C-API library — the
 host must `dlopen`/`LoadLibrary` it and call `il2cpp_entry_main`. Never
@@ -173,8 +175,16 @@ The transpiler entry point is `Program.Main` (`src/il2cppc/Program.cs`),
 argument parsing in `src/il2cppc/CliOptions.cs`.
 
 ```
-usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|members] <input-assembly> <output-dir>
+usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
+usage: il2cppc audit-internalcalls <assembly>
 ```
+
+`--help`/`-h` prints the matching usage to stdout and exits 0; `--version`
+prints the transpiler version and exits 0. The `help` subcommand
+(`il2cppc help`, `il2cppc help audit-internalcalls`) and
+`il2cppc audit-internalcalls --help` do the same. Help/version are pre-scanned
+across all arguments before parsing, so `--help` never falls through to a
+"bad usage" exit 1.
 
 ### 3.1 Parameters
 
@@ -184,6 +194,11 @@ usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|memb
 | `<output-dir>` | positional (required) | — | Directory for the generated C++ project. Created by the tool. |
 | `--reflection-list <manifest>` | option | off | Mode B reflection manifest: a text file, one full type name per line (see section 5.2). When provided, the tool also writes `reflection-manifest.txt` into the output dir. |
 | `--reflection-granularity all\|members` | option | `members` | Reflection detail granularity for the manifest. `members` = types plus their members; `all` = full detail. Values are case-insensitive. |
+| `--log <file>` | option | off | Tee a copy of both stdout and stderr into `<file>` for the whole run. An unopenable path is reported after parse and exits 1. |
+| `--quiet` | option | off | Suppress the stdout diagnostics (symbols / pool reports / final summary); stderr errors and warnings are unaffected. |
+| `--verbose` | option | off | Print per-type progress lines to stdout while generating. Mutually exclusive with `--quiet` (exit 1). |
+| `--help`, `-h` | option | off | Print usage to stdout and exit 0. |
+| `--version` | option | off | Print the transpiler version to stdout and exit 0. |
 
 Options may appear before, between, or after the positionals; anything not
 matching an option is treated as a positional.
@@ -192,17 +207,24 @@ matching an option is treated as a positional.
 
 | Code | Meaning |
 |---|---|
-| 0 | Success. `generated N type(s) -> <dir>` printed to stdout. |
-| 1 | Command-line parse error (bad usage, missing manifest file, invalid granularity). Message on stderr: `il2cppc error: ...`. |
-| 2 | Transpile failure (metadata load, decode, code generation, loud rejection of unsupported constructs). Message + stack trace on stderr. |
+| 0 | Success. `generated N type(s) -> <dir>` printed to stdout. Also `--help`/`-h`/`--version`, the `help` subcommand, and a successful `audit-internalcalls`. |
+| 1 | Command-line parse error (bad usage, missing manifest file, invalid granularity, `--quiet`+`--verbose` together, `audit-internalcalls` without `<assembly>`, unopenable `--log` path). Message on stderr: `il2cppc error: ...`. |
+| 2 | Transpile failure (metadata load, decode, code generation, loud rejection of unsupported constructs). Message + stack trace on stderr. Also an `audit-internalcalls` run whose assembly cannot be read. |
 
 ### 3.3 Errors
 
-- Unsupported IL constructs are **rejected loudly** — the transpiler throws
-  (`NotSupportedException` with the IL offset and opcode) and exits with
-  code 2. There are no silent fallbacks.
-- The manifest file must exist at parse time; `--reflection-list` without a
-  path, or a bad granularity value, is a parse error (exit 1).
+The transpiler treats unsupported constructs on two tracks:
+
+- **Hard (exit 2):** IL decode failures and emission-stage loud rejections
+  (`NotSupportedException` with the IL offset/opcode) abort the transpile,
+  name the offending `type::method` in the error line, and print the original
+  throw-point stack trace. There is no silent fallback for these.
+- **Soft (warning + stub):** per-method body-read / fold failures and
+  `Guid`-returning methods are downgraded to a stderr warning and skipped (a
+  non-fatal stub) instead of failing the whole transpile.
+
+The manifest file must exist at parse time; `--reflection-list` without a
+path, or a bad granularity value, is a parse error (exit 1).
 
 ---
 

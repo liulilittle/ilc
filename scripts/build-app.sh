@@ -7,6 +7,14 @@
 #   -Toolchain mingw|wsl|ndk   (msvc is Windows-only; see build-app.ps1)
 #   -OutDir <dir>
 #   -Clean
+#   -Log <file>        : forward --log <file> to the il2cppc transpile
+#
+# Toolchain differences (friendly-compiler S8): msvc is NOT mirrored here --
+# POSIX/WSL hosts have no Visual Studio (architectural exclusion, not an
+# oversight). ndk targets Android arm64-v8a and produces a static/shared
+# LIBRARY (no native exe runner); wsl/linux targets Linux ELF and runs natively
+# inside the distro. --log tees the transpiler's stdout+stderr just like the
+# PS1 mirror.
 #
 # Pipeline: [dotnet build] -> il2cppc transpile -> cmake configure -> cmake
 # build --target <form> -> artifacts + side native libraries (P/Invoke SHARED
@@ -24,6 +32,7 @@ KIND="exe"
 TOOLCHAIN="mingw"
 OUTDIR=""
 LIBNAME=""
+LOG=""
 CONFIG="Release"
 CLEAN=0
 
@@ -39,6 +48,7 @@ while [[ $# -gt 0 ]]; do
         -Toolchain)  TOOLCHAIN="$2"; shift 2 ;;
         -OutDir)     OUTDIR="$2"; shift 2 ;;
         -LibName)    LIBNAME="$2"; shift 2 ;;
+        -Log)        LOG="$2"; shift 2 ;;
         -Config)     CONFIG="$2"; shift 2 ;;
         -Clean)      CLEAN=1; shift ;;
         *) echo "unknown option: $1"; usage ;;
@@ -96,7 +106,10 @@ IL2CPPC_DLL="${ROOT}/src/il2cppc/bin/${CONFIG}/net8.0/il2cppc.dll"
 if [[ ! -f "${IL2CPPC_DLL}" ]]; then
     dotnet build "${ROOT}/src/il2cppc/il2cppc.csproj" -c "${CONFIG}"
 fi
-dotnet exec "${IL2CPPC_DLL}" "${TRANSPILE_INPUT}" "${GEN}"
+TRANSPILE_ARGS=( "exec" "${IL2CPPC_DLL}" )
+if [[ -n "${LOG}" ]]; then TRANSPILE_ARGS+=( "--log" "${LOG}" ); fi
+TRANSPILE_ARGS+=( "${TRANSPILE_INPUT}" "${GEN}" )
+dotnet "${TRANSPILE_ARGS[@]}"
 
 # ---------------------------------------------------------------------------
 # 3. Configure + build

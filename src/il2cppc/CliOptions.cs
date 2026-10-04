@@ -8,11 +8,22 @@ public enum ReflectionGranularity
 
 public sealed class CliOptions
 {
+    // S2 (friendly compiler): single shared usage strings. Referenced by the
+    // parse-error messages here, the help pre-scan and the audit subcommand in
+    // Program.cs. The "usage:" keyword is kept verbatim (existing error text
+    // stays byte-stable).
+    public const string Usage =
+        "usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
+    public const string AuditUsage = "usage: il2cppc audit-internalcalls <assembly>";
+
     public string InputAssembly { get; init; } = "";
     public string OutputDir { get; init; } = "";
     public bool ReflectionListProvided { get; init; }
     public IReadOnlyList<string> ReflectionList { get; init; } = Array.Empty<string>();
     public ReflectionGranularity ReflectionGranularity { get; init; } = ReflectionGranularity.Members;
+    public string LogPath { get; init; } = "";
+    public bool Quiet { get; init; }
+    public bool Verbose { get; init; }
 }
 
 public sealed class CliParseException : Exception
@@ -26,6 +37,9 @@ public static class CliParser
     {
         string? manifestPath = null;
         var granularity = ReflectionGranularity.Members;
+        string logPath = "";
+        var quiet = false;
+        var verbose = false;
         var positionals = new List<string>();
 
         for (var i = 0; i < args.Length; i++)
@@ -42,15 +56,29 @@ public static class CliParser
                         throw new CliParseException("option --reflection-granularity requires a value (all|members)");
                     granularity = ParseGranularity(args[++i]);
                     break;
+                case "--log":
+                    if (i + 1 >= args.Length)
+                        throw new CliParseException("option --log requires a file path");
+                    logPath = args[++i];
+                    break;
+                case "--quiet":
+                    quiet = true;
+                    break;
+                case "--verbose":
+                    verbose = true;
+                    break;
                 default:
                     positionals.Add(args[i]);
                     break;
             }
         }
 
+        // S6: --quiet and --verbose are mutually exclusive (user misuse -> parse error).
+        if (quiet && verbose)
+            throw new CliParseException("options --quiet and --verbose are mutually exclusive");
+
         if (positionals.Count != 2)
-            throw new CliParseException(
-                "usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|members] <input-assembly> <output-dir>");
+            throw new CliParseException(CliOptions.Usage);
 
         // Reject empty/whitespace positionals: an empty output-dir would make
         // CodeGenerator generate into Path.Combine("", "src") == "src" (the
@@ -59,7 +87,7 @@ public static class CliParser
         // Both are user misuse -> parse error (exit 1), never a partial generation.
         if (string.IsNullOrWhiteSpace(positionals[0]) || string.IsNullOrWhiteSpace(positionals[1]))
             throw new CliParseException(
-                "input-assembly and output-dir must be non-empty paths (usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|members] <input-assembly> <output-dir>)");
+                $"input-assembly and output-dir must be non-empty paths ({CliOptions.Usage})");
 
         return new CliOptions
         {
@@ -68,6 +96,9 @@ public static class CliParser
             ReflectionListProvided = manifestPath != null,
             ReflectionList = manifestPath != null ? ReadManifest(manifestPath) : Array.Empty<string>(),
             ReflectionGranularity = granularity,
+            LogPath = logPath,
+            Quiet = quiet,
+            Verbose = verbose,
         };
     }
 

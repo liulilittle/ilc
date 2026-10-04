@@ -25,7 +25,7 @@ public static class CodeGenerator
     // resolves every ldstr to g_strPool[id] from THE SAME pool -- index and
     // table row can never diverge (D1/D3).
     public static GenerateResult Generate(List<TypeDef> types, string outDir, string assemblyPath = "", SequencePointMap? symMap = null,
-        CliOptions? options = null)
+        CliOptions? options = null, Action<string>? progress = null)
     {
         // xUnit parallelizes test classes: concurrent Generate calls on the
         // shared static pool field would interleave ids. The lock serializes
@@ -35,7 +35,7 @@ public static class CodeGenerator
         lock (_poolLock)
         {
             _pool = new StringPool();
-            var result = GenerateCore(types, outDir, assemblyPath, symMap, options);
+            var result = GenerateCore(types, outDir, assemblyPath, symMap, options, progress);
             return result;
         }
     }
@@ -101,7 +101,7 @@ public static class CodeGenerator
     }
 
     private static GenerateResult GenerateCore(List<TypeDef> types, string outDir, string assemblyPath, SequencePointMap? symMap,
-        CliOptions? options)
+        CliOptions? options, Action<string>? progress = null)
     {
         _delegateMethodTokens.Clear();
         if (string.IsNullOrEmpty(assemblyPath) || !File.Exists(assemblyPath))
@@ -988,6 +988,14 @@ public static class CodeGenerator
 
         foreach (var t in types)
         {
+            // G2 (friendly-compiler S4): per-type try -- a NotSupportedException
+            // escaping at TYPE level (outside any method emission, e.g. vtable /
+            // descriptor / field layout) is re-wrapped with the type identity so
+            // the top-level error still names the owning type. Method-level
+            // MethodContextException instances are rethrown untouched -- they
+            // already carry the exact type::method context.
+            try
+            {
             var cppName = TypeEmitter.TypeCppName(t);
             var typeEmittedMethod = false;
             // Link-gate fix (arrayops): methodless types (e.g. compiler-generated
@@ -1145,6 +1153,15 @@ public static class CodeGenerator
             w.Line();
             foreach (var m in t.Methods.Where(m => m.IsStatic || m.Name == ".ctor" || IsUserInstanceMethod(m)))
             {
+                // G2 (friendly-compiler S4): per-iteration try -- a
+                // NotSupportedException in THIS method's emission is re-wrapped
+                // with the owning type::method context so a top-level transpile
+                // failure names the exact method that rejected loudly. The
+                // catch sits INSIDE the loop (just before the foreach close) so
+                // `m`/`t` stay in scope; non-NotSupportedException exceptions
+                // escape unchanged (the audit contract only covers loud NS).
+                try
+                {
                 // Interface methods have no body (RVA=0, abstract contract) -- emit declarations only,
                 // no implementations. Interface types are never instantiated; their vtable slots are
                 // carried by the implementing types' maps. delechain: custom delegate types behave the
@@ -1583,6 +1600,11 @@ public static class CodeGenerator
                     w.Line();
                     generatedHeader.Line($"{strReturnType} {cppMethodName}_string({ParamListTyped(paramNames, strParamTypes)});");
                 }
+                }
+                catch (NotSupportedException inner)
+                {
+                    throw new MethodContextException(t.FullName, m.Name, $"{t.FullName}::{m.Name}: {inner.Message}", inner);
+                }
             }
 
             // A type owns a TU when it emitted a method OR a TypeInfo table
@@ -1594,6 +1616,23 @@ public static class CodeGenerator
                 File.WriteAllText(Path.Combine(outDir, "include", "internal", cppName + ".h"),
                     $"#pragma once\n#include \"generated.h\"\n");
                 allSrc.Add(cppName);
+            }
+            // S6 (friendly-compiler): per-type progress callback (--verbose),
+            // invoked at the end of the type loop. Its exceptions are swallowed
+            // so a progress hook can never fail a successful transpile.
+            try
+            {
+                progress?.Invoke($"emit {t.FullName}");
+            }
+            catch (Exception)
+            {
+                // progress is diagnostics only -- never fails the transpile
+            }
+            }
+            catch (MethodContextException) { throw; }
+            catch (NotSupportedException inner)
+            {
+                throw new MethodContextException(t.FullName, null, $"{t.FullName}::{inner.Message}", inner);
             }
         }
 

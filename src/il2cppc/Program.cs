@@ -1,5 +1,7 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Model;
 using Il2Cpp.Transpiler.Opt;
@@ -9,15 +11,105 @@ public static class Program
 {
     public static int Main(string[] args) => RunMain(args);
 
+    // S1/S2: --version prints the informational version stamped into the
+    // assembly by il2cppc.csproj (<InformationalVersion>1.0.0</InformationalVersion>).
+    private static string VersionText =>
+        typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? "0.0.0";
+
+    // S5: a TextWriter that mirrors every write onto a second writer -- the
+    // stdout/stderr tee for --log <file>. TextWriter's base Write(string) calls
+    // Write(char[]) which calls Write(char) per char; overriding the concrete
+    // Write(string)/WriteLine(string) paths keeps the mirror output intact.
+    private sealed class TeeTextWriter : TextWriter
+    {
+        private readonly TextWriter _primary;
+        private readonly TextWriter _mirror;
+
+        public TeeTextWriter(TextWriter primary, TextWriter mirror)
+        {
+            _primary = primary;
+            _mirror = mirror;
+        }
+
+        public override Encoding Encoding => _primary.Encoding;
+
+        public override void Write(char value)
+        {
+            _primary.Write(value);
+            _mirror.Write(value);
+        }
+
+        public override void Write(string? value)
+        {
+            _primary.Write(value);
+            _mirror.Write(value);
+        }
+
+        public override void WriteLine(string? value)
+        {
+            _primary.WriteLine(value);
+            _mirror.WriteLine(value);
+        }
+
+        public override void Flush()
+        {
+            _primary.Flush();
+            _mirror.Flush();
+        }
+    }
+
     public static int RunMain(string[] args)
     {
-        if (args.Length >= 1 && args[0] == "audit-internalcalls")
+        // S2 (friendly compiler): --help/-h/--version are pre-scanned across ALL
+        // args BEFORE parse -- "--help" was previously treated as a positional
+        // (bad-usage exit 1) instead of printing usage. Priority: help > version.
+        // Both the `help` subcommand and `audit-internalcalls --help` print the
+        // matching usage to STDOUT and exit 0.
+        var isAudit = args.Length > 0 && args[0] == "audit-internalcalls";
+        if (args.Length > 0 && args[0] == "help")
         {
-            var path = args.Length >= 2 ? args[1] : throw new ArgumentException(
-                "usage: il2cppc audit-internalcalls <assembly>");
-            MethodRefResolver.AuditInternalCalls(path, Console.Out);
+            Console.Out.WriteLine(args.Length > 1 && args[1] == "audit-internalcalls"
+                ? CliOptions.AuditUsage
+                : CliOptions.Usage);
             return 0;
         }
+        if (args.Contains("--help") || args.Contains("-h"))
+        {
+            Console.Out.WriteLine(isAudit ? CliOptions.AuditUsage : CliOptions.Usage);
+            return 0;
+        }
+        if (args.Contains("--version"))
+        {
+            Console.Out.WriteLine($"il2cppc {VersionText}");
+            return 0;
+        }
+
+        // S3 (friendly compiler): the audit subcommand honors the same 0/1/2
+        // exit contract as the main path. A missing <assembly> is user misuse
+        // (usage to stderr, exit 1); a bad assembly path is a run failure
+        // (prefix to stderr, exit 2); success stays 0. Previously both crashed
+        // with an unhandled ArgumentException / FileNotFoundException (unstable
+        // exit code + raw stack trace), breaking the documented contract.
+        if (isAudit)
+        {
+            if (args.Length < 2)
+            {
+                Console.Error.WriteLine($"il2cppc error: {CliOptions.AuditUsage}");
+                return 1;
+            }
+            try
+            {
+                MethodRefResolver.AuditInternalCalls(args[1], Console.Out);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"il2cppc error: {ex.Message}");
+                return 2;
+            }
+        }
+
         CliOptions opts;
         try
         {
@@ -28,43 +120,97 @@ public static class Program
             Console.Error.WriteLine($"il2cppc error: {ex.Message}");
             return 1;
         }
+
+        // S5 (friendly compiler): --log <file> tees stdout/stderr into the log
+        // for the whole run. The ORIGINAL streams are captured here and restored
+        // in the finally (a test process never leaks the tee). An unopenable log
+        // path is reported after parse and exits 1 -- never a generation attempt.
+        var origOut = Console.Out;
+        var origErr = Console.Error;
+        var logStream = (StreamWriter?)null;
         try
         {
-            var types = MetadataLoader.LoadAssembly(opts.InputAssembly);
-            // Nested type expansion (TypeEmitter.ExpandNestedTypes): MetadataLoader
-            // skips IsNested TypeDefs, while the reference side (newobj / field cast /
-            // method name hash) resolves nested types by SHORT name (Cases.Recurse+Node
-            // → "Node") -- without expansion the generated C++ references Node_class
-            // with no definition. After expansion the nested types join the list as
-            // independent top-level entries and CodeGenerator emits struct/descriptor/
-            // methods normally. Must run after LoadAssembly and before Generate
-            // (VTablePlanner.PlanAll needs the complete type graph).
-            using (var pe = new PEReader(File.OpenRead(opts.InputAssembly)))
-                TypeEmitter.ExpandNestedTypes(pe.GetMetadataReader(), types);
-            // SYMLN-1: load the assembly's Portable PDB (if any) so the
-            // generator can emit C# #line directives. Native/missing PDBs
-            // return null -> no #line (hand-written .il input unaffected).
-            var symMap = MetadataLoader.LoadPortablePdb(opts.InputAssembly);
-            if (symMap != null)
-                Console.WriteLine($"symbols: {symMap.MethodCount} method(s) mapped from Portable PDB -> #line C# line directives");
-            else
-                Console.WriteLine("symbols: no Portable PDB found -> no #line C# line directives");
-            var result = CodeGenerator.Generate(types, opts.OutputDir, opts.InputAssembly, symMap, opts);
-            if (opts.ReflectionListProvided)
-                WriteReflectionManifest(opts, types);
-            WriteStringPoolReport(result, opts.OutputDir);
-            WriteResourcePoolReport(opts.InputAssembly, opts.OutputDir);
-            WriteLicmReport(types, opts.InputAssembly);
-            WriteInlineReport(types, opts.InputAssembly);
-            WriteTempSlotReport(types, opts.InputAssembly);
-            Console.WriteLine($"generated {types.Count} type(s) -> {opts.OutputDir}");
-            return 0;
+            if (!string.IsNullOrEmpty(opts.LogPath))
+            {
+                try
+                {
+                    logStream = new StreamWriter(opts.LogPath, append: false, Encoding.UTF8);
+                    Console.SetOut(new TeeTextWriter(origOut, logStream));
+                    Console.SetError(new TeeTextWriter(origErr, logStream));
+                }
+                catch (Exception ex)
+                {
+                    logStream?.Dispose();
+                    logStream = null;
+                    Console.Error.WriteLine($"il2cppc error: cannot open log file '{opts.LogPath}': {ex.Message}");
+                    return 1;
+                }
+            }
+
+            // S6 (friendly compiler): --quiet suppresses the stdout diagnostics
+            // (symbols / pool reports / final summary); errors and warnings on
+            // stderr are unaffected.
+            if (opts.Quiet)
+                Console.SetOut(TextWriter.Null);
+
+            try
+            {
+                var types = MetadataLoader.LoadAssembly(opts.InputAssembly);
+                // Nested type expansion (TypeEmitter.ExpandNestedTypes): MetadataLoader
+                // skips IsNested TypeDefs, while the reference side (newobj / field cast /
+                // method name hash) resolves nested types by SHORT name (Cases.Recurse+Node
+                // → "Node") -- without expansion the generated C++ references Node_class
+                // with no definition. After expansion the nested types join the list as
+                // independent top-level entries and CodeGenerator emits struct/descriptor/
+                // methods normally. Must run after LoadAssembly and before Generate
+                // (VTablePlanner.PlanAll needs the complete type graph).
+                using (var pe = new PEReader(File.OpenRead(opts.InputAssembly)))
+                    TypeEmitter.ExpandNestedTypes(pe.GetMetadataReader(), types);
+                // SYMLN-1: load the assembly's Portable PDB (if any) so the
+                // generator can emit C# #line directives. Native/missing PDBs
+                // return null -> no #line (hand-written .il input unaffected).
+                var symMap = MetadataLoader.LoadPortablePdb(opts.InputAssembly);
+                if (symMap != null)
+                    Console.WriteLine($"symbols: {symMap.MethodCount} method(s) mapped from Portable PDB -> #line C# line directives");
+                else
+                    Console.WriteLine("symbols: no Portable PDB found -> no #line C# line directives");
+                // S6: --verbose passes a per-type progress callback to Generate
+                // (invoked at the end of each type's loop; the generator swallows
+                // callback exceptions so a progress hook can never fail a
+                // successful transpile).
+                var result = CodeGenerator.Generate(types, opts.OutputDir, opts.InputAssembly, symMap, opts,
+                    opts.Verbose ? (Action<string>)(msg => Console.WriteLine(msg)) : null);
+                if (opts.ReflectionListProvided)
+                    WriteReflectionManifest(opts, types);
+                WriteStringPoolReport(result, opts.OutputDir);
+                WriteResourcePoolReport(opts.InputAssembly, opts.OutputDir);
+                WriteLicmReport(types, opts.InputAssembly);
+                WriteInlineReport(types, opts.InputAssembly);
+                WriteTempSlotReport(types, opts.InputAssembly);
+                Console.WriteLine($"generated {types.Count} type(s) -> {opts.OutputDir}");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"il2cppc error: {ex.Message}");
+                // S4: the inner exception's stack trace preserves the original
+                // throw-point line (MethodContextException re-wrapping moved the
+                // outer trace's frame to the wrap site).
+                if (ex.InnerException?.StackTrace is { } innerStack)
+                    Console.Error.WriteLine(innerStack);
+                Console.Error.WriteLine(ex.StackTrace);
+                return 2;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            Console.Error.WriteLine($"il2cppc error: {ex.Message}");
-            Console.Error.WriteLine(ex.StackTrace);
-            return 2;
+            if (opts.Quiet) Console.SetOut(origOut);
+            if (logStream != null)
+            {
+                Console.SetOut(origOut);
+                Console.SetError(origErr);
+                logStream.Dispose();
+            }
         }
     }
 

@@ -23,10 +23,17 @@
   machine-specific paths): IL2CPP_MINGW_ROOT, IL2CPP_MSVC_GENERATOR,
   IL2CPP_WSL_DISTRO, IL2CPP_NDK_ROOT.
 
+  Toolchain differences (friendly-compiler S8): msvc exists ONLY in the PS1
+  mirror (build-app.sh targets POSIX/WSL hosts, which have no Visual Studio --
+  an architectural exclusion, not an oversight). ndk targets Android
+  arm64-v8a and therefore produces a static/shared LIBRARY (no native exe
+  runner); wsl targets Linux ELF and runs natively inside the distro.
+
 .EXAMPLE
   pwsh scripts/build-app.ps1 -Input MyApp/MyApp.csproj -Kind exe
   pwsh scripts/build-app.ps1 -Input app.exe -Kind static -Toolchain mingw -LibName myapp
   pwsh scripts/build-app.ps1 -Input app.csproj -Kind shared -Toolchain wsl
+  pwsh scripts/build-app.ps1 -Input app.csproj -Kind exe -Log build-app.log
 #>
 param(
     [Parameter(Mandatory = $true)]
@@ -39,7 +46,8 @@ param(
     [string]$OutDir = "",
     [switch]$Clean,
     [string]$Config = "Release",
-    [string]$LibName = ""
+    [string]$LibName = "",
+    [string]$Log = ""
 )
 $ErrorActionPreference = "Stop"
 
@@ -123,7 +131,10 @@ $il2cppcDll = Join-Path $Root "src/il2cppc/bin/$Config/net8.0/il2cppc.dll"
 if (-not (Test-Path -LiteralPath $il2cppcDll)) {
     Invoke-Native dotnet @("build", (Join-Path $Root "src/il2cppc/il2cppc.csproj"), "-c", $Config) "transpiler build"
 }
-Invoke-Native dotnet @("exec", $il2cppcDll, $transpileInput, $gen) "il2cppc transpile"
+$transpileArgs = @("exec", $il2cppcDll)
+if ($Log -ne "") { $transpileArgs += @("--log", $Log) }
+$transpileArgs += @($transpileInput, $gen)
+Invoke-Native dotnet $transpileArgs "il2cppc transpile"
 
 # ---------------------------------------------------------------------------
 # 3. cmake configure + build (generator/toolchain per -Toolchain)

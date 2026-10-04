@@ -1,4 +1,4 @@
-using Il2Cpp.Transpiler;
+﻿using Il2Cpp.Transpiler;
 using Xunit;
 
 public class CliTests
@@ -15,7 +15,7 @@ public class CliTests
         }
         finally
         {
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
     }
 
@@ -124,7 +124,7 @@ public class CliTests
         }
         finally
         {
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
             File.Delete(manifest);
         }
     }
@@ -132,9 +132,9 @@ public class CliTests
     [Fact]
     public void Main_ReflectionList_FiltersManifestToAssemblyTypes()
     {
-        // Mode B generation rule (reflection-runtime-design.md §4): generate reflection
+        // Mode B generation rule (reflection-runtime-design.md 搂4): generate reflection
         // metadata only for types on the manifest. Manifest entries must be validated
-        // against actual assembly types first — the calc.dll fixture only contains
+        // against actual assembly types first 鈥?the calc.dll fixture only contains
         // Calc.Program, so types absent from the manifest must be filtered (the first
         // step in consuming the manifest on the generation side).
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
@@ -150,7 +150,7 @@ public class CliTests
         }
         finally
         {
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
             File.Delete(manifest);
         }
     }
@@ -158,7 +158,7 @@ public class CliTests
     [Fact]
     public void Main_ReflectionList_WarnsOnDroppedTypes()
     {
-        // Filtered manifest entries must warn (non-fatal) — user typos become
+        // Filtered manifest entries must warn (non-fatal) 鈥?user typos become
         // diagnosable but never block generation.
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
         var manifest = TempManifest("Calc.Program", "Calc.Math");
@@ -176,7 +176,7 @@ public class CliTests
         finally
         {
             Console.SetError(originalErr);
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
             File.Delete(manifest);
         }
     }
@@ -189,7 +189,7 @@ public class CliTests
         Assert.Equal(1, code);
     }
 
-    // Exit-code contract (user-guide.md §3.2): 0 = success, 1 = parse error,
+    // Exit-code contract (user-guide.md 搂3.2): 0 = success, 1 = parse error,
     // 2 = transpile failure. Parse errors and failures go to STDERR with the
     // "il2cppc error:" prefix; success diagnostics go to stdout.
 
@@ -220,7 +220,7 @@ public class CliTests
     [Fact]
     public void Main_MissingInputAssembly_ExitsTwo_WithStderrError()
     {
-        // user-guide.md §3.2: exit 2 = transpile failure (metadata load throws),
+        // user-guide.md 搂3.2: exit 2 = transpile failure (metadata load throws),
         // message + stack trace on stderr with the "il2cppc error:" prefix.
         var originalErr = Console.Error;
         var captured = new StringWriter();
@@ -243,7 +243,7 @@ public class CliTests
     [Fact]
     public void Main_ParseError_ExitsOne_WithStderrPrefix()
     {
-        // user-guide.md §3.2: exit 1 = command-line parse error, message on stderr.
+        // user-guide.md 搂3.2: exit 1 = command-line parse error, message on stderr.
         var originalErr = Console.Error;
         var captured = new StringWriter();
         try
@@ -271,7 +271,7 @@ public class CliTests
     [Fact]
     public void Main_Success_PrintsGeneratedMessageToStdout()
     {
-        // user-guide.md §3.2: exit 0 success prints "generated N type(s) -> <dir>"
+        // user-guide.md 搂3.2: exit 0 success prints "generated N type(s) -> <dir>"
         // to stdout (stdout = diagnostics, stderr = errors/warnings).
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
         var originalOut = Console.Out;
@@ -286,14 +286,14 @@ public class CliTests
         finally
         {
             Console.SetOut(originalOut);
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
     }
 
     [Fact]
     public void ReflectionList_GranularityValues_AreCaseInsensitive()
     {
-        // user-guide.md §3.1: granularity values are case-insensitive.
+        // user-guide.md 搂3.1: granularity values are case-insensitive.
         var manifest = TempManifest("Calc.Program");
         try
         {
@@ -319,7 +319,7 @@ public class CliTests
     [Fact]
     public void ReflectionList_FlagsAcceptedAfterPositionals()
     {
-        // user-guide.md §3.1: options may appear before, between, or after the positionals.
+        // user-guide.md 搂3.1: options may appear before, between, or after the positionals.
         var manifest = TempManifest("Calc.Program");
         try
         {
@@ -358,7 +358,7 @@ public class CliTests
         }
         finally
         {
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
     }
 
@@ -379,7 +379,7 @@ public class CliTests
         }
         finally
         {
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
     }
 
@@ -400,7 +400,232 @@ public class CliTests
         }
         finally
         {
-            Directory.Delete(dir, true);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Friendly-compiler deepening (S1-S6): --help/--version/--log/--quiet/
+    // --verbose and the audit subcommand exit-code contract. All these live in
+    // the CliTests class (xUnit serialises tests WITHIN a class, so the
+    // Console.SetOut/SetError redirections never race a parallel class).
+    //--------------------------------------------------------------------------
+
+    [Fact]
+    public void Version_ExitsZero_PrintsVersion()
+    {
+        var originalOut = Console.Out;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetOut(captured);
+            var code = Program.RunMain(new[] { "--version" });
+            Assert.Equal(0, code);
+            Assert.Contains("1.0.0", captured.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [Fact]
+    public void Help_ExitsZero_PrintsUsage()
+    {
+        var originalOut = Console.Out;
+        try
+        {
+            foreach (var args in new[] { new[] { "--help" }, new[] { "-h" }, new[] { "help" } })
+            {
+                var captured = new StringWriter();
+                Console.SetOut(captured);
+                var code = Program.RunMain(args);
+                Assert.Equal(0, code);
+                Assert.Contains("usage: il2cppc", captured.ToString());
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [Fact]
+    public void Help_Subcommand_Audit()
+    {
+        var originalOut = Console.Out;
+        try
+        {
+            foreach (var args in new[] { new[] { "help", "audit-internalcalls" }, new[] { "audit-internalcalls", "--help" } })
+            {
+                var captured = new StringWriter();
+                Console.SetOut(captured);
+                var code = Program.RunMain(args);
+                Assert.Equal(0, code);
+                Assert.Contains("audit-internalcalls", captured.ToString());
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [Fact]
+    public void Audit_MissingArg_ExitsOne()
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            var code = Program.RunMain(new[] { "audit-internalcalls" });
+            Assert.Equal(1, code);
+            Assert.StartsWith("il2cppc error:", captured.ToString());
+            Assert.Contains("audit-internalcalls", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
+    [Fact]
+    public void Audit_Success_ExitsZero()
+    {
+        var originalOut = Console.Out;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetOut(captured);
+            var code = Program.RunMain(new[] { "audit-internalcalls", FixturePath() });
+            Assert.Equal(0, code);
+            Assert.Contains("SUMMARY", captured.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [Fact]
+    public void Audit_BadAssembly_ExitsTwo()
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            var missing = Path.Combine(Path.GetTempPath(), "il2cpp_nonexistent_" + Guid.NewGuid().ToString("N") + ".dll");
+            var code = Program.RunMain(new[] { "audit-internalcalls", missing });
+            Assert.Equal(2, code);
+            Assert.Contains("il2cppc error:", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
+    [Fact]
+    public void Log_WritesFile()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        var log = Path.Combine(Path.GetTempPath(), "il2cpp_log_" + Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var code = Program.RunMain(new[] { "--log", log, FixturePath(), dir });
+            Assert.Equal(0, code);
+            Assert.True(File.Exists(log), "log file must be written");
+            Assert.Contains("generated", File.ReadAllText(log));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            if (File.Exists(log)) File.Delete(log);
+        }
+    }
+
+    [Fact]
+    public void Log_Unwritable_ExitsOne()
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_logdir_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Console.SetError(captured);
+            // --log targeting a directory cannot be opened as a file -> exit 1
+            var code = Program.RunMain(new[] { "--log", dir, FixturePath(), "out" });
+            Assert.Equal(1, code);
+            Assert.StartsWith("il2cppc error:", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Quiet_SuppressesInfo()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetOut(captured);
+            var code = Program.RunMain(new[] { "--quiet", FixturePath(), dir });
+            Assert.Equal(0, code);
+            var output = captured.ToString();
+            Assert.DoesNotContain("generated", output);
+            Assert.DoesNotContain("symbols", output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Verbose_ShowsProgress()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetOut(captured);
+            var code = Program.RunMain(new[] { "--verbose", FixturePath(), dir });
+            Assert.Equal(0, code);
+            Assert.Contains("emit", captured.ToString());
+            Assert.Contains("Calc.Program", captured.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void QuietVerbose_MutualExclusion_ExitsOne()
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            var code = Program.RunMain(new[] { "--quiet", "--verbose", FixturePath(), "out" });
+            Assert.Equal(1, code);
+            Assert.Contains("mutually exclusive", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
         }
     }
 

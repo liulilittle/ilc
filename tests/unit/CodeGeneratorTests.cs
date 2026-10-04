@@ -1514,8 +1514,33 @@ public class CodeGeneratorTests
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
-            var ex = Assert.Throws<NotSupportedException>(() => CodeGenerator.Generate(types, dir, FixturePath("fnptrretuser")));
+            var ex = Assert.ThrowsAny<NotSupportedException>(() => CodeGenerator.Generate(types, dir, FixturePath("fnptrretuser")));
             Assert.Contains("return type", ex.Message);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // G2 (friendly-compiler S4): Generate wraps a method-emission
+    // NotSupportedException into a MethodContextException carrying the owning
+    // type::method identity, so a top-level transpile failure names the exact
+    // method that rejected loudly. The wrapper must preserve the inner
+    // exception chain (the throw-point message stays reachable).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void MethodContextException_OnGenerateFailure()
+    {
+        var types = MetadataLoader.LoadAssembly(FixturePath("fnptrretuser"));
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var ex = Assert.Throws<MethodContextException>(() => CodeGenerator.Generate(types, dir, FixturePath("fnptrretuser")));
+            Assert.False(string.IsNullOrWhiteSpace(ex.TypeName), "TypeName must identify the owning type");
+            Assert.False(string.IsNullOrWhiteSpace(ex.MethodName), "MethodName must identify the failing method");
+            Assert.Contains("return type", ex.InnerException!.Message);
         }
         finally
         {
