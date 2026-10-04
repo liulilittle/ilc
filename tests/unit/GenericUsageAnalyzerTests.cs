@@ -136,4 +136,121 @@ public class GenericUsageAnalyzerTests
         var genList = types.Single(t => t.Name == "GenList" && !t.IsNested);
         Assert.Null(GenericUsageAnalyzer.GetShareMask(md, genList, BodyReader(pe, md, genList)));
     }
+
+    //--------------------------------------------------------------------------
+    // P-G4 F3 (method-level MethodSpec/FieldToken MVAR scan): a byref-only
+    // generic method passes rules ①/②, but its body may still pass its OWN
+    // MVAR into a per-instance generic method as a MethodSpec type argument,
+    // or touch a field whose declaring type carries the MVAR. Both are
+    // directed uses the scan must refuse (make the whole definition stay on
+    // the per-instance path, never a wrong shared object ABI).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void ByrefOnlyMethod_BodyCallsPerInstanceGenericWithOwnMvar_BlocksShare()
+    {
+        var (types, md, pe) = Load("mvarusecase");
+        var caller = types.Single(t => t.Name == "Passer2" && !t.IsNested);
+        // a body that calls Tool2.Identity<!!0> (MethodSpec genArg = 0x1E)
+        // needs the exact type -> the definition must NOT be shareable.
+        Assert.Null(GenericUsageAnalyzer.GetShareMask(md, caller, BodyReader(pe, md, caller)));
+    }
+
+    [Fact]
+    public void ByrefOnlyMethod_BodyStoresThroughMvarDeclaringType_BlocksShare()
+    {
+        var (types, md, pe) = Load("mvarusecase");
+        var caller = types.Single(t => t.Name == "FieldUser2" && !t.IsNested);
+        // ldflda/stfld on Box2`1<!!0>::item -- the field's declaring
+        // TypeSpec carries the MVAR -> refusal.
+        Assert.Null(GenericUsageAnalyzer.GetShareMask(md, caller, BodyReader(pe, md, caller)));
+    }
+
+    //--------------------------------------------------------------------------
+    // P-G4 D7 -- TypeSpecCarriesMvar blob coverage. The scanner's TypeSig macro
+    // tree lives in TypeSigMvarScanCore; the D7 surface is the TypeSpec SHAPE
+    // knots that wrap a METHOD-level MVAR (0x1E): the 0x1B GenericInst knot,
+    // the 0x14 multidimensional ARRAY, and the 0x1D SZARRAY. Each shape must
+    // report true when it wraps 0x1E, false when it wraps a CLASS-level 0x13
+    // VAR, and false when the blob cannot be decoded (conservative, "宁可特例化").
+    // Blobs are hand-synthesized (MetadataBuilder TypeSpec rows, no compiler can
+    // emit an MVAR in a standalone TypeSpec); the private scanner is reached via
+    // reflection (the same NonPublic|Static pattern as CodeGeneratorTests.
+    // ArrayElementType).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void TypeSpecCarriesMvar_GenericInstKnot_0x1B_WrappingMvar_IsTrue()
+    {
+        using var ts = SynthesizeTypeSpec(0x1B, 0x1E, 0x00); // 0x1B knot -> MVAR#0
+        Assert.True(InvokeTypeSpecCarriesMvar(ts.Md, ts.Token));
+    }
+
+    [Fact]
+    public void TypeSpecCarriesMvar_MultidimArray_0x14_WrappingMvar_IsTrue()
+    {
+        // 0x14 ARRAY: element 0x1E MVAR, then ArrayShape (rank 1, 0 sizes/lo).
+        using var ts = SynthesizeTypeSpec(0x14, 0x1E, 0x00, 0x01, 0x00, 0x00);
+        Assert.True(InvokeTypeSpecCarriesMvar(ts.Md, ts.Token));
+    }
+
+    [Fact]
+    public void TypeSpecCarriesMvar_Szarray_0x1D_WrappingMvar_IsTrue()
+    {
+        using var ts = SynthesizeTypeSpec(0x1D, 0x1E, 0x00); // T[] where T is the method MVAR
+        Assert.True(InvokeTypeSpecCarriesMvar(ts.Md, ts.Token));
+    }
+
+    [Fact]
+    public void TypeSpecCarriesMvar_SzarrayWrappingClassLevelVar_0x13_IsFalse()
+    {
+        // 0x1D SZARRAY wrapping 0x13 VAR -- a CLASS-level parameter, not a
+        // method MVAR; the shared-object path can keep the default.
+        using var ts = SynthesizeTypeSpec(0x1D, 0x13, 0x00);
+        Assert.False(InvokeTypeSpecCarriesMvar(ts.Md, ts.Token));
+    }
+
+    [Fact]
+    public void TypeSpecCarriesMvar_UndecodableTruncatedKnot_IsFalse()
+    {
+        // 0x1B knot with nothing after it: the recursive decode hits EOF and
+        // must be reported as undecodable -> conservative false (no MVAR).
+        using var ts = SynthesizeTypeSpec(0x1B);
+        Assert.False(InvokeTypeSpecCarriesMvar(ts.Md, ts.Token));
+    }
+
+    // A one-TypeSpec PE whose blob is the given signature bytes; disposable to
+    // own the PEReader lifetime.
+    private sealed class SynthTypeSpec : IDisposable
+    {
+        private readonly PEReader _pe;
+        public SynthTypeSpec(byte[] sig)
+        {
+            var mdb = new MetadataBuilder();
+            mdb.AddModule(0, mdb.GetOrAddString("ts.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+                default(GuidHandle), default(GuidHandle));
+            var spec = mdb.AddTypeSpecification(mdb.GetOrAddBlob(sig));
+            var root = new MetadataRootBuilder(mdb, "v4.0.30319");
+            var peBuilder = new ManagedPEBuilder(new PEHeaderBuilder(
+                    machine: Machine.I386,
+                    imageCharacteristics: Characteristics.ExecutableImage | Characteristics.Dll),
+                root, new BlobBuilder());
+            var blob = new BlobBuilder();
+            peBuilder.Serialize(blob);
+            _pe = new PEReader(new MemoryStream(blob.ToArray()));
+            Md = _pe.GetMetadataReader();
+            Token = MetadataTokens.GetToken(spec);
+        }
+        public MetadataReader Md { get; }
+        public int Token { get; }
+        public void Dispose() => _pe.Dispose();
+    }
+
+    private static SynthTypeSpec SynthesizeTypeSpec(params byte[] sig) => new(sig);
+
+    private static bool InvokeTypeSpecCarriesMvar(MetadataReader md, int token)
+    {
+        var method = typeof(GenericUsageAnalyzer).GetMethod(
+            "TypeSpecCarriesMvar", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        return (bool)method!.Invoke(null, new object[] { md, token })!;
+    }
 }

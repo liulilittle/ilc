@@ -1298,17 +1298,25 @@ public static class CodeGenerator
                     returnType = "Il2CppObject*";
                 _curInstantiationSuffix = t.InstantiationSuffix;
                 _curReturnIsVar = m.ReturnIsVar;
-                // P-G3: the SHARED implementation faces are (a) the arity-0
-                // generic-METHOD definition (Swap -- no clone exists, the
-                // definition body IS the object template) and (b) the shared
-                // "object" clone of an arity>0 def. The all-int definition of
-                // a shared def stays per-instance (its suffix is null AND its
+                // P-G4 F1: the member check MUST gate BOTH faces. The old shape
+                // only applied SharedGenericDefs to the arity-0 clause, so ANY
+                // non-shared def's reference clone (suffix != null, != "int" --
+                // VirtBase`1_string, PairCon`2_string_string) set _curMethodShare
+                // true and wrongly took the shared object ABI for byref-VAR/
+                // stobj-VAR bodies. The audit's four-state proof: the only
+                // behavior difference is non-shared reference clone true->false
+                // (nothing in the current pool has that shape). The shared faces
+                // are (a) the arity-0 generic-METHOD definition (Swap -- no clone
+                // exists, the definition body IS the object template) and (b) the
+                // shared "object" clone of an arity>0 def. The all-int definition
+                // of a shared def stays per-instance (its suffix is null AND its
                 // methods are not generic -- the arity-0 clause below excludes
                 // it). The object clone's suffix is never the "int" default.
-                _curMethodShare = t.InstantiationSuffix != null && t.InstantiationSuffix != "int"
-                    || (t.InstantiationSuffix == null && t.GenericArity == 0
-                        && t.Methods.Any(mm => mm.GenericArity > 0))
-                        && GenericUsageAnalyzer.SharedGenericDefs?.Contains(t.FullName) == true;
+                var defShared = GenericUsageAnalyzer.SharedGenericDefs?.Contains(t.FullName) == true;
+                _curMethodShare = defShared && (
+                      t.InstantiationSuffix != null && t.InstantiationSuffix != "int"
+                   || (t.InstantiationSuffix == null && t.GenericArity == 0
+                       && t.Methods.Any(mm => mm.GenericArity > 0)));
                 _curStructReturnCpp = managedRetStruct != null ? returnType : null;
                 List<Stmt> stmts;
                 // R2b P2: the resolution hint for VAR (0x13) TypeSpec args in
@@ -5487,42 +5495,6 @@ public static class CodeGenerator
 default: return false;                           // primitives/VAR(handled by caller)/TypedRef: not a reference
             }
         }
-
-    // P-G3: for a SHARED callee's return slot, whether THIS closed instance's
-    // T (the method return's VAR index) is a VALUE type (the caller must
-    // unbox) or a reference (pass the object through). Decode the MemberRef
-    // Parent TypeSpec (Pair`2<System.Int32,System.String>) instance args and
-    // compare against the method return's VAR index. Pair<int,string>.GetFirst
-    // returns the int32 (value); Pair<string,string>.GetFirst returns the
-    // managed reference. MethodDef / non-instance targets default to "value".
-    private static bool SharedReturnSlotIsValue(MetadataReader md, int token)
-    {
-        var h = MetadataTokens.Handle(token);
-        if (h.Kind == HandleKind.MethodDefinition) return true;
-        if (h.Kind != HandleKind.MemberReference) return true;
-        var mr = md.GetMemberReference((MemberReferenceHandle)h);
-        var sig = md.GetBlobReader(mr.Signature);
-        sig.ReadByte();                    // calling convention
-        sig.ReadCompressedInteger();       // param count
-        var ret = sig.ReadByte();          // return element type
-        int varRet;
-        if (ret is 0x13 or 0x1E) varRet = sig.ReadCompressedInteger(); else return true; // non-VAR return: value slot
-        if (mr.Parent.Kind != HandleKind.TypeSpecification) return true;
-        var ts = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
-        if (ts.ReadByte() != 0x15) return true; // not a GenericInst instance
-        ts.ReadByte();                     // CLASS/VALUETYPE marker
-        ts.ReadTypeHandle();
-        var argc = ts.ReadCompressedInteger();
-        for (var i = 0; i < argc; i++)
-        {
-            var b = MethodSignatureCoder.SkipCustomModifiers(ref ts, ts.ReadByte());
-            if (i == varRet)
-                return b is not (0x0E or 0x12 or 0x1C or 0x1D or 0x15); // string/class/object/array/nested-inst = reference
-            if (b is 0x1D or 0x15 or 0x11) // skip trailing data of array/nested-generic/value-type args we don't care about
-                ts.ReadTypeHandle();
-        }
-        return true;
-    }
 
     // P-G3: whether THIS call's closed instance is the ALL-INT M3 default
     // (Box`1<Int32>, the definition itself) -- it does NOT collapse onto the

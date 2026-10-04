@@ -3287,7 +3287,21 @@ public static class StackFold
                     if (!sharedByref[bi]) continue;
                     var bArgIdx = bi + argOffset;
                     if (call.Args[bArgIdx] is not LocAddrExpr laB || LocWidth(laB.Name, ctx, tempWidths) == "r")
+                    {
+                        // P-G4 ②: a field ADDRESS argument (ref obj.field) to a
+                        // SHARED byref slot. A REFERENCE-typed field's address
+                        // is &f == Il2CppObject** -> the callee's Il2CppObject**
+                        // slot matches directly (zero-copy, correct). A VALUE
+                        // slot field's address is &f == int32_t*/... -> an ABI
+                        // mismatch that cannot be bridged (the box-to-temp-then-
+                        // write-back bridge is local-only). Loud-reject the value
+                        // slot shape here (the fold catch turns it into a stub +
+                        // warning); the complete field bridge is future work
+                        // (P-G5).
+                        if (SharedByrefFieldArgSlotIsValue(md, types, call.Args[bArgIdx]))
+                            throw new NotSupportedException("shared byref arg = ref field ADDRESS over a VALUE slot (ref obj.field); 请先经局部 ref 中转（P-G5 字段桥）");
                         continue; // reference slot: &slot is Il2CppObject**-compatible (zero-copy)
+                    }
                     var btemp = $"t{temps.Count}";
                     temps.Add(btemp);
                     tempWidths[btemp] = "r";
@@ -5141,6 +5155,81 @@ public static class StackFold
             return null;
         var (_, _, byrefVar) = MethodSignatureCoder.DecodeVarFlags(md, dm.Signature);
         return byrefVar;
+    }
+
+    // P-G4 ②: whether a shared-byref ARGUMENT that is a FIELD ADDRESS (ldflda
+    // -> FieldAddrExpr / ldsflda -> StaticFieldAddrExpr) targets a VALUE slot.
+    // A REFERENCE-typed field's address is &f == Il2CppObject** -- the shared
+    // callee's Il2CppObject** byref slot matches it directly (zero-copy pass-
+    // through is CORRECT). A VALUE slot field's address is &f == int32_t*/...
+    // -- ABI-mismatched, and no field-write-back bridge exists yet. The audit
+    // ruling (P-G4-AUDIT-2.md §11.2): only the value-slot shape is loudly
+    // rejected; reference field addresses pass through. An unresolvable field
+    // is treated as a value slot (conservative reject). Field kind is decoded
+    // from the metadata FIELD signature (mirrors IsRefField / CodeGenerator.
+    // StaticFieldIsReference), NOT from FieldDef.TypeKind -- static fields are
+    // carried type-less in the model (FieldDef.cs:44-52), so the metadata
+    // signature byte is the authoritative reference/value source.
+    static bool SharedByrefFieldArgSlotIsValue(MetadataReader? md, IReadOnlyList<TypeDef>? types, Expr arg)
+    {
+        if (md == null) return true; // no metadata -> conservative reject
+        string owner;
+        string fieldCpp;
+        switch (arg)
+        {
+            case FieldAddrExpr fa:
+                owner = fa.OwnerFullName;
+                fieldCpp = fa.FieldCppName;
+                break;
+            case StaticFieldAddrExpr sf:
+                var dot = sf.FieldName.LastIndexOf('.');
+                if (dot <= 0) return true; // unresolvable -> conservative reject
+                owner = sf.FieldName[..dot];
+                fieldCpp = CppFieldName(sf.FieldName[(dot + 1)..]);
+                break;
+            default:
+                return false; // not a field address -> not this LOUD path
+        }
+        return !FieldCppIsReference(md, owner, fieldCpp);
+    }
+
+    // Whether the field identified by (owner full name, SANITIZED C++ field
+    // name) is a REFERENCE-typed slot (Il2CppObject*). Signature byte test:
+    // 0x0E String / 0x12 Class / 0x1C Object / 0x15 GenericInst / 0x1D SZARRAY
+    // / 0x14 ARRAY -> reference; everything else (0x08 I4, 0x0A I8, 0x0D R8,
+    // 0x11 VALUETYPE, 0x13 VAR) -> value. A field that cannot be resolved is
+    // reported as NOT reference (the caller then loud-rejects -- conservative,
+    // "宁可特例化").
+    static bool FieldCppIsReference(MetadataReader md, string ownerFullName, string fieldCppName)
+    {
+        var ownerShort = ownerFullName[(ownerFullName.LastIndexOf('+') + 1)..];
+        foreach (var tdh in md.TypeDefinitions)
+        {
+            if (md.GetFullName(tdh) != ownerShort) continue;
+            var td = md.GetTypeDefinition(tdh);
+            foreach (var fh in td.GetFields())
+            {
+                var fd = md.GetFieldDefinition(fh);
+                if (CppFieldName(md.GetString(fd.Name)) != fieldCppName) continue;
+                var sig = md.GetBlobReader(fd.Signature);
+                if (sig.ReadByte() != 0x06) return false; // not a FIELD sig
+                var typeByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+                return typeByte is 0x0E or 0x12 or 0x1C or 0x15 or 0x1D or 0x14;
+            }
+            return false; // owner found, field missing -> not reference
+        }
+        return false; // owner not found -> not reference (conservative)
+    }
+
+    // C++ member-name sanitize (same rule set as the Fold-local SanitizeField
+    // -- illegal C++ identifier characters -> '_'; a field that sanitizes to
+    // _obj is renamed to _obj_field, the object header member). Class-level
+    // copy so the ② field-address helper can classify field slots outside
+    // Fold's scope.
+    static string CppFieldName(string name)
+    {
+        var s = string.Join("_", name.Split('.', '+', '`', '<', '>', ',', '[', ']'));
+        return s == "_obj" ? "_obj_field" : s;
     }
 
     // P-G3: the generic DEFINITION FullName of a closed generic instance TypeSpec

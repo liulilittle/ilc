@@ -201,23 +201,111 @@ public static class GenericUsageAnalyzer
         {
             if (paramIsVar[i] && !paramIsByrefVar[i]) return false;
         }
-        // (3) Body: MVAR TypeSpec uses must be pure slot moves.
+        // (3) Body: MVAR TypeSpec uses must be pure slot moves, and a generic
+        // METHOD call (MethodSpec) / field access may not pass this method's
+        // own MVAR onward (P-G4 F3 -- a shared body calling a per-instance
+        // generic method with T as its type argument would need the exact
+        // type, so those uses are directed).
         foreach (var ins in IlDecoder.DecodeMethod(bio.IlBytes, md))
         {
-            if (ins.OperandKind != IlOperandKind.TypeToken) continue;
-            if (!TypeSpecCarriesMvar(md, (int)ins.Operand)) continue;
-            switch (ins.OpCode)
+            switch (ins.OperandKind)
             {
-                case ILOpCode.Ldobj:
-                case ILOpCode.Stobj:
-                case ILOpCode.Cpobj:
-                case ILOpCode.Initobj:
-                    continue; // byref-slot move: object-compatible
-                default:
-                    return false; // box/unbox/castclass/newarr/sizeof/...: directed
+                case IlOperandKind.TypeToken:
+                    if (!TypeSpecCarriesMvar(md, (int)ins.Operand)) continue;
+                    switch (ins.OpCode)
+                    {
+                        case ILOpCode.Ldobj:
+                        case ILOpCode.Stobj:
+                        case ILOpCode.Cpobj:
+                        case ILOpCode.Initobj:
+                            continue; // byref-slot move: object-compatible
+                        default:
+                            return false; // box/unbox/castclass/newarr/sizeof/...: directed
+                    }
+                case IlOperandKind.MethodToken:
+                    // P-G4 F3: a generic-method call whose MethodSpec genArgs
+                    // carry this method's MVAR (0x1E) passes the MVAR to a
+                    // per-instance generic method -> directed, not shareable.
+                    if (MethodSpecCarriesMvar(md, (int)ins.Operand)) return false;
+                    continue;
+                case IlOperandKind.FieldToken:
+                    // P-G4 F3: a field whose DECLARED TYPE carries this
+                    // method's MVAR (e.g. `T[] field` / `Holder`1<!!0> field`)
+                    // is a concrete-slot access -> directed, not shareable.
+                    if (FieldTokenDeclaredTypeCarriesMvar(md, (int)ins.Operand)) return false;
+                    continue;
             }
         }
         return true;
+    }
+
+    // P-G4 F3: whether a MethodSpecification token's GenericInst signature
+    // (0x0A blob: genArg count + one type sig per arg) carries a METHOD-level
+    // MVAR (0x1E) in ANY generic argument. A generic-method call such as
+    // `Wrapper.Pass<!!0>(...)` inside a shared method body would require the
+    // exact type -> the definition must stay per-instance.
+    private static bool MethodSpecCarriesMvar(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.MethodSpecification) return false;
+        var genSig = md.GetBlobReader(md.GetMethodSpecification((MethodSpecificationHandle)h).Signature);
+        try
+        {
+            if (genSig.ReadByte() != 0x0A) return false; // not GENERICINST
+            var argc = genSig.ReadCompressedInteger();
+            for (var i = 0; i < argc; i++)
+            {
+                if (TypeSigMvarScanCore(md, ref genSig)) return true;
+            }
+            return false;
+        }
+        catch (BadImageFormatException)
+        {
+            return false; // undecodable -> treat as no MVAR (conservative scan side)
+        }
+    }
+
+    // P-G4 F3: whether a FieldToken operand's field carries a METHOD-level
+    // MVAR (0x1E) in either the field's DECLARED TYPE (its FieldSig type --
+    // `T[] cache`, `Holder`1<!!0> slot`) or, for a MemberReference field, the
+    // DECLARING TYPE's instantiation (the Parent TypeSpec -- `Box`1<!!0>.field`
+    // in a generic-method body carries the MVAR as the instance arg). Either
+    // shape is a concrete-slot access in a shared body -> the definition must
+    // stay per-instance.
+    private static bool FieldTokenDeclaredTypeCarriesMvar(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        try
+        {
+            switch (h.Kind)
+            {
+                case HandleKind.FieldDefinition:
+                {
+                    var fdSig = md.GetBlobReader(md.GetFieldDefinition((FieldDefinitionHandle)h).Signature);
+                    if (fdSig.ReadByte() != 0x06) return false; // FieldSig header
+                    return TypeSigMvarScanCore(md, ref fdSig);
+                }
+                case HandleKind.MemberReference:
+                {
+                    var mr = md.GetMemberReference((MemberReferenceHandle)h);
+                    // Parent TypeSpec instantiation (Box`1<!!0>) carries the MVAR.
+                    if (mr.Parent.Kind == HandleKind.TypeSpecification)
+                    {
+                        var parentSig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+                        if (TypeSigMvarScanCore(md, ref parentSig)) return true;
+                    }
+                    var mrSig = md.GetBlobReader(mr.Signature);
+                    if (mrSig.ReadByte() != 0x06) return false; // FieldSig header
+                    return TypeSigMvarScanCore(md, ref mrSig);
+                }
+                default:
+                    return false;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            return false; // undecodable -> treat as no MVAR (conservative scan side)
+        }
     }
 
     // Whether a TypeSpec token's signature blob references a METHOD-level MVAR
