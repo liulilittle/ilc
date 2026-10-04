@@ -1404,6 +1404,126 @@ public class CodeGeneratorTests
     }
 
     //--------------------------------------------------------------------------
+    // P-D3 P0 (DllImport fnptr RETURN -- silent int32 truncation of the x64
+    // address): `extern "C" int32_t make_inc(void);` + `int32_t loc0; loc0 =
+    // make_inc();` truncated the returned function pointer (PinvokeReturnTypeCpp
+    // had no FunctionPointer arm AND the call result temp collapsed to int32_t).
+    // The extern decl must name void* and the calli must ride a void* slot.
+    // Fixture: tests/fixtures/fnptrret.dll (a case-real net48 assembly whose
+    // transpile must SUCCEED -- never an e2e case, it needs the mylib native
+    // library at runtime).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_FnPtrPInvokeReturn_EmitsVoidStarExternAndCalli()
+    {
+        var types = MetadataLoader.LoadAssembly(FixturePath("fnptrret"));
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CodeGenerator.Generate(types, dir, FixturePath("fnptrret"));
+            var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_FnPtrRet.cpp"));
+
+            // The extern "C" declaration names the FULL-WIDTH native return:
+            // make_inc returns a raw function pointer, not an int32_t.
+            Assert.Contains("extern \"C\" void* make_inc(void);", header);
+            // The call result lands in a void* slot (was int32_t loc0)...
+            Assert.Contains("void* loc0", cpp);
+            // ...and the indirect call is emitted through it with a null guard.
+            Assert.Contains("loc0 = make_inc()", cpp);
+            Assert.Contains("NullReferenceException", cpp);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D3 P1 (DllImport fnptr PARAM -- LOUD reject -> wired void* pass-through
+    // on x64): `apply_cb(delegate* unmanaged[Cdecl]<int,int> cb, int x)` was
+    // LOUDLY rejected (no marshalling bridge). The fnptr value is the model's
+    // void* "p" slot and must cross the P/Invoke boundary at full width.
+    // Fixture: tests/fixtures/fnptrparam.dll (unit-only).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_FnPtrPInvokeParam_EmitsVoidStarParam()
+    {
+        var types = MetadataLoader.LoadAssembly(FixturePath("fnptrparam"));
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CodeGenerator.Generate(types, dir, FixturePath("fnptrparam"));
+            var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
+
+            Assert.Contains("extern \"C\" int32_t apply_cb(void*, int32_t);", header);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D3 P1 (fnptr FIELD -- silent int32 storage downgrade): a `delegate*`
+    // instance field was silently stored in an int32_t slot (MetadataLoader
+    // DecodeFieldSignature 0x1B -> default -> (Int32,""), TypeEmitter
+    // DecodeNestedFieldSignature likewise; static fields the same via
+    // DecodeExtendedStaticType). P-DX P0 pattern: LOUD reject forbids the
+    // silent truncation. Fixture: tests/fixtures/fnptrfield.dll.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_FnPtrField_LoudlyRejected()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // The decoder fires at LOAD (MetadataLoader) -- the LOUD gate may
+            // trip during LoadAssembly OR Generate; either hard-aborts the
+            // whole transpile, which is the point.
+            NotSupportedException ex;
+            try
+            {
+                var types = MetadataLoader.LoadAssembly(FixturePath("fnptrfield"));
+                ex = Assert.Throws<NotSupportedException>(() =>
+                    CodeGenerator.Generate(types, dir, FixturePath("fnptrfield")));
+            }
+            catch (NotSupportedException e)
+            {
+                ex = e;
+            }
+            Assert.Contains("function pointer", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // P-D3 P1 (USER-method fnptr RETURN -- LOUD lock): a user method returning
+    // a `delegate*` hits ReturnTypeCpp with no 0x1B arm -> NotSupportedException
+    // (hard gate, NO silent truncation). P-D3 keeps the LOUD reject and locks
+    // it with this red test; wiring the return carrier is a recorded follow-up.
+    // Fixture: tests/fixtures/fnptrretuser.dll.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_UserMethodFnPtrReturn_LoudlyRejected()
+    {
+        var types = MetadataLoader.LoadAssembly(FixturePath("fnptrretuser"));
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var ex = Assert.Throws<NotSupportedException>(() => CodeGenerator.Generate(types, dir, FixturePath("fnptrretuser")));
+            Assert.Contains("return type", ex.Message);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    //--------------------------------------------------------------------------
     // P0-1/P0-2 wiring regression: the Normalize pass runs between StackFold and
     // EmitBody -- the generated shapes of methods WITHOUT identity candidates
     // must be byte-identical to the pre-Normalize output.

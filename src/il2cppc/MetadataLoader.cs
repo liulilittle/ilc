@@ -732,6 +732,15 @@ public static class MetadataLoader
                 return extended
                     ? (FieldTypeKind.Int32, "System.Int32")
                     : (FieldTypeKind.Int32, "");
+            // P-D3 P1 (fnptr fields, P-DX P0 pattern): a `delegate*` (0x1B
+            // ELEMENT_TYPE_FNPTR) INSTANCE field was silently downgraded to an
+            // int32_t storage slot -- writing the void* value fails to compile
+            // and reading it truncates the x64 address. The model has no void*
+            // field carrier; LOUDLY reject the shape (hard gate) instead of
+            // the silent int32 storage.
+            case 0x1B:
+                throw new NotSupportedException(
+                    "function pointer (delegate*) fields are not supported: the model has no void* field carrier (silent int32 storage forbidden -- P-D3)");
             case 0x11:
                 if (!extended)
                     throw new NotSupportedException("value-type instance fields not supported in M2");
@@ -791,6 +800,12 @@ public static class MetadataLoader
         0x0D => (FieldTypeKind.Int32, "System.Double"),
         0x18 => (FieldTypeKind.Int32, "System.IntPtr"),
         0x19 => (FieldTypeKind.Int32, "System.UIntPtr"),
+        // P-D3 P1 (fnptr fields): a STATIC `delegate*` field was silently
+        // downgraded to an int32_t storage slot by this tolerant default --
+        // reading it truncates the x64 address. Same hard gate as the instance
+        // path (P-DX P0 pattern): LOUDLY reject.
+        0x1B => throw new NotSupportedException(
+            "function pointer (delegate*) fields are not supported: the model has no void* field carrier (silent int32 storage forbidden -- P-D3)"),
         // Tolerant fallback (documented in DecodeFieldSignature): exotic static
         // signatures keep the historical untyped int32_t value slot.
         var b => (FieldTypeKind.Int32, ""),

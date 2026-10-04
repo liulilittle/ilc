@@ -78,3 +78,34 @@ Copy-Item "$Root/tests/fixtures/out/mainargs.exe" "$Root/tests/fixtures/out/main
 dotnet build "$Root/tests/fixtures/multidim/multidim.csproj" -c Release -o "$Root/tests/fixtures/out"
 if ($LASTEXITCODE -ne 0) { throw "fixture multidim build failed" }
 Copy-Item "$Root/tests/fixtures/out/multidim.exe" "$Root/tests/fixtures/out/multidim.dll" -Force
+# pinvokedelegate fixture was moved to tests/cases/pinvokedelegate by P-D2
+# (e2e case, built via run-tests.ps1); no longer a fixtures/ entry.
+
+# fnptrret (P-D3 P0): a DllImport RETURN of fnptr type (delegate* unmanaged[Cdecl])
+# must transpile to a full-width void* extern decl + void* result temp (was
+# silent int32_t truncation of the x64 address). Unit-only fixture.
+dotnet build "$Root/tests/fixtures/fnptrret/fnptrret.csproj" -c Release -o "$Root/tests/fixtures/out"
+if ($LASTEXITCODE -ne 0) { throw "fixture fnptrret build failed" }
+Copy-Item "$Root/tests/fixtures/out/fnptrret.exe" "$Root/tests/fixtures/out/fnptrret.dll" -Force
+
+# fnptrparam (P-D3 P1): a DllImport PARAM of fnptr type must transpile to a
+# void* extern decl (was LOUDLY rejected; P-D3 wires F:->void*). Unit-only fixture.
+dotnet build "$Root/tests/fixtures/fnptrparam/fnptrparam.csproj" -c Release -o "$Root/tests/fixtures/out"
+if ($LASTEXITCODE -ne 0) { throw "fixture fnptrparam build failed" }
+Copy-Item "$Root/tests/fixtures/out/fnptrparam.exe" "$Root/tests/fixtures/out/fnptrparam.dll" -Force
+
+# fnptrfield (P-D3 P1): a `delegate*` INSTANCE field must make
+# CodeGenerator.Generate LOUDLY reject (NotSupportedException) -- the old path
+# silently downgraded the field to an int32_t storage slot (write void* ->
+# compile fail; read -> x64 truncation). Unit-only fixture (transpile EXPECTED
+# to fail, same rule as pinvokedelegate).
+dotnet build "$Root/tests/fixtures/fnptrfield/fnptrfield.csproj" -c Release -o "$Root/tests/fixtures/out"
+if ($LASTEXITCODE -ne 0) { throw "fixture fnptrfield build failed" }
+Copy-Item "$Root/tests/fixtures/out/fnptrfield.exe" "$Root/tests/fixtures/out/fnptrfield.dll" -Force
+
+# fnptrretuser (P-D3 P1): a USER method returning a `delegate*` (fnptr 0x1B)
+# must be LOUDLY rejected by ReturnTypeCpp (no 0x1B arm). P-D3 red-test lock
+# only (wiring is a follow-up). Unit-only fixture (transpile EXPECTED to fail).
+dotnet build "$Root/tests/fixtures/fnptrretuser/fnptrretuser.csproj" -c Release -o "$Root/tests/fixtures/out"
+if ($LASTEXITCODE -ne 0) { throw "fixture fnptrretuser build failed" }
+Copy-Item "$Root/tests/fixtures/out/fnptrretuser.exe" "$Root/tests/fixtures/out/fnptrretuser.dll" -Force

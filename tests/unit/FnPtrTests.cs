@@ -76,6 +76,59 @@ public class FnPtrTests
         Assert.Equal(1, paramCount);
     }
 
+    //--------------------------------------------------------------------------
+    // P-D3 §7.5 hasThis (Thiscall receiver-as-first-param): net48 Roslyn
+    // FORBIDS the source that would produce a HAS_THIS fnptr -- `&instance.M`
+    // is CS8757 (no matching overload for the fnptr-with-receiver type) and
+    // `&staticMethod -> unmanaged[Thiscall]` is CS8786 (managed convention
+    // incompatible, no [UnmanagedCallersOnly] on net48). Both probed against
+    // the net48 csc. The hasThis DECODE + emission paths therefore get
+    // synthetic-IL lock here (no e2e can reach them from C# source).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Signature_StandaloneCalli_HasThis_ReportsReceiver()
+    {
+        // HAS_THIS (0x20) + default cc, 1 explicit param, ret void
+        var (conv, hasThis, paramCount, _, _) =
+            DecodeStandalone(new byte[] { 0x20, 0x01, 0x01, 0x08 });
+        Assert.Equal(0, conv);
+        Assert.True(hasThis);
+        Assert.Equal(1, paramCount);
+    }
+
+    [Fact]
+    public void Fold_Calli_HasThis_PopsReceiverAndArgsAndFnptr()
+    {
+        // Stack (bottom->top): [null (receiver), 3 (arg), fnptr] -- the
+        // receiver sits UNDER the explicit args like a first arg.
+        using var pe = SynthesizeMain(BodyKind.HasThisCall);
+        var md = pe.GetMetadataReader();
+
+        var stmts = Fold(pe, md);
+
+        var call = (stmts.OfType<AssignStmt>().FirstOrDefault()?.Value
+            ?? stmts.OfType<RetStmt>().FirstOrDefault()?.Value) as CallExpr;
+        Assert.NotNull(call);
+        Assert.StartsWith("calli_", call.Function);
+        // Args: [fnptr, receiver(null), arg]
+        Assert.IsType<FuncPtrExpr>(call.Args[0]);
+        Assert.IsType<NullExpr>(call.Args[1]);
+        Assert.Equal(3L, Assert.IsType<IntConstExpr>(call.Args[2]).Value);
+    }
+
+    [Fact]
+    public void Emit_Calli_HasThis_PrependsReceiverParam()
+    {
+        // The emitted target fnptr type includes the leading Il2CppObject*
+        // receiver (this) as its first param.
+        using var pe = SynthesizeMain(BodyKind.HasThisCall);
+        var cpp = GenerateMain(pe);
+
+        Assert.Contains("(*)(Il2CppObject*, int32_t)", cpp);
+        Assert.Contains("nullptr", cpp); // receiver sits in the null guard check
+        Assert.Contains("NullReferenceException", cpp);
+    }
+
 
 
     //--------------------------------------------------------------------------
@@ -163,6 +216,77 @@ public class FnPtrTests
     }
 
     //--------------------------------------------------------------------------
+    // P-D3 (calli whitelist expansion): PTR/fnptr/IntPtr RETURNS and F:/P:
+    // PARAMS were LOUD-rejected (or silently int32). P-D3-AUDIT-2 §1.1/§1.2:
+    // each expanded arm must carry a width assertion so a silent x64 tear can
+    // never slip through.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Emit_Calli_PtrReturn_RendersVoidStarResult()
+    {
+        // ldftn <Add>; calli void*(int32*) -- a PTR (0x0F) return is a void*
+        // carrier (same rule as ReturnTypeCpp 0x0F -> void*, CodeGenerator.cs).
+        // The calli has zero params, so the fnptr cast renders `void*(*)()`.
+        using var pe = SynthesizeMain(BodyKind.PtrReturn);
+        var cpp = GenerateMain(pe);
+
+        Assert.Contains("void*(*)", cpp); // void* target-return in the fnptr cast
+        Assert.Contains("calli", cpp);
+        Assert.Contains("NullReferenceException", cpp);
+    }
+
+    [Fact]
+    public void Emit_Calli_FnPtrReturn_RendersVoidStarCarrier()
+    {
+        // ldftn <Add>; calli fnptr(void) return -- a FNPTR (0x1B) return IS a
+        // void* (the "p" slot); a subsequent calli rides it directly.
+        using var pe = SynthesizeMain(BodyKind.FnPtrReturn);
+        var cpp = GenerateMain(pe);
+
+        Assert.Contains("void*", cpp);
+        Assert.Contains("calli", cpp);
+        Assert.Contains("NullReferenceException", cpp);
+    }
+
+    [Fact]
+    public void Emit_Calli_IntPtrReturn_RendersIntPtrResult()
+    {
+        // ldftn <Add>; calli IntPtr(0x18) return -- native-int width, must be
+        // intptr_t (P-D3-AUDIT-1 §7.3: "0x18(IntPtr)->intptr_t"). The old
+        // int32_t collapsed the x64 pointer.
+        using var pe = SynthesizeMain(BodyKind.IntPtrReturn);
+        var cpp = GenerateMain(pe);
+
+        Assert.Contains("intptr_t(*)", cpp);
+        Assert.Contains("NullReferenceException", cpp);
+        Assert.DoesNotContain("int32_t(*)", cpp);
+    }
+
+    [Fact]
+    public void Emit_Calli_FnPtrParam_RendersVoidStarParam()
+    {
+        // ldftn <Add> as arg; ldftn <Add> as target; calli void(fnptr(void)) --
+        // a fnptr (F:) param feeds the void* slot directly (no teardown).
+        using var pe = SynthesizeMain(BodyKind.FnPtrParam);
+        var cpp = GenerateMain(pe);
+
+        Assert.Contains("(*)(void*)", cpp); // target takes one void* (fnptr) param
+        Assert.Contains("NullReferenceException", cpp);
+    }
+
+    [Fact]
+    public void Emit_Calli_PtrParam_RendersVoidStarParam()
+    {
+        // ldftn <Add> as arg; ldftn <Add> as target; calli void(int32*) --
+        // a PTR (P:) param is a void* (pointer-wide, no teardown).
+        using var pe = SynthesizeMain(BodyKind.PtrParam);
+        var cpp = GenerateMain(pe);
+
+        Assert.Contains("(*)(void*)", cpp);
+        Assert.Contains("NullReferenceException", cpp);
+    }
+
+    //--------------------------------------------------------------------------
     // Test harness.
     //--------------------------------------------------------------------------
     private enum BodyKind
@@ -170,6 +294,12 @@ public class FnPtrTests
         ValueReturn,  // ldftn Add; ldc.i4.3; ldc.i4.4; calli int32(int32,int32); ret
         NullFnptr,    // ldnull; ldc.i4.3; ldc.i4.4; calli int32(int32,int32); ret
         VoidReturn,   // ldftn Add; ldc.i4.3; ldc.i4.4; calli void(int32,int32); ret
+        PtrReturn,    // ldftn Add; calli int32*(void); ret          (0x0F return)
+        FnPtrReturn,  // ldftn Add; calli fnptr(void); ret           (0x1B return)
+        IntPtrReturn, // ldftn Add; calli native-int(void); ret      (0x18 return)
+        FnPtrParam,   // ldftn Add; ldftn Add; calli void(fnptr(void)); ret (F: param)
+        PtrParam,     // ldftn Add; ldftn Add; calli void(int32*); ret  (P: param)
+        HasThisCall,  // ldc.i4.3; ldnull; ldftn Add; calli int32(this,int32); ret (0x20)
     }
 
     private static List<Stmt> Fold(PEReader pe, MetadataReader md)
@@ -210,12 +340,37 @@ public class FnPtrTests
             mdb.GetOrAddBlob(new byte[] { 0x00, 0x02, 0x08, 0x08, 0x08 }),
             addBodyOffset, default(ParameterHandle));
 
-        // calli StandAloneSigs: int32(int32,int32) and void(int32,int32).
+        // calli StandAloneSigs: int32(int32,int32), void(int32,int32),
+        // int32*(void) (PTR return 0x0F 08), fnptr(void) (0x1B 00 00 01),
+        // native-int(void) (0x18), void(fnptr(void)) (F: param),
+        // void(int32*) (P: param).
         var valueSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x02, 0x08, 0x08, 0x08 }));
         var voidSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x02, 0x01, 0x08, 0x08 }));
+        // 0x0F PTR return: 00 00 0F 08 (conv 0, 0 params, ret PTR of int32).
+        var ptrRetSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x0F, 0x08 }));
+        // 0x1B FNPTR return: 00 00 1B 00 00 01 (conv 0, 0 params, ret FNPTR of
+        // an embedded void() signature -- the outer return byte 0x1B is
+        // followed by the fnptr method sig "00 00 01").
+        var fnptrRetSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x1B, 0x00, 0x00, 0x01 }));
+        // 0x18 native-int return: 00 00 18 (conv 0, 0 params, ret ELEMENT_TYPE_I).
+        var intptrRetSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x18 }));
+        // void(fnptr(void)) param: 00 01 01 1B 00 00 01 (1 param, ret void,
+        // param 0x1B followed by the fnptr method sig "00 00 01").
+        var fnptrParamSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x01, 0x01, 0x1B, 0x00, 0x00, 0x01 }));
+        // void(int32*) param: 00 01 01 0F 08 (1 param, ret void, param PTR of int32).
+        var ptrParamSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x01, 0x01, 0x0F, 0x08 }));
+        // HAS_THIS (0x20) + default cc: int32(this, int32) -- conv 0x20, 1
+        // param, ret int32 (0x08), param int32 (0x08).
+        var hasThisSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x20, 0x01, 0x08, 0x08 }));
         var addToken = MetadataTokens.GetToken(add);
         var valueSigToken = MetadataTokens.GetToken(valueSig);
         var voidSigToken = MetadataTokens.GetToken(voidSig);
+        var ptrRetSigToken = MetadataTokens.GetToken(ptrRetSig);
+        var fnptrRetSigToken = MetadataTokens.GetToken(fnptrRetSig);
+        var intptrRetSigToken = MetadataTokens.GetToken(intptrRetSig);
+        var fnptrParamSigToken = MetadataTokens.GetToken(fnptrParamSig);
+        var ptrParamSigToken = MetadataTokens.GetToken(ptrParamSig);
+        var hasThisSigToken = MetadataTokens.GetToken(hasThisSig);
 
         var il = new BlobBuilder();
         var encoder = new InstructionEncoder(il);
@@ -240,6 +395,35 @@ public class FnPtrTests
                 encoder.OpCode(ILOpCode.Ldc_i4_4);
                 LdFtn(encoder, addToken);
                 Calli(encoder, voidSigToken);
+                break;
+            // P-D3 whitelist arms: 0-param / single-param fnptr signatures. The
+            // stack is (bottom->top) [fnptr] or [arg, fnptr] -- ldftn pushes
+            // the arg first, the target fnptr last (matching the calli
+            // pop order fnptr-then-args-in-reverse).
+            case BodyKind.PtrReturn:
+            case BodyKind.FnPtrReturn:
+            case BodyKind.IntPtrReturn:
+                LdFtn(encoder, addToken);
+                Calli(encoder, kind == BodyKind.PtrReturn ? ptrRetSigToken
+                    : kind == BodyKind.FnPtrReturn ? fnptrRetSigToken
+                    : intptrRetSigToken);
+                break;
+            case BodyKind.FnPtrParam:
+            case BodyKind.PtrParam:
+                // [arg-fnptr (void*), target-fnptr] -- both ldftn results are
+                // void*; the signature's single param is the fnptr/ptr slot.
+                LdFtn(encoder, addToken);
+                LdFtn(encoder, addToken);
+                Calli(encoder, kind == BodyKind.FnPtrParam ? fnptrParamSigToken : ptrParamSigToken);
+                break;
+            case BodyKind.HasThisCall:
+                // Stack (bottom->top): [receiver null, arg 3, target-fnptr] --
+                // a HAS_THIS receiver is pushed FIRST (below the explicit
+                // args, like the implicit this), with the fnptr on top.
+                encoder.OpCode(ILOpCode.Ldnull);
+                encoder.OpCode(ILOpCode.Ldc_i4_3);
+                LdFtn(encoder, addToken);
+                Calli(encoder, hasThisSigToken);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind));

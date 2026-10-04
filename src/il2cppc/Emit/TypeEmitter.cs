@@ -332,6 +332,12 @@ public static class TypeEmitter
             0x13 => (FieldTypeKind.Int32, ""),
             0x15 => (FieldTypeKind.Reference, GenericNestedInstantiationName(md, ref sig)),
             0x11 => (FieldTypeKind.Int32, ResolveNestedTypeName(md, sig.ReadTypeHandle())),
+            // P-D3 P1 (fnptr fields): a `delegate*` (0x1B) NESTED-type field
+            // was silently downgraded to an int32_t member slot (this default
+            // arm) -- reading it truncates the x64 address. Same hard gate as
+            // the top-level decoders (P-DX P0 pattern): LOUDLY reject.
+            0x1B => throw new NotSupportedException(
+                "function pointer (delegate*) fields are not supported: the model has no void* field carrier (silent int32 storage forbidden -- P-D3)"),
             // Primitive and exotic field types not covered above: treat as Int32.
             var b => (FieldTypeKind.Int32, ""),
         };

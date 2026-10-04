@@ -2176,6 +2176,23 @@ public static class StackFold
                 // String, 0x1C Object, 0x12 CLASS, 0x1D/0x1F SZARRAY -- the
                 // SignatureTypeCode enum lacks a CLASS member, 0x12 is unnamed.)
                 ReturnsRef = (byte)returnType is 0x0E or 0x1C or 0x12 or 0x1D or 0x1F,
+                // P-D3 (§7.3 width assertions): a calli RESULT is typed from
+                // its StandAloneSig return byte -- the single-use probes only
+                // worked because OptimizeTemps INLINED the call into the
+                // consumer; a MULTI-USE result lands in a temp whose
+                // declaration falls to ExprKind(CallExpr). With ResultKind
+                // null it became int32_t and silently TRUNCATED the x64
+                // int64/double/pointer return (callimulti probe: `int32_t t0
+                // = (int64_t)(loc0)(...)`). Mirror UserCallResultKind's
+                // widths so the result slot matches CalliReturnCpp.
+                ResultKind = (byte)returnType switch
+                {
+                    0x0A or 0x0B => "l",
+                    0x0C or 0x0D => "d",
+                    0x0F or 0x1B => "p",
+                    0x18 => "ptr",
+                    _ => null,
+                },
             };
             calli.Args.Add(fnptr);
             calli.Args.AddRange(args);
@@ -5066,7 +5083,11 @@ public static class StackFold
         // keep the legacy null (M3 int default).
         if (ret is (byte)0x13 or (byte)0x1E)
             return SharedDefReturningObject(md, handle) ? "r" : null;
-        return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : null;
+        // P-D3 P0 (fnptr DllImport RETURN): ELEMENT_TYPE_FNPTR (0x1B) return
+        // gets the "p" (void*) carrier -- the call result temp must hold the
+        // full-width raw function pointer (the old null collapsed to int32_t,
+        // truncating the x64 address before the calli could cast it).
+        return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : ret is 0x1B ? "p" : null;
     }
 
     // P-G3: whether the method token's DECLARING generic definition is in the

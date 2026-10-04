@@ -4672,6 +4672,11 @@ public static class CodeGenerator
         // icalls WRITE through the output buffer -- the "guid" kind carries
         // the slot shape to the declaration site).
         CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "dec2" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
+        // P-D3 P0: a call whose result is a raw function pointer (fnptr
+        // DllImport return) carries ResultKind "p" (void* slot) -- the same
+        // carrier FuncPtrExpr/LocAddrExpr use. Without this arm the result
+        // temp collapsed to int32_t and truncated the x64 address.
+        CallExpr c when c.ResultKind == "p" => "p",
         // P25b (user struct box): the unbox of a user value type carries
         // "us:{CppName}" (StackFold.UnboxUserStructKind) -- strip the prefix to
         // the C++ struct type so the result temp is declared `{T} t;` and the
@@ -7201,6 +7206,11 @@ default: return false;                           // primitives/VAR(handled by ca
     {
         if (m.ReturnType is SignatureTypeCode.IntPtr) return "intptr_t";
         if (m.ReturnType is SignatureTypeCode.UIntPtr) return "uintptr_t";
+        // P-D3 P0 (fnptr DllImport RETURN): ELEMENT_TYPE_FNPTR (0x1B) return
+        // was silently declared int32_t (the x64 address truncated). A fnptr
+        // IS a void* (the "p" slot); the C++ compiler reads the full-width
+        // pointer and the calli rides the void* value directly.
+        if (m.ReturnType is SignatureTypeCode.FunctionPointer) return "void*";
         // P-D1 P0-1 (full-width returns): int64/double/float/uint64 DllImport
         // returns were silently declared int32_t (a double return read EAX,
         // a long return sign-extended the truncated EAX -- both P-D1 audits
@@ -7293,6 +7303,13 @@ default: return false;                           // primitives/VAR(handled by ca
                 if (inner != null) return inner;
                 return TypeEmitter.Sanitize(p[2..]);
             }
+            // P-D3 P1 (fnptr DllImport PARAM): ELEMENT_TYPE_FNPTR (0x1B)
+            // params cross the P/Invoke boundary at full width -- the fnptr
+            // value IS the model's void* "p" slot, passed through directly on
+            // x64 (the native callee receives the raw function pointer). The
+            // call-site arg bridge (EmitIcallCallArgs + PinvokeArgBridge)
+            // converts the void* managed slot to the native void* decl.
+            if (p.StartsWith("F:", StringComparison.Ordinal)) return "void*";
             // wf2 (winforms1): CharSet.Unicode P/Invoke string param -> UTF-16
             // (const char16_t*), else UTF-8 (const char*).
             if (p == "r:System.String") return utf16PInvoke ? "const char16_t*" : "const char*";
@@ -8489,26 +8506,38 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if (returnByte == 0x01) return "void";
         // int32-width slots (incl. bool/char/short/native-int -- all int32_t
         // in the object model): the default C++ type for a calli result.
-        if (returnByte is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 or 0x17 or 0x18) return "int32_t";
+        if (returnByte is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 or 0x17) return "int32_t";
         if (returnByte is 0x0A or 0x0B) return "int64_t";
         if (returnByte is 0x0C or 0x0D) return "double";
         if (returnByte is 0x0E or 0x12 or 0x1C or 0x1D or 0x1F) return "Il2CppObject*";
-        // Value types (0x11) / TypeHandle (0x40) / pointers (0x0F) / fnptr
-        // (0x1B) returns: reject loudly (no runtime value carrier -- the fnptr
-        // domain emits int32/int64/double/ref slots).
-        throw new NotSupportedException($"calli return type 0x{returnByte:X2} not supported in fnptr-b23 (only int32/int64/double/ref/void)");
+        // P-D3 (§7.3 calli whitelist): 0x18 ELEMENT_TYPE_I (IntPtr/native-int)
+        // must carry the FULL pointer width -- the old int32_t collapsed the
+        // x64 address. 0x0F (PTR) and 0x1B (FNPTR) returns are raw pointer
+        // carriers (void*); a subsequent calli rides them directly (the "p"
+        // slot), matching ReturnTypeCpp's 0x0F -> void* rule.
+        if (returnByte == 0x18) return "intptr_t";
+        if (returnByte is 0x0F or 0x1B) return "void*";
+        // Value types (0x11) / TypeHandle (0x40) returns: reject loudly (no
+        // runtime value carrier -- the fnptr domain emits
+        // int32/int64/double/ref/pointer slots).
+        throw new NotSupportedException($"calli return type 0x{returnByte:X2} not supported in fnptr-b23 (only int32/int64/double/ref/void/ptr)");
     }
 
     // calli target PARAMETER C++ type (encoded type -> C++ type).
     private static string CalliParamCpp(string encoded)
     {
         if (encoded.StartsWith("r:", StringComparison.Ordinal)) return "Il2CppObject*";
+        // P-D3 (§7.3 calli whitelist): a fnptr (F:) or pointer (P:) parameter
+        // IS a void* at full pointer width -- the call-side fnptr/pointer
+        // value feeds the slot directly (no teardown).
+        if (encoded.StartsWith("F:", StringComparison.Ordinal)) return "void*";
+        if (encoded.StartsWith("P:", StringComparison.Ordinal)) return "void*";
         return encoded switch
         {
             "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" or "n" => "int32_t",
             "l" or "q" => "int64_t",
             "f" or "d" => "double",
-            _ => throw new NotSupportedException($"calli parameter type '{encoded}' not supported in fnptr-b23 (only int32/int64/double/ref)"),
+            _ => throw new NotSupportedException($"calli parameter type '{encoded}' not supported in fnptr-b23 (only int32/int64/double/ref/ptr)"),
         };
     }
 
