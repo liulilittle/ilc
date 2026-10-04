@@ -382,23 +382,26 @@ foreach ($caseDir in $caseDirs) {
         # build_clang 按编译器隔离, 但首次接入/工具链变更后的 cache 不可复用 -> 清。
         $env:PATH = "D:\android\sdk\cmake\3.22.1\bin;D:\Program Files\mingw\msys2\mingw64\bin;" + $env:PATH
         Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
-        cmake -S $gen -B $buildDir -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=$Root/cmake/clang-mingw-w64.cmake" | Out-Null
+        # P-F-FIX D1: MinGW/clang 分支的原生 stderr（编译器 warning，如 gcc16
+        # -Warray-bounds formatext.cpp:436）在 PS5.1 + EAP=Stop 下经 |Out-Null 管道
+        # 变 NativeCommandError 中止一个实际 exit=0 的成功构建。stderr 2>nul 分流
+        # （构建成败只看 $LASTEXITCODE），与 run-tests 其它分支同口径。
+        cmd /c "cmake -S `"$gen`" -B `"$buildDir`" -G `"MinGW Makefiles`" -DCMAKE_BUILD_TYPE=Release `"-DCMAKE_TOOLCHAIN_FILE=$Root/cmake/clang-mingw-w64.cmake`" 2>nul" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
-        cmake --build $buildDir --config Release | Out-Null
+        cmd /c "cmake --build `"$buildDir`" --config Release 2>nul" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
         Deploy-NativeLibs $buildDir
         $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
     } else {
-        cmake -S $gen -B $buildDir -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release | Out-Null
+        cmd /c "cmake -S `"$gen`" -B `"$buildDir`" -G `"MinGW Makefiles`" -DCMAKE_BUILD_TYPE=Release 2>nul" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
-        # P2-HARDEN #4: g++ strict-aliasing warnings (interlocked.cpp etc.) go to
+# P2-HARDEN #4: g++ strict-aliasing warnings (interlocked.cpp etc.) go to
         # STDERR; under PS 5.1 + $ErrorActionPreference=Stop they surface as
         # NativeCommandError and abort the whole run (manual cmake was fine).
         # Route the build stderr to nul (cmd /c carries the exit code through
         # $LASTEXITCODE; Out-Null alone still lets the host turn stderr into an
-        # error record). Diagnostics: warnings remain visible in a plain console
-        # cmake; this only suppresses them on the harness pipeline.
-        cmd /c "cmake --build `"$buildDir`" --config Release 2>nul"
+        # error record).
+        cmd /c "cmake --build `"$buildDir`" --config Release 2>nul" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
         Deploy-NativeLibs $buildDir
         $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd

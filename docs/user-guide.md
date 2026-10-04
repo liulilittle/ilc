@@ -101,7 +101,7 @@ dotnet run --project src/il2cppc -- MyApp/out/MyApp.exe gen
 
 ```
 gen/
-  CMakeLists.txt          # adds src/runtime, builds a static lib + exe target
+  CMakeLists.txt          # adds src/runtime; emits three targets (see 2.3)
   include/internal/       # generated descriptors, vtable declarations
   src/                    # one .cpp per type + entry.cpp + host.cpp
 ```
@@ -131,6 +131,39 @@ Step 4 — run the native executable:
 
 The output must be byte-identical to running `MyApp.exe` on .NET Framework
 4.8 — that is the project's definition of correctness.
+
+### 2.3 One-command build (P-F friendly compiler)
+
+Steps 1–4 above are the fine-grained manual flow. For a single command that
+builds the .NET program, transpiles it, drives CMake *and* stages the
+artifacts, use `scripts/build-app.ps1` (Windows) or `scripts/build-app.sh`
+(POSIX/WSL):
+
+```powershell
+# native executable (default)
+pwsh scripts/build-app.ps1 -Input MyApp/MyApp.csproj -Kind exe -Toolchain mingw
+# distributable static library package: lib<name>.a + libil2cpp_runtime.a + include/
+pwsh scripts/build-app.ps1 -Input MyApp/MyApp.csproj -Kind static -Toolchain mingw
+# loadable C-API library (.dll / .so), consumed via dlopen/LoadLibrary
+pwsh scripts/build-app.ps1 -Input MyApp/MyApp.csproj -Kind shared -Toolchain mingw
+```
+
+`-Kind` selects the CMake `--target`: `il2cpp_gen_exe` (exe), `il2cpp_gen`
+(static lib), or `il2cpp_gen_shared` (shared lib) — the generated project
+emits all three targets sharing the translated sources. `-Toolchain` picks the
+generator/toolchain: `mingw` (MinGW-w64), `msvc` (Visual Studio 17 2022),
+`wsl` (Linux ELF via WSL, Ubuntu 1804 by default), or `ndk` (Android arm64-v8a
+via NDK). Toolchains are discovered from the environment (`IL2CPP_MINGW_ROOT`,
+`IL2CPP_MSVC_GENERATOR`, `IL2CPP_WSL_DISTRO`, `IL2CPP_NDK_ROOT`) — no machine
+paths are hardcoded. `-LibName <name>` overrides the output library name
+(`lib<name>.a`/`<name>.dll`/`lib<name>.so`); `-Clean` resets the per-app
+`gen_app/` workspace; `-OutDir <dir>` overrides the artifact directory.
+
+**SHARED form note**: `il2cpp_gen_shared` is a loadable C-API library — the
+host must `dlopen`/`LoadLibrary` it and call `il2cpp_entry_main`. Never
+co-link it with the static runtime (`il2cpp_runtime`) in the same process:
+that would bring up two independent runtime instances (each owns the GC heap
+and string pool).
 
 ---
 

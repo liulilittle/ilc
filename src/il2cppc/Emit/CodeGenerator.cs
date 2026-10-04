@@ -10356,6 +10356,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         var w = new CppWriter();
         w.Line("cmake_minimum_required(VERSION 3.10)");
         w.Line("project(il2cpp_gen CXX)");
+        // P-F-FIX D2: compile the WHOLE generated project position-independent
+        // (translated sources, runtime, AND the add_subdirectory'd STATIC
+        // P/Invoke modules like mylib). A Linux .so (il2cpp_gen_shared) that
+        // folds a non-PIC static library fails with R_X86_64_32 relocations at
+        // high offsets; the project-wide flag makes every target PIC. Harmless
+        // for static/exe consumers.
+        w.Line("set(CMAKE_POSITION_INDEPENDENT_CODE ON)");
         w.Line($"add_subdirectory({RuntimeRelativePath(outDir, assemblyPath)} ${{CMAKE_BINARY_DIR}}/runtime)");
         // M4 Task 1 / P-D4: P/Invoke native libraries. STATIC modules (mylib
         // STATIC, system DLL INTERFACE targets) are add_subdirectory'd AND
@@ -10385,15 +10392,23 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             if (PinvokeModuleIsDynamic(mod)) continue; // SHARED: build only, no link
             linkedPinvokeModules.Add(modBase);
         }
-        // M4 Task 7: the PRODUCT form is a static library (il2cpp_gen) that
-        // external programs link against; il2cpp_gen_exe remains the
-        // self-test/double-run target. Both share the translated sources;
-        // entry.cpp (the C-API entry + export registrations) goes into the
-        // library, host.cpp (main) into the executable only.
-        w.Line("add_library(il2cpp_gen STATIC");
+        // P-F build forms (P-F-AUDIT-1 双审定案 §1-3): the generated project
+        // emits THREE targets that share the translated sources:
+        //   il2cpp_gen        -- STATIC user program library (external hosts link this; capi)
+        //   il2cpp_gen_shared -- SHARED loadable C-API library (dlopen/LoadLibrary +
+        //                        il2cpp_entry_main). SHARED consumers MUST load it and call
+        //                        the C-API -- never co-link it with the static runtime (two
+        //                        runtime instances would each own the GC/string pool).
+        //   il2cpp_gen_exe    -- self-test executable (host.cpp / main() ONLY here)
+        // entry.cpp (the C-API entry + export registrations) goes into both libraries;
+        // host.cpp (main) into the executable only. `cmake --build <build> --target
+        // <form>` selects the form; the default `all` build produces all three.
+        w.Line("# P-F: translated sources shared by the static + shared user-program libraries");
+        w.Line("set(IL2CPP_GEN_SOURCES");
         foreach (var s in srcs) w.Line("    src/" + s + ".cpp");
         w.Line("    src/entry.cpp");
         w.Line(")");
+        w.Line("add_library(il2cpp_gen STATIC ${IL2CPP_GEN_SOURCES})");
         w.Line("target_include_directories(il2cpp_gen PUBLIC include/internal)");
         w.Line("target_link_libraries(il2cpp_gen PUBLIC il2cpp_runtime" + (linkedPinvokeModules.Count > 0 ? " " + string.Join(" ", linkedPinvokeModules) : "") + ")");
         w.Line("target_compile_features(il2cpp_gen PUBLIC cxx_std_17)");
@@ -10402,6 +10417,27 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         w.Line("else()");
         w.Line("  target_compile_options(il2cpp_gen PRIVATE -Wall -Wextra -fexceptions)");
         w.Line("endif()");
+        w.Line("add_library(il2cpp_gen_shared SHARED ${IL2CPP_GEN_SOURCES})");
+        w.Line("target_include_directories(il2cpp_gen_shared PUBLIC include/internal)");
+        w.Line("target_link_libraries(il2cpp_gen_shared PUBLIC il2cpp_runtime" + (linkedPinvokeModules.Count > 0 ? " " + string.Join(" ", linkedPinvokeModules) : "") + ")");
+        w.Line("target_compile_features(il2cpp_gen_shared PUBLIC cxx_std_17)");
+        w.Line("if(MSVC)");
+        w.Line("  target_compile_options(il2cpp_gen_shared PRIVATE /W4 /EHsc /bigobj)");
+        w.Line("else()");
+        w.Line("  target_compile_options(il2cpp_gen_shared PRIVATE -Wall -Wextra -fexceptions)");
+        w.Line("endif()");
+        w.Line("if(WIN32)");
+        w.Line("  # loadable C-API library: alongside entry.cpp's IL2CPP_EXPORT, auto-export so");
+        w.Line("  # MSVC/MinGW DLL consumers find the symbols without a manual .def file");
+        w.Line("  set_target_properties(il2cpp_gen_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)");
+        w.Line("endif()");
+        w.Line("if(IL2CPP_LIB_NAME)");
+        w.Line("  # -DIL2CPP_LIB_NAME=<assembly> renames the distributable libraries");
+        w.Line("  # (lib<name>.a / <name>.lib / <name>.dll / lib<name>.so)");
+        w.Line("  set_target_properties(il2cpp_gen PROPERTIES OUTPUT_NAME \"${IL2CPP_LIB_NAME}\")");
+        w.Line("  set_target_properties(il2cpp_gen_shared PROPERTIES OUTPUT_NAME \"${IL2CPP_LIB_NAME}\")");
+        w.Line("endif()");
+        // M4 Task 7: the executable carries main (host.cpp); libraries never carry main.
         w.Line("add_executable(il2cpp_gen_exe");
         w.Line("    src/host.cpp");
         w.Line(")");
@@ -10413,6 +10449,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         w.Line("else()");
         w.Line("  target_compile_options(il2cpp_gen_exe PRIVATE -Wall -Wextra -fexceptions)");
         w.Line("endif()");
+        w.Line("# P-F §3: distributable package -- cmake --install <build> gives");
+        w.Line("# lib<name>.a + libil2cpp_runtime.a + include/ (consumers: -L -l<name> -lil2cpp_runtime)");
+        w.Line("install(TARGETS il2cpp_gen ARCHIVE DESTINATION lib)");
+        w.Line("install(TARGETS il2cpp_gen_shared ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)");
+        w.Line("install(DIRECTORY include/ DESTINATION include)");
         File.WriteAllText(Path.Combine(outDir, "CMakeLists.txt"), w.ToString());
     }
 
