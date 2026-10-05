@@ -444,7 +444,7 @@ int main()
         Expect(!icall_marshal_is_com_object(il2cpp::il2cpp_box_int32(nullptr, 1)),
                "is_com_object(boxed Int32) -> false");
         Expect(!icall_marshal_is_com_object(mockStr),
-               "is_com_object(String) -> false (no COM runtime)");
+               "is_com_object(String) -> false (a string is not an RCW)");
     }
 
     // --- Report ---

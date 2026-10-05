@@ -667,6 +667,26 @@ public class MethodMapMarshalTests
         Assert.Equal("ptr", m.ResultKind);
     }
 
+    //--------------------------------------------------------------------------
+    // C2 (A2): GetIDispatchForObject moved OUT of the COM LOUD set -- the C2
+    // split wires it to the real runtime icall (same "ptr" IntPtr-carrier
+    // shape as GetIUnknownForObject).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Marshal_GetIDispatchForObject_MapsToComIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "GetIDispatchForObject",
+            Sig(Ret(0x18), 0x1C)), "GetIDispatchForObject");
+
+        Assert.Equal("il2cpp::runtime::icall_com_get_idispatch_for_object", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.ReturnsRef);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "" }, m.ParamTypeNames);
+        Assert.Equal("ptr", m.ResultKind);
+    }
+
     [Fact]
     public void Resolve_Marshal_GetIUnknownForObject_ClassParam_MapsToComIcall()
     {
@@ -719,7 +739,6 @@ public class MethodMapMarshalTests
     // batch 186: GetComInterfaceForObject moved from the LOUD set to the wired
     // path (icall_com_get_com_interface_for_object) -- removed from this list.
     [InlineData("FinalReleaseComObject")]
-    [InlineData("GetIDispatchForObject")]
     [InlineData("GetIUnknownForObjectNative")]
     [InlineData("CreateWrapperOfType")]
     public void Resolve_Marshal_ComMember_ThrowsLoudComDomain(string memberName)

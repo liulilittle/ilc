@@ -487,8 +487,29 @@ public static class MethodBodyReader
             0x0D => "double",
             0x0E => "string",
             0x1C => "object",
+            // G1 (C1): see ArrayGenericArgSuffix -- the element-aware array
+            // argument decode is a helper (a switch-expression arm cannot
+            // carry a statement body).
+            0x1D => ArrayGenericArgSuffix(md, ref sig),
             _ => null,
         };
+    }
+
+    // G1 (C1): an SZARRAY (0x1D) generic argument decodes ELEMENT-AWARE
+    // through the naming authority -- "[<elementSuffix>]" exactly like the
+    // three GenericInstantiationName 0x1D arms (MethodRefResolver /
+    // CodeGenerator / StackFold), so the local-kind scan synthesizes the same
+    // clone the call sites reference. Simple element shapes (primitives /
+    // string / object / user class / user struct) produce the bracket token;
+    // complex element shapes consume the payload via GenericArgSuffix
+    // (best-effort alignment) and keep the historical "array" token (the
+    // shared-object collapse the call side agrees on).
+    internal static string? ArrayGenericArgSuffix(MetadataReader md, ref BlobReader sig)
+    {
+        var elem = SimpleGenericArgSuffix(md, ref sig, out _);
+        if (elem != null) return "[" + elem + "]";
+        _ = GenericArgSuffix(md, ref sig, ""); // consume the element payload
+        return "array";
     }
 
     // R2a (R77): decode a TypeSpecification generic instance and return the

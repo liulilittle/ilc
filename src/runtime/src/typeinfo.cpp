@@ -22,6 +22,10 @@
 
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception / _null_reference
 #include "il2cpp_string.h"        // Il2CppString (managed-string ABI queries)
+#include "il2cpp_runtime.h"       // il2cpp_box_int32 / il2cpp_unbox_int32 (R2 field values)
+#include "il2cpp_boxing_ext2.h"   // runtime::icall_box_long / icall_unbox_long (R2 field values)
+#include "il2cpp_boxing_ext.h"    // runtime::icall_unbox_double / icall_box_double (R3 invoke)
+#include "invoker.h"              // il2cpp_invoker_invoke / slots (R3 MethodInfo.Invoke)
 
 #include <cstdio>
 #include <cstdlib>
@@ -401,6 +405,465 @@ Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* me
         [](const Il2CppTypeInfo* info, const char* name) {
             return il2cpp_type_get_field(info, name);
         });
+}
+
+//------------------------------------------------------------------------------
+// R2 (B2) member enumeration + FieldInfo value helpers.
+//------------------------------------------------------------------------------
+namespace {
+
+// Empty reference-element array (net48: GetMethods/GetFields/... on a type
+// without members, or an unreflected/malformed type, return an EMPTY array,
+// never null).
+Il2CppArray* EmptyStringArray()
+{
+    return il2cpp_array_new(nullptr, sizeof(void*), true, 0);
+}
+
+// Materialise a reference-element array whose elements are managed strings
+// created from the given C names (the simplified member model: a member
+// VALUE is its name string).
+Il2CppArray* BuildNameArray(int32_t count)
+{
+    return il2cpp_array_new(nullptr, sizeof(void*), true, count);
+}
+
+void StoreName(Il2CppArray* arr, int32_t index, const char* name)
+{
+    *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(arr, index)) =
+        name != nullptr ? reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(name)) : nullptr;
+}
+
+// net48 default-binding filter: public only (Il2CppMethodInfo/FieldInfo
+// flags bit0 == public; GetMethods/GetFields/GetConstructors default to
+// Public | Instance | Static).
+bool IsPublic(int32_t flags)
+{
+    return (flags & 1) != 0;
+}
+
+// Enumerate own + base-chain tables into a name array, filtered by the
+// predicate (methods/fields: public; constructors: public + ctor bit2;
+// properties: all -- Il2CppPropertyInfo has no flags field, documented
+// simplification).
+template <typename T>
+Il2CppArray* EnumerateMembers(const Il2CppTypeInfo* info, const T* Il2CppTypeInfo::*table,
+                              int32_t Il2CppTypeInfo::*count, bool (*filter)(const T&))
+{
+    int32_t total = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        const T* entries = scan->*table;
+        if (entries == nullptr) continue;
+        for (int32_t i = 0; i < scan->*count; ++i)
+        {
+            if (filter(entries[i])) ++total;
+        }
+    }
+    Il2CppArray* result = BuildNameArray(total);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        const T* entries = scan->*table;
+        if (entries == nullptr) continue;
+        for (int32_t i = 0; i < scan->*count; ++i)
+        {
+            if (filter(entries[i])) StoreName(result, dst++, entries[i].name);
+        }
+    }
+    return result;
+}
+
+bool PublicMethod(const Il2CppMethodInfo& m)
+{
+    // Simplified model (committed R2 red-test pin, test_typeinfo.cpp §7):
+    // GetMethods enumerates PUBLIC methods INCLUDING ctors -- the separate
+    // GetConstructors icall is the ctor-filtered view. (net48 GetMethods
+    // excludes ctors; the simplified member model keeps them -- documented
+    // deviation, pinned by the R2 enumeration probe.)
+    return IsPublic(m.flags);
+}
+bool PublicCtor(const Il2CppMethodInfo& m) { return IsPublic(m.flags) && (m.flags & 4) != 0; }
+bool PublicField(const Il2CppFieldInfo& f) { return IsPublic(f.flags); }
+bool AnyProperty(const Il2CppPropertyInfo&) { return true; }
+
+} // namespace
+
+Il2CppArray* il2cpp_typeinfo_get_methods(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembers(info, &Il2CppTypeInfo::methods, &Il2CppTypeInfo::methodCount, PublicMethod);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_fields(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembers(info, &Il2CppTypeInfo::fields, &Il2CppTypeInfo::fieldCount, PublicField);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_properties(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembers(info, &Il2CppTypeInfo::properties, &Il2CppTypeInfo::propertyCount, AnyProperty);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_constructors(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembers(info, &Il2CppTypeInfo::methods, &Il2CppTypeInfo::methodCount, PublicCtor);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    // Own + base-chain interface lists (a derived type inherits its base's
+    // interfaces, matching net48 GetInterfaces).
+    int32_t total = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        total += scan->interfaceCount;
+    }
+    Il2CppArray* result = BuildNameArray(total);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        for (int32_t i = 0; i < scan->interfaceCount; ++i)
+        {
+            StoreName(result, dst++, scan->interfaces[i] != nullptr ? scan->interfaces[i]->name : nullptr);
+        }
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// FindPublicFieldThroughBaseChain -- own table first, then the baseType chain
+// (inherited fields live under THEIR declaring type's table), public only
+// (the net48 GetField / FieldInfo.GetValue default binding).
+//------------------------------------------------------------------------------
+namespace {
+const Il2CppFieldInfo* FindPublicFieldThroughBaseChain(const Il2CppTypeInfo* info, const char* name)
+{
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->fields == nullptr) continue;
+        for (int32_t i = 0; i < scan->fieldCount; ++i)
+        {
+            const Il2CppFieldInfo& f = scan->fields[i];
+            if (f.name != nullptr && std::strcmp(f.name, name) == 0 && PublicField(f))
+            {
+                return &f;
+            }
+        }
+    }
+    return nullptr;
+}
+} // namespace
+
+Il2CppObject* il2cpp_typeinfo_field_get_value(Il2CppObject* fieldName, Il2CppObject* target)
+{
+    if (target == nullptr)
+    {
+        ThrowNullTypeReceiver(); // net48 instance-field doctrine: null obj -> NRE
+    }
+    char nameBuf[kNameBufferSize];
+    if (fieldName == nullptr || !AsciiFromManagedString(fieldName, nameBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
+    if (info == nullptr)
+    {
+        return nullptr;
+    }
+    const Il2CppFieldInfo* field = FindPublicFieldThroughBaseChain(info, nameBuf);
+    if (field == nullptr)
+    {
+        return nullptr;
+    }
+    char* slot = field->offset >= 0
+        ? reinterpret_cast<char*>(target) + field->offset
+        : static_cast<char*>(field->staticAddr);
+    // Narrow set: slot width dispatched by the field's typeName.
+    if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int32") == 0)
+    {
+        return il2cpp_box_int32(nullptr, *reinterpret_cast<int32_t*>(slot));
+    }
+    if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int64") == 0)
+    {
+        return runtime::icall_box_long(*reinterpret_cast<int64_t*>(slot));
+    }
+    if (field->isRef)
+    {
+        return *reinterpret_cast<Il2CppObject**>(slot);
+    }
+    return nullptr; // unsupported value-type slot -> defensive null
+}
+
+void il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObject* target,
+                                     Il2CppObject* value)
+{
+    if (target == nullptr)
+    {
+        ThrowNullTypeReceiver();
+    }
+    char nameBuf[kNameBufferSize];
+    if (fieldName == nullptr || !AsciiFromManagedString(fieldName, nameBuf))
+    {
+        return;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
+    if (info == nullptr)
+    {
+        return;
+    }
+    const Il2CppFieldInfo* field = FindPublicFieldThroughBaseChain(info, nameBuf);
+    if (field == nullptr)
+    {
+        return;
+    }
+    char* slot = field->offset >= 0
+        ? reinterpret_cast<char*>(target) + field->offset
+        : static_cast<char*>(field->staticAddr);
+    if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int32") == 0)
+    {
+        *reinterpret_cast<int32_t*>(slot) = il2cpp_unbox_int32(value);
+    }
+    else if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int64") == 0)
+    {
+        *reinterpret_cast<int64_t*>(slot) = runtime::icall_unbox_long(value);
+    }
+    else if (field->isRef)
+    {
+        *reinterpret_cast<Il2CppObject**>(slot) = value;
+    }
+}
+
+//------------------------------------------------------------------------------
+// R3 (B4): MethodInfo.Invoke -- il2cpp_methodinfo_invoke.
+//
+// Two signature encodings are accepted for Il2CppMethodInfo.signature:
+//   * the TRANSPILER format "RET(PARAMS)" -- EncodeReturnType(RET) + '(' +
+//     comma-joined MethodSignatureCoder ParamTypes (TypeEmitter.cs:1249),
+//     e.g. "i(i,i)", "v()", "Cases.Calc(i)". RET is mapped to the invoker's
+//     uppercase return code (r:* and any full-name return -> reference).
+//   * the INVOKER format "RET[:PARAMS]" -- the committed R3 red-test shape
+//     ("I:i,i"), passed through unchanged.
+// The param encodings are identical in both formats (the MethodSignatureCoder
+// param codes are what the invoker's ParamKind consumes), so the built
+// invoker signature is "RETCODE[:PARAMS]"/"RETCODE".
+//
+// argbuf: one slot per object[] element, unboxed by the parameter's slot kind
+// (int32/int64/double families through the box carriers, ref as the object
+// itself). The 'this' slot is NOT auto-injected (the committed probe calibrates
+// the object[] to the explicit parameter count; instance-'this' ABI is a
+// documented future extension -- see the genericvirt value-type precedent).
+//------------------------------------------------------------------------------
+namespace {
+
+// Transpiler RET encoding -> invoker uppercase return code (or '?' unknown).
+char InvokeReturnCode(const char* ret)
+{
+    if (ret[0] == 'v' && ret[1] == '\0') return 'V';
+    if (ret[0] == 'i' && ret[1] == '\0') return 'I';
+    if (ret[0] == 'n' && ret[1] == '\0') return 'I';
+    if ((ret[0] == 'l' || ret[0] == 'q') && ret[1] == '\0') return 'L';
+    if ((ret[0] == 'd' || ret[0] == 'f') && ret[1] == '\0') return 'D';
+    // "r:FullName" and any full-name return type -> reference slot.
+    return 'R';
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* target,
+                                       Il2CppArray* args)
+{
+    if (target == nullptr)
+    {
+        ThrowNullTypeReceiver(); // net48 instance doctrine: null obj -> NRE
+    }
+    char nameBuf[kNameBufferSize];
+    if (memberName == nullptr || !AsciiFromManagedString(memberName, nameBuf))
+    {
+        return nullptr;
+    }
+    // Join the declaring type: the target may be passed as a CLASS DESCRIPTOR
+    // (the committed R3 red-test shape -- &{T}_class) or as an instance
+    // (target->klass).
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(reinterpret_cast<Il2CppClass*>(target));
+    if (info == nullptr && target->klass != nullptr)
+    {
+        info = il2cpp_typeinfo_lookup_by_class(target->klass);
+    }
+    if (info == nullptr)
+    {
+        return nullptr;
+    }
+    const int32_t paramCount = (args != nullptr && args->length > 0) ? args->length : 0;
+    if (paramCount > kInvokerMaxParams)
+    {
+        return nullptr;
+    }
+    // A method with this NAME that is trimmed (fnPtr null -- runtime-
+    // unreachable AOT function) is LOUD, REGARDLESS of the requested arity
+    // (the committed R3 red-test shape: Trimmed(name, wrong-arity args) still
+    // throws NotSupportedException).
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name != nullptr && std::strcmp(m.name, nameBuf) == 0 && m.fnPtr == nullptr)
+            {
+                il2cpp_throw_new("System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
+                                 "Il2CppMethodInfo::Invoke: the method has no runtime-unreachable AOT function (trimmed) -- reflection Invoke is unsupported for it.");
+            }
+        }
+    }
+    // Resolve by name + paramCount (overload disambiguation).
+    const Il2CppMethodInfo* found = nullptr;
+    int32_t matches = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name == nullptr || std::strcmp(m.name, nameBuf) != 0) continue;
+            if (m.paramCount != paramCount) continue;
+            found = &m;
+            ++matches;
+        }
+    }
+    if (matches == 0)
+    {
+        return nullptr; // not found (defensive query convention)
+    }
+    if (matches > 1)
+    {
+        il2cpp_throw_new("System.Reflection.AmbiguousMatchException,System.Reflection.AmbiguousMatchException,System.SystemException,System.Exception",
+                         "Il2CppMethodInfo::Invoke: multiple methods match the name and parameter count -- ambiguous.");
+    }
+    if (found->signature == nullptr)
+    {
+        return nullptr;
+    }
+    // Build the invoker signature string.
+    char invokerSig[80];
+    {
+        const char* sig = found->signature;
+        const char* open = std::strchr(sig, '(');
+        if (open != nullptr)
+        {
+            // Transpiler format "RET(PARAMS)": map the return, copy the params.
+            char retBuf[48];
+            size_t retLen = static_cast<size_t>(open - sig);
+            if (retLen >= sizeof(retBuf)) retLen = sizeof(retBuf) - 1;
+            std::memcpy(retBuf, sig, retLen);
+            retBuf[retLen] = '\0';
+            const char* close = std::strchr(open, ')');
+            const char* params = open + 1;
+            size_t paramLen = (close != nullptr) ? static_cast<size_t>(close - params) : 0;
+            char code = InvokeReturnCode(retBuf);
+            int32_t pos = 0;
+            invokerSig[pos++] = code;
+            if (paramLen > 0)
+            {
+                invokerSig[pos++] = ':';
+                size_t copy = paramLen < sizeof(invokerSig) - 2 ? paramLen : sizeof(invokerSig) - 2;
+                std::memcpy(invokerSig + pos, params, copy);
+                pos += static_cast<int32_t>(copy);
+            }
+            invokerSig[pos] = '\0';
+        }
+        else
+        {
+            // Invoker format passed through unchanged (committed R3 probe shape).
+            size_t len = std::strlen(sig);
+            size_t copy = len < sizeof(invokerSig) - 1 ? len : sizeof(invokerSig) - 1;
+            std::memcpy(invokerSig, sig, copy);
+            invokerSig[copy] = '\0';
+        }
+    }
+    // Build the argbuf: one slot per object[] element, unboxed by slot kind.
+    il2cpp_invoker_slot slots[kInvokerMaxParams];
+    {
+        // Verify the signature param count agrees with the object[] length
+        // (the invoker re-checks arity; the local count keeps the kind loop aligned).
+        const char* colon = std::strchr(invokerSig, ':');
+        const char* p = colon != nullptr ? colon + 1 : nullptr;
+        int32_t parsedParams = 0;
+        if (p != nullptr && *p != '\0')
+        {
+            for (;;)
+            {
+                const char* comma = std::strchr(p, ',');
+                parsedParams++;
+                p = comma != nullptr ? comma + 1 : nullptr;
+                if (comma == nullptr || p == nullptr || *p == '\0') break;
+            }
+        }
+        if (parsedParams != paramCount)
+        {
+            return nullptr; // arity mismatch between the table and the object[]
+        }
+        p = colon != nullptr ? colon + 1 : nullptr;
+        for (int32_t i = 0; i < paramCount; ++i)
+        {
+            const char* comma = p != nullptr ? std::strchr(p, ',') : nullptr;
+            // The codes are first-character-distinct (invoker.cpp ParamKind).
+            char kindChar = (p != nullptr && *p != '\0' && (comma == nullptr || comma > p)) ? *p : '\0';
+            Il2CppObject* boxed = *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(args, i));
+            switch (kindChar)
+            {
+            case 'i': case 'b': case 'c': case 'u': case 'n':
+                slots[i].i32 = il2cpp_unbox_int32(boxed);
+                break;
+            case 'l': case 'q':
+                slots[i].i64 = runtime::icall_unbox_long(boxed);
+                break;
+            case 'f': case 'd':
+                slots[i].dbl = runtime::icall_unbox_double(boxed);
+                break;
+            case 'r':
+                slots[i].ptr = boxed;
+                break;
+            default:
+                return nullptr;
+            }
+            p = comma != nullptr ? comma + 1 : nullptr;
+        }
+    }
+    // Dispatch through the invoker and box the result by the return kind.
+    int32_t ret = 0;
+    if (il2cpp_invoker_invoke(found->fnPtr, invokerSig, slots, paramCount, &ret) != kInvokerOk)
+    {
+        return nullptr;
+    }
+    switch (invokerSig[0])
+    {
+    case 'V': return nullptr;
+    case 'I': return il2cpp_box_int32(nullptr, *reinterpret_cast<int32_t*>(&ret));
+    case 'L': return runtime::icall_box_long(*reinterpret_cast<int64_t*>(&ret));
+    case 'D': return runtime::icall_box_double(*reinterpret_cast<double*>(&ret));
+    case 'R': return *reinterpret_cast<Il2CppObject**>(&ret);
+    default:  return nullptr;
+    }
 }
 
 } // namespace il2cpp

@@ -1,0 +1,6 @@
+t_nonnull=True
+g_nonnull=True
+inst_nonnull=True
+inst_iscom=True
+release_done=True
+bad_null=True

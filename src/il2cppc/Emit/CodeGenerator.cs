@@ -557,7 +557,12 @@ public static class CodeGenerator
             // argument to "object").
             if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(gDef) == true)
             {
-                gSuffix = string.Join("_", Enumerable.Repeat("object", def.GenericArity));
+                // G1 (C1): an ARRAY argument (element-aware "[elem]" token)
+                // keeps per-instance emission -- the closed types are distinct
+                // (Foo<int[]> != Foo<string[]>) and the suffix must stay
+                // element-aware so the call-side name matches this clone.
+                if (gSuffix.Split('_').All(s => !GenericUsageAnalyzer.IsArrayArgToken(s)))
+                    gSuffix = string.Join("_", Enumerable.Repeat("object", def.GenericArity));
             }
             var gKey = gDef + "|" + gSuffix;
             if (genericInstTypes.ContainsKey(gKey)) return;
@@ -3651,9 +3656,17 @@ public static class CodeGenerator
                     // the slot through void**). The value cast below stays
                     // reinterpret_cast: the source may be an integer constant (e.g. a token);
                     // static_cast cannot convert an integer to a pointer, but reinterpret_cast can.
+                    // NULL-BARRIER (cominvoke C2): the stored value may be a
+                    // null literal -- EmitExpr renders "nullptr" and a raw
+                    // reinterpret_cast<Il2CppObject*>(nullptr) is ill-formed C++
+                    // (nullptr_t cannot be reinterpret_cast). The ref-kind branch
+                    // uses NullSafePtrCast (bare nullptr for a literal); the
+                    // val-kind branch keeps the exact reinterpret_cast (the
+                    // r77-cannot-init token-reuse contract: an int32/val slot
+                    // logically held in a ref field).
                     var barrierVal = faValIsVal
                         ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
-                        : $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})";
+                        : NullSafePtrCast("Il2CppObject*", EmitExpr(fa.Value, md, types));
                     w.LineAligned($"il2cpp::il2cpp_write_barrier(reinterpret_cast<void**>(&{faTarget}), {barrierVal});",
                         $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- write barrier before reference-field store");
                 }
@@ -6777,7 +6790,7 @@ default: return false;                           // primitives/VAR(handled by ca
              0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
              0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
             0x1C => "object",
-            0x1D => "array",
+            0x1D => ReadM3ArrayArg(md, ref sig),
             0x15 => ReadM3NestedGeneric(md, ref sig),
             // B2/B5 family (MyList<T> definition bodies decoded at emit
             // time, e.g. callvirt owner resolution): an OPEN TypeSpec arg
@@ -6795,6 +6808,32 @@ default: return false;                           // primitives/VAR(handled by ca
     {
         sig.ReadCompressedInteger();
         return MethodRefResolver.InstantiationSuffixHint ?? "int";
+    }
+
+    // G1 (C1): an SZARRAY (0x1D) generic argument -- consume the element type
+    // byte (custom modifiers stripped) and encode it ELEMENT-AWARE
+    // ("[int]" / "[string]" / "[Cases.Foo]") so closed instantiations with
+    // different array element types are DISTINCT (Foo<int[]> != Foo<string[]>).
+    // The token mirrors MethodBodyReader.SimpleGenericArgSuffix (the local-kind
+    // naming authority) exactly -- the simple-element set (primitives / string /
+    // object / user class / user struct) decodes through this producer's own
+    // arg table; complex element shapes (nested generic / array-of-array /
+    // VAR) keep the historical "array" token so the call side and the def side
+    // both fall back to the shared object clone.
+    private static string ReadM3ArrayArg(MetadataReader md, ref BlobReader sig)
+    {
+        var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        switch (elem)
+        {
+            case 0x02: case 0x03: case 0x04: case 0x05: case 0x06: case 0x07:
+            case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D:
+            case 0x0E: case 0x1C:
+            case 0x11: case 0x12:
+                return "[" + ReadM3Arg(md, ref sig, elem) + "]";
+            default:
+                _ = ReadM3Arg(md, ref sig, elem); // consume the element payload
+                return "array";
+        }
     }
 
     private static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader sig)
@@ -8850,8 +8889,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             // exists) and before cast handling (no cast applies).
             if (srcIdx == -1) { parts.Add("nullptr"); continue; }
             if (srcIdx >= args.Count)
+            {
                 throw new NotSupportedException(
                     $"icall '{r.CppName}' arg-order slot {j} references IL argument {srcIdx} but the call carries only {args.Count} argument(s)");
+            }
             var code = EmitExpr(args[srcIdx], md, types);
             var cast = casts2 != null && j < casts2.Length ? casts2[j] : null;
             if ((isMonitorEnter || isMonitorTryEnterFlag) && j == slotCount - 1 && args[srcIdx] is LocAddrExpr && cast is "" or null)            {

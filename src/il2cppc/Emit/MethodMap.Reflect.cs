@@ -44,7 +44,15 @@ public static partial class MethodRefResolver
     // so reference equality reduces to ordinal string equality; both helpers
     // are null-safe (null == null -> True, exactly-one-null -> False), the
     // net48 ReferenceEquals doctrine for the == null / != null probes.
-    private static ResolvedMethod? TryMapReflectionMember(string name, byte[] ps)
+    //
+    // R2 (B2): FieldInfo.GetValue/SetValue (the narrow int32/int64/string/
+    // object set -- slot width dispatched by the field's typeName in the
+    // runtime). The receiver is the FIELD-NAME string (the member VALUE, as
+    // il2cpp_typeinfo_get_field returns); the runtime joins the declaring
+    // type from the TARGET object's klass (typeinfo_lookup_by_class) and
+    // walks own + base chain. GetValue returns the boxed value as a ref;
+    // SetValue writes through the box payload / reference slot.
+    private static ResolvedMethod? TryMapReflectionMember(string owner, string name, byte[] ps)
     {
         switch (name)
         {
@@ -56,6 +64,37 @@ public static partial class MethodRefResolver
                 return ps.Length == 2
                     ? I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false)
                     : null;
+            case "GetValue":
+                // FieldInfo.GetValue(object) -- instance. Only the FieldInfo
+                // owner is wired (PropertyInfo.GetValue rides the getter --
+                // not in the R2 narrow set; MethodInfo.GetValue is R3's
+                // il2cpp_methodinfo_invoke).
+                if (owner == "System.Reflection.FieldInfo" && ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::il2cpp_typeinfo_field_get_value", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.Object");
+                throw new NotSupportedException(
+                    $"{owner}::GetValue with {ps.Length} parameter(s) not wired in R2 -- only FieldInfo.GetValue(object) maps to il2cpp_typeinfo_field_get_value");
+            case "SetValue":
+                // FieldInfo.SetValue(object obj, object value) -- instance.
+                if (owner == "System.Reflection.FieldInfo" && ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C)
+                    return I("il2cpp::il2cpp_typeinfo_field_set_value", 2, true, false, true,
+                        new[] { "", "", "" });
+                throw new NotSupportedException(
+                    $"{owner}::SetValue with {ps.Length} parameter(s) not wired in R2 -- only FieldInfo.SetValue(object, object) maps to il2cpp_typeinfo_field_set_value");
+            case "Invoke":
+                // MethodInfo.Invoke(object obj, object[] parameters) -- R3. The
+                // receiver is the METHOD-NAME string (the simplified member
+                // model); the runtime joins the declaring type from the target
+                // (klass join) and dispatches through il2cpp_invoker_invoke
+                // (name + paramCount disambiguation, ambiguity LOUD, no object
+                // creation). Only the MethodInfo owner is wired; the other
+                // MemberInfo-derived Invoke arities stay LOUD.
+                if (owner == "System.Reflection.MethodInfo" && ps.Length == 2 && ps[0] == 0x1C
+                    && ps[1] is 0x1D or 0x12)
+                    return I("il2cpp::il2cpp_methodinfo_invoke", 2, true, true, true,
+                        new[] { "", "", "" }, returnTypeName: "System.Object");
+                throw new NotSupportedException(
+                    $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3 -- only MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke");
             default:
                 return null;
         }

@@ -348,4 +348,43 @@ int32_t il2cpp_invoker_invoke(void* fnPtr, const char* signature,
     return Invoke(fnPtr, signature, args, argCount, ret);
 }
 
+//------------------------------------------------------------------------------
+// il2cpp_invoker_decode_signature -- public signature introspection (see
+// invoker.h). Reuses the internal DecodeSignature so the R3 argbuf builder
+// sees the EXACT slot kinds il2cpp_invoker_invoke dispatches on.
+//------------------------------------------------------------------------------
+int32_t il2cpp_invoker_decode_signature(const char* signature,
+                                        int32_t* outRetKind,
+                                        int32_t* outParamKinds,
+                                        int32_t outParamCapacity,
+                                        int32_t* outParamCount)
+{
+    if (signature == nullptr || outRetKind == nullptr || outParamKinds == nullptr
+        || outParamCount == nullptr)
+    {
+        return kInvokerErrorInvalidArgs;
+    }
+    DecodedSignature sig;
+    const int32_t rc = DecodeSignature(signature, sig);
+    if (rc != kInvokerOk)
+    {
+        return rc;
+    }
+    if (outParamCapacity < sig.paramCount)
+    {
+        return kInvokerErrorTooManyParams;
+    }
+    *outRetKind = (sig.retKind == kRetVoid) ? -1
+        : (sig.retKind == kRetI32) ? kKindI32
+        : (sig.retKind == kRetI64) ? kKindI64
+        : (sig.retKind == kRetDbl) ? kKindDbl
+        : kKindRef;
+    for (int32_t i = 0; i < sig.paramCount; ++i)
+    {
+        outParamKinds[i] = sig.paramKinds[i];
+    }
+    *outParamCount = sig.paramCount;
+    return kInvokerOk;
+}
+
 } // namespace il2cpp

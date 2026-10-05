@@ -55,6 +55,16 @@ public static class GenericUsageAnalyzer
     // when the instantiation was collapsed (caller emits {def_name}_{object
     // ...}).
     //--------------------------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // IsArrayArgToken -- whether one encoded generic-argument token denotes an
+    // ARRAY argument (G1: element-aware SZARRAY encoding -- the producers emit
+    // "[<elementSuffix>]" for simple-element arrays; see the GenericInstantiation
+    // Name 0x1D arms). Managed type full names never contain '[' / ']', so the
+    // bracket marker is unambiguous.
+    //--------------------------------------------------------------------------
+    public static bool IsArrayArgToken(string arg) =>
+        arg.Length >= 2 && arg[0] == '[' && arg[^1] == ']';
+
     public static bool CollapseInstantiation(string defName, string[] args)
     {
         if (SharedGenericDefs == null || !SharedGenericDefs.Contains(defName)) return false;
@@ -64,6 +74,11 @@ public static class GenericUsageAnalyzer
         // mirror rule). Every OTHER closed instantiation collapses: all
         // parameters become "object" (the single shared clone).
         if (args.All(a => a == "int")) return false;
+        // G1 (C1): ARRAY arguments keep per-instance element-aware emission.
+        // The array element type is observable (distinct closed types:
+        // Foo<int[]> != Foo<string[]>), so an array argument must NOT collapse
+        // onto the shared object clone -- it gets its own element-aware clone.
+        if (args.Any(IsArrayArgToken)) return false;
         for (var i = 0; i < args.Length; i++) args[i] = "object";
         return true;
     }

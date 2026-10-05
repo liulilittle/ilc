@@ -281,14 +281,12 @@ void icall_marshal_copy_to_unmanaged_elem(Il2CppArray* array, int32_t startIndex
 void icall_marshal_copy_from_unmanaged_elem(void* source, Il2CppArray* array, int32_t startIndex, int32_t length);
 
 //------------------------------------------------------------------------------
-// Marshal COM ProgID resolution + activation (r127 PNSE stubs -- Windows-only
-// surface). ILC has no COM runtime, so both stubs throw PlatformNotSupportedException
-// on every platform. The MethodMap routes GetTypeFromProgID/CreateObject here.
-//   GetTypeFromProgID: resolve ProgID -> CLSID (returns HRESULT -- stub throws).
-//   CreateObject: CoCreateInstance by ProgID wrapped into an RCW (stub throws).
+// Marshal COM ProgID resolution + activation -- r127 PNSE stubs RETIRED in C1
+// (A1): Marshal.GetTypeFromProgID now routes to the Type-COM icall
+// il2cpp_com_type_from_progid (il2cpp_com.h) and Marshal.CreateObject to
+// icall_com_create_object (com.cpp). The stub symbols were removed; do NOT
+// reference them.
 //------------------------------------------------------------------------------
-int32_t icall_marshal_get_type_from_prog_id(Il2CppString* progId);
-Il2CppObject* icall_marshal_create_object(Il2CppString* progId);
 
 
 //------------------------------------------------------------------------------

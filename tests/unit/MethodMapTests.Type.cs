@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Il2Cpp.Transpiler.Emit;
@@ -243,12 +243,198 @@ public class MethodMapTestsType
     [Fact]
     public void Resolve_Type_UnmappedMember_FallsBackToGeneratedName()
     {
+        // GetEvents is NOT part of the R2 member-enumeration set (methods/
+        // fields/properties/constructors/interfaces), so it still falls back
+        // to the generated-name path.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetEvents",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetEvents"); // ()
+
+        Assert.StartsWith("System_Type_GetEvents_", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // R2 -- member enumeration (GetMethods/GetFields/GetProperties/
+    // GetConstructors/GetInterfaces). Each maps to a runtime icall that
+    // materialises an Il2CppArray* of member-NAME strings (the simplified
+    // member model -- a member VALUE is its name string). ReturnTypeName
+    // "System.String[]" / "System.Type[]" keeps the Array-domain folds
+    // (.Length / element read) resolved.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetMethods_MapsToEnumIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetMethods",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetMethods"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_methods", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetFields_MapsToEnumIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetFields",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetFields"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_fields", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetProperties_MapsToEnumIcall()
+    {
         var resolved = ResolveMember(Synthesize("System", "Type", "GetProperties",
             new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetProperties"); // ()
 
-        Assert.StartsWith("System_Type_GetProperties_", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_properties", resolved.CppName);
         Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
         Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetConstructors_MapsToEnumIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetConstructors",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetConstructors"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_constructors", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetInterfaces_MapsToEnumIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetInterfaces",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetInterfaces"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_interfaces", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // R2 -- FieldInfo.GetValue/SetValue narrow set (the member VALUE is the
+    // field name string; the declaring type is joined at runtime from the
+    // TARGET object's klass). GetValue -> Il2CppObject* (boxed value),
+    // SetValue -> void.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_FieldInfo_GetValue_MapsToValueIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "FieldInfo", "GetValue",
+            new byte[] { 0x00, 0x01, 0x02, 0x1C }), "GetValue"); // (object)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_field_get_value", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_FieldInfo_SetValue_MapsToSetValueIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "FieldInfo", "SetValue",
+            new byte[] { 0x00, 0x02, 0x01, 0x1C, 0x1C }), "SetValue"); // (object, object) -> void
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_field_set_value", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // R3 -- MethodInfo.Invoke(object, object[]): the receiver is the METHOD-NAME
+    // string (the simplified member model); the runtime joins the declaring
+    // type from the target (klass join) and dispatches through
+    // il2cpp_invoker_invoke. Result is the boxed value (returnTypeName
+    // "System.Object").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_MethodInfo_Invoke_MapsToInvokeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "MethodInfo", "Invoke",
+            new byte[] { 0x00, 0x02, 0x02, 0x1C, 0x12, 0x05 }), "Invoke"); // (object, object[])
+
+        Assert.Equal("il2cpp::il2cpp_methodinfo_invoke", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // C1 (A1) -- Type-COM creation. Type.GetTypeFromProgID(string) /
+    // Type.GetTypeFromCLSID(Guid) map to the runtime COM Type icalls that
+    // return the "COMCLSID:<32hex>" sentinel Type-value string (the Type
+    // value model -- a COM Type is a name-string sentinel the Activator
+    // decodes back to a CLSID). ReturnTypeName "System.Type" keeps the
+    // Type-domain linkage (get_Name / IsComObject folds).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetTypeFromProgID_MapsToComTypeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetTypeFromProgID",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x0E }), "GetTypeFromProgID"); // (string)
+
+        Assert.Equal("il2cpp::runtime::il2cpp_com_type_from_progid", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);   // the sentinel name string
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.False(resolved.IsInstance);  // static
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetTypeFromCLSID_MapsToComTypeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetTypeFromCLSID",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x11, 0x05 }), "GetTypeFromCLSID"); // (Guid) -- valuetype
+
+        Assert.Equal("il2cpp::runtime::il2cpp_com_type_from_clsid", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);   // the sentinel name string
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.False(resolved.IsInstance);  // static
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // C2 (A2) -- Type.InvokeMember(string, BindingFlags, Binder, object,
+    // object[]) -- the ONE-CALL late-bound IDispatch invocation. The IL
+    // signature (name, invokeAttr, binder, target, args) lowers to
+    // icall_com_invoke_member(target, name, args): the rcw slot reads the IL
+    // `target` argument (index 3), the name slot reads index 0, the args slot
+    // reads index 4; invokeAttr (1) and binder (2) are dropped by the
+    // argOrder. ReturnTypeName "System.Object" keeps the null/Concat linkage.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_InvokeMember_MapsToInvokeMemberIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "InvokeMember",
+            new byte[] { 0x00, 0x05, 0x12, 0x05, 0x0E, 0x11, 0x05, 0x12, 0x05, 0x1C, 0x1D, 0x1C }), "InvokeMember");
+
+        Assert.Equal("il2cpp::runtime::icall_com_invoke_member", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);  // instance on the Type receiver
+        Assert.Equal(5, resolved.ParamCount); // the IL arity (the fold's pop count)
+        Assert.Equal(new[] { "", "s", "a" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { 4, 1, 5 }, resolved.ArgOrder); // [receiver, name, attr, binder, target, args]
     }
 
     //--------------------------------------------------------------------------

@@ -90,10 +90,58 @@ public static partial class MethodRefResolver
             var cpp = name == "GetCustomAttributes"
                 ? "il2cpp::runtime::il2cpp_attribute_get_custom_named"
                 : "il2cpp::runtime::il2cpp_attribute_get_single_named";
-            var casts = new string[ps.Length];
-            for (var i = 0; i < ps.Length; i++) casts[i] = i == 0 ? "" : "drop";
+            // R4 (B3): the attributeType/inherit overloads are no longer
+            // DROPPED -- the arity>=2 forms route to the net48-semantics
+            // _ex_named primitives (attribute.cpp CollectAttributes: the
+            // baseType-chain inheritance walk + attributeType assignability
+            // filter + AttributeUsage rules). The element (arg0) rides as
+            // the type-name string; attributeType (a Type, 0x12) rides as
+            // its name string; inherit (a bool, 0x02) rides as int32.
+            // Arity 1 keeps the no-filter _named primitives (byte-identical
+            // behavior, no regression).
+            // The _ex_named runtime signature is FIXED at (element,
+            // attributeType, inherit) -- 3 slots. Arity-2 IL shapes fill the
+            // missing slot via argOrder: (element, inherit) injects a nullptr
+            // attributeType (slot literal -1), (element, attributeType)
+            // injects inherit = 1 (trailing literal). The casts array is
+            // SLOT-keyed (the emitter indexes ParamTypeNames by icall slot j,
+            // CodeGenerator EmitIcallCallArgs "slot j reads casts2[j]").
+            if (ps.Length >= 2)
+            {
+                cpp = name == "GetCustomAttributes"
+                    ? "il2cpp::runtime::il2cpp_attribute_get_custom_ex_named"
+                    : "il2cpp::runtime::il2cpp_attribute_get_single_ex_named";
+            }
+            int[]? argOrder = null;
+            string[] casts;
+            string[]? appendLiterals = null;
+            if (ps.Length == 1)
+            {
+                casts = new[] { "" };
+            }
+            else if (ps.Length == 2 && ps[1] == 0x02)
+            {
+                // (element, inherit) -> (element, nullptr, inherit)
+                argOrder = new[] { 0, -1, 1 };
+                casts = new[] { "", "", "i" }; // slot 1 (nullptr) has no cast
+            }
+            else if (ps.Length == 2)
+            {
+                // (element, attributeType) -> (element, attributeType, 1)
+                // net48 GetCustomAttributes(Type, Type) walks the chain
+                // (inherit defaults to true); the trailing literal 1 is
+                // appended after the IL argument list (appendLiterals).
+                casts = new[] { "", "" };
+                appendLiterals = new[] { "1" };
+            }
+            else
+            {
+                // (element, attributeType, inherit) -> identity
+                casts = new[] { "", "", "i" };
+            }
             return I(cpp, ps.Length, true, true, false, casts,
-                returnTypeName: name == "GetCustomAttributes" ? "System.Attribute[]" : "System.Attribute");
+                returnTypeName: name == "GetCustomAttributes" ? "System.Attribute[]" : "System.Attribute",
+                argOrder: argOrder, appendLiterals: appendLiterals);
         }
         // Known instance surface: there is no managed Attribute object model
         // in the runtime (instances are registry objects owned by the

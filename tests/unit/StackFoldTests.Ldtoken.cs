@@ -1,6 +1,7 @@
 using Il2Cpp.Transpiler.Il;
 using Il2Cpp.Transpiler.Ir;
 using Il2Cpp.Transpiler.Model;
+using Il2Cpp.Transpiler.Emit;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -107,6 +108,68 @@ public class StackFoldTestsLdtoken
         Assert.Contains("ldtoken", ex.Message);
     }
 
+    [Fact]
+    public void Fold_LdtokenTypeSpecVar_WithInstantiationHint_ResolvesToArgumentName()
+    {
+        // R1 (B1): typeof(T) inside a CLONE body (InstantiationSuffixHint set)
+        // -- the VAR (0x13) TypeSpec must resolve to the clone's concrete
+        // argument ("string" -> System.String), NOT the hardcoded
+        // "System.Int32". ldtoken <TypeSpec VAR0>; call GetTypeFromHandle; ret.
+        using var pe = Synthesize(BodyKind.TypeSpecVarGetTypeFromHandle);
+        var md = pe.GetMetadataReader();
+        var prev = MethodRefResolver.InstantiationSuffixHint;
+        try
+        {
+            MethodRefResolver.InstantiationSuffixHint = "string";
+            var stmts = Fold(pe, md);
+
+            var ret = Assert.IsType<RetStmt>(stmts[^1]);
+            Assert.Equal("System.String", Assert.IsType<StringConstExpr>(ret.Value).Value);
+        }
+        finally { MethodRefResolver.InstantiationSuffixHint = prev; }
+    }
+
+    [Fact]
+    public void Fold_LdtokenTypeSpecVar_NoHint_KeepsInt32Baseline()
+    {
+        // R1 control: the DEFINITION body (hint null) keeps the historical
+        // "System.Int32" single-instantiation default -- zero regression.
+        using var pe = Synthesize(BodyKind.TypeSpecVarGetTypeFromHandle);
+        var md = pe.GetMetadataReader();
+        var prev = MethodRefResolver.InstantiationSuffixHint;
+        try
+        {
+            MethodRefResolver.InstantiationSuffixHint = null;
+            var stmts = Fold(pe, md);
+
+            var ret = Assert.IsType<RetStmt>(stmts[^1]);
+            Assert.Equal("System.Int32", Assert.IsType<StringConstExpr>(ret.Value).Value);
+        }
+        finally { MethodRefResolver.InstantiationSuffixHint = prev; }
+    }
+
+    [Fact]
+    public void Fold_LdtokenTypeSpecVar_ArrayHint_ResolvesToArrayElementName()
+    {
+        // G1 (array-argument cell): an array-typed clone's hint carries the
+        // bracket token ("[int]" -- the element-aware SZARRAY encoding, no
+        // '_' in it so the multi-param split cannot fragment it) and typeof(T)
+        // resolves to the element-ARRAY managed name (System.Int32[]), not the
+        // legacy "System.Array" guess.
+        using var pe = Synthesize(BodyKind.TypeSpecVarGetTypeFromHandle);
+        var md = pe.GetMetadataReader();
+        var prev = MethodRefResolver.InstantiationSuffixHint;
+        try
+        {
+            MethodRefResolver.InstantiationSuffixHint = "[int]";
+            var stmts = Fold(pe, md);
+
+            var ret = Assert.IsType<RetStmt>(stmts[^1]);
+            Assert.Equal("System.Int32[]", Assert.IsType<StringConstExpr>(ret.Value).Value);
+        }
+        finally { MethodRefResolver.InstantiationSuffixHint = prev; }
+    }
+
     //--------------------------------------------------------------------------
     // Test harness.
     //--------------------------------------------------------------------------
@@ -129,6 +192,7 @@ public class StackFoldTestsLdtoken
         MethodLdtoken,              // ldtoken(MethodDef) + ret
         NonLdtokenGetTypeFromHandle,// ldc.i4.1 + call GetTypeFromHandle
         NonGetTypeFromHandleConsumer, // ldtoken(TypeDef) + call Nope
+        TypeSpecVarGetTypeFromHandle, // ldtoken(TypeSpec VAR0) + call GetTypeFromHandle
     }
 
     private sealed record LdTokenTokens
@@ -139,6 +203,7 @@ public class StackFoldTestsLdtoken
         public required int InitializeArray { get; init; }
         public required int FieldDef { get; init; }
         public required int NopeMethod { get; init; }
+        public required int VarTypeSpec { get; init; }
     }
 
     private static PEReader Synthesize(BodyKind kind)
@@ -195,6 +260,10 @@ public class StackFoldTestsLdtoken
             InitializeArray = MetadataTokens.GetToken(initializeArray),
             FieldDef = MetadataTokens.GetToken(field),
             NopeMethod = MetadataTokens.GetToken(nope),
+            // typeof(T) shape: a TypeSpec whose signature is VAR index 0
+            // (ELEMENT_TYPE_VAR 0x13, compressed index 0).
+            VarTypeSpec = MetadataTokens.GetToken(mdb.AddTypeSpecification(
+                mdb.GetOrAddBlob(new byte[] { 0x13, 0x00 }))),
         };
 
         var il = new BlobBuilder();
@@ -223,6 +292,10 @@ public class StackFoldTestsLdtoken
             case BodyKind.NonGetTypeFromHandleConsumer:
                 LdToken(encoder, tokens.BaseTypeDef);
                 Call(encoder, tokens.NopeMethod);
+                break;
+            case BodyKind.TypeSpecVarGetTypeFromHandle:
+                LdToken(encoder, tokens.VarTypeSpec);
+                Call(encoder, tokens.GetTypeFromHandle);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind));
@@ -270,6 +343,7 @@ public class StackFoldTestsLdtoken
             InitializeArray = members["InitializeArray"],
             FieldDef = fields["s_data"],
             NopeMethod = methods["Nope"],
+            VarTypeSpec = 0,
         };
     }
 

@@ -58,6 +58,7 @@
 #include "arraysort.h"
 #include "il2cpp_array.h"
 #include "il2cpp_boxing_ext.h"
+#include "il2cpp_boxing_ext2.h"
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_gc.h"
@@ -1011,12 +1012,66 @@ int main()
         ExpectI32(il2cpp::il2cpp_comparer_compare(cd, nullptr, nullptr), 0,
                   "default comparer null==null is 0");
 
+        // G2 (D3): boxed-BUILTIN IComparable.CompareTo dispatch through the
+        // RAW VALUE TABLE (TryCompareBoxedBuiltin -- a box klass has no
+        // reflected vtable). Boxed int32/double + string receivers.
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(b3, b5), -1,
+                  "icomparable on boxed int32 orders ascending");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(b5, b3), 1,
+                  "icomparable on boxed int32 orders reverse");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(b3, b3), 0,
+                  "icomparable on boxed int32 equal is 0");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(b3, nullptr), 1,
+                  "icomparable on boxed int32 vs null is 1 (value > null)");
+        ExpectThrows(kArgumentType,
+                     "icomparable on boxed int32 vs a foreign type throws ArgumentException",
+                     [&] { (void)il2cpp::il2cpp_icomparable_compare_to(b3, S("nope")); });
+        il2cpp::Il2CppObject* boxD1 = il2cpp::runtime::icall_box_double(2.5);
+        il2cpp::Il2CppObject* boxD2 = il2cpp::runtime::icall_box_double(2.4);
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxD1, boxD2), 1,
+                  "icomparable on boxed double orders ascending");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxD1, boxD1), 0,
+                  "icomparable on boxed double equal is 0");
+        ExpectThrows(kArgumentType,
+                     "icomparable on boxed double vs boxed int32 throws ArgumentException",
+                     [&] { (void)il2cpp::il2cpp_icomparable_compare_to(boxD1, b3); });
+        // Cross-type with the RECEIVER double, foreign int32 operand.
+        ExpectThrows(kArgumentType,
+                     "icomparable on boxed int32 vs boxed double throws ArgumentException",
+                     [&] { (void)il2cpp::il2cpp_icomparable_compare_to(b3, boxD1); });
+
+        // Int64 / Char / Boolean boxed receivers (the long/short-width value
+        // arms of the raw table).
+        il2cpp::Il2CppObject* boxL9 = il2cpp::runtime::icall_box_long(9);
+        il2cpp::Il2CppObject* boxL10 = il2cpp::runtime::icall_box_long(10);
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxL9, boxL10), -1,
+                  "icomparable on boxed int64 orders ascending");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxL10, boxL9), 1,
+                  "icomparable on boxed int64 orders reverse");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxL9, nullptr), 1,
+                  "icomparable on boxed int64 vs null is 1");
+        ExpectThrows(kArgumentType,
+                     "icomparable on boxed int64 vs boxed int32 throws ArgumentException",
+                     [&] { (void)il2cpp::il2cpp_icomparable_compare_to(boxL9, b3); });
+        il2cpp::Il2CppObject* boxC = il2cpp::runtime::icall_box_char(L'A');
+        il2cpp::Il2CppObject* boxB = il2cpp::runtime::icall_box_char(L'B');
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxC, boxB), -1,
+                  "icomparable on boxed char orders ascending");
+        il2cpp::Il2CppObject* boxT = il2cpp::runtime::icall_box_bool(true);
+        il2cpp::Il2CppObject* boxF = il2cpp::runtime::icall_box_bool(false);
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxT, boxF), 1,
+                  "icomparable on boxed bool true > false");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(boxF, boxF), 0,
+                  "icomparable on boxed bool equal is 0");
+
         // Default comparer on strings (ordinal) + the user IComparable
         // fallback (the mock receiver's CompareTo).
         il2cpp::Il2CppObject* sa = S("a");
         il2cpp::Il2CppObject* sb = S("b");
         Expect(il2cpp::il2cpp_comparer_compare(cd, sa, sb) < 0,
                "default comparer orders strings ascending");
+        ExpectI32(il2cpp::il2cpp_icomparable_compare_to(sa, nullptr), 1,
+                  "icomparable on a string receiver vs null is 1 (string > null)");
         ExpectI32(il2cpp::il2cpp_comparer_compare(cd, &mockA, &mockB),
                   il2cpp::il2cpp_icomparable_compare_to(&mockA, &mockB),
                   "default comparer falls back to the receiver's IComparable");

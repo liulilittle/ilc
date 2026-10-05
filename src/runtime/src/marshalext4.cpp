@@ -254,22 +254,5 @@ void icall_marshal_copy_from_unmanaged_elem(void* source, Il2CppArray* array,
                 source,
                 byteCount);
 }
-
-//------------------------------------------------------------------------------
-// r127 PNSE stubs: GetTypeFromProgID / CreateObject. ILC has no COM runtime,
-// so both throw PlatformNotSupportedException. Windows-only surface.
-//------------------------------------------------------------------------------
-int32_t icall_marshal_get_type_from_prog_id(Il2CppString* /*progId*/)
-{
-    il2cpp_throw_not_supported_exception(
-        "Marshal.GetTypeFromProgID: ILC has no COM runtime (Windows-only surface)");
-    return 0; // unreachable
-}
-Il2CppObject* icall_marshal_create_object(Il2CppString* /*progId*/)
-{
-    il2cpp_throw_not_supported_exception(
-        "Marshal.CreateObject: ILC has no COM runtime (Windows-only surface)");
-    return nullptr; // unreachable
-}
 } // namespace runtime
 } // namespace il2cpp

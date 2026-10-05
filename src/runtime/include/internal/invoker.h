@@ -62,6 +62,15 @@ union il2cpp_invoker_slot
 // Signatures beyond this fail loudly with kInvokerErrorTooManyParams.
 constexpr int32_t kInvokerMaxParams = 4;
 
+// Parameter slot families (the argbuf kinds -- see il2cpp_invoker_slot).
+enum InvokerSlotKind : int32_t
+{
+    kInvokerSlotI32 = 0, // int32 family (int/bool/char/sbyte/byte/short/ushort/native)
+    kInvokerSlotI64 = 1, // int64 family (long/ulong)
+    kInvokerSlotDbl = 2, // double family (float/double)
+    kInvokerSlotRef = 3, // reference family (string/object/array/class pointer)
+};
+
 // Return codes of il2cpp_invoker_invoke: 0 on success, negative on failure.
 enum InvokerError : int32_t
 {
@@ -92,5 +101,23 @@ enum InvokerError : int32_t
 //------------------------------------------------------------------------------
 int32_t il2cpp_invoker_invoke(void* fnPtr, const char* signature,
     const il2cpp_invoker_slot* args, int32_t argCount, void* ret);
+
+//------------------------------------------------------------------------------
+// il2cpp_invoker_decode_signature -- public signature introspection (R3
+// MethodInfo.Invoke needs to build the argbuf from a managed object[] by the
+// resolved method's slot kinds BEFORE calling il2cpp_invoker_invoke).
+// Returns 0 on success (out populated) or a negative InvokerError
+// (kInvokerErrorBadSignature / kInvokerErrorTooManyParams). The return kind
+// is encoded as the slot-kind constant of its family (V -> kInvokerSlotRef
+// sentinel -1 is NOT used; void is reported as a 5th kind kInvokerRetVoid
+// via outRetKind = -1, documented below).
+//
+//   outRetKind  -- return family: kInvokerSlotI32/I64/Dbl/Ref for the value
+//                  carriers, -1 for void (V).
+//   outParamKinds -- per-parameter InvokerSlotKind, outParamCount entries.
+//------------------------------------------------------------------------------
+int32_t il2cpp_invoker_decode_signature(const char* signature,
+    int32_t* outRetKind, int32_t* outParamKinds, int32_t outParamCapacity,
+    int32_t* outParamCount);
 
 } // namespace il2cpp

@@ -45,6 +45,7 @@
 #include "reflect_base.h"
 
 #include "typeinfo.h"          // il2cpp_typeinfo_lookup / Il2CppTypeInfo
+#include "il2cpp_com.h"        // C1: the COMCLSID: Type sentinel + RCW creation
 #include "il2cpp_runtime.h"    // il2cpp_object_new
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception / _new
 #include "il2cpp_string.h"        // il2cpp_string_new_from_cs (canonical Type name)
@@ -252,6 +253,16 @@ Il2CppObject* il2cpp_activator_create_instance(Il2CppObject* typeName)
     // the BOXED default (0), not an exception. The primitive box classes are
     // registered in the builtin class registry (il2cpp_class_by_name), and a
     // zero-initialized box instance is exactly the default value.
+    // C1 (A1): a COM Type VALUE ("COMCLSID:" + 32 hex CLSID) has no translated
+    // descriptor -- net48 Activator.CreateInstance on a COM Type CoCreateInstance's
+    // it into an RCW. The sentinel branch MUST be before the primitive-box
+    // fallback (a sentinel name is never a box class; the runtime icall
+    // validates the prefix/length again and throws ArgumentException on a
+    // malformed sentinel -- LOUD, never a silent miss).
+    if (std::strncmp(keyBuf, il2cpp::runtime::kComClsidPrefix, 9) == 0)
+    {
+        return il2cpp::runtime::icall_com_create_instance_from_com_type(typeName);
+    }
     static const char* const kPrimitiveBoxNames[] = {
         "System.Boolean", "System.Byte", "System.SByte", "System.Char",
         "System.Int16", "System.UInt16", "System.Int32", "System.UInt32",

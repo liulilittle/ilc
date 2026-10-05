@@ -937,7 +937,7 @@ public static partial class MethodRefResolver
             case "System.Reflection.MethodInfo":
             case "System.Reflection.ConstructorInfo":
             case "System.Reflection.EventInfo":
-                return TryMapReflectionMember(name, ps);
+                return TryMapReflectionMember(owner, name, ps);
             case "System.Text.StringBuilder": return TryMapStringBuilder(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // P25f (dhprobe): the net6+ interpolation lowering -- an
             // address-taken DefaultInterpolatedStringHandler VALUE local + the
@@ -1672,6 +1672,17 @@ var userRecvLike = receiverType ?? arg0Type;
         if (owner == "System.IComparable" && name == "CompareTo" && count == 1
             && recvType == "System.String")
             return I("il2cpp::runtime::icall_string_compare_to", 1, true, false, true);
+        // G2 (D3): IComparable::CompareTo lowers RECEIVER-AGNOSTICALLY when no
+        // concrete receiver hint is available -- a boxed primitive reached
+        // through an interface-typed slot (`((IComparable)boxed).CompareTo(x)`,
+        // the GAP-BOX-3 record: the interface cast erases the receiver type).
+        // The runtime dispatches through the RAW boxed-value table first
+        // (arraysort.cpp TryCompareBoxedBuiltin -- Int32/Int64/UInt64/Single/
+        // Double/Char/Boolean + String), then the reflected vtable; a receiver
+        // with no table entry AND no vtable slot throws NotSupportedException
+        // LOUD (never a silent generated-name call to an undefined extern).
+        if (owner == "System.IComparable" && name == "CompareTo" && count == 1)
+            return I("il2cpp::il2cpp_icomparable_compare_to", 1, true, false, true);
         if (recvType == null) return null;
         var t = knownTypes.FirstOrDefault(tt => tt.FullName == recvType
             || (tt.GenericArity > 0 && recvType.StartsWith(tt.FullName + "_", StringComparison.Ordinal)));
@@ -2398,6 +2409,10 @@ var userRecvLike = receiverType ?? arg0Type;
         "string" => "System.String",
         "object" => "System.Object",
         "array" => "System.Array",
+        // G1 (C1): an array-argument token "[<elementSuffix>]" decodes to the
+        // managed ARRAY type name (recursion maps the element).
+        var t when t.Length >= 2 && t[0] == '[' && t[^1] == ']'
+            => SuffixToManagedTypeName(t[1..^1]) + "[]",
         _ => suffix, // user class args already carry their full name
     };
 
@@ -2453,7 +2468,7 @@ var userRecvLike = receiverType ?? arg0Type;
                  0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                  0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                 0x1C => "object",
-                0x1D => "array", // SZARRAY (0x1F is CMOD_REQD per ECMA, stripped above)
+                0x1D => ReadM3ArrayArg(md, ref sig),
                 0x15 => ReadM3GenericArgNested(md, ref sig),
                 // B2/B5 family (boxunbox/generics; MyList<T> definition
                 // bodies): an OPEN TypeSpec arg (VAR 0x13 + index) denotes
@@ -2475,6 +2490,49 @@ var userRecvLike = receiverType ?? arg0Type;
     {
         sig.ReadCompressedInteger();
         return InstantiationSuffixHint ?? "int";
+    }
+
+    // G1 (C1): an SZARRAY (0x1D) generic argument -- element-aware
+    // "[<elementSuffix>]" token (the MethodRefResolver mirror of the four-place
+    // ReadM3ArrayArg rule; MethodBodyReader.SimpleGenericArgSuffix is the
+    // local-kind naming authority). Simple element shapes (primitives / string
+    // / object / user class / user struct) decode through the shared arg table;
+    // complex shapes consume the payload and keep the historical "array" token
+    // (the shared-object collapse fallback the local-kind scan agrees on).
+    private static string ReadM3ArrayArg(MetadataReader md, ref BlobReader sig)
+    {
+        var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        var elemSuffix = elem switch
+        {
+            0x02 => "bool",
+            0x03 => "char",
+            0x04 => "sbyte",
+            0x05 => "byte",
+            0x06 => "short",
+            0x07 => "ushort",
+            0x08 => "int",
+            0x09 => "uint",
+            0x0A => "long",
+            0x0B => "ulong",
+            0x0C => "float",
+            0x0D => "double",
+            0x0E => "string",
+            0x1C => "object",
+            0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            _ => null,
+        };
+        if (elemSuffix != null) return "[" + elemSuffix + "]";
+        // Complex element: consume the payload so the next arg stays aligned,
+        // then keep the legacy shared token.
+        switch (elem)
+        {
+            case 0x15: _ = ReadM3GenericArgNested(md, ref sig); break;
+            case 0x1D: _ = ReadM3ArrayArg(md, ref sig); break;
+            case 0x13: _ = ReadM3VarArg(ref sig); break;
+            default:
+                throw new NotSupportedException($"generic argument byte 0x{elem:X2} in M3 (SZARRAY element)");
+        }
+        return "array";
     }
 
     // A generic-argument that is ITSELF a generic instantiation

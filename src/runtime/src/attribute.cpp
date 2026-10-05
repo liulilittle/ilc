@@ -9,6 +9,8 @@
 
 #include "attribute.h"
 
+#include "il2cpp_runtime.h"   // il2cpp_class_by_name (klass resolution for R4 _ex_named)
+#include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception (R4 null element)
 #include "il2cpp_string.h" // Il2CppString (managed-string ABI queries)
 
 #include <cstring>
@@ -460,6 +462,139 @@ Il2CppObject* il2cpp_attribute_get_single(Il2CppClass* klass,
         *outCount = matches;
     }
     return first;
+}
+
+//------------------------------------------------------------------------------
+// R4 (B3) shared body: resolve the queried type name + optional attributeType
+// name to klass descriptors (il2cpp_class_by_name), then run CollectAttributes.
+//
+// net48: a null ELEMENT argument (the queried type) is ArgumentNullException
+// -- the GetCustomAttributes(MemberInfo/Type element) reflection-static
+// contract. attributeTypeName null = NO filter (the net48 2-arg inherit-only
+// overload passes only element + inherit); a null attributeType string cannot
+// be resolved and matches nothing (empty array / null first). Malformed /
+// non-ASCII / over-long names escape to "no matches" like the custom_named
+// path.
+//------------------------------------------------------------------------------
+namespace {
+
+Il2CppClass* ResolveClassByName(const char* name)
+{
+    if (name == nullptr || name[0] == '\0')
+    {
+        return nullptr;
+    }
+    return il2cpp_class_by_name(name);
+}
+
+// The typeName element is REQUIRED (net48 ArgumentNullException on a null
+// element argument); attributeTypeName is OPTIONAL (a null string = no
+// filter). Returns false when the required element is null (an exception has
+// been thrown) or when a present attributeTypeName cannot be resolved (no
+// matches -- handled by the caller via a null filter result convention).
+bool ResolveElements(Il2CppObject* typeName, Il2CppObject* attributeTypeName,
+                     char (&typeBuf)[kNameBufferSize],
+                     char (&attrBuf)[kNameBufferSize],
+                     Il2CppClass** klassOut,
+                     Il2CppClass** attrTypeOut,
+                     bool* attrTypeGiven)
+{
+    *klassOut = nullptr;
+    *attrTypeOut = nullptr;
+    *attrTypeGiven = false;
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("element");
+        return false;
+    }
+    if (!AsciiFromManagedString(typeName, typeBuf))
+    {
+        // Malformed element: cannot name a type -> no matches (contract), no throw.
+        *klassOut = nullptr;
+        return false;
+    }
+    *klassOut = ResolveClassByName(typeBuf);
+    if (attributeTypeName != nullptr)
+    {
+        *attrTypeGiven = true;
+        if (AsciiFromManagedString(attributeTypeName, attrBuf))
+        {
+            *attrTypeOut = ResolveClassByName(attrBuf);
+        }
+        else
+        {
+            *attrTypeOut = nullptr;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_attribute_get_custom_ex_named(Il2CppObject* typeName,
+                                                  Il2CppObject* attributeTypeName,
+                                                  int32_t inherit)
+{
+    char typeBuf[kNameBufferSize];
+    char attrBuf[kNameBufferSize];
+    Il2CppClass* klass = nullptr;
+    Il2CppClass* attrType = nullptr;
+    bool attrTypeGiven = false;
+    if (!ResolveElements(typeName, attributeTypeName, typeBuf, attrBuf,
+                         &klass, &attrType, &attrTypeGiven))
+    {
+        // A null element threw ArgumentNullException already (net48). A
+        // malformed element or unresolvable attributeType yields no matches.
+        return il2cpp::il2cpp_array_new(nullptr, sizeof(void*), true, 0);
+    }
+    if (klass == nullptr || (attrTypeGiven && attrType == nullptr))
+    {
+        // Unreflected element type / unresolvable attributeType filter ->
+        // empty array (net48: an unresolvable attributeType matches nothing).
+        return il2cpp::il2cpp_array_new(nullptr, sizeof(void*), true, 0);
+    }
+    const int32_t count = CollectAttributes(klass, attrType, inherit, nullptr, 0);
+    Il2CppArray* const result = il2cpp::il2cpp_array_new(nullptr, sizeof(void*), true, count);
+    Il2CppObject* const scratch = nullptr;
+    (void)scratch;
+    if (count > 0)
+    {
+        // CollectAttributes writes most-derived-first; a fixed buffer of
+        // exactly count(<= kMaxAttributeTypes) is safe -- CollectAttributes
+        // never writes past capacity and the count query matched the same
+        // inputs.
+        struct { Il2CppObject* slots[kMaxAttributeTypes]; } buf = {};
+        CollectAttributes(klass, attrType, inherit, buf.slots, kMaxAttributeTypes);
+        for (int32_t i = 0; i < count && i < kMaxAttributeTypes; ++i)
+        {
+            *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(result, i)) =
+                buf.slots[i];
+        }
+    }
+    return result;
+}
+
+Il2CppObject* il2cpp_attribute_get_single_ex_named(Il2CppObject* typeName,
+                                                   Il2CppObject* attributeTypeName,
+                                                   int32_t inherit)
+{
+    char typeBuf[kNameBufferSize];
+    char attrBuf[kNameBufferSize];
+    Il2CppClass* klass = nullptr;
+    Il2CppClass* attrType = nullptr;
+    bool attrTypeGiven = false;
+    if (!ResolveElements(typeName, attributeTypeName, typeBuf, attrBuf,
+                         &klass, &attrType, &attrTypeGiven))
+    {
+        return nullptr; // null element threw ArgumentNullException already
+    }
+    if (klass == nullptr || (attrTypeGiven && attrType == nullptr))
+    {
+        return nullptr;
+    }
+    Il2CppObject* scratch[1];
+    const int32_t count = CollectAttributes(klass, attrType, inherit, scratch, 1);
+    return count > 0 ? scratch[0] : nullptr;
 }
 
 } // namespace runtime

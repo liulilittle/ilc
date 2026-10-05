@@ -160,6 +160,7 @@
 
 #include "il2cpp_object.h"
 #include "il2cpp_string.h"
+#include "il2cpp_array.h" // C2 (A2): icall_com_invoke_member's args array param
 
 #include <cstdint>
 
@@ -701,6 +702,7 @@ constexpr int32_t kComHrInvalidCast    = static_cast<int32_t>(0x80004002); // CO
 // access).
 constexpr int32_t  kComDispIdFirst    = 2; // DISPID_FIRST (oaidl.h)
 constexpr uint16_t kComDispatchMethod = 1; // DISPATCH_METHOD (oaidl.h)
+constexpr uint16_t kComDispatchPropertyGet = 2; // DISPATCH_PROPERTYGET (oaidl.h)
 
 // Connection-point HRESULTs (the phase-5 protocol surface, olectl.h values):
 // CONNECT_E_NOCONNECTION (FindConnectionPoint for an IID with no connection
@@ -830,6 +832,41 @@ Il2CppObject* icall_com_create_object(Il2CppString* progId);
 // null-without-throwOnError stance at the HRESULT level).
 int32_t icall_com_get_type_from_progid(Il2CppString* progId, uint8_t clsid[16]);
 
+//------------------------------------------------------------------------------
+// C1 (A1) -- the COM Type VALUE sentinel + the two Type-value producers.
+//
+// The simplified Type model makes a Type VALUE the full type NAME string; a
+// COM type has no translated descriptor, so its Type value is the sentinel
+// name "COMCLSID:" + 32 lower-hex CLSID bytes (kComClsidPrefix above). The
+// Activator prefix branch (reflect_base.cpp) decodes it back to the CLSID and
+// CoCreateInstance's + WRAPS the RCW.
+//------------------------------------------------------------------------------
+constexpr char kComClsidPrefix[] = "COMCLSID:";
+constexpr int32_t kComClsidHexLength = 32; // 16 CLSID bytes
+constexpr int32_t kComClsidSentinelLength = 41; // 9 prefix + 32 hex
+
+// Type.GetTypeFromProgID(string) / Marshal.GetTypeFromProgID(string):
+// resolve ProgID -> CLSID (CLSIDFromProgID) and return the Type VALUE string
+// "COMCLSID:<32hex>". Null progID -> ArgumentNullException; an UNKNOWN
+// ProgID -> null (net48's convenience overload runs with throwOnError=false
+// and returns null, NOT a COMException -- the C1 miss contract). On
+// non-Windows the ProgID lookup cannot run -> NotSupportedException.
+Il2CppObject* il2cpp_com_type_from_progid(Il2CppString* progId);
+
+// Type.GetTypeFromCLSID(Guid): encode the 16 CLSID bytes (the .NET Guid / COM
+// CLSID in-memory layout -- little-endian int/short fields, big-endian last
+// 8) into the sentinel Type VALUE string. No registry probe (the sentinel is
+// just the carried identity; CoCreateInstance validates registration at
+// Activator time). Null clsid -> ArgumentNullException.
+Il2CppObject* il2cpp_com_type_from_clsid(const uint8_t clsid[16]);
+
+// Activator.CreateInstance(Type) on a COM Type VALUE: decode the
+// "COMCLSID:<32hex>" sentinel, CoCreateInstance the CLSID and WRAP the
+// IUnknown* into an RCW. Windows: full implementation. Non-Windows:
+// NotSupportedException. A non-sentinel type name -> ArgumentException (the
+// caller's prefix branch must not route non-COM names here).
+Il2CppObject* icall_com_create_instance_from_com_type(Il2CppObject* typeName);
+
 // Marshal.GetIUnknownForObject(object o): exposes the object's native
 // IUnknown* as the intptr carrier with a reference ADDED (the caller must
 // Release -- net48 GetIUnknownForObject returns an AddRef'd pointer). net48
@@ -926,6 +963,85 @@ int32_t icall_com_idispatch_invoke(intptr_t dispatch, int32_t dispIdMember,
                                    int32_t lcid, int32_t wFlags,
                                    intptr_t pDispParams, intptr_t pVarResult,
                                    intptr_t pExcepInfo, intptr_t puArgErr);
+
+//------------------------------------------------------------------------------
+// C2 (A2) -- the ONE-CALL late-bound member invocation (Type.InvokeMember on
+// a COM Type / RCW). The runtime does the whole IDispatch protocol:
+//   QI the RCW's IUnknown for IDispatch -> GetIDsOfNames(name) -> build the
+//   DISPPARAMS from the positional managed args -> Invoke(dispId, wFlags =
+//   DISPATCH_METHOD | DISPATCH_PROPERTYGET) -> decode the result VARIANT into
+//   a boxed managed object (null for VT_EMPTY/VT_NULL).
+// The managed-arg subset is VT_I4 (boxed Int32) / VT_R8 (boxed Double) /
+// VT_BSTR (string) / VT_BOOL (boxed Boolean) / VT_EMPTY (null); anything else
+// -> NotSupportedException LOUD. A VT result outside the subset -> the same
+// LOUD. Property-PUT is NOT supported (LOUD by design -- the decision's
+// "propertyput/A2" rejection); only method invocation + propertyget.
+// rcw must be a live RCW (ArgumentException otherwise); name null ->
+// ArgumentNullException; args null = no arguments. A failing native call
+// (DISP_E_MEMBERNOTFOUND etc.) -> COMException carrying the HRESULT.
+// Windows: full implementation. Non-Windows: NotSupportedException.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_com_invoke_member(Il2CppObject* rcw, Il2CppString* name,
+                                      Il2CppArray* args);
+
+//------------------------------------------------------------------------------
+// C3 (A3) -- the IConnectionPoint SINK direction (the DECISION's C3=A3).
+// The CCW connection-point family above is the SOURCE direction (a managed
+// object as an event source: register_connection_point + fire_* + native
+// sinks Advise in). C3 is the mirror -- a MANAGED SINK attaching to a NATIVE
+// COM event source's connection point:
+//   icall_com_get_connection_point -- QI the RCW's IUnknown for
+//     IConnectionPointContainer + FindConnectionPoint(eventIID) -> the
+//     IConnectionPoint* (intptr carrier, AddRef'd -- the caller owns the
+//     reference and must Release it, e.g. via the vtable-slot release / the
+//     cp_unadvise pairing).
+//   icall_com_cp_advise -- IConnectionPoint::Advise (vtable slot 5): connect
+//     the managed sink CCW (the identity IUnknown* icall_com_ccw_create
+//     returns, optionally + register_invoke_dispatch so the source's
+//     IDispatch::Invoke reaches a managed method) to the connection point.
+//     The cookie is written on success; a full connection point ->
+//     CONNECT_E_ADVISELIMIT.
+//   icall_com_cp_unadvise -- IConnectionPoint::Unadvise (vtable slot 6):
+//     disconnect the cookie's connection (a stale cookie ->
+//     CONNECT_E_NOCONNECTION).
+// The managed sink CCW answers QI for the event interface only when the
+// event interface is one the CCW exposes; for a dispinterface event sink the
+// sink wraps a managed object implementing the interface and
+// register_invoke_dispatch routes the source's Invoke to the managed
+// implementation (the C2 register_invoke_dispatch precedent).
+//------------------------------------------------------------------------------
+
+// QI the RCW 'rcw' for IConnectionPointContainer and call
+// IConnectionPointContainer::FindConnectionPoint(eventIID): returns the
+// IConnectionPoint* as the intptr carrier (AddRef'd -- the caller owns the
+// reference). rcw must be a live RCW (ArgumentException otherwise);
+// iid == nullptr -> ArgumentNullException. The native QI failure
+// E_NOINTERFACE -> InvalidCastException (the RCW does not implement
+// IConnectionPointContainer); any other QI / FindConnectionPoint failure ->
+// COMException carrying the HRESULT (CONNECT_E_NOCONNECTION when the event
+// interface has no connection point). Windows: full implementation.
+// Non-Windows: NotSupportedException (the POSIX stub).
+intptr_t icall_com_get_connection_point(Il2CppObject* rcw, const uint8_t iid[16]);
+
+// IConnectionPoint::Advise (vtable slot 5): connect the managed sink CCW
+// 'sinkCcw' (the identity IUnknown* from icall_com_ccw_create -- typically
+// registered with icall_com_ccw_register_invoke_dispatch so the source's
+// event delivery reaches a managed method) to the connection point 'cp'.
+// Returns the HRESULT; on S_OK writes the connection cookie to *cookie (the
+// value cp_unadvise must be called with). 'cp' must be a non-null
+// IConnectionPoint* (ArgumentNullException otherwise); 'sinkCcw' == 0 ->
+// ArgumentNullException; 'cookie' == nullptr -> ArgumentNullException.
+// A full connection point -> CONNECT_E_ADVISELIMIT (forwarded, never
+// masked). Windows: full implementation. Non-Windows: E_NOTIMPL (the POSIX
+// stub -- no real COM event sources to sink into).
+int32_t icall_com_cp_advise(intptr_t cp, intptr_t sinkCcw, intptr_t* cookie);
+
+// IConnectionPoint::Unadvise (vtable slot 6): disconnect the connection
+// identified by 'cookie' from the connection point 'cp'. Returns the
+// HRESULT (a stale / unknown cookie -> CONNECT_E_NOCONNECTION, forwarded).
+// 'cp' == 0 -> ArgumentNullException. Windows: full implementation.
+// Non-Windows: E_NOTIMPL (the POSIX stub).
+int32_t icall_com_cp_unadvise(intptr_t cp, intptr_t cookie);
 
 //------------------------------------------------------------------------------
 // CCW -- minimal IUnknown vtable generation (see header comment).

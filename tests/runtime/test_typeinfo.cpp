@@ -24,8 +24,11 @@
 
 #include "typeinfo.h"
 
+#include "il2cpp_array.h"     // il2cpp_array_new / il2cpp_array_get_elem_ptr
 #include "il2cpp_exception.h" // DotNetException / il2cpp_exception_matches
 #include "il2cpp_object.h"    // Il2CppObject (managed-string query tests)
+#include "il2cpp_runtime.h"   // il2cpp_box_int32 / il2cpp_unbox_int32
+#include "il2cpp_boxing_ext2.h" // icall_box_long / icall_unbox_long
 #include "il2cpp_string.h"    // il2cpp_string_new_from_cs
 
 #include <cstddef>
@@ -67,6 +70,7 @@ bool ThrowsManaged(Fn&& fn, const char* managedType)
 }
 
 void DummyMethod() {}
+int AddTwoInts(int a, int b) { return a + b; }
 
 // Managed string content equality against an ASCII literal (project
 // convention: names are ASCII) -- the shape test_typeext.cpp uses.
@@ -121,7 +125,7 @@ il2cpp::Il2CppClass ifaceClass = {
     "T.IFoo", 0, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
 };
 
-int g_baseStaticSlot = 0;
+il2cpp::Il2CppObject* g_baseStaticStringSlot = nullptr;
 
 il2cpp::Il2CppMethodInfo baseMethods[3] = {
     {"Ctor", "V:System.Void", 0, 5, -1, "T.Base", reinterpret_cast<void*>(&DummyMethod)},
@@ -131,7 +135,7 @@ il2cpp::Il2CppMethodInfo baseMethods[3] = {
 
 il2cpp::Il2CppFieldInfo baseFields[2] = {
     {"x", "System.Int32", 0, 0, nullptr, 1},
-    {"_s", "System.String", -1, 1, &g_baseStaticSlot, 3}, // public|static (raudit3 visibility filter)
+    {"_s", "System.String", -1, 1, &g_baseStaticStringSlot, 3}, // public|static (raudit3 visibility filter)
 };
 
 il2cpp::Il2CppPropertyInfo baseProperties[2] = {
@@ -263,7 +267,7 @@ int main()
            "get_field inherited \"x\" through base chain");
     f = il2cpp_type_get_field(&derivedInfo, "_s");
     Expect(f == &baseFields[1], "get_field inherited static \"_s\"");
-    Expect(f != nullptr && f->offset == -1 && f->staticAddr == &g_baseStaticSlot,
+    Expect(f != nullptr && f->offset == -1 && f->staticAddr == &g_baseStaticStringSlot,
            "static field entry carries offset -1 + staticAddr");
     Expect(il2cpp_type_get_field(&derivedInfo, "Nope") == nullptr,
            "get_field missing -> null");
@@ -354,6 +358,233 @@ int main()
         nullptr); },
         "System.ArgumentNullException"),
         "string-ABI get_field null memberName -> ArgumentNullException (net48)");
+
+    // --- R2 (B2): member ENUMERATION icalls (the transpiler
+    //    Type.GetMethods/GetFields/GetProperties/GetConstructors/
+    //    GetInterfaces surface -- each returns an Il2CppArray* of member-NAME
+    //    managed strings, own table first then the baseType chain, public
+    //    only). The fixture hierarchy: T.Derived owns Foo/Trimmed methods,
+    //    y field, Name property; T.Base owns Ctor/Add/Foo methods, x/_s
+    //    fields, Value/Item properties; T.IFoo is the implemented interface.
+    //    Public-only visibility (raudit3 net48 default binding) is asserted
+    //    via the _s static public field and the ctor entries.
+    {
+        auto names = il2cpp_typeinfo_get_methods(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
+        Expect(names != nullptr, "R2 get_methods returns a non-null array");
+        Expect(names != nullptr && names->length == 5,
+               "R2 get_methods own+base public methods count (Derived Foo/Trimmed + Base Ctor/Add/Foo)");
+        bool hasFoo = false, hasAdd = false, hasCtor = false, hasTrimmed = false;
+        if (names != nullptr)
+        {
+            for (int32_t i = 0; i < names->length; ++i)
+            {
+                auto e = *reinterpret_cast<Il2CppObject**>(
+                    il2cpp::il2cpp_array_get_elem_ptr(names, i));
+                if (ManagedEqualsAscii(e, "Foo")) hasFoo = true;
+                if (ManagedEqualsAscii(e, "Add")) hasAdd = true;
+                if (ManagedEqualsAscii(e, "Ctor")) hasCtor = true;
+                if (ManagedEqualsAscii(e, "Trimmed")) hasTrimmed = true;
+            }
+        }
+        Expect(hasFoo && hasAdd && hasCtor && hasTrimmed,
+               "R2 get_methods names cover own+base public methods");
+
+        auto fields = il2cpp_typeinfo_get_fields(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
+        Expect(fields != nullptr && fields->length == 3,
+               "R2 get_fields own+base public fields count (Derived y + Base x/_s)");
+        bool hasX = false, hasS = false, hasY = false;
+        if (fields != nullptr)
+        {
+            for (int32_t i = 0; i < fields->length; ++i)
+            {
+                auto e = *reinterpret_cast<Il2CppObject**>(
+                    il2cpp::il2cpp_array_get_elem_ptr(fields, i));
+                if (ManagedEqualsAscii(e, "x")) hasX = true;
+                if (ManagedEqualsAscii(e, "_s")) hasS = true;
+                if (ManagedEqualsAscii(e, "y")) hasY = true;
+            }
+        }
+        Expect(hasX && hasS && hasY,
+               "R2 get_fields names cover own+base public fields");
+
+        auto props = il2cpp_typeinfo_get_properties(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
+        Expect(props != nullptr && props->length == 3,
+               "R2 get_properties own+base count (Derived Name + Base Value/Item)");
+        bool hasName = false, hasValue = false, hasItem = false;
+        if (props != nullptr)
+        {
+            for (int32_t i = 0; i < props->length; ++i)
+            {
+                auto e = *reinterpret_cast<Il2CppObject**>(
+                    il2cpp::il2cpp_array_get_elem_ptr(props, i));
+                if (ManagedEqualsAscii(e, "Name")) hasName = true;
+                if (ManagedEqualsAscii(e, "Value")) hasValue = true;
+                if (ManagedEqualsAscii(e, "Item")) hasItem = true;
+            }
+        }
+        Expect(hasName && hasValue && hasItem,
+               "R2 get_properties names cover own+base properties");
+
+        auto ctors = il2cpp_typeinfo_get_constructors(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
+        Expect(ctors != nullptr && ctors->length == 1,
+               "R2 get_constructors public ctor count (Base Ctor only)");
+
+        auto ifaces = il2cpp_typeinfo_get_interfaces(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
+        Expect(ifaces != nullptr && ifaces->length == 1,
+               "R2 get_interfaces own+base count (T.IFoo)");
+        if (ifaces != nullptr && ifaces->length == 1)
+        {
+            auto e = *reinterpret_cast<Il2CppObject**>(
+                il2cpp::il2cpp_array_get_elem_ptr(ifaces, 0));
+            Expect(ManagedEqualsAscii(e, "T.IFoo"),
+                   "R2 get_interfaces element is the interface full name");
+        }
+        // Unregistered / malformed typeName -> EMPTY array, never null (the
+        // R2 enumeration contract -- net48 returns an empty array, never
+        // null, for the no-members / unreflected type).
+        auto none = il2cpp_typeinfo_get_methods(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Never")));
+        Expect(none != nullptr && none->length == 0,
+               "R2 get_methods unregistered type -> empty array");
+        auto nullArr = il2cpp_typeinfo_get_methods(nullptr);
+        Expect(nullArr != nullptr && nullArr->length == 0,
+               "R2 get_methods null typeName -> empty array (never null)");
+    }
+
+    // --- R2 (B2): FieldInfo.GetValue/SetValue narrow set (int32/int64/
+    //    string/object slots; the field's typeName dispatches the slot
+    //    width). The receiver is the FIELD-NAME string; the declaring type
+    //    is joined from the target object's klass. net48 GetValue boxes
+    //    value-type fields (int32 -> System.Int32 box, int64 -> System.Int64
+    //    box) and returns the reference itself for ref fields; SetValue
+    //    writes through the box payload / reference slot. Unknown / private
+    //    fields -> nullptr (defensive query convention).
+    {
+        // A dedicated reflected type whose FIELD TABLE offsets match a real
+        // instance layout (header slot 0; i32 at 8; i64 at 16; ref slot at
+        // 24; the static string slot is separate storage).
+        struct FieldHost { void* hdr; int32_t i32; int64_t i64; void* refSlot; };
+        il2cpp::Il2CppClass hostClass = {
+            "T.FieldHost", static_cast<int32_t>(sizeof(FieldHost)), 0u, 0,
+            &objectClass, nullptr, 0, nullptr, 0,
+        };
+        il2cpp::Il2CppObject* g_hostStaticString = nullptr;
+        il2cpp::Il2CppFieldInfo hostFields[4] = {
+            {"fi32", "System.Int32", 8, 0, nullptr, 1},
+            {"fi64", "System.Int64", 16, 0, nullptr, 1},
+            {"fref", "System.String", 24, 1, nullptr, 1},
+            {"fstat", "System.String", -1, 1, &g_hostStaticString, 3},
+        };
+        il2cpp::Il2CppTypeInfo hostInfo = {
+            "T.FieldHost", &hostClass, &objectInfoInstance, nullptr, 0,
+            hostFields, 4, nullptr, 0, nullptr, 0,
+        };
+        il2cpp_typeinfo_register(&hostInfo);
+
+        FieldHost inst = { &hostClass, 0, 0, nullptr };
+        auto target = reinterpret_cast<Il2CppObject*>(&inst);
+        auto nameI32 = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fi32"));
+
+        inst.i32 = 42;
+        Il2CppObject* val = il2cpp_typeinfo_field_get_value(nameI32, target);
+        Expect(val != nullptr && il2cpp_unbox_int32(val) == 42,
+               "R2 field_get_value int32 field reads the boxed slot value");
+        Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_field_get_value(nameI32, nullptr); },
+                             "System.NullReferenceException"),
+               "R2 field_get_value null target -> NullReferenceException (net48)");
+        Expect(il2cpp_typeinfo_field_get_value(
+                   reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("nope")),
+                   target) == nullptr,
+               "R2 field_get_value unknown field -> null (defensive)");
+
+        // SetValue(int32): write through the box payload.
+        auto boxed = il2cpp_box_int32(nullptr, 7);
+        il2cpp_typeinfo_field_set_value(nameI32, target, boxed);
+        Expect(inst.i32 == 7, "R2 field_set_value int32 writes through the box");
+
+        // int64: box/unbox via the long carriers (slot width by typeName).
+        auto nameI64 = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fi64"));
+        inst.i64 = 0x1122334455667788LL;
+        auto lval = il2cpp_typeinfo_field_get_value(nameI64, target);
+        Expect(lval != nullptr && runtime::icall_unbox_long(lval) == 0x1122334455667788LL,
+               "R2 field_get_value int64 field reads the boxed long slot");
+        il2cpp_typeinfo_field_set_value(nameI64, target, runtime::icall_box_long(99LL));
+        Expect(inst.i64 == 99, "R2 field_set_value int64 writes through the box");
+
+        // Reference field: returned/stored as the reference itself.
+        auto nameRef = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fref"));
+        auto refVal = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("hello"));
+        inst.refSlot = refVal;
+        auto rval = il2cpp_typeinfo_field_get_value(nameRef, target);
+        Expect(rval == refVal && ManagedEqualsAscii(rval, "hello"),
+               "R2 field_get_value ref field returns the reference itself");
+        auto refVal2 = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("world"));
+        il2cpp_typeinfo_field_set_value(nameRef, target, refVal2);
+        Expect(inst.refSlot == refVal2, "R2 field_set_value ref field writes the reference");
+
+        // Static field: stored through staticAddr (offset -1).
+        auto nameStat = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fstat"));
+        auto statVal = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("stat"));
+        il2cpp_typeinfo_field_set_value(nameStat, target, statVal);
+        auto statRead = il2cpp_typeinfo_field_get_value(nameStat, target);
+        Expect(statRead == statVal && ManagedEqualsAscii(statRead, "stat"),
+               "R2 field_set/get static reference field through staticAddr");
+    }
+
+    // --- R3 (B4): MethodInfo.Invoke -- il2cpp_methodinfo_invoke(memberName,
+    //    target, object[] args) joins the declaring type from the target's
+    //    klass, resolves the Il2CppMethodInfo by name (+ paramCount
+    //    disambiguation), and dispatches through il2cpp_invoker_invoke. The
+    //    result is boxed by the return kind (int32/int64/ref; void -> null).
+    //    A trimmed (fnPtr null) method is runtime-unreachable -> LOUD.
+    {
+        il2cpp::Il2CppClass invokeClass = {
+            "T.InvokeHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
+        };
+        il2cpp::Il2CppMethodInfo invokeMethods[2] = {
+            {"AddTwo", "I:i,i", 2, 1, -1, "T.InvokeHost", reinterpret_cast<void*>(&AddTwoInts)},
+            {"Nope",   "I:i",   1, 1, -1, "T.InvokeHost", nullptr},
+        };
+        il2cpp::Il2CppTypeInfo invokeInfo = {
+            "T.InvokeHost", &invokeClass, &objectInfoInstance, nullptr, 0,
+            nullptr, 0, invokeMethods, 2, nullptr, 0,
+        };
+        il2cpp_typeinfo_register(&invokeInfo);
+
+        // object[] { box(2), box(3) }
+        auto args = il2cpp_array_new(nullptr, sizeof(void*), true, 2);
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(args, 0)) =
+            il2cpp_box_int32(nullptr, 2);
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(args, 1)) =
+            il2cpp_box_int32(nullptr, 3);
+        auto target2 = reinterpret_cast<Il2CppObject*>(&invokeClass);
+
+        auto memberName = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("AddTwo"));
+        Il2CppObject* result = il2cpp_methodinfo_invoke(memberName, target2, args);
+        Expect(result != nullptr && il2cpp_unbox_int32(result) == 5,
+               "R3 methodinfo_invoke dispatches int32 AddTwo(2,3) -> boxed 5");
+
+        // Unknown method -> nullptr (defensive query convention).
+        auto unknown = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("NoSuch"));
+        Expect(il2cpp_methodinfo_invoke(unknown, target2, args) == nullptr,
+               "R3 methodinfo_invoke unknown member -> null");
+
+        // Null target -> NullReferenceException (net48 instance doctrine).
+        Expect(ThrowsManaged([&] { (void)il2cpp_methodinfo_invoke(memberName, nullptr, args); },
+                             "System.NullReferenceException"),
+               "R3 methodinfo_invoke null target -> NullReferenceException");
+
+        // A trimmed method (fnPtr null) is runtime-unreachable -> LOUD.
+        auto trimmed = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Nope"));
+        Expect(ThrowsManaged([&] { (void)il2cpp_methodinfo_invoke(trimmed, target2, args); },
+                             "System.NotSupportedException"),
+               "R3 methodinfo_invoke trimmed fnPtr -> LOUD");
+    }
 
     // --- Report ---
     if (g_failures != 0)

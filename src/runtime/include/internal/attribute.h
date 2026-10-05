@@ -122,6 +122,46 @@ Il2CppObject** il2cpp_attribute_get_custom(Il2CppClass* klass,
 Il2CppArray* il2cpp_attribute_get_custom_named(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
+// il2cpp_attribute_get_custom_ex_named -- managed-string GetCustomAttributes
+// with the net48 attributeType / inherit filter (R4). The element rides as
+// the type-name string (the simplified Type model), exactly like
+// il2cpp_attribute_get_custom_named; the RUNTIME resolves it to a klass via
+// il2cpp_class_by_name, resolves attributeTypeName to a klass (null when no
+// filter), and runs CollectAttributes (attribute.cpp) -- the inheritance walk
+// (baseType chain, stopping before System.Object), the attributeType
+// assignability filter (registered name + base-class chain), and the
+// AttributeUsage Inherited / AllowMultiple rules.
+//
+//   typeName         : queried type full name string (e.g. "T.Derived")
+//   attributeTypeName: filter -- only attributes whose runtime class equals
+//                      this or derives from it are returned; null = no filter
+//   inherit          : 1 -> walk the baseType chain; 0 -> own type only
+//
+//   Returns an Il2CppArray* of matching attribute objects, most-derived
+//   first (declaration order within a level). A type with no matches (or an
+//   unresolvable typeName / attributeTypeName) yields an EMPTY array, never
+//   null. A null typeName throws ArgumentNullException (net48: a null
+//   element argument is ArgumentNullException); a null attributeTypeName
+//   means "no filter" (the net48 2-arg inherit-only overload). Malformed /
+//   non-ASCII / over-long names escape to "no matches" (empty array).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_attribute_get_custom_ex_named(Il2CppObject* typeName,
+                                                  Il2CppObject* attributeTypeName,
+                                                  int32_t inherit);
+
+//------------------------------------------------------------------------------
+// il2cpp_attribute_get_single_ex_named -- managed-string GetCustomAttribute
+// (singular) with the attributeType / inherit filter (R4 mirror of
+// get_custom_ex_named). Resolves the same way and returns the FIRST match
+// (most-derived first) or nullptr when none matches. null typeName throws
+// ArgumentNullException (net48 element doctrine); attributeTypeName null =
+// no filter; malformed names -> nullptr (no matches).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_attribute_get_single_ex_named(Il2CppObject* typeName,
+                                                   Il2CppObject* attributeTypeName,
+                                                   int32_t inherit);
+
+//------------------------------------------------------------------------------
 // il2cpp_attribute_get_single_named -- managed-string GetCustomAttribute
 // (singular) icall (D-ATTR-1): the first registered attribute object for the
 // type or nullptr when none match. The transpiler drops the attributeType /

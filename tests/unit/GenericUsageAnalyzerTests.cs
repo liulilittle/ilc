@@ -268,6 +268,58 @@ public class GenericUsageAnalyzerTests
         Assert.False(InvokeTypeSpecCarriesMvar(ts.Md, ts.Token));
     }
 
+    //--------------------------------------------------------------------------
+    // G1 (array-argument cells): element-aware encoding + per-instance
+    // judgment. The SZARRAY (0x1D) generic-argument producers encode the
+    // element as a bracket token ("[int]" / "[string]" / "[Cases.Foo]" --
+    // the four-place ReadM3ArrayArg rule, MethodBodyReader.SimpleGenericArgSuffix
+    // is the local-kind authority), so Box<int[]> != Box<string[]>. An
+    // array-typed argument must NEVER be collapsed onto the shared "object"
+    // clone (element info would be lost -- net48 keeps distinct closed types).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void IsArrayArgToken_BracketTokens_Detected()
+    {
+        Assert.True(GenericUsageAnalyzer.IsArrayArgToken("[int]"));
+        Assert.True(GenericUsageAnalyzer.IsArrayArgToken("[string]"));
+        Assert.True(GenericUsageAnalyzer.IsArrayArgToken("[Cases.Foo]"));
+        Assert.False(GenericUsageAnalyzer.IsArrayArgToken("int"));
+        Assert.False(GenericUsageAnalyzer.IsArrayArgToken("Cases.Foo"));
+    }
+
+    [Fact]
+    public void CollapseInstantiation_ArrayArg_NotCollapsedToObject()
+    {
+        // Box`1 is in the share set, but an ARRAY argument is directed: the
+        // closure must stay per-instance (element-aware clone), never the
+        // shared "object" collapse.
+        GenericUsageAnalyzer.SharedGenericDefs = new HashSet<string>(StringComparer.Ordinal) { "Box`1" };
+        try
+        {
+            var args = new[] { "[int]" };
+            Assert.False(GenericUsageAnalyzer.CollapseInstantiation("Box`1", args));
+            Assert.Equal("[int]", args[0]); // token survives intact
+            var strArgs = new[] { "[string]" };
+            Assert.False(GenericUsageAnalyzer.CollapseInstantiation("Box`1", strArgs));
+        }
+        finally { GenericUsageAnalyzer.SharedGenericDefs = null; }
+    }
+
+    [Fact]
+    public void CollapseInstantiation_PlainRefArg_StillCollapses()
+    {
+        // Control: a NON-array reference argument (a user class) still
+        // collapses onto the shared object clone (the G1 guard is array-only).
+        GenericUsageAnalyzer.SharedGenericDefs = new HashSet<string>(StringComparer.Ordinal) { "Box`1" };
+        try
+        {
+            var args = new[] { "Cases.Shape" };
+            Assert.True(GenericUsageAnalyzer.CollapseInstantiation("Box`1", args));
+            Assert.Equal("object", args[0]);
+        }
+        finally { GenericUsageAnalyzer.SharedGenericDefs = null; }
+    }
+
     // A one-TypeSpec PE whose blob is the given signature bytes; disposable to
     // own the PEReader lifetime.
     private sealed class SynthTypeSpec : IDisposable

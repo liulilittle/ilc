@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
@@ -75,32 +75,35 @@ public class MethodMapMarshalMissingTests
     }
 
     //--------------------------------------------------------------------------
-    // GetTypeFromProgID(string) -> icall_marshal_get_type_from_prog_id (PNSE stub)
-    // CreateObject(string) -> icall_marshal_create_object (PNSE stub)
-    // Windows-only COM surface: the stubs throw PlatformNotSupportedException
-    // on every platform (ILC has no COM runtime).
+    // GetTypeFromProgID(string) -> il2cpp::il2cpp_com_type_from_progid
+    // CreateObject(string) -> il2cpp::runtime::icall_com_create_object
+    // The C1 (A1) split retires the r127 PNSE stubs: net48
+    // Marshal.GetTypeFromProgID == Type.GetTypeFromProgID (the COM Type VALUE
+    // sentinel string), and Marshal.CreateObject CoCreateInstance's the
+    // ProgID. Windows-only COM surface.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Marshal_GetTypeFromProgID_MapsToStubIcall()
+    public void Resolve_Marshal_GetTypeFromProgID_MapsToComTypeIcall()
     {
         var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "GetTypeFromProgID",
-            Sig(Ret(0x08), 0x0E)), "GetTypeFromProgID");
+            Sig(Ret(0x12, 0x05), 0x0E)), "GetTypeFromProgID");
 
-        Assert.Equal("il2cpp::runtime::icall_marshal_get_type_from_prog_id", m.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_com_type_from_progid", m.CppName);
         Assert.False(m.IsInstance);
         Assert.True(m.ReturnsValue);
-        Assert.False(m.ReturnsRef);
+        Assert.True(m.ReturnsRef);   // the sentinel name string
+        Assert.Equal("System.Type", m.ReturnTypeName);
         Assert.Equal(1, m.ParamCount);
         Assert.Equal(new[] { "s" }, m.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_Marshal_CreateObject_MapsToStubIcall()
+    public void Resolve_Marshal_CreateObject_MapsToComCreateIcall()
     {
         var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "CreateObject",
             Sig(Ret(0x12, 0x05), 0x0E)), "CreateObject");
 
-        Assert.Equal("il2cpp::runtime::icall_marshal_create_object", m.CppName);
+        Assert.Equal("il2cpp::runtime::icall_com_create_object", m.CppName);
         Assert.False(m.IsInstance);
         Assert.True(m.ReturnsValue);
         Assert.True(m.ReturnsRef);

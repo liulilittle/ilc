@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Marshal -- System.Runtime.InteropServices.Marshal static-method
@@ -68,8 +68,8 @@ public static partial class MethodRefResolver
     private static ResolvedMethod? TryMapMarshal(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string[]? genArgNames = null)
     {
-        // COM interop surface (net48 inventory §4 line 971: "23 个 COM 相关
-        // 建议 LOUD 拒绝"). The core RCW surface is now WIRED (com3, com.cpp):
+        // COM interop surface (net48 inventory 搂4 line 971: "23 涓?COM 鐩稿叧
+        // 寤鸿 LOUD 鎷掔粷"). The core RCW surface is now WIRED (com3, com.cpp):
         // GetActiveObject / GetIUnknownForObject / GetObjectForIUnknown /
         // ReleaseComObject (below) + IsComObject (marshal-b23) map to real
         // runtime icalls (il2cpp_com.h, namespace il2cpp::runtime). The
@@ -112,7 +112,7 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_pinvoke_string_from_utf8", 1, true, true, false, new[] { "p" });
             // string PtrToStringUni(IntPtr): WF-M1 (2026-08-07) -- the UTF-16
             // decode helper now exists (il2cpp_pinvoke_ext.h:134
-            // il2cpp_pinvoke_string_from_utf16, wfm1 report §1). The IntPtr
+            // il2cpp_pinvoke_string_from_utf16, wfm1 report 搂1). The IntPtr
             // carrier reaches the const char16_t* param via the "p16" cast
             // code (CG-FIX must add it to EmitIcallCallArgs -- the "p" cast
             // is const char* only; "p16" is its char16_t twin).
@@ -206,7 +206,7 @@ public static partial class MethodRefResolver
                     new[] { "s" }, "ptr");
             // IntPtr StringToHGlobalUni(string): WF-M1 (2026-08-07) -- the
             // hglobal icall form now exists (il2cpp_pinvoke_ext.h:177
-            // il2cpp_pinvoke_string_to_utf16_hglobal, wfm1 report §1): returns
+            // il2cpp_pinvoke_string_to_utf16_hglobal, wfm1 report 搂1): returns
             // intptr_t (IntPtr.Zero on null) -- "ptr" result kind, so the
             // result temp is intptr_t with no emitter return cast. The string
             // arg reaches the Il2CppString* param via the "s" cast. The
@@ -443,6 +443,15 @@ public static partial class MethodRefResolver
                 if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
                 return I("il2cpp::runtime::icall_com_get_iunknown_for_object", 1, true, false, false,
                     new[] { "" }, "ptr");
+            //   IntPtr GetIDispatchForObject(object o): the C2 (A2) split moves
+            //   the member out of the COM LOUD set (kComMarshalMembers) -- the
+            //   runtime icall exists (com.cpp: QI the RCW for IDispatch / a
+            //   fresh CCW otherwise, AddRef'd, the caller must Release). Same
+            //   IntPtr-carrier "ptr" shape as GetIUnknownForObject.
+            case "GetIDispatchForObject":
+                if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
+                return I("il2cpp::runtime::icall_com_get_idispatch_for_object", 1, true, false, false,
+                    new[] { "" }, "ptr");
             //   IntPtr GetComInterfaceForObject(object o, Type T): exposes the
             //   object's native interface pointer for T (AddRef'd -- the
             //   caller must Release). The managed Type -> IID resolution
@@ -475,19 +484,25 @@ public static partial class MethodRefResolver
                 if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
                 return I("il2cpp::runtime::icall_com_release_com_object", 1, true, false, false,
                     new[] { "" });
-            // ---- com6: GetTypeFromProgID / CreateObject (r127 PNSE stubs) --
-            //   int GetTypeFromProgID(string progID): resolve ProgID -> CLSID.
-            //   The stub (marshalext4.cpp) throws PlatformNotSupportedException
-            //   (ILC has no COM runtime). Windows-only surface.
+            // ---- com6: GetTypeFromProgID / CreateObject -- the C1 (A1) split
+            // from the r127 PNSE stubs to the REAL COM runtime (net48:
+            // Marshal.GetTypeFromProgID == Type.GetTypeFromProgID, and
+            // Marshal.CreateObject CoCreateInstance's the ProgID). Windows =
+            // full implementation; POSIX = the documented stub throw.
+            //   Type GetTypeFromProgID(string progID): resolve ProgID -> CLSID
+            //   and return the COM Type VALUE string "COMCLSID:<32hex>"
+            //   (il2cpp_com.h -- the same Type icall Type.GetTypeFromProgID
+            //   maps to). Null progID -> ArgumentNullException; unregistered
+            //   ProgID -> COMException (REGDB_E_CLASSNOTREG).
             case "GetTypeFromProgID":
                 if (ps.Length != 1 || ps[0] != 0x0E) return null;
-                return I("il2cpp::runtime::icall_marshal_get_type_from_prog_id", 1, true, false, false,
-                    new[] { "s" });
+                return I("il2cpp::runtime::il2cpp_com_type_from_progid", 1, true, true, false,
+                    new[] { "s" }, returnTypeName: "System.Type");
             //   object CreateObject(string progID): CoCreateInstance by ProgID
-            //   wrapped into an RCW. The stub throws PNSE (no COM runtime).
+            //   wrapped into an RCW (icall_com_create_object, com.cpp).
             case "CreateObject":
                 if (ps.Length != 1 || ps[0] != 0x0E) return null;
-                return I("il2cpp::runtime::icall_marshal_create_object", 1, true, true, false,
+                return I("il2cpp::runtime::icall_com_create_object", 1, true, true, false,
                     new[] { "s" });
             // int GetExceptionCode(): x86-only SEH query -- ILC has no SEH in
             // the fully managed context, the runtime always returns 0.
@@ -602,7 +617,6 @@ public static partial class MethodRefResolver
         "CreateWrapperOfType",
         "FinalReleaseComObject",
         "GetComInterfaceForObjectInContext",
-        "GetIDispatchForObject",
         "GetIDispatchForObjectInContext",
         "GetIUnknownForObjectInContext",
         "GetITypeInfoForType",
@@ -620,7 +634,7 @@ public static partial class MethodRefResolver
         "InitWrapper",
         "IsTypeVisibleFromCom",
         "Release",
-        // Internal *Native/*Internal icall variants (public wrapper承繼)
+        // Internal *Native/*Internal icall variants (public wrapper鎵跨辜)
         "FCallGenerateGuidForType",
         "FCallGetTypeInfoGuid",
         "FCallGetTypeLibGuid",

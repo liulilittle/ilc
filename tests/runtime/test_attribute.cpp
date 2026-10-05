@@ -20,6 +20,7 @@
 #include "attribute.h"
 
 #include "il2cpp_metadata.h"
+#include "il2cpp_runtime.h"  // il2cpp_class_register (R4 _ex_named klass resolution)
 #include "il2cpp_string.h" // il2cpp_string_new_from_utf8 (managed-string ABI)
 
 #include <cstdio>
@@ -60,6 +61,35 @@ il2cpp::Il2CppObject attrC = {&otherClass};
 
 il2cpp::Il2CppObject* annotatedAttrs[2] = {&attrA, &attrB};
 il2cpp::Il2CppObject* thirdAttrs[1] = {&attrC};
+
+//------------------------------------------------------------------------------
+// R4 (B3) fixture: a base-derived CHAIN (the inheritance walk target) plus two
+// attribute classes (the attributeType filter + AttributeUsage keys). The
+// _ex_named primitives resolve names via il2cpp_class_by_name, so each
+// descriptor is class-REGISTERED in main(). Layout:
+//
+//   T.Tagged  (attribute class -- 'Tagged' attribute instances)
+//   T.DerivedAttr (attribute class deriving T.Tagged -- filter assignability)
+//   T.Base    (annotated: baseAttrs = {baseTagInstance})
+//   T.Derived (derives T.Base; annotated: derivedAttrs = {derivedTagInstance})
+//------------------------------------------------------------------------------
+il2cpp::Il2CppClass taggedClass = {
+    "T.Tagged", 16, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+};
+il2cpp::Il2CppClass derivedAttrClass = {
+    "T.DerivedAttr", 16, 0u, 0, &taggedClass, nullptr, 0, nullptr, 0,
+};
+il2cpp::Il2CppClass baseChainClass = {
+    "T.Base", 16, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+};
+il2cpp::Il2CppClass derivedChainClass = {
+    "T.Derived", 16, 0u, 0, &baseChainClass, nullptr, 0, nullptr, 0,
+};
+
+il2cpp::Il2CppObject baseTag = {&taggedClass};
+il2cpp::Il2CppObject derivedTag = {&derivedAttrClass};
+il2cpp::Il2CppObject* baseAttrs[1] = {&baseTag};
+il2cpp::Il2CppObject* derivedAttrs[1] = {&derivedTag};
 
 } // namespace
 
@@ -113,6 +143,96 @@ int main()
                "get_single_named unregistered type -> nullptr");
         Expect(il2cpp_attribute_get_single_named(reinterpret_cast<Il2CppObject*>(msNull)) == nullptr,
                "get_single_named null typeName -> nullptr");
+    }
+
+    // --- R4 (B3): the net48-semantics _ex_named primitives (attributeType
+    // filter + inherit inheritance walk + AttributeUsage rules). The names
+    // resolve through il2cpp_class_by_name, so the chain descriptors are
+    // class-registered first.
+    il2cpp::il2cpp_class_register(&taggedClass);
+    il2cpp::il2cpp_class_register(&derivedAttrClass);
+    il2cpp::il2cpp_class_register(&baseChainClass);
+    il2cpp::il2cpp_class_register(&derivedChainClass);
+    il2cpp::runtime::il2cpp_attribute_register("T.Base", baseAttrs, 1);
+    il2cpp::runtime::il2cpp_attribute_register("T.Derived", derivedAttrs, 1);
+    {
+        auto msDerived = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_utf8("T.Derived"));
+        auto msBase = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_utf8("T.Base"));
+        auto msTagged = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_utf8("T.Tagged"));
+        auto msDerivedAttr = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_utf8("T.DerivedAttr"));
+        auto msUnknown = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_utf8("T.Never"));
+
+        // Own type only (inherit = 0): the derived's own attribute.
+        Il2CppArray* ownOnly = il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(
+            msDerived, nullptr, 0);
+        Expect(ownOnly != nullptr && ownOnly->length == 1 &&
+                   *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(ownOnly, 0)) == &derivedTag,
+               "R4 get_custom_ex_named inherit=0 own type only");
+
+        // Inherit = 1: the base's attribute joins (most-derived first).
+        Il2CppArray* inherited = il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(
+            msDerived, nullptr, 1);
+        Expect(inherited != nullptr && inherited->length == 2 &&
+                   *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(inherited, 0)) == &derivedTag &&
+                   *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(inherited, 1)) == &baseTag,
+               "R4 get_custom_ex_named inherit=1 walks the base chain (most-derived first)");
+
+        // Base type's own query: only the base attribute.
+        Il2CppArray* baseOnly = il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(
+            msBase, nullptr, 1);
+        Expect(baseOnly != nullptr && baseOnly->length == 1 &&
+                   *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(baseOnly, 0)) == &baseTag,
+               "R4 get_custom_ex_named base type own attribute only");
+
+        // attributeType filter: T.DerivedAttr matches the DERIVED attribute
+        // (assignability -- derivedAttr derives tagged), and the BASE attr
+        // (a T.Tagged instance) does NOT match T.DerivedAttr.
+        Il2CppArray* filtered = il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(
+            msDerived, msDerivedAttr, 1);
+        Expect(filtered != nullptr && filtered->length == 1 &&
+                   *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(filtered, 0)) == &derivedTag,
+               "R4 attributeType filter keeps only assignable matches");
+
+        // attributeType filter by base: T.Tagged matches BOTH (baseTag is a
+        // T.Tagged instance, derivedTag derives T.Tagged).
+        Il2CppArray* taggedFiltered = il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(
+            msDerived, msTagged, 1);
+        Expect(taggedFiltered != nullptr && taggedFiltered->length == 2,
+               "R4 attributeType base filter keeps derived + base instances");
+
+        // Unresolvable attributeType -> empty array (matches nothing).
+        Il2CppArray* unknownFilter = il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(
+            msDerived, msUnknown, 1);
+        Expect(unknownFilter != nullptr && unknownFilter->length == 0,
+               "R4 unresolvable attributeType -> empty array");
+
+        // Unregistered element type -> empty array (never null).
+        Il2CppArray* unregElem = il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(
+            msUnknown, nullptr, 1);
+        Expect(unregElem != nullptr && unregElem->length == 0,
+               "R4 unregistered element type -> empty array");
+
+        // Null element -> ArgumentNullException (net48).
+        bool nre = false;
+        try
+        {
+            (void)il2cpp::runtime::il2cpp_attribute_get_custom_ex_named(nullptr, msTagged, 1);
+        }
+        catch (const il2cpp::DotNetException& e)
+        {
+            nre = il2cpp::il2cpp_exception_matches("System.ArgumentNullException", e.type_name()) != 0;
+        }
+        Expect(nre, "R4 get_custom_ex_named null element -> ArgumentNullException");
+
+        // Singular mirror: first match most-derived-first; filtered result.
+        Expect(il2cpp::runtime::il2cpp_attribute_get_single_ex_named(msDerived, nullptr, 0) == &derivedTag,
+               "R4 get_single_ex_named inherit=0 -> own first");
+        Expect(il2cpp::runtime::il2cpp_attribute_get_single_ex_named(msDerived, msDerivedAttr, 1) == &derivedTag,
+               "R4 get_single_ex_named filtered -> the only match");
+        Expect(il2cpp::runtime::il2cpp_attribute_get_single_ex_named(msDerived, msUnknown, 1) == nullptr,
+               "R4 get_single_ex_named unresolvable filter -> null");
+        Expect(il2cpp::runtime::il2cpp_attribute_get_single_ex_named(msBase, msDerivedAttr, 1) == nullptr,
+               "R4 get_single_ex_named base with derived filter -> null (no match)");
     }
 
     // --- 2. unregistered type -> empty query ---
@@ -194,9 +314,10 @@ int main()
             capAttr[i].klass = &capClasses[i];
             capAttrPtrs[i] = &capAttr[i];
         }
-        // Fill the registry to capacity (30 fills the 30 free slots).
+        // Fill the registry to capacity (28 fills the 28 free slots -- the
+        // live entries are T.Annotated/T.Third + the R4 T.Base/T.Derived).
         int32_t ok = 1;
-        for (int32_t i = 0; i < 30; ++i)
+        for (int32_t i = 0; i < 28; ++i)
         {
             ok = il2cpp_attribute_register(capNames[i], &capAttrPtrs[i], 1);
             if (ok != 1)
@@ -204,22 +325,22 @@ int main()
                 break;
             }
         }
-        Expect(ok == 1, "30 unique registrations fill the remaining capacity");
-        Expect(il2cpp_attribute_register(capNames[30], &capAttrPtrs[30], 1) == 0,
-               "31st unique registration rejected at capacity -> 0");
-        Expect(il2cpp_attribute_register(capNames[31], &capAttrPtrs[31], 1) == 0,
-               "32nd unique registration rejected at capacity -> 0");
+        Expect(ok == 1, "28 unique registrations fill the remaining capacity");
+        Expect(il2cpp_attribute_register(capNames[28], &capAttrPtrs[28], 1) == 0,
+               "29th unique registration rejected at capacity -> 0");
+        Expect(il2cpp_attribute_register(capNames[29], &capAttrPtrs[29], 1) == 0,
+               "30th unique registration rejected at capacity -> 0");
         // Re-registering an existing entry still succeeds at capacity
         // (replacement consumes no new slot).
         Expect(il2cpp_attribute_register(capNames[0], &capAttrPtrs[0], 1) == 1,
                "re-register existing type at capacity -> 1");
         {
             int32_t count = -1;
-            Expect(il2cpp_attribute_get_custom(&capClasses[29], &count) != nullptr &&
+            Expect(il2cpp_attribute_get_custom(&capClasses[27], &count) != nullptr &&
                        count == 1,
                    "last accepted entry still queryable");
-            Expect(il2cpp_attribute_get_custom(&capClasses[30], &count) == nullptr,
-                   "rejected 31st entry not queryable");
+            Expect(il2cpp_attribute_get_custom(&capClasses[28], &count) == nullptr,
+                   "rejected 29th entry not queryable");
         }
     }
 

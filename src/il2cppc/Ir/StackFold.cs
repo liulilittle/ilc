@@ -2583,9 +2583,11 @@ public static class StackFold
                 // hint came from (only the marker shape gets the direct
                 // value-type ToString fold below).
                 string? constrainedRecvType = null;
+                int constrainedToken = -1; // the constrained. TypeToken operand (for the value-receiver box)
                 if (md != null && recvType == null
                     && prevIns is { OpCode: ILOpCode.Nop, OperandKind: IlOperandKind.TypeToken } constrainedMarker)
                 {
+                    constrainedToken = (int)constrainedMarker.Operand;
                     var cHandle = MetadataTokens.Handle((int)constrainedMarker.Operand);
                     // TypeSpecification markers (generic VAR, e.g. constrained.
                     // !0 on <>f__AnonymousType0<T>.ToString): resolve through
@@ -2762,6 +2764,25 @@ public static class StackFold
                 // hint-less first pass (resolved from the 2230 call) is a legal
                 // deferral -- this check runs after every remap had its chance.
                 resolved = MethodRefResolver.RequireResolvable(md, (int)ins.Operand, resolved);
+
+                // G2 (D3, constrained VALUE clone): a constrained callvirt on a
+                // VALUE-typed generic parameter (`PairCon<T1,T2>.Cmp(T1 a)` with
+                // T1=int -- the DEF body / per-instance clone) has an ADDRESS
+                // receiver (csc emits `ldarga.s`). The lowered BCL interface
+                // icall il2cpp_icomparable_compare_to takes the BOXED object
+                // (Il2CppObject*); net48 `constrained.` boxes the value receiver
+                // before the interface call. Box the value at the address --
+                // mirror of the `box !0` IL the ARGUMENT already takes (the
+                // emitter's box_{token} arm picks the value-width box by the
+                // concrete clone arg).
+                if (resolved != null && resolved.CppName == "il2cpp::il2cpp_icomparable_compare_to"
+                    && constrainedToken >= 0 && args.Count > 0 && args[0] is LocAddrExpr vRecvAddr)
+                {
+                    var boxedRecv = new CallExpr { Function = $"box_{constrainedToken}", ReturnsRef = true };
+                    boxedRecv.Args.Add(new LocExpr { Name = vRecvAddr.Name });
+                    args[0] = boxedRecv;
+                    arg0IsAddr = false;
+                }
 
                 // constrained. VALUE-TYPE ToString (guidcase): even with the
                 // constrained receiver hint, the Object-owner MemberRef
@@ -4394,6 +4415,10 @@ public static class StackFold
             "string" => "System.String",
             "object" => "System.Object",
             "array" => "System.Array",
+            // G1 (C1): an array-argument token "[<elementSuffix>]" decodes to
+            // the managed ARRAY type name (recursion maps the element).
+            var t when t.Length >= 2 && t[0] == '[' && t[^1] == ']'
+                => SuffixToManagedTypeName(t[1..^1]) + "[]",
             _ => suffix, // user class args already carry their full name
         };
 
@@ -4416,7 +4441,20 @@ public static class StackFold
             var b = sig.ReadByte();
             if (b == 0x13) // VAR (single instantiation: T -> int32)
             {
-                _ = sig.ReadCompressedInteger();
+                var vIdx = sig.ReadCompressedInteger();
+                // R1/B1: inside a CLONE body the InstantiationSuffixHint carries
+                // the closed argument (CodeGenerator sets it per body pass, see
+                // the ConstrainedRecvFullName precedent) -- typeof(T) on a
+                // cloned generic argument resolution through the hint instead of
+                // the hardcoded Int32. Outside a body (definition / hint null)
+                // the historical M3 single-instantiation default holds.
+                var hint = MethodRefResolver.InstantiationSuffixHint;
+                if (hint != null)
+                {
+                    var parts = hint.Split('_');
+                    if (vIdx < parts.Length)
+                        return SuffixToManagedTypeName(parts[vIdx]);
+                }
                 return "System.Int32";
             }
             if (b == 0x15) // GENERICINST
@@ -4595,7 +4633,7 @@ public static class StackFold
                  0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref s),
                  0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref s),
                 0x1C => "object",
-                0x1D => "array",
+                0x1D => ReadM3ArrayArg(md, ref s),
                 0x15 => ReadM3NestedGeneric(md, ref s),
                 // B2/B5 (boxunbox/generics): an OPEN TypeSpec arg (VAR 0x13 +
                 // index, e.g. `this.item` parented on Box<T> inside a generic
@@ -4613,6 +4651,27 @@ public static class StackFold
         {
             s.ReadCompressedInteger(); // VAR index byte follows 0x13
             return MethodRefResolver.InstantiationSuffixHint ?? "int";
+        }
+
+        // G1 (C1): an SZARRAY (0x1D) generic argument -- element-aware
+        // "[<elementSuffix>]" token (see CodeGenerator.ReadM3ArrayArg; this is
+        // the StackFold mirror of the four-place rule). Simple element shapes
+        // decode through ReadM3Arg; complex shapes consume the payload and keep
+        // the historical "array" token (shared-object fallback).
+        static string ReadM3ArrayArg(MetadataReader md, ref BlobReader s)
+        {
+            var elem = MethodSignatureCoder.SkipCustomModifiers(ref s, s.ReadByte());
+            switch (elem)
+            {
+                case 0x02: case 0x03: case 0x04: case 0x05: case 0x06: case 0x07:
+                case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D:
+                case 0x0E: case 0x1C:
+                case 0x11: case 0x12:
+                    return "[" + ReadM3Arg(md, ref s, elem) + "]";
+                default:
+                    _ = ReadM3Arg(md, ref s, elem); // consume the element payload
+                    return "array";
+            }
         }
 
         static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader s)

@@ -42,6 +42,7 @@
 
 #include "il2cpp_metadata.h" // Il2CppClass
 #include "il2cpp_object.h"   // Il2CppObject (managed-string ABI queries)
+#include "il2cpp_array.h"    // Il2CppArray (R2 member-enumeration results)
 
 namespace il2cpp {
 
@@ -180,5 +181,65 @@ const Il2CppFieldInfo*    il2cpp_type_get_field(const Il2CppTypeInfo* info, cons
 Il2CppObject* il2cpp_typeinfo_get_property(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* memberName);
+
+//------------------------------------------------------------------------------
+// R2 (B2) -- member ENUMERATION icalls. Each returns an Il2CppArray* of
+// member-NAME managed strings (the simplified member model -- a member VALUE
+// is its name string, the same carrier the single-member queries return).
+//   GetMethods      : own + base-chain method tables, public only (bit0)
+//   GetFields       : own + base-chain field tables, public only (bit0)
+//   GetProperties   : own + base-chain property tables (no flags field --
+//                     all properties, documented simplification)
+//   GetConstructors : own + base-chain method tables, public + ctor (bit2)
+//   GetInterfaces   : own + base-chain interface lists (type name strings)
+// A null / malformed / unregistered typeName -> an EMPTY array (net48
+// returns an empty array, never null).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_methods(Il2CppObject* typeName);
+Il2CppArray* il2cpp_typeinfo_get_fields(Il2CppObject* typeName);
+Il2CppArray* il2cpp_typeinfo_get_properties(Il2CppObject* typeName);
+Il2CppArray* il2cpp_typeinfo_get_constructors(Il2CppObject* typeName);
+Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName);
+
+//------------------------------------------------------------------------------
+// R2 (B2) -- FieldInfo.GetValue/SetValue narrow set (int32/int64/string/
+// object; slot width dispatched by the field's typeName). The receiver is
+// the FIELD-NAME string; the declaring type is joined from the TARGET
+// object's klass (il2cpp_typeinfo_lookup_by_class) and the field is found in
+// the own + base-chain tables (public only, net48 default binding).
+//   GetValue -> the boxed value (int32/int64 via the box carriers; string/
+//               object returned as the reference itself).
+//   SetValue -> writes through the box payload (int32/int64) or the
+//               reference slot (string/object).
+// Null target -> NullReferenceException (net48 instance-field doctrine; the
+// static-field-with-null-target case has no klass to join -- documented
+// deviation). Unknown field / unreflected type -> nullptr / no-op per the
+// defensive query convention.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_field_get_value(Il2CppObject* fieldName, Il2CppObject* target);
+void         il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObject* target,
+                                             Il2CppObject* value);
+
+//------------------------------------------------------------------------------
+// R3 (B4) -- MethodInfo.Invoke: il2cpp_methodinfo_invoke(memberName, target,
+// object[] args). The receiver is the METHOD-NAME string (the simplified
+// member model -- a member VALUE is its name string); the declaring type is
+// joined from the TARGET object's klass (il2cpp_typeinfo_lookup_by_class;
+// a class-descriptor target is accepted too) and the method is resolved in
+// the own + base-chain tables by NAME + paramCount (the object[] length --
+// the invoker's argCount). Dispatch goes through il2cpp_invoker_invoke
+// (invoker.h) with the object[] args unboxed by the resolved signature's
+// slot kinds; the result is boxed by the signature's return kind (int32/
+// int64/double/reference; void -> null). No object creation.
+//   Unknown member / unreflected type / arity mismatch / bad signature ->
+//     nullptr (defensive).
+//   Null target -> NullReferenceException (net48 instance doctrine).
+//   Ambiguous name + paramCount -> LOUD AmbiguousMatchException.
+//   fnPtr == null (trimmed / abstract / interface) -> LOUD
+//     NotSupportedException (runtime-unreachable, checked for every method
+//     bearing the requested name regardless of arity -- committed shape).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* target,
+                                       Il2CppArray* args);
 
 } // namespace il2cpp

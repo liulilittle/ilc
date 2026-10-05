@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // test_com.cpp -- COM interop runtime unit tests (see il2cpp_com.h).
 //
 // Coverage (normal + edge + error paths):
@@ -222,6 +222,7 @@
 
 #include "il2cpp_exception.h"
 #include "il2cpp_gchandle.h"
+#include "il2cpp_boxing_ext.h" // C2 (A2): icall_box_double / icall_unbox_double
 #include "il2cpp_runtime.h"
 #include "il2cpp_streamio.h"
 #include "il2cpp_string.h"
@@ -1236,7 +1237,7 @@ int main()
 
     // Reset (slot 5) rewinds the cursor; a partial fetch at the end returns
     // S_FALSE but STILL writes the fetched items and pceltFetched (the
-    // documented IEnumVARIANT contract -- "S_FALSE 仍写 pceltFetched").
+    // documented IEnumVARIANT contract -- "S_FALSE 浠嶅啓 pceltFetched").
     NativeEnumResetFn enumReset =
         reinterpret_cast<NativeEnumResetFn>(const_cast<void*>(ComVtable(enumView)[kComEnumSlotReset]));
     Expect(enumReset(reinterpret_cast<void*>(enumView)) == kComHrOk,
@@ -1606,6 +1607,86 @@ int main()
            "CreateObject(null) -> ArgumentNullException");
     Expect(ThrowsDotNet([&] { (void)icall_com_get_type_from_progid(nullptr, clsid); }, kArgumentNull),
            "GetTypeFromProgID(null) -> ArgumentNullException");
+
+    //------------------------------------------------------------------------
+    // C1 (A1): the COM Type VALUE sentinel chain -- Type.GetTypeFromProgID /
+    // GetTypeFromCLSID produce the "COMCLSID:<32hex>" Type-value string, and
+    // Activator.CreateInstance decodes it back to CoCreateInstance into an RCW.
+    //------------------------------------------------------------------------
+    // The sentinel from a ProgID must match the CLSID the existing CLSID
+    // resolution wrote ('clsid' above) -- one identity, two encodings.
+    il2cpp::Il2CppObject* typeProgId = il2cpp_com_type_from_progid(
+        reinterpret_cast<il2cpp::Il2CppString*>(il2cpp::il2cpp_string_new_from_cs("Shell.Application")));
+    Expect(typeProgId != nullptr, "C1: com_type_from_progid(\"Shell.Application\") returns the sentinel");
+    auto* sentinelStr = reinterpret_cast<il2cpp::Il2CppString*>(typeProgId);
+    Expect(sentinelStr->length == 41, "C1: the sentinel length is 41 (9 prefix + 32 hex)");
+    bool sentinelOk = sentinelStr->length == 41;
+    if (sentinelOk)
+    {
+        const char16_t* cs = sentinelStr->chars;
+        sentinelOk = cs[0] == 'C' && cs[1] == 'O' && cs[2] == 'M' && cs[3] == 'C' &&
+                     cs[4] == 'L' && cs[5] == 'S' && cs[6] == 'I' && cs[7] == 'D' &&
+                     cs[8] == ':';
+        // The 32 hex chars must decode back to the same 16 CLSID bytes the
+        // existing icall_com_get_type_from_progid wrote above.
+        for (int32_t i = 0; sentinelOk && i < 16; ++i)
+        {
+            auto nibble = [](char16_t c) -> int32_t
+            {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                return -1;
+            };
+            const int32_t hi = nibble(cs[9 + i * 2]);
+            const int32_t lo = nibble(cs[9 + i * 2 + 1]);
+            sentinelOk = sentinelOk && hi >= 0 && lo >= 0 &&
+                         static_cast<uint8_t>((hi << 4) | lo) == clsid[i];
+        }
+    }
+    Expect(sentinelOk, "C1: the sentinel hex decodes to the same CLSID as the ProgID");
+
+    // GetTypeFromCLSID (pure formatting) must produce the SAME sentinel string
+    // for the same 16 CLSID bytes.
+    il2cpp::Il2CppObject* typeClsid = il2cpp_com_type_from_clsid(clsid);
+    Expect(typeClsid != nullptr, "C1: com_type_from_clsid returns the sentinel");
+    auto* clsidStr = reinterpret_cast<il2cpp::Il2CppString*>(typeClsid);
+    Expect(clsidStr->length == 41 &&
+               std::memcmp(clsidStr->chars, sentinelStr->chars,
+                           static_cast<size_t>(41) * sizeof(char16_t)) == 0,
+           "C1: GetTypeFromCLSID(CLSID) == GetTypeFromProgID(ProgID) sentinel (one encoding)");
+    Expect(ThrowsDotNet([&] { (void)il2cpp_com_type_from_clsid(nullptr); }, kArgumentNull),
+           "C1: com_type_from_clsid(null) -> ArgumentNullException");
+
+    // An unregistered ProgID -> NULL (net48 GetTypeFromProgID(string) is the
+// throwOnError=false convenience overload -- the C1 miss contract).
+    il2cpp::Il2CppObject* badType = il2cpp_com_type_from_progid(
+        reinterpret_cast<il2cpp::Il2CppString*>(il2cpp::il2cpp_string_new_from_cs("ILC.No.Such.ProgID.9f3e7c21")));
+    Expect(badType == nullptr,
+           "C1: com_type_from_progid(unregistered) -> null (net48 throwOnError=false)");
+    Expect(ThrowsDotNet([&] { (void)il2cpp_com_type_from_progid(nullptr); }, kArgumentNull),
+           "C1: com_type_from_progid(null) -> ArgumentNullException");
+
+    // Activator.CreateInstance on the sentinel: CoCreateInstance + RCW wrap.
+    il2cpp::Il2CppObject* activated = icall_com_create_instance_from_com_type(typeProgId);
+    Expect(activated != nullptr && icall_com_is_com_object(activated) == true,
+           "C1: create_instance_from_com_type(sentinel) -> an RCW");
+    Expect(icall_com_release_com_object(activated) == 0,
+           "C1: the activated RCW releases to 0");
+    // A zero CLSID sentinel CoCreateInstance's nothing -> COMException.
+    uint8_t zeroClsid[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    il2cpp::Il2CppObject* zeroType = il2cpp_com_type_from_clsid(zeroClsid);
+    Expect(ThrowsDotNet([&] {
+               (void)icall_com_create_instance_from_com_type(zeroType);
+           }, kComException),
+           "C1: create_instance_from_com_type(zero CLSID) -> COMException");
+    // A non-sentinel type name -> ArgumentException (LOUD, never a silent miss).
+    Expect(ThrowsDotNet([&] {
+               (void)icall_com_create_instance_from_com_type(
+                   reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("System.Int32")));
+           }, kArgumentException),
+           "C1: create_instance_from_com_type(non-sentinel) -> ArgumentException");
+    Expect(ThrowsDotNet([&] { (void)icall_com_create_instance_from_com_type(nullptr); }, kArgumentNull),
+           "C1: create_instance_from_com_type(null) -> ArgumentNullException");
 
     //------------------------------------------------------------------------
     // 8. IDispatch (Windows): the RCW-direction icalls forward through the
@@ -2815,7 +2896,7 @@ int main()
     icall_com_bstr_free(embBstr);
 
     // Unicode: a non-ASCII BMP string round-trips byte-identically.
-    const char16_t uni[4] = { 0x4E2D, 0x6587, 0x00E9, 0x00E8 }; // 中文 + é + è
+    const char16_t uni[4] = { 0x4E2D, 0x6587, 0x00E9, 0x00E8 }; // 涓枃 + 茅 + 猫
     il2cpp::Il2CppString* uniStr = il2cpp::il2cpp_string_new(uni, 4);
     const intptr_t uniBstr = icall_com_bstr_from_string(uniStr);
     Expect(uniBstr != 0, "StringToBSTR(Unicode) returns a non-zero BSTR");
@@ -4290,6 +4371,86 @@ int main()
                "23: releasing the registered CCW balances to 0");
     }
 
+    //------------------------------------------------------------------------
+    // C2 (A2): icall_com_invoke_member -- the ONE-CALL late-bound member
+    // invocation (Type.InvokeMember on a COM RCW). Driven against an RCW that
+    // WRAPS A CCW (the IAutoScale automation surface): get_iunknown_for_object
+    // (autoObj) returns the CCW's IUnknown; get_object_for_iunknown wraps it
+    // into an RCW. invoke_member then QIs the RCW for IDispatch (the CCW's
+    // IDispatch) and dispatches deterministically through the managed
+    // implementation -- the full protocol shape: GetIDsOfNames -> DISPPARAMS
+    // (reverse rgvarg) -> Invoke -> result decode.
+    //------------------------------------------------------------------------
+    {
+        il2cpp::Il2CppObject* autoObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(autoObj);
+        auto* autoView = reinterpret_cast<WfAutoScale*>(autoObj);
+        autoView->RateResultInt = 7;
+        const intptr_t autoCcw2 = icall_com_ccw_create(autoObj);
+        Expect(autoCcw2 != 0 &&
+               icall_com_ccw_register_invoke_dispatch(autoCcw2, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk,
+               "C2: ccw_create + register_invoke_dispatch (IAutoScale)");
+        // Wrap the REGISTERED CCW's IUnknown into an RCW (get_object_for_iunknown
+        // takes ownership of the CCW's single reference) -- get_iunknown_for_object
+        // would create a FRESH CCW (no invoke dispatch), so the RCW must use the
+        // pointer we just registered.
+        il2cpp::Il2CppObject* invRcw = icall_com_get_object_for_iunknown(autoCcw2);
+        Expect(icall_com_is_com_object(invRcw) == true,
+               "C2: the CCW is wrapped into an RCW");
+
+        // Method with (double, string) args: Scale(2.5, "auto") -> VT_R8 +
+        // VT_BSTR (reverse rgvarg). The result is VT_EMPTY (void) -> null.
+        il2cpp::Il2CppArray* scaleArgs = il2cpp::il2cpp_array_new(nullptr, 8, true, 2);
+        auto* scaleSlots = reinterpret_cast<il2cpp::Il2CppObject**>(scaleArgs->data);
+        scaleSlots[0] = reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::runtime::icall_box_double(2.5));
+        scaleSlots[1] = reinterpret_cast<il2cpp::Il2CppObject*>(MakeManagedString("auto"));
+        il2cpp::Il2CppObject* scaleRet = icall_com_invoke_member(
+            invRcw, MakeManagedString("Scale"), scaleArgs);
+        Expect(scaleRet == nullptr && autoView->ScaleCount == 1 &&
+               autoView->LastFactorInt == 2 &&
+               autoView->LastLabel != nullptr &&
+               reinterpret_cast<il2cpp::Il2CppString*>(autoView->LastLabel)->length == 4,
+               "C2: InvokeMember(Scale, VT_R8 2.5 + VT_BSTR \"auto\") dispatched");
+
+        // Method with a (double) arg and a VT_R8 RESULT: Rate(3.0) -> 21.0.
+        il2cpp::Il2CppArray* rateArgs = il2cpp::il2cpp_array_new(nullptr, 8, true, 1);
+        auto* rateSlots = reinterpret_cast<il2cpp::Il2CppObject**>(rateArgs->data);
+        rateSlots[0] = reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::runtime::icall_box_double(3.0));
+        il2cpp::Il2CppObject* rateRet = icall_com_invoke_member(
+            invRcw, MakeManagedString("Rate"), rateArgs);
+        Expect(rateRet != nullptr &&
+               il2cpp::runtime::icall_unbox_double(rateRet) == 21.0,
+               "C2: InvokeMember(Rate, 3.0) returns the boxed double 21.0");
+
+        // Propertyget with NO args: ScaleCountProp -> the boxed int32 (VT_I4).
+        il2cpp::Il2CppObject* propRet = icall_com_invoke_member(
+            invRcw, MakeManagedString("ScaleCountProp"), nullptr);
+        Expect(propRet != nullptr && il2cpp::il2cpp_unbox_int32(propRet) == 1,
+               "C2: InvokeMember(ScaleCountProp, propertyget) returns the boxed int32");
+
+        // An unknown member -> COMException (DISP_E_MEMBERNOTFOUND).
+        Expect(ThrowsDotNet([&] {
+                   (void)icall_com_invoke_member(
+                       invRcw, MakeManagedString("NoSuchMemberXYZ"), nullptr);
+               }, kComException),
+               "C2: InvokeMember(unknown member) -> COMException");
+
+        // null name -> ArgumentNullException; a non-RCW rcw -> ArgumentException.
+        Expect(ThrowsDotNet([&] {
+                   (void)icall_com_invoke_member(invRcw, nullptr, nullptr);
+               }, kArgumentNull),
+               "C2: InvokeMember(null name) -> ArgumentNullException");
+        Expect(ThrowsDotNet([&] {
+                   (void)icall_com_invoke_member(reinterpret_cast<il2cpp::Il2CppObject*>(MakeManagedString("x")), MakeManagedString("Scale"), nullptr);
+               }, kArgumentException),
+               "C2: InvokeMember(non-RCW rcw) -> ArgumentException");
+
+        // Balance: the RCW owns the CCW's single reference (the wrapper took
+        // ownership at get_object_for_iunknown) -- ReleaseComObject to 0.
+        Expect(icall_com_release_com_object(invRcw) == 0,
+               "C2: the invoke RCW releases to 0");
+    }
+
     //--------------------------------------------------------------------------
     // 24. IDispatch::Invoke typed arguments (stage 19): VT_R8 (double) and
     // VT_BSTR (string) parameters + a double return -- the automation
@@ -5454,6 +5615,242 @@ int main()
 
         Expect(icall_com_release(autoCcw) == 0,
                "24: releasing the IAutoScale CCW balances to 0");
+    }
+
+    //------------------------------------------------------------------------
+    // C3 (A3): the IConnectionPoint SINK direction -- the RCW-side icalls
+    //   icall_com_get_connection_point / icall_com_cp_advise /
+    //   icall_com_cp_unadvise (the DECISION's C3=A3). Driven as the accepted
+    //   fake-source SELF-LOOP (DECISION risk #5): the "native COM event
+    //   source" is OUR OWN CCW -- a managed object wrapped into an RCW
+    //   (icall_com_get_object_for_iunknown) with
+    //   register_connection_point(kComIidIDispatch) as its event interface --
+    //   so the full protocol shape runs deterministically: RCW QI
+    //   IConnectionPointContainer + FindConnectionPoint(event IID) ->
+    //   Advise(managed sink CCW = ccw_create + register_invoke_dispatch) ->
+    //   IDispatch-fire (the connected sink's Invoke reaches the managed
+    //   method) -> Unadvise. The sink answers QI for the dispatch interface
+    //   with its identity pointer (a CCW always answers IDispatch) -- the
+    //   C3 scope deliberately uses an IDispatch-shaped event interface, the
+    //   DECISION's accepted protocol-shape slice.
+    //------------------------------------------------------------------------
+    {
+        // The fake native source: a WfAutoScale CCW wrapped into an RCW.
+        il2cpp::Il2CppObject* c3SrcObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3SrcObj);
+        const intptr_t c3SrcCcw = icall_com_ccw_create(c3SrcObj);
+        Expect(c3SrcCcw != 0 &&
+               icall_com_ccw_register_connection_point(c3SrcCcw, kComIidIDispatch) == kComHrOk,
+               "C3: fake source CCW + register_connection_point(IDispatch event IID)");
+        il2cpp::Il2CppObject* c3Rcw = icall_com_get_object_for_iunknown(c3SrcCcw);
+        Expect(icall_com_is_com_object(c3Rcw) == true,
+               "C3: the fake source CCW is wrapped into an RCW");
+
+        // The managed sink: WfAutoScale + register_invoke_dispatch (the
+        // source's IDispatch::Invoke routes to the managed Scale method).
+        il2cpp::Il2CppObject* c3SinkObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3SinkObj);
+        auto* c3SinkView = reinterpret_cast<WfAutoScale*>(c3SinkObj);
+        const intptr_t c3SinkCcw = icall_com_ccw_create(c3SinkObj);
+        Expect(c3SinkCcw != 0 &&
+               icall_com_ccw_register_invoke_dispatch(
+                   c3SinkCcw, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk,
+               "C3: managed sink CCW + register_invoke_dispatch (IAutoScale)");
+
+        // 1. get_connection_point: QI the RCW's IUnknown for
+        //    IConnectionPointContainer + FindConnectionPoint(event IID) -- the
+        //    AddRef'd IConnectionPoint* rides the intptr carrier.
+        const intptr_t c3Cp = icall_com_get_connection_point(c3Rcw, kComIidIDispatch);
+        Expect(c3Cp != 0, "C3: get_connection_point(IDispatch) returns the connection point");
+
+        // 2. cp_advise: connect the managed sink CCW -> S_OK + cookie 1.
+        intptr_t c3Cookie = 0;
+        Expect(icall_com_cp_advise(c3Cp, c3SinkCcw, &c3Cookie) == kComHrOk && c3Cookie == 1,
+               "C3: cp_advise(managed sink CCW) -> S_OK, cookie 1");
+
+        // Register the event member name on the sink (the source resolves it
+        // through the sink's GetIDsOfNames before firing -- members[1] = Scale).
+        const uint8_t c3NullIid[16] = { 0 };
+        NativeGetIDsOfNamesFn c3GetIds =
+            reinterpret_cast<NativeGetIDsOfNamesFn>(const_cast<void*>(ComVtable(c3SinkCcw)[5]));
+        wchar_t c3ScaleName[] = L"Scale";
+        void* c3ScaleNames[] = { c3ScaleName };
+        int32_t c3ScaleDisp = -1;
+        Expect(c3GetIds(reinterpret_cast<void*>(c3SinkCcw), c3NullIid, c3ScaleNames, 1, 0,
+                        &c3ScaleDisp) == kComHrOk && c3ScaleDisp == 1,
+               "C3: GetIDsOfNames(Scale) on the sink -> dispId 1");
+
+        // 3. Fire the event through the source's connection point: the source
+        //    CCW's fire_dispatch_event(IDispatch IID, dispId 1) delivers the
+        //    DISPPARAMS (VT_R8 factor + VT_BSTR label, reverse rgvarg) to the
+        //    connected sink -- the managed Scale method runs on the sink.
+        uint8_t c3FactorVar[16], c3LabelVar[16];
+        MakeVariant(il2cpp::runtime::kVtR8, c3FactorVar);
+        const double c3FactorVal = 2.5;
+        std::memcpy(c3FactorVar + il2cpp::runtime::kVariantVtOffset + 8,
+                    &c3FactorVal, sizeof(c3FactorVal));
+        MakeVariant(il2cpp::runtime::kVtBstr, c3LabelVar);
+        char16_t c3LabelBuf[] = u"auto";
+        void* c3LabelPtr = c3LabelBuf;
+        std::memcpy(c3LabelVar + il2cpp::runtime::kVariantVtOffset + 8,
+                    &c3LabelPtr, sizeof(c3LabelPtr));
+        uint8_t c3FireArgs[32];
+        std::memcpy(c3FireArgs, c3LabelVar, 16);       // rgvarg[0] = LAST (label)
+        std::memcpy(c3FireArgs + 16, c3FactorVar, 16); // rgvarg[1] = FIRST (factor)
+        TestDispParams c3FireParams = { c3FireArgs, nullptr, 2, 0 };
+        Expect(icall_com_ccw_fire_dispatch_event(c3SrcCcw, kComIidIDispatch, c3ScaleDisp,
+                                                 reinterpret_cast<intptr_t>(&c3FireParams), 0) == kComHrOk &&
+               c3SinkView->ScaleCount == 1 && c3SinkView->LastFactorInt == 2 &&
+               c3SinkView->LastLabel != nullptr &&
+               reinterpret_cast<il2cpp::Il2CppString*>(c3SinkView->LastLabel)->length == 4,
+               "C3: fire_dispatch_event routes Scale(2.5, auto) to the connected managed sink");
+
+        // 4. cp_unadvise -> S_OK; a stale cookie -> CONNECT_E_NOCONNECTION.
+        Expect(icall_com_cp_unadvise(c3Cp, c3Cookie) == kComHrOk,
+               "C3: cp_unadvise(cookie 1) -> S_OK");
+        Expect(icall_com_cp_unadvise(c3Cp, c3Cookie) == kComHrNoConnection,
+               "C3: cp_unadvise(stale cookie) -> CONNECT_E_NOCONNECTION");
+
+        // 5. After Unadvise the fire reaches nobody -> S_FALSE (no listener).
+        Expect(icall_com_ccw_fire_dispatch_event(c3SrcCcw, kComIidIDispatch, c3ScaleDisp,
+                                                 reinterpret_cast<intptr_t>(&c3FireParams), 0) == kComHrSFALSE,
+               "C3: fire after Unadvise -> S_FALSE (no listener)");
+
+        // 6. Error paths: an unregistered event IID -> COMException
+        //    (CONNECT_E_NOCONNECTION); null iid -> ArgumentNullException;
+        //    a non-RCW rcw -> ArgumentException; null cp / sink / cookie ->
+        //    ArgumentNullException on cp_advise / cp_unadvise.
+        const uint8_t c3UnknownIid[16] = { 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+                                           0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50 };
+        Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(c3Rcw, c3UnknownIid); },
+                            kComException),
+               "C3: get_connection_point(unknown IID) -> COMException (CONNECT_E_NOCONNECTION)");
+        Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(c3Rcw, nullptr); },
+                            kArgumentNull),
+               "C3: get_connection_point(null iid) -> ArgumentNullException");
+        Expect(ThrowsDotNet([&] {
+                   (void)icall_com_get_connection_point(
+                       reinterpret_cast<il2cpp::Il2CppObject*>(MakeManagedString("x")),
+                       kComIidIDispatch);
+               }, kArgumentException),
+               "C3: get_connection_point(non-RCW rcw) -> ArgumentException");
+        Expect(ThrowsDotNet([&] { (void)icall_com_cp_advise(0, c3SinkCcw, &c3Cookie); },
+                            kArgumentNull),
+               "C3: cp_advise(null cp) -> ArgumentNullException");
+        Expect(ThrowsDotNet([&] { (void)icall_com_cp_advise(c3Cp, 0, &c3Cookie); },
+                            kArgumentNull),
+               "C3: cp_advise(null sink) -> ArgumentNullException");
+        Expect(ThrowsDotNet([&] { (void)icall_com_cp_advise(c3Cp, c3SinkCcw, nullptr); },
+                            kArgumentNull),
+               "C3: cp_advise(null cookie) -> ArgumentNullException");
+        Expect(ThrowsDotNet([&] { (void)icall_com_cp_unadvise(0, c3Cookie); },
+                            kArgumentNull),
+               "C3: cp_unadvise(null cp) -> ArgumentNullException");
+
+        // Balance: the CP reference the icall handed out, the RCW's source
+        // reference and the sink CCW all release to 0.
+        Expect(icall_com_release(c3Cp) == 1,
+               "C3: releasing the connection point view reference balances the source CCW");
+        Expect(icall_com_release_com_object(c3Rcw) == 0,
+               "C3: releasing the source RCW destroys the fake source CCW");
+        Expect(icall_com_release(c3SinkCcw) == 0,
+               "C3: releasing the sink CCW balances to 0");
+    }
+
+    //------------------------------------------------------------------------
+    // C3b: multi-sink Advise THROUGH the icalls -- distinct monotonic cookies,
+    // CONNECT_E_ADVISELIMIT at the kCcwMaxSinksPerCp capacity, a broadcast
+    // fire reaching every connected sink, per-cookie Unadvise, and a fire
+    // after the last Unadvise -> S_FALSE.
+    //------------------------------------------------------------------------
+    {
+        il2cpp::Il2CppObject* c3bSrcObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3bSrcObj);
+        const intptr_t c3bSrcCcw = icall_com_ccw_create(c3bSrcObj);
+        Expect(c3bSrcCcw != 0 &&
+               icall_com_ccw_register_connection_point(c3bSrcCcw, kComIidIDispatch) == kComHrOk,
+               "C3b: fake source CCW + register_connection_point(IDispatch)");
+        il2cpp::Il2CppObject* c3bRcw = icall_com_get_object_for_iunknown(c3bSrcCcw);
+        const intptr_t c3bCp = icall_com_get_connection_point(c3bRcw, kComIidIDispatch);
+        Expect(c3bCp != 0, "C3b: get_connection_point returns the connection point");
+
+        // Three managed sink CCWs + a capacity-excess fourth.
+        il2cpp::Il2CppObject* c3bObjB = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3bObjB);
+        auto* c3bViewB = reinterpret_cast<WfAutoScale*>(c3bObjB);
+        const intptr_t c3bSinkB = icall_com_ccw_create(c3bObjB);
+        il2cpp::Il2CppObject* c3bObjC = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3bObjC);
+        auto* c3bViewC = reinterpret_cast<WfAutoScale*>(c3bObjC);
+        const intptr_t c3bSinkC = icall_com_ccw_create(c3bObjC);
+        il2cpp::Il2CppObject* c3bObjD = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3bObjD);
+        auto* c3bViewD = reinterpret_cast<WfAutoScale*>(c3bObjD);
+        const intptr_t c3bSinkD = icall_com_ccw_create(c3bObjD);
+        const intptr_t c3bSinkE = icall_com_ccw_create(il2cpp::il2cpp_object_new(&WfAutoScale_class));
+        Expect(c3bSinkB != 0 && c3bSinkC != 0 && c3bSinkD != 0 && c3bSinkE != 0 &&
+               icall_com_ccw_register_invoke_dispatch(c3bSinkB, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk &&
+               icall_com_ccw_register_invoke_dispatch(c3bSinkC, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk &&
+               icall_com_ccw_register_invoke_dispatch(c3bSinkD, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk,
+               "C3b: three managed sink CCWs + register_invoke_dispatch");
+
+        intptr_t c3bCookieB = 0, c3bCookieC = 0, c3bCookieD = 0, c3bCookieE = 0;
+        Expect(icall_com_cp_advise(c3bCp, c3bSinkB, &c3bCookieB) == kComHrOk && c3bCookieB == 1,
+               "C3b: cp_advise(B) -> S_OK, cookie 1");
+        Expect(icall_com_cp_advise(c3bCp, c3bSinkC, &c3bCookieC) == kComHrOk && c3bCookieC == 2,
+               "C3b: cp_advise(C) -> S_OK, cookie 2");
+        Expect(icall_com_cp_advise(c3bCp, c3bSinkD, &c3bCookieD) == kComHrOk && c3bCookieD == 3,
+               "C3b: cp_advise(D) -> S_OK, cookie 3");
+        Expect(icall_com_cp_advise(c3bCp, c3bSinkE, &c3bCookieE) == kComHrAdviseLimit && c3bCookieE == 0,
+               "C3b: cp_advise(4th sink) -> CONNECT_E_ADVISELIMIT (capacity kCcwMaxSinksPerCp)");
+
+        // Register "Scale" on each connected sink (dispId 1) and fire: the
+        // broadcast reaches all three managed sinks.
+        const uint8_t c3bNullIid[16] = { 0 };
+        wchar_t c3bScaleName[] = L"Scale";
+        void* c3bScaleNames[] = { c3bScaleName };
+        NativeGetIDsOfNamesFn c3bGetIdsB =
+            reinterpret_cast<NativeGetIDsOfNamesFn>(const_cast<void*>(ComVtable(c3bSinkB)[5]));
+        int32_t c3bDispB = -1;
+        Expect(c3bGetIdsB(reinterpret_cast<void*>(c3bSinkB), c3bNullIid, c3bScaleNames, 1, 0,
+                          &c3bDispB) == kComHrOk && c3bDispB == 1,
+               "C3b: GetIDsOfNames(Scale) on sink B -> dispId 1");
+        NativeGetIDsOfNamesFn c3bGetIdsC =
+            reinterpret_cast<NativeGetIDsOfNamesFn>(const_cast<void*>(ComVtable(c3bSinkC)[5]));
+        int32_t c3bDispC = -1;
+        Expect(c3bGetIdsC(reinterpret_cast<void*>(c3bSinkC), c3bNullIid, c3bScaleNames, 1, 0,
+                          &c3bDispC) == kComHrOk && c3bDispC == 1,
+               "C3b: GetIDsOfNames(Scale) on sink C -> dispId 1");
+        NativeGetIDsOfNamesFn c3bGetIdsD =
+            reinterpret_cast<NativeGetIDsOfNamesFn>(const_cast<void*>(ComVtable(c3bSinkD)[5]));
+        int32_t c3bDispD = -1;
+        Expect(c3bGetIdsD(reinterpret_cast<void*>(c3bSinkD), c3bNullIid, c3bScaleNames, 1, 0,
+                          &c3bDispD) == kComHrOk && c3bDispD == 1,
+               "C3b: GetIDsOfNames(Scale) on sink D -> dispId 1");
+        TestDispParams c3bNoArgs = { nullptr, nullptr, 0, 0 };
+        Expect(icall_com_ccw_fire_dispatch_event(c3bSrcCcw, kComIidIDispatch, c3bDispB,
+                                                 reinterpret_cast<intptr_t>(&c3bNoArgs), 0) == kComHrOk &&
+               c3bViewB->ScaleCount == 1 && c3bViewC->ScaleCount == 1 && c3bViewD->ScaleCount == 1,
+               "C3b: fire broadcasts Scale to all three connected sinks");
+
+        // Per-cookie Unadvise; a fire after the last one reaches nobody.
+        Expect(icall_com_cp_unadvise(c3bCp, c3bCookieC) == kComHrOk,
+               "C3b: cp_unadvise(C) -> S_OK");
+        Expect(icall_com_cp_unadvise(c3bCp, c3bCookieB) == kComHrOk &&
+               icall_com_cp_unadvise(c3bCp, c3bCookieD) == kComHrOk,
+               "C3b: cp_unadvise(B) + cp_unadvise(D) -> S_OK");
+        Expect(icall_com_ccw_fire_dispatch_event(c3bSrcCcw, kComIidIDispatch, c3bDispB,
+                                                 reinterpret_cast<intptr_t>(&c3bNoArgs), 0) == kComHrSFALSE,
+               "C3b: fire after all Unadvises -> S_FALSE (no listener)");
+
+        // Balance.
+        Expect(icall_com_release(c3bCp) == 1,
+               "C3b: releasing the connection point view reference balances the source CCW");
+        Expect(icall_com_release_com_object(c3bRcw) == 0,
+               "C3b: releasing the source RCW destroys the fake source CCW");
+        Expect(icall_com_release(c3bSinkB) == 0 && icall_com_release(c3bSinkC) == 0 &&
+               icall_com_release(c3bSinkD) == 0 && icall_com_release(c3bSinkE) == 0,
+               "C3b: releasing all sink CCWs balances to 0");
     }
 
     // --- Report ---

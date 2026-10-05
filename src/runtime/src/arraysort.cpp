@@ -1369,6 +1369,174 @@ int32_t CallVirtualInt32(Il2CppObject* obj, const char* name, Il2CppObject* othe
     return reinterpret_cast<CompareToFn>(obj->klass->vtable[slot])(obj, other);
 }
 
+//------------------------------------------------------------------------------
+// TryCompareBoxedBuiltin -- the RAW VALUE COMPARE TABLE for boxed BUILTIN
+// receivers (G2/D3). The per-type arms mirror the historical
+// ComparerCompareCore arms 1:1 (Int32/UInt32/Int64/UInt64/Single/Double/
+// Char/Boolean plus the String culture arm) so the IComparable interface
+// dispatch and the default comparer share ONE table.
+//
+// Returns true when 'a' is one of these builtin box classes (the value arms
+// ran; *result holds the net48 CompareTo sign). false means 'a' is NOT a
+// table type -- the caller falls to the reflected vtable dispatch.
+//
+// null 'b' yields *result = 1 (net48: every value type's CompareTo(object
+// null) returns 1 -- "a value type is greater than null"; String too).
+// A foreign-type 'b' throws the net48 ArgumentException ("Object must be of
+// type <name>.") -- the SAME contract as the default comparer arms.
+//------------------------------------------------------------------------------
+bool TryCompareBoxedBuiltin(Il2CppObject* a, Il2CppObject* b, int32_t* result)
+{
+    if (a->klass == nullptr || a->klass->name == nullptr)
+    {
+        return false;
+    }
+    const char* const an = a->klass->name;
+    if (std::strcmp(an, kStringTypeName) == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b))
+        {
+            ThrowComparandTypeMismatch("String");
+        }
+        *result = runtime::CompareCulture(reinterpret_cast<const Il2CppString*>(a),
+                                          reinterpret_cast<const Il2CppString*>(b));
+        return true;
+    }
+    if (std::strcmp(an, "System.Int32") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Int32");
+        const int32_t x = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const int32_t y = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (std::strcmp(an, "System.UInt32") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("UInt32");
+        const uint32_t x = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(a) + sizeof(void*)));
+        const uint32_t y = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(b) + sizeof(void*)));
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (std::strcmp(an, "System.Int64") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Int64");
+        const int64_t x = *reinterpret_cast<int64_t*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const int64_t y = *reinterpret_cast<int64_t*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (std::strcmp(an, "System.UInt64") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("UInt64");
+        const uint64_t x = *reinterpret_cast<uint64_t*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const uint64_t y = *reinterpret_cast<uint64_t*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (std::strcmp(an, "System.Single") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Single");
+        // M4 ABI (boxingext2.cpp icall_box_float/AllocBoxed64): the
+        // System.Single box stores the float WIDENED TO DOUBLE in the aligned
+        // 8-byte payload slot (the type system carries float as double; the
+        // widening is exact). Reading a 4-byte float here truncated the
+        // payload -- -1.5f/1.5f both read back as +0.0f and every sign probe
+        // collapsed to 0 (comparerdeep regression). Read the double, exactly
+        // like the System.Double arm below.
+        const double x = *reinterpret_cast<double*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const double y = *reinterpret_cast<double*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (std::strcmp(an, "System.Double") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Double");
+        const double x = *reinterpret_cast<double*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const double y = *reinterpret_cast<double*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (std::strcmp(an, "System.Char") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Char");
+        const int32_t x = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(a) + sizeof(void*));
+        const int32_t y = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(b) + sizeof(void*));
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (std::strcmp(an, "System.Boolean") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Boolean");
+        const bool x = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(a) + sizeof(void*)) != 0;
+        const bool y = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(b) + sizeof(void*)) != 0;
+        *result = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    return false;
+}
+
 } // namespace
 
 int32_t ComparerCompareCore(Il2CppObject* a, Il2CppObject* b)
@@ -1385,97 +1553,14 @@ int32_t ComparerCompareCore(Il2CppObject* a, Il2CppObject* b)
     {
         return 0;
     }
-    const char* const an = a->klass->name;
-    if (std::strcmp(an, kStringTypeName) == 0)
+    // G2/D3: the per-type boxed-builtin value table moved into
+    // TryCompareBoxedBuiltin (shared with il2cpp_icomparable_compare_to).
+    // String pairs (culture), Int32/UInt32/Int64/UInt64/Single/Double/Char/
+    // Boolean boxes compare by value with the net48 type-mismatch contract.
+    int32_t boxed = 0;
+    if (TryCompareBoxedBuiltin(a, b, &boxed))
     {
-        // String pair: CULTURE (Comparer<string>.Default == String.CompareTo),
-        // the SAME comparator Array.Sort(string[]) uses. A non-string 'b' is
-        // the net48 type mismatch (String.CompareTo(object) throws).
-        if (!SameKlassName(a, b))
-        {
-            ThrowComparandTypeMismatch("String");
-        }
-        return runtime::CompareCulture(reinterpret_cast<const Il2CppString*>(a),
-                                       reinterpret_cast<const Il2CppString*>(b));
-    }
-    if (std::strcmp(an, "System.Int32") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Int32");
-        const int32_t x = *reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(a) + sizeof(void*));
-        const int32_t y = *reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(b) + sizeof(void*));
-        return x < y ? -1 : (x > y ? 1 : 0);
-    }
-    if (std::strcmp(an, "System.UInt32") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("UInt32");
-        const uint32_t x = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(a) + sizeof(void*)));
-        const uint32_t y = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(b) + sizeof(void*)));
-        return x < y ? -1 : (x > y ? 1 : 0);
-    }
-    if (std::strcmp(an, "System.Int64") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Int64");
-        const int64_t x = *reinterpret_cast<int64_t*>(
-            reinterpret_cast<char*>(a) + sizeof(void*));
-        const int64_t y = *reinterpret_cast<int64_t*>(
-            reinterpret_cast<char*>(b) + sizeof(void*));
-        return x < y ? -1 : (x > y ? 1 : 0);
-    }
-    if (std::strcmp(an, "System.UInt64") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("UInt64");
-        const uint64_t x = *reinterpret_cast<uint64_t*>(
-            reinterpret_cast<char*>(a) + sizeof(void*));
-        const uint64_t y = *reinterpret_cast<uint64_t*>(
-            reinterpret_cast<char*>(b) + sizeof(void*));
-        return x < y ? -1 : (x > y ? 1 : 0);
-    }
-    if (std::strcmp(an, "System.Single") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Single");
-        // M4 ABI (boxingext2.cpp icall_box_float/AllocBoxed64): the
-        // System.Single box stores the float WIDENED TO DOUBLE in the aligned
-        // 8-byte payload slot (the type system carries float as double; the
-        // widening is exact). Reading a 4-byte float here truncated the
-        // payload -- -1.5f/1.5f both read back as +0.0f and every sign probe
-        // collapsed to 0 (comparerdeep regression). Read the double, exactly
-        // like the System.Double arm below.
-        const double x = *reinterpret_cast<double*>(
-            reinterpret_cast<char*>(a) + sizeof(void*));
-        const double y = *reinterpret_cast<double*>(
-            reinterpret_cast<char*>(b) + sizeof(void*));
-        return x < y ? -1 : (x > y ? 1 : 0);
-    }
-    if (std::strcmp(an, "System.Double") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Double");
-        const double x = *reinterpret_cast<double*>(
-            reinterpret_cast<char*>(a) + sizeof(void*));
-        const double y = *reinterpret_cast<double*>(
-            reinterpret_cast<char*>(b) + sizeof(void*));
-        return x < y ? -1 : (x > y ? 1 : 0);
-    }
-    if (std::strcmp(an, "System.Char") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Char");
-        const int32_t x = *reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(a) + sizeof(void*));
-        const int32_t y = *reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(b) + sizeof(void*));
-        return x < y ? -1 : (x > y ? 1 : 0);
-    }
-    if (std::strcmp(an, "System.Boolean") == 0)
-    {
-        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("Boolean");
-        const bool x = *reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(a) + sizeof(void*)) != 0;
-        const bool y = *reinterpret_cast<int32_t*>(
-            reinterpret_cast<char*>(b) + sizeof(void*)) != 0;
-        return x < y ? -1 : (x > y ? 1 : 0);
+        return boxed;
     }
     // net48 Comparer.Compare fallback (caudit3):
     //   a as IComparable -> a.CompareTo(b);
@@ -1670,6 +1755,16 @@ int32_t il2cpp_icomparable_compare_to(Il2CppObject* receiver, Il2CppObject* othe
     if (receiver == nullptr)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    // G2/D3: a boxed BUILTIN receiver (Int32/Int64/UInt64/Single/Double/
+    // Char/Boolean/String -- the box klass has no reflected vtable;
+    // boxingext2's kBoxUnwiredSlotMap leaves it null) resolves through the
+    // RAW VALUE TABLE first, exactly like comparerdeep's default comparer.
+    // A non-table receiver falls through to the reflected vtable dispatch.
+    int32_t boxed = 0;
+    if (TryCompareBoxedBuiltin(receiver, other, &boxed))
+    {
+        return boxed;
     }
     const int32_t slot = FindVirtualSlotByName(receiver, "CompareTo");
     if (slot < 0 || receiver->klass->vtable == nullptr ||

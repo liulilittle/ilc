@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // com.cpp -- COM interop runtime (see il2cpp_com.h for the full contract).
 //
 // PLATFORM SPLIT (user iron rule #17: COM identical to .NET Framework;
@@ -16,7 +16,7 @@
 //     CCW (pure memory layout + GUID compare -- no ole32 dependency) is
 //     implemented on EVERY platform.
 //
-// REFERENCE (semantic baseline, .NET Framework 4.8 -- batch task "先抄"):
+// REFERENCE (semantic baseline, .NET Framework 4.8 -- batch task "鍏堟妱"):
 //   * Marshal.GetTypeFromProgID / GetActiveObject / CreateObject -- netcore
 //     Marshal.Windows.cs / Marshal.Unix.cs (the Unix file is the exact
 //     cross-platform stub shape this file mirrors).
@@ -46,6 +46,8 @@
 #include "il2cpp_gchandle.h"
 #include "il2cpp_metadata.h"
 #include "il2cpp_pinvoke_ext.h" // stage 13: il2cpp_pinvoke_string_from_utf16 (BSTRToString decode)
+#include "il2cpp_boxing_ext.h"  // C2 (A2): icall_box_double/bool (the invoke result decoder)
+#include "il2cpp_array.h"       // C2 (A2): il2cpp_array_get_elem_ptr (the args array read)
 #include "il2cpp_runtime.h"
 #include "il2cpp_streamio.h" // stage 12: the ComStream object bridge (create / get_iunknown)
 #include "typeinfo.h"        // stage 17: the IDataObject view's name->interface-slot resolution
@@ -54,6 +56,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>   // C2 (A2): std::wstring (the member-name wide buffer)
+#include <vector>   // C2 (A2): the DISPPARAMS variant storage
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
@@ -7314,7 +7318,209 @@ void ClsidFromProgIdOrThrow(Il2CppString* progId, void* clsid)
     }
 }
 
+// CLSIDFromProgID without a throw: returns false when the ProgID is not
+// registered (or unencodable) -- net48's Type.GetTypeFromProgID(string)
+// convenience overload runs with throwOnError=false and RETURNS NULL instead
+// of throwing (the C1 miss contract pinned by the comclsid e2e case).
+bool TryClsidFromProgId(Il2CppString* progId, void* clsid)
+{
+    EnsureOle32();
+    wchar_t buf[260];
+    if (!ProgIdToWide(progId, buf, 260))
+    {
+        return false;
+    }
+    return GetOle32().clsidFromProgID(buf, clsid) == kComHrOk;
+}
+
 #endif // defined(_WIN32)
+
+//------------------------------------------------------------------------------
+// C1 (A1) COM Type sentinel codec -- "COMCLSID:" + 32 lower-hex CLSID bytes.
+// The codec is pure (no ole32 dependency) so it runs on EVERY platform: the
+// encode side feeds the GetTypeFromProgID / GetTypeFromCLSID Type values, the
+// decode side feeds the Activator's CoCreateInstance path (reflect_base.cpp
+// prefix branch) and the enable serialize the sentinel to an intptr_t.
+//------------------------------------------------------------------------------
+void ClsidToSentinel(const uint8_t clsid[16], char (&out)[kComClsidSentinelLength + 1])
+{
+    static const char kHex[] = "0123456789abcdef";
+    std::memcpy(out, kComClsidPrefix, 9);
+    for (int32_t i = 0; i < 16; ++i)
+    {
+        out[9 + i * 2] = kHex[(clsid[i] >> 4) & 0x0F];
+        out[9 + i * 2 + 1] = kHex[clsid[i] & 0x0F];
+    }
+    out[kComClsidSentinelLength] = '\0';
+}
+
+// Decode the "COMCLSID:" + 32-hex sentinel (already validated by the caller)
+// into the 16 CLSID bytes. Returns true on success.
+bool SentinelToClsid(const char* hex, uint8_t clsid[16])
+{
+    for (int32_t i = 0; i < 16; ++i)
+    {
+        auto nibble = [](char c) -> int32_t
+        {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        };
+        const int32_t hi = nibble(hex[i * 2]);
+        const int32_t lo = nibble(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0)
+        {
+            return false;
+        }
+        clsid[i] = static_cast<uint8_t>((hi << 4) | lo);
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------------
+// C2 (A2) -- the managed-argument -> 16-byte VARIANT encoder (the RCW
+// direction of icall_com_invoke_member). The subset mirrors the CCW's
+// stage-7 automation surface: VT_I4 (boxed Int32), VT_R8 (boxed Double),
+// VT_BSTR (managed string -- SysAllocStringLen, freed by the caller after
+// Invoke), VT_BOOL (boxed Boolean, VARIANT_TRUE -1) and VT_EMPTY (null /
+// null box). Anything else -> NotSupportedException LOUD (never a silent
+// wrong-typed VARIANT).
+//
+// Returns true when the variant holds a BSTR the caller must SysFreeString
+// after the Invoke (the reverse of the result variant's caller-owned BSTR).
+//------------------------------------------------------------------------------
+
+// The Windows DISPPARAMS layout (oaidl.h): rgvarg / rgdispidNamedArgs
+// pointers + the two UINT counts (24 bytes on x64 -- pointer fields align).
+struct ComDispParams
+{
+    void*     rgvarg;
+    void*     rgdispidNamedArgs;
+    uint32_t  cArgs;
+    uint32_t  cNamedArgs;
+};
+bool ManagedArgToVariant(Il2CppObject* obj, uint8_t* variant)
+{
+    std::memset(variant, 0, kVariantSize);
+    if (obj == nullptr)
+    {
+        std::memcpy(variant, &kVtEmpty, sizeof(uint16_t));
+        return false;
+    }
+    if (obj->klass == nullptr || obj->klass->name == nullptr)
+    {
+        il2cpp_throw_argument_exception(
+            "InvokeMember: the argument object has no class descriptor (malformed box).");
+    }
+    const char* const an = obj->klass->name;
+    if (std::strcmp(an, "System.String") == 0)
+    {
+        std::memcpy(variant, &kVtBstr, sizeof(uint16_t));
+        void* bstr = nullptr;
+#if defined(_WIN32)
+        auto s = reinterpret_cast<Il2CppString*>(obj);
+        if (GetOle32().sysAllocStringLen != nullptr)
+        {
+            bstr = GetOle32().sysAllocStringLen(s->chars,
+                                                static_cast<uint32_t>(s->length));
+        }
+#endif
+        // POSIX never reaches here (the invoke icall is Windows-only); the
+        // null BSTR keeps the branch compile-safe. Windows: the caller must
+        // SysFreeString after Invoke (the true return flags it).
+        std::memcpy(variant + kVariantVtOffset + 8, &bstr, sizeof(bstr));
+        return true;
+    }
+    if (std::strcmp(an, "System.Int32") == 0)
+    {
+        std::memcpy(variant, &kVtI4, sizeof(uint16_t));
+        const int32_t v = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(obj) + sizeof(void*));
+        std::memcpy(variant + kVariantVtOffset + 8, &v, sizeof(v));
+        return false;
+    }
+    if (std::strcmp(an, "System.Double") == 0)
+    {
+        std::memcpy(variant, &kVtR8, sizeof(uint16_t));
+        const double v = *reinterpret_cast<double*>(
+            reinterpret_cast<char*>(obj) + sizeof(void*));
+        std::memcpy(variant + kVariantVtOffset + 8, &v, sizeof(v));
+        return false;
+    }
+    if (std::strcmp(an, "System.Boolean") == 0)
+    {
+        std::memcpy(variant, &kVtBool, sizeof(uint16_t));
+        const bool v = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<char*>(obj) + sizeof(void*)) != 0;
+        const int16_t vtBoolVal = v ? -1 : 0; // VARIANT_TRUE == -1
+        std::memcpy(variant + kVariantVtOffset + 8, &vtBoolVal, sizeof(vtBoolVal));
+        return false;
+    }
+    il2cpp_throw_not_supported_exception(
+        "InvokeMember: the argument type is outside the automation subset "
+        "(VT_I4 / VT_R8 / VT_BSTR / VT_BOOL only).");
+    return false; // unreachable
+}
+
+//------------------------------------------------------------------------------
+// C2 (A2) -- the 16-byte VARIANT result -> boxed managed object decoder.
+// VT_EMPTY / VT_NULL -> null; VT_I4 -> boxed Int32; VT_R8 -> boxed Double;
+// VT_BSTR -> managed string (the caller's BSTR is copied then freed by the
+// CALLER -- the decode does NOT free); VT_BOOL -> boxed Boolean. Anything
+// else -> NotSupportedException LOUD.
+//------------------------------------------------------------------------------
+Il2CppObject* VariantResultToManaged(const uint8_t* variant)
+{
+    uint16_t vt = 0;
+    std::memcpy(&vt, variant + kVariantVtOffset, sizeof(vt));
+    switch (vt)
+    {
+        case kVtEmpty:
+        case kVtNull:
+            return nullptr;
+        case kVtI4:
+        {
+            int32_t v = 0;
+            std::memcpy(&v, variant + kVariantVtOffset + 8, sizeof(v));
+            return il2cpp_box_int32(nullptr, v);
+        }
+        case kVtR8:
+        {
+            double v = 0.0;
+            std::memcpy(&v, variant + kVariantVtOffset + 8, sizeof(v));
+            return reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_box_double(v));
+        }
+        case kVtBool:
+        {
+            int16_t v = 0;
+            std::memcpy(&v, variant + kVariantVtOffset + 8, sizeof(v));
+            return reinterpret_cast<Il2CppObject*>(
+                il2cpp::runtime::icall_box_bool(v != 0));
+        }
+        case kVtBstr:
+        {
+            void* bstr = nullptr;
+            std::memcpy(&bstr, variant + kVariantVtOffset + 8, sizeof(bstr));
+            if (bstr == nullptr)
+            {
+                return nullptr;
+            }
+            // BSTR layout (OLEAUT32): the 4-byte LENGTH PREFIX in BYTES sits
+            // at bstr[-4]; the payload is UTF-16. Windows-only at runtime.
+            const uint32_t byteLen = *reinterpret_cast<const uint32_t*>(
+                static_cast<const char*>(bstr) - 4);
+            auto s = il2cpp::il2cpp_string_new(reinterpret_cast<const char16_t*>(bstr),
+                                               static_cast<int32_t>(byteLen / 2));
+            return reinterpret_cast<Il2CppObject*>(s);
+        }
+        default:
+            il2cpp_throw_not_supported_exception(
+                "InvokeMember: the result VARIANT type is outside the automation "
+                "subset (VT_I4 / VT_R8 / VT_BSTR / VT_BOOL / VT_EMPTY only).");
+            return nullptr; // unreachable
+    }
+}
 
 } // namespace
 
@@ -7857,6 +8063,100 @@ int32_t icall_com_get_type_from_progid(Il2CppString* progId, uint8_t clsid[16])
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_com_type_from_progid -- Type.GetTypeFromProgID(string) /
+// Marshal.GetTypeFromProgID(string): resolve ProgID -> CLSID and return the
+// COM Type VALUE string "COMCLSID:<32hex>" (see the header contract).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_com_type_from_progid(Il2CppString* progId)
+{
+    if (progId == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("progId");
+    }
+#if defined(_WIN32)
+    uint8_t clsid[16];
+    // net48 Type.GetTypeFromProgID(string) is the throwOnError=false
+    // convenience overload -- an unknown ProgID returns NULL (the C1 miss
+    // contract), not a COMException.
+    if (!TryClsidFromProgId(progId, clsid))
+    {
+        return nullptr;
+    }
+    char sentinel[kComClsidSentinelLength + 1];
+    ClsidToSentinel(clsid, sentinel);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(sentinel));
+#else
+    (void)progId;
+    il2cpp_throw_not_supported_exception(
+        "COM is only supported on Windows (ILC platform limitation).");
+    return nullptr;
+#endif
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_com_type_from_clsid -- Type.GetTypeFromCLSID(Guid): encode the 16
+// CLSID bytes (the .NET Guid / COM CLSID in-memory layout) into the sentinel
+// Type VALUE string. Pure formatting -- no registry probe (see the header).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_com_type_from_clsid(const uint8_t clsid[16])
+{
+    if (clsid == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("clsid");
+    }
+    char sentinel[kComClsidSentinelLength + 1];
+    ClsidToSentinel(clsid, sentinel);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(sentinel));
+}
+
+//------------------------------------------------------------------------------
+// icall_com_create_instance_from_com_type -- Activator.CreateInstance(Type)
+// on a COM Type VALUE. Decode the "COMCLSID:<32hex>" sentinel, CoCreateInstance
+// and WRAP the IUnknown* into an RCW (see the header contract).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_com_create_instance_from_com_type(Il2CppObject* typeName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("type");
+    }
+    auto s = reinterpret_cast<Il2CppString*>(typeName);
+    const int32_t sentinelLen = kComClsidSentinelLength; // 9 prefix + 32 hex
+    if (s->length != sentinelLen)
+    {
+        il2cpp_throw_argument_exception(
+            "The type name is not a COM Type value (expected the \"COMCLSID:\" sentinel).");
+    }
+    static const char16_t kPrefix[10] = u"COMCLSID:"; // 9 + NUL
+    if (std::memcmp(s->chars, kPrefix, 9 * sizeof(char16_t)) != 0)
+    {
+        il2cpp_throw_argument_exception(
+            "The type name is not a COM Type value (expected the \"COMCLSID:\" sentinel).");
+    }
+    uint8_t clsid[16];
+    char hex[kComClsidHexLength];
+    for (int32_t i = 0; i < kComClsidHexLength; ++i)
+    {
+        const char16_t c = s->chars[9 + i];
+        hex[i] = (c <= 0x7F) ? static_cast<char>(c) : '\0';
+    }
+    if (!SentinelToClsid(hex, clsid))
+    {
+        il2cpp_throw_argument_exception(
+            "The COM Type value carries a malformed CLSID hex payload.");
+    }
+#if defined(_WIN32)
+    const intptr_t unknown = CreateInstanceByClsid(clsid);
+    return WrapUnknown(reinterpret_cast<void*>(unknown));
+#else
+    (void)clsid;
+    il2cpp_throw_not_supported_exception(
+        "COM is only supported on Windows (ILC platform limitation).");
+    return nullptr;
+#endif
+}
+
+//------------------------------------------------------------------------------
 // icall_com_get_iunknown_for_object -- Marshal.GetIUnknownForObject. net48
 // semantics (coreclr interopconverter.cpp GetComIPFromObjectRef): the object
 // is exposed through ITS native interface -- an RCW returns its wrapped
@@ -8192,6 +8492,233 @@ int32_t icall_com_idispatch_invoke(intptr_t dispatch, int32_t dispIdMember,
     (void)pVarResult;
     (void)pExcepInfo;
     (void)puArgErr;
+    return kComHrNotImpl;
+#endif
+}
+
+//------------------------------------------------------------------------------
+// icall_com_invoke_member -- C2 (A2): the ONE-CALL late-bound member
+// invocation (Type.InvokeMember on a COM Type / RCW), see the header.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_com_invoke_member(Il2CppObject* rcw, Il2CppString* name,
+                                      Il2CppArray* args)
+{
+    if (name == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+#if defined(_WIN32)
+    Il2CppComRcw* r = AsRcw(rcw, "rcw");
+
+    // 1. QI the RCW's IUnknown for IDispatch (the automation surface).
+    intptr_t dispatch = 0;
+    const int32_t qihr = icall_com_query_interface(
+        static_cast<intptr_t>(reinterpret_cast<uintptr_t>(r->unknown)),
+        kComIidIDispatch, &dispatch);
+    if (qihr != kComHrOk)
+    {
+        if (qihr == kComHrNoInterface)
+        {
+            il2cpp_throw_new(
+                "System.InvalidCastException,System.InvalidCastException,"
+                "System.SystemException,System.Exception",
+                "The COM object does not implement IDispatch (cannot InvokeMember).");
+        }
+        ThrowComException(qihr);
+    }
+
+    // 2. GetIDsOfNames -> the member's dispId (one name, LCID 0).
+    std::wstring wname(reinterpret_cast<const wchar_t*>(name->chars),
+                       static_cast<size_t>(name->length));
+    intptr_t namePtrs[1] = { reinterpret_cast<intptr_t>(wname.c_str()) };
+    int32_t dispId = -1;
+    const int32_t idsHr = icall_com_idispatch_get_ids_of_names(
+        dispatch, namePtrs, 1, 0, &dispId);
+    if (idsHr != kComHrOk)
+    {
+        icall_com_release(dispatch);
+        ThrowComException(idsHr); // DISP_E_MEMBERNOTFOUND for an unknown member
+    }
+
+    // 3. Build the positional DISPPARAMS (rgvarg in REVERSE IL order).
+    const int32_t argCount = (args == nullptr) ? 0 : args->length;
+    std::vector<uint8_t> variants(static_cast<size_t>(argCount) * kVariantSize);
+    std::vector<bool> ownedBstr(static_cast<size_t>(argCount), false);
+    for (int32_t i = 0; i < argCount; ++i)
+    {
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(args, i));
+        const int32_t nativeIdx = argCount - 1 - i; // DISPPARAMS reversal
+        ownedBstr[static_cast<size_t>(nativeIdx)] =
+            ManagedArgToVariant(*slot, &variants[nativeIdx * kVariantSize]);
+    }
+    ComDispParams params;
+    params.rgvarg = argCount > 0 ? variants.data() : nullptr;
+    params.rgdispidNamedArgs = nullptr;
+    params.cArgs = static_cast<uint32_t>(argCount);
+    params.cNamedArgs = 0;
+
+    // 4. Invoke (DISPATCH_METHOD | DISPATCH_PROPERTYGET; property-put is LOUD
+    //    by design -- never passed).
+    uint8_t resultVar[kVariantSize];
+    std::memset(resultVar, 0, sizeof(resultVar));
+    const int32_t invokeHr = icall_com_idispatch_invoke(
+        dispatch, dispId, 0,
+        static_cast<int32_t>(kComDispatchMethod | kComDispatchPropertyGet),
+        reinterpret_cast<intptr_t>(&params), reinterpret_cast<intptr_t>(resultVar),
+        0, 0);
+
+    // 5. Release the borrowed IDispatch + the BSTR argument masters.
+    icall_com_release(dispatch);
+    for (int32_t i = 0; i < argCount; ++i)
+    {
+        if (ownedBstr[static_cast<size_t>(i)] && GetOle32().sysFreeString != nullptr)
+        {
+            void* bstr = nullptr;
+            std::memcpy(&bstr, &variants[static_cast<size_t>(i) * kVariantSize + 8],
+                        sizeof(bstr));
+            GetOle32().sysFreeString(bstr);
+        }
+    }
+    if (invokeHr != kComHrOk)
+    {
+        ThrowComException(invokeHr);
+    }
+
+    // 6. Decode the result (a caller-owned BSTR in resultVar is copied by the
+    //    decoder and must be freed here -- SysFreeString the returned BSTR).
+    uint16_t rvt = 0;
+    std::memcpy(&rvt, resultVar, sizeof(rvt));
+    Il2CppObject* result = VariantResultToManaged(resultVar);
+    if (rvt == kVtBstr && GetOle32().sysFreeString != nullptr)
+    {
+        void* bstr = nullptr;
+        std::memcpy(&bstr, resultVar + kVariantVtOffset + 8, sizeof(bstr));
+        GetOle32().sysFreeString(bstr);
+    }
+    return result;
+#else
+    (void)rcw;
+    (void)name;
+    (void)args;
+    il2cpp_throw_not_supported_exception(
+        "COM is only supported on Windows (ILC platform limitation).");
+    return nullptr;
+#endif
+}
+
+//------------------------------------------------------------------------------
+// C3 (A3) -- the IConnectionPoint SINK direction. The managed side attaches a
+// managed sink CCW to a NATIVE COM event source's connection point:
+//   get_connection_point: QI the RCW's IUnknown for IConnectionPointContainer
+//     + IConnectionPointContainer::FindConnectionPoint(eventIID) -> the
+//     IConnectionPoint* (intptr carrier, AddRef'd).
+//   cp_advise: IConnectionPoint::Advise (slot 5) the managed sink CCW
+//     (icall_com_ccw_create's identity pointer, typically +
+//     register_invoke_dispatch so the source's IDispatch::Invoke reaches a
+//     managed method) -> the connection cookie.
+//   cp_unadvise: IConnectionPoint::Unadvise (slot 6) the cookie.
+// All Windows-only (the POSIX stub -- no real COM event sources to sink
+// into). The slot constants mirror the header (kComCpcSlotFindConnectionPoint
+// = 4, kComCpSlotAdvise = 5, kComCpSlotUnadvise = 6).
+//------------------------------------------------------------------------------
+intptr_t icall_com_get_connection_point(Il2CppObject* rcw, const uint8_t iid[16])
+{
+    if (iid == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("iid");
+    }
+#if defined(_WIN32)
+    Il2CppComRcw* r = AsRcw(rcw, "rcw");
+
+    // 1. QI the RCW's IUnknown for IConnectionPointContainer.
+    intptr_t cpc = 0;
+    const int32_t qihr = icall_com_query_interface(
+        static_cast<intptr_t>(reinterpret_cast<uintptr_t>(r->unknown)),
+        kComIidIConnectionPointContainer, &cpc);
+    if (qihr != kComHrOk)
+    {
+        if (qihr == kComHrNoInterface)
+        {
+            il2cpp_throw_new(
+                "System.InvalidCastException,System.InvalidCastException,"
+                "System.SystemException,System.Exception",
+                "The COM object does not implement IConnectionPointContainer "
+                "(cannot attach an event sink).");
+        }
+        ThrowComException(qihr);
+    }
+
+    // 2. FindConnectionPoint(eventIID) -- vtable slot 4.
+    void* self = reinterpret_cast<void*>(cpc);
+    typedef int32_t (IL2CPP_COM_CALL* FindConnectionPointFn)(void*, const void*, void**);
+    const FindConnectionPointFn fn = reinterpret_cast<FindConnectionPointFn>(
+        const_cast<void*>(VtableSlot(self, kComCpcSlotFindConnectionPoint)));
+    void* cp = nullptr;
+    const int32_t fhr = fn(self, iid, &cp);
+    icall_com_release(cpc); // the borrowed ICPC reference
+    if (fhr != kComHrOk || cp == nullptr)
+    {
+        ThrowComException(fhr != kComHrOk ? fhr : kComHrNoConnection);
+    }
+    return static_cast<intptr_t>(reinterpret_cast<uintptr_t>(cp));
+#else
+    (void)rcw;
+    il2cpp_throw_not_supported_exception(
+        "COM is only supported on Windows (ILC platform limitation).");
+    return 0;
+#endif
+}
+
+int32_t icall_com_cp_advise(intptr_t cp, intptr_t sinkCcw, intptr_t* cookie)
+{
+    if (cp == 0)
+    {
+        il2cpp_throw_argument_null_exception("cp");
+    }
+    if (sinkCcw == 0)
+    {
+        il2cpp_throw_argument_null_exception("sinkCcw");
+    }
+    if (cookie == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("cookie");
+    }
+#if defined(_WIN32)
+    void* self = reinterpret_cast<void*>(cp);
+    typedef int32_t (IL2CPP_COM_CALL* AdviseFn)(void*, void*, uint32_t*);
+    const AdviseFn fn = reinterpret_cast<AdviseFn>(
+        const_cast<void*>(VtableSlot(self, kComCpSlotAdvise)));
+    uint32_t nativeCookie = 0;
+    const int32_t hr = fn(self, reinterpret_cast<void*>(sinkCcw), &nativeCookie);
+    if (hr == kComHrOk)
+    {
+        *cookie = static_cast<intptr_t>(nativeCookie);
+    }
+    return hr;
+#else
+    (void)cp;
+    (void)sinkCcw;
+    (void)cookie;
+    return kComHrNotImpl;
+#endif
+}
+
+int32_t icall_com_cp_unadvise(intptr_t cp, intptr_t cookie)
+{
+    if (cp == 0)
+    {
+        il2cpp_throw_argument_null_exception("cp");
+    }
+#if defined(_WIN32)
+    void* self = reinterpret_cast<void*>(cp);
+    typedef int32_t (IL2CPP_COM_CALL* UnadviseFn)(void*, uint32_t);
+    const UnadviseFn fn = reinterpret_cast<UnadviseFn>(
+        const_cast<void*>(VtableSlot(self, kComCpSlotUnadvise)));
+    return fn(self, static_cast<uint32_t>(cookie));
+#else
+    (void)cp;
+    (void)cookie;
     return kComHrNotImpl;
 #endif
 }

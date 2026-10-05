@@ -240,11 +240,15 @@ int32_t il2cpp_array_last_index_of_string(Il2CppArray* arr, Il2CppObject* value)
 // IComparable.CompareTo(object) interface dispatch. Resolves the receiver's
 // CompareTo vtable slot through the registered typeinfo method table (the
 // transpiler lowers an interface-typed callvirt to this runtime entry when the
-// receiver's concrete type is a translated user type). A null receiver throws
-// NullReferenceException; a receiver whose type has no reflected virtual
-// CompareTo slot throws NotSupportedException (the boxed-primitive
-// IComparable surface is out of scope). The user implementation decides the
-// null-other ordering (.NET semantics: the called CompareTo runs verbatim).
+// receiver's concrete type is a translated user type). G2/D3: a boxed BUILTIN
+// receiver (Int32/UInt32/Int64/UInt64/Single/Double/Char/Boolean/String -- no
+// reflected vtable) resolves through the raw VALUE table first
+// (TryCompareBoxedBuiltin, arraysort.cpp), so the boxed-primitive IComparable
+// surface works with net48 semantics (value compare, null -> 1, foreign type
+// -> ArgumentException). A null receiver throws NullReferenceException; a
+// receiver with no table entry AND no reflected virtual CompareTo slot throws
+// NotSupportedException. The user implementation decides the null-other
+// ordering (.NET semantics: the called CompareTo runs verbatim).
 int32_t il2cpp_icomparable_compare_to(Il2CppObject* receiver, Il2CppObject* other);
 
 // IComparer.Compare(object, object) interface dispatch -- the non-generic

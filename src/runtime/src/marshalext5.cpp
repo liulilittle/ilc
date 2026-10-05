@@ -72,6 +72,13 @@
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_runtime.h" // il2cpp_box_int32
 
+// C1 (A1): forward declaration of the real RCW check (com.cpp). A local decl
+// avoids pulling in il2cpp_com.h, whose VARIANT constants would collide with
+// this TU's file-local kVt* names.
+namespace il2cpp { namespace runtime {
+bool icall_com_is_com_object(Il2CppObject* obj);
+}}
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -467,16 +474,13 @@ Il2CppObject* icall_marshal_get_objects_for_native_variants(intptr_t aSrcNativeV
 
 //------------------------------------------------------------------------------
 // icall_marshal_is_com_object -- Marshal.IsComObject(object): net48 returns
-// true only for COM RCW/CCW wrappers; ILC has no COM runtime, so a non-null
-// object is never a COM wrapper -> always false.
+// true only for COM RCW wrappers. C1 (A1): the COM runtime EXISTS (com.cpp
+// RCW/CCW), so the check delegates to icall_com_is_com_object (klass == the
+// __ComObject RCW descriptor). Null -> ArgumentNullException (net48).
 //------------------------------------------------------------------------------
 bool icall_marshal_is_com_object(Il2CppObject* o)
 {
-    if (o == nullptr)
-    {
-        il2cpp_throw_argument_null_exception("o");
-    }
-    return false;
+    return icall_com_is_com_object(o);
 }
 
 } // namespace runtime

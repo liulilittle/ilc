@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Type -- System.Type icall mappings (il2cpp_typeext.h).
@@ -106,6 +106,39 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_field", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
                 throw new NotSupportedException($"Type.GetField with {ps.Length} parameter(s) not wired in M5.5 -- only the (string) overload maps to il2cpp_typeinfo_get_field");
+            // R2 (B2): member ENUMERATION -- GetMethods()/GetFields()/
+            // GetProperties()/GetConstructors()/GetInterfaces(). Each maps to
+            // a runtime icall that materialises an Il2CppArray* of member-NAME
+            // strings (the simplified member model -- a member VALUE is its
+            // name string, typeinfo.h). ReturnTypeName "...[]" keeps the
+            // Array-domain folds (.Length / element read / foreach) resolved.
+            // Only the 0-param overloads are wired; the BindingFlags overloads
+            // have no runtime support and fail LOUD.
+            case "GetMethods":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_methods", 0, true, true, true,
+                        returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetMethods with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_methods");
+            case "GetFields":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_fields", 0, true, true, true,
+                        returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetFields with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_fields");
+            case "GetProperties":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_properties", 0, true, true, true,
+                        returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetProperties with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_properties");
+            case "GetConstructors":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_constructors", 0, true, true, true,
+                        returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetConstructors with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_constructors");
+            case "GetInterfaces":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_interfaces", 0, true, true, true,
+                        returnTypeName: "System.Type[]");
+                throw new NotSupportedException($"Type.GetInterfaces with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_interfaces");
             // Type.op_Equality(Type, Type) -- the C# == operator (csc emits
             // `call`, never callvirt; the resolver's default op_* heuristic
             // classifies it INSTANCE and the call path would throw "pops this
@@ -180,6 +213,38 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::il2cpp_type_has_element_type", 0, true, false, true);
             case "get_BaseType":
                 return I("il2cpp::runtime::il2cpp_type_get_base_type", 0, true, true, true, returnTypeName: "System.Type");
+            // C1 (A1): Type-COM creation. Type.GetTypeFromProgID(string) /
+            // Type.GetTypeFromCLSID(Guid) produce the COM Type VALUE string
+            // "COMCLSID:<32hex>" (il2cpp_com.h -- the simplified Type model's
+            // sentinel for a COM type). ReturnTypeName "System.Type" keeps the
+            // Type-domain linkage (get_Name / IsComObject / op_Equality) on
+            // the result.
+            case "GetTypeFromProgID":
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_com_type_from_progid", 1, true, true, false,
+                        new[] { "s" }, returnTypeName: "System.Type");
+                throw new NotSupportedException($"Type.GetTypeFromProgID with {ps.Length} parameter(s) not wired in C1 -- only the (string) overload maps to il2cpp_com_type_from_progid");
+            case "GetTypeFromCLSID":
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::il2cpp_com_type_from_clsid", 1, true, true, false,
+                        new[] { "g" }, returnTypeName: "System.Type");
+                throw new NotSupportedException($"Type.GetTypeFromCLSID with {ps.Length} parameter(s) not wired in C1 -- only the (Guid) overload maps to il2cpp_com_type_from_clsid");
+            // C2 (A2): Type.InvokeMember(string, BindingFlags, Binder, object,
+            // object[]) on a COM Type -- the ONE-CALL late-bound IDispatch
+            // invocation. ParamCount IS THE IL ARITY (5, the fold's stack pop
+            // count); the argOrder maps the icall slots to the IR arg list
+            // [receiver, name, invokeAttr, binder, target, args]: slot0 (rcw)
+            // = index 4 (target), slot1 (name) = index 1, slot2 (args) = index
+            // 5; the receiver and the invokeAttr/binder slots are not
+            // referenced (dropped). property-put is LOUD by design (only
+            // DISPATCH_METHOD + DISPATCH_PROPERTYGET). ReturnTypeName
+            // "System.Object" keeps the null/IsComObject/Concat linkage.
+            case "InvokeMember":
+                if (ps.Length == 5 && ps[0] == 0x0E && ps[1] == 0x11 && ps[4] == 0x1D)
+                    return I("il2cpp::runtime::icall_com_invoke_member", 5, true, true, true,
+                        new[] { "", "s", "a" },
+                        returnTypeName: "System.Object", argOrder: new[] { 4, 1, 5 });
+                throw new NotSupportedException($"Type.InvokeMember with {ps.Length} parameter(s) not wired in C2 -- only the (string, BindingFlags, Binder, object, object[]) overload maps to icall_com_invoke_member");
             default: return null;
         }
     }

@@ -40,30 +40,49 @@ public class MethodMapAttributeTests
     }
 
     //--------------------------------------------------------------------------
-    // Query surface -- the attributeType/inherit overloads drop their extras
-    // (attribute.h: "the attributeType / inherit overloads are not modelled")
+    // Query surface -- R4 (B3): the attributeType/inherit overloads route to
+    // the net48-semantics _ex_named primitives (baseType-chain inheritance
+    // walk + attributeType filter + AttributeUsage rules, attribute.cpp).
+    // The fixed runtime signature is (element, attributeType, inherit); the
+    // arity-2 (element, inherit) shape injects a nullptr attributeType slot
+    // (argOrder slot literal -1); (element, attributeType) appends inherit=1;
+    // the 3-arg form is identity.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Attribute_GetCustomAttributes_TypeBool_DropsInheritArg()
+    public void Resolve_Attribute_GetCustomAttributes_TypeBool_MapsToExNamedInherit()
     {
         var resolved = ResolveMember(Synthesize("System", "Attribute", "GetCustomAttributes",
                 Sig(0x1C, 2, 0x12, 0x05, 0x02)), // (Type, bool inherit)
             "GetCustomAttributes");
 
+        Assert.Equal("il2cpp::runtime::il2cpp_attribute_get_custom_ex_named", resolved.CppName);
+        Assert.Equal(new[] { 0, -1, 1 }, resolved.ArgOrder); // nullptr attributeType injected
+        Assert.Equal(new[] { "", "", "i" }, resolved.ParamTypeNames);
         Assert.Equal(2, resolved.ParamCount);
-        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_Attribute_GetCustomAttributes_TypeTypeBool_DropsBothExtraArgs()
+    public void Resolve_Attribute_GetCustomAttributes_TypeTypeBool_MapsToExNamedFull()
     {
         var resolved = ResolveMember(Synthesize("System", "Attribute", "GetCustomAttributes",
                 Sig(0x1C, 3, 0x12, 0x05, 0x12, 0x05, 0x02)), // (Type, Type, bool)
             "GetCustomAttributes");
 
+        Assert.Equal("il2cpp::runtime::il2cpp_attribute_get_custom_ex_named", resolved.CppName);
+        Assert.Equal(new[] { "", "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { true, true, false }, resolved.ParamIsRef);
         Assert.Equal(3, resolved.ParamCount);
-        Assert.Equal(new[] { "", "drop", "drop" }, resolved.ParamTypeNames);
-        Assert.Equal(new[] { true, true, true }, resolved.ParamIsRef);
+    }
+
+    [Fact]
+    public void Resolve_Attribute_GetCustomAttribute_TypeTypeBool_MapsToSingleExNamed()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Attribute", "GetCustomAttribute",
+                Sig(0x1C, 3, 0x12, 0x05, 0x12, 0x05, 0x02)), // (Type, Type, bool)
+            "GetCustomAttribute");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_attribute_get_single_ex_named", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
