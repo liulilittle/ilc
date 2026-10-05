@@ -1,0 +1,82 @@
+06/15/2020
+Monday, 15 June 2020
+13:45
+13:45:30
+Monday, 15 June 2020 13:45
+Monday, 15 June 2020 13:45:30
+[06/15/2020 13:45:30]
+06/15/2020 13:45:30
+2020-06-15 13:45:30
+20/06/15 01:45:30
+Jun Mon
+June Monday
+13 1 45 30
+2020
+20
+2020
+02020
+0005 June
+05
+005
+0005
+00005
+13
+13
+01
+01
+45
+45
+30
+30
+15/6
+15
+Monday, June 15, 2020
+FormatException
+12
+12:05
+12:5
+Jan
+Feb
+Mar
+Apr
+May
+Jun
+Jul
+Aug
+Sep
+Oct
+Nov
+Dec
+January
+February
+March
+April
+May
+June
+July
+August
+September
+October
+November
+December
+Sun
+Mon
+Tue
+Wed
+Thu
+Fri
+Sat
+Sunday
+Monday
+Tuesday
+Wednesday
+Thursday
+Friday
+Saturday
+June 15
+2020 June
+2020-06-15T13:45:30
+PM
+06/15/2020 13:45
+FormatException
+FormatException

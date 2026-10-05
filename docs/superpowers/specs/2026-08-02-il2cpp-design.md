@@ -81,6 +81,9 @@ System.Reflection.Metadata 解析全输入程序集 → 全量类型图（类型
 - 类型 → struct + 编译期方法表（vtable + 接口映射表），字段布局按 .NET 规则计算
 - 方法 → 确定性编码的静态函数（含泛型参数编码），noinline 禁止内联
 - 泛型 → 按保留清单实例化展开；引用类型实参共享方法体（.NET 语义）
+- **泛型 = .NET 类型语义，严禁映射为 C++ template（用户强调）**：C++ template 是宏展开机制（实例化时类型检查、无运行时类型信息），与 .NET 泛型（运行时类型系统一部分）本质不同；禁止把 `List<T>` 映射成 C++ 模板类、禁止依赖 C++ template 展开能力
+- **泛型实现机制（防膨胀，对齐 CLR）**：① 引用类型实参 → **单一共享代码 + 共享布局**（`List<string>`/`List<object>`/`List<任意类>` = 1 套代码 1 套布局，区分靠运行时隐藏类型参数 Il2CppClass* 类型对象；100 个引用类型实例 = 1 份代码）；② 值类型实参 → **独立特化**（布局不同必须独立，基元+struct 集合数量有限，膨胀可控）；③ 泛型类型定义单独保留（`typeof(List<>)` 反射入口）；④ 编译期生成 = 每泛型定义 1 份共享实现 + 每值类型实参 N 份特化 + 元数据实例条目；**禁止每实例全量展开**（引用类型组合爆炸）
+- **T 的映射机制（用户强调，重要）**：泛型参数 T = **编译期固化的运行时类型对象 Il2CppClass\*（TypeMetadata 指针）**，作为隐藏参数传入共享方法体（`void List_Add(List* this, Il2CppClass* T, Il2CppObject* item)`），非 C++ 类型系统概念（零实例化、纯指针参数）。**通过 T 可反射**：GetGenericArguments / IsInstanceOf / default(T) / box-unbox / new T[n] / 虚调用接口分派全部查 T 的 TypeMetadata（编译期固化）；引用类型的 T 永远指向既有类型对象（零额外资源）；值类型特化中 T 仍按统一 ABI 传递
 - 异常 → try/catch 映射 + RAII finally + 类型匹配重抛（见 6.3）
 - 帧记录 → 方法序言压栈 MethodInfo（见 6.4）
 - 写屏障 → 引用字段赋值处插入（见 5.2）
@@ -132,6 +135,7 @@ System.Reflection.Metadata 解析全输入程序集 → 全量类型图（类型
 - 跨 C 边界（C API/P/Invoke 回调）：所有导出边界 try/catch 防护层，捕获 → 错误码 + 挂起异常对象（il2cpp_get_last_exception）
 - 转译代码资源全 RAII；MSVC /EHsc、MinGW -fexceptions 全链开启
 - 异常对象是 GC 对象（System.Exception 派生链）
+- **完美异常保证（用户强化）**：① try/catch/finally 语义正确（继承匹配/嵌套/finally 无条件执行/finally 抛异常替代）；② 异常路径零泄露（C++ 展开器保证 RAII 析构必执行，配合全 RAII 铁律 #9）；③ 可捕获不崩溃（所有可预期异常路径均有 catch 语义，未捕获的逃逸到顶层防护）；④ **无处理链崩溃 → 明确显示崩溃堆栈**：顶层防护打印完整托管堆栈（类型名.方法名(签名) + 源文件:行号，约束 #10⑥）+ 非零退出码，绝不静默消失
 
 ### 5.4 托管栈帧记录（完整 StackTrace）
 - 编译期：每方法静态 MethodInfo（类型名/方法名/签名/IL 序列点行号表）
@@ -225,7 +229,7 @@ System.Reflection.Metadata 解析全输入程序集 → 全量类型图（类型
 每子代理产出 = 可编译单元 + 自带测试；主线程集成验证。
 
 ## 11. 硬性约束清单（不可违反）
-0. **C++ 标准 = C++17 仅**：运行时与生成代码全部 C++17（cxx_std_17），**禁止 C++20/23 及以上特性**（concepts/ranges/coroutines/modules/三路比较/设计空间 等一律禁用），保证跨编译器/跨环境最大兼容
+0. **C++ 标准 = C++17 仅，兼容基线 GCC 7.5**：运行时与生成代码全部 C++17（cxx_std_17），**禁止 C++20/23 及以上特性**（concepts/ranges/coroutines/modules/三路比较/设计空间 等一律禁用）；**代码必须可被 GCC 7.5 编译运行正确**——避免 GCC 7.5 不支持的库特性（如 std::filesystem 等 GCC 8+ 完整库），用核心语言特性 + 基础库，保证跨编译器/跨环境最大兼容
 1. 零 JIT：全链路纯 AOT，无 mmap 可执行内存/动态机器码生成路径
 2. 静态编译：泛型编译期展开、vtable/类型表编译期生成、元数据只读内嵌
 3. 零第三方依赖：GC/元数据/string/集合全部自研；产物仅依赖 OS 固有 API
@@ -235,7 +239,10 @@ System.Reflection.Metadata 解析全输入程序集 → 全量类型图（类型
 7. 反射看到的必须与编译时真实一致（元数据同源同构）
 8. **引用语义 = 裸 GC 指针（对齐 .NET CLR 原生分代 GC 语义 + Go 风格低延迟追踪式 GC）**：.NET 引用严禁转译为 std::shared_ptr/引用计数/手写 free（原子计数开销、循环引用泄漏、终结器时序失真、GC 不可控）。生命周期由分代追踪式 GC 统一管理（Gen0/1/2 + LOH + 卡表 + 写屏障 + 压缩，对齐 CLR 语义），后台并发标记为性能演进项（M3 后）
 9. **内存零泄露 + 资源访问安全（硬性底线）**：① 运行时 init/shutdown 全对称（可反复循环，库形态加载/卸载零残留），内部 C++ 资源全量 RAII（含错误路径），icall/Marshal 原生内存登记 + 托管侧确定性释放；② 转译代码编译期插入空引用检查（→NullReferenceException）与边界检查（→IndexOutOfRangeException），对齐 .NET 语义；③ 开发期 ASan/UBSan 双编译器全跑 + 泄漏检测器（分配簿记+退出报告）+ 泄漏测试专项（init/shutdown 循环零残留断言、长期压力 RSS 稳定）
-10. **程序不裸崩（崩溃防护 = 编译器生成检查，不引入系统防崩溃）**：① 崩溃预防走正路——转译代码编译期插入 null 检查（→NullReferenceException）、边界检查（→IndexOutOfRangeException）、栈底哨兵（→StackOverflowException，4.8 语义），全部托管异常语义、编译器生成，非系统钩子；② 未处理异常 → 顶层语言级 catch-all（main/导出 thunk 内 try/catch）→ stderr 打印异常+完整托管 StackTrace+非零退出码（对齐 .NET 控制台行为）；③ 访问违例/堆损坏（真 bug 或灾难态）→ **不拦截**，OS 默认崩溃处理，崩溃 = 真 bug 的可诊断信号（保证：正确程序不崩，因编译期检查兜底）；④ **明确排除**：VEH/SEH 挂钩、崩溃捕获/转储库（crashpad/breakpad/minidump）、任何系统异常链干预；⑤ 异常路径无泄露保证：C++ 展开器保证 RAII 析构必执行（与是否抛异常无关），配合全 RAII 铁律（约束 #9），try/catch 路径零泄露；⑥ 诊断信息完整：MethodInfo 编译期固化类型名.方法名(签名) + IL SequencePoint 源文件名/行号，异常输出 `at Foo.Bar() in foo.cs:line 42`（与 .NET 格式一致）
+10. **程序不裸崩（崩溃防护 = 编译器生成检查，不引入系统防崩溃）**：① 崩溃预防走正路——转译代码编译期插入 null 检查（→NullReferenceException）、边界检查（→IndexOutOfRangeException）、栈底哨兵（→StackOverflowException，4.8 语义），全部托管异常语义、编译器生成，非系统钩子；② 未处理异常 → 顶层语言级 catch-all（main/导出 thunk 内 try/catch）→ stderr 打印异常+完整托管 StackTrace+非零退出码（对齐 .NET 控制台行为）——**无处理链崩溃必须明确显示崩溃堆栈（类型名.方法名(签名)+源文件:行号），绝不静默消失**；③ 访问违例/堆损坏（真 bug 或灾难态）→ **不拦截**，OS 默认崩溃处理，崩溃 = 真 bug 的可诊断信号（保证：正确程序不崩，因编译期检查兜底）；④ **明确排除**：VEH/SEH 挂钩、崩溃捕获/转储库（crashpad/breakpad/minidump）、任何系统异常链干预；⑤ 异常路径无泄露保证：C++ 展开器保证 RAII 析构必执行（与是否抛异常无关），配合全 RAII 铁律（约束 #9），try/catch 路径零泄露；⑥ 诊断信息完整：MethodInfo 编译期固化类型名.方法名(签名) + IL SequencePoint 源文件名/行号，异常输出 `at Foo.Bar() in foo.cs:line 42`（与 .NET 格式一致）
+11. **C++ 构建统一 cmake（唯一构建系统）**：C++ 侧（运行时 + 生成代码）一律通过 cmake 配置/构建（目标平台 = 换生成器：Visual Studio 17 2022 / MinGW Makefiles / Unix Makefiles），禁止直接调用 cl/g++ 命令行编译、禁止引入 MSBuild 等其他构建系统；跨平台无心智负担。转译器（C# 工具）用 dotnet build（开发期工具，与产物无关）
+12. **NDK/Apple 编译支持 + 禁止全局构造分配内存（用户原则，硬性）**：目标平台扩展为 Windows（MSVC/MinGW）+ **Android（NDK，Clang/GCC）** + Apple（iOS/macOS）。**原则性问题：禁止在 C++ 全局/静态对象构造器中分配内存或执行运行时初始化**（NDK/Apple 环境全局构造器不可靠/受限）——① 静态字段的编译期常量 → 常量初始化（只读段，零构造）；② 非常量静态字段 → **.NET cctor 显式初始化**（守卫 + main 调用链触发，天然对齐 .NET beforefieldinit 语义，不依赖全局构造顺序）；③ 运行时全部全局状态由 `il2cpp_runtime_init()` 显式分配（堆分配）；④ 入口 = **main 主动调用 runtime_init() 再调用托管 Main**（无全局构造器驱动）；⑤ 生成代码禁止产生带非平凡构造器的全局对象
+13. **.NET 内部函数（InternalCall/FCall）全部必须实现（用户强调）**：mscorlib/BCL 中 `MethodImplOptions.InternalCall` 方法（无 IL 体，如 String/Environment/GC/Console/Array 内部支撑，类比 JVM 内建函数）**全部枚举并逐个 icall 实现**，否则转译的 BCL 程序跑不起来。这是 M5 BCL 转译的前置工作量：icall 清单（枚举 InternalCall 方法）+ 逐个实现 + 测试
 
 ## 12. 风险与边界
 - 工程量巨大（BCL 全转译 + 分代精确 GC + 异常语义矩阵）→ 里程碑递进，逐步验证

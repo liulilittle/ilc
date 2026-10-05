@@ -1,0 +1,16 @@
+exists_before=0
+exists_after_write=1
+roundtrip_equal=1
+read_length=22
+line_count=3
+line0_equal=1
+line1_equal=1
+line2_equal=1
+combine_eq=1
+combine_empty_eq=1
+name_eq=1
+name_trailing_empty=1
+ext_eq=1
+ext_none_empty=1
+exists_after_delete=0
+exists_double_delete=0

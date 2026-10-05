@@ -1,0 +1,117 @@
+#pragma once
+//------------------------------------------------------------------------------
+// il2cpp_value_semantics.h -- value-semantics runtime icalls: the System.Object
+// virtual/static methods every boxed value and string participates in
+// (GetHashCode / ToString / Equals) plus the per-type GetHashCode icalls the
+// transpiler maps the BCL value-type methods to.
+//
+// SEMANTIC BASELINE: .NET Framework 4.8 (net48) -- empirically verified by the
+// valuesem e2e reference program (tests/cases/valuesem). Hash VALUES below are
+// net48-exact (the unit tests pin them).
+//
+// Hash strategy table (per type -- ALL consistent with the hashtable runtime,
+// hashtable.cpp, so "equal keys -> equal hashes" holds across every use):
+//   System.String   -> ordinal content hash: the SAME simplified .NET
+//                      Framework GetHashCode as hashtable.cpp's
+//                      HashStringOrdinal (5381<<16+5381 dual accumulator, *33,
+//                      0x5D588B65 combine). DELIBERATELY unrandomized: net48
+//                      randomizes the seed PER PROCESS (DoS hardening), so raw
+//                      values are not reproducible across processes -- only
+//                      same-process stability is guaranteed; AOT output must
+//                      be deterministic, so this runtime pins the seed.
+//   System.Int32    -> the value itself (Int32.GetHashCode).
+//   System.Int64    -> low 32 bits XOR high 32 bits (Int64.GetHashCode).
+//   System.Double   -> net48 Double.GetHashCode: bit pattern with the
+//                      d == 0 shortcut, so +0.0 and -0.0 BOTH hash to 0;
+//                      otherwise unchecked((int)bits) ^ (int)(bits >> 32).
+//                      NaN: net48 does NOT unify payloads (probed with
+//                      BitConverter.Int64BitsToDouble -- an exotic payload
+//                      hashes differently from double.NaN); this runtime
+//                      mirrors net48 exactly. The C# canonical NaN pattern
+//                      (0xFFF8000000000000 -- every common NaN-producing
+//                      operation on x86 yields it) hashes to -524288
+//                      (constant in practice).
+//   System.Boolean  -> true -> 1, false -> 0 (Boolean.GetHashCode).
+//   other objects   -> ADDRESS hash (ptr >> 3 -- same as hashtable address
+//                      keys; see icall_object_get_hash_code).
+//
+// Dispatch contracts (Object.GetHashCode / Object.ToString / Object.Equals):
+//   icall_object_get_hash_code -- string -> ordinal hash; boxed Int32 -> the
+//       value; anything else -> address hash; null -> NullReferenceException.
+//       KNOWN DIVERGENCE vs net48: a boxed bool/long/double hashed through
+//       the object path gives the ADDRESS hash here (net48 dispatches the
+//       virtual value-type GetHashCode and yields 1 / high^low / bits-based).
+//       The per-type icalls below carry the net48 semantics; generated code
+//       calls them directly for statically-known value types, so only
+//       genuinely object-typed dispatch takes the address-hash path.
+//   icall_object_to_string -- string -> the string ITSELF (identity); boxed
+//       Int32 -> decimal; boxed Boolean -> "True"/"False"; anything else ->
+//       the type's full name (klass->name); null -> NullReferenceException.
+//       KNOWN DIVERGENCE vs net48: net48 prints the VALUE for boxed
+//       long/double/char; this runtime prints the type name (M-scope
+//       simplification -- il2cpp_format.h icalls exist for future wiring).
+//   icall_object_equals -- static Object.Equals: reference identity first;
+//       two strings -> ordinal content equality; two boxes with the SAME
+//       klass name -> value equality (double NaN == NaN is TRUE, net48);
+//       everything else -> false. null,null -> true (net48).
+//
+// Exception transport: il2cpp_throw_null_reference_exception (exceptionext)
+// for null receivers -- chain "{Type},{Type},{SystemException},{Exception}".
+//------------------------------------------------------------------------------
+
+#include "il2cpp_object.h"
+#include "il2cpp_string.h"
+
+#include <cstdint>
+
+namespace il2cpp {
+namespace runtime {
+
+// Object.GetHashCode virtual dispatch (see the hash strategy table above).
+int32_t icall_object_get_hash_code(Il2CppObject* obj);
+
+// Object.ToString virtual dispatch (see the dispatch contracts above).
+// Returns Il2CppString* (an Il2CppObject* by layout -- same ABI).
+Il2CppString* icall_object_to_string(Il2CppObject* obj);
+
+// Static Object.Equals(a, b) (see the dispatch contracts above).
+bool icall_object_equals(Il2CppObject* a, Il2CppObject* b);
+
+// Value-type GetHashCode icalls (net48-exact values; see the table).
+int32_t icall_int32_get_hash_code(int32_t value);
+int32_t icall_int64_get_hash_code(int64_t value);
+int32_t icall_double_get_hash_code(double value);
+int32_t icall_string_get_hash_code(Il2CppObject* str);
+int32_t icall_bool_get_hash_code(bool value);
+
+//------------------------------------------------------------------------------
+// icall_value_type_get_hash_code -- the System.ValueType.GetHashCode default
+// implementation for a TRANSLATED value type (the constrained-callvirt
+// surface; transpiler-injected constants).
+//
+//   typeHash  : the deterministic per-type hash (djb2 over the full type
+//               name, computed by the transpiler) -- returned verbatim when
+//               the struct has no instance fields (net48's "no fields ->
+//               type hash" rule).
+//   fieldKind : the first instance field's kind, decided at COMPILE time by
+//               the transpiler from the metadata (the runtime has no value-
+//               type descriptors -- value types are plain C++ values):
+//                 0 = no instance fields     -> return typeHash
+//                 1 = first field is a value -> return the int32 at data[0]
+//                 2 = first field is a GC reference -> hash the object at
+//                     data[0] (null -> 0)
+//   data      : the value-type receiver's ADDRESS (the first field always
+//               sits at offset 0 -- the transpiler's value-type slot grid
+//               starts at 0, no object header).
+//
+// SEMANTIC BASELINE: the DOCUMENTED net48 rule (netcore ValueType.cs:89-94):
+// "look for the first non-static field and get its hashcode; if the type has
+// no non-static fields, return the hashcode of the type." NOTE: the probed
+// net48 byte-level behavior is a process-randomized whole-struct hash (the
+// documented rule is NOT what net48 actually computes) -- the oracle
+// discrepancy is documented in discover.md / the array-vt-gap-report.
+//------------------------------------------------------------------------------
+int32_t icall_value_type_get_hash_code(int32_t typeHash, int32_t fieldKind, const void* data);
+
+} // namespace runtime
+} // namespace il2cpp

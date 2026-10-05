@@ -1,0 +1,8 @@
+f1=True
+f2=-1
+f3=4,8,16,42
+f4=True
+f5=True
+dc1=3.5
+dc2=True
+dc3=True

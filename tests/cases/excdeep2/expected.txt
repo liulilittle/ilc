@@ -1,0 +1,11 @@
+m1=True
+m2=True
+m3=True
+c1=True
+c2=True
+c3=True
+d1=True
+d2=True
+l1=True
+l2=True
+alive=True

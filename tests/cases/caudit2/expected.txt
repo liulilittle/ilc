@@ -1,0 +1,2 @@
+eq_equatable=True
+eq_object=True

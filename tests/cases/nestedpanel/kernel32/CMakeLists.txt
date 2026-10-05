@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.10)
+project(kernel32 C)
+add_library(kernel32 INTERFACE)
+target_link_libraries(kernel32 INTERFACE "kernel32")
+target_compile_features(kernel32 INTERFACE cxx_std_17)

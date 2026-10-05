@@ -1,0 +1,10 @@
+get=hello env
+get2=second value
+missing_after_null=1
+missing_after_empty=1
+missing_final=1
+cwd=E:\il2cpp
+tick_mono=1
+tick_nondec=1
+tick_advance=1
+procs=32

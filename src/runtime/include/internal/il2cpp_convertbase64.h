@@ -1,0 +1,42 @@
+#pragma once
+//------------------------------------------------------------------------------
+// il2cpp_convertbase64.h -- System.Convert Base64 icall support.
+//
+// The transpiler maps Convert.ToBase64String(byte[]) / FromBase64String(string)
+// to these runtime helpers -- the same icall pattern as convert.cpp.
+//
+// SEMANTIC BASELINE: .NET Framework 4.8 -- the standard RFC 4648 Base64
+// alphabet ('A'-'Z','a'-'z','0'-'9','+','/') with '=' padding:
+//   * ToBase64String: encodes in 3-byte quantums to 4 chars; the final
+//     quantum is padded with '=' (1 or 2) when the input length is not a
+//     multiple of 3. Null array -> ArgumentNullException.
+//   * FromBase64String: ignores ASCII whitespace (space / tab / CR / LF)
+//     anywhere in the input; '=' padding is only legal in the FINAL
+//     quantum: a single '=' after exactly three valid chars, or '==' after
+//     exactly two (whitespace may sit between the pads and trail after
+//     them). net48 quirks (probe-verified 2026-08-04): "AB= " (single '='
+//     after two chars + trailing whitespace) throws, while "TWE==" (three
+//     valid chars + '==') decodes to ONE byte and "TWE" (unpadded three
+//     chars) throws. A leftover single valid char (length % 4 == 1) and
+//     unpadded leftovers of 2 or 3 chars throw; an illegal character ->
+//     FormatException; null string -> ArgumentNullException.
+//------------------------------------------------------------------------------
+
+#include "il2cpp_string.h"
+#include "il2cpp_array.h"
+#include "il2cpp_exception_ext.h"
+
+#include <cstdint>
+
+namespace il2cpp { namespace runtime {
+
+// Convert.ToBase64String(byte[]): standard Base64 with '=' padding.
+// Null array -> ArgumentNullException. Returns a managed string.
+Il2CppString* il2cpp_convert_to_base64_string(Il2CppArray* bytes);
+
+// Convert.FromBase64String(string): standard Base64 decode (see the
+// semantics above). Null string -> ArgumentNullException; invalid input ->
+// FormatException. Returns a byte[] (elemSize 1) managed array.
+Il2CppArray* il2cpp_convert_from_base64_string(Il2CppString* text);
+
+}} // namespace il2cpp::runtime

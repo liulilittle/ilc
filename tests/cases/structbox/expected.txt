@@ -1,0 +1,15 @@
+box_ref=True
+box_type=Point
+imb_box=True
+is_object=True
+is_valuetype=True
+is_point=True
+unbox_x=3
+unbox_y=4
+again_x=3
+badcast=True
+null_unbox=True
+distinct=True
+multi_x=True
+multi_y=True
+done

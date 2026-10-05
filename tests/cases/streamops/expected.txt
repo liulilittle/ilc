@@ -1,0 +1,16 @@
+w_canwrite=True
+w_canread=True
+w_len=20
+w_exists=True
+r_canread=True
+r_canwrite=True
+r_len=20
+r_line1=True
+r_line2=True
+r_eof=True
+zh_roundtrip=True
+zh_len=17
+zh_eof=True
+using_flushed=True
+missing_throws=True
+read_writeonly_throws=True

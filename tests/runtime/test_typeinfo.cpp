@@ -1,0 +1,366 @@
+//------------------------------------------------------------------------------
+// test_typeinfo.cpp -- runtime reflection metadata table unit tests
+// (Il2CppTypeInfo registry + simplified member queries; see typeinfo.h).
+//
+// Coverage (normal + edge + error paths):
+//   1. Registry -- il2cpp_typeinfo_register followed by
+//      il2cpp_typeinfo_lookup by full type name (string key -> table);
+//      unknown name -> null; null name -> null; duplicate registration is
+//      idempotent (lookup still resolves to the same table).
+//   2. get_property -- own table hit; inherited hit through the baseType
+//      chain (with indexer entry); miss -> null; null info / null name
+//      -> null.
+//   3. get_method -- own table hit; inherited hit through the chain;
+//      most-derived declaration wins over a same-named base method
+//      (.NET shadowing); a trimmed method (fnPtr == null) is still found;
+//      miss -> null.
+//   4. get_field -- own table hit; inherited hit; static field entry
+//      (offset -1 + staticAddr) surfaces as stored; miss -> null.
+//   5. TypeInfo layout landing -- interfaces table / baseType chain /
+//      klass back-pointer are reachable as drafted (design section 2.1).
+//
+// Plain executable + minimal assertion harness (see test_typeext.cpp).
+//------------------------------------------------------------------------------
+
+#include "typeinfo.h"
+
+#include "il2cpp_exception.h" // DotNetException / il2cpp_exception_matches
+#include "il2cpp_object.h"    // Il2CppObject (managed-string query tests)
+#include "il2cpp_string.h"    // il2cpp_string_new_from_cs
+
+#include <cstddef>
+#include <cstdio>
+#include <cstring>
+
+namespace {
+
+int g_failures = 0;
+
+void Expect(bool condition, const char* what)
+{
+    if (!condition)
+    {
+        std::printf("FAIL: %s\n", what);
+        ++g_failures;
+    }
+}
+
+// Run 'fn' and report whether it threw a DotNetException matching the
+// managed type name (chain conformance -- the same rule the generated catch
+// clauses use; see test_reflect_base.cpp).
+template <typename Fn>
+bool ThrowsManaged(Fn&& fn, const char* managedType)
+{
+    try
+    {
+        fn();
+    }
+    catch (const il2cpp::DotNetException& e)
+    {
+        return il2cpp::il2cpp_exception_matches(managedType, e.type_name()) != 0;
+    }
+    catch (...)
+    {
+        return false;
+    }
+    return false;
+}
+
+void DummyMethod() {}
+
+// Managed string content equality against an ASCII literal (project
+// convention: names are ASCII) -- the shape test_typeext.cpp uses.
+bool ManagedEqualsAscii(il2cpp::Il2CppObject* s, const char* ascii)
+{
+    if (s == nullptr)
+    {
+        return false;
+    }
+    auto str = reinterpret_cast<il2cpp::Il2CppString*>(s);    const size_t len = std::strlen(ascii);
+    if (static_cast<size_t>(str->length) != len)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (str->chars[i] != static_cast<char16_t>(ascii[i]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// Fixture: a 2-level hierarchy + one interface, mirroring what TypeEmitter
+// would generate per reflected type (static const tables, design 2.1).
+//
+//   System.Object  (root -- baseType chain terminates here)
+//   T.IFoo         (interface type info; referenced from T.Derived)
+//   T.Base         (methods: Ctor/Add/Foo; fields: x/_s; properties:
+//                    Value/Item(indexer))
+//   T.Derived      (derives T.Base; methods: Foo (shadows base Foo)/
+//                    Trimmed (fnPtr null); fields: y; properties: Name)
+//------------------------------------------------------------------------------
+
+il2cpp::Il2CppClass objectClass = {
+    "System.Object", 16, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+};
+
+il2cpp::Il2CppClass baseClass = {
+    "T.Base", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
+};
+
+il2cpp::Il2CppClass derivedClass = {
+    "T.Derived", 16, 0u, 0, &baseClass, nullptr, 0, nullptr, 0,
+};
+
+il2cpp::Il2CppClass ifaceClass = {
+    "T.IFoo", 0, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+};
+
+int g_baseStaticSlot = 0;
+
+il2cpp::Il2CppMethodInfo baseMethods[3] = {
+    {"Ctor", "V:System.Void", 0, 5, -1, "T.Base", reinterpret_cast<void*>(&DummyMethod)},
+    {"Add", "I:i:i", 2, 1, -1, "T.Base", reinterpret_cast<void*>(&DummyMethod)},
+    {"Foo", "V:System.Void", 0, 9, 0, "T.Base", reinterpret_cast<void*>(&DummyMethod)},
+};
+
+il2cpp::Il2CppFieldInfo baseFields[2] = {
+    {"x", "System.Int32", 0, 0, nullptr, 1},
+    {"_s", "System.String", -1, 1, &g_baseStaticSlot, 3}, // public|static (raudit3 visibility filter)
+};
+
+il2cpp::Il2CppPropertyInfo baseProperties[2] = {
+    {"Value", "System.Int32", "get_Value", "set_Value", 0},
+    {"Item", "System.Int32", "get_Item", "set_Item", 1},
+};
+
+il2cpp::Il2CppMethodInfo derivedMethods[2] = {
+    {"Foo", "V:System.Void", 0, 9, 0, "T.Derived", reinterpret_cast<void*>(&DummyMethod)},
+    {"Trimmed", "V:System.Void", 0, 1, -1, "T.Derived", nullptr},
+};
+
+il2cpp::Il2CppFieldInfo derivedFields[1] = {
+    {"y", "System.Int32", 0, 0, nullptr, 1},
+};
+
+il2cpp::Il2CppPropertyInfo derivedProperties[1] = {
+    {"Name", "System.String", "get_Name", nullptr, 0},
+};
+
+// System.Object's own (empty) type info -- root of the baseType chain.
+il2cpp::Il2CppTypeInfo objectInfoInstance = {
+    "System.Object", &objectClass, nullptr, nullptr, 0,
+    nullptr, 0, nullptr, 0, nullptr, 0,
+};
+
+il2cpp::Il2CppTypeInfo baseInfo = {
+    "T.Base", &baseClass, &objectInfoInstance, nullptr, 0,
+    baseFields, 2, baseMethods, 3, baseProperties, 2,
+};
+
+il2cpp::Il2CppTypeInfo derivedInfo = {
+    "T.Derived", &derivedClass, &baseInfo, nullptr, 0,
+    derivedFields, 1, derivedMethods, 2, derivedProperties, 1,
+};
+
+il2cpp::Il2CppTypeInfo ifaceInfo = {
+    "T.IFoo", &ifaceClass, nullptr, nullptr, 0,
+    nullptr, 0, nullptr, 0, nullptr, 0,
+};
+
+int main()
+{
+    using namespace il2cpp;
+
+    const Il2CppTypeInfo* ifaces[] = { &ifaceInfo };
+    derivedInfo.interfaces = ifaces;
+    derivedInfo.interfaceCount = 1;
+
+    // --- 1. Registry ---
+    il2cpp_typeinfo_register(&objectInfoInstance);
+    il2cpp_typeinfo_register(&baseInfo);
+    il2cpp_typeinfo_register(&derivedInfo);
+    il2cpp_typeinfo_register(&ifaceInfo);
+    il2cpp_typeinfo_register(&baseInfo); // duplicate -- must be a no-op
+
+    Expect(il2cpp_typeinfo_lookup("T.Base") == &baseInfo,
+           "lookup \"T.Base\" -> baseInfo");
+    Expect(il2cpp_typeinfo_lookup("T.Derived") == &derivedInfo,
+           "lookup \"T.Derived\" -> derivedInfo");
+    Expect(il2cpp_typeinfo_lookup("T.IFoo") == &ifaceInfo,
+           "lookup \"T.IFoo\" -> ifaceInfo");
+    Expect(il2cpp_typeinfo_lookup("System.Object") == &objectInfoInstance,
+           "lookup \"System.Object\" -> objectInfoInstance");
+    Expect(il2cpp_typeinfo_lookup("T.Never") == nullptr,
+           "lookup unregistered name -> null");
+    Expect(il2cpp_typeinfo_lookup(nullptr) == nullptr,
+           "lookup null name -> null");
+    Expect(il2cpp_typeinfo_lookup("T.Base") == &baseInfo,
+           "lookup after duplicate register still resolves (idempotent)");
+
+    // --- 2. get_property ---
+    const Il2CppPropertyInfo* p = il2cpp_type_get_property(&derivedInfo, "Name");
+    Expect(p == &derivedProperties[0], "get_property derived own \"Name\"");
+    Expect(p != nullptr && p->getterName != nullptr &&
+               std::strcmp(p->getterName, "get_Name") == 0,
+           "get_property own entry carries getter name");
+    p = il2cpp_type_get_property(&derivedInfo, "Value");
+    Expect(p == &baseProperties[0],
+           "get_property inherited \"Value\" through base chain");
+    p = il2cpp_type_get_property(&derivedInfo, "Item");
+    Expect(p == &baseProperties[1],
+           "get_property inherited indexer \"Item\" through base chain");
+    Expect(p != nullptr && p->indexParams == 1,
+           "indexer entry carries indexParams == 1");
+    Expect(il2cpp_type_get_property(&derivedInfo, "Nope") == nullptr,
+           "get_property missing -> null");
+    Expect(il2cpp_type_get_property(&objectInfoInstance, "Value") == nullptr,
+           "get_property on empty-table root -> null");
+    Expect(ThrowsManaged([&] { (void)il2cpp_type_get_property(nullptr, "Name"); },
+                         "System.NullReferenceException"),
+           "get_property null info -> NullReferenceException (net48 null receiver)");
+    Expect(ThrowsManaged([&] { (void)il2cpp_type_get_property(&derivedInfo, nullptr); },
+                         "System.ArgumentNullException"),
+           "get_property null name -> ArgumentNullException (net48)");
+
+    // --- 3. get_method ---
+    const Il2CppMethodInfo* m = il2cpp_type_get_method(&derivedInfo, "Add");
+    Expect(m == &baseMethods[1],
+           "get_method inherited \"Add\" through base chain");
+    Expect(m != nullptr && std::strcmp(m->declaringType, "T.Base") == 0,
+           "inherited method carries declaringType \"T.Base\"");
+    m = il2cpp_type_get_method(&derivedInfo, "Foo");
+    Expect(m == &derivedMethods[0],
+           "get_method most-derived \"Foo\" wins over base shadow");
+    Expect(m != nullptr && std::strcmp(m->declaringType, "T.Derived") == 0,
+           "shadowing method carries declaringType \"T.Derived\"");
+    m = il2cpp_type_get_method(&derivedInfo, "Trimmed");
+    Expect(m == &derivedMethods[1],
+           "get_method trimmed entry (fnPtr null) still found by name");
+    Expect(m != nullptr && m->fnPtr == nullptr,
+           "trimmed entry fnPtr is null as stored");
+    Expect(il2cpp_type_get_method(&derivedInfo, "Nope") == nullptr,
+           "get_method missing -> null");
+    Expect(il2cpp_type_get_method(&objectInfoInstance, "Add") == nullptr,
+           "get_method on empty-table root -> null");
+    Expect(ThrowsManaged([&] { (void)il2cpp_type_get_method(nullptr, "Add"); },
+                         "System.NullReferenceException"),
+           "get_method null info -> NullReferenceException (net48 null receiver)");
+    Expect(ThrowsManaged([&] { (void)il2cpp_type_get_method(&derivedInfo, nullptr); },
+                         "System.ArgumentNullException"),
+           "get_method null name -> ArgumentNullException (net48)");
+
+    // --- 4. get_field ---
+    const Il2CppFieldInfo* f = il2cpp_type_get_field(&derivedInfo, "y");
+    Expect(f == &derivedFields[0], "get_field derived own \"y\"");
+    f = il2cpp_type_get_field(&derivedInfo, "x");
+    Expect(f == &baseFields[0],
+           "get_field inherited \"x\" through base chain");
+    f = il2cpp_type_get_field(&derivedInfo, "_s");
+    Expect(f == &baseFields[1], "get_field inherited static \"_s\"");
+    Expect(f != nullptr && f->offset == -1 && f->staticAddr == &g_baseStaticSlot,
+           "static field entry carries offset -1 + staticAddr");
+    Expect(il2cpp_type_get_field(&derivedInfo, "Nope") == nullptr,
+           "get_field missing -> null");
+    Expect(ThrowsManaged([&] { (void)il2cpp_type_get_field(nullptr, "x"); },
+                         "System.NullReferenceException"),
+           "get_field null info -> NullReferenceException (net48 null receiver)");
+    Expect(ThrowsManaged([&] { (void)il2cpp_type_get_field(&derivedInfo, nullptr); },
+                         "System.ArgumentNullException"),
+           "get_field null name -> ArgumentNullException (net48, empty ParamName)");
+
+    // --- 5. TypeInfo layout landing (design 2.1 fields reachable) ---
+    Expect(derivedInfo.baseType == &baseInfo,
+           "derived baseType points at baseInfo");
+    Expect(derivedInfo.klass == &derivedClass,
+           "derived klass back-pointer reaches the class descriptor");
+    Expect(derivedInfo.interfaceCount == 1 && derivedInfo.interfaces[0] == &ifaceInfo,
+           "derived interfaces table + count landed");
+    Expect(std::strcmp(derivedInfo.name, "T.Derived") == 0,
+           "derived name matches its class descriptor name");
+
+    // --- 6. Managed-string ABI queries (the transpiler icall surface:
+    //    Type.GetProperty/GetMethod/GetField with the simplified Type model
+    //    -- a Type VALUE is the full name string, see il2cpp_typeext.h) ---
+    Il2CppObject* hit = il2cpp_typeinfo_get_property(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Name")));
+    Expect(hit != nullptr && ManagedEqualsAscii(hit, "Name"),
+           "string-ABI get_property own \"Name\" -> member-name string");
+    hit = il2cpp_typeinfo_get_property(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Value")));
+    Expect(hit != nullptr && ManagedEqualsAscii(hit, "Value"),
+           "string-ABI get_property inherited \"Value\" through base chain");
+    hit = il2cpp_typeinfo_get_property(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Nope")));
+    Expect(hit == nullptr,
+           "string-ABI get_property missing -> null");
+    hit = il2cpp_typeinfo_get_property(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Never")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Name")));
+    Expect(hit == nullptr,
+           "string-ABI get_property unregistered type -> null");
+    Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_get_property(nullptr,
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Name"))); },
+        "System.NullReferenceException"),
+        "string-ABI get_property null typeName -> NullReferenceException (net48)");
+    Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_get_property(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        nullptr); },
+        "System.ArgumentNullException"),
+        "string-ABI get_property null memberName -> ArgumentNullException (net48)");
+
+    hit = il2cpp_typeinfo_get_method(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Add")));
+    Expect(hit != nullptr && ManagedEqualsAscii(hit, "Add"),
+           "string-ABI get_method inherited \"Add\" -> member-name string");
+    hit = il2cpp_typeinfo_get_method(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Nope")));
+    Expect(hit == nullptr, "string-ABI get_method missing -> null");
+    Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_get_method(nullptr,
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Add"))); },
+        "System.NullReferenceException"),
+        "string-ABI get_method null typeName -> NullReferenceException (net48)");
+    Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_get_method(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        nullptr); },
+        "System.ArgumentNullException"),
+        "string-ABI get_method null memberName -> ArgumentNullException (net48)");
+
+    hit = il2cpp_typeinfo_get_field(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("x")));
+    Expect(hit != nullptr && ManagedEqualsAscii(hit, "x"),
+           "string-ABI get_field inherited \"x\" -> member-name string");
+    hit = il2cpp_typeinfo_get_field(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Nope")));
+    Expect(hit == nullptr, "string-ABI get_field missing -> null");
+    Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_get_field(nullptr,
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("x"))); },
+        "System.NullReferenceException"),
+        "string-ABI get_field null typeName -> NullReferenceException (net48)");
+    Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_get_field(
+        reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+        nullptr); },
+        "System.ArgumentNullException"),
+        "string-ABI get_field null memberName -> ArgumentNullException (net48)");
+
+    // --- Report ---
+    if (g_failures != 0)
+    {
+        std::printf("%d typeinfo assertion(s) failed\n", g_failures);
+        return 1;
+    }
+    std::printf("all runtime typeinfo tests passed\n");
+    return 0;
+}

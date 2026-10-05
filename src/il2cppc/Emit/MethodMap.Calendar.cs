@@ -1,0 +1,100 @@
+namespace Il2Cpp.Transpiler.Emit;
+
+//------------------------------------------------------------------------------
+// MethodMap.Calendar -- System.Globalization.GregorianCalendar icall mappings
+// (il2cpp_calendar.h, implementation calendar.cpp).
+// Owners: System.Globalization.GregorianCalendar
+//
+// OBJECT MODEL: a GregorianCalendar is a STATELESS managed object (no
+// fields) allocated through the GLOBAL class descriptor
+// System_Globalization_GregorianCalendar_class -- the transpiler's
+// BclAllocExpr fallback emits il2cpp_object_new(&System_Globalization_
+// GregorianCalendar_class) for `new GregorianCalendar()` (the System.Version
+// contract: TypeCppName sanitizes "System.Globalization.GregorianCalendar"
+// -> System_Globalization_GregorianCalendar, no explicit BclAllocExpr entry
+// needed).
+//
+// Every icall takes the managed receiver (Il2CppObject* self) as its first
+// parameter -- the receiver passes through the "" passthrough cast (the
+// object IS the pointer). The int-based queries (IsLeapYear / GetDaysInMonth
+// / GetDaysInYear) take plain int32 args ("i" cast). The DateTime-based
+// queries (GetYear / GetMonth / GetDayOfMonth / GetDayOfYear / GetDayOfWeek)
+// take Il2CppDateTime BY VALUE (one register on x64 -- the managed
+// value-type ABI, see il2cpp_time.h): a DateTime ARGUMENT is a value-typed
+// local passed through the "" cast (the value expression IS the argument --
+// the DateTime.Subtract precedent in MethodMap.DateTime.cs, where the
+// non-receiver DateTime operand uses "").
+//
+// net48 API note: the Calendar base class exposes ONLY the DateTime-based
+// GetMonth/GetDayOfYear/GetDayOfMonth (no int-based overloads exist in
+// .NET Framework 4.8). The runtime's int-based civil-date icalls
+// (icall_calendar_get_month(year, dayOfYear) etc.) are internal helpers
+// covered by test_calendar.cpp, not reachable from transpiled code.
+//
+// Known-unwireable members throw NotSupportedException (LOUD):
+//   * ToDateTime(int, int, int, int, int, int, int) -- the DateTime-returning
+//     ctor shape is a separate follow-up (the runtime has no to_datetime
+//     icall yet).
+//   * GetLeapMonth / AddMonths / AddYears / GetEra / GetWeekOfYear -- the
+//     calendar arithmetic/era surface is out of scope for this domain.
+//------------------------------------------------------------------------------
+public static partial class MethodRefResolver
+{
+    private static ResolvedMethod? TryMapCalendar(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        switch (name)
+        {
+            // .ctor(): the calendar is stateless -- the parameterless ctor is
+            // a pure no-op (il2cpp_object_ctor_nop, the Object::.ctor
+            // precedent in MethodMap.Object.cs). The descriptor's zero-init
+            // is the whole construction.
+            case ".ctor":
+                if (count == 0) return I("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, true);
+                return null;
+            // bool IsLeapYear(int year): 1/0 int32 ABI.
+            case "IsLeapYear":
+                if (ps.Length == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_calendar_is_leap_year", 1, true, false, true, new[] { "", "i" });
+                return null;
+            // int GetDaysInMonth(int year, int month): 28..31.
+            case "GetDaysInMonth":
+                if (ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_calendar_get_days_in_month", 2, true, false, true, new[] { "", "i", "i" });
+                return null;
+            // int GetDaysInYear(int year): 365/366.
+            case "GetDaysInYear":
+                if (ps.Length == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_calendar_get_days_in_year", 1, true, false, true, new[] { "", "i" });
+                return null;
+            // int GetMonth(DateTime).
+            case "GetMonth":
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_calendar_get_month_of", 1, true, false, true, new[] { "", "" });
+                return null;
+            // int GetDayOfYear(DateTime).
+            case "GetDayOfYear":
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_calendar_get_day_of_year_of", 1, true, false, true, new[] { "", "" });
+                return null;
+            // int GetDayOfMonth(DateTime).
+            case "GetDayOfMonth":
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_calendar_get_day_of_month_of", 1, true, false, true, new[] { "", "" });
+                return null;
+            // int GetYear(DateTime).
+            case "GetYear":
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_calendar_get_year", 1, true, false, true, new[] { "", "" });
+                return null;
+            // DayOfWeek GetDayOfWeek(DateTime): int32 encoding, Sunday = 0.
+            case "GetDayOfWeek":
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_calendar_get_day_of_week", 1, true, false, true, new[] { "", "" });
+                return null;
+            case "ToDateTime":
+                throw new NotSupportedException("ToDateTime not wired: the DateTime-returning ctor shape is a separate follow-up (the runtime has no to_datetime icall yet)");
+            default: return null;
+        }
+    }
+}

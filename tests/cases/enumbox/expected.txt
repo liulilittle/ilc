@@ -1,0 +1,14 @@
+ts_a=True
+ts_b=True
+ts_f_single=True
+ts_f_comb=True
+ts_neq=False
+eq_same=True
+eq_diffval=False
+eq_cross=False
+eq_cross_sameval=False
+eq_null=0
+eq_flags_same=True
+eq_flags_diff=False
+eq_obj_same=True
+eq_obj_cross=False

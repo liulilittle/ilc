@@ -1,0 +1,28 @@
+n=42|-7|4000000000|True|False
+d=2.5|0.125|100|-0.25|1E+21
+c=A|9|0|tail
+mix=12345678900x3.25z
+w=中文 é Ω
+ws=中文X
+Ω=中!文
+w0=True
+w1=True
+w2=True
+w3=True
+w4=True
+中
+Ω
+ws2=中éΩ
+[   42]
+[ab   ]
+[      hi]
+    3.14
+[12345]
+[x   |   y]
+a0=True
+a1=True
+a2=True
+a3=True
+outline1
+errline1
+err

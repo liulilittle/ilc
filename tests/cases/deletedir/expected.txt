@@ -1,0 +1,16 @@
+empty_before=1
+empty_gone=1
+empty_true_gone=1
+ne_false_io=True
+ne_false_intact=1
+ne_false_file=1
+ne_true_gone=1
+missing_dnfe=True
+missing_true_dnfe=True
+missing_still_absent=1
+filepath_io=True
+filepath_remains=1
+nullpath_ane=True
+tree_built=1
+tree_gone=1
+root_gone=1

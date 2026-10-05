@@ -1,0 +1,64 @@
+0
+-7
+2147483647
+-2147483648
+4294967295
+4000000000
+9223372036854775807
+-9223372036854775808
+18446744073709551615
+1234567890123
+2.5
+-0.25
+100
+0.125
+1E+21
+3.5
+-2.25
+150
+1.5
+A
+True
+False
+plain
+42
+-3
+True
+X
+2.75
+boxedstr
+n=42|-7|4000000000|True|c|2.5
+mix=a1Falsez0.125tail
+[   42]
+[ab   ]
+[      hi]
+    3.14
+[x   |   y]
+[   12|  -345]
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+g_out_nn=True
+g_err_nn=True
+g_distinct=True
+g_out_stable=True
+err1|out1|err2
+err3|out2|err4
+err5
+back1
+back2
+setout_null=True
+seterror_null=True
+final_out_nn=True
+final_err_nn=True

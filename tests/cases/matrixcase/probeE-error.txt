@@ -1,0 +1,8 @@
+il2cppc error: multidim-array/function-pointer local loc0 not supported (complex trailing signature)
+   at Il2Cpp.Transpiler.Il.MethodBodyReader.LocalTypeKind(BlobReader& sig, String name) in E:\il2cpp\src\il2cppc\Il\MethodBodyReader.cs:line 193
+   at Il2Cpp.Transpiler.Il.MethodBodyReader.ReadLocalNames(MetadataReader md, StandaloneSignatureHandle locSig, String[]& kinds) in E:\il2cpp\src\il2cppc\Il\MethodBodyReader.cs:line 159
+   at Il2Cpp.Transpiler.Il.MethodBodyReader.Read(PEReader pe, MetadataReader md, MethodDefinition m, Int32 token) in E:\il2cpp\src\il2cppc\Il\MethodBodyReader.cs:line 78
+   at Il2Cpp.Transpiler.Il.MethodBodyReader.Read(PEReader pe, MetadataReader md, TypeDef typeDef, MethodDef methodDef) in E:\il2cpp\src\il2cppc\Il\MethodBodyReader.cs:line 62
+   at Il2Cpp.Transpiler.Emit.CodeGenerator.GenerateCore(List`1 types, String outDir, String assemblyPath) in E:\il2cpp\src\il2cppc\Emit\CodeGenerator.cs:line 342
+   at Il2Cpp.Transpiler.Emit.CodeGenerator.Generate(List`1 types, String outDir, String assemblyPath) in E:\il2cpp\src\il2cppc\Emit\CodeGenerator.cs:line 36
+   at Il2Cpp.Transpiler.Program.RunMain(String[] args) in E:\il2cpp\src\il2cppc\Program.cs:line 36

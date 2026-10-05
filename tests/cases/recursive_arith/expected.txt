@@ -1,0 +1,11 @@
+fib(25)=75025
+fib_calls=242785
+ack(2,5)=13
+ack_calls=90
+fact(15)=
+1307674368000
+fact_calls=15
+total_calls=242890
+fib_ok=True
+ack_ok=True
+fact_ok=True

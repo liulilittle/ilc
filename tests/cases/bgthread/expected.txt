@@ -1,0 +1,13 @@
+bg_default_fg=True
+bg_set_unstarted=True
+bg_reset_unstarted=True
+cur_default_fg=True
+cur_set_true=True
+cur_reset_false=True
+running_bg_set=True
+joined_alive=True
+stopped_bg_type=ThreadStateException
+stopped_bg_throws=True
+stopped_bg_base_catch=True
+join_unstarted_throws=True
+start_twice_throws=True

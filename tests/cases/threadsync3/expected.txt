@@ -1,0 +1,15 @@
+wait0_false=True
+wait100_false=True
+pulse_nowaiter_noop=True
+pulseall_nowaiter_noop=True
+lost_pulse_wait0_false=True
+inf_wait_pulsed=True
+wait_neg2_thrown=True
+wait_neg2_monitor_ok=True
+wait_unowned_neg2_aore=True
+wait_unowned0_synclock=True
+wait_unowned100_synclock=True
+pulseall3_woke=True
+pulseall3_free=True
+rec_restored=True
+rec_restored_free=True

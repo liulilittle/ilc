@@ -17,9 +17,10 @@
 - 零第三方依赖：产物（转译 C++ + 运行时）不依赖任何第三方库；.NET Framework 4.8 参考程序集仅为编译期工具依赖
 - 转译方法与类型命名确定性编码：`{Ns}_{Type}_{Method}_{SigHash}`（SigHash = FNV-1a 64 稳定哈希），杜绝符号冲突
 - 静态编译：泛型/虚表等 M2+；M1 仅静态字段与普通方法
-- 双编译器验证：MSVC cl 与 x86_64-w64-mingw32-g++ 各自编译运行全部测试
+- **三编译器验证**：MSVC cl（VS2022）与 MinGW（clang 17，本机 ming-w64 实际为 clang）各自编译运行全部测试 + **WSL Ubuntu 18.04 GCC 7.5.0 兼容基线**（事实性通用兼容标准）。注意：本机无真 GCC，MinGW g++ 为 clang 伪装；GCC 7.5 验证走 WSL（`wsl` 命令，/mnt/e/il2cpp 可访问）
+- **C++17 仅 + CMake ≥3.10**：WSL cmake 为 3.10.2，所有 CMakeLists 必须 `cmake_minimum_required(VERSION 3.10)`（3.10 语法子集，不用 3.10 之后的新命令）
 - 转译代码全 RAII；方法一律 `IL2CPP_NOINLINE`（禁内联，帧语义预备）
-- 测试对齐：同一程序 dotnet 参考运行 vs 转译运行，stdout 逐字节一致
+- 测试对齐：同一程序 **.NET Framework 4.8 参考运行（net48 exe 直接执行——.NET 8 无法运行 net48 程序集，已验证）** vs 转译运行，stdout 逐字节一致
 - 任何代码变更后必须编译零错误（C0 铁律）
 
 ---
@@ -137,7 +138,7 @@ void runtime_init() {
 
 `src/runtime/CMakeLists.txt`（运行时静态库）:
 ```cmake
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.10)
 project(il2cpp_runtime CXX)
 add_library(il2cpp_runtime STATIC
     src/runtime.cpp
@@ -600,9 +601,9 @@ public static class IlDecoder
                         or ILOpCode.Bgt or ILOpCode.Ble or ILOpCode.Blt
                         or ILOpCode.Bne_Un or ILOpCode.Bge_Un or ILOpCode.Bgt_Un
                         or ILOpCode.Ble_Un or ILOpCode.Blt_Un)
-                        operand = offset + 4 + reader.ReadInt32();
+                        operand = offset + 5 + reader.ReadInt32();
                     else
-                        operand = offset + 1 + reader.ReadSByte();
+                        operand = offset + 2 + reader.ReadSByte();
                     break;
                 case ILOpCode.Br_S:
                 case ILOpCode.Brfalse_S:
@@ -618,7 +619,7 @@ public static class IlDecoder
                 case ILOpCode.Ble_Un_S:
                 case ILOpCode.Blt_Un_S:
                     kind = IlOperandKind.BranchTarget;
-                    operand = offset + 1 + reader.ReadSByte();
+                    operand = offset + 2 + reader.ReadSByte();
                     break;
                 case ILOpCode.Call:
                 case ILOpCode.Callvirt:
@@ -1372,7 +1373,7 @@ public static class CodeGenerator
     private static void EmitCmake(string outDir, List<string> srcs)
     {
         var w = new CppWriter();
-        w.Line("cmake_minimum_required(VERSION 3.20)");
+        w.Line("cmake_minimum_required(VERSION 3.10)");
         w.Line("project(il2cpp_gen CXX)");
         w.Line("add_subdirectory(../../../src/runtime ${CMAKE_BINARY_DIR}/runtime)");
         w.Line("add_executable(il2cpp_gen_exe");
@@ -1524,23 +1525,36 @@ $env:VCToolsInstallDir = ""
 ```powershell
 param(
     [Parameter(Mandatory)][string]$GenDir,
-    [ValidateSet("msvc","mingw")][string]$Compiler = "msvc"
+    [ValidateSet("msvc","mingw","wsl")][string]$Compiler = "msvc"
 )
 $ErrorActionPreference = "Stop"
-if ($Compiler -eq "msvc") {
+
+function ConvertTo-WslPath([string]$winPath) {
+    # E:\il2cpp\xxx -> /mnt/e/il2cpp/xxx
+    $drive = $winPath.Substring(0,1).ToLower()
+    $rest = $winPath.Substring(3).Replace("\","/")
+    return "/mnt/$drive/$rest"
+}
+
+if ($Compiler -eq "wsl") {
+    $wslGen = ConvertTo-WslPath $GenDir
+    $wslRoot = ConvertTo-WslPath (Resolve-Path ".")
+    wsl bash -c "cd $wslRoot && rm -rf build/wsl && cmake -S $wslGen -B build/wsl -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release && cmake --build build/wsl"
+    if ($LASTEXITCODE -ne 0) { throw "wsl build failed" }
+    $exe = "build/wsl/il2cpp_gen_exe"
+} elseif ($Compiler -eq "msvc") {
     . "scripts/vcvars.ps1"
     $generator = "Visual Studio 17 2022"
     $buildDir = "build/msvc"
+    cmake -S $GenDir -B $buildDir -G $generator
+    cmake --build $buildDir --config Release
+    $exe = Join-Path $buildDir "Release\il2cpp_gen_exe.exe"
 } else {
     $generator = "MinGW Makefiles"
     $buildDir = "build/mingw"
-}
-cmake -S $GenDir -B $buildDir -G $generator
-cmake --build $buildDir --config Release
-$exe = if ($Compiler -eq "msvc") {
-    Join-Path $buildDir "Release\il2cpp_gen_exe.exe"
-} else {
-    Join-Path $buildDir "il2cpp_gen_exe.exe"
+    cmake -S $GenDir -B $buildDir -G $generator
+    cmake --build $buildDir --config Release
+    $exe = Join-Path $buildDir "il2cpp_gen_exe.exe"
 }
 if (-not (Test-Path $exe)) { throw "build failed: $exe missing" }
 Write-Host "built: $exe"
@@ -1682,9 +1696,16 @@ namespace Cases { public static class Overflow {
 `scripts/run-tests.ps1`:
 ```powershell
 param(
-    [ValidateSet("msvc","mingw")][string]$Compiler = "mingw"
+    [ValidateSet("msvc","mingw","wsl")][string]$Compiler = "mingw"
 )
 $ErrorActionPreference = "Stop"
+
+function ConvertTo-WslPath([string]$winPath) {
+    $drive = $winPath.Substring(0,1).ToLower()
+    $rest = $winPath.Substring(3).Replace("\","/")
+    return "/mnt/$drive/$rest"
+}
+
 $failures = 0
 $cases = Get-ChildItem "tests/cases" -Filter "*.cs"
 foreach ($case in $cases) {
@@ -1697,8 +1718,8 @@ foreach ($case in $cases) {
     dotnet build $csproj -c Release -o "tests/cases/$name/out" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "build $name failed" }
 
-    # 2. 参考运行（.NET 8 加载 net48 目标程序集）
-    $expected = dotnet "tests/cases/$name/out/$name.dll" 2>&1
+    # 2. 参考运行（.NET Framework 4.8 直接执行 net48 exe；.NET 8 不能跑 net48 程序集）
+    $expected = & "tests/cases/$name/out/$name.exe" 2>&1
     if ($LASTEXITCODE -ne 0) { throw "reference run $name failed" }
 
     # 3. 转译
@@ -1707,15 +1728,26 @@ foreach ($case in $cases) {
     dotnet run --project src/il2cppc -- "tests/cases/$name/out/$name.dll" $gen | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "transpile $name failed" }
 
-    # 4. 双编译器构建 + 运行
-    if ($Compiler -eq "msvc") { . "scripts/vcvars.ps1" }
+    # 4. 构建 + 运行
     $buildDir = "tests/cases/$name/build_$Compiler"
-    $generator = if ($Compiler -eq "msvc") { "Visual Studio 17 2022" } else { "MinGW Makefiles" }
-    cmake -S $gen -B $buildDir -G $generator | Out-Null
-    cmake --build $buildDir --config Release | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
-    $exe = if ($Compiler -eq "msvc") { "$buildDir/Release/il2cpp_gen_exe.exe" } else { "$buildDir/il2cpp_gen_exe.exe" }
-    $actual = & $exe 2>&1
+    if ($Compiler -eq "wsl") {
+        $wslGen = ConvertTo-WslPath (Resolve-Path $gen)
+        $wslBuild = ConvertTo-WslPath (Resolve-Path $buildDir)
+        wsl bash -c "cmake -S $wslGen -B $wslBuild -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release && cmake --build $wslBuild"
+        if ($LASTEXITCODE -ne 0) { throw "wsl cmake build $name failed" }
+        $actual = wsl bash -c "$(ConvertTo-WslPath (Resolve-Path $buildDir))/il2cpp_gen_exe"
+    } elseif ($Compiler -eq "msvc") {
+        . "scripts/vcvars.ps1"
+        cmake -S $gen -B $buildDir -G "Visual Studio 17 2022" | Out-Null
+        cmake --build $buildDir --config Release | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
+        $actual = & "$buildDir/Release/il2cpp_gen_exe.exe" 2>&1
+    } else {
+        cmake -S $gen -B $buildDir -G "MinGW Makefiles" | Out-Null
+        cmake --build $buildDir --config Release | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }
+        $actual = & "$buildDir/il2cpp_gen_exe.exe" 2>&1
+    }
 
     # 5. 逐字节 diff
     $e = ($expected -join "`n")

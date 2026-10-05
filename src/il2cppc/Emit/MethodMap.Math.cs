@@ -1,0 +1,134 @@
+namespace Il2Cpp.Transpiler.Emit;
+
+//------------------------------------------------------------------------------
+// MethodMap.Math -- System.Math icall mappings (il2cpp_math.h).
+// Owners: System.Math
+//
+// Template for all MethodMap files: one TryMap method per file, uniform
+// signature, registered by ONE case line in the "BCL domain dispatch"
+// #region in MethodRefResolver.cs. See that file's header for the full
+// convention (wiring-agent steps).
+//------------------------------------------------------------------------------
+public static partial class MethodRefResolver
+{
+    private static ResolvedMethod? TryMapMath(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        switch (name)
+        {
+            case "Abs":
+                return ps.Length == 1 && ps[0] == 0x08 ? I("il2cpp::runtime::icall_math_abs_i", 1, true, false, false)
+                    : ps[0] == 0x0A ? I("il2cpp::runtime::icall_math_abs_l", 1, true, false, false, null, "l")
+                    : I("il2cpp::runtime::icall_math_abs_d", 1, true, false, false, null, "d");
+            case "Max":
+            case "Min":
+            {
+                var stem = name == "Max" ? "max" : "min";
+                return ps[0] switch
+                {
+                    0x08 => I($"il2cpp::runtime::icall_math_{stem}_i", 2, true, false, false),
+                    0x0A => I($"il2cpp::runtime::icall_math_{stem}_l", 2, true, false, false, null, "l"),
+                    _ => I($"il2cpp::runtime::icall_math_{stem}_d", 2, true, false, false, null, "d"),
+                };
+            }
+            case "Sign":
+                return ps[0] == 0x08
+                    ? I("il2cpp::runtime::icall_math_sign_i", 1, true, false, false)
+                    // net9/10 E2E campaign (math sweep): R4/R8 must test the
+                    // FRACTION's sign -- sign_l truncated first (Sign(-0.5)
+                    // wrongly 0). icall_math_sign_d takes the double slot
+                    // (float-in-double model) and returns int32.
+                    : (ps[0] == 0x0D || ps[0] == 0x0C)
+                    ? I("il2cpp::runtime::icall_math_sign_d", 1, true, false, false, new[] { "d" })
+                    : I("il2cpp::runtime::icall_math_sign_l", 1, true, false, false, null, "l");
+            case "Sqrt": return I("il2cpp::runtime::icall_math_sqrt_d", 1, true, false, false, null, "d");
+            case "Pow": return I("il2cpp::runtime::icall_math_pow_d", 2, true, false, false, null, "d");
+            case "Floor": return I("il2cpp::runtime::icall_math_floor_d", 1, true, false, false, null, "d");
+            case "Ceiling": return I("il2cpp::runtime::icall_math_ceiling_d", 1, true, false, false, null, "d");
+            case "Round":
+                if (ps.Length == 1)
+                    return I("il2cpp::runtime::icall_math_round_d", 1, true, false, false, null, "d");
+                // Round(double, int digits): the 2-param overload MUST resolve
+                // to the 2-param icall -- the old single-arity mapping dropped
+                // the first argument (math2 generated `round_d(2LL)` and
+                // printed 2 instead of 3.14/2.68). net48 digits range
+                // [0, 15], validated inside the runtime icall.
+                if (ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_math_round_digits_d", 2, true, false, false, null, "d");
+                if (ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x11)
+                    // Round(double, MidpointRounding) -- batch 149: the mode
+                    // select (0 ToEven / 1 AwayFromZero); the enum (a
+                    // VALUETYPE 0x11) arrives as its int32 value slot ("i").
+                    return I("il2cpp::runtime::icall_math_round_mode_d", 2, true, false, false,
+                        new[] { "d", "i" }, "d");
+                if (ps.Length == 3 && ps[0] == 0x0D && ps[1] == 0x08 && ps[2] == 0x11)
+                    // Round(double, int, MidpointRounding) -- batch 149: the
+                    // digit-scaled mode select.
+                    return I("il2cpp::runtime::icall_math_round_digits_mode_d", 3, true, false, false,
+                        new[] { "d", "i", "i" }, "d");
+                throw new NotSupportedException(
+                    $"Math.Round overload (arity {ps.Length}) not wired: only Round(double), Round(double, int), Round(double, MidpointRounding) and Round(double, int, MidpointRounding) have runtime icalls");
+            case "Truncate": return I("il2cpp::runtime::icall_math_truncate_d", 1, true, false, false, null, "d");
+            case "Sin": return I("il2cpp::runtime::icall_math_sin_d", 1, true, false, false, null, "d");
+            case "Cos": return I("il2cpp::runtime::icall_math_cos_d", 1, true, false, false, null, "d");
+            case "Tan": return I("il2cpp::runtime::icall_math_tan_d", 1, true, false, false, null, "d");
+            case "Asin": return I("il2cpp::runtime::icall_math_asin_d", 1, true, false, false, null, "d");
+            case "Acos": return I("il2cpp::runtime::icall_math_acos_d", 1, true, false, false, null, "d");
+            case "Atan": return I("il2cpp::runtime::icall_math_atan_d", 1, true, false, false, null, "d");
+            case "Atan2": return I("il2cpp::runtime::icall_math_atan2_d", 2, true, false, false, null, "d");
+            // P5: Math.SinCos(double) -> (double, double): the netcore public
+            // API returns a ValueTuple<double,double> (1-param call). The
+            // runtime icall icall_math_sincos(double, double*, double*) takes
+            // the value + 2 out-pointer args. TupleReturnFields signals the
+            // CodeGenerator AssignStmt handler to emit fn(arg, &t.Item1, &t.Item2).
+            case "SinCos":
+                if (ps.Length == 1 && ps[0] == 0x0D)
+                    return I("il2cpp::runtime::icall_math_sincos", 1, false, false, false,
+                        new[] { "d" }, tupleReturnFields: new[] { "d", "d" });
+                return null;
+            case "Exp": return I("il2cpp::runtime::icall_math_exp_d", 1, true, false, false, null, "d");
+            case "Log": return ps.Length == 1
+                ? I("il2cpp::runtime::icall_math_log_d", 1, true, false, false, null, "d")
+                : I("il2cpp::runtime::icall_math_log_base_d", 2, true, false, false, null, "d");
+            case "Log10": return I("il2cpp::runtime::icall_math_log10_d", 1, true, false, false, null, "d");
+            case "Cosh": return I("il2cpp::runtime::icall_math_cosh_d", 1, true, false, false, null, "d");
+            case "Sinh": return I("il2cpp::runtime::icall_math_sinh_d", 1, true, false, false, null, "d");
+            case "Tanh": return I("il2cpp::runtime::icall_math_tanh_d", 1, true, false, false, null, "d");
+            case "IEEERemainder": return I("il2cpp::runtime::icall_math_ieee_remainder_d", 2, true, false, false, null, "d");
+            // D-ME2-1 (2026-08-12): Math.BigMul(int, int) -> long -- the net48
+            // wide-product icall (icall_math_bigmul, il2cpp_math.h). Before
+            // this mapping TryMapMathExtra LOUD-rejected BigMul, so no
+            // transpiled case could call it. ps == [0x08, 0x08] (two int32),
+            // result kind "l" (int64).
+            case "BigMul":
+                if (ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_math_bigmul", 2, true, false, false, new[] { "i", "i" }, "l");
+                return null;
+            default: return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // MethodMap.Double -- System.Double STATIC predicate domain
+    // (D-ME2-2, 2026-08-12). Before this domain double.IsNaN /
+    // IsPositiveInfinity / IsNegativeInfinity / IsInfinity resolved to the
+    // generated-name path and failed the C++ build as undeclared identifiers
+    // (no MethodMap.Double existed -- the System.Double owner fell through
+    // TryMapFormat/TryMapValueType to the mangled name). Each maps to an
+    // IEEE-754 bit-check icall (il2cpp_math_ext.h) returning bool in the
+    // int32 ABI slot (0/1), exactly like icall_char_is_digit.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapDouble(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        if (ps.Length != 1 || ps[0] != 0x0D) return null;
+        return name switch
+        {
+            "IsNaN" => I("il2cpp::runtime::icall_double_is_nan", 1, true, false, false, new[] { "d" }),
+            "IsPositiveInfinity" => I("il2cpp::runtime::icall_double_is_positive_infinity", 1, true, false, false, new[] { "d" }),
+            "IsNegativeInfinity" => I("il2cpp::runtime::icall_double_is_negative_infinity", 1, true, false, false, new[] { "d" }),
+            "IsInfinity" => I("il2cpp::runtime::icall_double_is_infinity", 1, true, false, false, new[] { "d" }),
+            _ => null,
+        };
+    }
+}

@@ -1,0 +1,15 @@
+q_2arg=True
+q_1arg=True
+q_2arg_boxed=True
+pool_all_ran=True
+pool_each_ran=True
+pool_main_ispool=False
+fg_default=True
+bg_set_true=True
+bg_reset_false=True
+bg_thread_joined=True
+cur_bg_default=True
+cur_bg_set_true=True
+cur_bg_reset_false=True
+mb_order=True
+mb_noop_ok=True

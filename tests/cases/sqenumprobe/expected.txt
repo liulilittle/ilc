@@ -1,0 +1,10 @@
+stack1=3
+stack2=2
+stack3=1
+stack4=0
+stackcount=4
+queue1=10
+queue2=11
+queue3=12
+queue4=13
+queuecount=4

@@ -1,0 +1,11 @@
+
+True
+A
+1.5
+0.1
+150
+1E+21
+NaN
+True
+str
+w42Falsex2.25

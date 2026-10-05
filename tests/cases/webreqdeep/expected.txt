@@ -1,0 +1,17 @@
+server_up=True
+dl_len=True
+dl_body=Hello, ILC! Download OK 2026
+body_bytes=True
+dl2_match=True
+served=True
+argnull
+other
+other
+other
+other
+other
+other
+web
+web
+other
+server_down=True

@@ -1,0 +1,17 @@
+True
+b
+a
+True
+file.txt
+file.txt
+sub
+True
+.txt
+.gz
+True
+True
+file.md
+file
+True
+True
+True

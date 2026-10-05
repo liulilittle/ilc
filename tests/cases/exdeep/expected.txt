@@ -1,0 +1,37 @@
+f1: inner
+f2: outer
+f3: outer base
+f4: try
+f4: finally
+f4: after
+f5: try
+f5: finally
+f5: catch
+f6: try
+f6: catch
+f6: finally
+f6: outer ioe
+f7: exact type preserved
+f8: ret
+40
+f9: finally throw wins
+f10: base catches derived
+f10b: exact user type
+f11: user type via Exception
+f12: divzero
+f13: overflow
+f14: nre
+f14b: nre call
+f15: index +
+f15b: index -
+f16: throw null -> nre
+f17: first
+f18: ioe
+f19: alive
+f20: inner finally
+f20: middle finally
+f20: catch
+f21: derived preserved
+f23: catchret finally
+f23: catchret
+104

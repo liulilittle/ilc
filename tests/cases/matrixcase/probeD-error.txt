@@ -1,0 +1,5 @@
+il2cppc error: signature parameter type byte 0x14 not supported in M2
+   at Il2Cpp.Transpiler.Emit.MethodSignatureCoder.EncodeType(MetadataReader md, BlobReader& sig) in E:\il2cpp\src\il2cppc\Emit\MethodSignatureCoder.cs:line 103
+   at Il2Cpp.Transpiler.Emit.MethodSignatureCoder.Decode(MetadataReader md, BlobHandle sigHandle) in E:\il2cpp\src\il2cppc\Emit\MethodSignatureCoder.cs:line 40
+   at Il2Cpp.Transpiler.MetadataLoader.LoadAssembly(String path) in E:\il2cpp\src\il2cppc\MetadataLoader.cs:line 115
+   at Il2Cpp.Transpiler.Program.RunMain(String[] args) in E:\il2cpp\src\il2cppc\Program.cs:line 27

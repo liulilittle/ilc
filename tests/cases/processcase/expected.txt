@@ -1,0 +1,2 @@
+exit code 42: True
+current pid > 0: True

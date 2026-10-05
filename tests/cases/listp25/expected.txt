@@ -1,0 +1,17 @@
+sort_ok=True
+sort_count=True
+sort_empty=True
+sort_single=True
+copy_head=True
+copy_offset=True
+copy_neg=True
+copy_space=True
+copy_null=True
+foreach_sum=True
+foreach_cnt=True
+snap_sum=True
+snap_grew=True
+sc_sorted=True
+sc_is_sorted=True
+foreach_sorted=True
+done
