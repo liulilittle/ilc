@@ -544,6 +544,10 @@ int main()
     Expect(ThrowsDotNet([&] { (void)icall_stream_get_position(fs); }, kObjectDisposedChain),
            "fs.Position after the wrapper closed it throws ObjectDisposedException (net48)");
     Expect(icall_stream_get_can_write(fs) == 0, "fs.CanWrite after the wrapper closed it is 0");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_flush(sw); }, kObjectDisposedChain),
+           "StreamWriter.Flush on a closed writer throws ObjectDisposedException (net48 oracle)");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_flush(fs); }, kObjectDisposedChain),
+           "FileStream.Flush on a closed stream throws ObjectDisposedException (net48 oracle)");
     Expect(icall_stream_close(fs) == 0, "fs.Close after the wrapper closed it is a no-op");
 
     // --- 8b. StreamWriter(string path) ctor (streamops using-block shape) ---
@@ -962,6 +966,10 @@ int main()
            "SetLength on a closed stream throws ObjectDisposedException");
     Expect(ThrowsDotNet([&] { (void)icall_stream_get_position(clSeek); }, kObjectDisposedChain),
            "get_Position on a closed stream throws ObjectDisposedException");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_memory_get_capacity(clSeek); }, kObjectDisposedChain),
+           "MemoryStream.Capacity on a closed stream throws ObjectDisposedException (net48 oracle)");
+    Expect(icall_stream_flush(clSeek) == 0,
+           "MemoryStream.Flush on a closed stream is a no-op (net48 oracle)");
     Expect(ThrowsDotNet([&] { icall_stream_get_can_seek(nullptr); }, kNullRefChain),
            "get_can_seek(null receiver) throws NullReferenceException");
     Expect(ThrowsDotNet([&] { icall_stream_seek(nullptr, 0, 0); }, kNullRefChain),

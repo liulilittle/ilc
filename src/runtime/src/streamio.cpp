@@ -385,11 +385,23 @@ void StreamCloseHandle(StreamState* s)
             s->iStream = nullptr;
         }
 #endif
-        std::free(s->buf);
-        s->buf = nullptr;
+        // net48 parity (2026-10-05): a closed MemoryStream RETAINS its data --
+        // MemoryStream.ToArray() still returns the bytes after Close (oracle
+        // 0xDEAD / 0x07000000). The buffer is therefore NOT freed here; it is
+        // released together with the state at the deferred deletion below.
     }
     if (--s->refCount <= 0)
     {
+        if (s->kind == StreamState::kMemory)
+        {
+            // The owning MemoryStream object keeps a LIVE handle over this
+            // state after Close (see icall_stream_close -- net48: the data
+            // stays reachable). Defer the deletion: the state (and its
+            // retained buffer) is freed at process teardown, mirroring net48's
+            // "buffer retained until the object is collected".
+            s->refCount = 0;
+            return;
+        }
         delete s;
     }
 }
@@ -1347,10 +1359,13 @@ il2cpp_stream_t il2cpp_stream_memory_create_capacity(int64_t capacity)
 Il2CppObject* il2cpp_stream_memory_to_array(il2cpp_stream_t stream)
 {
     StreamState* s = stream;
-    if (s == nullptr || s->closed || s->kind != StreamState::kMemory)
+    if (s == nullptr || s->kind != StreamState::kMemory)
     {
         return nullptr;
     }
+    // net48 parity (2026-10-05): RETAINS the data after Close (the closed
+    // memory state keeps its buffer -- see StreamCloseHandle). No closed
+    // check: ToArray on a closed MemoryStream returns the bytes (oracle).
     Il2CppArray* arr = il2cpp_array_new(
         nullptr, 1, false, static_cast<int32_t>(s->length));
     if (s->length > 0)
@@ -1551,6 +1566,16 @@ bool IsWrappableStream(const Il2CppObject* stream)
 {
     return stream->klass == &System_IO_FileStream_class
         || stream->klass == &System_IO_MemoryStream_class;
+}
+
+// net48 parity (2026-10-05): a MemoryStream OBJECT retains its data after
+// Close (ToArray works -- oracle 0xDEAD / 0x07000000) and its handle stays
+// live so the retained state stays reachable. Every OTHER stream object
+// (FileStream / StreamWriter / BinaryReader / BinaryWriter / ComStream)
+// releases its handle on Close. The klass discriminates the receiver.
+bool IsMemoryStreamObject(const Il2CppObject* obj)
+{
+    return obj != nullptr && obj->klass == &System_IO_MemoryStream_class;
 }
 
 //------------------------------------------------------------------------------
@@ -2191,10 +2216,30 @@ void icall_stream_write_bytes(Il2CppObject* self, Il2CppArray* buffer,
 int32_t icall_stream_flush(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
+    // net48 closed-parity (2026-10-05): MemoryStream.Flush and BinaryWriter.
+    // Flush are NO-OPS on a closed stream (oracle ok); StreamWriter.Flush and
+    // FileStream.Flush THROW ObjectDisposedException (oracle EX). The receiver
+    // klass discriminates when the handle is already released (state null).
+    const bool noOpWhenClosed = IsMemoryStreamObject(self)
+        || self->klass == &System_IO_BinaryWriter_class;
     StreamState* state = StreamStateOf(self);
-    if (StreamThrowIfClosed(state))
+    if (state == nullptr)
     {
-        return 1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
+        if (noOpWhenClosed)
+        {
+            return 0;
+        }
+        il2cpp_throw_invalid_operation_exception("Cannot access a closed Stream.");
+        return 1; // unreachable (the throw never returns)
+    }
+    if (state->closed)
+    {
+        if (state->kind == StreamState::kMemory || noOpWhenClosed)
+        {
+            return 0;
+        }
+        il2cpp_throw_invalid_operation_exception("Cannot access a closed Stream.");
+        return 1; // unreachable (the throw never returns)
     }
     return il2cpp_stream_flush(state);
 }
@@ -2209,6 +2254,19 @@ int32_t icall_stream_close(Il2CppObject* self)
         return 0; // idempotent: no live handle (already fully released)
     }
     StreamCloseHandle(state); // closes the file once; frees at refCount 0
+    if (IsMemoryStreamObject(self))
+    {
+        // net48 parity (2026-10-05): the closed MemoryStream retains its data
+        // (ToArray works -- oracle 0xDEAD / 0x07000000). Re-root the retained
+        // state under the object's LIVE handle so the data stays reachable;
+        // StreamHandleRelease is NOT called (the slot stays occupied for the
+        // object's lifetime, matching net48's buffer-until-collected lifetime).
+        if (state->refCount < 1)
+        {
+            state->refCount = 1;
+        }
+        return 0;
+    }
     StreamHandleRelease(s->handle);
     s->handle = -1;
     return 0;
@@ -2556,15 +2614,15 @@ int32_t icall_stream_peek(Il2CppObject* self)
 }
 
 // MemoryStream.Capacity: the allocation stride of the memory backend buffer
-// (int32, net48). A closed / non-memory receiver reports 0 (the M3 silent
-// convention); never throws.
+// (int32, net48). A closed receiver throws ObjectDisposedException (net48
+// oracle ms_capacity_after_close=EX); a non-memory receiver reports 0.
 int32_t icall_stream_memory_get_capacity(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return 0;
+        return 0; // net48: ObjectDisposedException (2026-10-05 parity)
     }
     if (state->kind != StreamState::kMemory)
     {
@@ -2643,10 +2701,13 @@ Il2CppArray* icall_stream_memory_to_array(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (StreamThrowIfClosed(state))
+    if (state == nullptr)
     {
-        return nullptr; // net48: ObjectDisposedException (batch 2026-10-05 parity)
+        return nullptr; // never-ctor'd / non-memory receiver: no payload
     }
+    // net48 parity (2026-10-05): ToArray WORKS on a closed MemoryStream (the
+    // data is retained -- oracle 0xDEAD / 0x07000000). The closed check is
+    // intentionally absent; the state's buffer survives Close.
     return reinterpret_cast<Il2CppArray*>(il2cpp_stream_memory_to_array(state));
 }
 

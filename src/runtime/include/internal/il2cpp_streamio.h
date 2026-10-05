@@ -33,9 +33,15 @@
 //     fresh object's ZERO-INITIALIZED handle is overwritten by the ctor --
 //     never released as a stale index (the WeakReference ctor precedent:
 //     handle == 0 is also the first valid index once the registry arms).
-//   * After Close the object's handle is -1: instance calls return
-//     -1 / nullptr / 0 (M3 result conventions -- the documented divergence
-//     from net48's ObjectDisposedException, consistent with stringrw.h).
+//   * After Close the OBJECT-layer instance calls throw the net48
+//     ObjectDisposedException-equivalent (invalid-operation, "Cannot access a
+//     closed Stream.") -- the net48 parity adopted in the F4 batch
+//     (2026-10-05), with the documented exceptions that stay SILENT on a
+//     closed receiver: CanRead/CanWrite/CanSeek (0), Close (idempotent),
+//     MemoryStream.Flush / BinaryWriter.Flush (no-op), and
+//     MemoryStream.ToArray (returns the RETAINED data -- net48 oracle). The
+//     handle layer below (il2cpp_stream_*) keeps its documented -1/nullptr/0
+//     conventions; stringrw.h follows the same object-layer throw contract.
 //   * Ctor failures THROW (net48 semantics): null path -> ArgumentNullException,
 //     invalid FileMode/FileAccess -> ArgumentException, unopenable file ->
 //     FileNotFoundException; a null receiver -> NullReferenceException.
@@ -202,15 +208,20 @@ void icall_stream_writer_path_encoding_ctor4(Il2CppObject* self, Il2CppObject* p
 // state is resolved through the handle registry). Result conventions mirror
 // the handle layer (streamio.h): read/write return byte counts or -1,
 // positions/lengths return values or -1, status functions return 0/non-zero,
-// booleans return 1/0, string/array returns are nullptr on failure.
+// booleans return 1/0, string/array returns are nullptr on failure. CLOSED
+// receivers throw ObjectDisposedException (invalid-operation) instead of the
+// M3 silent return -- the F4 net48-parity contract, with the documented
+// silent exceptions (CanRead/CanWrite/CanSeek, Close, MemoryStream/
+// BinaryWriter Flush, MemoryStream.ToArray). Null receiver -> NRE first.
 //------------------------------------------------------------------------------
 
 // Stream.Read(byte[] buffer, int offset, int count): reads up to 'count'
 // bytes into the array at 'offset'. Returns bytes read (0 at end-of-stream;
-// -1 for a capability violation or a closed stream). Null buffer ->
-// ArgumentNullException; an invalid (offset, count) range ->
-// ArgumentOutOfRangeException; a read on a write-only stream ->
-// NotSupportedException (net48). Null receiver -> NullReferenceException.
+// -1 for a read-capability violation). Null buffer -> ArgumentNullException;
+// an invalid (offset, count) range -> ArgumentOutOfRangeException; a read on
+// a write-only stream -> NotSupportedException; a read on a CLOSED stream ->
+// ObjectDisposedException (invalid-operation, net48). Null receiver ->
+// NullReferenceException.
 int32_t icall_stream_read_bytes(Il2CppObject* self, Il2CppArray* buffer,
                                 int32_t offset, int32_t count);
 
@@ -221,7 +232,9 @@ void icall_stream_write_bytes(Il2CppObject* self, Il2CppArray* buffer,
                               int32_t offset, int32_t count);
 
 // Stream.Flush(): pushes buffered file data to the OS (a no-op for memory
-// streams). 0 on success, non-zero on failure (null/closed receiver).
+// streams). 0 on success. CLOSED receiver: MemoryStream.Flush and
+// BinaryWriter.Flush are NO-OPS returning 0 (net48 oracle ok); StreamWriter.
+// Flush and FileStream.Flush THROW ObjectDisposedException (net48 oracle EX).
 int32_t icall_stream_flush(Il2CppObject* self);
 
 // Stream.Close(): closes the underlying file/buffer and releases the handle
@@ -231,9 +244,10 @@ int32_t icall_stream_flush(Il2CppObject* self);
 int32_t icall_stream_close(Il2CppObject* self);
 
 // Stream.Position / Stream.Length: the current byte offset / stream size in
-// bytes. -1 on a closed receiver or a backend error. set_Position with a
-// NEGATIVE value throws ArgumentOutOfRangeException (net48 -- argument
-// validation, not the closed-receiver -1 convention).
+// bytes; -1 on a backend error. A CLOSED receiver throws
+// ObjectDisposedException (net48); set_Position with a NEGATIVE value throws
+// ArgumentOutOfRangeException (net48 -- argument validation, checked before
+// the closed-receiver throw).
 int64_t icall_stream_get_position(Il2CppObject* self);
 int32_t icall_stream_set_position(Il2CppObject* self, int64_t position);
 int64_t icall_stream_get_length(Il2CppObject* self);
@@ -251,70 +265,77 @@ int32_t icall_stream_get_can_seek(Il2CppObject* self);
 // 'origin' (0=Begin, 1=Current, 2=End) and returns the NEW position.
 // An invalid origin -> ArgumentException; a seek before the beginning of the
 // stream -> IOException (net48); a non-seekable stream ->
-// NotSupportedException; -1 for a closed receiver (M3). Null receiver ->
-// NullReferenceException.
+// NotSupportedException; a CLOSED receiver -> ObjectDisposedException (net48).
+// Null receiver -> NullReferenceException.
 int64_t icall_stream_seek(Il2CppObject* self, int64_t offset, int32_t origin);
 
 // Stream.SetLength(long value): truncates or extends the stream to 'value'
 // bytes (extensions are zero-filled; a position past the new end clamps
 // back). A NEGATIVE value -> ArgumentOutOfRangeException (argument
-// validation); a non-seekable stream -> NotSupportedException; a closed
-// receiver is a silent no-op (M3). Null receiver -> NullReferenceException.
+// validation); a non-seekable stream -> NotSupportedException; a CLOSED
+// receiver -> ObjectDisposedException (net48). Null receiver ->
+// NullReferenceException.
 void icall_stream_set_length(Il2CppObject* self, int64_t value);
 
 // Stream.ReadByte(): the next byte as an int (0..255), or -1 at end-of-stream
 // (clean EOF, NOT an exception -- net48). A read on a write-only stream ->
-// NotSupportedException; -1 for a closed receiver. Null receiver ->
-// NullReferenceException.
+// NotSupportedException; a read on a CLOSED stream -> ObjectDisposedException
+// (net48). Null receiver -> NullReferenceException.
 int32_t icall_stream_read_byte(Il2CppObject* self);
 
 // TextReader.Read() (net48): consume the next UTF-16 unit of the reader's
 // selected encoding (UTF-8 scalars decoded per Utf8ToCs; UTF-16 encodings are
 // exact 2-byte units; astral scalars split across two calls via the reader
 // stash). Returns -1 at end-of-stream (clean EOF, net48). A read on a
-// write-only stream -> NotSupportedException; -1 for a closed receiver. Null
-// receiver -> NullReferenceException.
+// write-only stream -> NotSupportedException; a read on a CLOSED stream ->
+// ObjectDisposedException (net48). Null receiver -> NullReferenceException.
 int32_t icall_stream_read_char(Il2CppObject* self);
 
 // StreamReader.Peek() (net48): the next UTF-16 unit WITHOUT consuming it
 // (repeated peeks repeat the unit; -1 at end-of-stream). The reader's pending
-// pushback ring (BOM/CRLF lookahead) replays through the peek.
+// pushback ring (BOM/CRLF lookahead) replays through the peek. A read on a
+// write-only stream -> NotSupportedException; a CLOSED reader ->
+// ObjectDisposedException (net48 oracle sr_peek_after_close=EX).
 int32_t icall_stream_peek(Il2CppObject* self);
 
 // MemoryStream.Capacity (net48): the memory backend's buffer allocation size
-// (int32). A closed or non-memory receiver reports 0 (M3 silent convention);
-// never throws. Null receiver -> NullReferenceException.
+// (int32). A CLOSED receiver throws ObjectDisposedException (net48 oracle
+// ms_capacity_after_close=EX); a non-memory receiver reports 0. Null receiver
+// -> NullReferenceException.
 int32_t icall_stream_memory_get_capacity(Il2CppObject* self);
 
 // Stream.WriteByte(byte value): writes the single byte at the current
 // position (extending the stream when past the end). A write on a read-only
-// stream -> NotSupportedException; a closed receiver is a silent no-op (M3).
-// Null receiver -> NullReferenceException.
+// stream -> NotSupportedException; a write on a CLOSED stream ->
+// ObjectDisposedException (net48). Null receiver -> NullReferenceException.
 void icall_stream_write_byte(Il2CppObject* self, int32_t value);
 
 // StreamReader.ReadLine(): the next line as a managed string with the
-// terminator stripped (CRLF / LF; UTF-8 decoded). nullptr at end-of-stream
-// or on a closed receiver; an empty line returns an empty string.
+// terminator stripped (CRLF / LF; UTF-8 decoded). nullptr at end-of-stream;
+// an empty line returns an empty string; a CLOSED reader ->
+// ObjectDisposedException (net48).
 Il2CppObject* icall_stream_read_line(Il2CppObject* self);
 
 // StreamReader.ReadToEnd(): the remainder from the current position to EOF as
 // one UTF-8 managed string ("" at end-of-stream, NOT null -- net48). nullptr
-// for a closed receiver or a read-capability violation.
+// for a read-capability violation; a CLOSED reader ->
+// ObjectDisposedException (net48).
 Il2CppObject* icall_stream_read_to_end(Il2CppObject* self);
 
 // StreamWriter.WriteLine(string): writes the line as UTF-8 followed by CRLF.
-// 0 on success, non-zero on failure (closed receiver, capability violation,
-// short write).
+// 0 on success, non-zero on failure (capability violation / short write); a
+// CLOSED writer -> ObjectDisposedException (net48).
 int32_t icall_stream_write_line(Il2CppObject* self, Il2CppObject* line);
 
 // TextWriter/StreamWriter.Write(string): writes the text as UTF-8 WITHOUT
 // the line terminator (net48 TextWriter.Write). A null string emits nothing.
-// 0 on success, -1 on a closed receiver (the M3 silent-failure convention).
+// 0 on success; a CLOSED writer -> ObjectDisposedException (net48).
 int32_t icall_stream_write_text(Il2CppObject* self, Il2CppObject* text);
 
 // MemoryStream.ToArray(): a managed byte[] COPY of the stream content (bytes
-// written so far, regardless of the current position). nullptr for a closed
-// receiver or a non-memory stream.
+// written so far, regardless of the current position). WORKS on a closed
+// stream -- the data is retained (net48 oracle 0xDEAD / 0x07000000); nullptr
+// for a non-memory receiver.
 Il2CppArray* icall_stream_memory_to_array(Il2CppObject* self);
 
 //------------------------------------------------------------------------------

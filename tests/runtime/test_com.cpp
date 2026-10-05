@@ -292,6 +292,8 @@ const char* kArgumentException =
     "System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception";
 const char* kIOException =
     "System.IO.IOException,System.IO.IOException,System.SystemException,System.Exception";
+const char* kObjectDisposedChain =
+    "System.InvalidOperationException,System.InvalidOperationException,System.SystemException,System.Exception";
 #if !defined(_WIN32)
 const char* kNotSupported =
     "System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception";
@@ -2717,12 +2719,14 @@ int main()
            rawEof == 0,
            "istream_read at end-of-stream -> 0 bytes (EOF)");
 
-    // Close is idempotent; after Close the Length reports -1 (M3 convention).
+    // Close is idempotent; after Close the length accessor throws the net48
+    // ObjectDisposedException-equivalent (invalid-operation) -- the F4 parity
+    // contract (test_streamio/test_binaryio closed-receiver convention).
     Expect(icall_stream_close(comStream) == 0, "closing the ComStream");
     Expect(icall_stream_close(comStream) == 0,
            "a second Close is a no-op (idempotent)");
-    Expect(icall_stream_get_length(comStream) == -1,
-           "after Close the Length reports -1 (M3)");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_get_length(comStream); }, kObjectDisposedChain),
+           "after Close the Length throws ObjectDisposedException (net48)");
 
     // Arg guards: a NON-COM stream object -> ArgumentException for the
     // HGLOBAL / IUnknown accessors.

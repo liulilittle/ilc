@@ -917,8 +917,10 @@ int main()
         icall_file_delete(Cs("binrw_tmp.bin"));
     }
 
-    // net48 ownership: closing the BinaryReader closes the shared stream once
-    // (the wrapped MemoryStream goes closed -- ToArray returns null).
+    // net48 ownership: closing the BinaryWriter closes the shared stream once
+    // (the wrapped MemoryStream goes closed but RETAINS its data -- net48
+    // MemoryStream.ToArray() works on a closed stream, oracle 0x07000000; and
+    // BinaryWriter.Flush on a closed writer is a no-op, oracle ok).
     {
         Il2CppObject* cms = NewMemoryStream();
         icall_stream_memory_ctor(cms);
@@ -926,8 +928,13 @@ int main()
         icall_binary_writer_ctor(cbw, cms);
         icall_binary_write_int32(cbw, 7);
         Expect(icall_stream_close(cbw) == 0, "closing the BinaryWriter closes the shared stream");
-        Expect(ThrowsDotNet([&] { (void)icall_stream_memory_to_array(cms); }, kObjectDisposedChain),
-               "the wrapped MemoryStream throws ObjectDisposedException after the BinaryWriter closed it");
+        Expect(icall_stream_flush(cbw) == 0,
+               "BinaryWriter.Flush after Close is a no-op (net48 oracle)");
+        il2cpp::Il2CppArray* cdata = icall_stream_memory_to_array(cms);
+        Expect(cdata != nullptr && il2cpp_array_get_length(cdata) == 4
+               && WByte(cdata, 0) == 0x07 && WByte(cdata, 1) == 0x00
+               && WByte(cdata, 2) == 0x00 && WByte(cdata, 3) == 0x00,
+               "the wrapped MemoryStream.ToArray still returns its data after the BinaryWriter closed it (net48)");
         Expect(icall_stream_close(cms) == 0, "MemoryStream double-close is a no-op");
     }
 
