@@ -27,12 +27,43 @@ public static partial class MethodRefResolver
         if (ps[0] != 0x0E)
             return owner switch
             {
-                "System.Int32" or "System.UInt32" => I("il2cpp::runtime::icall_int32_to_string", 1, true, true, true,
+                // batch 2026-10-05 (iopairprobe): the small-integer + unsigned
+                // providers route to the DEFAULT formatter with the IL arity
+                // preserved (the provider is "drop"ped; the culture is fixed by
+                // the runtime, so the net48 value for the common cultures is
+                // unchanged). UInt32/UInt64 use the UNSIGNED icalls so values
+                // >= 2^31 / 2^63 never print signed (uint.MaxValue -> "4294967295").
+                // The deref:* ADDRESS width reads the NATIVE element cell
+                // (ldelema of int16[] points at a 2-byte cell; deref:i2 reads
+                // it exactly, deref:i would read neighbor bytes).
+                "System.Int32" => I("il2cpp::runtime::icall_int32_to_string", 1, true, true, true,
                     new[] { receiverIsAddress ? "deref:i" : "unbox:i", "drop" }),
-                "System.Int64" or "System.UInt64" => I("il2cpp::runtime::icall_int64_to_string", 1, true, true, true,
+                "System.UInt32" => I("il2cpp::runtime::icall_uint32_to_string", 1, true, true, true,
+                    new[] { receiverIsAddress ? "deref:ui" : "unbox:ui", "drop" }),
+                "System.Int64" => I("il2cpp::runtime::icall_int64_to_string", 1, true, true, true,
                     new[] { receiverIsAddress ? "deref:l" : "unbox:l", "drop" }),
+                "System.UInt64" => I("il2cpp::runtime::icall_uint64_to_string", 1, true, true, true,
+                    new[] { receiverIsAddress ? "deref:ul" : "unbox:ul", "drop" }),
                 "System.Double" or "System.Single" => I("il2cpp::runtime::icall_double_to_string", 1, true, true, true,
                     new[] { receiverIsAddress ? "deref:d" : "unbox:d", "drop" }),
+                "System.Byte" => I("il2cpp::runtime::icall_int32_to_string", 1, true, true, true,
+                    new[] { receiverIsAddress ? "deref:u1" : "unbox:i", "drop" }),
+                "System.SByte" => I("il2cpp::runtime::icall_int32_to_string", 1, true, true, true,
+                    new[] { receiverIsAddress ? "deref:i1" : "unbox:i", "drop" }),
+                "System.Int16" => I("il2cpp::runtime::icall_int32_to_string", 1, true, true, true,
+                    new[] { receiverIsAddress ? "deref:i2" : "unbox:i", "drop" }),
+                "System.UInt16" => I("il2cpp::runtime::icall_int32_to_string", 1, true, true, true,
+                    new[] { receiverIsAddress ? "deref:u2" : "unbox:i", "drop" }),
+                // decimal.ToString(IFormatProvider): the provider is dropped
+                // and the receiver routes to the DEFAULT decimal formatter
+                // (icall_decimal_to_string, an ADDRESS input -- the decimal
+                // icalls never take the value). An ADDRESS receiver (the
+                // ldelema of a decimal[] -- the ptr temp -- or an &x address
+                // expression) routes through the shape-aware "decaddr" cast;
+                // a VALUE slot gets the "dec" read (&slot). The culture is
+                // fixed by the runtime, so the net48 value is unchanged.
+                "System.Decimal" => I("il2cpp::runtime::icall_decimal_to_string", 1, true, true, true,
+                    new[] { receiverIsAddress ? "decaddr" : "dec", "drop" }),
                 _ => throw new NotSupportedException("ToString(IFormatProvider) not wired: icall_format_*_custom takes a format string and the M-stage emitter cannot inject a null format (culture is fixed anyway)"),
             };
         return owner switch

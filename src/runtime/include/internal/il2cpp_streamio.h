@@ -268,6 +268,24 @@ void icall_stream_set_length(Il2CppObject* self, int64_t value);
 // NullReferenceException.
 int32_t icall_stream_read_byte(Il2CppObject* self);
 
+// TextReader.Read() (net48): consume the next UTF-16 unit of the reader's
+// selected encoding (UTF-8 scalars decoded per Utf8ToCs; UTF-16 encodings are
+// exact 2-byte units; astral scalars split across two calls via the reader
+// stash). Returns -1 at end-of-stream (clean EOF, net48). A read on a
+// write-only stream -> NotSupportedException; -1 for a closed receiver. Null
+// receiver -> NullReferenceException.
+int32_t icall_stream_read_char(Il2CppObject* self);
+
+// StreamReader.Peek() (net48): the next UTF-16 unit WITHOUT consuming it
+// (repeated peeks repeat the unit; -1 at end-of-stream). The reader's pending
+// pushback ring (BOM/CRLF lookahead) replays through the peek.
+int32_t icall_stream_peek(Il2CppObject* self);
+
+// MemoryStream.Capacity (net48): the memory backend's buffer allocation size
+// (int32). A closed or non-memory receiver reports 0 (M3 silent convention);
+// never throws. Null receiver -> NullReferenceException.
+int32_t icall_stream_memory_get_capacity(Il2CppObject* self);
+
 // Stream.WriteByte(byte value): writes the single byte at the current
 // position (extending the stream when past the end). A write on a read-only
 // stream -> NotSupportedException; a closed receiver is a silent no-op (M3).

@@ -1090,7 +1090,14 @@ public static partial class MethodRefResolver
             // AsyncTaskMethodBuilder`1<T> (Create/Start/SetResult/SetException/
             // SetStateMachine/get_Task/AwaitUnsafeOnCompleted) and TaskAwaiter`1<T>
             // (get_IsCompleted/GetResult/OnCompleted/UnsafeOnCompleted).
-            case "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
+            case "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1":
+            // batch diffexc001 (2026-10-05): the NON-generic
+            // AsyncTaskMethodBuilder (the value type behind `async Task`
+            // builders) rides the same opaque builder-object carrier as the
+            // generic `1<T> -- its value-type locals lower to Il2CppObject*
+            // (CodeGenerator v:... branch) and Create/get_Task/SetStateMachine
+            // forward to the same task.cpp icalls.
+            case "System.Runtime.CompilerServices.AsyncTaskMethodBuilder": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Runtime.CompilerServices.TaskAwaiter`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Collections.Generic.List`1": return TryMapList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
             // P25 (listp25): the List<int>.Enumerator STRUCT is address-taken

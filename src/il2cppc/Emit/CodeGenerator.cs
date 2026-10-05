@@ -2418,6 +2418,23 @@ public static class CodeGenerator
                     w.Line($"Il2CppObject* {d} = nullptr;");
                     continue;
                 }
+                // batch diffexc001 (2026-10-05): the NON-generic
+                // AsyncTaskMethodBuilder -- a VALUETYPE local the C# compiler
+                // address-takes (Create() stores the builder, get_Task /
+                // SetStateMachine deref:r the slot). The runtime models the
+                // builder as an opaque OBJECT (the same task.cpp builder
+                // carrier the generic `1<T> fields ride -- batch 156c), so
+                // the local is a plain Il2CppObject* ref carrier + frame
+                // root. Without this the local declared the MANGLED undefined
+                // `System_Runtime_CompilerServices_AsyncTaskMethodBuilder`
+                // type -> cmake build FAIL (diffexc001).
+                if (ilKind == "v:System.Runtime.CompilerServices.AsyncTaskMethodBuilder")
+                {
+                    refLocals.Add(d);
+                    w.Line($"Il2CppObject* {d} = nullptr;");
+                    locKind[d] = "ref";
+                    continue;
+                }
                 // guidcase (M7R2): a System.Guid IL-declared local is the
                 // 16-byte VALUE SLOT (uint8_t[16]) -- the guid.h icalls write
                 // through raw byte pointers (the "g" cast; there is NO
@@ -8352,6 +8369,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "u8" or "i8" or "i" => $"(*reinterpret_cast<int64_t*>({ldelemPtr}))",
                 "r4" => $"static_cast<double>(*reinterpret_cast<float*>({ldelemPtr}))",
                 "r8" => $"(*reinterpret_cast<double*>({ldelemPtr}))",
+                // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
+                // read -- the full 16-byte value struct.
+                "dec" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDecimal*>({ldelemPtr}))",
                 _ => $"(*reinterpret_cast<int32_t*>({ldelemPtr}))",
             };
         }
@@ -8376,6 +8396,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "u8" or "i8" or "i" => $"(*reinterpret_cast<int64_t*>({stelemPtr}) = static_cast<int64_t>({EmitExpr(c.Args[2], md, types)}))",
                 "r4" => $"(*reinterpret_cast<float*>({stelemPtr}) = static_cast<float>({EmitExpr(c.Args[2], md, types)}))",
                 "r8" => $"(*reinterpret_cast<double*>({stelemPtr}) = static_cast<double>({EmitExpr(c.Args[2], md, types)}))",
+                // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
+                // write -- the full 16-byte struct. An ADDRESS value (the
+                // newobj ctor's ldloca temp) is dereferenced first.
+                "dec" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*reinterpret_cast<il2cpp::runtime::Il2CppDecimal*>({stelemPtr}) = (*({EmitExpr(c.Args[2], md, types)})))"
+                    : $"(*reinterpret_cast<il2cpp::runtime::Il2CppDecimal*>({stelemPtr}) = ({EmitExpr(c.Args[2], md, types)}))",
                 _ => $"(*reinterpret_cast<int32_t*>({stelemPtr}) = static_cast<int32_t>({EmitExpr(c.Args[2], md, types)}))",
             };
         }
@@ -8936,8 +8962,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // char[] points at a 1/2-byte element; deref:i over-reads
                 // neighbor bytes -- b4=12345). The int32 icalls take the
                 // promoted value; byte/char ranges make the digits exact.
-                "deref:u1" => $"(*reinterpret_cast<uint8_t*>({code}))",
+                                "deref:u1" => $"(*reinterpret_cast<uint8_t*>({code}))",
                 "deref:u2" => $"(*reinterpret_cast<uint16_t*>({code}))",
+                // batch 2026-10-05 (iopairprobe): signed 1/2-byte cell reads
+                // (ldelema of sbyte[]/int16[] points at a signed cell -- the
+                // unsigned u1/u2 read would sign-extend wrongly for
+                // sbyte/int16 ToString(IFormatProvider) via icall_int32_to_string).
+                "deref:i1" => $"(*reinterpret_cast<int8_t*>({code}))",
+                "deref:i2" => $"(*reinterpret_cast<int16_t*>({code}))",
                 "deref:l" => $"(*reinterpret_cast<int64_t*>({code}))",
                 // strictalias (2026-09-13): "deref:v" -- read the address's
                 // slot at its DECLARED type (no type pun). The IntPtr/UIntPtr
@@ -9049,6 +9081,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // address would be a double indirection). The cast code is
                 // SHAPE-AWARE on the arg.
                 "dec" => args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr ? code : $"(&({code}))",
+                // batch 2026-10-05 (iopairprobe B_decimal): decimal
+                // ToString(IFormatProvider) with an ADDRESS receiver. The
+                // receiver is an address in two shapes: a LocAddrExpr /
+                // FieldAddrExpr / StaticFieldAddrExpr (already renders `&x`
+                // -- passthrough) OR a ptr-kind temp (the ldelema of a
+                // decimal[] materialized the element address into an
+                // intptr_t local -- reinterpret it to the const
+                // Il2CppDecimal* the icall declares).
+                "decaddr" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? code
+                    : $"reinterpret_cast<const il2cpp::runtime::Il2CppDecimal*>({code})",
                 // enumdeep (M7R2): an enum-VALUE slot reaching the int64_t
                 // value param of il2cpp_enum_to_string. The enum struct is
                 // { Il2CppObject _obj; int32_t value__; } -- the value rides
@@ -9292,17 +9335,40 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     {
         var typeName = TypeTokenFullName(md, typeToken);
         if (typeName == "System.Int32") return (4, false);
+        // batch 2026-10-05 (iopairprobe, audit C4): the remaining value-type
+        // element arrays the probe allocates -- each allocates its exact value
+        // stride and the matching ldelem/stelem width dispatch already exists
+        // (i1/u1, i2/u2, i4/u4, r4, r8 -- CodeGenerator's ldelem_/stelem_
+        // opcode-suffix dispatch), so only the ALLOCATION stride was missing.
+        //   sbyte -> 1-byte  (ldelem.i1)
+        //   int16/uint16 -> 2-byte (ldelem.i2/u2)
+        //   uint32 -> 4-byte (ldelem.u4)
+        //   single -> 4-byte (ldelem.r4)
+        //   double -> 8-byte (ldelem.r8)
+        if (typeName == "System.UInt32") return (4, false);
         if (typeName == "System.Byte") return (1, false);
         // M6 (strcomp2/Split C4): a char[] holds 2-byte UTF-16 code units.
         // The runtime Split/params-char[] path (and any user char[] newarr)
         // allocates 2-byte elements; stelem.i2/ldelem.i2 already dispatch the
         // 2-byte width.
         if (typeName == "System.Char") return (2, false);
+        // batch 2026-10-05 (iopairprobe, audit C4): sbyte/int16/uint16 arrays.
+        if (typeName == "System.SByte") return (1, false);
+        if (typeName == "System.Int16" || typeName == "System.UInt16") return (2, false);
+        // batch 2026-10-05 (iopairprobe, audit C4): single/double arrays --
+        // 4-byte float and 8-byte double strides (ldelem.r4/r8 dispatch).
+        if (typeName == "System.Single") return (4, false);
+        if (typeName == "System.Double") return (8, false);
         // CG6 (arrayops): Int64/UInt64 element arrays (long[]/ulong[] --
         // Array.IndexOf/Sort on long arrays, IndexOf/GetLowerBound probes).
         // 8-byte elements; the ldelem/stelem i8 width dispatch already exists
         // (ILOP-2 P9), so only the ALLOCATION stride was missing.
         if (typeName == "System.Int64" || typeName == "System.UInt64") return (8, false);
+        // batch 2026-10-05 (iopairprobe B_decimal): decimal[] -- 16-byte
+        // non-reference elements (the 4x int32 decimal payload). The runtime
+        // il2cpp_array_new stride 16; the ldelem_dec/stelem_dec width arms
+        // read/write the full struct.
+        if (typeName == "System.Decimal") return (16, false);
         // Batch 155b: System.IntPtr/UIntPtr elements -- native int (8 bytes
         // on the 64-bit target) -- allocate like long[] (non-ref, native-int
         // stride); Ldelem_i/Stelem_i read/write the 8-byte payload.

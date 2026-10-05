@@ -104,22 +104,24 @@ public class MethodMapBinaryIOTests
     }
 
     //--------------------------------------------------------------------------
-    // BinaryWriter.Write -- LOUD rejection of close-but-wrong overloads
-    // (routing Write(byte) through write_int32 would emit 4 bytes instead
-    // of 1: protocol corruption, so the mapping must refuse, not guess).
+    // BinaryWriter.Write -- the narrow/ulong widths map to the exact-width
+    // icalls (parity-T4a; batch 2026-10-05 -- the runtime icalls exist and
+    // emit the precise 1/2/8-byte little-endian cells, so routing through
+    // write_int32's 4 bytes would corrupt the protocol).
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData(0x04)] // sbyte
-    [InlineData(0x05)] // byte
-    [InlineData(0x06)] // short
-    [InlineData(0x07)] // ushort
-    [InlineData(0x0B)] // ulong
-    public void Resolve_BinaryWriter_WriteNarrowPrimitive_ThrowsLoud(byte paramByte)
+    [InlineData(0x04, "il2cpp::runtime::icall_binary_write_sbyte")] // sbyte
+    [InlineData(0x05, "il2cpp::runtime::icall_binary_write_byte")]  // byte
+    [InlineData(0x06, "il2cpp::runtime::icall_binary_write_int16")] // short
+    [InlineData(0x07, "il2cpp::runtime::icall_binary_write_uint16")]// ushort
+    [InlineData(0x0B, "il2cpp::runtime::icall_binary_write_uint64")]// ulong
+    public void Resolve_BinaryWriter_WriteNarrowPrimitive_MapsToWidthIcall(byte paramByte, string icall)
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "BinaryWriter", "Write", Sig(0x01, paramByte)), "Write"));
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryWriter", "Write", Sig(0x01, paramByte)), "Write");
 
-        Assert.Contains("System.IO.BinaryWriter::Write", ex.Message);
+        Assert.Equal(icall, resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
     }
 
     [Fact]
@@ -221,12 +223,40 @@ public class MethodMapBinaryIOTests
     }
 
     [Fact]
-    public void Resolve_BinaryReader_ReadInt16_ThrowsLoud()
+    public void Resolve_BinaryReader_ReadInt16_MapsToReadInt16Icall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "BinaryReader", "ReadInt16", Sig(0x06)), "ReadInt16"));
+        // batch 2026-10-05 (parity-T4a): int16 sign-extends into the int32 carrier.
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryReader", "ReadInt16", Sig(0x06)), "ReadInt16");
 
-        Assert.Contains("System.IO.BinaryReader::ReadInt16", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_binary_read_int16", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_BinaryReader_ReadSByte_MapsToReadSByteIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryReader", "ReadSByte", Sig(0x04)), "ReadSByte");
+
+        Assert.Equal("il2cpp::runtime::icall_binary_read_sbyte", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_BinaryReader_ReadUInt16_MapsToReadUInt16Icall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryReader", "ReadUInt16", Sig(0x07)), "ReadUInt16");
+
+        Assert.Equal("il2cpp::runtime::icall_binary_read_uint16", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_BinaryReader_ReadUInt64_MapsToReadUInt64Icall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryReader", "ReadUInt64", Sig(0x0B)), "ReadUInt64");
+
+        Assert.Equal("il2cpp::runtime::icall_binary_read_uint64", resolved.CppName);
+        Assert.Equal("l", resolved.ResultKind);
     }
 
     [Fact]

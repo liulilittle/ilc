@@ -22,18 +22,19 @@
 //      both coexist in the same chain, each resolves to its own value, and
 //      removing one leaves the other findable.
 //   9. get_keys / get_values: length == count; keys[i] <-> values[i] are
-//      positionally consistent (hash order); empty dictionary -> length-0
-//      arrays.
+//      positionally consistent (insertion order, net48 R1); empty dictionary
+//      -> length-0 arrays.
 //  10. A null key raises ArgumentNullException from add/try_get_value/
 //      remove/contains_key.
 //  11. Boundary capacities: capacity 1 -> 4 buckets; capacity 5 -> 8.
 //  12. Enumeration order determinism: get_keys is a pure function of the
 //      table state -- two consecutive calls return identical arrays, and the
-//      order follows the documented hash-bucket contract (buckets ascending,
-//      0..bucketCount-1; within a bucket, chain head-first, i.e. most
-//      recently added first). The order is computed in the test from the
-//      net48 hash oracle + the power-of-two bucket mask, so it verifies the
-//      CONTRACT, not a stale hardcoded sequence.
+//      order follows the net48 Dictionary<string,int> contract (spec §8
+//      R1-R7): INSERTION order -- entries[0..count) ascending, skipping free
+//      slots; overwrites keep their position; remove-then-readd returns to
+//      the original slot. Expected order is the literal ADD SEQUENCE (no
+//      removals/resizes in this test), so it verifies the CONTRACT against
+//      the net48 oracle rather than a stale hash-bucket sequence.
 //
 // Plain executable + minimal assertion harness (see test_listi4.cpp).
 //------------------------------------------------------------------------------
@@ -348,11 +349,12 @@ int main()
         // Determinism: two calls, identical arrays (same length, same order).
         il2cpp::Il2CppArray* keys1 = il2cpp::il2cpp_dict_si_get_keys(d);
         il2cpp::Il2CppArray* keys2 = il2cpp::il2cpp_dict_si_get_keys(d);
+        il2cpp::Il2CppArray* values1 = il2cpp::il2cpp_dict_si_get_values(d);
         const il2cpp::Il2CppObject** k1 =
             reinterpret_cast<const il2cpp::Il2CppObject**>(keys1->data);
         const il2cpp::Il2CppObject** k2 =
             reinterpret_cast<const il2cpp::Il2CppObject**>(keys2->data);
-        bool deterministic = keys1->length == n && keys2->length == n;
+        bool deterministic = keys1->length == n && keys2->length == n && values1->length == n;
         for (int32_t i = 0; deterministic && i < n; ++i)
         {
             if (k1[i] != k2[i]) deterministic = false;
@@ -374,58 +376,19 @@ int main()
             return true;
         };
 
-        // Contract order: buckets ascending; within a bucket, chain head-first
-        // (most recently added first -- head insertion). Build the expected
-        // sequence from the live hashes + the bucket mask and compare.
-        struct Item
-        {
-            int32_t bucket;
-            int32_t addedOrder; // 0 = first added
-            const il2cpp::Il2CppString* key;
-        };
-        Item expected[6];
-        for (int32_t i = 0; i < n; ++i)
-        {
-            const il2cpp::Il2CppString* ks = KeyOf(i);
-            const int32_t hash = il2cpp::runtime::icall_string_get_hash_code(
-                reinterpret_cast<il2cpp::Il2CppObject*>(const_cast<il2cpp::Il2CppString*>(ks)));
-            expected[i].bucket = static_cast<int32_t>(static_cast<uint32_t>(hash) &
-                                                      static_cast<uint32_t>(d->bucketCount - 1));
-            expected[i].addedOrder = -1;
-            for (int32_t t = 0; t < n; ++t)
-            {
-                if (TextIs(ks, t))
-                {
-                    expected[i].addedOrder = t;
-                    break;
-                }
-            }
-            expected[i].key = ks;
-        }
-        // Sort: bucket ascending; within a bucket, addedOrder DESCENDING
-        // (later additions are at the chain head -> enumerated first).
-        for (int32_t i = 0; i < n; ++i)
-        {
-            for (int32_t j = i + 1; j < n; ++j)
-            {
-                const bool bucketA = expected[i].bucket > expected[j].bucket;
-                const bool sameBucketOrder =
-                    expected[i].bucket == expected[j].bucket &&
-                    expected[i].addedOrder < expected[j].addedOrder;
-                if (bucketA || sameBucketOrder)
-                {
-                    const Item tmp = expected[i];
-                    expected[i] = expected[j];
-                    expected[j] = tmp;
-                }
-            }
-        }
+        // Contract order (net48 Dictionary<string,int>, spec §8 R1): the
+        // INSERTION order -- entries[0..count) ascending, skipping free slots.
+        // No removal / resize in this test, so the expected sequence is the
+        // literal add sequence texts[0..n), and values[] must line up
+        // positionally (keys[i] <-> values[i]).
+        const int32_t* v1 = reinterpret_cast<const int32_t*>(values1->data);
         bool orderOk = keys1->length == n;
         for (int32_t i = 0; orderOk && i < n; ++i)
         {
-            if (expected[i].key != reinterpret_cast<const il2cpp::Il2CppString*>(k1[i])) orderOk = false;
+            if (!TextIs(KeyOf(i), i)) orderOk = false;
+            if (v1[i] != vals[i]) orderOk = false;
         }
-        Expect(orderOk, "get_keys order follows the documented hash-bucket contract");
+        Expect(orderOk, "get_keys/get_values order follows the net48 insertion-order contract (R1)");
         il2cpp::il2cpp_dict_si_destroy(d);
     }
 

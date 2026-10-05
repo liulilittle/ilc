@@ -220,6 +220,10 @@ const char kNotSupportedChain[] =
     "System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception";
 const char kArgOutOfRangeChain[] =
     "System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception";
+const char kEndOfStreamChain[] =
+    "System.IO.IOException,System.IO.IOException,System.SystemException,System.Exception";
+const char kObjectDisposedChain[] =
+    "System.InvalidOperationException,System.InvalidOperationException,System.SystemException,System.Exception";
 
 // Allocate fresh objects through the runtime descriptors (the same shape
 // generated newobj emits -- the ctor icall then arms the handle).
@@ -821,8 +825,9 @@ int main()
                "object ReadByte does NOT normalize (0x02 stays 2)");
         Expect(icall_binary_read_bool(rbr) == 0,
                "ReadBoolean still normalizes (0x00 -> false)");
-        Expect(icall_binary_read_byte(rbr) == 0,
-               "ReadByte at EOF returns 0 (M3 zero-value convention)");
+        Expect(ThrowsDotNet([&] { icall_binary_read_byte(rbr); },
+                            kEndOfStreamChain),
+               "ReadByte at EOF throws EndOfStreamException (net48, batch 2026-10-05)");
     }
 
     // String surface through the object writers/readers (7-bit prefixes +
@@ -886,8 +891,8 @@ int main()
         icall_stream_memory_ctor(ros);
         Il2CppObject* rbr = NewBinaryReader();
         icall_binary_reader_ctor(rbr, ros);
-        Expect(icall_binary_read_int32(rbr) == 0,
-               "binary reader over an empty stream returns 0 (EOF)");
+        Expect(ThrowsDotNet([&] { (void)icall_binary_read_int32(rbr); }, kEndOfStreamChain),
+               "binary reader over an empty stream throws EndOfStreamException (net48)");
         Expect(icall_stream_close(rbr) == 0, "empty-stream binary reader Close");
         Expect(icall_stream_close(ros) == 0, "empty-stream MemoryStream Close (no-op)");
     }
@@ -921,8 +926,8 @@ int main()
         icall_binary_writer_ctor(cbw, cms);
         icall_binary_write_int32(cbw, 7);
         Expect(icall_stream_close(cbw) == 0, "closing the BinaryWriter closes the shared stream");
-        Expect(icall_stream_memory_to_array(cms) == nullptr,
-               "the wrapped MemoryStream is closed after the BinaryWriter closed it");
+        Expect(ThrowsDotNet([&] { (void)icall_stream_memory_to_array(cms); }, kObjectDisposedChain),
+               "the wrapped MemoryStream throws ObjectDisposedException after the BinaryWriter closed it");
         Expect(icall_stream_close(cms) == 0, "MemoryStream double-close is a no-op");
     }
 
@@ -1026,9 +1031,8 @@ int main()
         zero.flags = 1;
         zero.hi32 = 1;
         zero.lo64 = 1;
-        icall_binary_read_decimal(tr, &zero);
-        Expect(zero.flags == 0 && zero.hi32 == 0 && zero.lo64 == 0,
-               "ReadDecimal on a 3-byte stream yields the zero decimal");
+        Expect(ThrowsDotNet([&] { icall_binary_read_decimal(tr, &zero); }, kEndOfStreamChain),
+               "ReadDecimal on a 3-byte stream throws EndOfStreamException (net48)");
         Expect(icall_stream_close(tr) == 0, "truncated decimal reader Close");
         Expect(icall_stream_close(tms) == 0, "truncated decimal stream Close (no-op)");
     }
@@ -1074,8 +1078,9 @@ int main()
         Expect(icall_binary_read_char(ar) == 0xFFFD, "ReadChar lone surrogate decodes as U+FFFD");
         Expect(icall_binary_read_char(ar) == u'h', "ReadChar subrange 'h' round-trips");
         Expect(icall_binary_read_char(ar) == 0x4E2D, "ReadChar BMP round-trips");
-        Expect(icall_binary_read_char(ar) == 0xFFFD, "ReadChar single-lone-surrogate write decodes as U+FFFD");
-        Expect(icall_binary_read_char(ar) == 0, "ReadChar at EOF returns 0");
+Expect(icall_binary_read_char(ar) == 0xFFFD, "ReadChar single-lone-surrogate write decodes as U+FFFD");
+    Expect(ThrowsDotNet([&] { (void)icall_binary_read_char(ar); }, kEndOfStreamChain),
+           "ReadChar at EOF throws EndOfStreamException (net48)");
         Expect(ThrowsDotNet([&] { icall_binary_write_chars_full(aw, nullptr); }, kArgNullExceptionChain),
                "Write(char[] null) throws ArgumentNullException");
         Expect(ThrowsDotNet([&] { icall_binary_write_chars(aw, chars, 4, 2); }, kArgOutOfRangeChain),

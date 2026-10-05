@@ -1937,6 +1937,51 @@ public class CodeGeneratorTests
         return tokens;
     }
 
+    // batch 2026-10-05 (iopairprobe, audit C4): a uint[] newarr must allocate
+    // 4-byte NON-reference elements (the ldelem.u4/stelem.i4 width dispatch
+    // already exists). Before the fix System.UInt32 hit the LOUD "newarr of
+    // value type System.UInt32 not supported (audit C4)" rejection and the
+    // case FAILed at the transpile step.
+    [Fact]
+    public void ArrayElementType_UInt32_Allocates4ByteValueArray()
+    {
+        var exe = CaseExePath("iopairprobe");
+        var types = MetadataLoader.LoadAssembly(exe);
+        using var fs = File.OpenRead(exe);
+        using var pe = new PEReader(fs);
+        var md = pe.GetMetadataReader();
+        var method = typeof(Il2Cpp.Transpiler.Emit.CodeGenerator).GetMethod(
+            "ArrayElementType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        int found = 0;
+        foreach (var th in md.TypeDefinitions)
+        {
+            foreach (var mh in md.GetTypeDefinition(th).GetMethods())
+            {
+                var m = md.GetMethodDefinition(mh);
+                if (m.RelativeVirtualAddress == 0) continue; // no IL body
+                byte[] il;
+                try { il = pe.GetMethodBody(m.RelativeVirtualAddress)!.GetILBytes()!; }
+                catch { continue; }
+                for (var i = 0; i < il.Length; i++)
+                {
+                    if (il[i] != 0x8D) continue; // newarr
+                    var token = BitConverter.ToInt32(il, i + 1);
+                    i += 4;
+                    var handle = MetadataTokens.Handle(token);
+                    if (handle.Kind != HandleKind.TypeReference) continue;
+                    var name = md.GetFullName((TypeReferenceHandle)handle);
+                    if (name != "System.UInt32") continue;
+                    var value = ((int ElemSize, bool IsRefElement))method!.Invoke(
+                        null, new object[] { md, token, types })!;
+                    Assert.Equal((4, false), value);
+                    found++;
+                }
+            }
+        }
+        Assert.True(found > 0, "iopairprobe must contain a uint[] newarr (B_uint32)");
+    }
+
     // D-GC-2 negative classification: the wired BCL value types must stay
     // rejected (a value-slot array must never fall through to the reference
     // path -- the GC would scan the payload with an 8-byte ref stride over

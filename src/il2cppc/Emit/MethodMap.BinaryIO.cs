@@ -131,11 +131,30 @@ public static partial class MethodRefResolver
                             0x02 => I("il2cpp::runtime::icall_binary_write_bool", 1, false, false, true, new[] { "", "b" }),
                             0x0E => I("il2cpp::runtime::icall_binary_write_string", 1, false, false, true),
                             0x03 => I("il2cpp::runtime::icall_binary_write_char", 1, false, false, true, new[] { "", "i" }),
-                            0x04 or 0x05 or 0x06 or 0x07 or 0x0B =>
-                                throw new NotSupportedException($"Write(0x{ps[0]:X2}): the runtime writes only int32/int64/uint32/double/single/bool/string/char/decimal/byte[]/char[]"),
+                            // batch 2026-10-05 (parity-T4a): the narrow/ulong
+                            // widths -- the runtime icalls exist (streamio.cpp)
+                            // and emit the exact 1/2/8-byte little-endian cells.
+                            0x05 => I("il2cpp::runtime::icall_binary_write_byte", 1, false, false, true, new[] { "", "i" }),
+                            0x04 => I("il2cpp::runtime::icall_binary_write_sbyte", 1, false, false, true, new[] { "", "i" }),
+                            0x06 => I("il2cpp::runtime::icall_binary_write_int16", 1, false, false, true, new[] { "", "i" }),
+                            0x07 => I("il2cpp::runtime::icall_binary_write_uint16", 1, false, false, true, new[] { "", "i" }),
+                            0x0B => I("il2cpp::runtime::icall_binary_write_uint64", 1, false, false, true, new[] { "", "l" }),
                             0x1D => throw new NotSupportedException("Write(array): no byte[]/char[] icall matches this shape (whole-array takes 1 arg, ranged takes (array, int, int))"),
                             _ => throw new NotSupportedException($"Write param type 0x{ps[0]:X2} not wired in M5"),
                         };
+                    case "Flush":
+                        // BinaryWriter.Flush() (batch 2026-10-05): flushes the
+                        // wrapped stream's backend (memory streams no-op).
+                        return I("il2cpp::runtime::icall_stream_flush", 0, false, false, true);
+                    case "Close":
+                    case "Dispose":
+                        // BinaryWriter.Close() (net48): closes the wrapped
+                        // stream. The writer's OWN handle is released
+                        // (refCounted); a MemoryStream the caller still holds
+                        // stays readable (net48 quirk -- the probes rely on it).
+                        if (count == 0) return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
+                        if (count == 1) return I("il2cpp::runtime::icall_stream_close", 1, false, false, true, new[] { "drop" });
+                        throw new NotSupportedException("Close/Dispose with an unsupported arity not wired");
                     case ".ctor":
                         // .ctor(System.IO.Stream) -- batch 150d: the runtime
                         // object surface exists (icall_binary_writer_ctor,
@@ -169,7 +188,25 @@ public static partial class MethodRefResolver
                     case "ReadInt16":
                     case "ReadUInt16":
                     case "ReadUInt64":
-                        throw new NotSupportedException("no runtime icall for this read width in the binary protocol");
+                        // batch 2026-10-05 (parity-T4a): the narrow read widths
+                        // -- the runtime icalls exist (streamio.cpp): sbyte/
+                        // int16 sign-extend into the int32 carrier, ushort
+                        // zero-extends, ulong rides uint64 ("l" result slot).
+                        if (name == "ReadSByte") return I("il2cpp::runtime::icall_binary_read_sbyte", 0, true, false, true);
+                        if (name == "ReadInt16") return I("il2cpp::runtime::icall_binary_read_int16", 0, true, false, true);
+                        if (name == "ReadUInt16") return I("il2cpp::runtime::icall_binary_read_uint16", 0, true, false, true);
+                        return I("il2cpp::runtime::icall_binary_read_uint64", 0, true, false, true, null, "l");
+                    case "Flush":
+                    case "Close":
+                    case "Dispose":
+                        // BinaryReader.Close/Flush (batch 2026-10-05): the
+                        // reader's own handle is released/refCounted (see the
+                        // BinaryWriter.Close note).
+                        if (name == "Flush" && count == 0) return I("il2cpp::runtime::icall_stream_flush", 0, false, false, true);
+                        if (name == "Close" && count == 0) return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
+                        if (name == "Dispose" && count == 0) return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
+                        if (name == "Dispose" && count == 1) return I("il2cpp::runtime::icall_stream_close", 1, false, false, true, new[] { "drop" });
+                        throw new NotSupportedException("Close/Flush/Dispose with an unsupported arity not wired");
                     case "ReadChar": return I("il2cpp::runtime::icall_binary_read_char", 0, true, false, true);
                     // T4b parity: ReadDecimal -- the decimal arrives through
                     // the OUT slot (self, out); ResultKind "dec2" appends the

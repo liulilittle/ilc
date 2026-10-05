@@ -1523,6 +1523,21 @@ public static class StackFold
                     // emitter arm -> LOUD (the report documents the token-based
                     // emitter patch).
                     {
+                        // batch 2026-10-05 (iopairprobe B_decimal): a decimal[]
+                        // element load has no fixed-width opcode -- route to the
+                        // dedicated 16-byte "dec" reader arm.
+                        if (IsDecimalElement(md, (int)ins.Operand, types))
+                        {
+                            var decIdx = stack.Pop();
+                            var decArr = stack.Pop();
+                            Push(new CallExpr
+                            {
+                                Function = "ldelem_dec",
+                                ResultKind = "dec",
+                                Args = { decArr, decIdx },
+                            }, ins);
+                            break;
+                        }
                         var genericLdOp = MapGenericLdelemOp(md, (int)ins.Operand, types);
                         if (genericLdOp == null)
                             throw new NotSupportedException(
@@ -1545,6 +1560,23 @@ public static class StackFold
                     // classification as Ldelem; the mapped fixed-width stelem
                     // reuses the existing emission.
                     {
+                        // batch 2026-10-05 (iopairprobe B_decimal): a decimal[]
+                        // element store has no fixed-width opcode -- route to
+                        // the dedicated 16-byte "dec" writer arm.
+                        if (IsDecimalElement(md, (int)ins.Operand, types))
+                        {
+                            var decVal = stack.Pop();
+                            var decIdx = stack.Pop();
+                            var decArr = stack.Pop();
+                            stmts.Add(new CallStmt
+                            {
+                                Function = "stelem_dec",
+                                Args = { decArr, decIdx, decVal },
+                                SourceOffset = ins.Offset,
+                                SourceOpName = OpName(ins.OpCode),
+                            });
+                            break;
+                        }
                         var genericStOp = MapGenericStelemOp(md, (int)ins.Operand, types);
                         if (genericStOp == null)
                             throw new NotSupportedException(
@@ -2638,6 +2670,19 @@ public static class StackFold
                 if (md != null && recvType != null
                     && (resolved == null || !resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal)
                         || recvType == "System.Threading.Timer"
+                        // batch 2026-10-05 (iopairprobe): a PTR-WIDTH receiver
+                        // (the intptr_t temp an ldelema pushes -- the byref
+                        // receiver of `vs[i].ToString(Inv)` on a value-type
+                        // array) must be recognized as an ADDRESS so the
+                        // value-type loads re-resolve to deref:* instead of
+                        // unbox:* (the first pass read only the stack TOP --
+                        // the trailing IFormatProvider arg -- and resolved
+                        // "unbox:i", emitting the ill-formed
+                        // `il2cpp_unbox_int32(static_cast<Il2CppObject*>(t4))`
+                        // intptr_t->Il2CppObject* cast). Same doctrine as
+                        // D-RND2-2 (line 2279) but for the by-the-time-args-known
+                        // re-resolve.
+                        || (args[0] is LocExpr ptrRecv && LocWidth(ptrRecv.Name, ctx, tempWidths) == "ptr")
                         // icallwide: the Object::ToString/GetHashCode default
                         // arms are receiver-agnostic first-pass results -- a
                         // tracked typed receiver (Version/TimeSpan/...) must
@@ -2707,7 +2752,9 @@ public static class StackFold
                         || recvType == "System.Collections.Generic.SortedDictionary`2+KeyCollection.Enumerator"
                         || recvType == "System.Collections.Generic.SortedDictionary`2.KeyCollection.Enumerator"))
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
-                        recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr, recvType);
+                        recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr
+                            || (args[0] is LocExpr ptrRecv2 && LocWidth(ptrRecv2.Name, ctx, tempWidths) == "ptr"),
+                        recvType);
                 // P26 (bcldeep/charconv): FINAL resolution -- no further deferral
                 // is possible after the receiver-hinted re-resolve. A phantom
                 // (generated-name fallback on an external BCL owner) can never
@@ -3013,7 +3060,17 @@ public static class StackFold
                     // precedent: StackFold.cs:1283 -- NullExpr.TypeName).
                     : args[0] is NullExpr ne3 && ne3.TypeName != null ? ne3.TypeName
                     : null;
-                var addr = args[0] is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr;
+                // batch 2026-10-05 (iopairprobe): a PTR-WIDTH receiver (the
+                // intptr_t temp an ldelema pushes -- `call Int32::ToString(
+                // IFormatProvider)` on a value-type array element with an
+                // explicit trailing arg) is an ADDRESS, never a boxed object.
+                // Without it the first resolution read only the stack TOP
+                // (the trailing arg) and picked "unbox:*" -- emitting the
+                // ill-formed `il2cpp_unbox_int32(static_cast<Il2CppObject*>
+                // (t4))` intptr_t->Il2CppObject* cast (same doctrine as
+                // D-RND2-2 at line 2279, applied to the call path).
+                var addr = args[0] is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
+                    || (args[0] is LocExpr ptrR3 && LocWidth(ptrR3.Name, ctx, tempWidths) == "ptr");
                 if (addr || rvType != null)
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
                         rvType, addr, rvType);
@@ -3989,6 +4046,17 @@ public static class StackFold
                 8 => name == "System.Double" ? ILOpCode.Stelem_r8 : ILOpCode.Stelem_i8,
                 _ => null,
             };
+        }
+
+        // batch 2026-10-05 (iopairprobe B_decimal): whether a generic
+        // ldelem/stelem element token is System.Decimal -- the 16-byte
+        // value-element array access (the fixed-width ILOpCode switch above
+        // caps at 8 bytes). These get the dedicated "dec" accessor arms
+        // (ldelem_dec / stelem_dec) in the emitter.
+        static bool IsDecimalElement(MetadataReader? md, int token, IReadOnlyList<TypeDef>? types)
+        {
+            var (_, _, name) = ElementAccessInfo(md, token, types);
+            return name == "System.Decimal";
         }
 
         // Token-based value-type ops (ldobj/stobj/initobj/sizeof): the operand

@@ -147,6 +147,10 @@ public static partial class MethodRefResolver
                         new[] { "", "l" });
                 throw new NotSupportedException($"SetLength with {count} arg(s) not wired: the runtime icall takes (long value)");
             case "Read":
+                // TextReader.Read() (batch 2026-10-05, iosymprobe P1): the
+                // 0-arg form consumes the next UTF-16 unit (or -1 at EOF).
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_stream_read_char", 0, true, false, true);
                 // managed: int Read(byte[] buffer, int offset, int count) --
                 // the runtime managed-array icall (byte[] + offset/count,
                 // returns the bytes read; 0 at EOF). The buffer is an
@@ -154,7 +158,20 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return I("il2cpp::runtime::icall_stream_read_bytes", 3, true, false, true,
                         new[] { "", "a", "", "" });
-                throw new NotSupportedException($"Read with {count} arg(s) not wired: the runtime managed-array icall takes (byte[], int32, int32)");
+                throw new NotSupportedException($"Read with {count} arg(s) not wired: the runtime managed-array icall takes (byte[], int32, int32) or the 0-arg text read");
+            case "Peek":
+                // StreamReader.Peek() (batch 2026-10-05, iosymprobe P1 /
+                // iopairprobe T_case): the next UTF-16 unit WITHOUT consuming
+                // (-1 at end-of-stream, net48).
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_stream_peek", 0, true, false, true);
+                throw new NotSupportedException($"Peek with {count} arg(s) not wired: the runtime icall takes no arguments");
+            case "get_Capacity":
+                // MemoryStream.Capacity (batch 2026-10-05): the memory buffer
+                // allocation size (int32).
+                if (owner == "System.IO.MemoryStream" || receiverType == "System.IO.MemoryStream")
+                    return I("il2cpp::runtime::icall_stream_memory_get_capacity", 0, true, false, true);
+                return null;
             case "ReadByte":
                 // D-STP-3 (2026-08-12): ReadByte() -- the runtime gained the
                 // single-byte icall icall_stream_read_byte (streamio.cpp),
@@ -216,6 +233,14 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] is 0x08 or 0x11)
                     return I("il2cpp::runtime::icall_stream_file_ctor2", 2, false, false, true,
                         new[] { "", "", "i" });
+                // batch 2026-10-05 (iosymprobe G11): FileStream(string,
+                // FileMode, FileAccess, FileShare) -- the 4th arg (FileShare)
+                // does not change the bytes / open mode on this runtime, so it
+                // is dropped at the call site (the IL arity is preserved).
+                if (ps.Length == 4 && ps[0] == 0x0E && ps[1] is 0x08 or 0x11
+                    && ps[2] is 0x08 or 0x11 && ps[3] is 0x08 or 0x11)
+                    return I("il2cpp::runtime::icall_stream_file_ctor", 4, false, false, true,
+                        new[] { "", "", "i", "i", "drop" });
                 throw new NotSupportedException(
                     $"FileStream ctor with {count} arg(s) not wired: the object-typed icalls take exactly " +
                     "(string path, int32 FileMode) or (string path, int32 FileMode, int32 FileAccess) -- " +

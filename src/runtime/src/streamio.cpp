@@ -976,6 +976,14 @@ int32_t il2cpp_stream_write_line(il2cpp_stream_t stream, Il2CppObject* line)
     {
         return -1;
     }
+    // net48: the line terminator is written THROUGH the writer's encoding
+    // (Encoding.Unicode writers emit the CRLF as 0d00 0a00, not raw 0d0a --
+    // iopairprobe t_unicode). UTF-16 is the only codec with a wider cell.
+    if (s->writerEncoding == 1)
+    {
+        static const char16_t crlf[2] = { 0x000D, 0x000A };
+        return il2cpp_stream_write(stream, crlf, 4) == 4 ? 0 : -1;
+    }
     return il2cpp_stream_write(stream, "\r\n", 2) == 2 ? 0 : -1;
 }
 
@@ -1440,6 +1448,38 @@ StreamState* StreamStateOf(Il2CppObject* self)
         return nullptr;
     }
     return g_streamSlots[s->handle];
+}
+
+//------------------------------------------------------------------------------
+// net48 closed-stream parity (batch 2026-10-05): the OBJECT-layer stream
+// icalls throw ObjectDisposedException-equivalent (invalid-operation) on a
+// closed receiver instead of the M3 silent return -- the net48 semantics the
+// io probes' `catch (Exception)` observes. The handle layer (il2cpp_stream_*)
+// keeps its documented silent conventions. Returns true when closed (the
+// caller must return; the throw never unwinds normally).
+//------------------------------------------------------------------------------
+static bool StreamThrowIfClosed(const StreamState* s)
+{
+    if (s == nullptr || s->closed)
+    {
+        il2cpp_throw_invalid_operation_exception("Cannot access a closed Stream.");
+        return true;
+    }
+    return false;
+}
+
+// net48 BinaryReader parity (batch 2026-10-05): a read that cannot satisfy
+// its full width throws EndOfStreamException (an IOException) at the OBJECT
+// layer; the handle layer (il2cpp_binary_read_*) keeps the M3 zero-value
+// convention. Returns true when the throw fired.
+static bool BinaryThrowEndOfStream(bool satisfied)
+{
+    if (!satisfied)
+    {
+        il2cpp_throw_io_exception("End of stream reached.");
+        return true;
+    }
+    return false;
 }
 
 // The .NET exception carrier chains for the ctor failure paths (the
@@ -2116,9 +2156,9 @@ int32_t icall_stream_read_bytes(Il2CppObject* self, Il2CppArray* buffer,
     }
     ThrowIfRangeInvalid(buffer, offset, count);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return 0; // closed receiver: clean 0-byte read (M3 conventions)
+        return 0; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     if (!state->canRead)
     {
@@ -2137,9 +2177,9 @@ void icall_stream_write_bytes(Il2CppObject* self, Il2CppArray* buffer,
     }
     ThrowIfRangeInvalid(buffer, offset, count);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return; // closed receiver: silent no-op (M3 conventions)
+        return; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     if (!state->canWrite)
     {
@@ -2152,9 +2192,9 @@ int32_t icall_stream_flush(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return 1;
+        return 1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_flush(state);
 }
@@ -2178,9 +2218,9 @@ int64_t icall_stream_get_position(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return -1;
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_get_position(state);
 }
@@ -2197,9 +2237,9 @@ int32_t icall_stream_set_position(Il2CppObject* self, int64_t position)
             "Position must be a non-negative value.");
     }
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return -1;
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_set_position(state, position);
 }
@@ -2208,9 +2248,9 @@ int64_t icall_stream_get_length(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return -1;
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_get_length(state);
 }
@@ -2261,9 +2301,9 @@ int64_t icall_stream_seek(Il2CppObject* self, int64_t offset, int32_t origin)
         return -1; // unreachable (the throw never returns)
     }
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return -1;
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     if (!state->canSeek)
     {
@@ -2296,9 +2336,9 @@ void icall_stream_set_length(Il2CppObject* self, int64_t value)
         return;
     }
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return; // closed receiver: silent no-op (M3 conventions)
+        return; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     if (!state->canSeek)
     {
@@ -2331,9 +2371,9 @@ int32_t icall_stream_read_byte(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return -1;
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     if (!state->canRead)
     {
@@ -2344,13 +2384,202 @@ int32_t icall_stream_read_byte(Il2CppObject* self)
     return StreamGetByte(state);
 }
 
-void icall_stream_write_byte(Il2CppObject* self, int32_t value)
+//------------------------------------------------------------------------------
+// StreamReader.Peek / TextReader.Read() (net48 parity, batch 2026-10-05).
+// Read the NEXT text unit (UTF-16 code unit of the reader's selected encoding)
+// WITHOUT consuming it (peek) or consuming it (read). Returns -1 at
+// end-of-stream (net48 Peek/Read both return -1). UTF-8 scalars decode per the
+// Utf8ToCs rules; astral scalars split across two calls via the pendingChar
+// stash (the ReadChar precedent); UTF-16 encodings are exact 2-byte units
+// (a lone trailing byte decodes to its own unit). The pending pushback ring
+// (BOM/CRLF lookahead) replays through StreamGetByte, so a peek reads the
+// exact bytes the next Read would see and replays them with StreamUnread.
+//------------------------------------------------------------------------------
+static int32_t StreamReaderPeekOrRead(StreamState* s, bool peek)
+{
+    if (StreamThrowIfClosed(s))
+    {
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
+    }
+    if (!s->canRead)
+    {
+        return -1;
+    }
+    if (s->pendingChar >= 0)
+    {
+        // A stashed low surrogate from a split astral read comes first. Peek
+        // returns it WITHOUT consuming (repeated peeks repeat it); Read
+        // consumes it (net48 StreamReader.Peek/Read on a surrogate).
+        const int32_t unit = s->pendingChar;
+        if (!peek)
+        {
+            s->pendingChar = -1;
+        }
+        return unit;
+    }
+    if (s->textEncoding != 0)
+    {
+        // UTF-16LE (1) / UTF-16BE (2): one unit = one 2-byte pair.
+        const int lo = StreamGetByte(s);
+        if (lo < 0)
+        {
+            return -1;
+        }
+        const int hi = StreamGetByte(s);
+        const int32_t unit = (hi < 0)
+            ? static_cast<int32_t>(static_cast<char16_t>(lo))
+            : (s->textEncoding == 1
+                ? static_cast<int32_t>(static_cast<char16_t>(lo | (hi << 8)))
+                : static_cast<int32_t>(static_cast<char16_t>((lo << 8) | hi)));
+        if (peek)
+        {
+            const int32_t put[2] = { lo, hi };
+            StreamUnread(s, put, (hi < 0) ? 1 : 2);
+        }
+        // UTF-16 astral pairs are two separate units already -- no stash.
+        return unit;
+    }
+    // UTF-8: decode ONE scalar; a peek replays every byte.
+    const int c = StreamGetByte(s);
+    if (c < 0)
+    {
+        return -1;
+    }
+    if (c < 0x80)
+    {
+        if (peek)
+        {
+            const int32_t put = c;
+            StreamUnread(s, &put, 1);
+        }
+        return c;
+    }
+    int32_t need = 0;
+    uint32_t cp = 0;
+    if ((c & 0xE0) == 0xC0)
+    {
+        need = 1;
+        cp = static_cast<uint32_t>(c & 0x1Fu) << 6;
+    }
+    else if ((c & 0xF0) == 0xE0)
+    {
+        need = 2;
+        cp = static_cast<uint32_t>(c & 0x0Fu) << 12;
+    }
+    else if ((c & 0xF8) == 0xF0)
+    {
+        need = 3;
+        cp = static_cast<uint32_t>(c & 0x07u) << 18;
+    }
+    else
+    {
+        if (peek)
+        {
+            const int32_t put = c;
+            StreamUnread(s, &put, 1);
+        }
+        return 0xFFFD; // lone continuation / impossible lead -> replacement
+    }
+    int32_t cont[3] = { -1, -1, -1 };
+    int32_t nread = 0;
+    bool ok = true;
+    for (int32_t i = 0; i < need; ++i)
+    {
+        cont[i] = StreamGetByte(s);
+        if (cont[i] < 0)
+        {
+            ok = false;
+            break;
+        }
+        ++nread;
+        if ((cont[i] & 0xC0) != 0x80)
+        {
+            ok = false; // malformed continuation
+            break;
+        }
+    }
+    if (!ok)
+    {
+        // Utf8ToCs ++i rule: a malformed sequence consumes only the lead
+        // byte -- replay the lead + any read continuations.
+        const int32_t back[4] = { c, cont[0], cont[1], cont[2] };
+        StreamUnread(s, back, nread + 1);
+        return 0xFFFD;
+    }
+    for (int32_t i = 0; i < need; ++i)
+    {
+        cp |= static_cast<uint32_t>(cont[i] & 0x3Fu) << (6 * (need - 1 - i));
+    }
+    if (peek)
+    {
+        const int32_t back[4] = { c, cont[0], cont[1], cont[2] };
+        StreamUnread(s, back, need + 1);
+    }
+    // Range validation mirrors Utf8ToCs: overlong / surrogate / > U+10FFFF.
+    if (need == 1)
+    {
+        return (cp >= 0x80) ? static_cast<int32_t>(cp) : 0xFFFD;
+    }
+    if (need == 2)
+    {
+        return (cp >= 0x800 && (cp < 0xD800 || cp > 0xDFFF))
+            ? static_cast<int32_t>(cp) : 0xFFFD;
+    }
+    if (cp < 0x10000 || cp > 0x10FFFF)
+    {
+        return 0xFFFD;
+    }
+    // Astral scalar: split the surrogate pair (net48 Decoder statefulness).
+    // A PEEK does not advance, so no stash is created (repeated peeks repeat
+    // the high surrogate); a READ consumes the scalar and stashes the low.
+    const uint32_t v = cp - 0x10000;
+    if (!peek)
+    {
+        s->pendingChar = static_cast<int32_t>(0xDC00 + (v & 0x3FFu));
+    }
+    return static_cast<int32_t>(0xD800 + (v >> 10));
+}
+
+// TextReader.Read(): consume the next UTF-16 unit of the reader's encoding
+// (-1 at end-of-stream, net48).
+int32_t icall_stream_read_char(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return StreamReaderPeekOrRead(StreamStateOf(self), false);
+}
+
+// StreamReader.Peek(): the next UTF-16 unit WITHOUT consuming (-1 at EOF).
+int32_t icall_stream_peek(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return StreamReaderPeekOrRead(StreamStateOf(self), true);
+}
+
+// MemoryStream.Capacity: the allocation stride of the memory backend buffer
+// (int32, net48). A closed / non-memory receiver reports 0 (the M3 silent
+// convention); never throws.
+int32_t icall_stream_memory_get_capacity(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
     if (state == nullptr || state->closed)
     {
-        return; // closed receiver: silent no-op (M3 conventions)
+        return 0;
+    }
+    if (state->kind != StreamState::kMemory)
+    {
+        return 0;
+    }
+    return static_cast<int32_t>(state->capacity);
+}
+
+void icall_stream_write_byte(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state))
+    {
+        return; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     if (!state->canWrite)
     {
@@ -2365,9 +2594,9 @@ Il2CppObject* icall_stream_read_line(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return nullptr;
+        return nullptr; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_read_line(state);
 }
@@ -2376,9 +2605,9 @@ int32_t icall_stream_write_line(Il2CppObject* self, Il2CppObject* line)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return -1;
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_write_line(state, line);
 }
@@ -2390,23 +2619,22 @@ int32_t icall_stream_write_text(Il2CppObject* self, Il2CppObject* text)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return -1;
+        return -1; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_write_text(state, text);
 }
 
 // StreamReader.ReadToEnd(): the remainder from the current position to EOF as
-// one UTF-8 managed string ("" at end-of-stream, NOT null -- net48). nullptr
-// for a closed receiver or a read-capability violation.
+// one UTF-8 managed string ("" at end-of-stream, NOT null -- net48).
 Il2CppObject* icall_stream_read_to_end(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return nullptr;
+        return nullptr; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return il2cpp_stream_read_to_end(state);
 }
@@ -2415,9 +2643,9 @@ Il2CppArray* icall_stream_memory_to_array(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* state = StreamStateOf(self);
-    if (state == nullptr || state->closed)
+    if (StreamThrowIfClosed(state))
     {
-        return nullptr;
+        return nullptr; // net48: ObjectDisposedException (batch 2026-10-05 parity)
     }
     return reinterpret_cast<Il2CppArray*>(il2cpp_stream_memory_to_array(state));
 }
@@ -2891,11 +3119,9 @@ int32_t icall_binary_read_int32(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b[4];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 4))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 4))) return 0;
     return static_cast<int32_t>(BinaryDecodeLE32(b));
 }
 
@@ -2903,11 +3129,9 @@ int64_t icall_binary_read_int64(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b[8];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 8))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 8))) return 0;
     return static_cast<int64_t>(BinaryDecodeLE64(b));
 }
 
@@ -2915,11 +3139,9 @@ uint32_t icall_binary_read_uint32(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b[4];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 4))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 4))) return 0;
     return BinaryDecodeLE32(b);
 }
 
@@ -2927,11 +3149,9 @@ double icall_binary_read_double(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0.0;
     uint8_t b[8];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 8))
-    {
-        return 0.0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 8))) return 0.0;
     const uint64_t bits = BinaryDecodeLE64(b);
     double value = 0.0;
     std::memcpy(&value, &bits, sizeof(value));
@@ -2942,11 +3162,9 @@ float icall_binary_read_single(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0.0f;
     uint8_t b[4];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 4))
-    {
-        return 0.0f;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 4))) return 0.0f;
     const uint32_t bits = BinaryDecodeLE32(b);
     float value = 0.0f;
     std::memcpy(&value, &bits, sizeof(value));
@@ -2957,45 +3175,39 @@ int32_t icall_binary_read_bool(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b = 0;
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, &b, 1))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, &b, 1))) return 0;
     return b != 0 ? 1 : 0;
 }
 
 // BinaryReader.ReadByte: the RAW next byte (0..255 -- net48). Separate from
 // icall_binary_read_bool on purpose: the bool icall NORMALIZES to 0/1 (right
-// for ReadBoolean, wrong for ReadByte). Truncated: 0 (the M3 zero-value
-// convention -- net48 throws EndOfStreamException, the documented
-// divergence).
+// for ReadBoolean, wrong for ReadByte). At EOF the object layer throws
+// (net48 EndOfStreamException -- batch 2026-10-05 parity).
 int32_t icall_binary_read_byte(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b = 0;
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, &b, 1))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, &b, 1))) return 0;
     return static_cast<int32_t>(b);
 }
 
 //------------------------------------------------------------------------------
 // BinaryReader fixed narrow/ulong widths (parity-T4a, 2026-09-20): decode 1/2/8
 // little-endian bytes; sbyte/int16 sign-extend into the int32 carrier (M2
-// slot model), ushort zero-extends, ulong rides uint64. Truncated: 0.
+// slot model), ushort zero-extends, ulong rides uint64. Truncated: the object
+// layer throws EndOfStreamException (batch 2026-10-05 parity).
 //------------------------------------------------------------------------------
 int32_t icall_binary_read_sbyte(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b = 0;
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, &b, 1))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, &b, 1))) return 0;
     return static_cast<int32_t>(static_cast<int8_t>(b));
 }
 
@@ -3003,11 +3215,9 @@ int32_t icall_binary_read_int16(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b[2];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 2))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 2))) return 0;
     return static_cast<int32_t>(static_cast<int16_t>(BinaryDecodeLE16(b)));
 }
 
@@ -3015,11 +3225,9 @@ int32_t icall_binary_read_uint16(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b[2];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 2))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 2))) return 0;
     return static_cast<int32_t>(BinaryDecodeLE16(b));
 }
 
@@ -3027,11 +3235,9 @@ uint64_t icall_binary_read_uint64(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
+    if (StreamThrowIfClosed(s)) return 0;
     uint8_t b[8];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 8))
-    {
-        return 0;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 8))) return 0;
     return BinaryDecodeLE64(b);
 }
 
@@ -3049,15 +3255,8 @@ void icall_binary_read_decimal(Il2CppObject* self, Il2CppDecimal* out)
     }
     StreamState* s = StreamStateOf(self);
     uint8_t b[16];
-    if (s == nullptr || s->closed || !s->canRead || !BinaryReadBytes(s, b, 16))
-    {
-        // Truncated: the zero decimal (M3 zero-value convention -- net48
-        // throws EndOfStreamException, the documented divergence).
-        out->flags = 0;
-        out->hi32 = 0;
-        out->lo64 = 0;
-        return;
-    }
+    if (StreamThrowIfClosed(s)) return;
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, b, 16))) return;
     // Inverse of the writer: lo, mid, hi, flags (four LE int32s).
     const uint32_t lo = BinaryDecodeLE32(b);
     const uint32_t mid = BinaryDecodeLE32(b + 4);
@@ -3070,10 +3269,7 @@ int32_t icall_binary_read_char(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
-    if (s == nullptr || s->closed || !s->canRead)
-    {
-        return 0;
-    }
+    if (StreamThrowIfClosed(s)) return 0;
     // A stashed low surrogate from a split astral read goes first.
     if (s->pendingChar >= 0)
     {
@@ -3082,10 +3278,7 @@ int32_t icall_binary_read_char(Il2CppObject* self)
         return unit;
     }
     uint8_t lead = 0;
-    if (!BinaryReadBytes(s, &lead, 1))
-    {
-        return 0; // EOF: the M3 zero value (net48 throws EndOfStreamException)
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, &lead, 1))) return 0;
     if (lead < 0x80)
     {
         return static_cast<int32_t>(lead);
@@ -3173,10 +3366,7 @@ Il2CppObject* icall_binary_read_string(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     StreamState* s = StreamStateOf(self);
-    if (s == nullptr || s->closed || !s->canRead)
-    {
-        return nullptr;
-    }
+    if (StreamThrowIfClosed(s)) return nullptr;
     // 7-bit-encoded byte length prefix (at most 5 bytes; a 6th continuation
     // byte is malformed -> null).
     uint32_t len = 0;
@@ -3184,10 +3374,7 @@ Il2CppObject* icall_binary_read_string(Il2CppObject* self)
     for (size_t shift = 0; shift <= 28; shift += 7)
     {
         uint8_t b = 0;
-        if (!BinaryReadBytes(s, &b, 1))
-        {
-            return nullptr;
-        }
+        if (BinaryThrowEndOfStream(BinaryReadBytes(s, &b, 1))) return nullptr;
         len |= static_cast<uint32_t>(b & 0x7Fu) << shift;
         if ((b & 0x80u) == 0)
         {
@@ -3208,13 +3395,10 @@ Il2CppObject* icall_binary_read_string(Il2CppObject* self)
     // convention, restated over the stream's remaining extent).
     if (static_cast<int64_t>(len) > BinaryRemaining(s))
     {
-        return nullptr;
+        if (BinaryThrowEndOfStream(false)) return nullptr;
     }
     std::vector<char> bytes(static_cast<size_t>(len));
-    if (!BinaryReadBytes(s, bytes.data(), static_cast<int32_t>(len)))
-    {
-        return nullptr;
-    }
+    if (BinaryThrowEndOfStream(BinaryReadBytes(s, bytes.data(), static_cast<int32_t>(len)))) return nullptr;
     return Utf8ToCs(bytes.data(), bytes.size());
 }
 

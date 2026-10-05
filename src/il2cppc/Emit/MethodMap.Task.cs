@@ -190,6 +190,62 @@ namespace Il2Cpp.Transpiler.Emit
                 }
             }
 
+            // batch diffexc001 (2026-10-05): the NON-generic
+            // AsyncTaskMethodBuilder (behind `async Task` methods). Its
+            // value-type locals lower to the opaque Il2CppObject* builder
+            // carrier (CodeGenerator v:... branch), so the receiver is an
+            // ADDRESS of that object slot -- deref:r reads the builder
+            // object, exactly like the generic `1<T> fields (batch 156c).
+            if (owner == "System.Runtime.CompilerServices.AsyncTaskMethodBuilder")
+            {
+                switch (name)
+                {
+                    // static AsyncTaskMethodBuilder Create(): a fresh runtime
+                    // builder object (the task materializes via get_Task).
+                    case "Create":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_async_builder_create", 0, true, true, false,
+                                returnTypeName: "System.Runtime.CompilerServices.AsyncTaskMethodBuilder");
+                        return null;
+                    // instance bool get_IsCompleted(): unused by e2e probes.
+                    case "get_IsCompleted":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_task_get_is_completed", 0, true, false, true,
+                                new[] { receiverIsAddress ? "deref:r" : "" });
+                        return null;
+                    // instance Task get_Task(): materialize the task from the
+                    // builder object.
+                    case "get_Task":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_async_builder_get_task", 0, true, true, true,
+                                new[] { receiverIsAddress ? "deref:r" : "" },
+                                returnTypeName: "System.Threading.Tasks.Task");
+                        return null;
+                    // instance void SetStateMachine(IAsyncStateMachine):
+                    // no-op in the synchronous model.
+                    case "SetStateMachine":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_async_builder_set_state_machine", 1, false, false, true,
+                                new[] { receiverIsAddress ? "deref:r" : "", "drop" });
+                        return null;
+                    // instance void SetException(Exception): store the
+                    // exception on the builder (surface: minimal).
+                    case "SetException":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_async_builder_set_exception", 1, false, false, true,
+                                new[] { receiverIsAddress ? "deref:r" : "", "" });
+                        return null;
+                    // instance void AwaitUnsafeOnCompleted<TAwaiter,
+                    // TStateMachine>(ref TAwaiter, ref TStateMachine):
+                    // unreachable in the synchronous-completion model -- loud.
+                    case "AwaitUnsafeOnCompleted":
+                        return I("il2cpp::runtime::icall_async_builder_await_unsupported", 2, false, false, true,
+                            new[] { receiverIsAddress ? "deref:r" : "", "drop", "drop" });
+                    default:
+                        return null;
+                }
+            }
+
             // batch 156c: the awaiter surface -- the awaiter is the task.
             if (owner == "System.Runtime.CompilerServices.TaskAwaiter`1")
             {

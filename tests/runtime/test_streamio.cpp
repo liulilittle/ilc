@@ -202,6 +202,8 @@ const char kFileNotFoundChain[] =
     "System.IO.FileNotFoundException,System.IO.FileNotFoundException,System.IO.IOException,System.SystemException,System.Exception";
 const char kIOExceptionChain[] =
     "System.IO.IOException,System.IO.IOException,System.SystemException,System.Exception";
+const char kObjectDisposedChain[] =
+    "System.InvalidOperationException,System.InvalidOperationException,System.SystemException,System.Exception";
 
 } // namespace
 
@@ -539,8 +541,8 @@ int main()
     Expect(icall_stream_write_line(sw, Cs("line two")) == 0, "writer WriteLine(\"line two\") returns 0");
     Expect(icall_stream_write_line(sw, Cs("line three")) == 0, "writer WriteLine(\"line three\") returns 0");
     Expect(icall_stream_close(sw) == 0, "writer Close closes the shared file");
-    Expect(icall_stream_get_position(fs) == -1,
-           "fs.Position after the wrapper closed it returns -1 (net48 ownership)");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_get_position(fs); }, kObjectDisposedChain),
+           "fs.Position after the wrapper closed it throws ObjectDisposedException (net48)");
     Expect(icall_stream_get_can_write(fs) == 0, "fs.CanWrite after the wrapper closed it is 0");
     Expect(icall_stream_close(fs) == 0, "fs.Close after the wrapper closed it is a no-op");
 
@@ -943,17 +945,23 @@ int main()
            "Seek before the append start throws IOException (net48 oracle)");
     Expect(icall_stream_close(apObj) == 0, "append object closes");
 
-    // Closed-receiver M3 conventions + null-receiver guards for the new surface.
+    // Closed-receiver net48 parity (batch 2026-10-05): every operation on a
+    // closed stream throws ObjectDisposedException (probe-verified net48
+    // behavior); only CanSeek/CanRead/CanWrite and Close stay silent.
     Il2CppObject* clSeek = NewMemoryStream();
     icall_stream_memory_ctor(clSeek);
     Expect(icall_stream_close(clSeek) == 0, "closed-receiver fixture closes");
     Expect(icall_stream_get_can_seek(clSeek) == 0, "CanSeek on a closed stream is 0");
-    Expect(icall_stream_seek(clSeek, 0, 0) == -1, "Seek on a closed stream returns -1");
-    Expect(icall_stream_read_byte(clSeek) == -1, "ReadByte on a closed stream returns -1");
-    icall_stream_write_byte(clSeek, 0); // silent no-op, no throw
-    icall_stream_set_length(clSeek, 5); // silent no-op, no throw
-    Expect(icall_stream_get_position(clSeek) == -1,
-           "WriteByte/SetLength on a closed stream are silent no-ops");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_seek(clSeek, 0, 0); }, kObjectDisposedChain),
+           "Seek on a closed stream throws ObjectDisposedException");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_read_byte(clSeek); }, kObjectDisposedChain),
+           "ReadByte on a closed stream throws ObjectDisposedException");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_write_byte(clSeek, 0); }, kObjectDisposedChain),
+           "WriteByte on a closed stream throws ObjectDisposedException");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_set_length(clSeek, 5); }, kObjectDisposedChain),
+           "SetLength on a closed stream throws ObjectDisposedException");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_get_position(clSeek); }, kObjectDisposedChain),
+           "get_Position on a closed stream throws ObjectDisposedException");
     Expect(ThrowsDotNet([&] { icall_stream_get_can_seek(nullptr); }, kNullRefChain),
            "get_can_seek(null receiver) throws NullReferenceException");
     Expect(ThrowsDotNet([&] { icall_stream_seek(nullptr, 0, 0); }, kNullRefChain),
@@ -989,8 +997,8 @@ int main()
     Expect(icall_stream_write_text(wtObj, nullptr) == 0, "object write_text(null) is a no-op");
     Expect(icall_stream_get_length(wtObj) == 2, "object write_text wrote exactly XY");
     Expect(icall_stream_close(wtObj) == 0, "object write_text fixture closes");
-    Expect(icall_stream_write_text(wtObj, Cs("Z")) == -1,
-           "write_text on a closed receiver returns -1 (M3 convention)");
+    Expect(ThrowsDotNet([&] { (void)icall_stream_write_text(wtObj, Cs("Z")); }, kObjectDisposedChain),
+           "write_text on a closed receiver throws ObjectDisposedException (net48)");
 
     // --- WAVE2: FileStream(string, FileMode) 2-arg ctor ---------------------
     // Access defaults (net48 oracle): Append -> Write, every other mode ->
