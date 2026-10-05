@@ -5774,7 +5774,7 @@ int main()
         const intptr_t c3bCp = icall_com_get_connection_point(c3bRcw, kComIidIDispatch);
         Expect(c3bCp != 0, "C3b: get_connection_point returns the connection point");
 
-        // Three managed sink CCWs + a capacity-excess fourth.
+        // Four managed sink CCWs + a capacity-excess fifth.
         il2cpp::Il2CppObject* c3bObjB = il2cpp::il2cpp_object_new(&WfAutoScale_class);
         WfAutoScale__ctor_19c5c3d511b8b242(c3bObjB);
         auto* c3bViewB = reinterpret_cast<WfAutoScale*>(c3bObjB);
@@ -5787,22 +5787,29 @@ int main()
         WfAutoScale__ctor_19c5c3d511b8b242(c3bObjD);
         auto* c3bViewD = reinterpret_cast<WfAutoScale*>(c3bObjD);
         const intptr_t c3bSinkD = icall_com_ccw_create(c3bObjD);
-        const intptr_t c3bSinkE = icall_com_ccw_create(il2cpp::il2cpp_object_new(&WfAutoScale_class));
-        Expect(c3bSinkB != 0 && c3bSinkC != 0 && c3bSinkD != 0 && c3bSinkE != 0 &&
+        il2cpp::Il2CppObject* c3bObjE = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3bObjE);
+        auto* c3bViewE = reinterpret_cast<WfAutoScale*>(c3bObjE);
+        const intptr_t c3bSinkE = icall_com_ccw_create(c3bObjE);
+        const intptr_t c3bSinkF = icall_com_ccw_create(il2cpp::il2cpp_object_new(&WfAutoScale_class));
+        Expect(c3bSinkB != 0 && c3bSinkC != 0 && c3bSinkD != 0 && c3bSinkE != 0 && c3bSinkF != 0 &&
                icall_com_ccw_register_invoke_dispatch(c3bSinkB, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk &&
                icall_com_ccw_register_invoke_dispatch(c3bSinkC, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk &&
-               icall_com_ccw_register_invoke_dispatch(c3bSinkD, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk,
-               "C3b: three managed sink CCWs + register_invoke_dispatch");
+               icall_com_ccw_register_invoke_dispatch(c3bSinkD, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk &&
+               icall_com_ccw_register_invoke_dispatch(c3bSinkE, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk,
+               "C3b: four managed sink CCWs + register_invoke_dispatch");
 
-        intptr_t c3bCookieB = 0, c3bCookieC = 0, c3bCookieD = 0, c3bCookieE = 0;
+        intptr_t c3bCookieB = 0, c3bCookieC = 0, c3bCookieD = 0, c3bCookieE = 0, c3bCookieF = 0;
         Expect(icall_com_cp_advise(c3bCp, c3bSinkB, &c3bCookieB) == kComHrOk && c3bCookieB == 1,
                "C3b: cp_advise(B) -> S_OK, cookie 1");
         Expect(icall_com_cp_advise(c3bCp, c3bSinkC, &c3bCookieC) == kComHrOk && c3bCookieC == 2,
                "C3b: cp_advise(C) -> S_OK, cookie 2");
         Expect(icall_com_cp_advise(c3bCp, c3bSinkD, &c3bCookieD) == kComHrOk && c3bCookieD == 3,
                "C3b: cp_advise(D) -> S_OK, cookie 3");
-        Expect(icall_com_cp_advise(c3bCp, c3bSinkE, &c3bCookieE) == kComHrAdviseLimit && c3bCookieE == 0,
-               "C3b: cp_advise(4th sink) -> CONNECT_E_ADVISELIMIT (capacity kCcwMaxSinksPerCp)");
+        Expect(icall_com_cp_advise(c3bCp, c3bSinkE, &c3bCookieE) == kComHrOk && c3bCookieE == 4,
+               "C3b: cp_advise(E) -> S_OK, cookie 4 (the kCcwMaxSinksPerCp capacity)");
+        Expect(icall_com_cp_advise(c3bCp, c3bSinkF, &c3bCookieF) == kComHrAdviseLimit && c3bCookieF == 0,
+               "C3b: cp_advise(F, capacity full) -> CONNECT_E_ADVISELIMIT (cookie untouched)");
 
         // Register "Scale" on each connected sink (dispId 1) and fire: the
         // broadcast reaches all three managed sinks.
@@ -5827,20 +5834,47 @@ int main()
         Expect(c3bGetIdsD(reinterpret_cast<void*>(c3bSinkD), c3bNullIid, c3bScaleNames, 1, 0,
                           &c3bDispD) == kComHrOk && c3bDispD == 1,
                "C3b: GetIDsOfNames(Scale) on sink D -> dispId 1");
-        TestDispParams c3bNoArgs = { nullptr, nullptr, 0, 0 };
-        Expect(icall_com_ccw_fire_dispatch_event(c3bSrcCcw, kComIidIDispatch, c3bDispB,
-                                                 reinterpret_cast<intptr_t>(&c3bNoArgs), 0) == kComHrOk &&
-               c3bViewB->ScaleCount == 1 && c3bViewC->ScaleCount == 1 && c3bViewD->ScaleCount == 1,
-               "C3b: fire broadcasts Scale to all three connected sinks");
+        NativeGetIDsOfNamesFn c3bGetIdsE =
+            reinterpret_cast<NativeGetIDsOfNamesFn>(const_cast<void*>(ComVtable(c3bSinkE)[5]));
+        int32_t c3bDispE = -1;
+        Expect(c3bGetIdsE(reinterpret_cast<void*>(c3bSinkE), c3bNullIid, c3bScaleNames, 1, 0,
+                          &c3bDispE) == kComHrOk && c3bDispE == 1,
+               "C3b: GetIDsOfNames(Scale) on sink E -> dispId 1");
+        // Scale(factor double, label BSTR) -- reverse rgvarg: [0]=label,
+        // [1]=factor (the same shape the main C3 block fires). The buffers
+        // live at this scope (the fire reads them below).
+        uint8_t c3bFactorVar[16], c3bLabelVar[16];
+        MakeVariant(il2cpp::runtime::kVtR8, c3bFactorVar);
+        const double c3bFactorVal = 2.5;
+        std::memcpy(c3bFactorVar + il2cpp::runtime::kVariantVtOffset + 8,
+                    &c3bFactorVal, sizeof(c3bFactorVal));
+        MakeVariant(il2cpp::runtime::kVtBstr, c3bLabelVar);
+        char16_t c3bLabelBuf[] = u"auto";
+        void* c3bLabelPtr = c3bLabelBuf;
+        std::memcpy(c3bLabelVar + il2cpp::runtime::kVariantVtOffset + 8,
+                    &c3bLabelPtr, sizeof(c3bLabelPtr));
+        uint8_t c3bFireArgs[32];
+        std::memcpy(c3bFireArgs, c3bLabelVar, 16);       // rgvarg[0] = LAST (label)
+        std::memcpy(c3bFireArgs + 16, c3bFactorVar, 16); // rgvarg[1] = FIRST (factor)
+        TestDispParams c3bFireParams = { c3bFireArgs, nullptr, 2, 0 };
+        const int32_t c3bFireHr = icall_com_ccw_fire_dispatch_event(
+            c3bSrcCcw, kComIidIDispatch, c3bDispB,
+            reinterpret_cast<intptr_t>(&c3bFireParams), 0);
+        Expect(c3bFireHr == kComHrOk,
+               "C3b: fire broadcasts Scale -> S_OK");
+        Expect(c3bViewB->ScaleCount == 1 && c3bViewC->ScaleCount == 1 &&
+               c3bViewD->ScaleCount == 1 && c3bViewE->ScaleCount == 1,
+               "C3b: all four connected sinks received Scale (ScaleCount 1)");
 
         // Per-cookie Unadvise; a fire after the last one reaches nobody.
         Expect(icall_com_cp_unadvise(c3bCp, c3bCookieC) == kComHrOk,
                "C3b: cp_unadvise(C) -> S_OK");
         Expect(icall_com_cp_unadvise(c3bCp, c3bCookieB) == kComHrOk &&
-               icall_com_cp_unadvise(c3bCp, c3bCookieD) == kComHrOk,
-               "C3b: cp_unadvise(B) + cp_unadvise(D) -> S_OK");
+               icall_com_cp_unadvise(c3bCp, c3bCookieD) == kComHrOk &&
+               icall_com_cp_unadvise(c3bCp, c3bCookieE) == kComHrOk,
+               "C3b: cp_unadvise(B) + cp_unadvise(D) + cp_unadvise(E) -> S_OK");
         Expect(icall_com_ccw_fire_dispatch_event(c3bSrcCcw, kComIidIDispatch, c3bDispB,
-                                                 reinterpret_cast<intptr_t>(&c3bNoArgs), 0) == kComHrSFALSE,
+                                                 reinterpret_cast<intptr_t>(&c3bFireParams), 0) == kComHrSFALSE,
                "C3b: fire after all Unadvises -> S_FALSE (no listener)");
 
         // Balance.
@@ -5849,7 +5883,8 @@ int main()
         Expect(icall_com_release_com_object(c3bRcw) == 0,
                "C3b: releasing the source RCW destroys the fake source CCW");
         Expect(icall_com_release(c3bSinkB) == 0 && icall_com_release(c3bSinkC) == 0 &&
-               icall_com_release(c3bSinkD) == 0 && icall_com_release(c3bSinkE) == 0,
+               icall_com_release(c3bSinkD) == 0 && icall_com_release(c3bSinkE) == 0 &&
+               icall_com_release(c3bSinkF) == 0,
                "C3b: releasing all sink CCWs balances to 0");
     }
 
