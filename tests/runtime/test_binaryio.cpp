@@ -1063,8 +1063,13 @@ int main()
                "Write(byte[] null) throws ArgumentNullException");
         Expect(ThrowsDotNet([&] { icall_binary_write_bytes(aw, bytes, -1, 2); }, kArgOutOfRangeChain),
                "Write(byte[], -1, 2) throws ArgumentOutOfRangeException");
-        Expect(ThrowsDotNet([&] { icall_binary_write_bytes(aw, bytes, 3, 2); }, kArgOutOfRangeChain),
-               "Write(byte[], 3, 2) throws ArgumentOutOfRangeException");
+        // R7 (W11 batch C, 2026-10-07): a WINDOW beyond the buffer is
+        // ArgumentException on net48 (oracle probe-verified -- same
+        // buffer-boundary split as Stream.Read; only a negative index/count
+        // is ArgumentOutOfRangeException). The pre-R7 runtime threw
+        // ArgumentOutOfRangeException for the whole class.
+        Expect(ThrowsDotNet([&] { icall_binary_write_bytes(aw, bytes, 3, 2); }, kArgumentChain),
+               "Write(byte[], 3, 2) window beyond buffer throws ArgumentException (net48)");
         // chars: 'h' 'i' + astral pair U+1F600 + lone D800.
         Il2CppArray* chars = il2cpp::il2cpp_array_new(nullptr, 2, false, 5);
         char16_t* cp = reinterpret_cast<char16_t*>(chars->data);
@@ -1090,8 +1095,8 @@ Expect(icall_binary_read_char(ar) == 0xFFFD, "ReadChar single-lone-surrogate wri
            "ReadChar at EOF throws EndOfStreamException (net48)");
         Expect(ThrowsDotNet([&] { icall_binary_write_chars_full(aw, nullptr); }, kArgNullExceptionChain),
                "Write(char[] null) throws ArgumentNullException");
-        Expect(ThrowsDotNet([&] { icall_binary_write_chars(aw, chars, 4, 2); }, kArgOutOfRangeChain),
-               "Write(chars, 4, 2) throws ArgumentOutOfRangeException");
+        Expect(ThrowsDotNet([&] { icall_binary_write_chars(aw, chars, 4, 2); }, kArgumentChain),
+               "Write(chars, 4, 2) window beyond buffer throws ArgumentException (net48)");
         Expect(icall_stream_close(ar) == 0, "char reader Close");
         Expect(icall_stream_close(ams) == 0, "char stream Close (no-op)");
     }

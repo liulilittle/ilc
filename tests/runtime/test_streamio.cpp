@@ -687,13 +687,64 @@ int main()
     icall_stream_file_ctor(ro2, Cs("st_tmp/obj.bin"), 3, 1); // Open + Read
     Expect(ThrowsDotNet([&] { icall_stream_read_bytes(ro2, nullptr, 0, 0); }, kArgNullExceptionChain),
            "read_bytes(null buffer) throws ArgumentNullException");
-    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(ro2, ByteArray("", 0), 1, 0); }, kArgOutOfRangeChain),
-           "read_bytes(out-of-range offset) throws ArgumentOutOfRangeException");
-    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(ro2, ByteArray("", 0), 0, 1); }, kArgOutOfRangeChain),
-           "read_bytes(count past the end) throws ArgumentOutOfRangeException");
+    // R7 (W11 batch C, 2026-10-07): net48 validates the BUFFER at call time --
+    // an offset/count window beyond buffer.Length is ArgumentException, NOT
+    // ArgumentOutOfRangeException (the negative-argument case below stays
+    // ArgumentOutOfRangeException; oracle probe-verified on net48).
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(ro2, ByteArray("", 0), 1, 0); }, kArgumentChain),
+           "read_bytes(out-of-range offset) throws ArgumentException (net48)");
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(ro2, ByteArray("", 0), 0, 1); }, kArgumentChain),
+           "read_bytes(count past the end) throws ArgumentException (net48)");
     Expect(ThrowsDotNet([&] { icall_stream_write_bytes(ro2, ByteArray("x", 1), 0, 1); }, kNotSupportedChain),
            "write_bytes on a read-only stream throws NotSupportedException");
     Expect(icall_stream_close(ro2) == 0, "read-only object error fixture closes");
+
+    // --- 13f. R7 stream buffer-boundary semantics (W11 batch C) --------------
+    // net48 Stream.Read/Write validate the (offset, count) window over the
+    // receiving buffer BEFORE any I/O: negative offset/count ->
+    // ArgumentOutOfRangeException; offset+count beyond buffer.Length ->
+    // ArgumentException (the pre-R7 runtime threw ArgumentOutOfRangeException
+    // for the whole class -- net48 oracle: ArgumentException). A count beyond
+    // the stream REMAINDER but inside the buffer reads the available bytes
+    // (net48 does not clamp validation to the stream's remaining bytes); Read
+    // at end-of-stream returns 0. Pinned over the object layer.
+    Il2CppObject* r7m = NewMemoryStream();
+    icall_stream_memory_ctor(r7m);
+    icall_stream_write_bytes(r7m, ByteArray("abcdefgh", 8), 0, 8);
+    // Negative offset / count stay ArgumentOutOfRangeException (net48).
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(r7m, ByteArray("\x00", 1), -1, 0); }, kArgOutOfRangeChain),
+           "Read negative offset -> ArgumentOutOfRangeException (net48)");
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(r7m, ByteArray("\x00", 1), 0, -1); }, kArgOutOfRangeChain),
+           "Read negative count -> ArgumentOutOfRangeException (net48)");
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(r7m, nullptr, 0, 0); }, kArgNullExceptionChain),
+           "Read null buffer -> ArgumentNullException (net48)");
+    // Window beyond buffer.Length -> ArgumentException (the R7 change).
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(r7m, ByteArray("\x00", 1), 0, 2); }, kArgumentChain),
+           "Read count > buffer.Length -> ArgumentException (net48)");
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(r7m, ByteArray("\x00\x00\x00\x00", 4), 2, 3); }, kArgumentChain),
+           "Read offset+count > buffer.Length -> ArgumentException (net48)");
+    Expect(ThrowsDotNet([&] { icall_stream_read_bytes(r7m, ByteArray("\x00\x00\x00\x00", 4), 4, 1); }, kArgumentChain),
+           "Read offset == buffer.Length, count > 0 -> ArgumentException (net48)");
+    Expect(ThrowsDotNet([&] { icall_stream_write_bytes(r7m, ByteArray("\x00", 1), 0, 2); }, kArgumentChain),
+           "Write count > buffer.Length -> ArgumentException (net48)");
+    // offset == buffer.Length with count == 0 is a valid no-op (0 bytes).
+    Il2CppArray* r7buf = il2cpp_array_new(nullptr, 1, false, 64);
+    Expect(icall_stream_read_bytes(r7m, r7buf, 64, 0) == 0,
+           "Read offset == buffer.Length, count == 0 returns 0 (net48)");
+    // Count beyond the stream remainder but inside the buffer -> the
+    // available bytes are read (no throw; net48 does not clamp to the
+    // remainder). Position past the end is allowed; its Read -> 0.
+    Expect(icall_stream_seek(r7m, 6, 0) == 6, "R7 seek near the end");
+    Expect(icall_stream_read_bytes(r7m, r7buf, 0, 64) == 2,
+           "Read count beyond the remainder returns the available bytes (net48)");
+    Expect(icall_stream_get_position(r7m) == 8, "R7 partial read advanced to the end");
+    Expect(icall_stream_read_bytes(r7m, r7buf, 0, 64) == 0,
+           "Read at end-of-stream returns 0 (net48)");
+    Expect(icall_stream_set_position(r7m, 9999) == 0, "Position beyond the end is allowed");
+    Expect(icall_stream_read_bytes(r7m, r7buf, 0, 4) == 0,
+           "Read after a beyond-the-end Position returns 0 (net48)");
+    Expect(icall_stream_get_position(r7m) == 9999, "beyond-the-end Position is preserved");
+    Expect(icall_stream_close(r7m) == 0, "R7 buffer-boundary fixture closes");
 
     // === 13. net48 semantics: ReadToEnd / timeout / negative position / FileMode matrix
     // (probe-verified against net48 -- see stio-net48-probe.exe output) ===

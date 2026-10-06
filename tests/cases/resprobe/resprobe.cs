@@ -85,6 +85,87 @@ namespace Cases
 
             // ===== 5. Miss semantics =====
             Console.WriteLine(asm.GetManifestResourceStream("resprobe.no.such") == null); // True (miss -> null)
+
+            // ===== 6. R7 -- stream buffer-boundary semantics (net48 oracle) =====
+            // net48 GetManifestResourceStream returns a read-only
+            // UnmanagedMemoryStream; the ILC runtime returns a MemoryStream-
+            // backed object (resdeep GAPS D-RD-1). The class IDENTITY is a
+            // documented divergence -- the probe AVOIDS it (probe avoidance)
+            // and pins the BUFFER-BOUNDS contract that net48 validates at
+            // call time (Read 越界抛; Position 越界等):
+            //   * offset/count negative            -> ArgumentOutOfRangeException
+            //   * offset + count > buffer.Length   -> ArgumentException
+            //   * count beyond the stream remainder but INSIDE the buffer ->
+            //     fewer bytes (returned, no throw -- "does not clamp to the
+            //     stream's remaining bytes")
+            //   * Read at end-of-stream            -> 0
+            //   * null buffer                      -> ArgumentNullException
+            //   * Position negative                -> ArgumentOutOfRangeException
+            //   * Position beyond the end          -> allowed; next Read -> 0
+            // Every error row prints e.GetType().Name so a wrong exception
+            // TYPE flips the oracle diff byte-for-byte.
+
+            // 6a. count > buffer.Length -> ArgumentException, Position unchanged
+            Stream sB = asm.GetManifestResourceStream("resprobe.blob.bin");
+            Console.WriteLine(sB != null);                              // True (hit)
+            Console.WriteLine(sB.Length);                               // 2048
+            byte[] small = new byte[4];
+            try { sB.Read(small, 0, 100); Console.WriteLine("rb-count-no-throw"); }
+            catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentException
+            Console.WriteLine(sB.Position);                             // 0 (unchanged)
+
+            // 6b. offset + count > buffer.Length -> ArgumentException
+            Stream sC = asm.GetManifestResourceStream("resprobe.blob.bin");
+            byte[] buf10 = new byte[10];
+            try { sC.Read(buf10, 8, 5); Console.WriteLine("rb-off-no-throw"); }
+            catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentException
+            Console.WriteLine(sC.Position);                             // 0 (unchanged)
+
+            // 6c. count beyond the stream remainder but inside the buffer:
+            // the read returns the AVAILABLE bytes (8), it does not throw.
+            sC.Position = 2040;                                         // 8 bytes remain
+            byte[] big = new byte[64];
+            int nBig = sC.Read(big, 0, 64);
+            Console.WriteLine(nBig == 8);                               // True (8 of 64)
+            Console.WriteLine(sC.Position);                             // 2048
+
+            // 6d. Read at end-of-stream -> 0
+            int nEof = sC.Read(big, 0, 64);
+            Console.WriteLine(nEof == 0);                               // True (EOF -> 0)
+            Console.WriteLine(sC.Position);                             // 2048
+
+            // 6e. negative offset -> ArgumentOutOfRangeException
+            try { sC.Read(big, -1, 0); Console.WriteLine("rb-negoff-no-throw"); }
+            catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentOutOfRangeException
+
+            // 6f. negative count -> ArgumentOutOfRangeException
+            try { sC.Read(big, 0, -1); Console.WriteLine("rb-negcount-no-throw"); }
+            catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentOutOfRangeException
+
+            // 6g. null buffer -> ArgumentNullException
+            try { sC.Read(null, 0, 0); Console.WriteLine("rb-null-no-throw"); }
+            catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentNullException
+
+            // 6h. Position = -1 -> ArgumentOutOfRangeException
+            try { sC.Position = -1; Console.WriteLine("pos-neg-no-throw"); }
+            catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentOutOfRangeException
+
+            // 6i. Position beyond the end is allowed; the next Read -> 0
+            sC.Position = 9999;
+            byte[] nb4 = new byte[4];
+            int nFar = sC.Read(nb4, 0, 4);
+            Console.WriteLine(nFar == 0);                               // True (EOF at far pos)
+            Console.WriteLine(sC.Position);                             // 9999
+
+            // 6j. offset == buffer.Length, count == 0 -> 0 (no throw)
+            Stream sJ = asm.GetManifestResourceStream("resprobe.blob.bin");
+            byte[] lb4 = new byte[4];
+            int nL0 = sJ.Read(lb4, 4, 0);
+            Console.WriteLine(nL0 == 0);                                // True
+
+            // 6k. offset == buffer.Length, count > 0 -> ArgumentException
+            try { sJ.Read(lb4, 4, 1); Console.WriteLine("rb-edge-no-throw"); }
+            catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentException
         }
     }
 }

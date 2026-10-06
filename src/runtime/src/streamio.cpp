@@ -1502,15 +1502,28 @@ static bool BinaryThrowEndOfStream(bool satisfied)
 const char kStreamFileNotFoundChain[] =
     "System.IO.FileNotFoundException,System.IO.FileNotFoundException,System.IO.IOException,System.SystemException,System.Exception";
 
-// Validate the (offset, count) window over 'buffer' (net48
-// ArgumentOutOfRangeException semantics -- checked BEFORE any pointer
-// arithmetic, the crypto_obj.cpp pattern).
+// Validate the (offset, count) window over 'buffer' (net48 Stream buffer
+// semantics -- R7, 2026-10-07, oracle probe-verified). net48 splits the
+// validation by cause: a NEGATIVE offset/count is ArgumentOutOfRangeException;
+// a window BEYOND buffer.Length (buffer.Length - offset < count) is
+// ArgumentException. The pre-R7 runtime threw ArgumentOutOfRangeException for
+// the whole class, flipping the resprobe out-of-bounds-oracle diff on net48.
+// Shared by Stream.Read/Write and the BinaryWriter windowed byte/char writes.
 void ThrowIfRangeInvalid(Il2CppArray* buffer, int32_t offset, int32_t count)
 {
-    if (offset < 0 || count < 0 || offset > buffer->length
-        || count > buffer->length - offset)
+    if (offset < 0)
     {
         il2cpp_throw_argument_out_of_range_exception("offset",
+            "offset must be a non-negative value");
+    }
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count",
+            "count must be a non-negative value");
+    }
+    if (offset > buffer->length || count > buffer->length - offset)
+    {
+        il2cpp_throw_argument_exception(
             "offset and count must specify a range within the buffer");
     }
 }
