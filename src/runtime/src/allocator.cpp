@@ -130,8 +130,8 @@ constexpr size_t CellSize(int b)
 // 16-aligned malloc chunk into cells keeps every cell base 8-aligned and the
 // user pointer (base + header) 8-aligned on 64-bit platforms.
 //------------------------------------------------------------------------------
-static_assert(sizeof(void*) == 8, "allocator pool assumes 8-byte pointers");
-static_assert(kHeaderBytes == 8, "header word must be a full pointer slot");
+static_assert(sizeof(size_t) == sizeof(void*), "size_t must be pointer-width for a stable header stamp");
+static_assert(kHeaderBytes == sizeof(void*), "header word must be a full pointer slot");
 
 constexpr bool AllCellSizesAligned()
 {

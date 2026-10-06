@@ -87,9 +87,11 @@ extern il2cpp::Il2CppClass System_Security_Cryptography_RNGCryptoServiceProvider
 namespace il2cpp {
 
 //------------------------------------------------------------------------------
-// Managed object layouts. The context always sits at offset sizeof(void*)
-// (slot 1) -- the static_assert pins in crypto_obj.cpp enforce this for
-// the collector's refFieldBitmap indexing.
+// Managed object layouts. The hash contexts (MD5/SHA-1/SHA-256/SHA-512) are
+// 8-aligned, so they sit at the first 8-aligned offset after the pointer
+// header (offset 8 on both 4- and 8-byte pointer widths) -- the static_assert
+// pins in crypto_obj.cpp enforce this for the collector's refFieldBitmap
+// indexing.
 //------------------------------------------------------------------------------
 
 // MD5: header + inline RFC 1321 context.

@@ -98,7 +98,8 @@ static_assert(offsetof(Il2CppUriObject, opaque) == 4 * sizeof(void*),
               "Il2CppUriObject: opaque must sit at slot 4 (bitmap bit 4)");
 static_assert(offsetof(Il2CppUriObject, original) == 5 * sizeof(void*),
               "Il2CppUriObject: original must sit at slot 5 (bitmap bit 5)");
-static_assert(offsetof(Il2CppUriObject, isAbsolute) == 5 * sizeof(void*) + 8,
+static_assert(offsetof(Il2CppUriObject, isAbsolute) ==
+                  offsetof(Il2CppUriObject, original) + sizeof(il2cpp::Il2CppString*),
               "Il2CppUriObject: isAbsolute must follow the original slot");
 
 bool g_uriClassRegistered = false;

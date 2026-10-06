@@ -20,9 +20,10 @@
 //
 //   intptr_t (*)(intptr_t hwnd, int32_t msg, intptr_t wParam, intptr_t lParam)
 //
-//   = LRESULT CALLBACK WNDPROC(HWND, UINT, WPARAM, LPARAM) on x64, where the
-//   Win32 calling conventions collapse to the single native convention (ILC
-//   targets x64 -- asserted in the implementation).
+//   = LRESULT CALLBACK WNDPROC(HWND, UINT, WPARAM, LPARAM): on x64 the Win32
+//   calling conventions collapse to the single native convention; on x86 the
+//   thunks are __stdcall (the CALLBACK ABI -- see the implementation's
+//   IL2CPP_WM_CALL).
 //
 // The generated call site stores the returned thunk where the native side
 // expects the callback pointer (WNDCLASS.lpfnWndProc for RegisterClassW).

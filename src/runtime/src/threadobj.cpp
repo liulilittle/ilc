@@ -60,20 +60,31 @@ namespace il2cpp {
 
 namespace {
 
-// Layout pin: the icall accessors read the fields at fixed offsets.
+constexpr size_t AlignUp(size_t value, size_t alignment)
+{
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+// Layout pin: the icall accessors read the fields at fixed offsets. callbackFn
+// and handle are plain pointer slots (width-stable); name is the GC-reference
+// slot immediately after managedId, and callbackTarget the one after name --
+// both shift index with pointer width, so they are pinned relationally.
 static_assert(offsetof(Il2CppThreadObject, callbackFn) == 1 * sizeof(void*),
               "Il2CppThreadObject: callbackFn must sit at slot 1 (offset 8)");
 static_assert(offsetof(Il2CppThreadObject, handle) == 2 * sizeof(void*),
               "Il2CppThreadObject: handle must sit at slot 2 (offset 16)");
-static_assert(offsetof(Il2CppThreadObject, name) == 5 * sizeof(void*),
-              "Il2CppThreadObject: name must sit at slot 5 (offset 40 -- "
-              "the refFieldBitmap bit 5 GC reference)");
-static_assert(offsetof(Il2CppThreadObject, managedId) == 36,
-              "Il2CppThreadObject: managedId must sit at offset 36 (the "
-              "alignment padding before the name slot -- keeps name at slot 5)");
-static_assert(offsetof(Il2CppThreadObject, callbackTarget) == 6 * sizeof(void*),
-              "Il2CppThreadObject: callbackTarget must sit at slot 6 (offset 48 "
-              "-- the refFieldBitmap bit 6 GC reference)");
+static_assert(offsetof(Il2CppThreadObject, name) ==
+                  AlignUp(offsetof(Il2CppThreadObject, managedId) + sizeof(int32_t),
+                          alignof(Il2CppString*)),
+              "Il2CppThreadObject: name must sit in the first pointer-aligned slot after managedId "
+              "(the refFieldBitmap GC reference slot, x64 slot 5 / x86 slot 7)");
+static_assert(offsetof(Il2CppThreadObject, managedId) ==
+                  offsetof(Il2CppThreadObject, name) - sizeof(int32_t),
+              "Il2CppThreadObject: managedId must sit immediately before the name slot");
+static_assert(offsetof(Il2CppThreadObject, callbackTarget) ==
+                  offsetof(Il2CppThreadObject, name) + sizeof(il2cpp::Il2CppString*),
+              "Il2CppThreadObject: callbackTarget must sit in the slot after name "
+              "(the refFieldBitmap GC reference slot, x64 slot 6 / x86 slot 8)");
 
 bool g_threadClassRegistered = false;
 

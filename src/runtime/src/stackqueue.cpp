@@ -138,10 +138,18 @@ static_assert(offsetof(Il2CppQueue, version) == 2 * sizeof(void*) + 2 * sizeof(i
 // count/index are ints (NOT in the bitmap).
 static_assert(offsetof(Il2CppStackQueueEnumerator, container) == 1 * sizeof(void*), "Il2CppStackQueueEnumerator: container must sit at slot 1 (bitmap bit 1)");
 static_assert(offsetof(Il2CppStackQueueEnumerator, items) == 2 * sizeof(void*), "Il2CppStackQueueEnumerator: items must sit at slot 2 (bitmap bit 2)");
-static_assert(offsetof(Il2CppStackQueueEnumerator, version) == 2 * sizeof(void*) + 2 * sizeof(int32_t), "Il2CppStackQueueEnumerator: version follows items");
-static_assert(offsetof(Il2CppStackQueueEnumerator, head) == 2 * sizeof(void*) + 3 * sizeof(int32_t), "Il2CppStackQueueEnumerator: head follows version");
-static_assert(offsetof(Il2CppStackQueueEnumerator, count) == 2 * sizeof(void*) + 4 * sizeof(int32_t), "Il2CppStackQueueEnumerator: count follows head");
-static_assert(offsetof(Il2CppStackQueueEnumerator, index) == 2 * sizeof(void*) + 5 * sizeof(int32_t), "Il2CppStackQueueEnumerator: index follows count");
+static_assert(offsetof(Il2CppStackQueueEnumerator, version) ==
+                  offsetof(Il2CppStackQueueEnumerator, items) + sizeof(il2cpp::Il2CppArray*),
+              "Il2CppStackQueueEnumerator: version follows items");
+static_assert(offsetof(Il2CppStackQueueEnumerator, head) ==
+                  offsetof(Il2CppStackQueueEnumerator, version) + sizeof(int32_t),
+              "Il2CppStackQueueEnumerator: head follows version");
+static_assert(offsetof(Il2CppStackQueueEnumerator, count) ==
+                  offsetof(Il2CppStackQueueEnumerator, head) + sizeof(int32_t),
+              "Il2CppStackQueueEnumerator: count follows head");
+static_assert(offsetof(Il2CppStackQueueEnumerator, index) ==
+                  offsetof(Il2CppStackQueueEnumerator, count) + sizeof(int32_t),
+              "Il2CppStackQueueEnumerator: index follows count");
 
 // Minimum items-array length: avoids resizing on the very first push (and
 // matches the .NET Framework's first grow target of 4).

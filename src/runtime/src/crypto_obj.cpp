@@ -248,15 +248,25 @@ namespace il2cpp {
 namespace {
 
 // Layout pins: the refFieldBitmap bits must line up with the GC-reference
-// slots and the contexts must sit at slot 1 (hash) / slot 2-3 (hmac/aes).
-static_assert(offsetof(Il2CppMd5Object, ctx) == 1 * sizeof(void*),
-              "Il2CppMd5Object: ctx must sit at slot 1 (offset 8)");
-static_assert(offsetof(Il2CppSha1Object, ctx) == 1 * sizeof(void*),
-              "Il2CppSha1Object: ctx must sit at slot 1 (offset 8)");
-static_assert(offsetof(Il2CppSha256Object, ctx) == 1 * sizeof(void*),
-              "Il2CppSha256Object: ctx must sit at slot 1 (offset 8)");
-static_assert(offsetof(Il2CppSha512Object, ctx) == 1 * sizeof(void*),
-              "Il2CppSha512Object: ctx must sit at slot 1 (offset 8)");
+// slots. The hash contexts (MD5/SHA-1/SHA-256/SHA-512) are 8-aligned on every
+// supported target, so they sit at offset 8 right after the pointer header on
+// both 4- and 8-byte pointer widths (NOT at one pointer slot on x86).
+constexpr size_t AlignUp(size_t value, size_t alignment)
+{
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+static_assert(offsetof(Il2CppMd5Object, ctx) ==
+                  AlignUp(sizeof(il2cpp::Il2CppObject), alignof(runtime::Il2CppMd5Context)),
+              "Il2CppMd5Object: ctx must sit in the first 8-aligned slot after the header");
+static_assert(offsetof(Il2CppSha1Object, ctx) ==
+                  AlignUp(sizeof(il2cpp::Il2CppObject), alignof(Il2CppSha1Context)),
+              "Il2CppSha1Object: ctx must sit in the first 8-aligned slot after the header");
+static_assert(offsetof(Il2CppSha256Object, ctx) ==
+                  AlignUp(sizeof(il2cpp::Il2CppObject), alignof(runtime::Il2CppSha256Ctx)),
+              "Il2CppSha256Object: ctx must sit in the first 8-aligned slot after the header");
+static_assert(offsetof(Il2CppSha512Object, ctx) ==
+                  AlignUp(sizeof(il2cpp::Il2CppObject), alignof(runtime::Il2CppSha512Ctx)),
+              "Il2CppSha512Object: ctx must sit in the first 8-aligned slot after the header");
 static_assert(offsetof(Il2CppHmacObject, key) == 1 * sizeof(void*),
               "Il2CppHmacObject: key must sit at slot 1 (bitmap bit 1)");
 static_assert(offsetof(Il2CppHmacObject, ctx) == 2 * sizeof(void*),

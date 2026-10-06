@@ -47,6 +47,7 @@ param(
     [switch]$Clean,
     [string]$Config = "Release",
     [string]$LibName = "",
+    [string]$Arch = "",
     [string]$Log = ""
 )
 $ErrorActionPreference = "Stop"
@@ -133,6 +134,17 @@ if (-not (Test-Path -LiteralPath $il2cppcDll)) {
 }
 $transpileArgs = @("exec", $il2cppcDll)
 if ($Log -ne "") { $transpileArgs += @("--log", $Log) }
+# G4-x86: forward the target architecture to the transpiler (--arch) so the
+# generated layout + G1 entry interlock match the cmake -A platform (a default
+# host-width transpile + -A Win32 build is rejected by the interlock by design).
+$archToken = switch ($Arch) {
+    "Win32" { "x86" }
+    "x64"   { "x64" }
+    "ARM64" { "arm64" }
+    "arm32" { "arm32" }
+    default { "" }
+}
+if ($archToken -ne "") { $transpileArgs += @("--arch", $archToken) }
 $transpileArgs += @($transpileInput, $gen)
 Invoke-Native dotnet $transpileArgs "il2cppc transpile"
 
@@ -171,6 +183,7 @@ switch ($Toolchain) {
     "msvc" {
         $generator = if ($env:IL2CPP_MSVC_GENERATOR) { $env:IL2CPP_MSVC_GENERATOR } else { "Visual Studio 17 2022" }
         $cmakeArgs = @("-S", $gen, "-B", $build, "-G", $generator)
+        if ($Arch -ne "") { $cmakeArgs += @("-A", $Arch) }
         $configFlag = @("--config", $Config)
     }
     "wsl" {

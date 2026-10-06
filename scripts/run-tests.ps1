@@ -2,7 +2,8 @@
     [ValidateSet("msvc","mingw","wsl","clang")][string]$Compiler = "mingw",
     [string]$Case = "",
     [switch]$ContinueOnError,
-    [string]$ResultsFile = ""
+    [string]$ResultsFile = "",
+    [string]$Arch = ""
 )
 $ErrorActionPreference = "Stop"
 # 以脚本位置为基准解析仓库根，避免 -File 模式下 CWD 不确定导致相对路径失效
@@ -288,11 +289,22 @@ foreach ($caseDir in $caseDirs) {
     # 3. 转译：输入用转译输入（net8 dll / net48 exe，见前判定）
     $gen = "$Root/tests/cases/$dirName/gen"
     Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
+    # G4-x86: 把架构参数透传给转译器（--arch），使生成布局 + G1 入口互锁与
+    # cmake -A 平台一致（默认宿主宽转译 + -A Win32 构建会被互锁按设计拒绝）。
+    $tArch = switch ($Arch) {
+        "Win32" { "x86" }
+        "x64"   { "x64" }
+        "ARM64" { "arm64" }
+        "arm32" { "arm32" }
+        default { "" }
+    }
+    $tArgs = @($transpileInput, $gen)
+    if ($tArch -ne "") { $tArgs = @("--arch", $tArch) + $tArgs }
     $transpilerDll = "$Root/src/il2cppc/bin/Debug/net8.0/il2cppc.dll"
     if (Test-Path $transpilerDll) {
-        dotnet exec $transpilerDll $transpileInput $gen | Out-Null
+        dotnet exec $transpilerDll @tArgs | Out-Null
     } else {
-        dotnet run --project "$Root/src/il2cppc" -- $transpileInput $gen | Out-Null
+        dotnet run --project "$Root/src/il2cppc" -- @tArgs | Out-Null
     }
     if ($LASTEXITCODE -ne 0) { throw "transpile $name failed" }
 
@@ -346,7 +358,9 @@ foreach ($caseDir in $caseDirs) {
         }
         $sccache = "E:\il2cpp\.opencode\tmp\tools\sccache\sccache-v0.17.0-x86_64-pc-windows-msvc\sccache.exe"
         $ninja = "D:\android\sdk\cmake\3.22.1\bin\ninja.exe"
-        $useSccache = (Test-Path $sccache) -and (Test-Path $ninja)
+        # Ninja has no -A platform concept (the VS generator does); an explicit
+        # -Arch forces the VS generator path so -A reaches the toolchain.
+        $useSccache = (Test-Path $sccache) -and (Test-Path $ninja) -and ($Arch -eq "")
         if ($useSccache) {
             $env:SCCACHE_DIR = "E:\il2cpp\.opencode\tmp\sccache"
             $env:SCCACHE_IGNORE_SERVER_IO_ERROR = "1"
@@ -369,7 +383,11 @@ foreach ($caseDir in $caseDirs) {
             $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
         } else {
             Clear-IfGeneratorMismatch $buildDir "Visual Studio 17 2022"
-            cmake -S $gen -B $buildDir -G "Visual Studio 17 2022" | Out-Null
+            if ($Arch -ne "") {
+                cmake -S $gen -B $buildDir -G "Visual Studio 17 2022" -A $Arch | Out-Null
+            } else {
+                cmake -S $gen -B $buildDir -G "Visual Studio 17 2022" | Out-Null
+            }
             if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
             cmake --build $buildDir --config Release | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "cmake build $name failed" }

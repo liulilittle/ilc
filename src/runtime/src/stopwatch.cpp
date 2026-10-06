@@ -65,11 +65,20 @@ namespace il2cpp {
 
 namespace {
 
-// Layout pin: the object icalls read the state at fixed offsets.
-static_assert(offsetof(Il2CppStopwatchObject, startTimestamp) == 1 * sizeof(void*),
-              "Il2CppStopwatchObject: startTimestamp must sit at slot 1 (offset 8)");
-static_assert(offsetof(Il2CppStopwatchObject, accumulatedTicks) == 2 * sizeof(void*),
-              "Il2CppStopwatchObject: accumulatedTicks must sit at slot 2 (offset 16)");
+// Layout pin: the object icalls read the state at fixed offsets. The int64
+// members are 8-aligned on every supported target (4- and 8-byte pointer
+// widths alike), so they sit immediately after the pointer header at offsets
+// 8/16 on both -- the slot formula is pointer-width dependent, this is not.
+constexpr size_t AlignUp(size_t value, size_t alignment)
+{
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+static_assert(offsetof(Il2CppStopwatchObject, startTimestamp) ==
+                  AlignUp(sizeof(il2cpp::Il2CppObject), alignof(int64_t)),
+              "Il2CppStopwatchObject: startTimestamp must sit in the first 8-aligned slot after the header");
+static_assert(offsetof(Il2CppStopwatchObject, accumulatedTicks) ==
+                  offsetof(Il2CppStopwatchObject, startTimestamp) + sizeof(int64_t),
+              "Il2CppStopwatchObject: accumulatedTicks must follow startTimestamp");
 
 bool g_stopwatchClassRegistered = false;
 

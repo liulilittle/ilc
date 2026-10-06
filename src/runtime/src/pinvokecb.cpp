@@ -43,12 +43,18 @@
 
 namespace il2cpp {
 
-namespace {
+// WindowProc-form callback convention: on x86 the Win32 CALLBACK (WNDPROC)
+// ABI is __stdcall, so the thunks the native side stores/ calls MUST be
+// __stdcall; on x64 the Win32 calling conventions collapse to the single
+// native convention and the decoration is a no-op (com.cpp IL2CPP_COM_CALL
+// precedent).
+#if defined(_M_IX86) || defined(__i386__)
+    #define IL2CPP_WM_CALL __stdcall
+#else
+    #define IL2CPP_WM_CALL
+#endif
 
-static_assert(sizeof(void*) == 8,
-              "il2cpp_pinvoke_cb: the WindowProc-form thunk ABI is x64-only "
-              "(on x64 the Win32 calling conventions collapse to the single "
-              "native convention; ILC targets x64)");
+namespace {
 
 constexpr int32_t kMaxWmBindings = 16;
 
@@ -113,7 +119,7 @@ intptr_t InvokeWmBinding(int32_t slot, intptr_t hwnd, int32_t msg,
 // One distinct thunk per pool slot (the native side stores the thunk address,
 // so each binding needs a stable, distinct function).
 #define IL2CPP_WM_THUNK(slot)                                                        \
-    intptr_t WmCallbackThunk##slot(intptr_t a0, int32_t a1, intptr_t a2, intptr_t a3) \
+    intptr_t IL2CPP_WM_CALL WmCallbackThunk##slot(intptr_t a0, int32_t a1, intptr_t a2, intptr_t a3) \
     {                                                                                 \
         return InvokeWmBinding(slot, a0, a1, a2, a3);                                 \
     }
