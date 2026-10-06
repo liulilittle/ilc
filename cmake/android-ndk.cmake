@@ -22,7 +22,10 @@
 set(CMAKE_SYSTEM_NAME Android)
 
 # ABI / API 默认值：可经 -DANDROID_ABI / -DANDROID_PLATFORM 覆盖。
-set(ANDROID_ABI "arm64-v8a" CACHE STRING "Android ABI" FORCE)
+# G5（CROSSPLATFORM-DECISION 批 B）：去 FORCE 改普通 CACHE，使
+# -DANDROID_ABI=armeabi-v7a / x86_64 等非默认 ABI 真正可覆盖（FORCE 会把
+# -D 值重新钉回 arm64-v8a，见 RED 证据）。
+set(ANDROID_ABI "arm64-v8a" CACHE STRING "Android ABI")
 set(ANDROID_PLATFORM "android-21" CACHE STRING "Android API level" FORCE)
 # 共享库默认使用 c++_shared；静态库场景可改 ANDROID_STL=c++_static。
 set(ANDROID_STL "c++_shared" CACHE STRING "Android STL" FORCE)

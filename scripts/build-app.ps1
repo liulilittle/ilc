@@ -198,18 +198,27 @@ switch ($Toolchain) {
         $builtInWsl = $true
     }
     "ndk" {
-        # Android NDK skeleton (P-F-AUDIT-1 §2/§6): reuses the NDK
-        # android.toolchain.cmake with ABI arm64-v8a. P-F-FIX D3: the NDK root
+        # Android NDK skeleton (P-F-AUDIT-1 §6/§8): reuses the NDK
+        # android.toolchain.cmake with ABI per -Arch. P-F-FIX D3: the NDK root
         # comes from env ONLY (IL2CPP_NDK_ROOT / NDK_ROOT) -- cmake 3.22's ABI
         # try_compile does not propagate a plain -DANDROID_NDK cache var into
-        # the sub-build, so the wrapper maps it to the CMAKE_-prefixed
-        # CMAKE_ANDROID_NDK (inherited by try_compile).
+        # the sub-build, so it maps to the CMAKE_-prefixed CMAKE_ANDROID_NDK
+        # (inherited by try_compile). G5: -Arch maps to -DANDROID_ABI so the
+        # ABI is selectable (defaults to arm64-v8a when -Arch is empty).
         $ndk = if ($env:IL2CPP_NDK_ROOT) { $env:IL2CPP_NDK_ROOT } elseif ($env:NDK_ROOT) { $env:NDK_ROOT } else {
             throw "ndk toolchain needs IL2CPP_NDK_ROOT (or NDK_ROOT) env; no machine paths are hardcoded"
+        }
+        $abiTarget = switch ($Arch) {
+            "ARM64" { "arm64-v8a" }
+            "arm32" { "armeabi-v7a" }
+            "x64"   { "x86_64" }
+            "x86"   { "x86" }
+            default { "" }
         }
         $toolchainFile = Join-Path $Root "cmake/android-ndk.cmake"
         $cmakeArgs = @("-S", $gen, "-B", $build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=$Config",
                        "-DCMAKE_TOOLCHAIN_FILE=$toolchainFile", "-DCMAKE_ANDROID_NDK=$ndk") + $genExtra
+        if ($abiTarget -ne "") { $cmakeArgs += "-DANDROID_ABI=$abiTarget" }
     }
 }
 
