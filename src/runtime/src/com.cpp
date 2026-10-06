@@ -1998,6 +1998,22 @@ int32_t IL2CPP_COM_CALL CcwQueryInterface(void* self, const void* riid, void** p
     // obtains a connection point exclusively through
     // IConnectionPointContainer::FindConnectionPoint (each of the CCW's
     // registered event interfaces owns its own connection point view).
+    // COM-1 -- the cps[] registry walk: a QI for a REGISTERED event-source
+    // interface IID (icall_com_ccw_register_connection_point) answers the
+    // CCW's IDispatch pointer -- the identity view (its single vtable carries
+    // the automation surface; icall_com_ccw_register_invoke_dispatch routes
+    // IDispatch::Invoke to the managed object, so a native host QI's the event
+    // interface and fires through Invoke). Any IID not in the registry keeps
+    // the hard-chain E_NOINTERFACE miss.
+    for (int32_t i = 0; i < kCcwMaxConnectionPoints; ++i)
+    {
+        if (std::memcmp(ccw->cps[i].iid, iid, 16) == 0)
+        {
+            *ppv = static_cast<void*>(ccw); // the IDispatch pointer (identity view)
+            ++ccw->refCount;
+            return kComHrOk;
+        }
+    }
 #endif
     *ppv = nullptr;
     return kComHrNoInterface;

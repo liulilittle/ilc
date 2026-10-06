@@ -6025,6 +6025,141 @@ int main()
            "C3b: releasing the source CCW balances to 0 on non-Windows");
 #endif
 
+    //------------------------------------------------------------------------
+    // COM-1: the cps[] registry-walk QI extension -- a QI for a REGISTERED
+    // (non-IDispatch) event-interface IID answers the CCW's IDispatch pointer
+    // (the identity view; register_invoke_dispatch routes IDispatch::Invoke to
+    // the managed object -- the CCW's event-source fire-to-managed surface).
+    // A registered event IID is one declared by
+    // icall_com_ccw_register_connection_point; the IDispatch/IUnknown identity
+    // hard-chain and the unregistered-IID E_NOINTERFACE miss stay unchanged.
+    //------------------------------------------------------------------------
+    #if defined(_WIN32)
+    {
+        // Part A -- QI for a registered event IID returns the IDispatch pointer.
+        const intptr_t com1Ccw = icall_com_ccw_create(MakeManagedTarget());
+        Expect(com1Ccw != 0, "COM-1: ccw_create returns the event-QI CCW");
+        Expect(icall_com_ccw_register_connection_point(com1Ccw, kEventIid) == kComHrOk,
+               "COM-1: register_connection_point(non-IDispatch event IID) -> S_OK");
+        Expect(icall_com_ccw_register_connection_point(com1Ccw, kEventIid2) == kComHrOk,
+               "COM-1: a second event IID registers too");
+        intptr_t com1Ev1 = 0, com1Ev2 = 0, com1Disp = 0, com1Unk = 0;
+        Expect(icall_com_query_interface(com1Ccw, kEventIid, &com1Ev1) == kComHrOk &&
+               com1Ev1 == com1Ccw,
+               "COM-1: QI for a registered event IID -> S_OK with the identity pointer");
+        Expect(icall_com_query_interface(com1Ccw, kEventIid2, &com1Ev2) == kComHrOk &&
+               com1Ev2 == com1Ccw,
+               "COM-1: QI for the second registered event IID -> S_OK with the identity pointer");
+        Expect(icall_com_query_interface(com1Ccw, kComIidIDispatch, &com1Disp) == kComHrOk &&
+               com1Disp == com1Ccw && com1Disp == com1Ev1,
+               "COM-1: the event-IID QI answer IS the IDispatch pointer (one identity)");
+        Expect(icall_com_query_interface(com1Ccw, kComIidIUnknown, &com1Unk) == kComHrOk &&
+               com1Unk == com1Ccw,
+               "COM-1: IUnknown identity QI semantics unchanged");
+        intptr_t com1No = 0;
+        Expect(icall_com_query_interface(com1Ccw, kSomeOtherIid, &com1No) == kComHrNoInterface &&
+               com1No == 0,
+               "COM-1: QI for an unregistered IID stays E_NOINTERFACE (hard-chain unchanged)");
+        // Balance: create (1) + four QI references -> release to 0. The guard
+        // keeps the red state clean -- a failing QI leaves its out pointer 0,
+        // and releasing 0 would throw instead of reporting the assertion.
+        if (com1Ev1 != 0 && com1Ev2 != 0 && com1Disp != 0 && com1Unk != 0)
+        {
+            Expect(icall_com_release(com1Ev2) == 4 &&
+                   icall_com_release(com1Ev1) == 3 &&
+                   icall_com_release(com1Disp) == 2 &&
+                   icall_com_release(com1Unk) == 1 &&
+                   icall_com_release(com1Ccw) == 0,
+                   "COM-1: releasing every QI reference balances the event-QI CCW to 0");
+        }
+    }
+    {
+        // Part B -- the returned event-IID pointer fires into managed through
+        // IDispatch (register_invoke_dispatch semantics): QI the registered
+        // event IID, drive GetIDsOfNames + Invoke on the returned pointer and
+        // the managed Scale method runs (the oracle "QI returns + fire reaches
+        // managed").
+        il2cpp::Il2CppObject* com1FireObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(com1FireObj);
+        auto* com1FireView = reinterpret_cast<WfAutoScale*>(com1FireObj);
+        const intptr_t com1FireCcw = icall_com_ccw_create(com1FireObj);
+        Expect(com1FireCcw != 0 &&
+               icall_com_ccw_register_connection_point(com1FireCcw, kEventIid) == kComHrOk &&
+               icall_com_ccw_register_invoke_dispatch(
+                   com1FireCcw, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk,
+               "COM-1: event-QI CCW + register_connection_point(kEventIid) + register_invoke_dispatch");
+        intptr_t com1FireEv = 0;
+        Expect(icall_com_query_interface(com1FireCcw, kEventIid, &com1FireEv) == kComHrOk &&
+               com1FireEv == com1FireCcw,
+               "COM-1: QI for the registered event IID returns the invoke-dispatch CCW");
+        // The dispatch assertions only run against a non-null QI result (a red
+        // state never drives a null pointer's vtable).
+        if (com1FireEv != 0)
+        {
+            const uint8_t com1NullIid[16] = { 0 };
+            NativeGetIDsOfNamesFn com1GetIds =
+                reinterpret_cast<NativeGetIDsOfNamesFn>(const_cast<void*>(ComVtable(com1FireEv)[5]));
+            wchar_t com1ScaleName[] = L"Scale";
+            void* com1ScaleNames[] = { com1ScaleName };
+            int32_t com1ScaleDisp = -1;
+            Expect(com1GetIds(reinterpret_cast<void*>(com1FireEv), com1NullIid, com1ScaleNames, 1, 0,
+                              &com1ScaleDisp) == kComHrOk && com1ScaleDisp == 1,
+                   "COM-1: GetIDsOfNames(Scale) on the event-IID QI pointer -> dispId 1");
+            uint8_t com1FactorVar[16], com1LabelVar[16];
+            MakeVariant(il2cpp::runtime::kVtR8, com1FactorVar);
+            const double com1FactorVal = 2.5;
+            std::memcpy(com1FactorVar + il2cpp::runtime::kVariantVtOffset + 8,
+                        &com1FactorVal, sizeof(com1FactorVal));
+            MakeVariant(il2cpp::runtime::kVtBstr, com1LabelVar);
+            char16_t com1LabelBuf[] = u"auto";
+            void* com1LabelPtr = com1LabelBuf;
+            std::memcpy(com1LabelVar + il2cpp::runtime::kVariantVtOffset + 8,
+                        &com1LabelPtr, sizeof(com1LabelPtr));
+            uint8_t com1FireArgs[32];
+            std::memcpy(com1FireArgs, com1LabelVar, 16);       // rgvarg[0] = LAST (label)
+            std::memcpy(com1FireArgs + 16, com1FactorVar, 16); // rgvarg[1] = FIRST (factor)
+            TestDispParams com1FireParams = { com1FireArgs, nullptr, 2, 0 };
+            uint8_t com1Result[16] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                       0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+            NativeInvokeFn com1Invoke =
+                reinterpret_cast<NativeInvokeFn>(const_cast<void*>(ComVtable(com1FireEv)[6]));
+            Expect(com1Invoke(reinterpret_cast<void*>(com1FireEv), com1ScaleDisp, com1NullIid, 0, 1,
+                              &com1FireParams, com1Result, nullptr, nullptr) == kComHrOk &&
+                   com1FireView->ScaleCount == 1 && com1FireView->LastFactorInt == 2,
+                   "COM-1: Invoke(Scale) through the event-IID QI pointer reaches the managed method");
+        }
+        // Balance: create (1) + the event-QI reference (1) -> 0. The guard
+        // keeps the red state clean (a failed QI leaves com1FireEv 0).
+        if (com1FireEv != 0)
+        {
+            Expect(icall_com_release(com1FireEv) == 1,
+                   "COM-1: releasing the event-QI reference drops to 1");
+        }
+        Expect(icall_com_release(com1FireCcw) == 0,
+               "COM-1: the final Release destroys the event-QI CCW");
+    }
+    #else
+    // POSIX stub contract: the cps[] registry is Windows-only (register
+    // is E_NOTIMPL), so a QI for the fake event IID stays E_NOINTERFACE while
+    // the every-platform IDispatch identity surface is unchanged.
+    {
+        const intptr_t posixCom1Ccw = icall_com_ccw_create(MakeManagedTarget());
+        Expect(posixCom1Ccw != 0, "COM-1: ccw_create returns the POSIX-stub CCW");
+        Expect(icall_com_ccw_register_connection_point(posixCom1Ccw, kEventIid) == kComHrNotImpl,
+               "COM-1: register_connection_point on non-Windows -> E_NOTIMPL");
+        intptr_t posixEv = 0;
+        Expect(icall_com_query_interface(posixCom1Ccw, kEventIid, &posixEv) == kComHrNoInterface &&
+               posixEv == 0,
+               "COM-1: QI for the event IID on non-Windows stays E_NOINTERFACE (no registry)");
+        intptr_t posixDisp = 0;
+        Expect(icall_com_query_interface(posixCom1Ccw, kComIidIDispatch, &posixDisp) == kComHrOk &&
+               posixDisp == posixCom1Ccw,
+               "COM-1: IDispatch QI on non-Windows still returns the identity pointer");
+        Expect(icall_com_release(posixDisp) == 1 && icall_com_release(posixCom1Ccw) == 0,
+               "COM-1: releasing the POSIX-stub CCW balances to 0");
+    }
+    #endif
+
     // --- Report ---
     if (g_failures != 0)
     {
