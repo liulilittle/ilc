@@ -1107,6 +1107,64 @@ int main()
     Expect(icall_com_release(mgrDisp) == 0,
            "releasing GetIDispatchForObject's reference destroys the CCW");
 
+    // --- 7c. phase-2 per-object CCW cache (COM-2 -- net48 identity) ---
+    // net48 Marshal.GetIDispatchForObject on the SAME managed object returns
+    // the SAME CCW on every call (the object->CCW identity invariant). Without
+    // the per-object cache every call wraps a FRESH CCW (a different pointer).
+    // GetIUnknownForObject and GetComInterfaceForObject share the same cached
+    // CCW -- the single-vtable CCW's identity pointer IS the IUnknown AND the
+    // IDispatch pointer. The cache entry is keyed by the object's IDENTITY
+    // (the CCW's strong GCHandle keeps the comparison exact even across a Gen0
+    // compaction -- both the caller's object and the handle target move
+    // together) and is PURGED when the CCW's last reference is released
+    // (CcwReleaseImpl Release-to-0 destroys it; the cache entry holds no
+    // reference of its own, so a live cached CCW is anchored only by the
+    // callers' references).
+    il2cpp::Il2CppObject* cacheTarget = MakeManagedTarget();
+    const intptr_t c2Disp1 = icall_com_get_idispatch_for_object(cacheTarget);
+    const intptr_t c2Disp2 = icall_com_get_idispatch_for_object(cacheTarget);
+    Expect(c2Disp1 != 0 && c2Disp2 != 0 && c2Disp1 == c2Disp2,
+           "same managed object twice through GetIDispatchForObject returns the same CCW (net48 identity)");
+    const intptr_t c2Unk = icall_com_get_iunknown_for_object(cacheTarget);
+    Expect(c2Unk == c2Disp1,
+           "GetIUnknownForObject shares the cached CCW (identity pointer)");
+#if defined(_WIN32)
+    const intptr_t c2GciDisp = icall_com_get_com_interface_for_object(cacheTarget, kComIidIDispatch);
+    const intptr_t c2GciUnk = icall_com_get_com_interface_for_object(cacheTarget, kComIidIUnknown);
+    Expect(c2GciDisp == c2Disp1 && c2GciUnk == c2Disp1,
+           "GetComInterfaceForObject shares the cached CCW (IDispatch and IUnknown)");
+#endif
+    il2cpp::Il2CppObject* cacheOther = MakeManagedTarget();
+    const intptr_t c2Other = icall_com_get_idispatch_for_object(cacheOther);
+    Expect(c2Other != 0 && c2Other != c2Disp1,
+           "a different managed object gets a DIFFERENT cached CCW (per-object identity)");
+
+    // Refcount balance: the cached entry itself holds NO reference; every GET
+    // adds exactly one reference the caller owns. Release one by one -- the
+    // final Release to 0 destroys the cached CCW and purges the entry.
+#if defined(_WIN32)
+    Expect(icall_com_release(c2GciDisp) == 4 && icall_com_release(c2GciUnk) == 3,
+           "releasing the GetComInterfaceForObject references balances (5 -> 4 -> 3)");
+    Expect(icall_com_release(c2Unk) == 2 && icall_com_release(c2Disp2) == 1,
+           "releasing the shared CCW's references balances (3 -> 2 -> 1)");
+#else
+    Expect(icall_com_release(c2Unk) == 2 && icall_com_release(c2Disp2) == 1,
+           "releasing the shared CCW's references balances (3 -> 2 -> 1)");
+#endif
+    Expect(icall_com_release(c2Other) == 0,
+           "releasing the other object's CCW reference destroys it");
+    Expect(icall_com_release(c2Disp1) == 0,
+           "the final Release destroys the cached CCW (entry purged)");
+
+    // After Release-to-0 the cache entry is purged: a subsequent call wraps
+    // the object behind a FRESH CCW (no stale recycled entry -- a live cached
+    // CCW no longer exists; the callers' references were what anchored it).
+    const intptr_t c2Fresh = icall_com_get_idispatch_for_object(cacheTarget);
+    Expect(c2Fresh != 0,
+           "a post-release call wraps the object behind a fresh CCW (purged entry rebuilt)");
+    Expect(icall_com_release(c2Fresh) == 0,
+           "the fresh CCW's reference is balanced (no leak)");
+
     // Release the dispCcw back to 0 (destroys it and frees the registry).
     Expect(icall_com_release(dispCcw) == 0, "final Release destroys the IDispatch CCW");
 
@@ -5802,8 +5860,8 @@ int main()
                "C3: get_connection_point on non-Windows throws NotSupportedException");
         Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(c3Rcw, nullptr); }, kArgumentNull),
                "C3: get_connection_point(null iid) -> ArgumentNullException on non-Windows");
-        Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(nullptr, kComIidIDispatch); }, kArgumentNull),
-               "C3: get_connection_point(null rcw) -> ArgumentNullException on non-Windows");
+        Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(nullptr, kComIidIDispatch); }, kNotSupported),
+               "C3: get_connection_point(null rcw) on non-Windows throws NotSupportedException");
         intptr_t c3Cookie = 0;
         Expect(ThrowsDotNet([&] { (void)icall_com_cp_advise(0, c3SrcCcw, &c3Cookie); }, kArgumentNull),
                "C3: cp_advise(null cp) -> ArgumentNullException on non-Windows");
