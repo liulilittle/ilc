@@ -3587,6 +3587,33 @@ public static class StackFold
             // TypeDefinition).
             var typeFullName = md != null ? CtorTypeFullName(md, (int)ins.Operand) : "?";
 
+            // GN-2 (Nullable): `newobj System.Nullable`1<T>::.ctor(T value)`
+            // constructs a nullable VALUE. The runtime models a Nullable as an
+            // Il2CppObject* (null for no value, boxed T for a value -- the
+            // TypeEmitter M6 contract), so the ctor IS the boxing of the
+            // underlying T. Fold it to the box_{ctorToken} CallExpr -- the
+            // emitter's box arm decodes the Nullable-ctor MemberRef token and
+            // dispatches on the underlying T (int32/long/double/user-struct...).
+            // The general alloc+ctor path below would fabricate an object_new
+            // of a descriptor that does not exist (System_Nullable_1_int_class).
+            if (typeFullName.StartsWith("System.Nullable`1", StringComparison.Ordinal))
+            {
+                var nbName = $"t{temps.Count}";
+                temps.Add(nbName);
+                var nbBox = new CallExpr { Function = $"box_{ins.Operand}", ReturnsRef = true };
+                nbBox.Args.AddRange(args);
+                stmts.Add(new AssignStmt
+                {
+                    Target = nbName,
+                    Value = nbBox,
+                    SourceOffset = ins.Offset,
+                    SourceOpName = OpName(ins.OpCode)
+                });
+                objTypes[nbName] = typeFullName;
+                stack.Push(new LocExpr { Name = nbName });
+                return;
+            }
+
             // M3 Task 11: value-type newobj -- a struct instance is
             // initialized IN PLACE (no GC allocation; the value lives in the
             // declaring scope). The newobj folds to: {T} __t; {T}__ctor(&__t, args);

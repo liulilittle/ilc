@@ -349,6 +349,20 @@ public static class MethodBodyReader
                 if (flat)
                     return "tuple:" + string.Join(",", codes);
             }
+            // GN-2 (Nullable): a Nullable`1<T> local/value slot has no generated
+            // C++ struct -- the runtime models the VALUE as an Il2CppObject*
+            // (null = no value, boxed T = value; TypeEmitter M6 contract). The
+            // local must be a REFERENCE slot ("r"), not the "v" value slot the
+            // BCL-definition fallthrough would pick (a `Il2CppObject loc;` value
+            // mis-declared the probe's nullable temps and the initobj store
+            // reinterpret-cast through it). Consume the instantiation args so
+            // the next local stays aligned.
+            if (defName == "System.Nullable`1")
+            {
+                var argcN = sig.ReadCompressedInteger();
+                for (var i = 0; i < argcN; i++) LocalTypeKind(md, ref sig, name);
+                return "r";
+            }
             var argc = sig.ReadCompressedInteger();
             // R2a (R77 producer): a local whose type is a SINGLE-ARGUMENT
             // generic instance of a definition DECLARED IN THIS ASSEMBLY
@@ -487,12 +501,46 @@ public static class MethodBodyReader
             0x0D => "double",
             0x0E => "string",
             0x1C => "object",
+            // GN-2 (Nullable): a generic-argument that is ITSELF a generic
+            // instantiation (ELEMENT_TYPE_GENERICINST 0x15 -- e.g. the
+            // `System.Nullable`1<int>` argument of `Box`1<Nullable<int>>`)
+            // decodes to the CALL-SIDE nested suffix name ("System.Nullable`1_int",
+            // the MethodRefResolver.ReadM3GenericArgNested shape) so the
+            // definition-side clone key (TryClassGenericInstanceKind +
+            // EnsureClone) matches the call-side instantiation name. The full
+            // nested payload is consumed so the caller's stream stays aligned.
+            0x15 => NestedGenericArgSuffix(md, ref sig),
             // G1 (C1): see ArrayGenericArgSuffix -- the element-aware array
             // argument decode is a helper (a switch-expression arm cannot
             // carry a statement body).
             0x1D => ArrayGenericArgSuffix(md, ref sig),
             _ => null,
         };
+    }
+
+    // GN-2 (Nullable): decode a nested GENERICINST (0x15) generic argument to
+    // the instantiation-suffix name "{defName}_{arg1}_{arg2}..." -- the same
+    // naming authority as MethodRefResolver.ReadM3GenericArgNested (defName =
+    // the generic definition's full name; each arg through this file's
+    // SimpleGenericArgSuffix table). Returns null when any nested arg is a
+    // shape this table cannot name (the caller keeps the legacy handling).
+    private static string? NestedGenericArgSuffix(MetadataReader md, ref BlobReader sig)
+    {
+        _ = sig.ReadByte(); // CLASS(0x12)/VALUETYPE(0x11) marker
+        var def = sig.ReadTypeHandle();
+        string? defName = def.Kind == HandleKind.TypeReference
+            ? md.GetFullName((TypeReferenceHandle)def)
+            : def.Kind == HandleKind.TypeDefinition ? md.GetFullName((TypeDefinitionHandle)def) : null;
+        if (defName == null) return null;
+        var argc = sig.ReadCompressedInteger();
+        var parts = new string[argc];
+        for (var i = 0; i < argc; i++)
+        {
+            var s = SimpleGenericArgSuffix(md, ref sig, out _);
+            if (s == null) return null; // complex nested arg: keep legacy handling
+            parts[i] = s;
+        }
+        return defName + "_" + string.Join("_", parts);
     }
 
     // G1 (C1): an SZARRAY (0x1D) generic argument decodes ELEMENT-AWARE
@@ -506,7 +554,14 @@ public static class MethodBodyReader
     // shared-object collapse the call side agrees on).
     internal static string? ArrayGenericArgSuffix(MetadataReader md, ref BlobReader sig)
     {
-        var elem = SimpleGenericArgSuffix(md, ref sig, out _);
+        var elem = SimpleGenericArgSuffix(md, ref sig, out var elemByte);
+        // GN-2 (def1): a NESTED GENERIC (0x15) array element keeps the
+        // historical "array" token -- an element-aware bracket name would fork
+        // the clone key on the two sides for a NON-shared definition
+        // (definition: "Foo_1__System_Nullable_1_int_", call: "Foo_1_array").
+        // The nested payload is consumed above; the call side's three
+        // ReadM3ArrayArg mirrors agree on the "array" token.
+        if (elemByte == 0x15) return "array";
         if (elem != null) return "[" + elem + "]";
         _ = GenericArgSuffix(md, ref sig, ""); // consume the element payload
         return "array";

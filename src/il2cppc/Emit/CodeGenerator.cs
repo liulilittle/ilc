@@ -2097,6 +2097,14 @@ public static class CodeGenerator
                     // closed reference clone -> ref; definition/int -> value.
                     if (IsVarOrMvarTypeSpec(md, ioTok))
                         locKind[laCtor.Name] = _curInstantiationSuffix is not (null or "int") ? "ref" : "val";
+                    // GN-2 (Nullable): initobj of a Nullable`1<T> instantiation
+                    // -- the slot is the boxed-object reference (Il2CppObject*;
+                    // the emitter's reference-slot null store). The generic
+                    // TypeSpecTokenName fallback returns "System.Object" ->
+                    // "Il2CppObject" (a VALUE declaration), which mis-classifies
+                    // the shared-clone arg bridger into boxing the pointer.
+                    else if (TypeSpecGenericInstDefName(md, ioTok) == "System.Nullable`1")
+                        locKind[laCtor.Name] = "ref";
                     else
                         locKind[laCtor.Name] = TypeCppName(TypeTokenFullName(md, ioTok));
                 }
@@ -4059,6 +4067,29 @@ public static class CodeGenerator
                     ? EmitIcallCallArgs(resolvedStmt, c.Args, md, types)
                     : string.Join(", ", c.Args.Select(a => EmitExpr(a, md, types)));
                 var fnStmt = resolvedStmt?.CppName ?? EmitFunctionName(c.Function, md, types);
+                // GN-2 (Nullable): a Nullable`1<T> member call in STATEMENT
+                // position (result discarded) -- inline the boxed-object
+                // semantics instead of emitting the synthetic marker as a call.
+                if (resolvedStmt is { } nStmt && IsNullableMemberMarker(nStmt.CppName)
+                    && c.Args.Count >= 1)
+                {
+                    var nRecvS = EmitExpr(c.Args[0], md, types);
+                    var nObjS = c.Args[0] is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
+                        ? $"(*reinterpret_cast<Il2CppObject**>({nRecvS}))"
+                        : nRecvS;
+                    if (nStmt.CppName.EndsWith("_has_value", StringComparison.Ordinal))
+                    {
+                        w.LineAligned($"(({nObjS}) != nullptr);",
+                            $"IL {At(c.SourceOpName, c.SourceOffset)} -- Nullable get_HasValue (result discarded)");
+                        break;
+                    }
+                    if (nStmt.CppName.EndsWith("_get_value", StringComparison.Ordinal))
+                    {
+                        w.LineAligned($"((void)({nObjS}));",
+                            $"IL {At(c.SourceOpName, c.SourceOffset)} -- Nullable get_Value (result discarded)");
+                        break;
+                    }
+                }
                 // M7 CG-FIX (boxdeep2 cmake FAIL): Object::ToString on a boxed
                 // uint / Type receiver -- MethodMap.Object.cs's ToString
                 // receiver-type list (read-only) omits "System.UInt32" and
@@ -8057,6 +8088,90 @@ default: return false;                           // primitives/VAR(handled by ca
            || KnownBclEnumNames.Contains(typeName)
             || types.Any(t => t.MatchesFullName(typeName) && t.BaseTypeName == "System.Enum");
 
+    // GN-2 (Nullable): whether a box_{token} operand is the Nullable-ctor
+    // MemberReference (System.Nullable`1<T>::.ctor -- the fold's newobj
+    // rewrite) and, if so, the FULL NAME of the underlying T. Decodes the
+    // declaring TypeSpec's single generic argument through the M3 byte table.
+    private static string? NullableCtorUnderlyingType(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.MemberReference) return null;
+        var mr = md.GetMemberReference((MemberReferenceHandle)h);
+        if (md.GetString(mr.Name) != ".ctor") return null;
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return null;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+        if (sig.ReadByte() != 0x15) return null; // not GENERICINST
+        sig.ReadByte(); // CLASS(0x12)/VALUETYPE(0x11) marker
+        var def = sig.ReadTypeHandle();
+        string? defName = def.Kind == HandleKind.TypeReference
+            ? md.GetFullName((TypeReferenceHandle)def)
+            : def.Kind == HandleKind.TypeDefinition ? md.GetFullName((TypeDefinitionHandle)def) : null;
+        if (defName != "System.Nullable`1") return null;
+        if (sig.ReadCompressedInteger() != 1) return null;
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        return b switch
+        {
+            0x02 => "System.Boolean",
+            0x03 => "System.Char",
+            0x04 => "System.SByte",
+            0x05 => "System.Byte",
+            0x06 => "System.Int16",
+            0x07 => "System.UInt16",
+            0x08 => "System.Int32",
+            0x09 => "System.UInt32",
+            0x0A => "System.Int64",
+            0x0B => "System.UInt64",
+            0x0C => "System.Single",
+            0x0D => "System.Double",
+            0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            _ => null,
+        };
+    }
+
+    // GN-2 (Nullable): whether a CppName is one of the synthetic Nullable
+    // member markers (MethodMap.Nullable.cs) that the emitter inlines.
+    private static bool IsNullableMemberMarker(string cpp)
+        => cpp.StartsWith("il2cpp::runtime::il2cpp_nullable_", StringComparison.Ordinal);
+
+    // GN-2 (Nullable): the underlying T full name of ANY member on a
+    // System.Nullable`1<T> MemberRef (get_HasValue / get_Value / .ctor -- the
+    // declaring TypeSpec's single generic argument). Used by the get_Value
+    // unbox dispatch. Returns null for non-Nullable or undeciperable tokens.
+    private static string? NullableMemberUnderlyingType(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind != HandleKind.MemberReference) return null;
+        var mr = md.GetMemberReference((MemberReferenceHandle)h);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return null;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+        if (sig.ReadByte() != 0x15) return null; // not GENERICINST
+        sig.ReadByte(); // CLASS(0x12)/VALUETYPE(0x11) marker
+        var def = sig.ReadTypeHandle();
+        string? defName = def.Kind == HandleKind.TypeReference
+            ? md.GetFullName((TypeReferenceHandle)def)
+            : def.Kind == HandleKind.TypeDefinition ? md.GetFullName((TypeDefinitionHandle)def) : null;
+        if (defName != "System.Nullable`1") return null;
+        if (sig.ReadCompressedInteger() != 1) return null;
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        return b switch
+        {
+            0x02 => "System.Boolean",
+            0x03 => "System.Char",
+            0x04 => "System.SByte",
+            0x05 => "System.Byte",
+            0x06 => "System.Int16",
+            0x07 => "System.UInt16",
+            0x08 => "System.Int32",
+            0x09 => "System.UInt32",
+            0x0A => "System.Int64",
+            0x0B => "System.UInt64",
+            0x0C => "System.Single",
+            0x0D => "System.Double",
+            0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            _ => null,
+        };
+    }
+
     private static string EmitTask9Call(Expr e, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         if (e is not CallExpr c) return EmitExpr(e, md, types);
@@ -8107,6 +8222,14 @@ default: return false;                           // primitives/VAR(handled by ca
             // int64-carrier box (the documented BCL-enum whitelist below,
             // extends on demand).
             var boxType = TypeTokenFullName(md, boxTok);
+            // GN-2 (Nullable): `newobj System.Nullable`1<T>::.ctor(T)` folds to
+            // box_{ctorToken} (StackFold.EmitNewObj) -- the token is the Nullable
+            // CTOR MemberReference, not a TypeToken. Decode the underlying T from
+            // the declaring TypeSpec and box by it (the boxed-object Nullable
+            // representation). Any other token shape returns null and the
+            // TypeTokenFullName dispatch below stays authoritative.
+            if (NullableCtorUnderlyingType(md, boxTok) is { } nUnderlying)
+                boxType = nUnderlying;
             var boxVal = EmitExpr(c.Args[0], md, types);
             // P-G3/paircase Cmp: `box !0` on a REFERENCE-typed generic
             // parameter (the constrained IComparable callvirt's argument) is
@@ -8566,6 +8689,42 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // receiver-type-aware answer + the icall arg-cast codes; user-method
         // calls resolve by token as before. "fcap" collapses to a field read.
         var resolved2 = c.Resolved ?? ResolveByToken(c.Function, md, types);
+        // GN-2 (Nullable): the BCL Nullable`1<T> members map to synthetic
+        // markers (MethodMap.Nullable.cs) -- get_HasValue -> (obj != nullptr),
+        // get_Value -> unbox by the underlying T. The markers are NOT runtime
+        // symbols, so the inline must replace the call HERE (and in the
+        // statement emitter) or the emitted text would name an undefined
+        // function. The receiver is the ldloca ADDRESS of the Il2CppObject*
+        // nullable slot ("&loc0") -- deref to the object for the checks.
+        if (resolved2 is { } nres && IsNullableMemberMarker(nres.CppName)
+            && c.Args.Count >= 1)
+        {
+            var nRecv = EmitExpr(c.Args[0], md, types);
+            var nObj = c.Args[0] is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
+                ? $"(*reinterpret_cast<Il2CppObject**>({nRecv}))"
+                : nRecv;
+            if (nres.CppName.EndsWith("_has_value", StringComparison.Ordinal))
+                return $"(({nObj}) != nullptr)";
+            if (nres.CppName.EndsWith("_get_value", StringComparison.Ordinal))
+            {
+                var nT = int.TryParse(c.Function.StartsWith("call_", StringComparison.Ordinal) ? c.Function[5..] : "", out var nTok)
+                    ? NullableMemberUnderlyingType(md, nTok)
+                    : null;
+                return nT switch
+                {
+                    "System.Int32" => $"il2cpp::il2cpp_unbox_int32({nObj})",
+                    "System.Int64" or "System.UInt64" => $"il2cpp::runtime::icall_unbox_long({nObj})",
+                    "System.Double" => $"il2cpp::runtime::icall_unbox_double({nObj})",
+                    "System.Single" => $"il2cpp::runtime::icall_unbox_float({nObj})",
+                    "System.Boolean" => $"il2cpp::runtime::icall_unbox_bool({nObj})",
+                    "System.Byte" or "System.SByte" => $"il2cpp::runtime::icall_unbox_byte({nObj})",
+                    "System.Int16" or "System.UInt16" => $"il2cpp::runtime::icall_unbox_short({nObj})",
+                    "System.Char" => $"il2cpp::runtime::icall_unbox_char({nObj})",
+                    "System.UInt32" => $"il2cpp::runtime::icall_unbox_uint({nObj})",
+                    _ => throw new NotSupportedException($"Nullable<{nT ?? "?"}>.get_Value unbox not wired (GN-2)"),
+                };
+            }
+        }
         // perf2 str_chars: the string indexer `s[i]` -- when the loop-bound
         // proof certified this exact access, emit the raw UTF-16 read instead
         // of the icall boundary (no bounds/null check; both statically dead).
@@ -9347,6 +9506,24 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if (handle.Kind != HandleKind.TypeSpecification) return false;
         var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
         return sig.ReadByte() is 0x13 or 0x1E;
+    }
+
+    // GN-2 (Nullable): the generic DEFINITION full name of a GENERICINST (0x15)
+    // TypeSpec (e.g. "System.Nullable`1" for `System.Nullable`1<int>`), or null
+    // for other tokens/shapes. Used to detect Nullable instantiations where the
+    // canonical TypeSpecTokenName fallback ("System.Object") would misclassify
+    // the slot kind.
+    private static string? TypeSpecGenericInstDefName(MetadataReader md, int token)
+    {
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.TypeSpecification) return null;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+        if (sig.ReadByte() != 0x15) return null; // not GENERICINST
+        sig.ReadByte(); // CLASS(0x12)/VALUETYPE(0x11) marker
+        var def = sig.ReadTypeHandle();
+        return def.Kind == HandleKind.TypeReference
+            ? md.GetFullName((TypeReferenceHandle)def)
+            : def.Kind == HandleKind.TypeDefinition ? md.GetFullName((TypeDefinitionHandle)def) : null;
     }
 
     //--------------------------------------------------------------------------

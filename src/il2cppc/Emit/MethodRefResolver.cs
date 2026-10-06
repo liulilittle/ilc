@@ -923,6 +923,10 @@ public static partial class MethodRefResolver
                 return TryMapValueTypeGetHashCode(md, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.String": return TryMapString(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapStringExt3(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // GN-2 (Nullable): System.Nullable`1<T> members (get_HasValue /
+            // get_Value) map to synthetic markers the CodeGenerator inlines
+            // against the boxed-object Nullable representation (MethodMap.Nullable.cs).
+            case "System.Nullable`1": return TryMapNullable(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Object":
             case "System.IConvertible":
             case "System.Reflection.MemberInfo": return TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
