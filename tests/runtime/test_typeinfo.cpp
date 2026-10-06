@@ -72,6 +72,27 @@ bool ThrowsManaged(Fn&& fn, const char* managedType)
 void DummyMethod() {}
 int AddTwoInts(int a, int b) { return a + b; }
 
+// RF-1 instance-'this' AOT shapes: the transpiler emits INSTANCE methods with
+// arg0 = this (RootSlotPass:40), so the reflected entry's fnPtr reads the
+// instance as its first argument and the field lives after the klass header.
+struct InvokeInstanceLayout
+{
+    il2cpp::Il2CppObject hdr;
+    int32_t fld;
+};
+int InstAddTo(il2cpp::Il2CppObject* self, int a, int b)
+{
+    return reinterpret_cast<InvokeInstanceLayout*>(self)->fld + a + b;
+}
+int InstRead(il2cpp::Il2CppObject* self)
+{
+    return reinterpret_cast<InvokeInstanceLayout*>(self)->fld;
+}
+void InstBump(il2cpp::Il2CppObject* self)
+{
+    reinterpret_cast<InvokeInstanceLayout*>(self)->fld += 1;
+}
+
 // Managed string content equality against an ASCII literal (project
 // convention: names are ASCII) -- the shape test_typeext.cpp uses.
 bool ManagedEqualsAscii(il2cpp::Il2CppObject* s, const char* ascii)
@@ -542,12 +563,16 @@ int main()
     //    disambiguation), and dispatches through il2cpp_invoker_invoke. The
     //    result is boxed by the return kind (int32/int64/ref; void -> null).
     //    A trimmed (fnPtr null) method is runtime-unreachable -> LOUD.
+    //    RF-1: the committed probe is a FREE function (no 'this') -- it is
+    //    registered with the STATIC flag (bit1 == 1) so the no-this path is
+    //    preserved; INSTANCE methods (static bit clear) now get the target
+    //    injected as the 'this' slot (verified in the second block below).
     {
         il2cpp::Il2CppClass invokeClass = {
             "T.InvokeHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
         };
         il2cpp::Il2CppMethodInfo invokeMethods[2] = {
-            {"AddTwo", "I:i,i", 2, 1, -1, "T.InvokeHost", reinterpret_cast<void*>(&AddTwoInts)},
+            {"AddTwo", "I:i,i", 2, 1 | 2, -1, "T.InvokeHost", reinterpret_cast<void*>(&AddTwoInts)},
             {"Nope",   "I:i",   1, 1, -1, "T.InvokeHost", nullptr},
         };
         il2cpp::Il2CppTypeInfo invokeInfo = {
@@ -584,6 +609,57 @@ int main()
         Expect(ThrowsManaged([&] { (void)il2cpp_methodinfo_invoke(trimmed, target2, args); },
                              "System.NotSupportedException"),
                "R3 methodinfo_invoke trimmed fnPtr -> LOUD");
+    }
+
+    // --- RF-1: INSTANCE MethodInfo.Invoke 'this' injection. An instance
+    //    method (static bit clear) must have the TARGET injected as argbuf
+    //    slot 0 -- the AOT function reads the instance as arg0 -- while the
+    //    object[] maps the EXPLICIT params. Zero-explicit-arg and void
+    //    instance methods exercise the pure-'this' dispatch shapes ("I"/"V"
+    //    -> "I:r"/"V:r").
+    {
+        il2cpp::Il2CppClass instClass = {
+            "T.InstHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
+        };
+        il2cpp::Il2CppMethodInfo instMethods[3] = {
+            {"AddTo", "I:i,i", 2, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstAddTo)},
+            {"Read",  "I",     0, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstRead)},
+            {"Bump",  "V",     0, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstBump)},
+        };
+        il2cpp::Il2CppTypeInfo instInfo = {
+            "T.InstHost", &instClass, &objectInfoInstance, nullptr, 0,
+            nullptr, 0, instMethods, 3, nullptr, 0,
+        };
+        il2cpp_typeinfo_register(&instInfo);
+
+        // A fake IL2CPP instance: klass header + an int32 field at offset 0.
+        InvokeInstanceLayout inst = { { &instClass }, 25 };
+        auto tgt = reinterpret_cast<Il2CppObject*>(&inst);
+
+        // object[] { box(3), box(4) } -- instance AddTo(3,4) reads its own
+        // field: 25 + 3 + 4 == 32 (a missing 'this' yields garbage / crash).
+        auto iargs = il2cpp_array_new(nullptr, sizeof(void*), true, 2);
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(iargs, 0)) =
+            il2cpp_box_int32(nullptr, 3);
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(iargs, 1)) =
+            il2cpp_box_int32(nullptr, 4);
+        auto nameAdd = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("AddTo"));
+        Il2CppObject* ir = il2cpp_methodinfo_invoke(nameAdd, tgt, iargs);
+        Expect(ir != nullptr && il2cpp_unbox_int32(ir) == 32,
+               "RF-1 methodinfo_invoke injects 'this' (instance AddTo reads its own field)");
+
+        // Zero-explicit-arg instance method: signature "I" -> "I:r", the
+        // argbuf carries ONLY the injected 'this'.
+        auto emptyArgs = il2cpp_array_new(nullptr, sizeof(void*), true, 0);
+        auto nameRead = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Read"));
+        Il2CppObject* rr = il2cpp_methodinfo_invoke(nameRead, tgt, emptyArgs);
+        Expect(rr != nullptr && il2cpp_unbox_int32(rr) == 25,
+               "RF-1 'this' injection with zero explicit args (Read -> 25)");
+
+        // Void instance method mutates the real target's state.
+        auto nameBump = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Bump"));
+        (void)il2cpp_methodinfo_invoke(nameBump, tgt, emptyArgs);
+        Expect(inst.fld == 26, "RF-1 void instance method writes the real target state");
     }
 
     // --- Report ---

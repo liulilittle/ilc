@@ -380,6 +380,24 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // RF-1 -- net48 csc emits the BASE MethodBase::Invoke(object, object[])
+    // memberref (ILDASM-verified on a compiled probe), so MethodBase must map
+    // to the same il2cpp_methodinfo_invoke icall as the MethodInfo override.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_MethodBase_Invoke_MapsToInvokeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "MethodBase", "Invoke",
+            new byte[] { 0x00, 0x02, 0x02, 0x1C, 0x12, 0x05 }), "Invoke"); // (object, object[])
+
+        Assert.Equal("il2cpp::il2cpp_methodinfo_invoke", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // C1 (A1) -- Type-COM creation. Type.GetTypeFromProgID(string) /
     // Type.GetTypeFromCLSID(Guid) map to the runtime COM Type icalls that
     // return the "COMCLSID:<32hex>" sentinel Type-value string (the Type

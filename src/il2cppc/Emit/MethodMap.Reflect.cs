@@ -82,19 +82,22 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     $"{owner}::SetValue with {ps.Length} parameter(s) not wired in R2 -- only FieldInfo.SetValue(object, object) maps to il2cpp_typeinfo_field_set_value");
             case "Invoke":
-                // MethodInfo.Invoke(object obj, object[] parameters) -- R3. The
-                // receiver is the METHOD-NAME string (the simplified member
-                // model); the runtime joins the declaring type from the target
-                // (klass join) and dispatches through il2cpp_invoker_invoke
-                // (name + paramCount disambiguation, ambiguity LOUD, no object
-                // creation). Only the MethodInfo owner is wired; the other
-                // MemberInfo-derived Invoke arities stay LOUD.
-                if (owner == "System.Reflection.MethodInfo" && ps.Length == 2 && ps[0] == 0x1C
-                    && ps[1] is 0x1D or 0x12)
+                // MethodBase.Invoke(object obj, object[] parameters) / the
+                // MethodInfo override -- R3. net48 csc emits the BASE
+                // MethodBase::Invoke memberref (ILDASM-verified), so BOTH
+                // owners map to the same icall. The receiver is the METHOD-NAME
+                // string (the simplified member model); the runtime joins the
+                // declaring type from the target (klass join) and dispatches
+                // through il2cpp_invoker_invoke (name + paramCount
+                // disambiguation, ambiguity LOUD, no object creation). The
+                // other MemberInfo-derived Invoke arities stay LOUD.
+                if ((owner == "System.Reflection.MethodInfo" || owner == "System.Reflection.MethodBase")
+                    && ps.Length == 2 && ps[0] == 0x1C && ps[1] is 0x1D or 0x12)
                     return I("il2cpp::il2cpp_methodinfo_invoke", 2, true, true, true,
-                        new[] { "", "", "" }, returnTypeName: "System.Object");
+                        new[] { "", "", "a" }, returnTypeName: "System.Object",
+                        argOrder: new[] { 0, 1, 2 });
                 throw new NotSupportedException(
-                    $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3 -- only MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke");
+                    $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3 -- only MethodBase/MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke");
             default:
                 return null;
         }

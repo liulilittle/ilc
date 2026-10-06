@@ -669,9 +669,12 @@ void il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObject* targ
 //
 // argbuf: one slot per object[] element, unboxed by the parameter's slot kind
 // (int32/int64/double families through the box carriers, ref as the object
-// itself). The 'this' slot is NOT auto-injected (the committed probe calibrates
-// the object[] to the explicit parameter count; instance-'this' ABI is a
-// documented future extension -- see the genericvirt value-type precedent).
+// itself). RF-1: an INSTANCE method (flags static bit clear) has the target
+// injected as the FIRST reference slot ('this', slot 0) and the dispatch
+// signature gains a leading "r" parameter; a STATIC method (free function)
+// gets NO 'this' slot -- the object[] maps 1:1 to the signature params, the
+// R3 committed shape. No new table fields: the static bit on Il2CppMethodInfo
+// is the classifier (zero schema change, only the argbuf/arity adapt).
 //------------------------------------------------------------------------------
 namespace {
 
@@ -800,6 +803,19 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
             invokerSig[copy] = '\0';
         }
     }
+    // RF-1: an INSTANCE method (static bit clear) gets the target injected as
+    // the 'this' reference slot at argbuf index 0 -- the transpiler emits
+    // instance methods with arg0 = this (RootSlotPass), so the silently
+    // missing 'this' made every reflected instance Invoke read garbage state.
+    // A STATIC method (free function) keeps the R3 no-this shape: the object[]
+    // maps 1:1 to the signature params. argCount is the full slot count the
+    // invoker dispatches on (explicit params + the injected 'this').
+    const bool isInstance = (found->flags & 2) == 0;
+    const int32_t argCount = paramCount + (isInstance ? 1 : 0);
+    if (argCount > kInvokerMaxParams)
+    {
+        return nullptr;
+    }
     // Build the argbuf: one slot per object[] element, unboxed by slot kind.
     il2cpp_invoker_slot slots[kInvokerMaxParams];
     {
@@ -822,6 +838,13 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
         {
             return nullptr; // arity mismatch between the table and the object[]
         }
+        // Instance methods put the target in the 'this' slot (index 0); the
+        // explicit object[] params then start at index 1 (index 0 for static).
+        const int32_t explicitBase = isInstance ? 1 : 0;
+        if (isInstance)
+        {
+            slots[0].ptr = target;
+        }
         p = colon != nullptr ? colon + 1 : nullptr;
         for (int32_t i = 0; i < paramCount; ++i)
         {
@@ -832,16 +855,16 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
             switch (kindChar)
             {
             case 'i': case 'b': case 'c': case 'u': case 'n':
-                slots[i].i32 = il2cpp_unbox_int32(boxed);
+                slots[i + explicitBase].i32 = il2cpp_unbox_int32(boxed);
                 break;
             case 'l': case 'q':
-                slots[i].i64 = runtime::icall_unbox_long(boxed);
+                slots[i + explicitBase].i64 = runtime::icall_unbox_long(boxed);
                 break;
             case 'f': case 'd':
-                slots[i].dbl = runtime::icall_unbox_double(boxed);
+                slots[i + explicitBase].dbl = runtime::icall_unbox_double(boxed);
                 break;
             case 'r':
-                slots[i].ptr = boxed;
+                slots[i + explicitBase].ptr = boxed;
                 break;
             default:
                 return nullptr;
@@ -850,8 +873,34 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
         }
     }
     // Dispatch through the invoker and box the result by the return kind.
+    // Instance methods prepend a leading reference parameter to the dispatch
+    // signature so the invoker's typed call table reads the injected 'this'
+    // slot first; static/free-function signatures go through verbatim.
+    char dispatchSig[88];
+    if (!isInstance)
+    {
+        size_t invokerLen = std::strlen(invokerSig);
+        std::memcpy(dispatchSig, invokerSig, invokerLen + 1);
+    }
+    else
+    {
+        size_t invokerLen = std::strlen(invokerSig);
+        int32_t pos = 0;
+        dispatchSig[pos++] = invokerSig[0]; // return code
+        dispatchSig[pos++] = ':';
+        dispatchSig[pos++] = 'r';
+        if (invokerLen > 2)
+        {
+            // The explicit params follow WITHOUT their ':' separator
+            // (invokerSig[1] == ':'): "I:i,i" -> "I:r,i,i".
+            dispatchSig[pos++] = ',';
+            std::memcpy(dispatchSig + pos, invokerSig + 2, invokerLen - 2);
+            pos += static_cast<int32_t>(invokerLen - 2);
+        }
+        dispatchSig[pos] = '\0';
+    }
     int32_t ret = 0;
-    if (il2cpp_invoker_invoke(found->fnPtr, invokerSig, slots, paramCount, &ret) != kInvokerOk)
+    if (il2cpp_invoker_invoke(found->fnPtr, dispatchSig, slots, argCount, &ret) != kInvokerOk)
     {
         return nullptr;
     }

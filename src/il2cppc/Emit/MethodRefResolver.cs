@@ -939,6 +939,7 @@ public static partial class MethodRefResolver
             case "System.Reflection.FieldInfo":
             case "System.Reflection.PropertyInfo":
             case "System.Reflection.MethodInfo":
+            case "System.Reflection.MethodBase":
             case "System.Reflection.ConstructorInfo":
             case "System.Reflection.EventInfo":
                 return TryMapReflectionMember(owner, name, ps);

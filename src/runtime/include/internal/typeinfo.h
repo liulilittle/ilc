@@ -227,13 +227,20 @@ void         il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObje
 // joined from the TARGET object's klass (il2cpp_typeinfo_lookup_by_class;
 // a class-descriptor target is accepted too) and the method is resolved in
 // the own + base-chain tables by NAME + paramCount (the object[] length --
-// the invoker's argCount). Dispatch goes through il2cpp_invoker_invoke
-// (invoker.h) with the object[] args unboxed by the resolved signature's
-// slot kinds; the result is boxed by the signature's return kind (int32/
-// int64/double/reference; void -> null). No object creation.
+// the invoker's explicit-param count). Dispatch goes through
+// il2cpp_invoker_invoke (invoker.h) with the object[] args unboxed by the
+// resolved signature's slot kinds; the result is boxed by the signature's
+// return kind (int32/int64/double/reference; void -> null). No object
+// creation.
+//   RF-1: an INSTANCE method (flags static bit clear) has the TARGET injected
+//   as the 'this' reference slot at argbuf index 0 (the transpiler emits
+//   instance methods with arg0 = this) -- the dispatch signature gains a
+//   leading "r" param and the argCount is explicit + 1. A STATIC method (the
+//   R3 free-function shape) gets NO 'this' slot: the object[] maps 1:1.
 //   Unknown member / unreflected type / arity mismatch / bad signature ->
 //     nullptr (defensive).
-//   Null target -> NullReferenceException (net48 instance doctrine).
+//   Null target -> NullReferenceException (net48 instance doctrine; a static
+//     Invoke through this icall needs a non-null receiver to join the type).
 //   Ambiguous name + paramCount -> LOUD AmbiguousMatchException.
 //   fnPtr == null (trimmed / abstract / interface) -> LOUD
 //     NotSupportedException (runtime-unreachable, checked for every method
