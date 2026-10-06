@@ -1353,6 +1353,77 @@ struct Il2CppComCcw
     ~Il2CppComCcw();
 };
 
+//------------------------------------------------------------------------------
+// Phase-2 per-object CCW cache (COM-2). Marshal.GetIDispatchForObject /
+// GetIUnknownForObject / GetComInterfaceForObject on a NON-RCW managed object
+// wrap it behind a CCW. Without a cache every call wraps a FRESH CCW, so the
+// SAME object handed the SAME native interface pointer on two calls breaks
+// net48's object->CCW identity invariant (one CCW per managed object). The
+// cache is keyed by the wrapped object's IDENTITY: the CCW's strong GCHandle
+// keeps the object alive and, when an entry is probed, the handle target and
+// the caller's live object pointer always denote the SAME address (both follow
+// the Gen0 compaction), so a pointer comparison is an exact identity test --
+// never a stale-address hazard, and a dead object cannot be re-keyed because
+// the cached CCW's GCHandle keeps it alive while the entry exists. Entries are
+// PURGED when the CCW's refcount reaches 0 (the last Release destroys the CCW
+// -- CcwReleaseImpl below); the entry itself holds NO reference, so a live
+// cached CCW is anchored only by the callers' references. Single-threaded by
+// contract (no locking -- the marshalext registry precedent). Direct
+// icall_com_ccw_create calls bypass the cache (they are the raw-create
+// contract); only the three Marshal icalls cache. Every platform (pure C++
+// static table -- no COM dependency).
+//------------------------------------------------------------------------------
+constexpr int32_t kMaxCcwCacheEntries = 64; // bounded by the GCHandle static-root budget
+
+struct CcwCacheEntry
+{
+    Il2CppComCcw* ccw; // the cached CCW identity pointer (== IUnknown == IDispatch)
+};
+
+CcwCacheEntry g_ccwCache[kMaxCcwCacheEntries];
+int32_t       g_ccwCacheCount = 0;
+
+void CcwCacheFailLoud(const char* what)
+{
+    std::fprintf(stderr, "il2cpp_com: %s\n", what);
+    std::abort();
+}
+
+// The cached CCW whose wrapped object identity is 'managed', or nullptr.
+Il2CppComCcw* CcwCacheFind(Il2CppObject* managed)
+{
+    for (int32_t i = 0; i < g_ccwCacheCount; ++i)
+    {
+        Il2CppComCcw* ccw = g_ccwCache[i].ccw;
+        if (icall_gchandle_get_target(ccw->gcHandle) == managed)
+        {
+            return ccw;
+        }
+    }
+    return nullptr;
+}
+
+void CcwCacheInsert(Il2CppComCcw* ccw)
+{
+    if (g_ccwCacheCount >= kMaxCcwCacheEntries)
+    {
+        CcwCacheFailLoud("per-object CCW cache overflow");
+    }
+    g_ccwCache[g_ccwCacheCount++].ccw = ccw;
+}
+
+void CcwCacheRemove(Il2CppComCcw* ccw)
+{
+    for (int32_t i = 0; i < g_ccwCacheCount; ++i)
+    {
+        if (g_ccwCache[i].ccw == ccw)
+        {
+            g_ccwCache[i] = g_ccwCache[--g_ccwCacheCount]; // swap-remove
+            return;
+        }
+    }
+}
+
 #if defined(_WIN32)
 
 // Release an IUnknown reference through its vtable (defined later -- the CCW
@@ -1947,6 +2018,10 @@ uint32_t CcwReleaseImpl(Il2CppComCcw* ccw)
     const int32_t next = --ccw->refCount;
     if (next == 0)
     {
+        // COM-2 phase-2: purge the per-object cache entry BEFORE the CCW is
+        // freed -- a destroyed CCW must never remain reachable through the
+        // cache (a stale entry would be a dangling pointer on the next Get).
+        CcwCacheRemove(ccw);
         icall_gchandle_free(ccw->gcHandle);
         delete ccw; // the destructor frees the registered member names
     }
@@ -7525,6 +7600,15 @@ Il2CppObject* VariantResultToManaged(const uint8_t* variant)
 } // namespace
 
 //------------------------------------------------------------------------------
+// CcwCacheGetInterface forward declaration (runtime scope -- the anonymous
+// namespace above closes at this point). Defined after icall_com_ccw_create
+// (it needs the fresh-CCW create/QI/release balance); the three Marshal
+// icalls (consumers, all at runtime scope) resolve to THIS symbol. The cached
+// CCW is the object->CCW identity invariant (COM-2, phase 2).
+//------------------------------------------------------------------------------
+intptr_t CcwCacheGetInterface(Il2CppObject* managed, const uint8_t iid[16]);
+
+//------------------------------------------------------------------------------
 // The IDataObject data-notification trigger (stage 76 -- EVERY platform: pure
 // memory + vtable forward, no ole32 dependency -- the stage-10 every-platform
 // precedent). icall_com_data_object_notify fires OnDataChange (IAdviseSink
@@ -8160,9 +8244,10 @@ Il2CppObject* icall_com_create_instance_from_com_type(Il2CppObject* typeName)
 // icall_com_get_iunknown_for_object -- Marshal.GetIUnknownForObject. net48
 // semantics (coreclr interopconverter.cpp GetComIPFromObjectRef): the object
 // is exposed through ITS native interface -- an RCW returns its wrapped
-// IUnknown*, a non-RCW managed object is wrapped behind a fresh CCW (the
-// CCW direction, phase-2 caching of the per-object CCW not implemented). In
-// both cases the returned pointer carries a reference the caller must Release.
+// IUnknown*, a non-RCW managed object is wrapped behind the object's CCW
+// (the CCW direction; COM-2 phase-2: the per-object CCW cache returns the
+// SAME CCW on every call). In both cases the returned pointer carries a
+// reference the caller must Release.
 //------------------------------------------------------------------------------
 intptr_t icall_com_get_iunknown_for_object(Il2CppObject* o)
 {
@@ -8173,9 +8258,11 @@ intptr_t icall_com_get_iunknown_for_object(Il2CppObject* o)
     if (o->klass != RcwClass())
     {
         // net48 GetIUnknownForObject on a non-RCW managed object returns the
-        // IUnknown of a CCW created for it (AddRef'd once -- the caller owns
-        // the returned reference; Release to 0 destroys the CCW).
-        return icall_com_ccw_create(o);
+        // IUnknown of the object's CCW (AddRef'd once -- the caller owns the
+        // returned reference; Release to 0 destroys the CCW). COM-2
+        // (phase-2 per-object CCW cache): the SAME object returns the SAME
+        // CCW on every call (the net48 object->CCW identity invariant).
+        return CcwCacheGetInterface(o, kComIidIUnknown);
     }
     auto* r = reinterpret_cast<Il2CppComRcw*>(o);
     if (r->refCount <= 0 || r->unknown == nullptr)
@@ -8203,9 +8290,11 @@ Il2CppObject* icall_com_get_object_for_iunknown(intptr_t pUnk)
 // icall_com_get_idispatch_for_object -- Marshal.GetIDispatchForObject (net48
 // semantics, coreclr GetComIPFromObjectRef with IID_IDispatch -- the ActiveX /
 // automation hosting entry point). A NON-RCW managed object is wrapped behind
-// a fresh CCW (which implements IDispatch) and QI'd for IDispatch; an RCW QIs
-// its wrapped native IUnknown for IDispatch. The returned pointer is AddRef'd
-// once -- the caller owns the reference; Release to 0 destroys the CCW.
+// the object's CCW (which implements IDispatch) and QI'd for IDispatch -- the
+// CCW direction; COM-2 phase-2: the per-object CCW cache returns the SAME CCW
+// on every call. An RCW QIs its wrapped native IUnknown for IDispatch. The
+// returned pointer is AddRef'd once -- the caller owns the reference; Release
+// to 0 destroys the CCW.
 //------------------------------------------------------------------------------
 intptr_t icall_com_get_idispatch_for_object(Il2CppObject* o)
 {
@@ -8216,20 +8305,12 @@ intptr_t icall_com_get_idispatch_for_object(Il2CppObject* o)
     if (o->klass != RcwClass())
     {
         // net48 GetIDispatchForObject on a non-RCW managed object returns the
-        // IDispatch of a CCW created for it. The CCW always supports
-        // IDispatch (phase 2) -- the QI cannot fail. Balance the ccw_create
-        // reference; the returned QI reference is what the caller owns.
-        const intptr_t ccw = icall_com_ccw_create(o);
-        intptr_t dispatch = 0;
-        const int32_t hr = icall_com_query_interface(ccw, kComIidIDispatch, &dispatch);
-        icall_com_release(ccw);
-        if (hr != kComHrOk)
-        {
-            // Unreachable in practice -- the returned reference is already
-            // balanced; surface the failure as a plain no-interface throw.
-            return 0;
-        }
-        return dispatch;
+        // IDispatch of the object's CCW (the CCW always supports IDispatch --
+        // the QI cannot fail). COM-2 (phase-2 per-object CCW cache): the SAME
+        // object returns the SAME CCW on every call (the net48 object->CCW
+        // identity invariant). The returned reference is what the caller
+        // owns; Release to 0 destroys the CCW.
+        return CcwCacheGetInterface(o, kComIidIDispatch);
     }
 #if defined(_WIN32)
     auto* r = reinterpret_cast<Il2CppComRcw*>(o);
@@ -8269,11 +8350,14 @@ intptr_t icall_com_get_idispatch_for_object(Il2CppObject* o)
 // object cannot be resolved to an IID at compile time), so the icall supports
 // ONLY the two constant Type args the transpiler recognizes: IUnknown and
 // IDispatch (the net48-most-used interfaces the CCW implements). A NON-RCW
-// managed object is wrapped behind a fresh CCW and QI'd for the IID; an RCW
-// QIs its wrapped native IUnknown. The returned pointer is AddRef'd once -- the
-// caller owns the reference; Release to 0 destroys the CCW. Any other IID ->
-// E_NOINTERFACE -> InvalidCastException (net48). Null o -> ArgumentNullException.
-// Non-Windows: throws NotSupportedException (the POSIX stub).
+// managed object is wrapped behind the object's CCW and QI'd for the IID --
+// the CCW direction; COM-2 phase-2: the per-object CCW cache returns the SAME
+// CCW on every call (shared with GetIDispatchForObject / GetIUnknownForObject).
+// An RCW QIs its wrapped native IUnknown. The returned pointer is AddRef'd once
+// -- the caller owns the reference; Release to 0 destroys the CCW. Any other
+// IID -> E_NOINTERFACE -> InvalidCastException (net48). Null o ->
+// ArgumentNullException. Non-Windows: throws NotSupportedException (the POSIX
+// stub).
 //------------------------------------------------------------------------------
 intptr_t icall_com_get_com_interface_for_object(Il2CppObject* o, const uint8_t iid[16])
 {
@@ -8299,21 +8383,13 @@ intptr_t icall_com_get_com_interface_for_object(Il2CppObject* o, const uint8_t i
     if (o->klass != RcwClass())
     {
         // net48 GetComInterfaceForObject on a non-RCW managed object returns
-        // the requested interface of a CCW created for it. The CCW always
-        // supports IUnknown and IDispatch (phase 2) -- the QI cannot fail.
-        // Balance the ccw_create reference; the returned QI reference is what
-        // the caller owns.
-        const intptr_t ccw = icall_com_ccw_create(o);
-        intptr_t iface = 0;
-        const int32_t hr = icall_com_query_interface(ccw, iid, &iface);
-        icall_com_release(ccw);
-        if (hr != kComHrOk)
-        {
-            // Unreachable in practice -- the returned reference is already
-            // balanced; surface the failure as a plain no-interface throw.
-            return 0;
-        }
-        return iface;
+        // the requested interface of the object's CCW (the CCW always
+        // supports IUnknown and IDispatch -- the QI cannot fail). COM-2
+        // (phase-2 per-object CCW cache): the SAME object returns the SAME
+        // CCW on every call (the net48 object->CCW identity invariant). The
+        // returned reference is what the caller owns; Release to 0 destroys
+        // the CCW.
+        return CcwCacheGetInterface(o, iid);
     }
     auto* r = reinterpret_cast<Il2CppComRcw*>(o);
     if (r->refCount <= 0 || r->unknown == nullptr)
@@ -8900,6 +8976,44 @@ intptr_t icall_com_ccw_create(Il2CppObject* managed)
     ccw->gcHandle = icall_gchandle_alloc_normal(managed);
     ccw->memberCount = 0;
     return static_cast<intptr_t>(reinterpret_cast<uintptr_t>(ccw));
+}
+
+//------------------------------------------------------------------------------
+// CcwCacheGetInterface -- the shared phase-2 cached-CCW path (COM-2). Returns
+// 'managed's CCW interface pointer for 'iid' with exactly ONE reference the
+// caller owns (net48 GetComIPFromObjectRef shape). First use wraps 'managed'
+// behind a FRESH CCW (icall_com_ccw_create, refcount 1) and caches it -- the
+// fresh CCW's creator reference is balanced right here (QI +1, release -1),
+// so the cache entry holds NO reference and the caller's QI reference is
+// exactly what it owns. A later use finds the cached CCW and QI's it
+// (AddRef -- the caller owns the new reference). The CCW always implements
+// IUnknown and IDispatch (the single 7-slot vtable -- the identity pointer is
+// returned for both), so the QI cannot fail and the returned interface equals
+// the CCW's identity pointer. Every platform (the cached-CCW path is the
+// non-RCW direction, which is every-platform -- see the header contract).
+//------------------------------------------------------------------------------
+intptr_t CcwCacheGetInterface(Il2CppObject* managed, const uint8_t iid[16])
+{
+    Il2CppComCcw* ccw = CcwCacheFind(managed);
+    const bool fresh = (ccw == nullptr);
+    if (fresh)
+    {
+        ccw = reinterpret_cast<Il2CppComCcw*>(icall_com_ccw_create(managed));
+        CcwCacheInsert(ccw);
+    }
+    const intptr_t ccwPtr = reinterpret_cast<intptr_t>(ccw);
+    intptr_t out = 0;
+    const int32_t hr = icall_com_query_interface(ccwPtr, iid, &out);
+    if (fresh)
+    {
+        icall_com_release(ccwPtr); // balance the fresh CCW's creator reference
+    }
+    if (hr != kComHrOk)
+    {
+        // Unreachable: the CCW always implements IUnknown and IDispatch.
+        return 0;
+    }
+    return out;
 }
 
 //------------------------------------------------------------------------------

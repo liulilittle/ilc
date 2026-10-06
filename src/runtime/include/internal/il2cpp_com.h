@@ -871,9 +871,10 @@ Il2CppObject* icall_com_create_instance_from_com_type(Il2CppObject* typeName);
 // IUnknown* as the intptr carrier with a reference ADDED (the caller must
 // Release -- net48 GetIUnknownForObject returns an AddRef'd pointer). net48
 // semantics (coreclr GetComIPFromObjectRef): an RCW returns its wrapped
-// IUnknown*; a NON-RCW managed object is wrapped behind a fresh CCW whose
-// IUnknown is returned (the CCW direction -- phase-2 per-object CCW caching
-// not implemented; the caller's Release to 0 destroys the CCW). Null ->
+// IUnknown*; a NON-RCW managed object is wrapped behind the object's CCW --
+// phase 2 (COM-2): the per-object CCW cache makes the SAME object return the
+// SAME CCW on every call (the net48 object->CCW identity invariant), and the
+// caller's Release to 0 destroys the CCW and purges the cache entry. Null ->
 // ArgumentNullException; a released RCW -> InvalidComObjectException.
 intptr_t icall_com_get_iunknown_for_object(Il2CppObject* o);
 
@@ -907,9 +908,11 @@ void icall_com_final_release_com_object(Il2CppObject* rcw);
 // semantics (coreclr GetComIPFromObjectRef with IID_IDispatch): an RCW QIs
 // its wrapped IUnknown for IDispatch (InvalidCastException-shaped throw when
 // the object does not implement IDispatch, COMException on other HRESULTs); a
-// NON-RCW managed object is wrapped behind a fresh CCW and QI'd for IDispatch
-// (the CCW implements IDispatch on every platform -- the ActiveX hosting
-// entry point). Null -> ArgumentNullException; a released RCW ->
+// NON-RCW managed object is wrapped behind the object's CCW and QI'd for
+// IDispatch (the CCW implements IDispatch on every platform -- the ActiveX
+// hosting entry point). Phase 2 (COM-2): the per-object CCW cache makes the
+// SAME object return the SAME CCW on every call (the net48 object->CCW
+// identity invariant). Null -> ArgumentNullException; a released RCW ->
 // InvalidComObjectException. Non-Windows: the RCW branch is unreachable
 // (RCWs only exist there) and the CCW branch is functional; the Windows-only
 // helpers throw NotSupportedException (platform limitation).
@@ -920,16 +923,20 @@ intptr_t icall_com_get_idispatch_for_object(Il2CppObject* o);
 // carrier with a reference ADDED (the caller must Release -- net48
 // GetComInterfaceForObject returns an AddRef'd pointer). net48 semantics
 // (coreclr GetComIPFromObjectRef with the requested IID): a NON-RCW managed
-// object is wrapped behind a fresh CCW and QI'd for the interface; an RCW QIs
-// its wrapped native IUnknown. The requested interface is identified by the
-// IID 'iid' (16 bytes, .NET Guid layout) -- the managed Type -> IID resolution
-// happens at TRANSPILE time (the runtime Type object cannot be resolved to an
-// IID at compile time), so the icall supports ONLY the two constant Type args
-// the transpiler recognizes: IUnknown (kComIidIUnknown) and IDispatch
-// (kComIidIDispatch) -- the net48-most-used interfaces the CCW implements.
-// Any other IID -> E_NOINTERFACE -> InvalidCastException-shaped throw (net48).
-// Null o -> ArgumentNullException. Non-Windows: throws NotSupportedException
-// (the POSIX stub -- the platform-limitation contract).
+// object is wrapped behind the object's CCW and QI'd for the interface; an RCW
+// QIs its wrapped native IUnknown. The requested interface is identified by
+// the IID 'iid' (16 bytes, .NET Guid layout) -- the managed Type -> IID
+// resolution happens at TRANSPILE time (the runtime Type object cannot be
+// resolved to an IID at compile time), so the icall supports ONLY the two
+// constant Type args the transpiler recognizes: IUnknown (kComIidIUnknown)
+// and IDispatch (kComIidIDispatch) -- the net48-most-used interfaces the CCW
+// implements. Phase 2 (COM-2): the per-object CCW cache makes the SAME object
+// return the SAME CCW on every call (the net48 object->CCW identity
+// invariant; GetIDispatchForObject / GetIUnknownForObject / this icall share
+// the one cached CCW). Any other IID -> E_NOINTERFACE ->
+// InvalidCastException-shaped throw (net48). Null o -> ArgumentNullException.
+// Non-Windows: throws NotSupportedException (the POSIX stub -- the
+// platform-limitation contract).
 intptr_t icall_com_get_com_interface_for_object(Il2CppObject* o, const uint8_t iid[16]);
 
 // IDispatch::GetIDsOfNames wrapper (the RCW direction -- calls vtable slot 5
