@@ -245,4 +245,11 @@ public static class GenericConstraintReader
     public int InstanceSize { get; set; } = 0;   // bytes per instance, >= sizeof(Il2CppObject)
     public uint RefFieldBitmap { get; set; } = 0; // bit i <=> slot i is a GC reference
     public int RefFieldCount { get; set; } = 0;   // number of reference-typed fields
+
+    // G1 (cross-platform arch): the target pointer width this type's layout was
+    // computed for (--arch x86/arm32 -> 4, x64/arm64 -> 8). Defaults to the HOST
+    // width (IntPtr.Size) so direct emitter callers (unit tests) keep the
+    // historical x64 layout; CodeGenerator.Generate stamps every type with the
+    // run's --arch pointer size before any layout/offset/bitmap emission.
+    public int PointerSize { get; set; } = IntPtr.Size;
 }

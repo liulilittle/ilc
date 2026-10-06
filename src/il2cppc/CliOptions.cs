@@ -13,7 +13,7 @@ public sealed class CliOptions
     // Program.cs. The "usage:" keyword is kept verbatim (existing error text
     // stays byte-stable).
     public const string Usage =
-        "usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
+        "usage: il2cppc [--arch x86|x64|arm32|arm64] [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
     public const string AuditUsage = "usage: il2cppc audit-internalcalls <assembly>";
 
     public string InputAssembly { get; init; } = "";
@@ -24,6 +24,14 @@ public sealed class CliOptions
     public string LogPath { get; init; } = "";
     public bool Quiet { get; init; }
     public bool Verbose { get; init; }
+
+    // G1 (cross-platform arch, root gate): the transpiler's TARGET pointer
+    // width. --arch x86/x64/arm32/arm64 normalizes to PointerSize 4|8; when
+    // the flag is absent TargetArch is null and PointerSize defaults to the
+    // HOST width (IntPtr.Size) -- preserving the historical x64 byte-for-byte
+    // output (zero-regression iron rule).
+    public string? TargetArch { get; init; }
+    public int PointerSize { get; init; } = IntPtr.Size;
 }
 
 public sealed class CliParseException : Exception
@@ -40,12 +48,18 @@ public static class CliParser
         string logPath = "";
         var quiet = false;
         var verbose = false;
+        var arch = "";
         var positionals = new List<string>();
 
         for (var i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
+                case "--arch":
+                    if (i + 1 >= args.Length)
+                        throw new CliParseException("option --arch requires a value (x86|x64|arm32|arm64)");
+                    arch = ParseArch(args[++i]);
+                    break;
                 case "--reflection-list":
                     if (i + 1 >= args.Length)
                         throw new CliParseException("option --reflection-list requires a manifest file path");
@@ -99,8 +113,27 @@ public static class CliParser
             LogPath = logPath,
             Quiet = quiet,
             Verbose = verbose,
+            // G1: TargetArch == "" when --arch is absent -> null (host width);
+            // PointerSize = normalized target width (4|8), host IntPtr.Size default.
+            TargetArch = string.IsNullOrEmpty(arch) ? null : arch,
+            PointerSize = arch switch
+            {
+                "x86" or "arm32" => 4,
+                "x64" or "arm64" => 8,
+                _ => IntPtr.Size,
+            },
         };
     }
+
+    // G1 (cross-platform arch): validate the --arch value (case-insensitive)
+    // and return its normalized name (x86/x64/arm32/arm64). An unknown target
+    // is user misuse -> parse error (exit 1), never a silent host-width layout.
+    private static string ParseArch(string value) => value.ToLowerInvariant() switch
+    {
+        "x86" or "x64" or "arm32" or "arm64" => value.ToLowerInvariant(),
+        _ => throw new CliParseException(
+            $"invalid --arch '{value}' (expected one of: x86, x64, arm32, arm64)"),
+    };
 
     private static ReflectionGranularity ParseGranularity(string value) =>
         value.Equals("all", StringComparison.OrdinalIgnoreCase) ? ReflectionGranularity.All

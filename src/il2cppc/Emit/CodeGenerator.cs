@@ -45,6 +45,14 @@ public static class CodeGenerator
     private static StringPool _pool = null!;
     private static readonly object _poolLock = new();
 
+    // G1 (cross-platform arch): the run's TARGET pointer width (4|8).
+    // ArrayElementType (newarr stride) reads it during body emission, which
+    // happens only inside GenerateCore under _poolLock -- Generate stamps it
+    // at the top of every run from --arch (default host IntPtr.Size), so the
+    // historical x64 stride is preserved when --arch is absent. No direct
+    // (non-locked) reader outside a Generate run.
+    private static int PointerSize { get; set; } = IntPtr.Size;
+
     // CG6 (delegate2/delegops): the set of method tokens whose address was
     // taken as a delegate target (ldftn / delegate-new) during body emission.
     // entry.cpp's il2cpp_runtime_init emits one il2cpp_delegate_register_method
@@ -106,6 +114,17 @@ public static class CodeGenerator
         _delegateMethodTokens.Clear();
         if (string.IsNullOrEmpty(assemblyPath) || !File.Exists(assemblyPath))
             throw new ArgumentException($"invalid or missing assemblyPath: '{assemblyPath}'");
+
+        // G1 (cross-platform arch): normalize the TARGET pointer width for this
+        // run. --arch x86/arm32 -> 4, x64/arm64 -> 8; absent = HOST width
+        // (IntPtr.Size) so every historical x64 invocation stays byte-identical.
+        // Stamped into every TypeDef (the layout/offset/bitmap emissions read
+        // t.PointerSize) and into the emit static (ArrayElementType stride).
+        var pointerSize = options?.PointerSize ?? IntPtr.Size;
+        if (pointerSize is not (4 or 8))
+            throw new ArgumentException($"invalid target pointer size {pointerSize} (G1 --arch must normalize to 4 or 8)");
+        PointerSize = pointerSize;
+        foreach (var t in types) t.PointerSize = pointerSize;
 
         Directory.CreateDirectory(Path.Combine(outDir, "src"));
         Directory.CreateDirectory(Path.Combine(outDir, "include", "internal"));
@@ -1728,7 +1747,8 @@ public static class CodeGenerator
         }
         File.WriteAllText(Path.Combine(outDir, "include", "internal", "generated.h"), generatedHeader.ToString());
 
-        EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath));
+        EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath),
+            PointerSize, options?.TargetArch);
         EmitCmake(outDir, allSrc, assemblyPath, types);
         return new GenerateResult(_pool, foldedCount, methodCount);
     }
@@ -9590,8 +9610,8 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // Batch 155b: System.IntPtr/UIntPtr elements -- native int (8 bytes
         // on the 64-bit target) -- allocate like long[] (non-ref, native-int
         // stride); Ldelem_i/Stelem_i read/write the 8-byte payload.
-        if (typeName == "System.IntPtr" || typeName == "System.UIntPtr") return (IntPtr.Size, false);
-        if (typeName == "System.String" || typeName == "System.Object") return (IntPtr.Size, true);
+        if (typeName == "System.IntPtr" || typeName == "System.UIntPtr") return (PointerSize, false);
+        if (typeName == "System.String" || typeName == "System.Object") return (PointerSize, true);
         // D-GC-2 (gcstress3): the newarr gate must GENERALIZE reference
         // elements instead of enumerating BCL/user names. A SZARRAY element is
         // a GC reference iff its type is NOT a value type; value-ness is
@@ -9616,13 +9636,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // Tolerant fallback: unknown value type newarr -- assume 8-byte element
                 // (may cause incorrect GC scan stride, but allows generation to continue)
                 Console.Error.WriteLine($"warning: newarr of value type {typeName} -- using 8-byte element fallback");
-                return (IntPtr.Size, false);
+                return (PointerSize, false);
             }
-            return (IntPtr.Size, true);
+            return (PointerSize, true);
         }
         if (IsKnownBclValueType(typeName))
             throw new NotSupportedException($"newarr of value type {typeName} not supported (audit C4)");
-        return (IntPtr.Size, true);
+        return (PointerSize, true);
     }
 
     // Metadata base type full name of a TypeDef (System.Object root). Used by
@@ -10306,12 +10326,22 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     private static void EmitMain(string outDir, List<TypeDef> types, PEReader pe, MetadataReader md, StringPool pool,
-        IReadOnlySet<string> noTypeInfoOwners, IReadOnlyCollection<string>? reflectedNames, int resourceCount)
+        IReadOnlySet<string> noTypeInfoOwners, IReadOnlyCollection<string>? reflectedNames, int resourceCount,
+        int pointerSize, string? archName)
     {
         var mainType = types.FirstOrDefault(t => t.Methods.Any(m => m.Name == "Main"));
         if (mainType == null) return;
         var w = new CppWriter();
         w.Line("#include \"generated.h\"");
+        w.Line();
+        // G1 (cross-platform arch): double-sided interlock -- the transpiler
+        // laid out every object (InstanceSize / refFieldBitmap / field offsets)
+        // with the TARGET pointer width (--arch, default host width). The
+        // generated C++ must be compiled for the SAME width: sizeof(void*)
+        // mismatching the layout width aborts the build instead of silently
+        // producing a wrong-footprint / wrong-GC-scan binary.
+        w.Line($"// G1 arch interlock: layout pointer width = {pointerSize} (target: {(string.IsNullOrEmpty(archName) ? "host" : archName)}).");
+        w.Line($"static_assert(sizeof(void*) == {pointerSize}, \"il2cppc G1 interlock: generated layout assumes {pointerSize}-byte pointers (source compiles as {pointerSize * 8}-bit); rebuild for the matching target (--arch) or the object layout/GC bitmap drifts\");");
         w.Line();
         // D-ATTR-1 item d: BCL attribute class NAME descriptors (attrdeep
         // recorded defect). Type.GetType("System.ObsoleteAttribute") resolves

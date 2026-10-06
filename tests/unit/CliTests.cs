@@ -629,6 +629,64 @@ public class CliTests
         }
     }
 
+    // G1 (cross-platform arch): --arch normalizes to the target pointer width.
+    [Fact]
+    public void Arch_DefaultIsHostWidth_WhenFlagAbsent()
+    {
+        var opts = CliParser.Parse(new[] { "in.dll", "out" });
+        Assert.Null(opts.TargetArch);
+        Assert.Equal(IntPtr.Size, opts.PointerSize);
+    }
+
+    [Theory]
+    [InlineData("x86", 4)]
+    [InlineData("arm32", 4)]
+    [InlineData("x64", 8)]
+    [InlineData("arm64", 8)]
+    [InlineData("X86", 4)]
+    public void Arch_Value_NormalizesToPointerSize(string arch, int expected)
+    {
+        var opts = CliParser.Parse(new[] { "--arch", arch, "in.dll", "out" });
+        Assert.Equal(arch.ToLowerInvariant(), opts.TargetArch);
+        Assert.Equal(expected, opts.PointerSize);
+    }
+
+    [Fact]
+    public void Arch_InvalidValue_IsUserMisuse()
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            var code = Program.RunMain(new[] { "--arch", "mips", FixturePath(), "out" });
+            Assert.Equal(1, code);
+            Assert.Contains("--arch", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
+    [Fact]
+    public void Arch_MissingValue_IsUserMisuse()
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            var code = Program.RunMain(new[] { "--arch", FixturePath(), "out" });
+            Assert.Equal(1, code);
+            Assert.Contains("--arch", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
     private static string TempManifest(params string[] lines)
     {
         var path = Path.Combine(Path.GetTempPath(), "il2cpp_manifest_" + Guid.NewGuid().ToString("N") + ".txt");

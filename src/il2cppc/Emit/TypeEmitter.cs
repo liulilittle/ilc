@@ -18,12 +18,13 @@ namespace Il2Cpp.Transpiler.Emit;
 //     whole slot. This is deliberately simpler than the CLR's alignment rules
 //     (M3) and keeps the reference-field bitmap exact: bit i is set exactly
 //     when slot i is a GC reference, so the collector scans slot-wise with no
-//     ambiguity. InstanceSize = (slotCount) * 8, always >= sizeof(Il2CppObject).
+//     ambiguity. InstanceSize = (slotCount) * pointerSize, always >= sizeof(Il2CppObject)
+//     (pointerSize = the TARGET pointer width -- 8 on x64/arm64, 4 on x86/arm32; see G1).
 //
 //   Struct emission (EmitClassStruct)
 //     struct {Ns}_{Type} {           // C++ name via TypeCppName
 //         Il2CppObject _obj;         // embedded object header, offset 0
-//         int32_t     field;         // value fields: int32_t at slot n*8
+//         int32_t     field;         // value fields: int32_t at slot n*pointerSize
 //         {Ns}_{T}*   refField;      // reference fields: typed pointer
 //     };
 //     The header is the FIRST member so an Il2CppObject* aliases the struct
@@ -521,7 +522,8 @@ public static class TypeEmitter
     // LayoutInstanceFields -- assign slots / instanceSize / refFieldBitmap.
     // Slot 0 is the object header; each instance field gets the next slot in
     // declaration order. Bit i of the bitmap marks slot i when the field is a
-    // Reference. InstanceSize = slots * sizeof(void*) (8-byte grid).
+    // Reference. InstanceSize = slots * pointerSize (the TARGET pointer width:
+    // 8 on x64/arm64, 4 on x86/arm32 -- G1, see TypeDef.PointerSize).
     //--------------------------------------------------------------------------
     public static void LayoutInstanceFields(TypeDef t)
     {
@@ -553,7 +555,9 @@ public static class TypeEmitter
         }
         t.RefFieldBitmap = bitmap;
         t.RefFieldCount = refCount;
-        t.InstanceSize = slot * IntPtr.Size; // whole 8-byte grid (IntPtr.Size = pointer size)
+        // Whole pointer-size grid (G1: t.PointerSize = the TARGET width, 4|8;
+        // default = host IntPtr.Size so the historical x64 layout is unchanged).
+        t.InstanceSize = slot * t.PointerSize;
     }
 
     //--------------------------------------------------------------------------
@@ -568,7 +572,7 @@ public static class TypeEmitter
         w.Line($"// The object header (Il2CppObject, a klass pointer) is the FIRST member so an");
         w.Line($"// Il2CppObject* aliases this struct; reference fields are GC pointers managed by");
         w.Line($"// the mark-sweep collector (zero-initialized at allocation).");
-        w.Line($"// Slot grid: slot i at byte offset i*8; refFieldBitmap = 0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(t.InstanceSize / 8, '0')}.");
+        w.Line($"// Slot grid: slot i at byte offset i*{t.PointerSize}; refFieldBitmap = 0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(t.InstanceSize / t.PointerSize, '0')}.");
         w.Line("//------------------------------------------------------------------------------");
         w.Line($"struct {TypeCppName(t)}");
         w.Line("{");
@@ -599,7 +603,7 @@ public static class TypeEmitter
             // would collide -- rename the member (access sites use FieldCppName
             // uniformly, see below).
             var memberName = Sanitize(f.Name) == "_obj" ? "_obj_field" : Sanitize(f.Name);
-            w.Line($"{cppType} {memberName}; // slot {f.SlotIndex} at offset {f.SlotIndex * IntPtr.Size} ({(f.TypeKind == FieldTypeKind.Reference ? "GC reference" : "value")})");
+            w.Line($"{cppType} {memberName}; // slot {f.SlotIndex} at offset {f.SlotIndex * t.PointerSize} ({(f.TypeKind == FieldTypeKind.Reference ? "GC reference" : "value")})");
         }
         // enumdeep/enumdeep2/enumops (M7R2 cmake build): an ENUM type is
         // translated as a struct whose only instance field is value__ (the
@@ -726,7 +730,7 @@ public static class TypeEmitter
         w.Line($"Il2CppClass {TypeCppName(t)}_class = {{");
         w.Line($"    \"{ReflectionFullName(t)}\",                                        // name");
         w.Line($"    {sizeExpr},                                            // instanceSize");
-        w.Line($"    0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(Math.Max(t.InstanceSize, 1) / IntPtr.Size, '0')}u,          // refFieldBitmap: bit i <=> slot i is a GC reference");
+        w.Line($"    0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(Math.Max(t.InstanceSize, 1) / t.PointerSize, '0')}u,          // refFieldBitmap: bit i <=> slot i is a GC reference");
         w.Line($"    {t.RefFieldCount},                                        // refFieldCount");
         // Audit H7: wire the resolved user base class -- il2cpp_is_instance
         // walks baseClass and il2cpp_interface_dispatch scans the base chain
@@ -1264,7 +1268,7 @@ public static class TypeEmitter
         // (int32 carrier with no name).
         var fieldEntries = t.InstanceFields
             .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference || !string.IsNullOrEmpty(f.FieldTypeName) ? f.FieldTypeName : "System.Int32",
-                Offset: f.SlotIndex * IntPtr.Size, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
+                Offset: f.SlotIndex * t.PointerSize, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
                 Addr: "nullptr", Flags: f.IsPublic ? 1 : 0))
             .Concat(t.StaticFields.Select(f =>
             {
