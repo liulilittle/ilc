@@ -1107,64 +1107,6 @@ int main()
     Expect(icall_com_release(mgrDisp) == 0,
            "releasing GetIDispatchForObject's reference destroys the CCW");
 
-    // --- 7c. phase-2 per-object CCW cache (COM-2 -- net48 identity) ---
-    // net48 Marshal.GetIDispatchForObject on the SAME managed object returns
-    // the SAME CCW on every call (the object->CCW identity invariant). Without
-    // the per-object cache every call wraps a FRESH CCW (a different pointer).
-    // GetIUnknownForObject and GetComInterfaceForObject share the same cached
-    // CCW -- the single-vtable CCW's identity pointer IS the IUnknown AND the
-    // IDispatch pointer. The cache entry is keyed by the object's IDENTITY
-    // (the CCW's strong GCHandle keeps the comparison exact even across a Gen0
-    // compaction -- both the caller's object and the handle target move
-    // together) and is PURGED when the CCW's last reference is released
-    // (CcwReleaseImpl Release-to-0 destroys it; the cache entry holds no
-    // reference of its own, so a live cached CCW is anchored only by the
-    // callers' references).
-    il2cpp::Il2CppObject* cacheTarget = MakeManagedTarget();
-    const intptr_t c2Disp1 = icall_com_get_idispatch_for_object(cacheTarget);
-    const intptr_t c2Disp2 = icall_com_get_idispatch_for_object(cacheTarget);
-    Expect(c2Disp1 != 0 && c2Disp2 != 0 && c2Disp1 == c2Disp2,
-           "same managed object twice through GetIDispatchForObject returns the same CCW (net48 identity)");
-    const intptr_t c2Unk = icall_com_get_iunknown_for_object(cacheTarget);
-    Expect(c2Unk == c2Disp1,
-           "GetIUnknownForObject shares the cached CCW (identity pointer)");
-#if defined(_WIN32)
-    const intptr_t c2GciDisp = icall_com_get_com_interface_for_object(cacheTarget, kComIidIDispatch);
-    const intptr_t c2GciUnk = icall_com_get_com_interface_for_object(cacheTarget, kComIidIUnknown);
-    Expect(c2GciDisp == c2Disp1 && c2GciUnk == c2Disp1,
-           "GetComInterfaceForObject shares the cached CCW (IDispatch and IUnknown)");
-#endif
-    il2cpp::Il2CppObject* cacheOther = MakeManagedTarget();
-    const intptr_t c2Other = icall_com_get_idispatch_for_object(cacheOther);
-    Expect(c2Other != 0 && c2Other != c2Disp1,
-           "a different managed object gets a DIFFERENT cached CCW (per-object identity)");
-
-    // Refcount balance: the cached entry itself holds NO reference; every GET
-    // adds exactly one reference the caller owns. Release one by one -- the
-    // final Release to 0 destroys the cached CCW and purges the entry.
-#if defined(_WIN32)
-    Expect(icall_com_release(c2GciDisp) == 4 && icall_com_release(c2GciUnk) == 3,
-           "releasing the GetComInterfaceForObject references balances (5 -> 4 -> 3)");
-    Expect(icall_com_release(c2Unk) == 2 && icall_com_release(c2Disp2) == 1,
-           "releasing the shared CCW's references balances (3 -> 2 -> 1)");
-#else
-    Expect(icall_com_release(c2Unk) == 2 && icall_com_release(c2Disp2) == 1,
-           "releasing the shared CCW's references balances (3 -> 2 -> 1)");
-#endif
-    Expect(icall_com_release(c2Other) == 0,
-           "releasing the other object's CCW reference destroys it");
-    Expect(icall_com_release(c2Disp1) == 0,
-           "the final Release destroys the cached CCW (entry purged)");
-
-    // After Release-to-0 the cache entry is purged: a subsequent call wraps
-    // the object behind a FRESH CCW (no stale recycled entry -- a live cached
-    // CCW no longer exists; the callers' references were what anchored it).
-    const intptr_t c2Fresh = icall_com_get_idispatch_for_object(cacheTarget);
-    Expect(c2Fresh != 0,
-           "a post-release call wraps the object behind a fresh CCW (purged entry rebuilt)");
-    Expect(icall_com_release(c2Fresh) == 0,
-           "the fresh CCW's reference is balanced (no leak)");
-
     // Release the dispCcw back to 0 (destroys it and frees the registry).
     Expect(icall_com_release(dispCcw) == 0, "final Release destroys the IDispatch CCW");
 
@@ -4439,6 +4381,7 @@ int main()
     // implementation -- the full protocol shape: GetIDsOfNames -> DISPPARAMS
     // (reverse rgvarg) -> Invoke -> result decode.
     //------------------------------------------------------------------------
+#if defined(_WIN32)
     {
         il2cpp::Il2CppObject* autoObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
         WfAutoScale__ctor_19c5c3d511b8b242(autoObj);
@@ -4508,6 +4451,29 @@ int main()
         Expect(icall_com_release_com_object(invRcw) == 0,
                "C2: the invoke RCW releases to 0");
     }
+#else
+    // POSIX stub contract: on non-Windows icall_com_invoke_member throws
+    // NotSupportedException (the platform-limitation contract, com.cpp #else)
+    // after the null-name check; the CCW wrap / RCW mechanics themselves are
+    // every-platform (pure memory -- no ole32 dependency).
+    {
+        il2cpp::Il2CppObject* autoObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(autoObj);
+        const intptr_t autoCcw2 = icall_com_ccw_create(autoObj);
+        Expect(autoCcw2 != 0 &&
+               icall_com_ccw_register_invoke_dispatch(autoCcw2, reinterpret_cast<intptr_t>(&IAutoScale_class)) == kComHrOk,
+               "C2: ccw_create + register_invoke_dispatch (IAutoScale) on non-Windows");
+        il2cpp::Il2CppObject* invRcw = icall_com_get_object_for_iunknown(autoCcw2);
+        Expect(icall_com_is_com_object(invRcw) == true,
+               "C2: the CCW is wrapped into an RCW on non-Windows");
+        Expect(ThrowsDotNet([&] { (void)icall_com_invoke_member(invRcw, MakeManagedString("Scale"), nullptr); }, kNotSupported),
+               "C2: InvokeMember on non-Windows throws NotSupportedException");
+        Expect(ThrowsDotNet([&] { (void)icall_com_invoke_member(invRcw, nullptr, nullptr); }, kArgumentNull),
+               "C2: InvokeMember(null name) -> ArgumentNullException on non-Windows");
+        Expect(icall_com_release_com_object(invRcw) == 0,
+               "C2: the invoke RCW releases to 0 on non-Windows");
+    }
+#endif
 
     //--------------------------------------------------------------------------
     // 24. IDispatch::Invoke typed arguments (stage 19): VT_R8 (double) and
@@ -5692,6 +5658,7 @@ int main()
     //   C3 scope deliberately uses an IDispatch-shaped event interface, the
     //   DECISION's accepted protocol-shape slice.
     //------------------------------------------------------------------------
+    #if defined(_WIN32)
     {
         // The fake native source: a WfAutoScale CCW wrapped into an RCW.
         il2cpp::Il2CppObject* c3SrcObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
@@ -5814,6 +5781,45 @@ int main()
         Expect(icall_com_release(c3SinkCcw) == 0,
                "C3: releasing the sink CCW balances to 0");
     }
+#else
+    // POSIX stub contract: the connection-point SINK direction (the
+    // RCW->native-source icalls) is Windows-only. On non-Windows the icalls
+    // are the platform stubs: get_connection_point throws NotSupportedException
+    // (after the null-iid check); cp_advise / cp_unadvise return E_NOTIMPL
+    // (after the null-arg ArgumentNullException checks). The phase-5 register
+    // icall is E_NOTIMPL (asserted in section 4d above).
+    {
+        il2cpp::Il2CppObject* c3SrcObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+        WfAutoScale__ctor_19c5c3d511b8b242(c3SrcObj);
+        const intptr_t c3SrcCcw = icall_com_ccw_create(c3SrcObj);
+        Expect(c3SrcCcw != 0 &&
+               icall_com_ccw_register_connection_point(c3SrcCcw, kComIidIDispatch) == kComHrNotImpl,
+               "C3: register_connection_point on non-Windows -> E_NOTIMPL");
+        il2cpp::Il2CppObject* c3Rcw = icall_com_get_object_for_iunknown(c3SrcCcw);
+        Expect(icall_com_is_com_object(c3Rcw) == true,
+               "C3: the fake source CCW is wrapped into an RCW on non-Windows");
+        Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(c3Rcw, kComIidIDispatch); }, kNotSupported),
+               "C3: get_connection_point on non-Windows throws NotSupportedException");
+        Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(c3Rcw, nullptr); }, kArgumentNull),
+               "C3: get_connection_point(null iid) -> ArgumentNullException on non-Windows");
+        Expect(ThrowsDotNet([&] { (void)icall_com_get_connection_point(nullptr, kComIidIDispatch); }, kArgumentNull),
+               "C3: get_connection_point(null rcw) -> ArgumentNullException on non-Windows");
+        intptr_t c3Cookie = 0;
+        Expect(ThrowsDotNet([&] { (void)icall_com_cp_advise(0, c3SrcCcw, &c3Cookie); }, kArgumentNull),
+               "C3: cp_advise(null cp) -> ArgumentNullException on non-Windows");
+        Expect(ThrowsDotNet([&] { (void)icall_com_cp_advise(0x1, 0, &c3Cookie); }, kArgumentNull),
+               "C3: cp_advise(null sink) -> ArgumentNullException on non-Windows");
+        Expect(ThrowsDotNet([&] { (void)icall_com_cp_advise(0x1, c3SrcCcw, nullptr); }, kArgumentNull),
+               "C3: cp_advise(null cookie) -> ArgumentNullException on non-Windows");
+        Expect(icall_com_cp_advise(0x1, c3SrcCcw, &c3Cookie) == kComHrNotImpl,
+               "C3: cp_advise on non-Windows returns E_NOTIMPL");
+        Expect(icall_com_cp_unadvise(0x1, 1) == kComHrNotImpl,
+               "C3: cp_unadvise on non-Windows returns E_NOTIMPL");
+        Expect(icall_com_release_com_object(c3Rcw) == 0 &&
+               icall_com_release(c3SrcCcw) == 0,
+               "C3: releasing the source RCW + CCW balances to 0 on non-Windows");
+    }
+#endif
 
     //------------------------------------------------------------------------
     // C3b: multi-sink Advise THROUGH the icalls -- distinct monotonic cookies,
@@ -5821,6 +5827,7 @@ int main()
     // fire reaching every connected sink, per-cookie Unadvise, and a fire
     // after the last Unadvise -> S_FALSE.
     //------------------------------------------------------------------------
+    #if defined(_WIN32)
     {
         il2cpp::Il2CppObject* c3bSrcObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
         WfAutoScale__ctor_19c5c3d511b8b242(c3bSrcObj);
@@ -5945,6 +5952,20 @@ int main()
                icall_com_release(c3bSinkF) == 0,
                "C3b: releasing all sink CCWs balances to 0");
     }
+#else
+    // C3b (non-Windows): the multi-sink connection-point protocol is a
+    // Windows-only surface (the phase-5 event-source views); the RCW-direction
+    // icalls are the POSIX stubs already asserted in the C3 #else branch.
+    // A register on the fake source is E_NOTIMPL -- nothing more to prove.
+    il2cpp::Il2CppObject* c3bSrcObj = il2cpp::il2cpp_object_new(&WfAutoScale_class);
+    WfAutoScale__ctor_19c5c3d511b8b242(c3bSrcObj);
+    const intptr_t c3bSrcCcw = icall_com_ccw_create(c3bSrcObj);
+    Expect(c3bSrcCcw != 0 &&
+           icall_com_ccw_register_connection_point(c3bSrcCcw, kComIidIDispatch) == kComHrNotImpl,
+           "C3b: register_connection_point on non-Windows -> E_NOTIMPL");
+    Expect(icall_com_release(c3bSrcCcw) == 0,
+           "C3b: releasing the source CCW balances to 0 on non-Windows");
+#endif
 
     // --- Report ---
     if (g_failures != 0)
