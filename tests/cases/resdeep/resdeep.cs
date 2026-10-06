@@ -36,6 +36,32 @@ using System.Resources;
 
 namespace Cases
 {
+    // R8 (W11 resource batch A): a byte[] INSTANCE field -- the SZARRAY (0x1D)
+    // nested-field decode path (TypeEmitter.DecodeNestedFieldSignature). The
+    // field is a GC reference to an array OBJECT (uniform Il2CppObject* slot);
+    // the array itself scans its payload as BYTES (value element, not pointers).
+    // before/after int slots bracket the reference slot so a wrong layout
+    // (offset clobber / missing refFieldBitmap bit -> payload collected) flips
+    // an assertion instead of silently passing.
+    public class ByteFieldHolder
+    {
+        public int before;
+        public byte[] data;
+        public int after;
+    }
+
+    // Nested-type byte[] field -- the R8 wiring point is the NESTED field
+    // decoder (TypeEmitter.DecodeNestedFieldSignature SZARRAY arm); a nested
+    // holder exercises exactly that code path (top-level holders go through
+    // MetadataLoader.DecodeFieldSignature).
+    public class ByteFieldNest
+    {
+        public class NestedByteHolder
+        {
+            public byte[] payload;
+        }
+    }
+
     public static class Resdeep
     {
         public static void Main()
@@ -118,6 +144,35 @@ namespace Cases
             byte[] hdr = new byte[2];
             int hn = s3.Read(hdr, 0, 2);
             Console.WriteLine(hn == 2 && hdr[0] == 0x00 && hdr[1] == 0x01);   // True (stream independent cursor)
+
+            // ===== 7. byte[] INSTANCE field (R8 -- SZARRAY 0x1D field decode) =====
+            ByteFieldHolder h = new ByteFieldHolder();
+            h.before = 7;
+            h.after = 9;
+            h.data = new byte[] { 10, 20, 30, 40, 50 };
+            Console.WriteLine(h.data != null);                               // True (byte[] field holds the array object)
+            Console.WriteLine(h.data.Length == 5);                           // True (Length over the field)
+            Console.WriteLine(h.data[2] == 30);                              // True (element read through the field)
+            Console.WriteLine(h.before == 7);                                // True (value slot before the array-ref slot)
+            Console.WriteLine(h.after == 9);                                 // True (value slot after the array-ref slot)
+            Console.WriteLine(h.before + h.after == 16);                     // True (neighbour slots intact -> offsets correct)
+            h.data[4] = 51;
+            Console.WriteLine(h.data[4] == 51);                              // True (element write through the field)
+            // The byte[] is reachable ONLY through the reference field: a full
+            // collection must keep it alive (refFieldBitmap bit) and leave the
+            // content intact (byte payload scanned as values, not pointers).
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            Console.WriteLine(h.data != null);                               // True (survived collection via the field root)
+            Console.WriteLine(h.data[1] == 20 && h.data[4] == 51);           // True (payload intact after compaction)
+
+            // Nested-type byte[] field (DecodeNestedFieldSignature path).
+            ByteFieldNest.NestedByteHolder nn = new ByteFieldNest.NestedByteHolder();
+            nn.payload = new byte[] { 7, 8, 9 };
+            Console.WriteLine(nn.payload != null && nn.payload[1] == 8);      // True (nested byte[] field decode)
+            GC.Collect();
+            Console.WriteLine(nn.payload[2] == 9);                            // True (nested field root survives GC)
         }
     }
 }

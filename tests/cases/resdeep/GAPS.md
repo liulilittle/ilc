@@ -26,3 +26,14 @@ Case status: **PASS dual-compiler** (mingw + msvc, net48 oracle 27-line byte-exa
   on the field's element byte; SZARRAY (0x1D) has no arm, and static fields
   bypass the decoder. This is the SAME defect as D-GC-1 (shared root).
 - **Suspect**: TypeEmitter.cs DecodeNestedFieldSignature.
+- **STATUS -- CLOSED (W11 resource batch A / R8, 2026-10-07)**: the SZARRAY
+  (0x1D) / ARRAY (0x14) / 0x1F INSTANCE-field arm was added by D-GC-1
+  (ba09646c, 2026-08-21, fork-recovery that consolidated the D-GC work) in BOTH
+  field decoders: MetadataLoader.DecodeFieldSignature (top-level types) and
+  TypeEmitter.DecodeNestedFieldSignature (nested types) now classify an array
+  field as `(Reference, "System.Array")` -- a uniform Il2CppObject* GC slot,
+  bitmap bit set. The byte[] case is now locked by this case's section 7
+  (ByteFieldHolder + ByteFieldNest.NestedByteHolder): field layout
+  (value slots bracketing the array-ref slot), Length/element read/write, and
+  GC survival through the field root -- byte-exact vs the net48 oracle on
+  mingw and msvc.
