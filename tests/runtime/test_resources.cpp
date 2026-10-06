@@ -232,6 +232,18 @@ struct ResBlobBuilder
         data.push_back({ typeCode, std::string(), payload });
         dataCursor += 1 + static_cast<int32_t>(payload.size());
     }
+    // R3: a ByteArray(32) / Stream(33) entry -- ResourceWriter shape: the data
+    // section writes an int32 LITTLE-ENDIAN length + raw bytes after the type
+    // code (NOT the 7-bit length of a String entry). The toolchain .resources
+    // blobs (resgen) use exactly this shape for the resx ResXFileRef
+    // System.Byte[] / System.IO.MemoryStream forms (verified against the
+    // resprobe blob, 2026-10-07).
+    void AddBinary(const char* name, uint8_t typeCode, const std::vector<uint8_t>& payload)
+    {
+        names.push_back({ name, dataCursor });
+        data.push_back({ typeCode, std::string(), payload });
+        dataCursor += 1 + 4 + static_cast<int32_t>(payload.size());
+    }
     void AddNull(const char* name)
     {
         names.push_back({ name, dataCursor });
@@ -297,6 +309,17 @@ struct ResBlobBuilder
                 Append7Bit(b, static_cast<int32_t>(e.value.size()));
                 b.insert(b.end(), e.value.begin(), e.value.end());
             }
+            else if (e.typeCode == 32 || e.typeCode == 33)
+            {
+                // ByteArray(32)/Stream(33): int32 little-endian length + raw
+                // bytes (ResourceWriter BinaryWriter.Write(int) -- see
+                // AddBinary).
+                b.push_back(static_cast<uint8_t>(e.raw.size() & 0xFF));
+                b.push_back(static_cast<uint8_t>((e.raw.size() >> 8) & 0xFF));
+                b.push_back(static_cast<uint8_t>((e.raw.size() >> 16) & 0xFF));
+                b.push_back(static_cast<uint8_t>((e.raw.size() >> 24) & 0xFF));
+                b.insert(b.end(), e.raw.begin(), e.raw.end());
+            }
             else
             {
                 b.insert(b.end(), e.raw.begin(), e.raw.end());
@@ -356,29 +379,37 @@ int main()
     Expect(il2cpp_assembly_get_manifest_resource_stream(nullptr) == nullptr,
            "stream(null) returns null (no throw)");
 
-    // --- 3. ResourceManager.GetString minimal (.resources parser) ----------
-    // The RM path takes the raw BLOB (a separate icall -- the .resources
-    // parser reads bytes), NOT the stream wrapper: il2cpp_resources_get_blob.
+    // --- 3. ResourceManager.GetString (R2 ABI: the receiver IS the BASE NAME
+    // -- the ctor handle-gap stores the baseName string into the receiver
+    // local; the runtime walks the invariant chain "<baseName>.resources") ----
+    // The blob fetch stays on the surface (il2cpp_resources_get_blob is still
+    // the raw-payload provider the ctor wiring used pre-R2).
     Il2CppObject* rmBlob = il2cpp_resources_get_blob(Ms("resx.Strings.resources"));
     Expect(rmBlob != nullptr, "get_blob(resx.Strings.resources) returns a non-null byte[]");
+    Expect(reinterpret_cast<Il2CppArray*>(rmBlob)->length == kStringsResourcesLen,
+           "get_blob(resx.Strings.resources) length == the 265-byte payload");
 
-    Expect(StrEquals(il2cpp_resource_manager_get_string(rmBlob, Ms("Greeting")), "Hello Resource"),
+    Expect(StrEquals(il2cpp_resource_manager_get_string(Ms("resx.Strings"), Ms("Greeting")), "Hello Resource"),
            "GetString(Greeting) == \"Hello Resource\"");
-    Expect(StrEquals(il2cpp_resource_manager_get_string(rmBlob, Ms("AppName")), "ResxFixture"),
+    Expect(StrEquals(il2cpp_resource_manager_get_string(Ms("resx.Strings"), Ms("AppName")), "ResxFixture"),
            "GetString(AppName) == \"ResxFixture\"");
-    Expect(il2cpp_resource_manager_get_string(rmBlob, Ms("Missing")) == nullptr,
+    Expect(il2cpp_resource_manager_get_string(Ms("resx.Strings"), Ms("Missing")) == nullptr,
            "GetString(Missing) returns null (key absent)");
     Expect(il2cpp_resource_manager_get_string(nullptr, Ms("Greeting")) == nullptr,
-           "GetString(null blob) returns null (no throw)");
-    Expect(il2cpp_resource_manager_get_string(rmBlob, nullptr) == nullptr,
+           "GetString(null baseName) returns null (no throw)");
+    Expect(il2cpp_resource_manager_get_string(Ms("resx.Strings"), nullptr) == nullptr,
            "GetString(null key) returns null (no throw)");
 
-    // Malformed blob (bad magic) -> null, no throw.
+    // Malformed blob (bad magic) -> null, no throw (registered so the chain
+    // resolves the base name and the parser rejects the magic).
     const uint8_t badMagic[] = { 0x00, 0x01, 0x02, 0x03, 0x01, 0x00, 0x00, 0x00 };
-    Il2CppArray* badArr = il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(sizeof(badMagic)));
-    std::memcpy(badArr->data, badMagic, sizeof(badMagic));
-    Expect(il2cpp_resource_manager_get_string(reinterpret_cast<Il2CppObject*>(badArr), Ms("Greeting")) == nullptr,
+    const ManifestResourceEntry kBadPool[] = {
+        { "resx.Bad.resources", badMagic, static_cast<int32_t>(sizeof(badMagic)) },
+    };
+    il2cpp_resources_register(kBadPool, 1);
+    Expect(il2cpp_resource_manager_get_string(Ms("resx.Bad"), Ms("Greeting")) == nullptr,
            "GetString(malformed magic) returns null (no throw)");
+    il2cpp_resources_register(kPool, kPoolCount);
 
     // Low-level parser direct (the ResourceReader core port).
     char valueBuf[256];
@@ -404,11 +435,11 @@ int main()
         b.AddString("LongKey", longValue);
         std::vector<uint8_t> blob = b.Finish();
 
-        Il2CppArray* blobArr = il2cpp_array_new(nullptr, 1, false,
-                                                static_cast<int32_t>(blob.size()));
-        std::memcpy(blobArr->data, blob.data(), blob.size());
-        Il2CppObject* rm = reinterpret_cast<Il2CppObject*>(blobArr);
-        Expect(StrEquals(il2cpp_resource_manager_get_string(rm, Ms("LongKey")), longValue),
+        const ManifestResourceEntry kLongPool[] = {
+            { "resx.Long.resources", blob.data(), static_cast<int32_t>(blob.size()) },
+        };
+        il2cpp_resources_register(kLongPool, 1);
+        Expect(StrEquals(il2cpp_resource_manager_get_string(Ms("resx.Long"), Ms("LongKey")), longValue),
                "GetString returns a >512-byte value in full (no length cap)");
 
         char wideBuf[1024];
@@ -416,6 +447,7 @@ int main()
                                                  "LongKey", wideBuf, sizeof(wideBuf))
                    && std::strcmp(wideBuf, longValue) == 0,
                "parse_get_string returns a >512-byte value in full");
+        il2cpp_resources_register(kPool, kPoolCount);
     }
 
     // V1-FILE format is rejected as unsupported (never silently misparsed:
@@ -473,18 +505,19 @@ int main()
         ResBlobBuilder b;
         b.AddString("Greet", "Hi");
         std::vector<uint8_t> blob = b.Finish();
-        Il2CppArray* blobArr = il2cpp_array_new(nullptr, 1, false,
-                                                static_cast<int32_t>(blob.size()));
-        std::memcpy(blobArr->data, blob.data(), blob.size());
-        Il2CppObject* rm = reinterpret_cast<Il2CppObject*>(blobArr);
+        const ManifestResourceEntry kNulPool[] = {
+            { "resx.Nul.resources", blob.data(), static_cast<int32_t>(blob.size()) },
+        };
+        il2cpp_resources_register(kNulPool, 1);
 
-        Expect(StrEquals(il2cpp_resource_manager_get_string(rm, Ms("Greet")), "Hi"),
+        Expect(StrEquals(il2cpp_resource_manager_get_string(Ms("resx.Nul"), Ms("Greet")), "Hi"),
                "GetString(Greet) == \"Hi\" (synthetic blob)");
         const char16_t nulKey[] = { 'G', 'r', 'e', 'e', 't', 0, 'i', 'n', 'g' };
         Il2CppObject* nulName = reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
             nulKey, static_cast<int32_t>(sizeof(nulKey) / sizeof(nulKey[0]))));
-        Expect(il2cpp_resource_manager_get_string(rm, nulName) == nullptr,
+        Expect(il2cpp_resource_manager_get_string(Ms("resx.Nul"), nulName) == nullptr,
                "embedded-NUL key -> null (no truncation false-positive)");
+        il2cpp_resources_register(kPool, kPoolCount);
     }
 
     // Non-string (Int32) and Null-typed resources -> null (net48 GetString).
@@ -494,14 +527,15 @@ int main()
         b.AddTyped("Num", 3, std::vector<uint8_t>(int32Payload, int32Payload + 4));
         b.AddNull("Empty");
         std::vector<uint8_t> blob = b.Finish();
-        Il2CppArray* blobArr = il2cpp_array_new(nullptr, 1, false,
-                                                static_cast<int32_t>(blob.size()));
-        std::memcpy(blobArr->data, blob.data(), blob.size());
-        Il2CppObject* rm = reinterpret_cast<Il2CppObject*>(blobArr);
-        Expect(il2cpp_resource_manager_get_string(rm, Ms("Num")) == nullptr,
+        const ManifestResourceEntry kTypedPool[] = {
+            { "resx.Typed.resources", blob.data(), static_cast<int32_t>(blob.size()) },
+        };
+        il2cpp_resources_register(kTypedPool, 1);
+        Expect(il2cpp_resource_manager_get_string(Ms("resx.Typed"), Ms("Num")) == nullptr,
                "non-string (Int32) resource -> null");
-        Expect(il2cpp_resource_manager_get_string(rm, Ms("Empty")) == nullptr,
+        Expect(il2cpp_resource_manager_get_string(Ms("resx.Typed"), Ms("Empty")) == nullptr,
                "Null-typed resource -> null (net48 GetString parity)");
+        il2cpp_resources_register(kPool, kPoolCount);
     }
 
     // --- 5. RM-CULT: net48 culture fallback chain ---------------------------
@@ -600,9 +634,108 @@ int main()
         Expect(!il2cpp_resources_find_string_fallback("resx.Strings", "en-US", "OnlyUS",
                                                       nullptr, 0),
                "fallback(null outBuf) is a miss");
-        Expect(!il2cpp_resources_find_string_fallback("resx.Strings", "en-US", nullptr,
-                                                      fb, sizeof(fb)),
+Expect(!il2cpp_resources_find_string_fallback("resx.Strings", "en-US", nullptr,
+                                                       fb, sizeof(fb)),
                "fallback(null key) is a miss");
+
+        // R2: the object-level 2-arg GetString icall walks the SAME net48 chain
+        // (baseName + key + cultureName are managed strings; the receiver is the
+        // base name the RM ctor stored, the culture arg is the CultureInfo
+        // handle-gap name string). Byte identity with the low-level fallback.
+        Expect(StrEquals(il2cpp_resource_manager_get_string_culture(Ms("resx.Strings"),
+                                                                    Ms("OnlyUS"), Ms("en-US")), "US Only"),
+               "get_string_culture(en-US, OnlyUS) == 'US Only' (specific)");
+        Expect(StrEquals(il2cpp_resource_manager_get_string_culture(Ms("resx.Strings"),
+                                                                    Ms("OnlyEn"), Ms("en-US")), "English Only"),
+               "get_string_culture(en-US, OnlyEn) == 'English Only' (parent)");
+        Expect(StrEquals(il2cpp_resource_manager_get_string_culture(Ms("resx.Strings"),
+                                                                    Ms("Greeting"), Ms("en-US")), "Hello Resource"),
+               "get_string_culture(en-US, Greeting) == 'Hello Resource' (invariant)");
+        Expect(StrEquals(il2cpp_resource_manager_get_string_culture(Ms("resx.Strings"),
+                                                                    Ms("Greeting"), Ms("en-US-BAD")), "Hello Resource"),
+               "get_string_culture(en-US-BAD, Greeting) == 'Hello Resource' (malformed blob skipped)");
+        // Explicit invariant culture is the EMPTY name string (MethodMap
+        // CultureInfo handle-gap: CultureInfo.InvariantCulture == "").
+        Expect(StrEquals(il2cpp_resource_manager_get_string_culture(Ms("resx.Strings"),
+                                                                    Ms("Greeting"), Ms("")), "Hello Resource"),
+               "get_string_culture(invariant, Greeting) == 'Hello Resource'");
+        Expect(il2cpp_resource_manager_get_string_culture(Ms("resx.Strings"),
+                                                          Ms("OnlyUS"), Ms("fr-FR")) == nullptr,
+               "get_string_culture(fr-FR, OnlyUS) is a miss");
+        Expect(il2cpp_resource_manager_get_string_culture(nullptr, Ms("OnlyUS"), Ms("en-US")) == nullptr,
+               "get_string_culture(null baseName) is null");
+
+        // R3: the culture variants of GetObject/GetStream ride the same chain.
+        Expect(StrEquals(il2cpp_resource_manager_get_object_culture(Ms("resx.Strings"),
+                                                                    Ms("OnlyUS"), Ms("en-US")), "US Only"),
+               "get_object_culture(en-US, OnlyUS) == 'US Only' (string type)");
+        Expect(il2cpp_resource_manager_get_object_culture(Ms("resx.Strings"),
+                                                          Ms("OnlyUS"), Ms("fr-FR")) == nullptr,
+               "get_object_culture(fr-FR, OnlyUS) is null");
+        Expect(il2cpp_resource_manager_get_stream_culture(Ms("resx.Strings"),
+                                                          Ms("Missing"), Ms("en-US")) == nullptr,
+               "get_stream_culture(missing) is null");
+
+        il2cpp_resources_register(kPool, kPoolCount); // restore the fixture pool
+    }
+
+    // --- 6. R3: RM GetObject/GetStream -- ByteArray(32) / Stream(33) --------
+    // resgen-verified net48 ResourceTypeCode values (the resx ResXFileRef
+    // System.Byte[] form produces 32, the System.IO.MemoryStream form produces
+    // 33; 1 == String). The data-section entry shape is identical for all three
+    // (7bit type | 7bit len | bytes); only the type code differs.
+    {
+        ResBlobBuilder b;
+        const uint8_t pngPayload[] = {
+            0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,0x00,0x01,0x02,0x03,
+        };
+        b.AddString("Greet", "Hello Resource");
+        b.AddBinary("Bytes", 32, std::vector<uint8_t>(pngPayload, pngPayload + sizeof(pngPayload)));
+        b.AddBinary("StreamData", 33, std::vector<uint8_t>(pngPayload, pngPayload + sizeof(pngPayload)));
+        b.AddNull("EmptyVal");
+        std::vector<uint8_t> blob = b.Finish();
+        const ManifestResourceEntry kObjPool[] = {
+            { "resx.Obj.resources", blob.data(), static_cast<int32_t>(blob.size()) },
+        };
+        il2cpp_resources_register(kObjPool, 1);
+
+        // GetObject(String) returns the string itself.
+        Expect(StrEquals(il2cpp_resource_manager_get_object(Ms("resx.Obj"), Ms("Greet")), "Hello Resource"),
+               "GetObject(Greet) == 'Hello Resource' (String type)");
+        // GetObject(ByteArray32) returns the EXACT byte[] payload.
+        Expect(BytesEqual(il2cpp_resource_manager_get_object(Ms("resx.Obj"), Ms("Bytes")),
+                          pngPayload, static_cast<int32_t>(sizeof(pngPayload))),
+               "GetObject(Bytes) == the exact 12-byte byte[] payload (type 32)");
+        // GetStream(Stream33) returns a Stream whose Read/ToArray == payload.
+        Expect(StreamEquals(il2cpp_resource_manager_get_stream(Ms("resx.Obj"), Ms("StreamData")),
+                            pngPayload, static_cast<int32_t>(sizeof(pngPayload))),
+               "GetStream(StreamData) Read/ToArray == the exact payload (type 33)");
+        // GetObject(Stream33) also surfaces the payload (as the stream object).
+        Expect(StreamEquals(il2cpp_resource_manager_get_object(Ms("resx.Obj"), Ms("StreamData")),
+                            pngPayload, static_cast<int32_t>(sizeof(pngPayload))),
+               "GetObject(StreamData) is the stream over the exact payload (type 33)");
+        // Null-typed resource -> null (net48 GetObject parity).
+        Expect(il2cpp_resource_manager_get_object(Ms("resx.Obj"), Ms("EmptyVal")) == nullptr,
+               "GetObject(Null-typed) is null");
+        // GetString of a ByteArray entry -> null (documented defensive -- the
+        // net48 ResourceSet.GetString throws InvalidOperationException; the
+        // tolerable-contract collapse is null).
+        Expect(il2cpp_resource_manager_get_string(Ms("resx.Obj"), Ms("Bytes")) == nullptr,
+               "GetString(ByteArray entry) is null (defensive)");
+        // GetStream of a String entry -> null (defensive; the stream is not a
+        // Stream-typed resource).
+        Expect(il2cpp_resource_manager_get_stream(Ms("resx.Obj"), Ms("Greet")) == nullptr,
+               "GetStream(String entry) is null");
+        // Miss across the typed surface -> null, never throws.
+        Expect(il2cpp_resource_manager_get_object(Ms("resx.Obj"), Ms("Missing")) == nullptr,
+               "GetObject(Missing) is null");
+        Expect(il2cpp_resource_manager_get_stream(Ms("resx.Obj"), Ms("Missing")) == nullptr,
+               "GetStream(Missing) is null");
+        // Guard clauses: null args -> null, no crash.
+        Expect(il2cpp_resource_manager_get_object(nullptr, Ms("Bytes")) == nullptr,
+               "GetObject(null baseName) is null");
+        Expect(il2cpp_resource_manager_get_stream(Ms("resx.Obj"), nullptr) == nullptr,
+               "GetStream(null key) is null");
 
         il2cpp_resources_register(kPool, kPoolCount); // restore the fixture pool
     }

@@ -14,7 +14,11 @@
                       Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="Strings.resx" />
+    <!-- R2/R3: the .resources blob is PRE-GENERATED with the NETFX 4.8
+         resgen.exe from Strings.resx (the ResXFileRef byte[]/stream entries
+         need the real ResourceWriter) and embedded as-is; the R1 string-only
+         resx path is the drawable source kept under the same name. -->
+    <EmbeddedResource Include="Strings.resources" />
     <EmbeddedResource Include="img.png" LogicalName="resprobe.img.png" />
     <EmbeddedResource Include="blob.bin" LogicalName="resprobe.blob.bin" />
   </ItemGroup>

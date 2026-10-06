@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <AssemblyName>ressat</AssemblyName>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48"
+                      Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- net48 reads culture resources from SATELLITE ASSEMBLIES only (culture
+         subdirectories of the exe), while the ILC single-assembly model reads
+         the MAIN manifest. Both physical layouts must exist so the two sides
+         walk the SAME logical fallback chain byte-for-byte:
+           * the Strings.en*.resx -> MSBuild auto-routes them to en/ en-US/
+             satellite assemblies (net48 grovels those for culture lookups);
+           * the pre-generated Strings*.resources blobs (NETFX 4.8 resgen)
+             WithCulture=false embed the SAME content in the MAIN manifest
+             (resource-pool.h registers them for the ILC chain). -->
+    <EmbeddedResource Include="Strings.en.resx" />
+    <EmbeddedResource Include="Strings.en-US.resx" />
+    <EmbeddedResource Include="Strings.resources"
+                      LogicalName="ressat.Strings.resources" WithCulture="false" />
+    <EmbeddedResource Include="Strings.en.resources"
+                      LogicalName="ressat.Strings.en.resources" WithCulture="false" />
+    <EmbeddedResource Include="Strings.en-US.resources"
+                      LogicalName="ressat.Strings.en-US.resources" WithCulture="false" />
+  </ItemGroup>
+</Project>

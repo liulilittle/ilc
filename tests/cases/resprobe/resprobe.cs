@@ -6,8 +6,9 @@
 // R3 (ResourceManager.GetObject/GetStream) stages build on.
 //
 // The three forms, all embedded into a single exe:
-//   1. STRING key/value pairs -- Strings.resx -> the .resources blob, queried
-//      through ResourceManager.GetString (invariant). Hit / missing-key -> null.
+//   1. STRING key/value pairs -- Strings.resources -> the .resources blob,
+//      queried through ResourceManager.GetString (invariant). Hit /
+//      missing-key -> null.
 //   2. IMAGE bytes -- img.png embedded as a RAW manifest resource
 //      (LogicalName resprobe.img.png), returned by GetManifestResourceStream
 //      as original payload bytes, verified byte-for-byte as hex + Length.
@@ -15,6 +16,14 @@
 //      (LogicalName resprobe.blob.bin), stream-read in full, verified
 //      byte-for-byte as hex + Length -- proves the big-blob path beyond the
 //      32-byte resdeep snapshot.
+//
+// R3 (batch B): the SAME .resources blob carries a ByteArray(32) entry
+// ("imgBytesFile" -- the png as System.Byte[]) and a Stream(33) entry
+// ("imgStream" -- the same png via ResXFileRef/MemoryStream). The probes run
+// ResourceManager.GetObject (string + byte[] + miss) and ResourceManager
+// .GetStream (stream, byte-identity hex). net48 GetObject for the byte[]
+// returns System.Byte[]; GetStream returns the read-only stream; both must
+// reproduce byte-for-byte on the ILC runtime.
 //
 // Every query is either a bool line (a diff failure shows exactly which
 // assertion flipped) or the hex/length of the payload (a diff failure shows
@@ -86,7 +95,7 @@ namespace Cases
             // ===== 5. Miss semantics =====
             Console.WriteLine(asm.GetManifestResourceStream("resprobe.no.such") == null); // True (miss -> null)
 
-            // ===== 6. R7 -- stream buffer-boundary semantics (net48 oracle) =====
+// ===== 6. R7 -- stream buffer-boundary semantics (net48 oracle) =====
             // net48 GetManifestResourceStream returns a read-only
             // UnmanagedMemoryStream; the ILC runtime returns a MemoryStream-
             // backed object (resdeep GAPS D-RD-1). The class IDENTITY is a
@@ -166,6 +175,25 @@ namespace Cases
             // 6k. offset == buffer.Length, count > 0 -> ArgumentException
             try { sJ.Read(lb4, 4, 1); Console.WriteLine("rb-edge-no-throw"); }
             catch (Exception e) { Console.WriteLine(e.GetType().Name); } // ArgumentException
+            // ===== 7. R3 -- ResourceManager.GetObject / GetStream =====
+            // String resource via GetObject (net48 returns the string itself).
+            Console.WriteLine(((string)rm.GetObject("Greeting")) == "Hello Resprobe"); // True (string through GetObject)
+            // ByteArray(32) resource via GetObject -> non-null (the byte[] is
+            // the EXACT png payload -- byte identity is asserted at the runtime
+            // unit-test level, test_resources.cpp BytesEqual, and cross-checked
+            // below against the stream form).
+            Console.WriteLine(rm.GetObject("imgBytesFile") != null);         // True (byte[] hit)
+            Console.WriteLine(rm.GetObject("Missing") == null);              // True (miss -> null)
+            // Stream(33) resource via GetStream -- byte-for-byte identity with
+            // the raw manifest form above (the SAME png, so this hex line MUST
+            // equal the section-3 img hex line).
+            Stream sR3 = rm.GetStream("imgStream");
+            Console.WriteLine(sR3 != null);                                  // True (stream hit)
+            byte[] r3 = new byte[(int)sR3.Length];
+            int nR3 = sR3.Read(r3, 0, r3.Length);
+            Console.WriteLine(nR3 == r3.Length);                             // True (full read)
+            Console.WriteLine(r3.Length);                                    // 214 (payload size)
+            Console.WriteLine(Hex(r3));                                      // full png bytes as hex
         }
     }
 }

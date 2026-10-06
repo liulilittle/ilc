@@ -105,24 +105,62 @@ Il2CppObject* il2cpp_assembly_get_manifest_resource_names();
 //   from resgen / GenerateResource since .NET 2.0); a V1 blob is REJECTED as
 //   unsupported (a miss), never silently misparsed.
 //
-// GetString(resourcesBlob, name): resourcesBlob is the byte[] payload of the
-// "<BaseName>.resources" manifest resource (the ResourceManager wiring
-// resolves it), name the resource key. Returns the value as a managed string,
-// or null when the key is absent / the blob is malformed. String values are
-// arbitrary length (net48 parity).
+// GetString(baseName, name): baseName is the ResourceManager's BASE NAME
+// string (the ctor handle-gap stores it into the receiver local -- NOT the
+// byte[] blob of the pre-R2 model), name the resource key. The runtime walks
+// the INVARIANT culture chain "<baseName>.resources" (the R2 culture-aware
+// fallback with the empty culture). Returns the value as a managed string, or
+// null when the key is absent / the blob is malformed. String values are
+// arbitrary length (net48 parity -- no fixed buffer cap).
 //
-//   CULTURE FALLBACK (assessed, documented-not-done): net48
+//   CULTURE FALLBACK (R2 -- now wired): net48
 //   ResourceManager.GetString(name, culture) walks the ResourceFallbackManager
 //   chain -- [culture, its parents..., neutral culture, invariant culture] --
 //   resolving "<BaseName>.<culture>.resources" from the manifest at each step.
-//   This surface takes ONE pre-resolved blob and does a single ordinal lookup;
-//   the culture chain must be resolved by the wiring layer (which culture's
-//   blob to pass). A Null-typed (ResourceTypeCode.Null) resource returns null
-//   exactly like net48 (treated as a miss here -- observable behavior is
-//   identical); a non-string value also returns null (net48 ResourceSet throws
-//   InvalidOperationException -- documented defensive deviation).
+//   The chain is implemented by il2cpp_resources_find_string_fallback (below);
+//   il2cpp_resource_manager_get_string_culture is the OBJECT-level wrapper the
+//   transpiled GetString(string, CultureInfo) calls (the culture argument is
+//   the CultureInfo handle-gap name string). A Null-typed resource returns
+//   null exactly like net48; a non-string value also returns null (net48
+//   ResourceSet.GetString throws InvalidOperationException -- documented
+//   defensive deviation).
 //------------------------------------------------------------------------------
-Il2CppObject* il2cpp_resource_manager_get_string(Il2CppObject* resourcesBlob, Il2CppObject* name);
+Il2CppObject* il2cpp_resource_manager_get_string(Il2CppObject* baseName, Il2CppObject* name);
+
+// R2: ResourceManager.GetString(name, culture) -- the culture-aware overload
+// over the SAME chain. baseName/key/cultureName are managed strings (the
+// CultureInfo ctor handle-gap makes the culture argument a culture-name
+// string; the invariant culture is the EMPTY name).
+Il2CppObject* il2cpp_resource_manager_get_string_culture(Il2CppObject* baseName, Il2CppObject* name,
+                                                         Il2CppObject* cultureName);
+
+// R3: ResourceManager.GetObject/GetStream -- typed resource values.
+//
+// net48 ResourceTypeCode (resgen-verified, 2026-10-07 -- the real .resources
+// data-section type codes, NOT the small enum indexes some ports assume):
+//   1 = String, 32 (0x20) = ByteArray, 33 (0x21) = Stream, 0 = Null; other
+//   values are primitives / user types. Payload framing: String(1) is
+//   7bit-length + bytes; ByteArray(32)/Stream(33) are int32 little-endian
+//   length + bytes (ResourceWriter BinaryWriter.Write(int); the 7-bit length
+//   of the dynamic-resource string convention does NOT apply to them).
+//
+// GetObject(baseName, name) walks the culture chain and returns:
+//   String(1)    -> the value as a managed string
+//   ByteArray(32)-> the value as a managed byte[] (Il2CppArray)
+//   Stream(33)   -> a read-only MemoryStream object over the payload
+//   Null/other   -> null (never throws)
+// GetStream(baseName, name) returns the MemoryStream object for Stream(33)
+// only; any other type (incl. ByteArray) is null under the defensive contract
+// (net48 ResourceManager.GetStream throws InvalidOperationException for a
+// non-stream resource -- documented defensive deviation). A missing key is
+// null on both surfaces. The *_culture overloads take the culture-name string
+// and walk the same net48 fallback chain.
+Il2CppObject* il2cpp_resource_manager_get_object(Il2CppObject* baseName, Il2CppObject* name);
+Il2CppObject* il2cpp_resource_manager_get_object_culture(Il2CppObject* baseName, Il2CppObject* name,
+                                                         Il2CppObject* cultureName);
+Il2CppObject* il2cpp_resource_manager_get_stream(Il2CppObject* baseName, Il2CppObject* name);
+Il2CppObject* il2cpp_resource_manager_get_stream_culture(Il2CppObject* baseName, Il2CppObject* name,
+                                                         Il2CppObject* cultureName);
 
 //------------------------------------------------------------------------------
 // Low-level parser (exposed for the runtime test + the ResourceManager
@@ -173,20 +211,28 @@ bool il2cpp_resources_find_string_fallback(const char* baseName, const char* cul
                                            const char* key, char* outBuf, int32_t outCap);
 
 //------------------------------------------------------------------------------
-// RM-CTOR (resmgmt/resops, b23): ResourceManager..ctor(string baseName,
-// Assembly assembly) -- resolve the INVARIANT "<BaseName>.resources" blob from
-// the registry and return it as a managed byte[] (the GetString receiver
-// slot). The single-assembly AOT model pins the invariant culture, so the
-// ctor's base name maps directly to the registry entry; the Assembly argument
-// (assemblies) is DROPPED (the registry IS the manifest -- D1 single writer).
-// Returns null when the base name is absent / over-long / non-ASCII (a ctor
-// receiver with no blob makes every GetString a null result -- net48
-// defensive contract).
+// RM-CTOR (resmgmt/resops, b23 + R2): ResourceManager..ctor(string baseName,
+// Assembly assembly) -- R2: the receiver stores the BASE NAME as a managed
+// string (the assembled "<BaseName>.<culture>.resources" names are resolved by
+// the culture chain at GetString/GetObject/GetStream time). The single-assembly
+// AOT model pins the invariant culture, so the chain terminator IS the registry
+// entry "<baseName>.resources"; the Assembly argument (assemblies) is DROPPED
+// (the registry IS the manifest -- D1 single writer). Returns null when the
+// base name is absent / over-long / non-ASCII (a ctor receiver with no usable
+// base name makes every lookup a null result -- net48 defensive contract).
 //
 // The transpiler stores the result INTO the receiver local (ResultIsReceiver
 // handle-gap -- the XmlDocument.LoadXml precedent), so every subsequent
-// GetString(receiver, key) passes the blob as its resourcesBlob slot.
+// GetString/GetObject/GetStream(receiver, key[, culture]) passes the base name
+// string as its first slot.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_resource_manager_ctor_resolve(Il2CppObject* baseName, Il2CppObject* assembly);
+
+// R2: new CultureInfo(string) handle-gap -- the transpiled ctor stores the
+// CULTURE-NAME string into the receiver local (the CultureInfo object IS its
+// name, the MethodMap.CultureInfo.cs get_InvariantCulture convention). The
+// culture-aware GetString/GetObject/GetStream surface consumes the receiver as
+// the cultureName slot. null -> null (defensive).
+Il2CppObject* il2cpp_resource_manager_culture_from_name(Il2CppObject* name);
 
 } // namespace il2cpp

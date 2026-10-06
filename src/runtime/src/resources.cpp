@@ -6,12 +6,17 @@
 //     by the generated resource-pool.h fill);
 //   * Assembly.GetManifestResourceStream(name) -> byte[] (raw payload);
 //   * Assembly.GetManifestResourceNames() -> string[];
-//   * ResourceManager.GetString minimal -- .resources binary parsing (the
-//     ResourceReader core port, see il2cpp_resources.h for the format).
+//   * ResourceManager.GetString / GetString(name, culture) (R2) -- the
+//     .resources binary parsing (Magic 0xBEEFCACE + name/value tables) over
+//     the net48 CULTURE FALLBACK CHAIN, receiver = the base name string;
+//   * ResourceManager.GetObject / GetStream (R3) -- typed values (String=1,
+//     ByteArray=32, Stream=33 -- resgen-verified net48 ResourceTypeCode),
+//     including the *_culture chain variants.
 //
 // Cross-platform: byte arrays are allocated through the managed allocator
-// (il2cpp_array_new), strings through il2cpp_string_new_from_utf8 -- no
-// platform code. All lookups are ordinal; a miss returns null, never throws.
+// (il2cpp_array_new), strings through il2cpp_string_new_from_utf8, streams
+// through il2cpp_stream_memory_from_bytes -- no platform code. All lookups are
+// ordinal; a miss returns null, never throws.
 //
 // Parser net48 parity (audited against reference/netcore ResourceReader.cs):
 //   * V2-only file format -- a V1-FILE data entry begins with a type-TABLE
@@ -186,13 +191,14 @@ struct BlobReader
     }
 };
 
-// Locate the UTF-8 string value for 'name' directly inside the blob (no copy).
-// Returns true and sets *valuePtr/*valueLen on a String(1) hit. Every miss /
-// malformed case returns false -- the net48 ResourceManager.GetString error
-// paths (missing key, non-string value, corrupt blob) all surface as a null
-// result under the defensive contract (see the header).
-bool FindStringValue(const uint8_t* blob, int32_t blobLen, const char* name,
-                     const uint8_t** valuePtr, int32_t* valueLen)
+// Locate the value for 'name' directly inside the blob (no copy). On a name
+// match, sets *outTypeCode (the net48 ResourceTypeCode the entry carries),
+// *valuePtr/*valueLen over the raw payload for the payload-bearing codes
+// (String=1, ByteArray=32, Stream=33 -- all three share the 7bit-len + bytes
+// shape); Null(0) and other (primitive/user) types set an empty value. Every
+// miss / malformed case returns false.
+bool FindResourceValue(const uint8_t* blob, int32_t blobLen, const char* name,
+                       int32_t* outTypeCode, const uint8_t** valuePtr, int32_t* valueLen)
 {
     BlobReader r{ blob, blobLen, 0 };
 
@@ -363,20 +369,47 @@ bool FindStringValue(const uint8_t* blob, int32_t blobLen, const char* name,
         {
             continue;
         }
-        if (typeCode != 1) // String (incl. Null=0 and non-string types)
+        *outTypeCode = typeCode;
+        if (typeCode == 1 || typeCode == 32 || typeCode == 33)
         {
-            return false; // non-string resource: GetString returns null
+            // String(1): 7bit length + UTF-8 bytes. ByteArray(32)/Stream(33):
+            // int32 little-endian length + raw bytes (ResourceWriter writes
+            // BinaryWriter.Write(int) for those two -- resgen-verified).
+            int32_t vLen;
+            bool lenOk = (typeCode == 1)
+                ? (dr.Read7Bit(vLen) && vLen >= 0 && dr.HasBytes(vLen))
+                : (dr.ReadI4(vLen) && vLen >= 0 && dr.HasBytes(vLen));
+            if (!lenOk)
+            {
+                return false;
+            }
+            *valuePtr = dr.p + static_cast<size_t>(dr.pos);
+            *valueLen = vLen;
         }
-        int32_t vLen;
-        if (!dr.Read7Bit(vLen) || vLen < 0 || !dr.HasBytes(vLen))
+        else
         {
-            return false;
+            // Null(0) / primitives / user types: no payload to surface.
+            *valuePtr = nullptr;
+            *valueLen = 0;
         }
-        *valuePtr = dr.p + static_cast<size_t>(dr.pos);
-        *valueLen = vLen;
         return true;
     }
     return false;
+}
+
+// String-only filter over FindResourceValue (the net48 ResourceManager
+// GetString contract: String(1) values return the value; every other type
+// collapses to a miss -- the error path surfaces as null under the defensive
+// contract).
+bool FindStringValue(const uint8_t* blob, int32_t blobLen, const char* name,
+                     const uint8_t** valuePtr, int32_t* valueLen)
+{
+    int32_t typeCode;
+    if (!FindResourceValue(blob, blobLen, name, &typeCode, valuePtr, valueLen))
+    {
+        return false;
+    }
+    return typeCode == 1;
 }
 
 } // namespace
@@ -480,36 +513,59 @@ bool il2cpp_resources_parse_get_string(const uint8_t* blob, int32_t blobLen,
 }
 
 //------------------------------------------------------------------------------
-// ResourceManager.GetString(name): resourcesBlob is the byte[] payload of the
-// "<BaseName>.resources" manifest resource; name the resource key. Returns the
-// value as a managed string, or null when the key is absent / malformed.
-// Values are arbitrary length (net48 parity -- no fixed buffer cap).
+// R2/R3: ResourceManager typed-value surface.
+//
+// All five entry points take the BASE NAME string as the receiver slot (the
+// ctor handle-gap stores it), the resource KEY, and (for the *_culture family)
+// the CULTURE-NAME string (the CultureInfo handle-gap; the invariant culture
+// is the empty name). The chain walk resolves "<baseName>.<culture>.resources"
+// per culture step; the payload is then shaped by the entry's net48
+// ResourceTypeCode:
+//   1  = String    -> managed string
+//   32 = ByteArray -> managed byte[] (Il2CppArray)
+//   33 = Stream    -> read-only MemoryStream object
+//   0  / other     -> null (defensive)
 //------------------------------------------------------------------------------
-Il2CppObject* il2cpp_resource_manager_get_string(Il2CppObject* resourcesBlob, Il2CppObject* name)
+
+namespace {
+
+// Forward declaration -- FindChainValue (the typed culture-chain walk) is
+// defined in the RM-CULT section below, together with the chain helpers.
+bool FindChainValue(const char* baseName, const char* cultureName, const char* key,
+                    int32_t* outTypeCode, const uint8_t** valuePtr, int32_t* valueLen);
+
+// Shared arg guards + typed chain walk. Returns true and fills *outType /
+// *valuePtr / *valueLen when a chain step carries the key (any type).
+bool ResourceManagerResolve(Il2CppObject* baseName, Il2CppObject* name,
+                            Il2CppObject* cultureNameObj,
+                            int32_t* outType, const uint8_t** valuePtr, int32_t* valueLen)
 {
-    char nbuf[kMaxNameLen];
-    if (!NameFromManagedString(name, nbuf))
+    char baseBuf[kMaxNameLen];
+    if (!NameFromManagedString(baseName, baseBuf))
     {
-        return nullptr;
+        return false;
     }
-    if (resourcesBlob == nullptr)
+    char keyBuf[kMaxNameLen];
+    if (!NameFromManagedString(name, keyBuf))
     {
-        return nullptr;
+        return false;
     }
-    auto arr = reinterpret_cast<Il2CppArray*>(resourcesBlob);
-    if (arr->length < 0)
+    char cultBuf[kMaxNameLen];
+    const char* culture = "";
+    if (cultureNameObj != nullptr)
     {
-        return nullptr;
+        if (!NameFromManagedString(cultureNameObj, cultBuf))
+        {
+            return false;
+        }
+        culture = cultBuf;
     }
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(arr->data);
-    const uint8_t* value = nullptr;
-    int32_t valueLen = 0;
-    if (!FindStringValue(data, arr->length, nbuf, &value, &valueLen))
-    {
-        return nullptr;
-    }
-    // The UTF-8 value may not be NUL-terminated in the blob; copy it to a
-    // transient NUL-terminated buffer for the managed-string codec.
+    return FindChainValue(baseBuf, culture, keyBuf, outType, valuePtr, valueLen);
+}
+
+// Managed string from a raw UTF-8 payload (not NUL-terminated in the blob).
+Il2CppObject* Utf8PayloadToString(const uint8_t* value, int32_t valueLen)
+{
     std::vector<char> utf8(static_cast<size_t>(valueLen) + 1u);
     if (valueLen > 0)
     {
@@ -517,6 +573,144 @@ Il2CppObject* il2cpp_resource_manager_get_string(Il2CppObject* resourcesBlob, Il
     }
     utf8[valueLen] = '\0';
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(utf8.data()));
+}
+
+} // namespace
+
+// ResourceManager.GetString(baseName, name): the invariant chain (the RM
+// receiver is the base name, not a blob). Values are arbitrary length.
+Il2CppObject* il2cpp_resource_manager_get_string(Il2CppObject* baseName, Il2CppObject* name)
+{
+    int32_t typeCode;
+    const uint8_t* value = nullptr;
+    int32_t valueLen = 0;
+    if (!ResourceManagerResolve(baseName, name, nullptr, &typeCode, &value, &valueLen))
+    {
+        return nullptr;
+    }
+    if (typeCode != 1)
+    {
+        return nullptr; // non-string value: GetString collapses to null (defensive)
+    }
+    return Utf8PayloadToString(value, valueLen);
+}
+
+// ResourceManager.GetString(baseName, name, cultureName): the 2-arg culture
+// overload (R2) -- GetString(string, CultureInfo), culture arg = the
+// CultureInfo handle-gap name string. Same chain as
+// il2cpp_resources_find_string_fallback, byte-identical string results.
+Il2CppObject* il2cpp_resource_manager_get_string_culture(Il2CppObject* baseName, Il2CppObject* name,
+                                                         Il2CppObject* cultureName)
+{
+    int32_t typeCode;
+    const uint8_t* value = nullptr;
+    int32_t valueLen = 0;
+    if (!ResourceManagerResolve(baseName, name, cultureName, &typeCode, &value, &valueLen))
+    {
+        return nullptr;
+    }
+    if (typeCode != 1)
+    {
+        return nullptr;
+    }
+    return Utf8PayloadToString(value, valueLen);
+}
+
+// ResourceManager.GetObject(baseName, name): typed value over the invariant chain.
+Il2CppObject* il2cpp_resource_manager_get_object(Il2CppObject* baseName, Il2CppObject* name)
+{
+    int32_t typeCode;
+    const uint8_t* value = nullptr;
+    int32_t valueLen = 0;
+    if (!ResourceManagerResolve(baseName, name, nullptr, &typeCode, &value, &valueLen))
+    {
+        return nullptr;
+    }
+    switch (typeCode)
+    {
+        case 1:  return Utf8PayloadToString(value, valueLen);                    // string
+        case 32: // byte[] -- the exact payload (net48 System.Byte[])
+        {
+            Il2CppArray* arr = il2cpp_array_new(nullptr, 1, false, valueLen);
+            if (valueLen > 0)
+            {
+                std::memcpy(il2cpp_array_get_elem_ptr(arr, 0), value, static_cast<size_t>(valueLen));
+            }
+            return reinterpret_cast<Il2CppObject*>(arr);
+        }
+        case 33: // stream -- a read-only MemoryStream over the payload
+            return il2cpp::runtime::il2cpp_stream_memory_from_bytes(value, valueLen);
+        default: // Null / primitives / user types -> null (defensive)
+            return nullptr;
+    }
+}
+
+// ResourceManager.GetObject(baseName, name, cultureName) (R3 culture variant).
+Il2CppObject* il2cpp_resource_manager_get_object_culture(Il2CppObject* baseName, Il2CppObject* name,
+                                                         Il2CppObject* cultureName)
+{
+    int32_t typeCode;
+    const uint8_t* value = nullptr;
+    int32_t valueLen = 0;
+    if (!ResourceManagerResolve(baseName, name, cultureName, &typeCode, &value, &valueLen))
+    {
+        return nullptr;
+    }
+    switch (typeCode)
+    {
+        case 1:  return Utf8PayloadToString(value, valueLen);
+        case 32:
+        {
+            Il2CppArray* arr = il2cpp_array_new(nullptr, 1, false, valueLen);
+            if (valueLen > 0)
+            {
+                std::memcpy(il2cpp_array_get_elem_ptr(arr, 0), value, static_cast<size_t>(valueLen));
+            }
+            return reinterpret_cast<Il2CppObject*>(arr);
+        }
+        case 33:
+            return il2cpp::runtime::il2cpp_stream_memory_from_bytes(value, valueLen);
+        default:
+            return nullptr;
+    }
+}
+
+// ResourceManager.GetStream(baseName, name): a Stream(33) resource as a
+// read-only MemoryStream over the payload. Any other type (incl. ByteArray) is
+// null -- net48 ResourceManager.GetStream throws InvalidOperationException for
+// a non-stream resource (documented defensive collapse).
+Il2CppObject* il2cpp_resource_manager_get_stream(Il2CppObject* baseName, Il2CppObject* name)
+{
+    int32_t typeCode;
+    const uint8_t* value = nullptr;
+    int32_t valueLen = 0;
+    if (!ResourceManagerResolve(baseName, name, nullptr, &typeCode, &value, &valueLen))
+    {
+        return nullptr;
+    }
+    if (typeCode != 33)
+    {
+        return nullptr;
+    }
+    return il2cpp::runtime::il2cpp_stream_memory_from_bytes(value, valueLen);
+}
+
+// ResourceManager.GetStream(baseName, name, cultureName) (R3 culture variant).
+Il2CppObject* il2cpp_resource_manager_get_stream_culture(Il2CppObject* baseName, Il2CppObject* name,
+                                                         Il2CppObject* cultureName)
+{
+    int32_t typeCode;
+    const uint8_t* value = nullptr;
+    int32_t valueLen = 0;
+    if (!ResourceManagerResolve(baseName, name, cultureName, &typeCode, &value, &valueLen))
+    {
+        return nullptr;
+    }
+    if (typeCode != 33)
+    {
+        return nullptr;
+    }
+    return il2cpp::runtime::il2cpp_stream_memory_from_bytes(value, valueLen);
 }
 
 //------------------------------------------------------------------------------
@@ -598,6 +792,63 @@ bool StepParentCulture(char* culture)
         culture[0] = '\0'; // neutral -> invariant
     }
     return true;
+}
+
+//------------------------------------------------------------------------------
+// R3: TYPED chain walk (net48 GetObject/GetStream semantics). The walk is the
+// il2cpp_resources_find_string_fallback loop, generalized to return ANY value
+// the first chain step whose blob CONTAINS the key carries (the first
+// ResourceSet that has the key wins -- net48 GetObject). A step whose blob
+// misses the key or is malformed is skipped (provider fault recovery). On a
+// hit, sets *outTypeCode (net48 ResourceTypeCode: 1/32/33 carry *valuePtr/
+// *valueLen; 0 and primitives carry an empty value). cultureName null == the
+// invariant chain; an over-long culture name is a miss (no registered name can
+// match).
+//------------------------------------------------------------------------------
+bool FindChainValue(const char* baseName, const char* cultureName, const char* key,
+                    int32_t* outTypeCode, const uint8_t** valuePtr, int32_t* valueLen)
+{
+    if (baseName == nullptr || key == nullptr)
+    {
+        return false;
+    }
+    char culture[64];
+    if (cultureName == nullptr || cultureName[0] == '\0')
+    {
+        culture[0] = '\0';
+    }
+    else
+    {
+        const int32_t cultureLen = static_cast<int32_t>(std::strlen(cultureName));
+        if (cultureLen >= static_cast<int32_t>(sizeof(culture)))
+        {
+            return false;
+        }
+        std::memcpy(culture, cultureName, static_cast<size_t>(cultureLen) + 1);
+    }
+
+    char resName[512];
+    for (;;)
+    {
+        if (BuildCultureResourceName(baseName, culture, resName,
+                                     static_cast<int32_t>(sizeof(resName))) < 0)
+        {
+            return false; // base name too long: cannot be a registered name
+        }
+        const ManifestResourceEntry* e = FindResource(resName);
+        if (e != nullptr && e->length > 0)
+        {
+            if (FindResourceValue(e->data, e->length, key, outTypeCode, valuePtr, valueLen))
+            {
+                return true; // the first chain step that HAS the key wins
+            }
+        }
+        if (!StepParentCulture(culture))
+        {
+            break;
+        }
+    }
+    return false;
 }
 
 } // namespace
