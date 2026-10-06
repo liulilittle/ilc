@@ -5469,9 +5469,11 @@ public static class StackFold
     // (the value slot's managed type: int32 -> il2cpp_box_int32 /
     // il2cpp_unbox_int32, double -> icall_box_double / icall_unbox_double, ...).
     // The old bridge hardcoded int32; a double slot would box/unbox only its
-    // low 32 bits. Returns the legacy int32 pair for undecodable concrete types
-    // (conservative -- the pre-D5 default) and null for non-shared / non-byref
-    // shapes (caller keeps the zero-copy pass-through).
+    // low 32 bits. GN-1 (裁决②): an UNKNOWN concrete type (user struct / enum /
+    // GenericInst value type) is now LOUD-rejected instead of silently falling
+    // to the int32 pair -- the legal System.Int32 branch keeps the legacy
+    // int32 pair explicitly. Returns null for non-shared / non-byref shapes
+    // (caller keeps the zero-copy pass-through).
     static (string BoxFn, string BoxDeref, string UnboxFn, string UnboxKind)? SharedByrefConcreteBridge(
         MetadataReader md, int token, int paramIndex)
     {
@@ -5496,8 +5498,19 @@ public static class StackFold
             "System.UInt32" => ("il2cpp::runtime::icall_box_uint", "deref:ui", "il2cpp::runtime::icall_unbox_uint", "i"),
             "System.UInt64" => ("il2cpp::runtime::icall_box_ulong", "deref:ul", "il2cpp::runtime::icall_unbox_ulong", "l"),
             "System.Single" => ("il2cpp::runtime::icall_box_float", "deref:d", "il2cpp::runtime::icall_unbox_float", "d"),
-            // Int32 / undecodable concrete type -> the legacy int32 pair.
-            _ => ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i"),
+            // GN-1 (裁决②): the legal Int32 branch -- the shared ABI's dedicated
+            // box helper (takes the null class-slot first arg, see the caller).
+            "System.Int32" => ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i"),
+            // GN-1 (裁决②): unknown concrete argument (user struct / enum /
+            // nested GenericInst value type / undecodable shape) is NO LONGER
+            // silently boxed/unboxed as int32 -- that would corrupt the value.
+            // LOUD-reject: the fold catch turns the enclosing method into the
+            // M5 stub (runtime throws a managed NotSupportedException). The
+            // per-instance (P25b) path or an explicit Int32 instantiation are
+            // the supported ways to use a struct/enum T.
+            var other => throw new NotSupportedException(
+                $"shared byref-MVAR generic argument '{other ?? "<?>"}' has no box/unbox bridge " +
+                "(only Int32 + primitives share the byref bridge); user struct/enum T 请走 per-instance 泛型(P25b) 或显式 Int32 特例化"),
         };
     }
 
