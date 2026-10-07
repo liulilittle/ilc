@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <AssemblyName>resr6</AssemblyName>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48"
+                      Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- R6: the .resources blobs are PRE-GENERATED with the NETFX 4.8 resgen.exe
+         from the .resx drawable sources (Strings.resx / Alt.resx) so the runtime
+         parses the exact net48 blob. The non-ASCII manifest name (resr6.数据.bin)
+         exercises the registry UTF-8 path. -->
+    <EmbeddedResource Include="Strings.resources"
+                      LogicalName="resr6.Strings.resources" WithCulture="false" />
+    <EmbeddedResource Include="Alt.resources"
+                      LogicalName="resr6.Résumé.resources" WithCulture="false" />
+    <EmbeddedResource Include="payload.bin" LogicalName="resr6.数据.bin" />
+  </ItemGroup>
+</Project>

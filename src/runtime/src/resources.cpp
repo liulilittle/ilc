@@ -54,12 +54,13 @@ int32_t g_resCount = 0;
 
 constexpr int32_t kMaxNameLen = 256;
 
-// Convert a managed string to an ASCII/UTF-8 C buffer (ordinal compare
-// target). Mirrors reflect_base's AsciiFromManagedString contract: ASCII only,
-// null / over-long / embedded-NUL / non-ASCII -> false. Resource names are
-// ASCII by project convention (generated code is pure ASCII). An embedded NUL
-// is rejected (rather than truncating the key and risking a false-positive
-// hit on a shorter name -- net48 has no such name, so the lookup is a miss).
+// Convert a managed string to a UTF-8 C buffer (ordinal compare target). R6
+// (batch C): the key / base-name comparison is UTF-8, so the conversion is the
+// shared il2cpp_resources_utf16_to_utf8 (surrogate-pair aware) -- a non-ASCII
+// key now reaches the compare instead of being rejected. An embedded NUL is
+// rejected (rather than truncating the key and risking a false-positive hit on
+// a shorter name -- net48 has no such name, so the lookup is a miss); an
+// unpaired surrogate or an over-long UTF-8 encoding is also a miss.
 bool NameFromManagedString(Il2CppObject* name, char (&buf)[kMaxNameLen])
 {
     if (name == nullptr)
@@ -67,21 +68,11 @@ bool NameFromManagedString(Il2CppObject* name, char (&buf)[kMaxNameLen])
         return false;
     }
     auto s = reinterpret_cast<Il2CppString*>(name);
-    if (s->length < 0 || s->length >= kMaxNameLen)
+    if (s->length < 0)
     {
         return false;
     }
-    for (int32_t i = 0; i < s->length; i++)
-    {
-        char16_t u = s->chars[i];
-        if (u == 0 || u > 0x7F)
-        {
-            return false;
-        }
-        buf[i] = static_cast<char>(u);
-    }
-    buf[s->length] = '\0';
-    return true;
+    return il2cpp_resources_utf16_to_utf8(s->chars, s->length, buf, kMaxNameLen) >= 0;
 }
 
 const ManifestResourceEntry* FindResource(const char* name)
@@ -327,23 +318,25 @@ bool FindResourceValue(const uint8_t* blob, int32_t blobLen, const char* name,
         {
             continue;
         }
-        // Name bytes are UTF-16 (Unicode); compare ordinally against the
-        // ASCII key (name bytes are 2 per char; ASCII keys have high byte 0).
-        // Exact-length ordinal compare == FastResourceComparer.CompareOrdinal.
+        // Name bytes are UTF-16 (Unicode). R6 (batch C): encode them to UTF-8
+        // and compare ordinally against the UTF-8 key -- for valid UTF-16, byte
+        // equality of the UTF-8 encodings is equivalent to net48's ordinal
+        // UTF-16 unit compare (FastResourceComparer.CompareOrdinal), across
+        // ASCII and non-ASCII keys alike. A name too long for the max key
+        // buffer, a malformed surrogate, or an embedded NUL cannot match.
         const uint8_t* nameBytes = nr.p + static_cast<size_t>(nr.pos);
         const int32_t unitCount = byteLen / 2;
         const char* key = name;
-        bool match = true;
-        for (int32_t u = 0; u < unitCount; u++)
+        char nameUtf8[kMaxNameLen];
+        const int32_t nameUtf8Len = il2cpp_resources_utf16_to_utf8(
+            reinterpret_cast<const char16_t*>(nameBytes), unitCount,
+            nameUtf8, static_cast<int32_t>(sizeof(nameUtf8)));
+        if (nameUtf8Len < 0)
         {
-            char16_t unit = static_cast<char16_t>(nameBytes[2 * u] | (nameBytes[2 * u + 1] << 8));
-            if (unit > 0x7F || key[u] == '\0' || static_cast<char>(unit) != key[u])
-            {
-                match = false;
-                break;
-            }
+            continue; // malformed / over-long: can never match the key
         }
-        if (!match || key[unitCount] != '\0')
+        if (nameUtf8Len != static_cast<int32_t>(std::strlen(key)) ||
+            std::memcmp(nameUtf8, key, static_cast<size_t>(nameUtf8Len)) != 0)
         {
             continue;
         }

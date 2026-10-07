@@ -7,13 +7,14 @@
 // (resources.cpp) resolves "<baseName>.<culture>.resources" for every culture
 // on the net48 fallback path at QUERY time -- the pre-R2 model that stored the
 // resolved invariant byte[] blob in the receiver could not rebuild the chain
-// (the blob carries no base name). The base name is ASCII by project
-// convention (the registry keys are ASCII).
+// (the blob carries no base name). R6 (batch C): the base name may be a
+// non-ASCII managed string -- it is lifted to UTF-8 by
+// il2cpp_resources_utf16_to_utf8 and the chain compares UTF-8 bytes.
 //
 // Cross-platform: managed strings through the existing surface, no platform
-// code. A null / non-ASCII / over-long base name returns null (the ctor
-// receiver then has no usable base name and every lookup on it is a null
-// result -- net48 defensive contract).
+// code. A null / embedded-NUL / unpaired-surrogate / over-long base name
+// returns null (the ctor receiver then has no usable base name and every
+// lookup on it is a null result -- net48 defensive contract).
 //------------------------------------------------------------------------------
 
 #include "il2cpp_resources.h"
@@ -22,10 +23,10 @@ namespace il2cpp {
 
 namespace {
 
-// ASCII-only managed-string validation (the base name must be re-derivable as
-// a C string by the chain walker; resource base names are ASCII by project
-// convention).
-constexpr int32_t kMaxBaseNameLen = 240; // room for "<culture>.resources" suffixes
+// UTF-8-BYTE cap for the base name (room for "<culture>.resources" suffixes in
+// the chain's 512-byte resName). The translated UTF-8 encoding, not the UTF-16
+// unit length: non-ASCII widens the name past its unit count.
+constexpr int32_t kMaxBaseNameLen = 240;
 
 } // namespace
 
@@ -37,17 +38,21 @@ Il2CppObject* il2cpp_resource_manager_ctor_resolve(Il2CppObject* baseName, Il2Cp
         return nullptr;
     }
     auto s = reinterpret_cast<Il2CppString*>(baseName);
-    if (s->length < 0 || s->length >= kMaxBaseNameLen)
+    if (s->length < 0)
     {
         return nullptr;
     }
-    for (int32_t i = 0; i < s->length; i++)
+    // R6 (batch C): the base name may be non-ASCII -- it is lifted to UTF-8 by
+    // the shared encoder (surrogate-pair aware) and the chain resolves
+    // "<baseName>[.<culture>].resources" over the UTF-8 registry names. The
+    // cap counts UTF-8 BYTES (non-ASCII widens past the UTF-16 length); the
+    // chain suffix still fits in the 512-byte resName. An embedded NUL /
+    // unpaired surrogate / over-long encoding -> null (every lookup on the
+    // receiver is then a null result -- net48 defensive contract).
+    char buf[kMaxBaseNameLen];
+    if (il2cpp_resources_utf16_to_utf8(s->chars, s->length, buf, kMaxBaseNameLen) < 0)
     {
-        char16_t u = s->chars[i];
-        if (u == 0 || u > 0x7F)
-        {
-            return nullptr;
-        }
+        return nullptr;
     }
     // R2: pass the base name THROUGH as the receiver value (ResultIsReceiver
     // stores it into the receiver local). The culture chain resolves the
