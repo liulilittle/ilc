@@ -429,6 +429,37 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // C3-2 (COM-C3) -- EventInfo.AddEventHandler(object, Delegate) /
+    // EventInfo.RemoveEventHandler(object, Delegate): the managed events-table
+    // accessor delivery (the C3 genevt fake-source self-loop's green path).
+    // The receiver is the EVENT-NAME string; the runtime joins the declaring
+    // type from the target and dispatches the event table's add/remove
+    // accessor on it with the handler. net48 IL: (object, System.Delegate) --
+    // ps 0x1C (OBJECT), 0x12 (CLASS).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_EventInfo_AddEventHandler_MapsToEventAddIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "EventInfo", "AddEventHandler",
+            new byte[] { 0x00, 0x02, 0x02, 0x1C, 0x12, 0x05 }), "AddEventHandler"); // (object, Delegate)
+
+        Assert.Equal("il2cpp::il2cpp_eventinfo_add", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_EventInfo_RemoveEventHandler_MapsToEventRemoveIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "EventInfo", "RemoveEventHandler",
+            new byte[] { 0x00, 0x02, 0x02, 0x1C, 0x12, 0x05 }), "RemoveEventHandler"); // (object, Delegate)
+
+        Assert.Equal("il2cpp::il2cpp_eventinfo_remove", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // C1 (A1) -- Type-COM creation. Type.GetTypeFromProgID(string) /
     // Type.GetTypeFromCLSID(Guid) map to the runtime COM Type icalls that
     // return the "COMCLSID:<32hex>" sentinel Type-value string (the Type

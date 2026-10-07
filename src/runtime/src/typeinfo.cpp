@@ -27,6 +27,16 @@
 #include "il2cpp_boxing_ext.h"    // runtime::icall_unbox_double / icall_box_double (R3 invoke)
 #include "invoker.h"              // il2cpp_invoker_invoke / slots (R3 MethodInfo.Invoke)
 
+// C3-2: Marshal.IsComObject (klass == the RCW descriptor) -- declared in
+// il2cpp_com.h under il2cpp::runtime; forward-declared inside the namespace
+// so this translation unit (which houses the member icalls, not the COM heap)
+// can classify an AddEventHandler target without pulling the COM ABIs.
+namespace il2cpp {
+namespace runtime {
+bool icall_com_is_com_object(Il2CppObject* obj);
+}
+}
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -440,6 +450,89 @@ Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* me
         [](const Il2CppTypeInfo* info, const char* name) {
             return il2cpp_type_get_event(info, name);
         });
+}
+
+//------------------------------------------------------------------------------
+// C3-2 -- EventInfo.AddEventHandler / EventInfo.RemoveEventHandler.
+//
+// The receiver is the EVENT-NAME string (the simplified member model, as
+// il2cpp_typeinfo_get_event returns); the declaring type is joined from the
+// TARGET object's klass. A MANAGED target resolves the event through the
+// events table (il2cpp_type_get_event), then dispatches the event's ADD /
+// REMOVE ACCESSOR METHOD (Il2CppEventInfo.addName / removeName) on the target
+// with (handler) through the reflection invoker -- the net48 managed-event
+// delivery (the compiler's field-backed add_Tick combines/removes the
+// delegate; Raise then reaches the connected handlers). This is the C3 genevt
+// fake-source self-loop's managed delivery path.
+//
+// An RCW target (klass == the RCW descriptor) is the shape-A boundary: a
+// Delegate handler cannot be bridged to the shape-B user event-interface
+// sink object without the delegate-to-Invoke bridging, which is DEFERRED. The
+// C3 connection-point COMBO (ccw_create + register_invoke_dispatch +
+// get_connection_point + cp_advise / cp_unadvise) already runs at the raw
+// icall level (the test_com C-section); this icall doors the RCW receiver with
+// a clear LOUD gap instead of a silent wrong attach.
+//------------------------------------------------------------------------------
+namespace {
+
+void ThrowEventInfoRcwNotSupported(const char* method)
+{
+    il2cpp_throw_new("System.NotSupportedException,System.Exception",
+        "EventInfo::method on a COM RCW target via a Delegate handler is not wired in C3-2 (shape A -- the delegate-to-Invoke sink bridging is deferred; the COM connection-point combo runs at the raw icall level, see the test_com C-section)");
+}
+
+// Invoke the event accessor (addName/removeName) on a MANAGED target with the
+// handler as the single argument (il2cpp_methodinfo_invoke dispatches the
+// instance method with the target injected as 'this' and paramCount 1).
+void InvokeEventAccessor(const Il2CppEventInfo* ev, bool add, Il2CppObject* target,
+                         Il2CppObject* handler, const char* what)
+{
+    const char* accessor = add ? ev->addName : ev->removeName;
+    if (accessor == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+            "the event has no accessor for EventInfo::what -- the events table lacks it");
+    }
+    Il2CppArray* args = il2cpp_array_new(nullptr, sizeof(void*), true, 1);
+    *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(args, 0)) = handler;
+    Il2CppObject* accessorStr = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(accessor));
+    (void)il2cpp_methodinfo_invoke(accessorStr, target, args);
+}
+
+} // namespace
+
+void il2cpp_eventinfo_add(Il2CppObject* eventName, Il2CppObject* target, Il2CppObject* handler)
+{
+    if (target == nullptr) il2cpp_throw_argument_null_exception("target");
+    if (handler == nullptr) il2cpp_throw_argument_null_exception("handler");
+    char nameBuf[kNameBufferSize];
+    if (eventName == nullptr || !AsciiFromManagedString(eventName, nameBuf)) return;
+    if (runtime::icall_com_is_com_object(target))
+    {
+        ThrowEventInfoRcwNotSupported("AddEventHandler");
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
+    if (info == nullptr) return;
+    const Il2CppEventInfo* ev = il2cpp_type_get_event(info, nameBuf);
+    if (ev == nullptr) return; // net48: an EventInfo from another type on this target -> no-op gone
+    InvokeEventAccessor(ev, true, target, handler, "AddEventHandler");
+}
+
+void il2cpp_eventinfo_remove(Il2CppObject* eventName, Il2CppObject* target, Il2CppObject* handler)
+{
+    if (target == nullptr) il2cpp_throw_argument_null_exception("target");
+    if (handler == nullptr) il2cpp_throw_argument_null_exception("handler");
+    char nameBuf[kNameBufferSize];
+    if (eventName == nullptr || !AsciiFromManagedString(eventName, nameBuf)) return;
+    if (runtime::icall_com_is_com_object(target))
+    {
+        ThrowEventInfoRcwNotSupported("RemoveEventHandler");
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
+    if (info == nullptr) return;
+    const Il2CppEventInfo* ev = il2cpp_type_get_event(info, nameBuf);
+    if (ev == nullptr) return;
+    InvokeEventAccessor(ev, false, target, handler, "RemoveEventHandler");
 }
 
 //------------------------------------------------------------------------------

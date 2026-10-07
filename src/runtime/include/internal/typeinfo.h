@@ -223,6 +223,10 @@ Il2CppArray* il2cpp_typeinfo_get_properties(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_constructors(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_events(Il2CppObject* typeName);
+// C3-2: EventInfo.AddEventHandler / RemoveEventHandler (the managed events-
+// table accessor delivery; an RCW receiver doors the deferred shape A).
+void il2cpp_eventinfo_add(Il2CppObject* eventName, Il2CppObject* target, Il2CppObject* handler);
+void il2cpp_eventinfo_remove(Il2CppObject* eventName, Il2CppObject* target, Il2CppObject* handler);
 
 //------------------------------------------------------------------------------
 // R2 (B2) -- FieldInfo.GetValue/SetValue narrow set (int32/int64/string/

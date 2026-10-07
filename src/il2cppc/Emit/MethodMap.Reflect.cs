@@ -98,6 +98,31 @@ public static partial class MethodRefResolver
                         argOrder: new[] { 0, 1, 2 });
                 throw new NotSupportedException(
                     $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3 -- only MethodBase/MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke");
+            // C3-2 (COM-C3): EventInfo.AddEventHandler(object, Delegate) /
+            // EventInfo.RemoveEventHandler(object, Delegate) -- instance. The
+            // receiver is the EVENT-NAME string (the simplified member model,
+            // as il2cpp_typeinfo_get_event returns); the runtime joins the
+            // declaring type from the TARGET's klass and dispatches the event
+            // table's add/remove ACCESSOR on the target with the handler (the
+            // net48 managed-event delivery -- the C3 genevt fake-source
+            // self-loop's green path). An RCW target doors the deferred
+            // shape-A delegate-sink bridging with a clear runtime LOUD.
+            // net48 IL signatures: (object target, System.Delegate handler) --
+            // ps[0] == 0x1C (OBJECT), ps[1] == 0x12 (CLASS System.Delegate).
+            case "AddEventHandler":
+                if (owner == "System.Reflection.EventInfo" && ps.Length == 2
+                    && ps[0] == 0x1C && ps[1] == 0x12)
+                    return I("il2cpp::il2cpp_eventinfo_add", 2, true, false, true,
+                        new[] { "", "", "" });
+                throw new NotSupportedException(
+                    $"{owner}::AddEventHandler with {ps.Length} parameter(s) not wired in C3-2 -- only EventInfo.AddEventHandler(object, Delegate) maps to il2cpp_eventinfo_add");
+            case "RemoveEventHandler":
+                if (owner == "System.Reflection.EventInfo" && ps.Length == 2
+                    && ps[0] == 0x1C && ps[1] == 0x12)
+                    return I("il2cpp::il2cpp_eventinfo_remove", 2, true, false, true,
+                        new[] { "", "", "" });
+                throw new NotSupportedException(
+                    $"{owner}::RemoveEventHandler with {ps.Length} parameter(s) not wired in C3-2 -- only EventInfo.RemoveEventHandler(object, Delegate) maps to il2cpp_eventinfo_remove");
             default:
                 return null;
         }

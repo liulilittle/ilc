@@ -39,34 +39,27 @@ namespace Cases
             // ---- 1. C3-1: GetEvents enumerates the source's public events
             //         (the events table's name strings; net48 oracle).
             EventInfo[] evs = typeof(FakeSource).GetEvents();
+            Console.WriteLine("evcount=" + evs.Length);
             string names = "";
             for (int i = 0; i < evs.Length; i++)
             {
-                if (i > 0) names += ",";
-                names += evs[i].Name;
+                names += evs[i].Name + ",";
             }
             Console.WriteLine("events=" + names);
 
-            // ---- 2. C3-2: EventInfo.AddEventHandler attaches the handler
-            //         (the sink's OnTick) through the event add accessor; the
-            //         source Raise delivers to the sink.
-            EventInfo ev = evs.Length > 0 ? evs[0] : null;
+            // ---- 2/3. C3-2: AddEventHandler attaches the handler (the
+            //         sink's OnTick) through the event add accessor; the
+            //         source Raise delivers. RemoveEventHandler detaches --
+            //         a later Raise reaches nobody.
+            EventInfo ev = (evs.Length > 0) ? evs[0] : null;
             if (ev != null)
             {
                 ev.AddEventHandler(src, new FakeTickHandler(sink.OnTick));
                 src.Raise(7);
                 Console.WriteLine("after_add=" + sink.Total);
-
-                // ---- 3. C3-2: RemoveEventHandler detaches -- a later Raise
-                //         reaches nobody (the sink counter stops moving).
                 ev.RemoveEventHandler(src, new FakeTickHandler(sink.OnTick));
                 src.Raise(3);
                 Console.WriteLine("after_remove=" + sink.Total);
-            }
-            else
-            {
-                Console.WriteLine("after_add=0");
-                Console.WriteLine("after_remove=0");
             }
 
             // ---- 4. C3-1: Type.GetEvent(name) returns a non-null EventInfo
