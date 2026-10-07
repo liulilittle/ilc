@@ -89,7 +89,7 @@ public sealed class InlineCandidate
     // the call site's argument count.
     public required int ParamCount { get; init; }
     public required bool ReturnsVoid { get; init; }
-    // Reference results (string/object/array...) → conservatively not inlined (the
+    // Reference results (string/object/array...) -> conservatively not inlined (the
     // result temp's type would be uncertain).
     public required bool ReturnsRef { get; init; }
     // Callee local kinds (MethodBodyReader LocalKinds, index-aligned with

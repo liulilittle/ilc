@@ -10,7 +10,7 @@ namespace Il2Cpp.Transpiler.Opt;
 //------------------------------------------------------------------------------
 // TempSlotPass -- temp-slot reuse (stackframe-audit P1-1).
 //
-// Problem (docs/audit/stackframe-audit.md §1): StackFold allocates one temp
+// Problem (docs/audit/stackframe-audit.md section 1): StackFold allocates one temp
 // per call result (`t{count}`, monotonic, NEVER reused -- StackFold.cs:860
 // Push / :920 RegisterJoin / :952 EmitStore); every reference temp is
 // declared at function top and registered as a whole-method GC root
@@ -405,7 +405,7 @@ public static class TempSlotPass
             case FieldAddrExpr f:
                 return new FieldAddrExpr { Object = RewriteExpr(f.Object, rename), FieldCppName = f.FieldCppName, OwnerFullName = f.OwnerFullName, IsValueTypeObject = f.IsValueTypeObject };
             case DelegateNewExpr dn when rename.Count > 0:
-                // DCE-1 §3.1 (dce-plan.md): the delegate ctor's bound-instance
+                // DCE-1 section 3.1 (dce-plan.md): the delegate ctor's bound-instance
                 // target is a temp -- Rename must rewrite it too, or a renamed
                 // temp keeps its stale name and the generated code references
                 // an undeclared variable (Cases_Delegateinst t4/t31).

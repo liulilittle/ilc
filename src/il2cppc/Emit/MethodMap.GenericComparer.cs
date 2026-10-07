@@ -47,9 +47,9 @@ public static partial class MethodRefResolver
             case "Equals":
                 if (count != 2) return null;
                 // Resolve ONLY on the tracked receiver kind (the
-                // Default-normalized "…_class"/"…_string"/… tag): the
+                // Default-normalized "..._class"/"..._string"/... tag): the
                 // MemberRef parent instName carries the RAW instantiation
-                // ("…_Prog/Box") which cannot name the kind, and an
+                // ("..._Prog/Box") which cannot name the kind, and an
                 // untracked receiver may hold a CUSTOM comparer whose
                 // override must never be silently replaced -- it stays P26
                 // loud (StackFold caudit2 Fold_UntrackedComparerReceiver).

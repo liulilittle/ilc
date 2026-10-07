@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------
-// marshalext3.cpp -- Marshal gap batch (net48 inventory §5 items 6/8/9 +
+// marshalext3.cpp -- Marshal gap batch (net48 inventory section 5 items 6/8/9 +
 // the SEH queries; declarations in il2cpp_marshal_ext.h).
 //
 // This translation unit adds the four icalls the transpiler maps the

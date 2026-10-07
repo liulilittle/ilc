@@ -4,7 +4,7 @@
 //
 // LAYOUT NOTE: T1's decimal.h (representation + arithmetic) owns the
 // Il2CppDecimal struct -- the member names and 16-byte layout are the frozen
-// contract (decimal-domain.md §1.2). This header includes decimal.h instead
+// contract (decimal-domain.md section 1.2). This header includes decimal.h instead
 // of carrying a duplicate definition.
 //
 // SEMANTIC BASELINE: .NET Framework 4.8 (net48) -- the project's reference
@@ -36,8 +36,8 @@
 //     'prec' fraction digits + trailing '%' (zh-CN "n%" layout, no space):
 //     1234.5678m "P" -> "123,456.78%", 1.5m "P2" -> "150.00%".
 //   * C<prec> currency, default 2: same culture-fixing as il2cpp_format_ext.h
-//     (the verification host's net48 default zh-CN): symbol U+00A5 '¥',
-//     negative pattern "¥-n" ("¥-1,234.50").
+//     (the verification host's net48 default zh-CN): symbol U+00A5 (yen sign),
+//     negative pattern "U+00A5-n" ("U+00A5-1,234.50").
 //   * Format parsing is STRICT (formatext.cpp precedent): unknown letter
 //     (incl. D/X for decimal), precision > 99, or any trailing junk ->
 //     FormatException ("Format specifier was invalid.").
@@ -80,7 +80,7 @@ Il2CppString* icall_decimal_to_string(const Il2CppDecimal* value);
 // and "" select G. Unknown specifier / precision > 99 / trailing junk ->
 // FormatException. 'format' may be null. 'provider' (cultureprobe): the
 // optional IFormatProvider -- nullptr/non-empty name -> zh-CN ("n%", U+00A5,
-// "¥-n"); empty-name (invariant) -> "n %" and U+00A4 with "(¤n)" negatives.
+// "U+00A5-n"); empty-name (invariant) -> "n %" and U+00A4 with "(U+00A4n)" negatives.
 Il2CppString* icall_decimal_to_string_custom(const Il2CppDecimal* value,
                                              Il2CppString* format,
                                              Il2CppObject* provider);

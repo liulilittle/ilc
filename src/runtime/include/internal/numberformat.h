@@ -5,13 +5,13 @@
 // .NET Framework 4.8 ToString(format) semantics with a FIXED CULTURE: the
 // net48 default test baseline is the verification host's zh-CN culture --
 // ',' thousands separator, '.' decimal point, percent layout "n %" (space
-// before '%'), special spellings "NaN"/"∞"/"-∞" (U+221E, the zh-CN
+// before '%'), special spellings "NaN"/U+221E/-U+221E (U+221E, the zh-CN
 // NumberFormatInfo symbols -- the SAME spelling format.cpp/formatext.cpp
 // emit, so all three formatting modules agree).
 //
 // The transpiler maps BCL numeric ToString(format) overloads to these
 // helpers. Unlike il2cpp_format_ext.h (which fixes the verification host's
-// zh-CN culture: U+00A5 '¥' currency, "n%" percent, U+221E infinity), this
+// zh-CN culture: U+00A5 (yen sign) currency, "n%" percent, U+221E infinity), this
 // module keeps the invariant separators/layout while matching the zh-CN
 // infinity symbols -- the divergence-free baseline for the net48 default
 // test environment.
@@ -35,16 +35,16 @@
 //                                   correctly-rounded digits + guard digits;
 //                                   default precision 6.
 //   percent(value, prec)        P   value*100, grouped, invariant layout
-//                                   "12.3 %"; specials "NaN"/"∞"/"-∞"
+//                                   "12.3 %"; specials "NaN"/U+221E/-U+221E
 //                                   WITHOUT the decoration;
 //                                   default precision 2. The int64 variant
 //                                   scales via an EXACT decimal digit shift.
 //   custom(value, format)       extended custom formats (net48 oracle-
 //                                   verified 2026-08-09): '0' mandatory digit,
 //                                   '#' optional digit, '.' decimal separator,
-//                                   ',' thousands grouping or ÷1000 scaling
-//                                   (trailing commas), '%' (×100) / U+2030
-//                                   '‰' (×1000) at their pattern position,
+//                                   ',' thousands grouping or /1000 scaling
+//                                   (trailing commas), '%' (x100) / U+2030
+//                                   U+2030 (per-mille) (x1000) at their pattern position,
 //                                   '\' escapes, '..'/".." quoted literals,
 //                                   other characters as literals. Integer
 //                                   digits beyond the placeholder count are
@@ -106,8 +106,8 @@ Il2CppObject* il2cpp_number_format_custom(int64_t value, Il2CppObject* format);
 Il2CppObject* il2cpp_number_format_custom_double(double value, Il2CppObject* format);
 
 // saudit1/4: the culture-name receiver dispatch ("" = invariant -> U+00A4
-// '¤' / "Infinity" / "-Infinity"; any other name = the pinned zh-CN current
-// culture -> U+00A5 '¥' / U+221E '∞' / "-∞"). Returns the string in the
+// U+00A4 (currency sign) / "Infinity" / "-Infinity"; any other name = the pinned zh-CN current
+// culture -> U+00A5 (yen sign) / U+221E (infinity) / -U+221E). Returns the string in the
 // reference slot (Il2CppObject*), like the sibling numberformat helpers.
 Il2CppObject* il2cpp_number_format_currency_symbol(Il2CppObject* cultureName);
 Il2CppObject* il2cpp_number_format_positive_infinity_symbol(Il2CppObject* cultureName);

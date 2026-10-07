@@ -7,7 +7,7 @@
 //     NotSupportedException) and the comparator delegate (null ->
 //     ArgumentNullException; multicast container / instance-bound ->
 //     InvalidOperationException -- the same loud-rejection policy as
-//     icall_delegate_get_fn_ptr, design §2).
+//     icall_delegate_get_fn_ptr, design section 2).
 //   - The comparator is extracted from the delegate's methodPtr and cast to
 //     the fixed per-family signature (int32_t(*)(T,T)).
 //   - The stable sort is a comparator-driven top-down MERGE sort (template
@@ -33,7 +33,7 @@
 //         materialization -- no stale object address is ever compared or
 //         stored.
 //   - Deliberately NO shared code with the arraysort domain quicksorts
-//     (design §4.5).
+//     (design section 4.5).
 //------------------------------------------------------------------------------
 
 #include "linq_sort.h"
@@ -174,7 +174,7 @@ Il2CppArray* RequireRefLinqArray(Il2CppArray* arr)
 
 //------------------------------------------------------------------------------
 // RequireLinqComparator -- validate the comparator delegate (LINQ callback
-// contract, design §2, mirroring icall_delegate_get_fn_ptr):
+// contract, design section 2, mirroring icall_delegate_get_fn_ptr):
 //   null                -> ArgumentNullException
 //   multicast container -> InvalidOperationException (no single methodPtr)
 //   instance-bound      -> InvalidOperationException (no target binding)

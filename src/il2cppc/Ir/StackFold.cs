@@ -39,7 +39,7 @@ public sealed class MethodContext
     // (the cctor dependency order is unchanged).
     public string? CctorOwnerFullName { get; init; }
     public string? MethodFullName { get; init; }
-    // Tail-call optimization (recursion-audit §6a): the generated C++ function
+    // Tail-call optimization (recursion-audit section 6a): the generated C++ function
     // name of the current method (MethodCppName-isomorphic encoding) -- self-
     // recursion is detected when the call's Resolved.CppName equals it.
     // null (the pure-IR fold path) -> self-recursion is never recognized; no
@@ -1183,7 +1183,7 @@ public static class StackFold
                 case ILOpCode.Box:
                     // M2: box only supports int32 value types (type token =
                     // System.Int32).
-                    // IR: CallExpr -> il2cpp_box_int32(&box_class, value)。
+                    // IR: CallExpr -> il2cpp_box_int32(&box_class, value).
                     // M5 wiring: box result types are recorded in objTypes so
                     // later calls on the boxed value (WriteLine(object) with a
                     // known box type, ToString on a boxed primitive) resolve
@@ -1220,7 +1220,7 @@ public static class StackFold
                     }
                     break;
                 case ILOpCode.Isinst:
-                    // isinst: obj -> il2cpp_is_instance(obj, &Type_class)。
+                    // isinst: obj -> il2cpp_is_instance(obj, &Type_class).
                     Push(new CallExpr { Function = $"isinst_{ins.Operand}", ReturnsRef = true, Args = { stack.Pop() } }, ins);
                     break;
                 case ILOpCode.Castclass:
@@ -1243,7 +1243,7 @@ public static class StackFold
                 case ILOpCode.Newarr:
                     // newarr: pops the length -> allocates the array. M3:
                     // int32 arrays (type token = Int32).
-                    // IR: CallExpr -> il2cpp_array_new(nullptr, 4, false, length)。
+                    // IR: CallExpr -> il2cpp_array_new(nullptr, 4, false, length).
                     {
                         var newArr = new CallExpr { Function = $"newarr_{ins.Operand}", ReturnsRef = true };
                         newArr.Args.Add(stack.Pop());
@@ -1852,7 +1852,7 @@ public static class StackFold
         // no code that can trigger a cctor, hoist the loop's static-field
         // access guards to the loop preheader (conservative subset in the
         // method comment).
-        // Tail-call optimization (recursion-audit §6a): self-recursive tail
+        // Tail-call optimization (recursion-audit section 6a): self-recursive tail
         // calls -> a goto loop, O(1) stack.
         // Must run AFTER OptimizeTemps/HoistLoopGuards: the optimizer inlines
         // "single-assigned + single-read" temps back into param slots
@@ -2256,7 +2256,7 @@ public static class StackFold
                 // String, 0x1C Object, 0x12 CLASS, 0x1D/0x1F SZARRAY -- the
                 // SignatureTypeCode enum lacks a CLASS member, 0x12 is unnamed.)
                 ReturnsRef = (byte)returnType is 0x0E or 0x1C or 0x12 or 0x1D or 0x1F,
-                // P-D3 (§7.3 width assertions): a calli RESULT is typed from
+                // P-D3 (section 7.3 width assertions): a calli RESULT is typed from
                 // its StandAloneSig return byte -- the single-use probes only
                 // worked because OptimizeTemps INLINED the call into the
                 // consumer; a MULTI-USE result lands in a temp whose
@@ -3416,7 +3416,7 @@ public static class StackFold
                 }
                 call.StringArgIndices.Clear(); // args are pre-marshalled now
             }
-            // P-G3 R-E (GENERIC-SHARE-DESIGN.md §5.2): a SHARED generic
+            // P-G3 R-E (GENERIC-SHARE-DESIGN.md section 5.2): a SHARED generic
             // method's byref T params are Il2CppObject** slots (the shared
             // object ABI). A VALUE argument (int32 local) must be BOXED into a
             // bridge temp whose ADDRESS is passed, then UNBOXED back into the
@@ -3437,7 +3437,7 @@ public static class StackFold
                     var bArgIdx = bi + argOffset;
                     if (call.Args[bArgIdx] is not LocAddrExpr laB || LocWidth(laB.Name, ctx, tempWidths) == "r")
                     {
-                        // P-G4 ②: a field ADDRESS argument (ref obj.field) to a
+                        // P-G4 (2): a field ADDRESS argument (ref obj.field) to a
                         // SHARED byref slot. A REFERENCE-typed field's address
                         // is &f == Il2CppObject** -> the callee's Il2CppObject**
                         // slot matches directly (zero-copy, correct). A VALUE
@@ -3448,7 +3448,7 @@ public static class StackFold
                         // warning); the complete field bridge is future work
                         // (P-G5).
                         if (SharedByrefFieldArgSlotIsValue(md, types, call.Args[bArgIdx]))
-                            throw new NotSupportedException("shared byref arg = ref field ADDRESS over a VALUE slot (ref obj.field); 请先经局部 ref 中转（P-G5 字段桥）");
+                            throw new NotSupportedException("shared byref arg = ref field ADDRESS over a VALUE slot (ref obj.field); route through a local ref first (P-G5 field bridge)");
                         continue; // reference slot: &slot is Il2CppObject**-compatible (zero-copy)
                     }
                     var btemp = $"t{temps.Count}";
@@ -5686,7 +5686,7 @@ public static class StackFold
     // (the value slot's managed type: int32 -> il2cpp_box_int32 /
     // il2cpp_unbox_int32, double -> icall_box_double / icall_unbox_double, ...).
     // The old bridge hardcoded int32; a double slot would box/unbox only its
-    // low 32 bits. GN-1 (裁决②): an UNKNOWN concrete type (user struct / enum /
+    // low 32 bits. GN-1 (ruling (2)): an UNKNOWN concrete type (user struct / enum /
     // GenericInst value type) is now LOUD-rejected instead of silently falling
     // to the int32 pair -- the legal System.Int32 branch keeps the legacy
     // int32 pair explicitly. Returns null for non-shared / non-byref shapes
@@ -5715,10 +5715,10 @@ public static class StackFold
             "System.UInt32" => ("il2cpp::runtime::icall_box_uint", "deref:ui", "il2cpp::runtime::icall_unbox_uint", "i"),
             "System.UInt64" => ("il2cpp::runtime::icall_box_ulong", "deref:ul", "il2cpp::runtime::icall_unbox_ulong", "l"),
             "System.Single" => ("il2cpp::runtime::icall_box_float", "deref:d", "il2cpp::runtime::icall_unbox_float", "d"),
-            // GN-1 (裁决②): the legal Int32 branch -- the shared ABI's dedicated
+            // GN-1 (ruling (2)): the legal Int32 branch -- the shared ABI's dedicated
             // box helper (takes the null class-slot first arg, see the caller).
             "System.Int32" => ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i"),
-            // GN-1 (裁决②): unknown concrete argument (user struct / enum /
+            // GN-1 (ruling (2)): unknown concrete argument (user struct / enum /
             // nested GenericInst value type / undecodable shape) is NO LONGER
             // silently boxed/unboxed as int32 -- that would corrupt the value.
             // LOUD-reject: the fold catch turns the enclosing method into the
@@ -5727,7 +5727,7 @@ public static class StackFold
             // the supported ways to use a struct/enum T.
             var other => throw new NotSupportedException(
                 $"shared byref-MVAR generic argument '{other ?? "<?>"}' has no box/unbox bridge " +
-                "(only Int32 + primitives share the byref bridge); user struct/enum T 请走 per-instance 泛型(P25b) 或显式 Int32 特例化"),
+                "(only Int32 + primitives share the byref bridge); user struct/enum T must use per-instance generic (P25b) or explicit Int32 specialization"),
         };
     }
 
@@ -5758,13 +5758,13 @@ public static class StackFold
         return -1;
     }
 
-    // P-G4 ②: whether a shared-byref ARGUMENT that is a FIELD ADDRESS (ldflda
+    // P-G4 (2): whether a shared-byref ARGUMENT that is a FIELD ADDRESS (ldflda
     // -> FieldAddrExpr / ldsflda -> StaticFieldAddrExpr) targets a VALUE slot.
     // A REFERENCE-typed field's address is &f == Il2CppObject** -- the shared
     // callee's Il2CppObject** byref slot matches it directly (zero-copy pass-
     // through is CORRECT). A VALUE slot field's address is &f == int32_t*/...
     // -- ABI-mismatched, and no field-write-back bridge exists yet. The audit
-    // ruling (P-G4-AUDIT-2.md §11.2): only the value-slot shape is loudly
+    // ruling (P-G4-AUDIT-2.md section 11.2): only the value-slot shape is loudly
     // rejected; reference field addresses pass through. An unresolvable field
     // is treated as a value slot (conservative reject). Field kind is decoded
     // from the metadata FIELD signature (mirrors IsRefField / CodeGenerator.
@@ -5800,7 +5800,7 @@ public static class StackFold
     // / 0x14 ARRAY -> reference; everything else (0x08 I4, 0x0A I8, 0x0D R8,
     // 0x11 VALUETYPE, 0x13 VAR) -> value. A field that cannot be resolved is
     // reported as NOT reference (the caller then loud-rejects -- conservative,
-    // "宁可特例化").
+    // "prefer specialization").
     static bool FieldCppIsReference(MetadataReader md, string ownerFullName, string fieldCppName)
     {
         // P-G5 FINDING-2: match the OWNER by its FULL name. GetFullName on a
@@ -5833,7 +5833,7 @@ public static class StackFold
     // C++ member-name sanitize (same rule set as the Fold-local SanitizeField
     // -- illegal C++ identifier characters -> '_'; a field that sanitizes to
     // _obj is renamed to _obj_field, the object header member). Class-level
-    // copy so the ② field-address helper can classify field slots outside
+    // copy so the (2) field-address helper can classify field slots outside
     // Fold's scope.
     static string CppFieldName(string name)
     {
@@ -6322,7 +6322,7 @@ public static class StackFold
     };
 
     //------------------------------------------------------------------------------
-    // Tail-call optimization (recursion-audit §6a): self-recursive tail calls
+    // Tail-call optimization (recursion-audit section 6a): self-recursive tail calls
     // -> a goto loop, O(1) stack.
     //
     // Detection (transform only when ALL hold):
@@ -6352,10 +6352,10 @@ public static class StackFold
     //   goto L_tail_entry;
     // The L_tail_entry label is inserted before the function body's first
     // statement -- the frame push runs once in the prologue and the goto only
-    // re-enters the body (audit §6a condition 4: the frame slot addresses are
+    // re-enters the body (audit section 6a condition 4: the frame slot addresses are
     // unchanged across the loop reuse, a single push stays valid).
     //
-    // Semantic-equivalence proof (audit §6a): the self-recursive tail call
+    // Semantic-equivalence proof (audit section 6a): the self-recursive tail call
     // `return F(newArgs)` and `{ evaluate new args; update param slots; goto
     // entry; }` are observably identical on all execution paths (no EH, no
     // frame side effects, the return-value path converges uniquely). The

@@ -3,10 +3,10 @@
 // regex_ast.h -- Regex AST contract (System.Text.RegularExpressions basic domain).
 //
 // NOTE (fallback authorship): this header is the T1 deliverable per
-// docs/design/regex-domain.md §5 (T1 lexer + parser, parallel-agent task). The
+// docs/design/regex-domain.md section 5 (T1 lexer + parser, parallel-agent task). The
 // parallel T1 agent had NOT produced it when T2 started (glob for
 // src/runtime/**/regex* matched nothing), so T2 defined the contract itself
-// following the design doc §2.2 field-for-field, plus the minimal parser in
+// following the design doc section 2.2 field-for-field, plus the minimal parser in
 // regex_parse.cpp to keep the matcher testable. If the T1 agent lands its own
 // regex_ast.h later, its contract may differ -- reconcile before T3.
 //
@@ -14,7 +14,7 @@
 // RegexAstFree() releases it in one call (RAII wrapper on the C++ side).
 //
 // SEMANTIC BASELINE: .NET Framework 4.8 (net48) per docs/design/regex-domain.md
-// §1. Documented divergences:
+// section 1. Documented divergences:
 //   * Parse errors are SIGNALLED BY RETURN VALUE (nullptr + error code), not
 //     by throwing ArgumentException -- this layer never throws; the T3 API
 //     layer translates RegexParseError into the managed exception.
@@ -27,7 +27,7 @@
 
 namespace il2cpp { namespace runtime {
 
-// RegexOptions bit subset accepted at parse time (docs §1.2).
+// RegexOptions bit subset accepted at parse time (docs section 1.2).
 constexpr int32_t kRegexOptionsIgnoreCase  = 0x01;
 constexpr int32_t kRegexOptionsMultiline   = 0x02;
 constexpr int32_t kRegexOptionsSingleline  = 0x04;
@@ -35,7 +35,7 @@ constexpr int32_t kRegexOptionsAllowedMask =
     kRegexOptionsIgnoreCase | kRegexOptionsMultiline | kRegexOptionsSingleline;
 
 //------------------------------------------------------------------------------
-// AST contract (docs §2.2 -- field-for-field)
+// AST contract (docs section 2.2 -- field-for-field)
 //------------------------------------------------------------------------------
 
 enum class RegexNodeKind {
@@ -47,7 +47,7 @@ enum class RegexNodeKind {
     Alternation, // list of alternatives (leftmost-first)
     Repeat,      // quantifier: child repeated [min,max] (lazy when lazy==true)
     Group,       // capture group: child + groupIndex (1-based; 0 = the whole match)
-    Anchor,      // ^ $（Start/End/LineStart/LineEnd）
+    Anchor,      // ^ $ (Start/End/LineStart/LineEnd)
     Backref,     // \N : match the current captured text of group N (unset group -> fail)
 };
 
@@ -99,9 +99,9 @@ enum class RegexParseError {
     UnrecognizedEscape,    // unrecognized escape like \q
     QuantifierNothing,     // quantifier with no preceding atom (leading * / {2})
     InvalidRepeat,         // illegal range {2,1} / {n} out of bounds / unclosed {n,m}
-    LazyQuantifier,        // legacy: lazy-quantifier suffix ? (§3.4 cut, now SUPPORTED)
+    LazyQuantifier,        // legacy: lazy-quantifier suffix ? (section 3.4 cut, now SUPPORTED)
     UnsupportedConstruct,  // (?: (?= (?< (?> (?i) \b \x \u \p{unknown-category}
-                           // etc., outside the §3.4 whitelist; \p{L}/\p{N}/
+                           // etc., outside the section 3.4 whitelist; \p{L}/\p{N}/
                            // \p{P}/\p{Lu}/\p{Ll} ARE supported (D-REG-UNI-1)
 };
 

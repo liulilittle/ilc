@@ -54,7 +54,7 @@
 //     which is why the fixed-culture format domains (numberformat.cpp
 //     invariant, formatext.cpp zh-CN) agree on them; it IS observable in
 //     the identity ("" vs "zh-CN") and the currency symbol (U+00A4 vs
-//     U+00A5 '¥'), so those stay internal to this domain.
+//     U+00A5 (yen sign)), so those stay internal to this domain.
 //
 // The transpiler wires System.Globalization.CultureInfo.* properties
 // (Name / InvariantCulture / CurrentCulture) and the NumberFormatInfo
@@ -124,7 +124,7 @@ Il2CppString* il2cpp_culture_get_number_negative_infinity_symbol();
 // --- Currency format (invariant NumberFormatInfo) -----------------------
 
 // NumberFormatInfo.CurrencySymbol of the invariant culture: U+00A4 (the
-// generic currency sign; the zh-CN host culture instead uses U+00A5 '¥').
+// generic currency sign; the zh-CN host culture instead uses U+00A5 (yen sign)).
 Il2CppString* il2cpp_culture_get_currency_symbol();
 
 // NumberFormatInfo.CurrencyDecimalSeparator of the invariant culture: ".".

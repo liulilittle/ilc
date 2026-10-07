@@ -44,7 +44,7 @@ namespace il2cpp {
 namespace {
 
 // Source null check: ArgumentNullException ("source"), per the LINQ
-// exception contract (docs/design/linq-domain.md §1.3). Never returns on
+// exception contract (docs/design/linq-domain.md section 1.3). Never returns on
 // failure.
 Il2CppArray* CheckSource(Il2CppArray* src)
 {

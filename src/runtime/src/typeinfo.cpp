@@ -476,7 +476,7 @@ Il2CppArray* EnumerateMembers(const Il2CppTypeInfo* info, const T* Il2CppTypeInf
 
 bool PublicMethod(const Il2CppMethodInfo& m)
 {
-    // Simplified model (committed R2 red-test pin, test_typeinfo.cpp §7):
+    // Simplified model (committed R2 red-test pin, test_typeinfo.cpp section 7):
     // GetMethods enumerates PUBLIC methods INCLUDING ctors -- the separate
     // GetConstructors icall is the ctor-filtered view. (net48 GetMethods
     // excludes ctors; the simplified member model keeps them -- documented

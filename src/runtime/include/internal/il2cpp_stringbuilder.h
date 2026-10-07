@@ -338,12 +338,12 @@ int32_t icall_stringbuilder_get_chars(Il2CppObject* self, int32_t index);
 // the icall); same bounds contract as get_Chars.
 void icall_stringbuilder_set_chars(Il2CppObject* self, int32_t index, int32_t utf16);
 
-// P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal — net48 internal helpers.
+// P6: ReplaceBufferInternal/ReplaceBufferAnsiInternal -- net48 internal helpers.
 // ReplaceBufferInternal(char* buffer): replaces the entire buffer contents
 // with the given char buffer. Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_replace_buffer_internal(Il2CppObject* self, const char16_t* buffer);
 // ReplaceBufferAnsiInternal(sbyte* buffer): replaces the entire buffer contents
-// with the given ANSI byte buffer (each byte → char). Returns the SAME builder.
+// with the given ANSI byte buffer (each byte -> char). Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* self, const int8_t* buffer);
 
 // P25f (dhprobe): System.Runtime.CompilerServices.DefaultInterpolatedStringHandler::.ctor

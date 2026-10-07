@@ -15,7 +15,7 @@
 // Android -- see rng.cpp for the guard) with an arc4random_buf tier for the
 // Apple + BSD family (macOS/iOS/FreeBSD/OpenBSD/NetBSD/DragonFlyBSD) and a
 // /dev/urandom read loop fallback everywhere else. The design red line
-// (docs/design/crypto-domain.md §2.5): rand() / any LCG (including
+// (docs/design/crypto-domain.md section 2.5): rand() / any LCG (including
 // il2cpp_random.h's 64-bit LCG, which exists ONLY to serve System.Random's
 // deterministic contract) is NEVER used here -- no algorithmic RNG output is
 // acceptable for this API.

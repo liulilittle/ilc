@@ -204,8 +204,8 @@ public static class IlDecoder
                     kind = IlOperandKind.BranchTarget;
                     // IL branch operands are relative to the NEXT instruction (the
                     // end of this instruction):
-                    // long-form instructions are 5 bytes (1 opcode + 4 operand) → target = offset + 5 + operand;
-                    // short-form instructions are 2 bytes (1 + 1) → target = offset + 2 + operand (Leave_s takes the else).
+                    // long-form instructions are 5 bytes (1 opcode + 4 operand) -> target = offset + 5 + operand;
+                    // short-form instructions are 2 bytes (1 + 1) -> target = offset + 2 + operand (Leave_s takes the else).
                     if (opCode is ILOpCode.Leave or ILOpCode.Br or ILOpCode.Brfalse
                         or ILOpCode.Brtrue or ILOpCode.Beq or ILOpCode.Bge
                         or ILOpCode.Bgt or ILOpCode.Ble or ILOpCode.Blt
@@ -291,8 +291,8 @@ public static class IlDecoder
                     // has no stack effect -- the decoder completes the prefix pairing: this
                     // instruction is emitted as Nop (the operand is retained for future
                     // consumers), and all semantics land on the receiver shape of the
-                    // following callvirt/call (StackFold's arg0IsAddr → receiverIsAddress
-                    // re-resolution: an ldloca address → deref:* direct call to the
+                    // following callvirt/call (StackFold's arg0IsAddr -> receiverIsAddress
+                    // re-resolution: an ldloca address -> deref:* direct call to the
                     // value-type mapping; a reference-type receiver behaves like an ordinary
                     // callvirt). Emitted as Nop rather than keeping Constrained because the
                     // fold's main switch has no branch for this prefix (default LOUD), while
@@ -373,7 +373,7 @@ public static class IlDecoder
                     break; // M3 support
                 case ILOpCode.Switch:
                     // ECMA-335 III.4.3 (switch): the operand is an int32 table size N
-                    // plus N×int32 relative offsets, each relative to the "end of the
+                    // plus N x int32 relative offsets, each relative to the "end of the
                     // instruction" (the next instruction after the whole table). Total
                     // instruction length = 1 + 4 + 4N. The table size goes into Operand
                     // (IlOperandKind.Switch), the absolute targets into SwitchTargets
@@ -383,10 +383,10 @@ public static class IlDecoder
                     // instruction; the decoder needs no special handling (the stream
                     // naturally aligns). enumdeep.exe Main@169 evidenced: ldloc.0;
                     // ldc.i4.1; sub; switch (table [2,6,12,10] relative to instruction
-                    // end 190 → [192,196,202,200]).
+                    // end 190 -> [192,196,202,200]).
                     // Malformed-table guard (operand-boundary audit b23): a negative or
                     // absurdly large table size would either produce a nonsensical
-                    // tableEnd or a multi-GB allocation; if the declared N×int32 table
+                    // tableEnd or a multi-GB allocation; if the declared N x int32 table
                     // cannot fit in the remaining stream the IL is truncated/malformed
                     // -> stop decoding (fault-tolerance contract).
                     {

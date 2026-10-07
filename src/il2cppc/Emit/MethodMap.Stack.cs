@@ -15,9 +15,11 @@ namespace Il2Cpp.Transpiler.Emit;
 // ToArray is tracked as System.String[] (the snapshot is a reference array).
 // instName is AUTHORITATIVE (the List/Dictionary/HashSet precedent); a null
 // tag keeps the historical non-generic mapping.
-// A4 虚派发: GetEnumerator 为全实例化通用臂 (Queue 侧同构); get_Current 未知
-// token 落 object 共享臂. int/long/double 快路径为机械派生 (stackint_obj),
-// 因 ABI 不同 + 无泛型 box 发射而保留, 逐条见回程特例化审计.
+// A4 virtual dispatch: GetEnumerator is the fully-instantiated generic arm (isomorphic to
+// the Queue side); get_Current unknown tokens fall to the object shared arm. The
+// int/long/double fast paths are mechanically derived (stackint_obj), kept
+// because the ABI differs + there is no generic box emission; item by item see
+// the round-trip specialization audit.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -123,8 +125,9 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::il2cpp_stack_to_array", 0, true, true, true)
                     : null;
             case "GetEnumerator":
-                // A4 虚派发: 全实例化单一通用臂 (Queue 侧同构; 泛型禁重复特例化铁律).
-                // 未知值型实例化 token 为 null -> LOUD.
+                // A4 virtual dispatch: a single fully-instantiated generic arm (isomorphic to
+                // the Queue side; generic no-duplicate-specialization rule).
+                // Unknown value-type instantiation token is null -> LOUD.
                 var enumToken = StackEnumeratorTrackedType(instTag);
                 return enumToken == null
                     ? null
@@ -150,7 +153,8 @@ public static partial class MethodRefResolver
     // object is the shared non-generic snapshot enumerator (stackqueue.h).
     private static string? StackEnumeratorTrackedType(string? instTag) => instTag switch
     {
-        // A4 虚派发: 非泛型 + 全已知实例化 token 统一计算 (通用臂唯一 token 源).
+        // A4 virtual dispatch: non-generic + fully-known instantiation tokens are computed
+        // uniformly (the generic arm's only token source).
         null or "System.Collections.Stack" => "System.Collections.Stack.Enumerator",
         "System.Collections.Generic.Stack`1_int" => "System.Collections.Generic.Stack`1.Enumerator_int",
         "System.Collections.Generic.Stack`1_long" => "System.Collections.Generic.Stack`1.Enumerator_long",
@@ -197,7 +201,8 @@ public static partial class MethodRefResolver
                 return StackElemTypeName(receiverType) is { } refElem
                     ? I("il2cpp::il2cpp_stack_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
                         returnTypeName: refElem)
-                    // 铁律: 无约束/未知 token 落 object 共享臂 (禁误跟踪 string).
+                    // iron rule: unconstrained/unknown tokens fall to the object shared arm
+                    // (no accidental string tracking).
                     : I("il2cpp::il2cpp_stack_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
                         returnTypeName: "System.Object");
             case "Reset":

@@ -262,7 +262,7 @@ public static partial class MethodRefResolver
     //--------------------------------------------------------------------------
     // TryMapValueTypeGetHashCode -- System.ValueType::GetHashCode (the
     // constrained-callvirt default for value types that do NOT override the
-    // member; the audit §5 #5 gap). net48 DOCUMENTED rule (netcore
+    // member; the audit section 5 #5 gap). net48 DOCUMENTED rule (netcore
     // ValueType.cs:89-98): "look for the first non-static field and get its
     // hashcode; if the type has no non-static fields, return the hashcode of
     // the type." The PROBED net48 actual behavior is a process-randomized
@@ -308,7 +308,7 @@ public static partial class MethodRefResolver
         byte[] ps, int count, byte[]? genArgs, string? receiverType, bool receiverIsAddress,
         string? arg0Type, string? arg1Type)
     {
-        // P6: ValueType.GetHashCodeOfPtr — internal helper that hashes a value
+        // P6: ValueType.GetHashCodeOfPtr -- internal helper that hashes a value
         // type by pointer (the GC.cs entry is dead code because System.ValueType
         // dispatches here, not to TryMapGC).
         if (owner == "System.ValueType" && name == "GetHashCodeOfPtr")

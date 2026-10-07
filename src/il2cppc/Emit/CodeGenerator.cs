@@ -9,7 +9,7 @@ using Il2Cpp.Transpiler.Opt;
 
 namespace Il2Cpp.Transpiler.Emit;
 
-// T3 string pool (design docs/architecture/string-pooling-design.md §2.3):
+// T3 string pool (design docs/architecture/string-pooling-design.md section 2.3):
 // Generate's authoritative per-run pool + emission statistics. Program.cs
 // consumes the SAME pool the emitter used (D1 single writer -- the pool
 // built by Generate's in-loop fold->collect; ScanAssembly is a separate
@@ -21,7 +21,7 @@ public static class CodeGenerator
     // M1 generator main flow: types come from MetadataLoader; assemblyPath is used to read method bodies (PEReader).
     // Output: {outDir}/CMakeLists.txt, src/<Type>.cpp (one file per type), include/internal/generated.h + <Type>.h.
     // T3 string pool: Generate builds the assembly-level literal pool in its
-    // own method loop (fold -> collect, design §2.2 order) and the emitter
+    // own method loop (fold -> collect, design section 2.2 order) and the emitter
     // resolves every ldstr to g_strPool[id] from THE SAME pool -- index and
     // table row can never diverge (D1/D3).
     public static GenerateResult Generate(List<TypeDef> types, string outDir, string assemblyPath = "", SequencePointMap? symMap = null,
@@ -901,7 +901,7 @@ public static class CodeGenerator
                         fwdDeclNames.Add(paramType);
                 }
             }
-            // r78 fix: scan base type and interface names — types like
+            // r78 fix: scan base type and interface names - types like
             // System_Reflection_MethodBase are base types of loaded types
             // but are not themselves in the types list.
             if (!string.IsNullOrEmpty(ct.BaseTypeName) && !ct.BaseTypeName.Contains(':'))
@@ -1465,7 +1465,7 @@ public static class CodeGenerator
                 // fold, which turns branch-chain constants into constant
                 // conditions the emission-time reachability removes.
                 stmts = DcePass.Run(stmts).Stmts;
-                // OPT-2 (escape-analysis ordering contract, opt2-b23-report §6
+                // OPT-2 (escape-analysis ordering contract, opt2-b23-report section 6
                 // P2: the original DcePass.Run above is KEPT -- it cleans the
                 // folded IR before inlining so stale temps do not pollute the
                 // expansion): inline small pure callees first (the inlined
@@ -1486,7 +1486,7 @@ public static class CodeGenerator
                 // emitter renders as the raw double comparison.
                 stmts = ProtectDoubleSelfCompare(stmts, m, bodyInfo);
                 stmts = Normalize.FoldStmts(stmts, bodyInfo.ExceptionRegions);
-                // T3 string pool (design §2.2 order constraint): fold constant
+                // T3 string pool (design section 2.2 order constraint): fold constant
                 // concats THEN collect into Generate's authoritative pool --
                 // the folded product ("ab") dedups against an existing "ab"
                 // literal, and the emitter below resolves every ldstr from
@@ -1699,7 +1699,7 @@ public static class CodeGenerator
         generatedHeader.Line(headerMainTakesArgs
             ? "IL2CPP_EXPORT int32_t il2cpp_entry_main(int32_t argc, char** argv);"
             : "IL2CPP_EXPORT int32_t il2cpp_entry_main(void);");
-        // T3 string pool (design §2.3): the static table data file -- emitted
+        // T3 string pool (design section 2.3): the static table data file -- emitted
         // by Program.cs only when the pool is non-empty; include conditionally
         // (an empty pool writes NO file -- unconditional include would break
         // every string-free program's generated.h).
@@ -3725,8 +3725,8 @@ public static class CodeGenerator
                     if (r.Value is StaticFieldExpr sfe)
                         retKind = StaticFieldExprIsReference(md, types, sfe.FieldName) ? "ref" : "val";
                     // Return type bridge: method signature return type differs from expression kind.
-                    // Case 1: returns Il2CppObject* (ref) but expression is int/val → reinterpret_cast through intptr_t.
-                    // Case 2: returns int32_t but expression is ref/ptr → static_cast<int32_t> narrow (lossy but preserves slot-reuse semantics).
+                    // Case 1: returns Il2CppObject* (ref) but expression is int/val -> reinterpret_cast through intptr_t.
+                    // Case 2: returns int32_t but expression is ref/ptr -> static_cast<int32_t> narrow (lossy but preserves slot-reuse semantics).
                     // MSVC C2440 guard (msvc P/Invoke family): a "ptr"-kind expression is ALREADY the intptr_t
                     // carrier (IntPtr ValueTypeNewExpr / ResultKind=="ptr" call, incl. the
                     // il2cpp_pinvoke_result<intptr_t> bridge). Wrapping it in
@@ -4344,7 +4344,7 @@ public static class CodeGenerator
                 // and ldc.r4 NaN payloads widen differently still -- so NaN
                 // emits il2cpp_double_from_bits(<raw int64 bits>) (defined in
                 // generated.h), which round-trips the IL constant bit-exactly.
-                // ±Infinity have no payload, so the <cmath> macros are faithful
+                // +Infinity/-Infinity have no payload, so the <cmath> macros are faithful
                 // (the sign is preserved by the unary minus).
                 // Integral values get an explicit ".0" so C++ keeps double
                 // semantics (and "-0" preserves the negative-zero sign).
@@ -4356,7 +4356,7 @@ public static class CodeGenerator
                     txt += ".0";
                 return txt;
             case StringConstExpr s:
-                // T3 string pool (design §2.3): ldstr -> single load from the
+                // T3 string pool (design section 2.3): ldstr -> single load from the
                 // static table g_strPool[id] (built by Generate's in-loop
                 // fold->collect pass). Table entries ARE intern-pool instances
                 // (fill uses intern_literal), so .NET interned identity
@@ -4897,7 +4897,7 @@ public static class CodeGenerator
         DelegateInvokeExpr d when d.ReturnsRef => "ref",
         FieldExpr f when f.IsRefField => "ref",
         LocExpr l when locKind.TryGetValue(l.Name, out var k) => k,
-        // dec3 §5 Bug1: a decimal static field load (ldsfld System.Decimal::One)
+        // dec3 section 5 Bug1: a decimal static field load (ldsfld System.Decimal::One)
         // must declare the local as Il2CppDecimal, not int32_t -- the BCL
         // sf_Zero/One descriptors are 16-byte runtime structs, and casting
         // them to int32_t truncates (decimalcase 9 build errors).
@@ -4975,7 +4975,7 @@ public static class CodeGenerator
         return b;
     }
 
-    // M5 wiring: TypeSpec → the generic DEFINITION's full name
+    // M5 wiring: TypeSpec -> the generic DEFINITION's full name
     // ("System.Func`2<int,int>" -> "System.Func`2") -- used to classify
     // generic-instantiation casts (delegate instantiations are identities).
     private static string GenericTypeSpecDefinitionName(MetadataReader md, TypeSpecificationHandle handle)
@@ -5306,7 +5306,7 @@ public static class CodeGenerator
         "System.Comparison`1_string" => "nullptr",
         "System.Comparison`1_object" => "nullptr",
         "System.Comparison`1_class" => "nullptr",
-        // net9/10 E2E icallcase (CG8 matrix report): Converter`2 — the ctor
+        // net9/10 E2E icallcase (CG8 matrix report): Converter`2 - the ctor
         // interception already covers every instantiation ("System_Converter_"
         // prefix); only the BclAllocExpr placeholder keys were missing for
         // NON-int,int instantiations, so Array.ConvertAll<string,int>(arr,
@@ -5457,7 +5457,7 @@ public static class CodeGenerator
         var receiverCode = EmitExpr(receiver, md, types);
         var receiverChecked = $"il2cpp_null_check(static_cast<Il2CppObject*>({receiverCode}))";
 
-        // Devirt S1 (devirtualization-plan.md §S1): a callvirt whose receiver's
+        // Devirt S1 (devirtualization-plan.md section S1): a callvirt whose receiver's
         // STATIC type (tracked by StackFold objTypes -- newobj/box/GetType/
         // delegate results) is an EFFECTIVELY-SEALED translated class lowers to
         // a DIRECT call. A sealed class cannot be subclassed, so the runtime
@@ -5563,19 +5563,19 @@ public static class CodeGenerator
     }
 
     //--------------------------------------------------------------------------
-    // Devirt S1/S3 (devirtualization-plan.md §3.2): callvirt -> direct call on
+    // Devirt S1/S3 (devirtualization-plan.md section 3.2): callvirt -> direct call on
     // a statically-known receiver. Returns the emitted C++ or null (fall back
     // to the runtime vtable dispatch below).
     //
     // S1 class path gates:
-    //   ① the receiver's STATIC type (v.ReceiverTypeName, tracked by StackFold
+    //   (1) the receiver's STATIC type (v.ReceiverTypeName, tracked by StackFold
     //     objTypes) resolves to a translated type -- same arity-prefix rule as
     //     VirtualTarget/OwnerIsTranslated ("Box`1_int" matches "Box`1");
-    //   ② that type is effectively sealed -- metadata Sealed OR closed-world
+    //   (2) that type is effectively sealed -- metadata Sealed OR closed-world
     //     no-subclass (DerivedCount==0), and NOT abstract/interface/value-type;
-    //   ③ the callvirt owner is a CLASS (interface dispatch is S3) whose slot
+    //   (3) the callvirt owner is a CLASS (interface dispatch is S3) whose slot
     //     for the signature resolves within the receiver's vtable;
-    //   ④ the receiver static type is the owner or a subtype -- a stale
+    //   (4) the receiver static type is the owner or a subtype -- a stale
     //     objTypes hint that contradicts the call's declaring type is skipped
     //     (the vtable path stays correct).
     //
@@ -5670,7 +5670,7 @@ public static class CodeGenerator
             ? $"reinterpret_cast<Il2CppObject*>({call})"
             : call;
 
-        // Devirt S3 (devirtualization-plan.md §4 S3): interface dispatch on a
+        // Devirt S3 (devirtualization-plan.md section 4 S3): interface dispatch on a
         // receiver whose static type is known lowers to a DIRECT call when the
         // interface has exactly ONE concrete implementer in the closed world
         // (InterfaceImplementerCount, VTablePlanner) -- any object assigned to
@@ -5694,13 +5694,13 @@ public static class CodeGenerator
             return SzArrayBridge($"{ifaceFn}({ifaceArgs})");
         }
 
-        // Gate ④: the receiver must be assignable to the declaring owner.
+        // Gate (4): the receiver must be assignable to the declaring owner.
         if (!ReferenceEquals(recvType, owner) && !IsSubtypeOf(recvType, owner)) return null;
         var slot = owner.VirtualMethods.FindIndex(m => m != null && VTablePlanner.SigKey(m) == sig);
         if (slot < 0 || slot >= recvType.VirtualMethods.Count) return null;
         var impl = recvType.VirtualMethods[slot];
         if (impl == null || impl.IsAbstract) return null;
-        // Gate ②: the receiver must be effectively sealed (S1 class path) OR
+        // Gate (2): the receiver must be effectively sealed (S1 class path) OR
         // the effective slot method is FINAL (Devirt S2) -- a final method
         // (sealed override) cannot be overridden by any subtype, so the slot
         // resolves statically even when the receiver's static type is NOT
@@ -7483,7 +7483,7 @@ default: return false;                           // primitives/VAR(handled by ca
         // P-D1 P0-1 (full-width returns): int64/double/float/uint64 DllImport
         // returns were silently declared int32_t (a double return read EAX,
         // a long return sign-extended the truncated EAX -- both P-D1 audits
-        // §4). The result TEMP is already sized by StackFold's
+        // section 4). The result TEMP is already sized by StackFold's
         // UserCallResultKind ("l"/"d"/"ptr"), so only the extern "C"
         // declaration must name the native return width -- the C++ compiler
         // then reads the correctly-typed return register/converts the SDL.
@@ -7590,7 +7590,7 @@ default: return false;                           // primitives/VAR(handled by ca
             // P-D1 P0-1 (full-width scalars): int64/uint64/double/float params
             // were silently declared int32_t and truncated by the
             // il2cpp_pinvoke_arg bridge (static_cast to the int32_t decl) --
-            // both P-D1 audits §4. They now declare their real width; the
+            // both P-D1 audits section 4. They now declare their real width; the
             // call-site arg bridge (EmitIcallCallArgs + PinvokeArgBridge)
             // deduces the native type and converts the managed slot.
             return p switch
@@ -8334,7 +8334,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "System.Object" => boxVal,
                 // BCL pointer-wrapper handles (ModuleHandle, RuntimeTypeHandle,
                 // RuntimeMethodHandle, RuntimeFieldHandle, AssemblyHash): box via
-                // icall_box_long — no runtime class descriptor, pointer-sized
+                // icall_box_long - no runtime class descriptor, pointer-sized
                 // payload (8 bytes). MVP: boxed runtime type is Int64 (documented).
                 "System.ModuleHandle" => $"il2cpp::runtime::icall_box_long(static_cast<int64_t>(reinterpret_cast<intptr_t>({boxVal})))",
                 "System.RuntimeTypeHandle" => $"il2cpp::runtime::icall_box_long(static_cast<int64_t>(reinterpret_cast<intptr_t>({boxVal})))",
@@ -8549,7 +8549,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // G1 (C1): a multidim ARRAY allocation (`new int[2,2]` -> the
         // mdnew_<elem><rank> CallExpr with the per-dim lengths as args). The
         // runtime exposes a rank-fixed multidim allocator (il2cpp_array_new_
-        // multi<N>d -- row-major flat data, GC scan unchanged; commit② of the
+        // multi<N>d -- row-major flat data, GC scan unchanged; commit (2) of the
         // GN-3 multidim support). The element width/isRef come from the M3
         // element SUFFIX (MdSuffixWidth authority).
         if (c.Function.StartsWith("mdnew_", StringComparison.Ordinal))
@@ -8962,7 +8962,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if (returnByte is 0x0A or 0x0B) return "int64_t";
         if (returnByte is 0x0C or 0x0D) return "double";
         if (returnByte is 0x0E or 0x12 or 0x1C or 0x1D or 0x1F) return "Il2CppObject*";
-        // P-D3 (§7.3 calli whitelist): 0x18 ELEMENT_TYPE_I (IntPtr/native-int)
+        // P-D3 (section 7.3 calli whitelist): 0x18 ELEMENT_TYPE_I (IntPtr/native-int)
         // must carry the FULL pointer width -- the old int32_t collapsed the
         // x64 address. 0x0F (PTR) and 0x1B (FNPTR) returns are raw pointer
         // carriers (void*); a subsequent calli rides them directly (the "p"
@@ -8979,7 +8979,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     private static string CalliParamCpp(string encoded)
     {
         if (encoded.StartsWith("r:", StringComparison.Ordinal)) return "Il2CppObject*";
-        // P-D3 (§7.3 calli whitelist): a fnptr (F:) or pointer (P:) parameter
+        // P-D3 (section 7.3 calli whitelist): a fnptr (F:) or pointer (P:) parameter
         // IS a void* at full pointer width -- the call-side fnptr/pointer
         // value feeds the slot directly (no teardown).
         if (encoded.StartsWith("F:", StringComparison.Ordinal)) return "void*";
@@ -9412,7 +9412,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     : $"reinterpret_cast<int64_t*>((&(({code}).value__)))",
                 "unbox:i" => $"il2cpp::il2cpp_unbox_int32(static_cast<Il2CppObject*>({code}))",
                 "unbox:l" => $"il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))",
-                // cast-3 fix: box:i — when icall expects Il2CppObject* but gets int32, box it
+                // cast-3 fix: box:i - when icall expects Il2CppObject* but gets int32, box it
                 "box:i" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
                     ? code
                     : $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({code}))",
@@ -9422,7 +9422,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "boxed" => code,
                 // exc001 (Task.Run): "run:i" / "run:r" -- synchronously
                 // invoke a ZERO-ARG delegate and use its return value as the
-                // icall argument (Task.Run(f) ≡ FromResult(f.Invoke()) in
+                // icall argument (Task.Run(f) == FromResult(f.Invoke()) in
                 // the synchronous-completion model). int32-family results
                 // ride the i4 multicast ABI (4 trailing zeros pad the
                 // (list,a0..a3) signature -- the DelegateInvokeExpr emission
@@ -9634,7 +9634,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         ("string", IntPtr.Size), ("object", IntPtr.Size),
     };
 
-    // ArrayElementType -- newarr element type → (elemSize, isRefElement).    //   System.Int32                 -> (4, false)
+    // ArrayElementType -- newarr element type -> (elemSize, isRefElement).    //   System.Int32                 -> (4, false)
     //   System.Byte                  -> (1, false)   (net-domain T0; ldelem.u1/
     //                                                 stelem.i1 width dispatch
     //                                                 already present)
@@ -9914,7 +9914,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
 
     // C string literal escaping (backslash / quotes / newline, etc.). T3 convergence: the single
     // implementation lives in StringPoolPass.EscapeCppLiteral (used for pool-table row emission);
-    // this delegate stays byte-for-byte identical (both implementations verified: same 5 replacements, same order, recipe §3).
+    // this delegate stays byte-for-byte identical (both implementations verified: same 5 replacements, same order, recipe section 3).
     private static string EscapeC(string s) => StringPoolPass.EscapeCppLiteral(s);
 
     private static string ReturnTypeCpp(SignatureTypeCode code) => code switch
@@ -10464,7 +10464,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // Program.cs after Generate with the FINAL pool), so g_strPool indices
         // are valid -- and this call must precede the LiteralCount>0 fill check.
         EmitAttributeRegistrations(w, md, types, pool);
-        // T3 string pool (design §2.3): eager fill BEFORE any generated user
+        // T3 string pool (design section 2.3): eager fill BEFORE any generated user
         // code can run -- the Main-type .cctor (ensure_cctor_* below) may
         // ldstr; the table must be filled or ldstr reads uninitialized slots.
         // Entries are the intern-pool instances (the intern pool is a GC
@@ -10819,7 +10819,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             if (PinvokeModuleIsDynamic(mod)) continue; // SHARED: build only, no link
             linkedPinvokeModules.Add(modBase);
         }
-        // P-F build forms (P-F-AUDIT-1 双审定案 §1-3): the generated project
+        // P-F build forms (P-F-AUDIT-1 dual-audit verdict, section 1-3): the generated project
         // emits THREE targets that share the translated sources:
         //   il2cpp_gen        -- STATIC user program library (external hosts link this; capi)
         //   il2cpp_gen_shared -- SHARED loadable C-API library (dlopen/LoadLibrary +
@@ -10876,7 +10876,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         w.Line("else()");
         w.Line("  target_compile_options(il2cpp_gen_exe PRIVATE -Wall -Wextra -fexceptions)");
         w.Line("endif()");
-        w.Line("# P-F §3: distributable package -- cmake --install <build> gives");
+        w.Line("# P-F section 3: distributable package -- cmake --install <build> gives");
         w.Line("# lib<name>.a + libil2cpp_runtime.a + include/ (consumers: -L -l<name> -lil2cpp_runtime)");
         w.Line("install(TARGETS il2cpp_gen ARCHIVE DESTINATION lib)");
         w.Line("install(TARGETS il2cpp_gen_shared ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)");

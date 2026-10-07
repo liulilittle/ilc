@@ -5,7 +5,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // mappings (src/runtime/include/internal/safehandle.h -- il2cpp::runtime::
 // icall_safehandle_*). Owners: System.Runtime.InteropServices.SafeHandle
 //
-// net48 semantics (audit icall-inventory-net48.md §5 item 10): handle
+// net48 semantics (audit icall-inventory-net48.md section 5 item 10): handle
 // reference counting around P/Invoke. The runtime has NO SafeHandle object
 // model (no class descriptor, no BclAllocExpr allocation path -- a SafeHandle
 // cannot be constructed end-to-end in ILC), so the icalls implement the

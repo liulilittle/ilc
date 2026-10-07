@@ -148,7 +148,7 @@ void icall_marshal_free_struct(void* ptr);
 intptr_t icall_marshal_realloc_hglobal(intptr_t ptr, intptr_t size);
 
 //------------------------------------------------------------------------------
-// Marshal gap batch (net48 inventory §5 items 6/8/9 + the SEH queries).
+// Marshal gap batch (net48 inventory section 5 items 6/8/9 + the SEH queries).
 // These complete the Marshal surface the transpiler maps onto; see
 // marshalext3.cpp for the full net48-semantics contract.
 //------------------------------------------------------------------------------
@@ -241,8 +241,8 @@ void il2cpp_marshal_struct_msg_store(void* dst, const Il2CppPinvokeMsg* value);
 void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDeleteOld);
 
 //------------------------------------------------------------------------------
-// Marshal medium-priority gap batch (net48 inventory §4 line 971:
-// DestroyStructure; §4/§5 task picks: SizeOf-object and elem-width Copy).
+// Marshal medium-priority gap batch (net48 inventory section 4 line 971:
+// DestroyStructure; section 4/section 5 task picks: SizeOf-object and elem-width Copy).
 // Implemented in marshalext4.cpp.
 //------------------------------------------------------------------------------
 
@@ -266,7 +266,7 @@ int32_t icall_marshal_size_of_object(Il2CppObject* structure);
 
 // Marshal.Copy elem-width-aware forms: copy 'length' ELEMENTS of the array's
 // element size (arr->elemSize) between the array and a native buffer. This
-// is the "Copy 余形态" completion -- the runtime.cpp int32-stride icalls only
+// is the "Copy remaining forms" completion -- the runtime.cpp int32-stride icalls only
 // handle elemSize==4. net48 Copy semantics per element type (byte/short/char/
 // int/long/float/double/IntPtr arrays all dispatch through arr->elemSize):
 //   to_unmanaged: null array -> ArgumentNullException("source");
@@ -290,7 +290,7 @@ void icall_marshal_copy_from_unmanaged_elem(void* source, Il2CppArray* array, in
 
 
 //------------------------------------------------------------------------------
-// Marshal VARIANT + COM-identity gap batch (net48 inventory §3 Marshal rows:
+// Marshal VARIANT + COM-identity gap batch (net48 inventory section 3 Marshal rows:
 // GetObjectForNativeVariant / GetNativeVariantForObject /
 // GetObjectsForNativeVariants / IsComObject). Implemented in marshalext5.cpp.
 //

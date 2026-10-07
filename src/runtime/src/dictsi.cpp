@@ -2,7 +2,7 @@
 // dictsi.cpp -- strongly-typed string->int32 dictionary (see dictsi.h for
 // the layout, hash contract, GC contract and growth contract).
 //
-// Data structure (net48 Dictionary<TKey,TValue> model, spec §8 R1-R7):
+// Data structure (net48 Dictionary<TKey,TValue> model, spec section 8 R1-R7):
 //   Il2CppDictSI { buckets: int32* (bucket -> entry index, -1 = empty),
 //   entries: Il2CppDictSIEntry* (slot array in INSERTION ORDER), bucketCount
 //   (power of two), count (slots ever used), entryCapacity, freeList (head of
@@ -461,7 +461,7 @@ Il2CppArray* il2cpp_dict_si_get_keys(Il2CppDictSI* d)
     Il2CppArray* result = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(void*)), true, live);
     Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(result->data);
-    // net48 spec §8 R1: the entries slot array is walked in INDEX order
+    // net48 spec section 8 R1: the entries slot array is walked in INDEX order
     // (0..count ascending), skipping free slots -- INSERTION order. This is
     // the order the net48 oracle enumerates (the 2026-09-24 hash-bucket
     // experiment disagreed with the oracle and was reverted 2026-10-05).

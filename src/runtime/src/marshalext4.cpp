@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// marshalext4.cpp -- Marshal medium-priority gap batch (net48 inventory §4
-// line 971: DestroyStructure; §4/§5 task picks: SizeOf-object and the
+// marshalext4.cpp -- Marshal medium-priority gap batch (net48 inventory section 4
+// line 971: DestroyStructure; section 4/section 5 task picks: SizeOf-object and the
 // elem-width Copy forms). Declarations in il2cpp_marshal_ext.h.
 //
 // This translation unit adds the three surface groups the transpiler maps

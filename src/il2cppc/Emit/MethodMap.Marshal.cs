@@ -68,8 +68,8 @@ public static partial class MethodRefResolver
     private static ResolvedMethod? TryMapMarshal(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string[]? genArgNames = null)
     {
-        // COM interop surface (net48 inventory 搂4 line 971: "23 涓?COM 鐩稿叧
-        // 寤鸿 LOUD 鎷掔粷"). The core RCW surface is now WIRED (com3, com.cpp):
+        // COM interop surface (net48 inventory section 4 line 971: "23 COM-related
+        // members suggested LOUD reject"). The core RCW surface is now WIRED (com3, com.cpp):
         // GetActiveObject / GetIUnknownForObject / GetObjectForIUnknown /
         // ReleaseComObject (below) + IsComObject (marshal-b23) map to real
         // runtime icalls (il2cpp_com.h, namespace il2cpp::runtime). The
@@ -112,7 +112,7 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_pinvoke_string_from_utf8", 1, true, true, false, new[] { "p" });
             // string PtrToStringUni(IntPtr): WF-M1 (2026-08-07) -- the UTF-16
             // decode helper now exists (il2cpp_pinvoke_ext.h:134
-            // il2cpp_pinvoke_string_from_utf16, wfm1 report 搂1). The IntPtr
+            // il2cpp_pinvoke_string_from_utf16, wfm1 report section 1). The IntPtr
             // carrier reaches the const char16_t* param via the "p16" cast
             // code (CG-FIX must add it to EmitIcallCallArgs -- the "p" cast
             // is const char* only; "p16" is its char16_t twin).
@@ -206,7 +206,7 @@ public static partial class MethodRefResolver
                     new[] { "s" }, "ptr");
             // IntPtr StringToHGlobalUni(string): WF-M1 (2026-08-07) -- the
             // hglobal icall form now exists (il2cpp_pinvoke_ext.h:177
-            // il2cpp_pinvoke_string_to_utf16_hglobal, wfm1 report 搂1): returns
+            // il2cpp_pinvoke_string_to_utf16_hglobal, wfm1 report section 1): returns
             // intptr_t (IntPtr.Zero on null) -- "ptr" result kind, so the
             // result temp is intptr_t with no emitter return cast. The string
             // arg reaches the Il2CppString* param via the "s" cast. The
@@ -634,7 +634,7 @@ public static partial class MethodRefResolver
         "InitWrapper",
         "IsTypeVisibleFromCom",
         "Release",
-        // Internal *Native/*Internal icall variants (public wrapper鎵跨辜)
+        // Internal *Native/*Internal icall variants (public wrappers in parentheses)
         "FCallGenerateGuidForType",
         "FCallGetTypeInfoGuid",
         "FCallGetTypeLibGuid",

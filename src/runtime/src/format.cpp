@@ -135,7 +135,7 @@ int FormatU32Hex(char* out, uint32_t value)
 // Post-processing only adapts C's spelling to .NET's: 'e' -> 'E' (C already
 // signs and zero-pads the exponent to 2 digits, like .NET), -0.0 -> "0",
 // NaN/+-Infinity -> .NET words: NaN as "NaN", infinities as the culture
-// symbol "∞"/"-∞" (U+221E, UTF-8 E2 88 9E -- the .NET Framework
+// symbol U+221E/-U+221E (U+221E, UTF-8 E2 88 9E -- the .NET Framework
 // invariant-culture infinity symbol, net48 zh-CN verified, same spelling
 // as console.cpp's console_format_double). 'out' must hold kFormatBufferSize
 // chars; always NUL-terminates.
@@ -151,7 +151,7 @@ void FormatDoubleG15(double value, char* out)
     if (std::isinf(value))
     {
         // net48 (zh-CN host, empirical): infinities render as the culture
-        // symbol U+221E '∞' (UTF-8 bytes E2 88 9E) with a leading '-'
+        // symbol U+221E (infinity) (UTF-8 bytes E2 88 9E) with a leading '-'
         // for the negative form; the UTF-8 bytes are decoded downstream
         // by il2cpp_string_new_from_utf8 (il2cpp_string_new_from_cs would
         // skip the >= 0x80 bytes).
@@ -193,7 +193,7 @@ bool IsAsciiWhitespaceAscii(char c)
 // projection below cannot represent U+221E). net48 zh-CN probe: the
 // positive-infinity symbol is exactly U+221E and the negative form is
 // exactly '-' + U+221E; ASCII whitespace may pad either side, and a '+' sign
-// is NOT accepted (the symbol match is whole-text, so "+∞" fails). Returns 1
+// is NOT accepted (the symbol match is whole-text, so "+U+221E" fails). Returns 1
 // with *out set on a full match; 0 otherwise (caller falls through to the
 // decimal-literal path, which rejects the text).
 bool TryMatchInfinityWord(const char16_t* p, const char16_t* end, double* out)
@@ -222,7 +222,7 @@ bool TryMatchInfinityWord(const char16_t* p, const char16_t* end, double* out)
     }
     if (p != end)
     {
-        return false; // trailing junk after the symbol ("∞x", "∞∞", ...)
+        return false; // trailing junk after the symbol ("U+221Ex", "U+221EU+221E", ...)
     }
     *out = negative ? -std::numeric_limits<double>::infinity()
                     : std::numeric_limits<double>::infinity();

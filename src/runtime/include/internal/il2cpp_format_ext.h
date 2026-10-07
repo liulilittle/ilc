@@ -31,7 +31,7 @@
 //                          explicit precision, significant-digit rounding
 //                          ("G2" of 12345 -> "1.2E+04").
 //                  F<prec>  fixed without grouping ("255.00", default 2).
-//                  P<prec>  percent: exact ×100 digit shift, grouped,
+//                  P<prec>  percent: exact x100 digit shift, grouped,
 //                          trailing '%' ("25,500.0%", default 2).
 //                  CUSTOM   the extended custom engine (below).
 //   double:       F<prec>  fixed ("1234.57", default 2).
@@ -45,8 +45,8 @@
 //                          2026-08-09): '0' (mandatory digit), '#' (optional
 //                          digit), '.' (decimal separator; extra '.' ignored),
 //                          ',' (thousands grouping between two integer digit
-//                          placeholders, or ÷1000 scaling per trailing comma),
-//                          '%' (×100) and U+2030 '‰' (×1000) at their pattern
+//                          placeholders, or /1000 scaling per trailing comma),
+//                          '%' (x100) and U+2030 (per-mille) (x1000) at their pattern
 //                          position, '\' escapes, '..'/".." quoted literals,
 //                          other characters as literals. Integer digits beyond
 //                          the placeholder count are emitted before the first
@@ -66,8 +66,8 @@
 // KNOWN DIVERGENCES (honest; net48 oracle capture):
 //   * CULTURE FIXING: net48 "C"/"P" output follows the process
 //     CurrentCulture. This runtime FIXES the verification host's net48
-//     default (zh-CN): currency symbol U+00A5 '¥' with negative pattern
-//     "¥-n" ("¥-12,345.00"), percent "n%"/"-n%" (no space). Under other
+//     default (zh-CN): currency symbol U+00A5 (yen sign) with negative pattern
+//     "U+00A5-n" ("U+00A5-12,345.00"), percent "n%"/"-n%" (no space). Under other
 //     cultures net48 output differs -- reported.
 //   * Custom scientific notation ("0.00E+00" -> net48 "1.23E+04") and
 //     ';' section separators ("0;#", "#,##0.00;(#,##0.00)") are out of
@@ -82,7 +82,7 @@
 //   * Non-finite double output follows the existing runtime contract
 //     ("NaN"/"Infinity"/"-Infinity" -- format.cpp precedent). net48's
 //     infinity spelling is CULTURE-DEPENDENT: the zh-CN default culture
-//     renders "∞"/"-∞" (U+221E) in F/N/E too, while InvariantCulture
+//     renders U+221E/-U+221E (U+221E) in F/N/E too, while InvariantCulture
 //     renders "Infinity"/"-Infinity" (both verified against net48); the
 //     runtime fixes the ASCII spelling.
 //------------------------------------------------------------------------------
@@ -99,7 +99,7 @@ namespace il2cpp { namespace runtime {
 // cultureprobe (saudit4): 'provider' mirrors the double formatter contract --
 // nullptr / non-empty name -> the zh-CN host layout (byte-identical to the
 // pre-provider behavior); the empty-name (invariant) provider -> invariant
-// C ("(¤n)-negatives", U+00A4) / P ("n %") layouts. Defaulted so every
+// C ("(U+00A4n)-negatives", U+00A4) / P ("n %") layouts. Defaulted so every
 // pre-existing 2-arg call site stays ABI- and byte-compatible.
 Il2CppObject* icall_format_int32_custom(int32_t value, Il2CppObject* format,
                                         Il2CppObject* provider = nullptr);
@@ -116,7 +116,7 @@ Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format,
 // form and the composite engine pass nullptr). nullptr / non-empty name ->
 // the zh-CN host layout (byte-identical to the pre-provider behavior); an
 // empty-name (invariant) provider -> the invariant P ("n %") / C (U+00A4,
-// "(¤n)") layouts.
+// "(U+00A4n)") layouts.
 Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                                          Il2CppObject* provider);
 

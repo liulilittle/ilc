@@ -11,7 +11,7 @@ namespace Il2Cpp.Transpiler.Opt;
 // LICM -- loop-invariant code motion (bench gap: the net48 JIT hoists
 // invariant `s.Length` / `a.Length` reads out of loops; the generated C++
 // re-evaluated them every iteration). docs/audit/bench-regression-check.md
-// §4.4: "net48's loop-invariant hoisting vs ILC allocating per iteration".
+// section 4.4: "net48's loop-invariant hoisting vs ILC allocating per iteration".
 //
 //   Loop shape (conservative single-block natural loops -- the SAME shape
 //   StackFold.HoistLoopGuards accepts; the analysis here is self-contained

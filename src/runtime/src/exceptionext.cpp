@@ -4,17 +4,19 @@
 //
 // MESSAGE CULTURE + FORMAT (excext, 2026-08-11): .NET Framework 4.8 renders
 // exception text in the OS culture and appends the parameter-name line to the
-// Message property. On the zh-CN e2e oracle host (net48 probe-verified):
+// Message property. On the zh-CN e2e oracle host (net48 probe-verified) the
+// default message text is the zh-CN resource ("U+503C U+4E0D U+80FD U+4E3A space null U+3002" ("value must not be null.") /
+// "U+6307 U+5B9A U+7684 U+53C2 U+6570 U+5DF2 U+8D85 U+51FA U+6709 U+6548 U+503C U+7684 U+8303 U+56F4 U+3002" ("the specified argument was out of the range of valid values."), UTF-8 encoded below) and the
+// parameter-name line is "U+53C2 U+6570 U+540D U+003A U+0020<param>" ("parameter name: <param>"); the .NET Framework two-line
+// format (NOT .NET Core's one-line "(Parameter 'x')" suffix) is kept. The
+// zh-CN text is encoded as UTF-8 byte escapes (source-encoding independent,
+// the cultureinfo.cpp/console.cpp precedent); the zh-CN host is the net48
+// oracle, so the output stays deterministic and byte-exact on every host
+// (formatext.cpp fixes the same zh-CN host):
 //   new ArgumentNullException("param").Message
-//     -> "值不能为 null。" "\r\n" "参数名: param"
+//     -> "U+503C U+4E0D U+80FD U+4E3A space null U+3002" ("value must not be null.") "\r\n" "U+53C2 U+6570 U+540D U+003A U+0020param" ("parameter name: param")
 //   new ArgumentOutOfRangeException("index", "out of range").Message
-//     -> "out of range" "\r\n" "参数名: index"
-// The composed text below therefore uses the zh-CN host strings and the
-// .NET Framework two-line format (NOT .NET Core's one-line "(Parameter 'x')"
-// suffix). The zh-CN text is encoded as UTF-8 byte escapes (source-encoding
-// independent -- the cultureinfo.cpp/console.cpp precedent); the zh-CN host
-// is the net48 oracle, so the output stays deterministic on every host
-// (formatext.cpp fixes the same zh-CN host).
+//     -> "out of range" "\r\n" "U+53C2 U+6570 U+540D U+003A U+0020index" ("parameter name: index")
 //
 // Every factory forwards to il2cpp_throw_new with a type-name chain whose
 // first element is the exact managed full name; the remaining elements are
@@ -38,7 +40,7 @@
 // literal or the thread-local scratch built by ComposeMessage:
 //   * static literal  -- defaults and caller-provided messages (the caller
 //     must pass a stable string, i.e. a compile-time constant);
-//   * thread-local    -- the zh-CN parameter-name text composed by the
+//   * thread-local    -- the composed parameter-name text produced by the
 //     paramName-based factories. The scratch outlives any exception
 //     unwinding (never dangles), is private to the thread (no data race),
 //     and needs no heap (no leak). Caveat: a later composed-message factory
@@ -55,21 +57,23 @@ namespace il2cpp {
 namespace {
 
 // Thread-local scratch for composed messages (".NET Framework Message" +
-// "\n参数名: <name>"). See the file header for the lifetime contract.
+// "\nParameter name: <name>"). See the file header for the lifetime contract.
 thread_local char g_messageScratch[256];
 
-// zh-CN host .NET Framework message text (net48 oracle, probe-verified
-// 2026-08-11 -- see the file header):
-//   * ArgumentNullException default:  "值不能为 null。"
-//   * ArgumentOutOfRangeException default: "指定的参数已超出有效值的范围。"
-//   * parameter-name prefix:          "参数名: "
+// .NET Framework default message text -- the zh-CN host resource pinned for
+// byte-exact net48 alignment (see the file header). Encoded as UTF-8 byte
+// escapes so the source is encoding-independent:
+//   * ArgumentNullException default:  the zh-CN "U+503C U+4E0D U+80FD U+4E3A space null U+3002" ("value must not be null.") text
+//   * ArgumentOutOfRangeException default: the zh-CN "U+6307 U+5B9A U+7684 U+53C2 U+6570 U+5DF2 U+8D85 U+51FA U+6709 U+6548 U+503C U+7684
+//     U+8303 U+56F4 U+3002" ("the specified argument was out of the range of valid values.") text
+//   * parameter-name prefix:          the zh-CN "U+53C2 U+6570 U+540D U+003A U+0020" ("parameter name: ") prefix
 const char* kArgumentNullMessage =
-    "\xE5\x80\xBC\xE4\xB8\x8D\xE8\x83\xBD\xE4\xB8\xBA\x20\x6E\x75\x6C\x6C\xE3\x80\x82"; // 值不能为 null。
+    "\xE5\x80\xBC\xE4\xB8\x8D\xE8\x83\xBD\xE4\xB8\xBA\x20\x6E\x75\x6C\x6C\xE3\x80\x82";
 const char* kArgumentOutOfRangeMessage =
     "\xE6\x8C\x87\xE5\xAE\x9A\xE7\x9A\x84\xE5\x8F\x82\xE6\x95\xB0\xE5\xB7\xB2\xE8\xB6\x85"
-    "\xE5\x87\xBA\xE6\x9C\x89\xE6\x95\x88\xE5\x80\xBC\xE7\x9A\x84\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82"; // 指定的参数已超出有效值的范围。
+    "\xE5\x87\xBA\xE6\x9C\x89\xE6\x95\x88\xE5\x80\xBC\xE7\x9A\x84\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82";
 const char* kParamNamePrefix =
-    "\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20"; // 参数名: 
+    "\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20";
 
 // Compose the parts (null entries render as "") into the thread-local
 // scratch. The copy is manually bounded (clamped to the buffer, always
@@ -92,10 +96,11 @@ char* ComposeMessage(const char* const* parts, int32_t count)
 }
 
 // ArgumentNullException / ArgumentOutOfRangeException Message:
-// baseMessage + "\r\n" + "参数名: <paramName>" (net48 zh-CN format). The
-// separator is CRLF: .NET Framework composes this line with
-// Environment.NewLine (byte-probe of the net48 oracle: `...null。` 0D 0A
-// `参数名: param`); a bare "\n" is 2 bytes short of the oracle output. The
+// baseMessage + "\r\n" + "Parameter name: <paramName>" (the .NET Framework
+// two-line format). The separator is CRLF: .NET Framework composes this line
+// with Environment.NewLine (the net48 oracle byte-probe shows 0D 0A between
+// the message and the parameter-name line); a bare "\n" is 2 bytes short of
+// the oracle output. The
 // line is appended only for a NON-empty paramName (net48 ArgumentException.
 // Message checks string.IsNullOrEmpty); a null/empty paramName yields the
 // base message alone.
@@ -142,7 +147,7 @@ void il2cpp_throw_argument_out_of_range_exception(const char* paramName, const c
     // an EXPLICIT message passes through EXACTLY (the (paramName, message)
     // shape -- test_listi4 pins the raw net48 resource text; real net48 would
     // append the parameter-name line, a documented runtime divergence). A
-    // nullptr message composes the zh-CN default + parameter-name line (net48
+    // nullptr message composes the default + parameter-name line (net48
     // 1-arg ctor semantics -- excext).
     const char* msg = (message != nullptr)
         ? message

@@ -78,7 +78,7 @@ public static partial class MethodRefResolver
                     // P6: Interlocked Exchange(ref float/double, float/double):
                     : ps.Length == 2 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_double", 2, true, false, false, new[] { "", "d" }, "d")
-                    // P6: Generic Exchange<T> — the T-bearing params arrive as
+                    // P6: Generic Exchange<T> -- the T-bearing params arrive as
                     // 0x1E (MVAR -- Exchange<T> is a generic METHOD on a
                     // non-generic type, e2e_il evidenced) or 0x13 (VAR -- the
                     // generic-TYPE convention); genArgs has the concrete type.
@@ -123,7 +123,7 @@ public static partial class MethodRefResolver
                     // P6: Interlocked CompareExchange(ref float/double, ...):
                     : ps.Length == 3 && ps[0] is 0x0C or 0x0D && ps[1] is 0x0C or 0x0D && ps[2] is 0x0C or 0x0D
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_double", 3, true, false, false, new[] { "", "d", "d" }, "d")
-                    // P6: Generic CompareExchange<T> — same MVAR/VAR dual
+                    // P6: Generic CompareExchange<T> -- same MVAR/VAR dual
                     // encoding as Exchange<T> above.
                     : ps.Length == 3 && ps[0] is 0x13 or 0x1E && genArgs is { Length: 1 }
                     ? (genArgs[0] switch
@@ -149,7 +149,7 @@ public static partial class MethodRefResolver
                 // -- a hardware speculation fence. ILC's atomics are all
                 // seq_cst (Win32 Interlocked* / __ATOMIC_SEQ_CST) with no
                 // speculative-load window, so the empty implementation is
-                // semantically faithful (icallc2 report §3). The old LOUD
+                // semantically faithful (icallc2 report section 3). The old LOUD
                 // rejection is replaced by the wiring.
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::il2cpp_interlocked_speculation_barrier", 0, false, false, false);

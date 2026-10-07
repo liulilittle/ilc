@@ -159,7 +159,7 @@ public static class Program
                 // Nested type expansion (TypeEmitter.ExpandNestedTypes): MetadataLoader
                 // skips IsNested TypeDefs, while the reference side (newobj / field cast /
                 // method name hash) resolves nested types by SHORT name (Cases.Recurse+Node
-                // → "Node") -- without expansion the generated C++ references Node_class
+                // -> "Node") -- without expansion the generated C++ references Node_class
                 // with no definition. After expansion the nested types join the list as
                 // independent top-level entries and CodeGenerator emits struct/descriptor/
                 // methods normally. Must run after LoadAssembly and before Generate
@@ -214,14 +214,14 @@ public static class Program
         }
     }
 
-    // Reflection mode B consumption (reflection-runtime-design.md §4): the generator
+    // Reflection mode B consumption (reflection-runtime-design.md section 4): the generator
     // reads the user manifest and filters the manifest types -- keeping only types
     // that truly exist in the assembly set (these are the types that will get
     // reflection metadata; the TypeInfo table emission uses Kept as its scope).
     // Unmatched entries are dropped with a warning (non-fatal: a user typo is
     // diagnosable without blocking generation). The filter applies only to the
     // reflection metadata scope; the Il2CppClass type descriptors are object-model
-    // infrastructure that mode B does not trim (reflection-runtime-design.md §5.1).
+    // infrastructure that mode B does not trim (reflection-runtime-design.md section 5.1).
     private static void WriteReflectionManifest(CliOptions opts, List<TypeDef> types)
     {
         var filtered = TypeEmitter.FilterReflectionManifest(opts.ReflectionList, types);
@@ -315,9 +315,9 @@ public static class Program
         }
     }
 
-    // String pooling optimization (layers ①+②+③, string-pooling-design.md
-    // §2.1/§2.2/§2.3): Generate already builds the pool authoritatively in its
-    // method loop (fold→collect, D1 single writer -- pool and emission share one
+    // String pooling optimization (layers (1)+(2)+(3), string-pooling-design.md
+    // section 2.1/section 2.2/section 2.3): Generate already builds the pool authoritatively in its
+    // method loop (fold->collect, D1 single writer -- pool and emission share one
     // source). This function consumes Generate's result: it emits the deduped pool
     // as a static table data file (include/internal/string-pool.h --
     // g_strPool[N] + il2cpp_string_pool_fill()) and prints a diagnostic report.
@@ -349,7 +349,7 @@ public static class Program
     // many pure length icalls (string/array Length) are hoistable.
     // Diagnostic output: does not change already-generated method bodies (TRANSFORM
     // hook point shared with CodeGenerator.cs, see docs/audit/bench-regression-check.md
-    // §4.4); pre-scan exceptions are only warned about.
+    // section 4.4); pre-scan exceptions are only warned about.
     private static void WriteLicmReport(List<TypeDef> types, string assemblyPath)
     {
         try
@@ -365,7 +365,7 @@ public static class Program
 
     // Simple method inlining (bench gap object/string, see the InlinePass.cs header
     // comment): after Generate succeeds, pre-scan the method IR and report how many
-    // call sites of small pure functions (body ≤5 statements, no EH, no recursion,
+    // call sites of small pure functions (body <= 5 statements, no EH, no recursion,
     // int32/void) are inlineable. Diagnostic output: does not change already-generated
     // method bodies (TRANSFORM hook point shared with CodeGenerator.cs, same convention
     // as LicmPass); pre-scan exceptions are only warned about.
@@ -384,7 +384,7 @@ public static class Program
 
     // Temp slot reuse (stackframe-audit P1-1, see the TempSlotPass.cs header comment):
     // after Generate succeeds, pre-scan the method IR and report how many temp slots
-    // per method the Rename transform would compress to (18 → ~4-6 target). Diagnostic
+    // per method the Rename transform would compress to (18 -> ~4-6 target). Diagnostic
     // output: does not change already-generated method bodies (TRANSFORM hook point
     // shared with CodeGenerator.cs, same convention as LicmPass/InlinePass); pre-scan
     // exceptions are only warned about.

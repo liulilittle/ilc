@@ -188,12 +188,12 @@ public static class MethodBodyReader
     }
 
     // Local variable signature: LOCAL_SIG(0x07) + compressed count + per-slot type.
-    // M1 only counts slots → loc0..locN-1.
+    // M1 only counts slots -> loc0..locN-1.
     // M5 wiring: int64/uint64 (0x0A/0x0B) and float/double (0x0C/0x0D) locals are
     // now legal (int64_t/double declaration + ldloca dereference on the 64-bit slot
     // -- see MethodBodyInfo.LocalKinds); other types with trailing data
-    // (VALUETYPE/CLASS/TypeHandle → TypeDefOrRef compressed index, VAR/MVAR →
-    // compressed index, SZARRAY(0x1D/0x1F) → element type) must be skipped
+    // (VALUETYPE/CLASS/TypeHandle -> TypeDefOrRef compressed index, VAR/MVAR ->
+    // compressed index, SZARRAY(0x1D/0x1F) -> element type) must be skipped
     // correctly to keep the slot alignment.
     private static string[] ReadLocalNames(MetadataReader md, StandaloneSignatureHandle locSig, out string[] kinds)
     {
@@ -421,7 +421,7 @@ public static class MethodBodyReader
         // rejected at this site): element type + rank + sizes/lobounds compressed
         // lists. The array object is a managed reference ("r" slot); the trailing
         // lists must be consumed or every later local misaligns (multidim-probe.md
-        // fix direction: "0x14 按引用槽 'r' + 完整消费").
+        // fix direction: "0x14 as reference slot 'r' + full consumption").
         if (b == 0x14)
         {
             LocalTypeKind(md, ref sig, name); // element type: any shape, recursively consumed

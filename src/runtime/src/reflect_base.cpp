@@ -21,7 +21,7 @@
 //     miss (malformed name, unregistered type) returns nullptr (Type.GetType's
 //     "not found -> null" contract, no throw).
 //
-// ASSEMBLY-QUALIFIED NAME RESOLUTION (reflection mode C, plan §3.4 / C3):
+// ASSEMBLY-QUALIFIED NAME RESOLUTION (reflection mode C, plan section 3.4 / C3):
 // the input name is NORMALIZED before the registry lookup -- net48 semantics
 // (probe-verified against v4.0.30319):
 //   * A top-level comma (depth 0, not inside '[' ']' generic brackets) splits

@@ -23,7 +23,7 @@ namespace Il2Cpp.Transpiler.Emit;
 //   AddrOfPinnedObject()           -> icall_gchandle_addr_of_pinned (intptr)
 //   ToIntPtr/FromIntPtr            -> LOUD (the report's icall_gchandle_to_
 //                                     intptr/from_intptr do NOT exist in the
-//                                     runtime -- §4.4 lists them as conditional
+//                                     runtime -- section 4.4 lists them as conditional
 //                                     runtime additions; wired LOUD, never a
 //                                     fabricated API)
 //   op_Equality/op_Inequality      -> il2cpp_intptr_op_equality/inequality
@@ -74,14 +74,14 @@ public static partial class MethodRefResolver
                 // IS the int32); the report's icall_gchandle_to_intptr is a
                 // conditional runtime addition that does NOT exist -- LOUD.
                 throw new NotSupportedException(
-                    "GCHandle.ToIntPtr not wired: the runtime has no icall_gchandle_to_intptr (gchandle-b23 report §4.4 lists it as a conditional addition)");
+                    "GCHandle.ToIntPtr not wired: the runtime has no icall_gchandle_to_intptr (gchandle-b23 report section 4.4 lists it as a conditional addition)");
             case "InternalGetHandleType":
                 if (count == 1 && IsIntPtrByte(ps[0]))
                     return I("il2cpp::runtime::icall_gchandle_get_handle_type", 1, true, false, false, new[] { "" });
                 return null;
             case "FromIntPtr":
                 throw new NotSupportedException(
-                    "GCHandle.FromIntPtr not wired: the runtime has no icall_gchandle_from_intptr (gchandle-b23 report §4.4 lists it as a conditional addition)");
+                    "GCHandle.FromIntPtr not wired: the runtime has no icall_gchandle_from_intptr (gchandle-b23 report section 4.4 lists it as a conditional addition)");
             case "op_Equality":
             case "op_Inequality":
                 // static bool op_Equality(GCHandle, GCHandle): the raw handle

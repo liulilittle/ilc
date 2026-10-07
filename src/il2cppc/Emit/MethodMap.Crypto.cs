@@ -2,7 +2,7 @@ namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Crypto -- System.Security.Cryptography OBJECT-layer wiring (T4,
-// crypto-domain.md §2.1 object model path 1 + §4).
+// crypto-domain.md section 2.1 object model path 1 + section 4).
 // (src/runtime/include/internal/crypto_obj.h + src/runtime/src/crypto_obj.cpp)
 //
 // SUPERSEDES the T1 one-shot mapping (MethodMap.Hash.cs): instead of
@@ -21,7 +21,7 @@ namespace Il2Cpp.Transpiler.Emit;
 //   new <*CryptoServiceProvider/Managed>() -> il2cpp_object_new(&..._class)
 //     via the BclAllocExpr default fallback (CodeGenerator.cs NewObjExpr) +
 //     icall_<algo>_ctor -- the legacy owners normalize onto the SAME icall
-//     family (crypto-domain.md §4.4)
+//     family (crypto-domain.md section 4.4)
 //   new HMACSHAx(byte[] key)           -> il2cpp_object_new(&System_Security_
 //     Cryptography_HMACSHAx_class) + icall_hmac_ctor (key stored as a GC ref)
 //   HMACSHAx.ComputeHash(byte[])       -> icall_hmac_compute_hash (the

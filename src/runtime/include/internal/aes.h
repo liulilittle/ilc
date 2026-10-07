@@ -9,17 +9,17 @@
 //
 // SOURCE OF ALGORITHM: FIPS 197 (Advanced Encryption Standard) for the block
 // cipher and key expansion; NIST SP 800-38A for the CBC mode chaining; PKCS #7
-// (RFC 5652 §6.3, "padding to the block size") for the padding. The project's
+// (RFC 5652 section 6.3, "padding to the block size") for the padding. The project's
 // reference tree was checked for a .NET AES implementation first:
 // reference/netcore sparse checkout does NOT contain
 // System.Security.Cryptography, so per the no-external-dependency rule
-// (docs/design/crypto-domain.md §2.2) the public standard algorithm is
+// (docs/design/crypto-domain.md section 2.2) the public standard algorithm is
 // implemented directly. AES output is fully specified by the standard, so
 // there is no behavioural divergence to reconcile with net48.
 //
 // SEMANTIC BASELINE: FIPS 197 + SP 800-38A + net48 Aes defaults.
 //   * Key sizes: 128-bit (16 bytes) and 256-bit (32 bytes) only. AES-192
-//     is out of scope (docs/design/crypto-domain.md §1.2) -> the 24-byte
+//     is out of scope (docs/design/crypto-domain.md section 1.2) -> the 24-byte
 //     key size throws NotSupportedException (loud). Any other size throws
 //     CryptographicException (net48 SymmetricAlgorithm.Key setter semantics,
 //     live-probe verified -- invalid key size throws Crypto, not Argument).

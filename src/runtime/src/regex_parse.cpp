@@ -8,24 +8,24 @@
 #include <vector>
 
 //------------------------------------------------------------------------------
-// regex_parse.cpp -- MINIMAL parser for the docs/design/regex-domain.md §3
+// regex_parse.cpp -- MINIMAL parser for the docs/design/regex-domain.md section 3
 // grammar subset. FALLBACK AUTHORSHIP: this is the T1 deliverable
 // (regex_parse.cpp) that the parallel T1 agent had not produced when T2
 // started; T2 built it to keep the matcher testable. All error paths return
 // nullptr + RegexParseError (the header contract) -- this layer never throws.
 //
 // Behavior verified against net48 probe runs (2026-08-04); the probe results
-// are the authority where docs/design/regex-domain.md §3 diverges:
-//   * "[]" / "[^]"  -> error (UnclosedClass)      [doc §3.2 WRONG]
+// are the authority where docs/design/regex-domain.md section 3 diverges:
+//   * "[]" / "[^]"  -> error (UnclosedClass)      [doc section 3.2 WRONG]
 //   * "[a-b-c]"     -> legal: range a-b + literal '-' + literal 'c'
 //   * "[z-a]"       -> error (InvalidClassRange)
 //   * "a{2" etc.    -> LITERAL '{' (only well-formed {n}/{n,}/{n,m} parse as
-//                      repeats; numeric overflow or {2,1} errors) [doc §3.4
+//                      repeats; numeric overflow or {2,1} errors) [doc section 3.4
 //                      WRONG about "unclosed {"]
 //   * "{2}" at atom position (nothing to repeat) -> error (QuantifierNothing)
 //   * "a**"         -> nested quantifier -> error (QuantifierNothing)
 //   * leading "*+?" -> error (QuantifierNothing)
-//   * "\q", "(?=", "\1", "\b", "\x", "\u" -> error (see §3.4 whitelist);
+//   * "\q", "(?=", "\1", "\b", "\x", "\u" -> error (see section 3.4 whitelist);
 //     "\p{L}/\p{N}/\p{P}/\p{Lu}/\p{Ll}" SUPPORTED (D-REG-UNI-1, 2026-08-12,
 //     net48-derived BMP category tables -- other categories stay errors)
 //   * "\a" (bell) "\e" (0x1B) and in-class "\b" (backspace) are SUPPORTED
@@ -69,7 +69,7 @@ RegexNode* NewNode(RegexNodeKind kind)
 }
 
 //------------------------------------------------------------------------------
-// Character sets (docs §1.4-4: ASCII-only)
+// Character sets (docs section 1.4-4: ASCII-only)
 //------------------------------------------------------------------------------
 
 // \D/\W/\S map to the same sets as \d/\w/\s (the complement flag is applied
@@ -113,7 +113,7 @@ void AddBuiltinRanges(std::vector<RegexRange>* buf, char16_t kind)
 // members (RegexParser.cs ScanCharClass: AddDigit(ch == 'D') etc.; net48
 // probe: [\D] matches 'x' not '5', [^\D] matches '5' not 'x'). The
 // complement is taken over the full char16_t domain minus the ASCII set
-// this engine uses for \d \w \s (docs §1.4 ASCII scope -- the Unicode
+// this engine uses for \d \w \s (docs section 1.4 ASCII scope -- the Unicode
 // membership difference is a documented scope deviation).
 void AddBuiltinComplementRanges(std::vector<RegexRange>* buf, char16_t kind)
 {
@@ -167,7 +167,7 @@ bool IsBuiltinClassEscape(char16_t c)
 //     matches 'q' not '1')
 //   * RegexOptions.IgnoreCase folds \p{Lu}/\p{Ll} ASCII members (probe:
 //     "^\p{Lu}+$" matches "abc" under IgnoreCase) -- handled by the Set
-//     node's ignoreCase flag (ASCII fold, docs §1.4-3)
+//     node's ignoreCase flag (ASCII fold, docs section 1.4-3)
 //------------------------------------------------------------------------------
 
 // Returns the range table for a category name (case-sensitive; the five

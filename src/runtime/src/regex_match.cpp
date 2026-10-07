@@ -5,7 +5,7 @@
 
 //------------------------------------------------------------------------------
 // regex_match.cpp -- Recursive backtracking matcher over the RegexAst tree
-// (docs/design/regex-domain.md §2.3), continuation-passing style.
+// (docs/design/regex-domain.md section 2.3), continuation-passing style.
 //
 // Design (verified against net48 probe runs, 2026-08-04):
 //   * Leftmost-first alternation: branches tried in written order, first
@@ -25,7 +25,7 @@
 //     alternation's next branch. (A plain "return position" matcher cannot do
 //     this -- branch success already committed before 'c' was tried.)
 //   * Step budget (kRegexMaxMatchSteps): every node visit costs one step;
-//     exceeding it turns the whole match into no-match (docs §2.4) -- net48
+//     exceeding it turns the whole match into no-match (docs section 2.4) -- net48
 //     hangs on "(a*)*b" vs 50 'a' (probe timed out), we fail deterministically.
 //   * "$" (non-Multiline) matches end-of-string OR immediately before a
 //     trailing '\n' (net48 probe: "a$" matches "a\n").
@@ -57,7 +57,7 @@ char16_t Fold(char16_t c)
 {
     if (c >= u'A' && c <= u'Z')
     {
-        return static_cast<char16_t>(c + (u'a' - u'A')); // ASCII only (docs §1.4-3)
+        return static_cast<char16_t>(c + (u'a' - u'A')); // ASCII only (docs section 1.4-3)
     }
     return c;
 }
@@ -434,7 +434,7 @@ int32_t MatchSequence(const RegexNode* const* children, int32_t count, int32_t i
     return MatchNode(child, pos, ctx, childCont);
 }
 
-// Greedy repeat with decreasing backtracking (docs §2.3 MatchRepeat),
+// Greedy repeat with decreasing backtracking (docs section 2.3 MatchRepeat),
 // implemented with an ITERATIVE greedy phase: the greedy loop records one
 // trail entry per consumed iteration (position reached + capture depth before
 // the iteration); the backtrack phase walks the trail downwards and re-runs
@@ -533,7 +533,7 @@ int32_t GiveBackIteration(RepeatState* st, int32_t k, MatchContext* ctx)
 // give-back that re-enters the loop. Realistic patterns stay within a few
 // dozen; pathological inputs (which net48 either hangs on or needs the step
 // budget to kill) hit this limit first and fail deterministically, matching
-// the step-budget philosophy in docs §2.4.
+// the step-budget philosophy in docs section 2.4.
 constexpr int32_t kRepeatMaxResumeDepth = 200;
 
 int32_t MatchRepeatCore(RepeatState* st, int32_t pos, MatchContext* ctx)
@@ -812,7 +812,7 @@ bool RegexMatchAt(const RegexAst* pattern, const char16_t* input,
         }
         if (ctx.budgetHit)
         {
-            break; // deterministic no-match (docs §2.4)
+            break; // deterministic no-match (docs section 2.4)
         }
     }
     return false;

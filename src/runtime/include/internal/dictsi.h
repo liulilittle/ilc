@@ -17,7 +17,7 @@
 // The model MIRRORS net48 Dictionary<TKey,TValue>: a bucket index array plus a
 // slot ("entries") array walked in index order for enumeration, with a free
 // list so a removed slot is REUSED on re-add (returning to its original
-// enumeration position -- net48 semantics, spec COLLECTIONS-WIRING-SPEC §8):
+// enumeration position -- net48 semantics, spec COLLECTIONS-WIRING-SPEC section 8):
 //
 //   struct Il2CppDictSI
 //   {
@@ -39,7 +39,7 @@
 //       int32_t           value;         // inline int32 (no boxing)
 //   };
 //
-// ENUMERATION ORDER (net48 Dictionary<TKey,TValue>, spec §8 R1-R7):
+// ENUMERATION ORDER (net48 Dictionary<TKey,TValue>, spec section 8 R1-R7):
 //   * R1: insertion order -- entries[0..count) ascending, skipping free slots.
 //   * R2: overwrite of an existing key does NOT move it.
 //   * R3: remove takes the pair out of enumeration.
@@ -156,7 +156,7 @@ int32_t il2cpp_dict_si_get_count(Il2CppDictSI* d);
 bool il2cpp_dict_si_contains_key(Il2CppDictSI* d, Il2CppString* key);
 
 // Keys: a fresh reference array (Il2CppString* elements) holding the current
-// keys in net48 ENUMERATION ORDER (spec §8 R1: entries[0..count) ascending,
+// keys in net48 ENUMERATION ORDER (spec section 8 R1: entries[0..count) ascending,
 // skipping free slots). Overwrites keep their position; a removed-then-readded
 // key returns to its original position (R4). Empty dictionary -> length-0
 // array.

@@ -5,7 +5,7 @@
 // typeinfo member queries already live in typeext.cpp / typecheck.cpp /
 // typeinfo.cpp and are DELEGATED to, never duplicated).
 //
-// Handle value model (header §1): RuntimeTypeHandle = Il2CppClass* descriptor
+// Handle value model (header section 1): RuntimeTypeHandle = Il2CppClass* descriptor
 // address; RuntimeMethodHandle / RuntimeFieldHandle = the typeinfo table
 // entry addresses. Every function is defensive by convention: null inputs
 // return 0 / nullptr ("default handle" semantics -- net48 probed that all of

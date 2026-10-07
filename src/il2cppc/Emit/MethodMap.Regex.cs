@@ -25,13 +25,13 @@ namespace Il2Cpp.Transpiler.Emit;
 // Casts: every string slot gets "s" (Il2CppString* -- the IR carries strings
 // as Il2CppObject*), the RegexOptions enum slot (i4) gets "i", and the
 // trailing .NET TimeSpan matchTimeout overload is DROPPED (the engine enforces
-// its own step budget, regex-domain.md §2.4 -- net48 timeouts have no runtime
+// its own step budget, regex-domain.md section 2.4 -- net48 timeouts have no runtime
 // counterpart).
 //
 // Known-unwireable members reject LOUDLY (NotSupportedException with the
 // "{owner}::{name}" prefix -- see BclResolve's wrap):
 //   * Instance forms (new Regex(pattern).IsMatch(input) etc.) -- the runtime
-//     has no Regex ctor/handle object graph (regex-domain.md §1.1, v2).
+//     has no Regex ctor/handle object graph (regex-domain.md section 1.1, v2).
 //   * Replace(string, string, MatchEvaluator) -- no delegate-evaluator
 //     support on the runtime surface.
 //------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ public static partial class MethodRefResolver
     {
         if (ps.Length < 2)
             throw new NotSupportedException(
-                "instance form: the runtime has no Regex ctor/handle object graph (v2, regex-domain.md §1.1)");
+                "instance form: the runtime has no Regex ctor/handle object graph (v2, regex-domain.md section 1.1)");
         if (ps[0] != 0x0E || ps[1] != 0x0E)
             return null; // not a (string, string) overload
         return ps.Length switch
@@ -79,7 +79,7 @@ public static partial class MethodRefResolver
     {
         if (ps.Length < 3)
             throw new NotSupportedException(
-                "instance form: the runtime has no Regex ctor/handle object graph (v2, regex-domain.md §1.1)");
+                "instance form: the runtime has no Regex ctor/handle object graph (v2, regex-domain.md section 1.1)");
         if (ps[0] != 0x0E || ps[1] != 0x0E)
             return null;
         if (ps[2] == 0x12)

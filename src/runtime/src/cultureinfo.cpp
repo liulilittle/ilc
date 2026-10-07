@@ -27,7 +27,7 @@
 //     "."/","; percent symbol "%", percent separators "."/",", per-mille
 //     U+2030. The zh-CN verification host agrees on the three separators
 //     ("."/","/"-") but diverges on identity ("" vs "zh-CN") and currency
-//     (U+00A4 vs U+00A5 '¥') -- see the header.
+//     (U+00A4 vs U+00A5 (yen sign)) -- see the header.
 //------------------------------------------------------------------------------
 
 #include "cultureinfo.h"

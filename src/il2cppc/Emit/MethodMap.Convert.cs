@@ -72,7 +72,7 @@ public static partial class MethodRefResolver
                         // M7: Convert.ToInt32(string, fromBase) -- the runtime
                         // throwing fromBase icall (il2cpp_convert.h,
                         // convt2 audit) reproduces net48 ParseNumbers.StringToInt
-                        // semantics: base ∉ {2,8,10,16} -> ArgumentException,
+                        // semantics: base not in {2,8,10,16} -> ArgumentException,
                         // null -> 0, empty -> ArgumentOutOfRange, '0x' prefix
                         // (base 16), checked range -> OverflowException. The
                         // value string casts to Il2CppString* ("s"), the base
@@ -142,7 +142,7 @@ public static partial class MethodRefResolver
                         // M7 (convt2 audit): Convert.ToString(int, toBase) --
                         // the throwing icall_convert_to_string_i4_base
                         // (il2cpp_convert.h) reproduces net48
-                        // ParseNumbers.IntToString: base ∉ {2,8,10,16} ->
+                        // ParseNumbers.IntToString: base not in {2,8,10,16} ->
                         // ArgumentException; base 10 signed, bases 2/8/16
                         // uint32 two's-complement with lowercase hex. Both
                         // params cast to int32 ("i"); the result is a string.

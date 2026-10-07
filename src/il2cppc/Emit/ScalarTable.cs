@@ -2,14 +2,14 @@ using System.Collections.Generic;
 
 namespace Il2Cpp.Transpiler.Emit;
 
-// B类标量族238行统合：单一标量表（C6知识重复消除）
-// 覆盖：IsPrimValTypeShort + ScalarElemCpp + box/unbox switch 键集 + KnownBclEnumNames 白名单
-// 保持与 CodeGenerator.EmitTask9Call / EmitIcallCallArgs 同步（两函数曾各自独立维护同一表）
+// B-class scalar-family 238-row unification: a single scalar table (C6 knowledge duplication elimination)
+// Covers: IsPrimValTypeShort + ScalarElemCpp + the box/unbox switch key set + the KnownBclEnumNames whitelist
+// Kept in sync with CodeGenerator.EmitTask9Call / EmitIcallCallArgs (the two functions used to maintain the same table independently)
 internal static class ScalarTable
 {
     internal sealed record ScalarDescriptor(string CppType, string BoxHelper, string UnboxHelper, bool NeedsAddressOf);
 
-    // 主表：标量全名 -> 描述符（静态只读 D1）
+    // main table: scalar full name -> descriptor (static readonly D1)
     internal static readonly IReadOnlyDictionary<string, ScalarDescriptor> Table = new Dictionary<string, ScalarDescriptor>
     {
         ["System.Boolean"] = new("int32_t", "il2cpp::runtime::icall_box_bool", "il2cpp::runtime::icall_unbox_bool", false),

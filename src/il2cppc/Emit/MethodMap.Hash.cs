@@ -5,7 +5,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // (md5.h / sha1.h / sha256.h).
 // Owners: System.Security.Cryptography.MD5 / SHA1 / SHA256 / HashAlgorithm
 //
-// OBJECT-GAP SIMPLIFICATION (crypto-domain.md §2.1, T1 decision): the
+// OBJECT-GAP SIMPLIFICATION (crypto-domain.md section 2.1, T1 decision): the
 // runtime has NO hash OBJECT layer -- only the pure three-phase contexts
 // plus the one-shot hash_bytes family. So:
 //   * Create()  -- static factory -- folds to NULL (::null::) carrying the
@@ -77,7 +77,7 @@ public static partial class MethodRefResolver
 
     private static ResolvedMethod HashIcall(string algo)
     {
-        // sha1.h lives in namespace il2cpp (crypto-domain.md §2.1 alignment
+        // sha1.h lives in namespace il2cpp (crypto-domain.md section 2.1 alignment
         // item 1 -- the pure functions keep their file-local namespace);
         // md5/sha256 are il2cpp::runtime.
         var cpp = algo switch

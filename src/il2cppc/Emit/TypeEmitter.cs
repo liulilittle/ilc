@@ -46,7 +46,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static class TypeEmitter
 {
     //--------------------------------------------------------------------------
-    // ExpandNestedTypes -- nested types → independent top-level emission entries.
+    // ExpandNestedTypes -- nested types -> independent top-level emission entries.
     //
     // The pipeline never emits nested types (MetadataLoader skips IsNested
     // TypeDefs), yet every reference side resolves nested-type tokens from
@@ -73,7 +73,7 @@ public static class TypeEmitter
     // Base chains are resolved across the WHOLE list after expansion: a
     // nested type whose base is another nested type (MyException2 : MyException)
     // gets its BaseType pointer set, so CodeGenerator.ExceptionChain's walk
-    // (throw_MyException2 → "MyException2,MyException2,MyException,...") is
+    // (throw_MyException2 -> "MyException2,MyException2,MyException,...") is
     // complete; BCL bases (System.Exception) stay null, matching the
     // top-level convention (descriptor baseClass nullptr, the exception
     // chain adds the terminal BCL name from BaseTypeName).
@@ -113,7 +113,7 @@ public static class TypeEmitter
             var declName = td.GetDeclaringType().IsNil
                 ? ""
                 : DeclaringChainFullName(md, td.GetDeclaringType());
-            var uniqueKey = declName + "\0" + name; // '\0' separator is safe — not a valid metadata char
+            var uniqueKey = declName + "\0" + name; // '\0' separator is safe -- not a valid metadata char
             if (types.Concat(added).Any(t => (t.DeclaringTypeName + "\0" + t.Name) == uniqueKey))
             {
                 continue; // skip duplicate nested type (same enclosing type + same short name)
@@ -445,7 +445,7 @@ public static class TypeEmitter
     {
         // r78 fix: nested types need declaring-type prefix to avoid name collisions.
         // Multiple enclosing types can have nested types with the same short name
-        // (e.g., 25 different types each have a `<>c` nested class — all sanitize to __c).
+        // (e.g., 25 different types each have a `<>c` nested class -- all sanitize to __c).
         // Prefix with declaring type name for uniqueness.
         // r78b: when DeclaringTypeName is empty (defensive), use FullName to avoid
         // collapsing all nested types into one name.
@@ -469,7 +469,7 @@ public static class TypeEmitter
             // P-G2 (arity>1): the M3 default instantiation is "int" PER
             // generic parameter ("Pair`2" default = "int_int"), so the
             // definition's own name matches the method-body's expanded
-            // instance cast (`Pair_2_int_int`) and the shared "object"×arity
+            // instance cast (`Pair_2_int_int`) and the shared "object" x arity
             // clone name is symmetric.
             var defSuffix = t.InstantiationSuffix;
             if (defSuffix == null && t.GenericArity > 1)
@@ -497,7 +497,7 @@ public static class TypeEmitter
             ? t.DeclaringTypeName + "+" + t.Name
             : t.FullName;
 
-    // Public for CodeGenerator reuse (the field path → C++ storage name needs the
+    // Public for CodeGenerator reuse (the field path -> C++ storage name needs the
     // same sanitize rule). refl2 S2/G3: '=' is an invalid C++ identifier
     // character that the compiler-generated array-initializer struct
     // (<PrivateImplementationDetails>.__StaticArrayInitTypeSize=N) carries in
@@ -1151,7 +1151,7 @@ public static class TypeEmitter
 
     //--------------------------------------------------------------------------
     // EmitTypeInfo -- M5.5 reflection metadata table for one REFLECTED type
-    // (reflection-runtime-design.md §2 + typeinfo.h).
+    // (reflection-runtime-design.md section 2 + typeinfo.h).
     //
     //   static const il2cpp::Il2CppMethodInfo {T}_typeinfo_methods[]  (per method)
     //   static const il2cpp::Il2CppFieldInfo {T}_typeinfo_fields[]    (per field)
@@ -1201,7 +1201,7 @@ public static class TypeEmitter
     //     roots -> nullptr. interfaces: resolved InterfaceTypes -> pointer
     //     array. properties: PropertyDef model not landed -- the property
     //     sub-table is emitted EMPTY (nullptr / 0) until properties decode
-    //     lands (design §2.1 structure is ready).
+    //     lands (design section 2.1 structure is ready).
     //   * klass: &{T}_class (the existing descriptor -- never duplicated) ONLY
     //     when the type actually has one emitted (CodeGenerator's descriptor
     //     condition: non-value-type, non-delegate, with an instance surface --
@@ -1447,9 +1447,9 @@ public static class TypeEmitter
     }
 
     //--------------------------------------------------------------------------
-    // FilterReflectionManifest -- mode B manifest type filtering (reflection-runtime-design.md §4).
+    // FilterReflectionManifest -- mode B manifest type filtering (reflection-runtime-design.md section 4).
     //
-    // Mode B generation rule: user reflection manifest → generate reflection metadata only
+    // Mode B generation rule: user reflection manifest -> generate reflection metadata only
     // for the manifest's types. A manifest entry must first be validated against the
     // type set actually loaded from the assembly set: when an entry names a type that does
     // not exist in the assembly set, the generator cannot produce any metadata for it
@@ -1465,7 +1465,7 @@ public static class TypeEmitter
     // runtime's il2cpp_typeinfo_lookup string key). Note: filtering applies only to the
     // reflection metadata (TypeInfo) scope; the Il2CppClass type descriptors are
     // object-model infrastructure (isinst/castclass/GC) that mode B does not touch
-    // (reflection-runtime-design.md §5.1: Il2CppClass untouched, only TypeInfo is trimmed).
+    // (reflection-runtime-design.md section 5.1: Il2CppClass untouched, only TypeInfo is trimmed).
     //--------------------------------------------------------------------------
     public static ReflectionManifestFilterResult FilterReflectionManifest(
         IReadOnlyList<string> manifest, IReadOnlyList<TypeDef> types)

@@ -16,7 +16,7 @@
 //     CCW (pure memory layout + GUID compare -- no ole32 dependency) is
 //     implemented on EVERY platform.
 //
-// REFERENCE (semantic baseline, .NET Framework 4.8 -- batch task "鍏堟妱"):
+// REFERENCE (semantic baseline, .NET Framework 4.8 -- batch task "copy-first"):
 //   * Marshal.GetTypeFromProgID / GetActiveObject / CreateObject -- netcore
 //     Marshal.Windows.cs / Marshal.Unix.cs (the Unix file is the exact
 //     cross-platform stub shape this file mirrors).

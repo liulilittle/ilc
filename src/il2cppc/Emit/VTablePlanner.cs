@@ -70,7 +70,7 @@ public static class VTablePlanner
         // chain (audit H7). An interface with InterfaceImplementerCount == 1
         // has ONE statically-known implementation: any object assigned to the
         // interface must be that single type, so its dispatch slots resolve
-        // statically (interface callvirt -> direct call, §S3).
+        // statically (interface callvirt -> direct call, section S3).
         //
         // Safety: ALL non-interface implementers are counted -- including value
         // types (a struct implementing the interface can be boxed into an

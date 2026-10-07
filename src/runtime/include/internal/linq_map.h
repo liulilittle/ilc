@@ -2,7 +2,7 @@
 //------------------------------------------------------------------------------
 // linq_map.h -- System.Linq filtering / mapping domain (LINQ T2 card).
 //
-// AOT FORM (docs/design/linq-domain.md §1.3, scheme 3): System.Linq is
+// AOT FORM (docs/design/linq-domain.md section 1.3, scheme 3): System.Linq is
 // transpiled as runtime icalls that iterate an ARRAY and invoke a managed
 // DELEGATE callback per element through its methodPtr (the generated-code
 // delegate ABI, il2cpp_delegate.h). No iterators, no IEnumerable, no
@@ -10,13 +10,13 @@
 // fresh array (il2cpp_array_new), so a where().select() chain is an
 // array -> array icall sequence with no intermediate enumerator objects.
 //
-// FAMILIES (element type -> entry, §4.2): only i4 (int32) and ref
+// FAMILIES (element type -> entry, section 4.2): only i4 (int32) and ref
 // (Il2CppObject*) source families exist in stage 1 -- the transpiler's
 // newarr only emits int32[] and reference-element arrays. select is a
 // two-dimensional family <in>_<out>: the RESULT side is unrestricted (the
 // runtime builds result arrays itself, e.g. int32 -> string[]).
 //
-// CALLBACK CONTRACT (§2): the callback is passed as a DELEGATE OBJECT
+// CALLBACK CONTRACT (section 2): the callback is passed as a DELEGATE OBJECT
 // (Il2CppObject*). The runtime validates it (null -> ArgumentNullException;
 // multicast container -> InvalidOperationException -- only single-cast
 // delegates are callable as a bare methodPtr) and calls the methodPtr with
@@ -36,7 +36,7 @@
 // EMPTY-SEQUENCE SEMANTICS (net48 baseline): First on an empty array ->
 // InvalidOperationException; FirstOrDefault -> 0 (i4) / nullptr (ref).
 //
-// STAGE-1 DEVIATION (documented, accepted per design §1.3): Where runs the
+// STAGE-1 DEVIATION (documented, accepted per design section 1.3): Where runs the
 // predicate TWICE per element (two passes: count matches, then fill an
 // exact-size result) -- observable only for side-effecting predicates.
 //
@@ -173,7 +173,7 @@ Il2CppArray*  il2cpp_linq_to_array(Il2CppArray* src);
 // managed object (the listi4 domain; the ONLY List<T> instantiation in
 // stage 1). The entry is therefore int32-family-specific: a reference-
 // element source raises NotSupportedException (a List<object> domain does
-// not exist yet, design §4.2).
+// not exist yet, design section 4.2).
 //   src : source array (null -> ArgumentNullException; ref elements ->
 //         NotSupportedException)
 // Returns a NEW List<int> with count == src->length holding the source

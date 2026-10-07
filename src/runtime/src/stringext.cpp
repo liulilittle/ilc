@@ -88,39 +88,42 @@ bool IsWhitespace(char16_t c)
 }
 
 // ASCII + the Unicode SIMPLE upper mappings for Latin-1 / Greek / Cyrillic
-// (saudit3: "ä" -> "Ä", "ς" -> "Σ", "ѐ" -> "Ѐ"). Multi-char expansions
-// (ß -> SS in some cultures) do NOT apply: net48 ToUpper keeps ß unchanged.
+// (saudit3: U+00E4 (a-umlaut) -> U+00C4, U+03C2 (final sigma) -> U+03A3,
+// U+0450 (Cyrillic small ie) -> U+0400). Multi-char expansions
+// (U+00DF (sharp s) -> "SS" in some cultures) do NOT apply: net48 ToUpper
+// keeps U+00DF unchanged.
 char16_t ToUpperUnit(char16_t c)
 {
     if (c >= u'a' && c <= u'z') return static_cast<char16_t>(c - 32);
-    // Latin-1 supplement: à-ö, ø-þ are -0x20 from their capitals; ÷ (0x00F7)
-    // stays.
+    // Latin-1 supplement: U+00E0-U+00F6 and U+00F8-U+00FE are -0x20 from
+    // their capitals; U+00F7 (division sign) stays.
     if ((c >= 0x00E0 && c <= 0x00F6) || (c >= 0x00F8 && c <= 0x00FE))
         return static_cast<char16_t>(c - 0x20);
-    if (c == 0x00FF) return 0x0178; // ÿ -> Ÿ
-    // Greek: α-ω (0x03B1-0x03C9) minus 0x20; final sigma ς -> Σ.
+    if (c == 0x00FF) return 0x0178; // U+00FF -> U+0178
+    // Greek: U+03B1-U+03C9 minus 0x20; final sigma U+03C2 -> U+03A3.
     if (c >= 0x03B1 && c <= 0x03C9) return static_cast<char16_t>(c - 0x20);
     if (c == 0x03C2) return 0x03A3;
-    // Cyrillic: а-я and ѐ-џ.
+    // Cyrillic: U+0430-U+044F and U+0450-U+045F.
     if (c >= 0x0430 && c <= 0x044F) return static_cast<char16_t>(c - 0x20);
     if (c >= 0x0450 && c <= 0x045F) return static_cast<char16_t>(c - 0x50);
     return c;
 }
 
-// Mirror of ToUpperUnit (same script scope): "Ä" -> "ä", "Ξ"/"Σ" -> "ξ"/"σ",
-// "Ѐ" -> "ѐ".
+// Mirror of ToUpperUnit (same script scope): U+00C4 -> U+00E4, U+039E/U+03A3
+// -> U+03BE/U+03C3, U+0400 -> U+0450.
 char16_t ToLowerUnit(char16_t c)
 {
     if (c >= u'A' && c <= u'Z') return static_cast<char16_t>(c + 32);
-    // Latin-1 supplement: À-Ö, Ø-Þ are +0x20 to their small forms; × stays.
+    // Latin-1 supplement: U+00C0-U+00D6 and U+00D8-U+00DE are +0x20 to
+    // their small forms; U+00D7 (multiplication sign) stays.
     if ((c >= 0x00C0 && c <= 0x00D6) || (c >= 0x00D8 && c <= 0x00DE))
         return static_cast<char16_t>(c + 0x20);
-    if (c == 0x0178) return 0x00FF; // Ÿ -> ÿ
-    // Greek: Α-Ρ (0x0391-0x03A1) and Σ-Ω (0x03A3-0x03A9); 0x03A2 is
+    if (c == 0x0178) return 0x00FF; // U+0178 -> U+00FF
+    // Greek: U+0391-U+03A1 and U+03A3-U+03A9; 0x03A2 is
     // unassigned and stays.
     if ((c >= 0x0391 && c <= 0x03A1) || (c >= 0x03A3 && c <= 0x03A9))
         return static_cast<char16_t>(c + 0x20);
-    // Cyrillic: А-Я and Ѐ-Џ.
+    // Cyrillic: U+0410-U+042F and U+0400-U+040F.
     if (c >= 0x0410 && c <= 0x042F) return static_cast<char16_t>(c + 0x20);
     if (c >= 0x0400 && c <= 0x040F) return static_cast<char16_t>(c + 0x50);
     return c;

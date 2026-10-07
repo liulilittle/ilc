@@ -309,7 +309,7 @@ public static class MethodSignatureCoder
 
     // Raw-byte type decoding: BlobReader.ReadSignatureTypeCode() remaps the ECMA VALUETYPE (0x11)
     // and CLASS (0x12) bytes to the enum value TypeHandle (0x40), so it cannot distinguish a value
-    // type from a reference type — the distinction the compact encoding needs. Reading the raw byte
+    // type from a reference type -- the distinction the compact encoding needs. Reading the raw byte
     // preserves it. VALUETYPE/CLASS/TypeHandle are each followed by a TypeDefOrRef coded index.
     // M5 BCL wiring: the BCL member signatures reach this encoder for EVERY MemberRef the
     // transpiler touches (Decode runs before the resolver's owner/name dispatch), so every

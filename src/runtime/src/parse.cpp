@@ -327,7 +327,7 @@ bool IsValidDoubleText(const char* s, char* cleaned)
 // projection below cannot represent U+221E). net48 zh-CN probe: the
 // positive-infinity symbol is exactly U+221E and the negative form is
 // exactly '-' + U+221E; ASCII whitespace may pad either side, and a '+' sign
-// is NOT accepted (whole-text symbol match, so "+∞" fails). Returns 1 with
+// is NOT accepted (whole-text symbol match, so "+U+221E" fails). Returns 1 with
 // *out set on a full match; 0 otherwise (caller falls through to the
 // decimal-literal path, which rejects the text).
 bool TryMatchInfinityWord(const char16_t* p, const char16_t* end, double* out)
@@ -356,7 +356,7 @@ bool TryMatchInfinityWord(const char16_t* p, const char16_t* end, double* out)
     }
     if (p != end)
     {
-        return false; // trailing junk after the symbol ("∞x", "∞∞", ...)
+        return false; // trailing junk after the symbol ("U+221Ex", "U+221EU+221E", ...)
     }
     *out = negative ? -std::numeric_limits<double>::infinity()
                     : std::numeric_limits<double>::infinity();
@@ -372,7 +372,7 @@ bool TryParseDoubleCore(const char16_t* p, int32_t len, double* out)
 {
     // Culture infinity words first, on the ORIGINAL UTF-16 text (the ASCII
     // projection below cannot represent U+221E): zh-CN net48 reads the
-    // infinity words from the NumberFormatInfo (U+221E), so "∞"/"-∞" are
+    // infinity words from the NumberFormatInfo (U+221E), so U+221E/-U+221E are
     // successes while the ASCII "Infinity"/"-Infinity" spellings fall
     // through and fail the validator (net48 zh-CN probe-pinned).
     {

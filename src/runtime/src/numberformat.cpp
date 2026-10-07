@@ -23,7 +23,7 @@
 //     round-trip: int64 exceeds double's 2^53 exact-integer range).
 //   * "G" for double reuses the existing G15 icall (il2cpp_format.h).
 //   * CULTURE: FIXED INVARIANT separators/layout (',' / '.' / "n %") with
-//     the zh-CN special spellings "NaN"/"∞"/"-∞" (U+221E -- the verification
+//     the zh-CN special spellings "NaN"/U+221E/-U+221E (U+221E -- the verification
 //     host's net48 DEFAULT culture, aligned with format.cpp/formatext.cpp);
 //     see the header.
 //------------------------------------------------------------------------------
@@ -169,12 +169,12 @@ int IncrementDigits(char* d, int len)
     return len;
 }
 
-// The zh-CN positive-infinity symbol: U+221E '∞' (the verification host's
+// The zh-CN positive-infinity symbol: U+221E (infinity) (the verification host's
 // net48 DEFAULT culture -- zh-CN -- renders infinities as this symbol; the
 // same spelling as format.cpp's G15 and formatext.cpp's MakeSpecialString).
 const char16_t kInfinitySymbol = u'\u221E';
 
-// Specials spellings: "NaN"/"∞"/"-∞" (zh-CN NumberFormatInfo, net48-
+// Specials spellings: "NaN"/U+221E/-U+221E (zh-CN NumberFormatInfo, net48-
 // verified). Writes NUL-terminated ASCII/UTF-8 text into 'out'; returns the
 // length, or 0 for a finite value. The infinity text uses the UTF-8 bytes
 // E2 88 9E -- the char-buffer callers never emit it (the exported helpers
@@ -383,7 +383,7 @@ int EmitSci(char* out, bool neg, char lead, const char* frac, int fracDigits, in
 
 // Format a finite double in scientific notation (E format). 'exp' is capped
 // at 3 digits by the double range (|exp| <= 324). Non-finite values pass
-// through as specials ("NaN"/"∞"/"-∞" -- the exported helpers intercept
+// through as specials ("NaN"/U+221E/-U+221E -- the exported helpers intercept
 // them via MakeSpecialString before this buffer path) -- snprintf
 // prints "inf" with no exponent for them, so they must never reach the
 // digit/strchr path.
@@ -506,7 +506,7 @@ int FormatHex(char* out, uint64_t value, int precision)
 }
 
 // P on a finite double: value*100 formatted like N, specials intercepted by
-// the exported helper before this path ("NaN", "∞", "-∞"). The caller
+// the exported helper before this path ("NaN", U+221E, -U+221E). The caller
 // appends the invariant " %" layout.
 int FormatPercent(double value, int fracDigits, char* out)
 {
@@ -622,8 +622,8 @@ int FormatPercentInt(char* out, int64_t value, int precision)
 //        zeros suppressed)
 //   '.'  decimal separator (any additional '.' ignored)
 //   ','  thousands grouping (between two integer digit placeholders) or
-//        number scaling (÷1000 per trailing comma)
-//   '%'  percent (×100), U+2030 '‰' per-mille (×1000) -- literal at position
+//        number scaling (/1000 per trailing comma)
+//   '%'  percent (x100), U+2030 (per-mille) per-mille (x1000) -- literal at position
 //   '\'  escapes the next character as a literal
 //   '..' / ".." quoted literal strings (unbalanced runs to the pattern end)
 //   all other characters are copied as literals
@@ -641,7 +641,7 @@ struct CustomSpec
 {
     bool grouping;
     bool fracMandatory[100]; // whether the k-th fraction placeholder is '0'
-    int scale;               // +2 per '%', +3 per '‰', -3 per scaling comma
+    int scale;               // +2 per '%', +3 per U+2030 (per-mille), -3 per scaling comma
     int intPh;
     int fracPh;
 };
@@ -695,7 +695,7 @@ bool ParseCustomPattern(const char16_t* p, int32_t len, CustomSpec& spec)
                 if (d == u'0' || d == u'#') { digitAfter = true; break; }
             }
             if (digitAfter) spec.grouping = true;
-            else spec.scale -= 3; // trailing scaling comma: ÷1000
+            else spec.scale -= 3; // trailing scaling comma: /1000
             continue;
         }
         if (c == u'%') { spec.scale += 2; continue; }
@@ -836,7 +836,7 @@ int EmitCustomFormat(const char* intDigits, int intLen,
             }
             continue;
         }
-        out[o++] = c; // literal (%, ‰, letters, digits, symbols, ...)
+        out[o++] = c; // literal (%, U+2030 (per-mille), letters, digits, symbols, ...)
     }
     return o;
 }
@@ -889,7 +889,7 @@ Il2CppObject* MakeString(const char* ascii)
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(ascii));
 }
 
-// zh-CN special spelling (net48-verified): "NaN", "∞", "-∞". Built from
+// zh-CN special spelling (net48-verified): "NaN", U+221E, -U+221E. Built from
 // UTF-16 units -- MakeString would skip the >= 0x80 bytes of the U+221E
 // symbol (il2cpp_string_new_from_cs's ASCII contract).
 Il2CppObject* MakeSpecialString(double value)
@@ -925,7 +925,7 @@ Il2CppObject* il2cpp_number_format_general(int64_t value)
 Il2CppObject* il2cpp_number_format_general_double(double value)
 {
     // net48 default double text (G15) -- single source, format.cpp; the
-    // SPECIALS use the zh-CN spellings ("NaN"/"∞"/"-∞", U+221E -- the
+    // SPECIALS use the zh-CN spellings ("NaN"/U+221E/-U+221E, U+221E -- the
     // verification host's net48 default culture, matching format.cpp's G15
     // output instead of the old ASCII invariant spellings).
     if (std::isnan(value) || std::isinf(value))
@@ -1010,7 +1010,7 @@ Il2CppObject* il2cpp_number_format_percent(double value, int32_t precision)
     if (std::isnan(value) || std::isinf(value))
     {
         // net48: specials carry the culture symbol WITHOUT the percent
-        // decoration (probe1: "P1|NaN" -> "NaN", "P1|Infinity" -> "∞") --
+        // decoration (probe1: "P1|NaN" -> "NaN", "P1|Infinity" -> U+221E) --
         // the symbol is returned before any format work.
         return MakeSpecialString(value);
     }
@@ -1107,9 +1107,9 @@ Il2CppObject* il2cpp_number_format_custom_double(double value, Il2CppObject* for
 }
 
 // saudit1/4: the culture-name dispatch shared by the value-dependent
-// NumberFormatInfo getters. "" = invariant (net48 U+00A4 '¤' and
+// NumberFormatInfo getters. "" = invariant (net48 U+00A4 (currency sign) and
 // "Infinity"/"-Infinity"); any other name = the pinned current culture
-// (zh-CN: U+00A5 '¥' and U+221E '∞'). The value IS the culture name string
+// (zh-CN: U+00A5 (yen sign) and U+221E (infinity)). The value IS the culture name string
 // (CultureInfo handle-gap model).
 bool IsInvariantCultureName(Il2CppObject* cultureName)
 {

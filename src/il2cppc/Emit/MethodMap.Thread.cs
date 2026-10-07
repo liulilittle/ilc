@@ -57,7 +57,7 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_thread_begin_critical_region", 0, false, false, false);
             case "EndCriticalRegion":
                 return I("il2cpp::runtime::icall_thread_end_critical_region", 0, false, false, false);
-            // ---- thr-b23: the net48 audit §4 Thread 5-gap closure ------------
+            // ---- thr-b23: the net48 audit section 4 Thread 5-gap closure -----
             // Thread.MemoryBarrier(): a full (seq_cst) memory fence
             // (icall_thread_memory_barrier -- std::atomic_thread_fence).
             case "MemoryBarrier":

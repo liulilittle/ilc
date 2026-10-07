@@ -2,7 +2,7 @@
 //------------------------------------------------------------------------------
 // linq.h -- System.Linq array-family runtime (LINQ domain, T1 card).
 //
-// The AOT LINQ form (docs/design/linq-domain.md §1.3): LINQ static calls
+// The AOT LINQ form (docs/design/linq-domain.md section 1.3): LINQ static calls
 // resolve to runtime icalls -- the source ARRAY plus the predicate DELEGATE
 // OBJECT are the arguments; the runtime walks the array and calls the
 // predicate through its methodPtr (the same bare function-pointer call the
@@ -10,11 +10,11 @@
 //
 // Element families (phase 1): only i4 (int32[]) and ref (Il2CppObject*[] --
 // string[]/object[]/class[]) sources are reachable from generated code
-// (newarr accepts only int32 and reference types, §4.2). i8/d/b entries
+// (newarr accepts only int32 and reference types, section 4.2). i8/d/b entries
 // stay unimplemented until newarr extends (no stubs -- dead code is
 // forbidden by the domain contract).
 //
-// Callback contract (phase 1, §2 of the design): predicates are SINGLE-CAST
+// Callback contract (phase 1, section 2 of the design): predicates are SINGLE-CAST
 // delegates with the generated-code ABI bool(*)(int32_t) /
 // bool(*)(Il2CppObject*) (STATIC leaf) -- or, for INSTANCE-BOUND leaves
 // (target != null, the linqcase shape p.IsEven / p.IsBig), the generated

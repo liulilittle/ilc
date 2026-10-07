@@ -33,7 +33,7 @@
 //     (0x09-0x0D, 0x20), optional '+'/'-' sign, decimal digits; leading
 //     zeros are allowed; out-of-range magnitude -> failure.
 //   * double: leading/trailing ASCII whitespace, then either the exact
-//     special words "NaN"/"∞"/"-∞" (U+221E -- the zh-CN NumberFormatInfo
+//     special words "NaN"/U+221E/-U+221E (U+221E -- the zh-CN NumberFormatInfo
 //     infinity symbols), or a decimal literal with optional sign, fraction
 //     and e/E exponent. The ASCII words "Infinity"/"-Infinity" are
 //     REJECTED: net48 reads the special words from the culture's

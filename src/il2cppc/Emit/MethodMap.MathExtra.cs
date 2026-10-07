@@ -17,8 +17,9 @@ namespace Il2Cpp.Transpiler.Emit;
 // out long)/BigMul(ulong, ulong, out ulong) overloads (math-sweep 2026-08-22;
 // only long BigMul(int, int) has an icall -- mapped in MethodMap.Math.cs).
 //
-// .NET CORE gMathFuncs additions (Math 超函数 + DivModInt, icall-inventory-
-// core.md §8.1): net48 has NO public Acosh/Asinh/Atanh/Cbrt/FusedMultiplyAdd/
+// .NET CORE gMathFuncs additions (Math hyperbolic functions + DivModInt,
+// icall-inventory-core.md section 8.1): net48 has NO public Acosh/Asinh/Atanh/
+// Cbrt/FusedMultiplyAdd/
 // Log2/ModF/SinCos members (member scan verified 2026-08-07), so these
 // mappings are DORMANT -- no net48-compiled user IL can reference them, but
 // the runtime icalls exist (il2cpp_math_ext.h / mathext.cpp) and the resolver

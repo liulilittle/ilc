@@ -27,7 +27,7 @@
 //     precision is implemented here (net48: fixed vs scientific switch at
 //     scale > precision or scale - 1 < -4, exponent min 2 digits).
 //   * SPECIALS (net48-verified, probe4): zh-CN renders NaN as "NaN" and
-//     +-Infinity as the culture symbol U+221E '∞' for EVERY format
+//     +-Infinity as the culture symbol U+221E (infinity) for EVERY format
 //     (F/N/E/G/P/C/custom) -- the symbol is returned before any format
 //     work. (format.cpp's G15 path emits ASCII "Infinity" -- an out-of-
 //     domain divergence, documented there.)
@@ -69,11 +69,11 @@ const int kBaseDigits = 15;
 // mantissa).
 const int kWideDigits = 17;
 
-// The fixed currency symbol: U+00A5 '¥' -- the verification host's net48
+// The fixed currency symbol: U+00A5 (yen sign) -- the verification host's net48
 // default culture (zh-CN). See the header's CULTURE FIXING divergence note.
 const char16_t kCurrencySymbol = u'\u00A5';
 
-// The zh-CN positive-infinity symbol: U+221E '∞' (net48 probe4: EVERY
+// The zh-CN positive-infinity symbol: U+221E (infinity) (net48 probe4: EVERY
 // format renders +-Infinity as the culture symbol).
 const char16_t kInfinitySymbol = u'\u221E';
 
@@ -105,7 +105,7 @@ bool IsSpecial(double value)
     return std::isnan(value) || std::isinf(value);
 }
 
-// zh-CN special spelling (net48-verified): "NaN", "∞", "-∞".
+// zh-CN special spelling (net48-verified): "NaN", U+221E, -U+221E.
 Il2CppObject* MakeSpecialString(double value)
 {
     if (std::isnan(value))
@@ -875,7 +875,7 @@ int FormatGeneralDouble(double value, int sigDigits, char expChar, char* out)
 
 // N on an integer: grouped integer part + '.' + 'precision' zeros (the same
 // layout is the ASCII tail of the C format -- the symbol is composed by the
-// caller in front of the sign, "¥-12,345.00").
+// caller in front of the sign, "U+00A5-12,345.00").
 int FormatNumberInt(char* out, int64_t value, int precision)
 {
     char digits[24];
@@ -917,8 +917,8 @@ int FormatNumberInt(char* out, int64_t value, int precision)
 //        zeros suppressed)
 //   '.'  decimal separator (any additional '.' ignored)
 //   ','  thousands grouping (between two integer digit placeholders) or
-//        number scaling (÷1000 per trailing comma: "0,," -> ÷1e6)
-//   '%'  percent (×100), U+2030 '‰' per-mille (×1000) -- the symbol is a
+//        number scaling (/1000 per trailing comma: "0,," -> /1e6)
+//   '%'  percent (x100), U+2030 (per-mille) per-mille (x1000) -- the symbol is a
 //        literal at its pattern position
 //   '\'  escapes the next character as a literal
 //   '..' / ".." quoted literal strings (unbalanced runs to the pattern end)
@@ -938,7 +938,7 @@ struct CustomSpec
 {
     bool grouping;
     bool fracMandatory[100]; // whether the k-th fraction placeholder is '0'
-    int scale;               // decimal shift: +2 per '%', +3 per '‰', -3 per scaling comma
+    int scale;               // decimal shift: +2 per '%', +3 per U+2030 (per-mille), -3 per scaling comma
     int intPh;               // integer '0'/'#' placeholder count
     int fracPh;              // fraction '0'/'#' placeholder count
 };
@@ -992,7 +992,7 @@ bool ParseCustomPattern(const char16_t* p, int32_t len, CustomSpec& spec)
                 if (d == u'0' || d == u'#') { digitAfter = true; break; }
             }
             if (digitAfter) spec.grouping = true;
-            else spec.scale -= 3; // trailing scaling comma: ÷1000
+            else spec.scale -= 3; // trailing scaling comma: /1000
             continue;
         }
         if (c == u'%') { spec.scale += 2; continue; }
@@ -1134,7 +1134,7 @@ int EmitCustomFormat(const char* intDigits, int intLen,
             }
             continue;
         }
-        out[o++] = c; // literal (%, ‰, letters, digits, symbols, ...)
+        out[o++] = c; // literal (%, U+2030 (per-mille), letters, digits, symbols, ...)
     }
     return o;
 }
@@ -1187,8 +1187,8 @@ Il2CppObject* MakeString(const char* ascii)
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(ascii));
 }
 
-// Compose the fixed currency string: U+00A5 '¥' followed by the ASCII tail
-// (sign after the symbol: "¥-12,345.00" -- the zh-CN negative pattern
+// Compose the fixed currency string: U+00A5 (yen sign) followed by the ASCII tail
+// (sign after the symbol: "U+00A5-12,345.00" -- the zh-CN negative pattern
 // observed on net48). The UTF-16 units are built directly because
 // il2cpp_string_new_from_utf8 DROPS multi-byte sequences (string.cpp M3
 // minimal transcoder -- the symbol bytes would never reach the string).
@@ -1216,7 +1216,7 @@ bool IsInvariantProvider(Il2CppObject* provider)
 }
 
 // Invariant currency pattern 0: U+00A4 symbol, negatives wrapped in parens
-// with the symbol INSIDE ("(¤1,234.50)"; net48 invariant).
+// with the symbol INSIDE ("(U+00A41,234.50)"; net48 invariant).
 Il2CppObject* MakeCurrencyStringInvariant(const char* tail, int tailLen)
 {
     char16_t units[kMaxBuffer + 8];
@@ -1288,8 +1288,8 @@ Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format
             char tail[kMaxBuffer];
             const int t = FormatNumberInt(tail, value, precision < 0 ? 2 : precision);
             // saudit4: provider routing -- invariant uses U+00A4 and the
-            // "(¤n)" negative pattern (MakeCurrencyStringInvariant), nullptr /
-            // any non-empty name keeps the zh-CN U+00A5 "¥-n" layout.
+            // "(U+00A4 n)" negative pattern (MakeCurrencyStringInvariant), nullptr /
+            // any non-empty name keeps the zh-CN U+00A5 "U+00A5-n" layout.
             return inv ? MakeCurrencyStringInvariant(tail, t) : MakeCurrencyString(tail, t);
         }
         case 'E':
@@ -1353,8 +1353,8 @@ Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format,
 // icall_format_double_custom -- double ToString(format[, provider]).
 // cultureprobe: 'provider' (the optional 3rd icall param, nullptr for the
 // 1-arg ToString(format) shape and the composite-format engine) routes the
-// P/C layouts: nullptr/non-empty name -> zh-CN ("n%", U+00A5, "¥-n");
-// the invariant name -> "n %" and U+00A4 with "(¤n)" negatives.
+// P/C layouts: nullptr/non-empty name -> zh-CN ("n%", U+00A5, "U+00A5-n");
+// the invariant name -> "n %" and U+00A4 with "(U+00A4 n)" negatives.
 //------------------------------------------------------------------------------
 Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                                          Il2CppObject* provider)

@@ -25,7 +25,7 @@ uint32_t G(uint32_t x, uint32_t y, uint32_t z) { return (x & z) | (y & ~z); }
 uint32_t H(uint32_t x, uint32_t y, uint32_t z) { return x ^ y ^ z; }
 uint32_t I(uint32_t x, uint32_t y, uint32_t z) { return y ^ (x | ~z); }
 
-// One 64-byte block transform (RFC 1321 §3.4).
+// One 64-byte block transform (RFC 1321 section 3.4).
 void Transform(uint32_t state[4], const uint8_t block[64])
 {
     static const uint32_t K[64] = {
@@ -172,7 +172,7 @@ void il2cpp_md5_update(Il2CppMd5Context* ctx, const void* data, size_t length)
 
 void il2cpp_md5_final(Il2CppMd5Context* ctx, uint8_t out16[16])
 {
-    // Padding per RFC 1321 §3.1: 0x80, zeros, then the 64-bit bit count
+    // Padding per RFC 1321 section 3.1: 0x80, zeros, then the 64-bit bit count
     // (little-endian). The bit count has already been accumulated across
     // all updates, so no arithmetic is needed here.
     const uint64_t bitCount = ctx->bitCount;

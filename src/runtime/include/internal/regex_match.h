@@ -8,20 +8,20 @@
 // behavior, the net48 probe result WINS -- the doc is corrected by T2 in
 // discover.md:
 //   * Empty character classes "[]" / "[^]" THROW ArgumentException at parse
-//     time (doc §3.2 claimed "never matches" / "any char" -- probe: THROW).
+//     time (doc section 3.2 claimed "never matches" / "any char" -- probe: THROW).
 //   * "$" (non-Multiline) matches end-of-string OR immediately BEFORE a
-//     trailing '\n' ("a$" matches "a\n") -- doc §3.1 claimed end-of-string
+//     trailing '\n' ("a$" matches "a\n") -- doc section 3.1 claimed end-of-string
 //     only (probe: matches the trailing newline position).
 //   * "[a-b-c]" is legal: range a-b, then literal '-' and 'c'.
 //   * Unclosed "{n" / "{n,3" are LITERALS ("a{2" matches "a{2"), only a
 //     well-formed-but-invalid repeat ({2,1}, numeric overflow) throws.
 //   * "a{2}" after nothing / nested quantifiers ("a**") throw.
 //
-// Engine contract (docs §2.3): recursive backtracker over the RegexAst tree,
+// Engine contract (docs section 2.3): recursive backtracker over the RegexAst tree,
 // leftmost-first alternation, greedy repeats with decreasing backtracking,
 // capture groups with rollback (captureDepth snapshot + truncate), anchors,
 // character classes with ASCII \d \w \s, and a step budget guard that turns
-// catastrophic backtracking into a deterministic no-match (docs §2.4) instead
+// catastrophic backtracking into a deterministic no-match (docs section 2.4) instead
 // of hanging like net48 does.
 //------------------------------------------------------------------------------
 
@@ -33,7 +33,7 @@
 namespace il2cpp { namespace runtime {
 
 // Step budget: every MatchNode invocation costs one step; exceeding the
-// budget turns the whole call into a no-match (docs §2.4). net48 with its
+// budget turns the whole call into a no-match (docs section 2.4). net48 with its
 // default infinite timeout HANGS on catastrophic patterns (probe: "(a*)*b"
 // vs 50 'a' never returned); we fail deterministically instead.
 constexpr int64_t kRegexMaxMatchSteps = 10000000;

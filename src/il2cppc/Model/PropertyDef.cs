@@ -1,7 +1,7 @@
 namespace Il2Cpp.Transpiler.Model;
 
 //------------------------------------------------------------------------------
-// PropertyDef -- one metadata property of a translated type (refl2 方案 D8).
+// PropertyDef -- one metadata property of a translated type (refl2 plan D8).
 //
 // The Property table row (ECMA-335 II.22.16) carries the property name and a
 // PropertySig blob; the METHOD SEMANTICS table associates the accessor methods
@@ -9,7 +9,7 @@ namespace Il2Cpp.Transpiler.Model;
 // table (ECMA-335 II.22.15: per-type property ranges) by MetadataLoader and
 // emitted into the type's Il2CppTypeInfo property sub-table.
 //
-// Runtime contract (typeinfo.h / reflection-runtime-design.md §2.1):
+// Runtime contract (typeinfo.h / reflection-runtime-design.md section 2.1):
 //   * getter/setter are stored as METHOD NAMES (const char*), NOT function
 //     pointers -- "single source of truth": the runtime resolves the accessor
 //     by name through the SAME methods table (never a second fnPtr copy).

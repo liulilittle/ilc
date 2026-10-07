@@ -9,7 +9,7 @@
 // Phase-1 kinds: 0 = string (reference passthrough), 1 = int32 (boxed).
 // Uri normalization and further kinds ride the same registry (Phase-2).
 //
-// Layout (insertion-ordered; net48 Dictionary<TKey,TValue> model, spec §8
+// Layout (insertion-ordered; net48 Dictionary<TKey,TValue> model, spec section 8
 // R1-R7 -- the same discipline as Il2CppDictSI, but every pair is a pair of
 // MANAGED carriers so the collector roots the whole contents):
 //

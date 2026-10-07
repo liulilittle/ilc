@@ -111,7 +111,7 @@ void RequireRefFamily(Il2CppArray* src)
 }
 
 // RequireCallback -- validate the callback delegate (LINQ callback
-// contract, linq-domain.md §2): null -> ArgumentNullException; a multicast
+// contract, linq-domain.md section 2): null -> ArgumentNullException; a multicast
 // container -> InvalidOperationException (the multicast container is not a
 // single leaf -- its `first` field sits at the same offset as methodPtr, so
 // invoking it as a bare callback would call a data pointer as code); a

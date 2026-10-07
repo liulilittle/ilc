@@ -1,16 +1,16 @@
 #pragma once
 //------------------------------------------------------------------------------
 // linq_sort.h -- System.Linq OrderBy domain (LINQ T3, docs/design/linq-domain.md
-// §4.5). The transpiler-facing surface for Enumerable.OrderBy over arrays.
+// section 4.5). The transpiler-facing surface for Enumerable.OrderBy over arrays.
 //
-// Shape (design §4.1-4.2): one entry per element-type family (i4 / ref /
+// Shape (design section 4.1-4.2): one entry per element-type family (i4 / ref /
 // string); the comparator arrives as a DELEGATE OBJECT (Il2CppObject*) and the
 // runtime calls through its methodPtr with the fixed signature
 // int32_t(*)(T, T) -- negative/zero/positive, the .NET Comparison<T>
 // convention. The delegate object (not a bare pointer) keeps the callback
 // rooted on the caller's stack.
 //
-// Semantics (net48-aligned, design §3 / T3 card):
+// Semantics (net48-aligned, design section 3 / T3 card):
 //   * STABLE sort -- equal keys keep their relative source order (net48
 //     OrderBy is stable; verified by the index-marked keyed-pair tests).
 //   * The result is a NEW array; the source array is never written.
@@ -26,7 +26,7 @@
 //     methodPtr cannot represent an invocation list; same loud-rejection
 //     policy as icall_delegate_get_fn_ptr)
 //   * instance-bound comparator  -> InvalidOperationException (no target
-//     binding in this stage, design §2)
+//     binding in this stage, design section 2)
 //
 // GC contract: the comparator is a user callback that may allocate, so the
 // sort ROOTS both the source and the freshly allocated result array across
@@ -39,7 +39,7 @@
 //
 // Implementation note: the stable sort is a comparator-driven MERGE sort
 // (template over the element type); it deliberately shares NO code with the
-// in-place quicksorts of the arraysort domain (design §4.5: OrderBy is
+// in-place quicksorts of the arraysort domain (design section 4.5: OrderBy is
 // comparator + stable + copy semantics).
 //------------------------------------------------------------------------------
 

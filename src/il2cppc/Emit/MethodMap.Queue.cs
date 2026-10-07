@@ -19,10 +19,12 @@ namespace Il2Cpp.Transpiler.Emit;
 // tracked System.Int32[] loads with ldelem.i4. instName is AUTHORITATIVE
 // (the List/Dictionary/HashSet precedent); a null tag keeps the historical
 // non-generic mapping.
-// A4 虚派发: GetEnumerator 为全实例化通用臂 (token 统一计算); get_Current 未知
-// token 落 object 共享臂. int/long/double 的 Enqueue/Dequeue/Peek/Contains/
-// ToArray/get_Current 快路径为机械派生 (box->共享->unbox, queueint_obj.cpp),
-// 因 ABI 不同 + 无泛型 box 发射而保留, 逐条见回程特例化审计.
+// A4 virtual dispatch: GetEnumerator is the fully-instantiated generic arm (token computed
+// uniformly); get_Current unknown tokens fall to the object shared arm. The
+// int/long/double Enqueue/Dequeue/Peek/Contains/ToArray/get_Current fast paths
+// are mechanically derived (box->shared->unbox, queueint_obj.cpp), kept because
+// the ABI differs + there is no generic box emission; item by item see the
+// round-trip specialization audit.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -128,10 +130,11 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::il2cpp_queue_to_array", 0, true, true, true)
                     : null;
             case "GetEnumerator":
-                // A4 虚派发: 全实例化单一通用臂 -- 同一快照 icall, token 由统一函数
-                // 机械计算, 消灭按 int/long/double/string/object/class/dotted 分臂
-                // (泛型禁重复特例化铁律). 未知值型实例化 token 为 null -> LOUD
-                // (无泛型 box 发射, 不得误走 object 臂).
+                // A4 virtual dispatch: a single fully-instantiated generic arm -- same snapshot
+                // icall, token mechanically computed by the unified function, eliminating the
+                // per-int/long/double/string/object/class/dotted arms (generic
+                // no-duplicate-specialization rule). Unknown value-type instantiation token is
+                // null -> LOUD (no generic box emission, must not slip into the object arm).
                 var enumToken = QueueEnumeratorTrackedType(instTag);
                 return enumToken == null
                     ? null
@@ -180,7 +183,8 @@ public static partial class MethodRefResolver
 
     private static string? QueueEnumeratorTrackedType(string? instTag) => instTag switch
     {
-        // A4 虚派发: 非泛型 + 全已知实例化 token 统一计算 (通用臂唯一 token 源).
+        // A4 virtual dispatch: non-generic + fully-known instantiation tokens are computed
+        // uniformly (the generic arm's only token source).
         null or "System.Collections.Queue" => "System.Collections.Queue.Enumerator",
         "System.Collections.Generic.Queue`1_int" => "System.Collections.Generic.Queue`1.Enumerator_int",
         "System.Collections.Generic.Queue`1_string" => "System.Collections.Generic.Queue`1.Enumerator_string",
@@ -224,7 +228,8 @@ public static partial class MethodRefResolver
                     : null;
             case "get_Current":
                 if (count != 0) return null;
-                // 值型快路径 (机械派生, 见审计): 快照共享, 仅拆箱按 kind 分.
+                // value-type fast path (mechanically derived, see audit): snapshot shared,
+                // only the unbox branches by kind.
                 if (receiverType == "System.Collections.Generic.Queue`1.Enumerator_int")
                     return I("il2cpp::runtime::icall_queue_int_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
                 if (receiverType == "System.Collections.Generic.Queue`1.Enumerator_long")
@@ -246,7 +251,8 @@ public static partial class MethodRefResolver
                 return QueueElemTypeName(receiverType) is { } refElem
                     ? I("il2cpp::il2cpp_queue_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
                         returnTypeName: refElem)
-                    // 铁律: 无约束/未知 token 落 object 共享臂 (禁静默 int 回退).
+                    // iron rule: unconstrained/unknown tokens fall to the object shared arm
+                    // (no silent int fallback).
                     : I("il2cpp::il2cpp_queue_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
                         returnTypeName: "System.Object");
             case "Reset":

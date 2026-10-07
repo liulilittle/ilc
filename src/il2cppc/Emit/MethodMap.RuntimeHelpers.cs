@@ -2,7 +2,7 @@ namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.RuntimeHelpers -- System.Runtime.CompilerServices.RuntimeHelpers
-// (net48 icall audit §3 row 977 / §6 b-class: 0 wired / 8 gaps -- 7 foldable
+// (net48 icall audit section 3 row 977 / section 6 b-class: 0 wired / 8 gaps -- 7 foldable
 // or empty, PrepareDelegate low).
 //
 // WIRED (the b-class foldable semantics the audit does not count as gaps):
@@ -19,7 +19,7 @@ namespace Il2Cpp.Transpiler.Emit;
 //     (the ldtoken<RVA field> + newarr pattern) BEFORE the resolver runs;
 //     the LOUD below is the safety net for an un-folded shape.
 //
-// LOUD (net48 audit §3 -- JIT-prepare / stack-probe / constrained-execution
+// LOUD (net48 audit section 3 -- JIT-prepare / stack-probe / constrained-execution
 // hints with no runtime counterpart; an empty implementation would be a
 // silent semantic gap):
 //   * PrepareDelegate / PrepareContractedDelegate  -- JIT-prepare hints
@@ -62,7 +62,7 @@ public static partial class MethodRefResolver
                 return ps.Length == 1
                     ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 1, false, true, true, new[] { false }, false)
                     : throw new NotSupportedException($"RuntimeHelpers.GetObjectValue with {ps.Length} arg(s) not wired (the identity fold needs exactly (object))");
-            // --- LOUD rejections (net48 audit §3; no runtime counterpart) ---
+            // --- LOUD rejections (net48 audit section 3; no runtime counterpart) ---
             case "PrepareDelegate":
                 throw new NotSupportedException("RuntimeHelpers.PrepareDelegate not wired: it is a JIT-prepare hint (netcore body is empty) and this AOT has no JIT to prepare the delegate");
             case "PrepareContractedDelegate":

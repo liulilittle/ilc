@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 // regex_api.cpp -- System.Text.RegularExpressions string-API implementation.
 //
-// T3 card (docs/design/regex-domain.md §5): the four C entry points of
+// T3 card (docs/design/regex-domain.md section 5): the four C entry points of
 // regex.h. PARAMETER ORDER: input first, pattern second -- the .NET static
 // signatures (net48 IsMatch(string input, string pattern)); regex.h's
 // pattern-first draft order was corrected on 2026-08-04 when the transpiler
@@ -23,7 +23,7 @@
 //   T3 API (regex.h) -- legal C++ overloading (4 vs 5 params, distinct
 //   param types); every call site below resolves unambiguously.
 //
-// ITERATION (Replace/Split, docs §2.5): the engine searches a WHOLE input
+// ITERATION (Replace/Split, docs section 2.5): the engine searches a WHOLE input
 // with no start position, so iteration calls it on SUFFIX slices (input+pos,
 // len-pos) and offsets the results by pos. Slice calls re-expose absolute
 // position 0 as a candidate, which start-anchored patterns (^) would match
@@ -148,7 +148,7 @@ private:
 };
 
 //------------------------------------------------------------------------------
-// Match iteration (docs §2.5)
+// Match iteration (docs section 2.5)
 //------------------------------------------------------------------------------
 
 // One match in ABSOLUTE input coordinates, with its group captures
@@ -160,7 +160,7 @@ struct MatchSpan
     std::vector<RegexGroupCapture> groups;
 };
 
-// Collect every match in input[0..textLen) per docs §2.5: non-overlapping
+// Collect every match in input[0..textLen) per docs section 2.5: non-overlapping
 // (next search from the match end), empty matches advance the search one
 // unit (no dead loop). Anchor positions are ABSOLUTE (RegexMatchAt), so the
 // suffix scan cannot re-anchor and no phantom filter is needed.
@@ -195,7 +195,7 @@ void CollectMatches(const RegexAst* ast, const char16_t* text, int32_t textLen,
         }
         else
         {
-            pos = absStart + 1; // empty-match advance (docs §2.5)
+            pos = absStart + 1; // empty-match advance (docs section 2.5)
         }
         if (pos > textLen)
         {
@@ -205,7 +205,7 @@ void CollectMatches(const RegexAst* ast, const char16_t* text, int32_t textLen,
 }
 
 //------------------------------------------------------------------------------
-// Replacement token expansion (regex-domain.md §1.4-6)
+// Replacement token expansion (regex-domain.md section 1.4-6)
 //------------------------------------------------------------------------------
 
 // Append the text of group 'group' (0 = whole match) when it participated;

@@ -58,18 +58,18 @@ namespace Il2Cpp.Transpiler.Emit;
 // another agent's files. Dispatch uses compile-time switch (no reflection, no
 // dictionary, no string lookup).
 //
-// ── 34-domain parallel wiring skeleton (generated 2026-08-03) ───────────────
+// -- 34-domain parallel wiring skeleton (generated 2026-08-03) ---------------
 // The main-file dispatch region already reserves case lines for the following
 // 34 domains (each case calls TryMap<Domain>), backed by 34
 // MethodMap.<Domain>.cs skeleton files (bodies contain only `return null;`,
 // no real mappings):
 //
-//   Regex · List · Dictionary · Stopwatch · Interlocked · IntPtr · UIntPtr ·
-//   CultureInfo (already has real mappings, no wiring needed) · Queue · Stack ·
-//   StreamIO · BinaryIO · Encoding · Guid · Version · Uri · Enum · Attribute ·
-//   Type · ArraySort · Buffer · BitConverter · Base64 · MathExtra · TimeExt2 ·
-//   StringExt3 · NumberFormat · Debug · StackQueue · DateTimeExtra ·
-//   ConvertExtra · RandomExtra · EnvironmentExtra · Monitor
+//   Regex ' List ' Dictionary ' Stopwatch ' Interlocked ' IntPtr ' UIntPtr '
+//   CultureInfo (already has real mappings, no wiring needed) ' Queue ' Stack '
+//   StreamIO ' BinaryIO ' Encoding ' Guid ' Version ' Uri ' Enum ' Attribute '
+//   Type ' ArraySort ' Buffer ' BitConverter ' Base64 ' MathExtra ' TimeExt2 '
+//   StringExt3 ' NumberFormat ' Debug ' StackQueue ' DateTimeExtra '
+//   ConvertExtra ' RandomExtra ' EnvironmentExtra ' Monitor
 //
 // Wiring agent procedure (edit only your own file, zero conflicts):
 //   1. Open src/il2cppc/Emit/MethodMap.<Domain>.cs (the skeleton already
@@ -79,14 +79,14 @@ namespace Il2Cpp.Transpiler.Emit;
 //      building ResolvedMethod with the I(...) helper from the main-file
 //      Helpers section; ps byte meanings are the RawSignature table above; the
 //      `?? fallback` chains are already wired in the skeletons (e.g.
-//      Math→MathExtra, Convert→BitConverter→Base64→ConvertExtra,
-//      Array→ArraySort, String→StringExt3, DateTime/TimeSpan→TimeExt2→
-//      DateTimeExtra, Queue/Stack→StackQueue, Random→RandomExtra,
-//      Environment→EnvironmentExtra).
+//      Math->MathExtra, Convert->BitConverter->Base64->ConvertExtra,
+//      Array->ArraySort, String->StringExt3, DateTime/TimeSpan->TimeExt2->
+//      DateTimeExtra, Queue/Stack->StackQueue, Random->RandomExtra,
+//      Environment->EnvironmentExtra).
 //   3. Return null for unmatched names (fall through to the generated-name
 //      path); throw NotSupportedException for known-but-unwireable members
 //      (LOUD, see the main-file BclResolve wrapper).
-//   4. dotnet build src/il2cppc && dotnet test tests/unit → once all green the
+//   4. dotnet build src/il2cppc && dotnet test tests/unit -> once all green the
 //      domain is done.
 //   5. Do not edit MethodRefResolver.cs (the dispatch case lines already
 //      exist), do not git commit, do not touch src/runtime/**.
@@ -529,7 +529,7 @@ public static partial class MethodRefResolver
     // reads/writes route to a rank-fixed runtime icall. Owner shape is the
     // "[<elemSuffix><rank>]" token (e.g. "[int2]" for int[,], "[int3]" for
     // int[,,]); element/rank are decoded from the token. Runtime surface
-    // (runtime multidim support, GN-3 commit②):
+    // (runtime multidim support, GN-3 commit (2)):
     //   il2cpp::il2cpp_array_get_i4_<rank>d(Il2CppArray*, i, j, ...) -> elem
     //   il2cpp::il2cpp_array_set_i4_<rank>d(Il2CppArray*, i, j, ..., v) -> void
     // The receiver cast is "a" (get_Length precedent); the index args are
@@ -983,7 +983,7 @@ public static partial class MethodRefResolver
                 return TryMapChar(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                     ?? TryMapValueType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.ValueType":
-                // Value-type GetHashCode wiring (audit §5 #5): the constrained
+                // Value-type GetHashCode wiring (audit section 5 #5): the constrained
                 // value-type receiver's first-instance-field kind comes from
                 // the user-struct TypeDef metadata and the per-kind runtime
                 // target is selected here (the emitter cannot inject the
@@ -1639,7 +1639,7 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Net.Sockets.Socket":
             case "System.Net.WebClient": return TryMapNet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // RuntimeHelpers domain (MethodMap.RuntimeHelpers.cs): the net48
-            // audit §3 b-class foldables (GetHashCode/Equals/GetObjectValue)
+            // audit section 3 b-class foldables (GetHashCode/Equals/GetObjectValue)
             // + LOUD for the JIT-prepare / stack-probe / CER hints.
             case "System.Runtime.CompilerServices.RuntimeHelpers": return TryMapRuntimeHelpers(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // LINQ domain (MethodMap.Linq.cs): System.Linq.Enumerable --
@@ -1664,7 +1664,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // Legacy LOUD family (MethodMap.Legacy.cs): System.Runtime.
             // Remoting.* / AppDomain / ArgIterator / ReaderWriterLock -- the
-            // net48 audit §3/§6 LOUD rejection list (no runtime support).
+            // net48 audit section 3/section 6 LOUD rejection list (no runtime support).
             case "System.Runtime.Remoting.RemotingServices":
             case "System.Runtime.Remoting.Proxies.RealProxy":
             case "System.Runtime.Remoting.Contexts.Context":
@@ -1891,7 +1891,7 @@ var userRecvLike = receiverType ?? arg0Type;
     // MethodSignatureCoder encodes a struct param as "V:<FullName>" (BYREF as
     // "B:V:<FullName>"); the emitter's cast switch (EmitIcallCallArgs) keys on
     // short STABLE codes. The three registered structs (il2cpp_pinvoke_struct.h
-    // -- wfm2 report §2: System.Drawing.Rectangle/Point + System.Windows.Forms.
+    // -- wfm2 report section 2: System.Drawing.Rectangle/Point + System.Windows.Forms.
     // Message) translate to "rect"/"point"/"msg"; the same code serves both the
     // by-value and by-ref shapes (the emitter distinguishes them by the arg
     // expression shape -- LocAddrExpr address vs value). Everything else keeps
@@ -1906,7 +1906,7 @@ var userRecvLike = receiverType ?? arg0Type;
         _ => token,
     };
 
-    // Decode the signature blob → (param count, return type byte, per-param raw
+    // Decode the signature blob -> (param count, return type byte, per-param raw
     // type bytes) -- overload dispatch needs the raw bytes (char/int/bool share
     // the int32 slot in the MethodSignatureCoder encoding, but Append(char) and
     // Append(int) are different icalls).
@@ -1946,7 +1946,7 @@ var userRecvLike = receiverType ?? arg0Type;
         // consumption ReadParamByte applies to VAR/MVAR params.
         else if (ret is 0x13 or 0x1E) _ = sig.ReadCompressedInteger();
         // G2 (bitconvcase): an SZARRAY return (0x1D, e.g. BitConverter.GetBytes
-        // → byte[]) is followed by its element byte -- not consuming it leaks the
+        // -> byte[]) is followed by its element byte -- not consuming it leaks the
         // element byte into ps[0] and every GetBytes overload resolves to the same
         // indistinguishable shape. Consume recursively (the element itself may carry
         // trailing data).
@@ -2315,8 +2315,8 @@ var userRecvLike = receiverType ?? arg0Type;
     // is remapped to TypeHandle(0x40)), so the decision is made on the raw byte:
     //   0x0E STRING / 0x12 CLASS / 0x1C OBJECT / 0x40 TypeHandle (nested class/ref)
     //   / 0x15 GENERICINST (delegate/List`N -- always a reference object in the
-    //   reachable surface) → ref;
-    //   everything else (0x08 I4 etc.) → value.
+    //   reachable surface) -> ref;
+    //   everything else (0x08 I4 etc.) -> value.
     // (0x15 matches ReturnTypeCpp's GenericTypeInstance arm in CodeGenerator.cs
     // -- delecb2 residual: MakeAdder returned Func<int,int> but IsRefType missed
     // 0x15, so the result temp/local degraded to int32_t.)
@@ -2339,7 +2339,7 @@ var userRecvLike = receiverType ?? arg0Type;
             _ => "?",
         };
 
-    // TypeSpec → generic DEFINITION name ("Box`1<int>" → "Box`1" -- the method
+    // TypeSpec -> generic DEFINITION name ("Box`1<int>" -> "Box`1" -- the method
     // hash input uses the definition name).
     private static string GenericDefinitionName(MetadataReader md, TypeSpecificationHandle handle)
     {
@@ -2427,8 +2427,8 @@ var userRecvLike = receiverType ?? arg0Type;
         return false;
     }
 
-    // TypeSpec → generic INSTANTIATION name (same encoding as StackFold:
-    // "Box`1<int>" → "Box`1_int").
+    // TypeSpec -> generic INSTANTIATION name (same encoding as StackFold:
+    // "Box`1<int>" -> "Box`1_int").
     // R2b P2 (closed generic clone context): while a closed instantiation's
     // method body is folded/emitted, a VAR (0x13) generic argument in an
     // inner TypeSpec denotes THAT instantiation's T -- not the metadata

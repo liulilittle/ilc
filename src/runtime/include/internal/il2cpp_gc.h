@@ -231,7 +231,7 @@ void il2cpp_gc_run_finalizers();
 
 //------------------------------------------------------------------------------
 // GC statistics + notification + GCSettings (Core FCall gGCInterfaceFuncs /
-// gGCSettingsFuncs domain -- icall-inventory-core.md §8.1 GC 13 gaps).
+// gGCSettingsFuncs domain -- icall-inventory-core.md section 8.1 GC 13 gaps).
 //
 // The collector is a single-threaded, non-moving-until-M3 FULL-heap
 // mark-sweep cycle, so every "generation" below is the generation recorded on

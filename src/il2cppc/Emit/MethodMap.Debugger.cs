@@ -5,7 +5,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // (src/runtime/include/internal/debuggerext.h -- il2cpp::runtime::
 // il2cpp_debugger_*). Owners: System.Diagnostics.Debugger
 //
-// net48 surface (audit icall-inventory-net48.md §5 item 7): ILC runs WITHOUT
+// net48 surface (audit icall-inventory-net48.md section 5 item 7): ILC runs WITHOUT
 // a debugger, so the attached/logging state is constant and Break is a no-op.
 // The icalls below return the AOT-faithful values instead of leaving the
 // members to the generated-name fallback (an undefined C++ symbol):

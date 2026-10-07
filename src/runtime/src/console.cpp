@@ -328,8 +328,8 @@ std::string console_format_double(double value)
     // same 15-digit CRT conversion format.cpp's G15 path uses; only the
     // C-isms are adapted ('e' -> 'E', -0.0 -> "0"). +-Infinity follows the
     // net48 reference (zh-CN host, empirical capture): the culture symbol
-    // U+221E '∞' -- UTF-8 bytes E2 88 9E -- with a leading ASCII '-' for
-    // the negative form ("-∞"). stdout runs in binary mode
+    // U+221E (infinity) -- UTF-8 bytes E2 88 9E -- with a leading ASCII '-' for
+    // the negative form (-U+221E). stdout runs in binary mode
     // (ConsoleStreamInitializer), so the bytes reach the stream verbatim,
     // byte-identical to what WriteStringUtf8 produces for a managed string
     // carrying the same code units (the formatext.cpp convention).

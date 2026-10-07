@@ -13,7 +13,7 @@ namespace Il2Cpp.Transpiler.Opt;
 //------------------------------------------------------------------------------
 // GenericUsageAnalyzer -- compile-pruning decision for generic-type sharing
 // (user-mandated architecture, see .opencode/tmp/generic-share/GENERIC-SHARE-DESIGN.md
-// 搂2/搂5.4).
+// section 2 / section 5.4).
 //
 // For EVERY generic definition the transpiler must decide whether it can be
 // emitted as a SINGLE object-boxed shared implementation (closed
@@ -103,7 +103,7 @@ public static class GenericUsageAnalyzer
         MetadataReader md, TypeDef def, Func<MethodDef, MethodBodyInfo?> bodyReader)
     {
         // P-G3: a non-generic class whose METHODS are generic (SwapRef<T> --
-        // method-level sharing, GENERIC-SHARE-DESIGN.md §5) is a sharing
+        // method-level sharing, GENERIC-SHARE-DESIGN.md section 5) is a sharing
         // candidate too; a class with no generics at all never shares.
         var hasGenericMethod = def.Methods.Any(m => m.GenericArity > 0);
         if (def.GenericArity <= 0 && !hasGenericMethod) return null;
@@ -192,14 +192,14 @@ public static class GenericUsageAnalyzer
     }
 
     //--------------------------------------------------------------------------
-    // Method-level MVAR compatibility scan (P-G3, GENERIC-SHARE-DESIGN.md §5):
+    // Method-level MVAR compatibility scan (P-G3, GENERIC-SHARE-DESIGN.md section 5):
     // a generic METHOD (`SwapRef<T>`) is shareable under the object ABI only
     // when:
-    //   ① every MVAR parameter is a BYREF T slot (0x10 BYREF wrapping 0x1E) --
+    //   (1) every MVAR parameter is a BYREF T slot (0x10 BYREF wrapping 0x1E) --
     //      the shared clone renders those as Il2CppObject** object slots;
-    //   ② the method has no MVAR return (a shared MVAR return needs the
+    //   (2) the method has no MVAR return (a shared MVAR return needs the
     //      return-slot unbox bridge -- future work, D9);
-    //   ③ every body IL use of an MVAR TypeSpec is a pure slot move
+    //   (3) every body IL use of an MVAR TypeSpec is a pure slot move
     //      (ldobj/stobj/cpobj/initobj on the byref slot) -- arithmetic, member
     //      calls, casts, newarr/sizeof on T are directed and keep the
     //      definition per-instance (conservative: never mis-share).
@@ -209,7 +209,7 @@ public static class GenericUsageAnalyzer
         var (returnIsVar, paramIsVar, paramIsByrefVar) =
             MethodSignatureCoder.DecodeVarFlags(md, md.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(bio.MethodToken)).Signature);
         // (1) D5: an MVAR return no longer blocks method-level sharing -- the
-        // shared object ABI (GENERIC-SHARE-DESIGN.md §5) renders the return
+        // shared object ABI (GENERIC-SHARE-DESIGN.md section 5) renders the return
         // slot as the boxed T object (Il2CppObject*), and the caller unboxes by
         // the MethodSpec concrete argument (D5 return-unbox bridge). The
         // conservatism is preserved by rules (2)/(3) below: byref-only MVAR

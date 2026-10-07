@@ -2,21 +2,21 @@
 // aes.cpp -- AES block cipher + CBC/PKCS7 mode (FIPS 197 + SP 800-38A).
 //
 // Implementation notes:
-//   * The S-box and inverse S-box are the FIPS 197 §5.1.1 / §5.3.2 tables;
-//     the round constants follow FIPS 197 §5.2 (Rcon[i] = x^(i-1) in GF(2^8)).
-//   * Key expansion: FIPS 197 §5.2 -- Nk = 4 (AES-128) or 8 (AES-256),
+//   * The S-box and inverse S-box are the FIPS 197 section 5.1.1 / section 5.3.2 tables;
+//     the round constants follow FIPS 197 section 5.2 (Rcon[i] = x^(i-1) in GF(2^8)).
+//   * Key expansion: FIPS 197 section 5.2 -- Nk = 4 (AES-128) or 8 (AES-256),
 //     Nr = 10 or 14, w[] of 4*(Nr+1) words. The Nk == 8 && i % Nk == 4
 //     SubWord step is the AES-256-only extra substitution.
-//   * Encryption: FIPS 197 §5.1 (AddRoundKey -> Nr-1 rounds of
+//   * Encryption: FIPS 197 section 5.1 (AddRoundKey -> Nr-1 rounds of
 //     SubBytes/ShiftRows/MixColumns/AddRoundKey -> final SubBytes/ShiftRows/
-//     AddRoundKey). Decryption: the FIPS 197 §5.3 Inverse Cipher with the
+//     AddRoundKey). Decryption: the FIPS 197 section 5.3 Inverse Cipher with the
 //     SAME schedule (InvShiftRows/InvSubBytes/AddRoundKey/InvMixColumns
 //     applied in reverse), not the equivalent-inverse-cipher variant -- the
 //     straight inverse needs no schedule transform and is verified directly
 //     against the SP 800-38A decrypt vectors.
 //   * State layout is column-major (state[r][c], byte i -> r = i % 4,
-//     c = i / 4) exactly as FIPS 197 §3.4 defines the cipher state.
-//   * CBC: SP 800-38A §6.2 -- each plaintext block XORs the previous
+//     c = i / 4) exactly as FIPS 197 section 3.4 defines the cipher state.
+//   * CBC: SP 800-38A section 6.2 -- each plaintext block XORs the previous
 //     ciphertext block (the IV for the first); decrypt reverses. PKCS #7
 //     padding: pad bytes all equal padLen (1..16) so block-aligned inputs
 //     gain a full 0x10 block.
@@ -41,7 +41,7 @@ namespace il2cpp { namespace runtime {
 namespace {
 
 //------------------------------------------------------------------------------
-// FIPS 197 §5.1.1, Table S (S-box).
+// FIPS 197 section 5.1.1, Table S (S-box).
 //------------------------------------------------------------------------------
 const uint8_t kSBox[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
@@ -63,7 +63,7 @@ const uint8_t kSBox[256] = {
 };
 
 //------------------------------------------------------------------------------
-// FIPS 197 §5.3.2, Table S^-1 (inverse S-box).
+// FIPS 197 section 5.3.2, Table S^-1 (inverse S-box).
 //------------------------------------------------------------------------------
 const uint8_t kInvSBox[256] = {
     0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
@@ -85,7 +85,7 @@ const uint8_t kInvSBox[256] = {
 };
 
 //------------------------------------------------------------------------------
-// Round constants: Rcon[i] = x^(i-1) in GF(2^8) (FIPS 197 §5.2). 15 entries
+// Round constants: Rcon[i] = x^(i-1) in GF(2^8) (FIPS 197 section 5.2). 15 entries
 // cover AES-256 (needs Rcon[1..7]).
 //------------------------------------------------------------------------------
 const uint32_t kRcon[15] = {
@@ -138,14 +138,14 @@ uint32_t SubWord(uint32_t w)
     return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
 }
 
-// Cyclic left rotation of the four bytes of a word (FIPS 197 §5.2 RotWord).
+// Cyclic left rotation of the four bytes of a word (FIPS 197 section 5.2 RotWord).
 uint32_t RotWord(uint32_t w)
 {
     return (w << 8) | (w >> 24);
 }
 
 //------------------------------------------------------------------------------
-// FIPS 197 §5.2 key expansion into ctx->roundKeys (4*(Nr+1) words).
+// FIPS 197 section 5.2 key expansion into ctx->roundKeys (4*(Nr+1) words).
 //------------------------------------------------------------------------------
 void ExpandKey(Il2CppAesContext* ctx, const uint8_t* key)
 {
@@ -166,7 +166,7 @@ void ExpandKey(Il2CppAesContext* ctx, const uint8_t* key)
         }
         else if (nk == 8u && i % nk == 4u)
         {
-            // AES-256 extra substitution step (FIPS 197 §5.2).
+            // AES-256 extra substitution step (FIPS 197 section 5.2).
             temp = SubWord(temp);
         }
         ctx->roundKeys[i] = ctx->roundKeys[i - nk] ^ temp;
@@ -174,7 +174,7 @@ void ExpandKey(Il2CppAesContext* ctx, const uint8_t* key)
 }
 
 //------------------------------------------------------------------------------
-// Cipher state (column-major, FIPS 197 §3.4): state[r][c], byte i ->
+// Cipher state (column-major, FIPS 197 section 3.4): state[r][c], byte i ->
 // r = i % 4, c = i / 4.
 //------------------------------------------------------------------------------
 typedef uint8_t State[4][4];
@@ -229,7 +229,7 @@ void InvSubBytes(State s)
     }
 }
 
-// ShiftRows: row r cyclically shifted left by r (FIPS 197 §5.1.2).
+// ShiftRows: row r cyclically shifted left by r (FIPS 197 section 5.1.2).
 void ShiftRows(State s)
 {
     for (uint32_t r = 1; r < 4; ++r)
@@ -242,7 +242,7 @@ void ShiftRows(State s)
     }
 }
 
-// InvShiftRows: row r cyclically shifted right by r (FIPS 197 §5.3.1).
+// InvShiftRows: row r cyclically shifted right by r (FIPS 197 section 5.3.1).
 void InvShiftRows(State s)
 {
     for (uint32_t r = 1; r < 4; ++r)
@@ -256,7 +256,7 @@ void InvShiftRows(State s)
 }
 
 // MixColumns: each column is a polynomial multiply by 3x^3+x^2+x+2 over
-// GF(2^8) (FIPS 197 §5.1.3).
+// GF(2^8) (FIPS 197 section 5.1.3).
 void MixColumns(State s)
 {
     for (uint32_t c = 0; c < 4; ++c)
@@ -270,7 +270,7 @@ void MixColumns(State s)
 }
 
 // InvMixColumns: each column is a polynomial multiply by
-// 11x^3+13x^2+9x+14 over GF(2^8) (FIPS 197 §5.3.3).
+// 11x^3+13x^2+9x+14 over GF(2^8) (FIPS 197 section 5.3.3).
 void InvMixColumns(State s)
 {
     for (uint32_t c = 0; c < 4; ++c)
@@ -305,7 +305,7 @@ void il2cpp_aes_create(Il2CppAesContext* ctx, const void* key, int32_t keyLen)
     }
     if (keyLen == 24)
     {
-        // AES-192 is out of scope (docs/design/crypto-domain.md §1.2).
+        // AES-192 is out of scope (docs/design/crypto-domain.md section 1.2).
         il2cpp_throw_not_supported_exception(
             "AES-192 is not supported by this build (128/256-bit keys only).");
     }
@@ -322,7 +322,7 @@ void il2cpp_aes_create(Il2CppAesContext* ctx, const void* key, int32_t keyLen)
 }
 
 //------------------------------------------------------------------------------
-// il2cpp_aes_encrypt_block -- FIPS 197 §5.1 forward cipher.
+// il2cpp_aes_encrypt_block -- FIPS 197 section 5.1 forward cipher.
 //------------------------------------------------------------------------------
 void il2cpp_aes_encrypt_block(const Il2CppAesContext* ctx, const void* in16, void* out16)
 {
@@ -343,7 +343,7 @@ void il2cpp_aes_encrypt_block(const Il2CppAesContext* ctx, const void* in16, voi
 }
 
 //------------------------------------------------------------------------------
-// il2cpp_aes_decrypt_block -- FIPS 197 §5.3 inverse cipher (same schedule).
+// il2cpp_aes_decrypt_block -- FIPS 197 section 5.3 inverse cipher (same schedule).
 //------------------------------------------------------------------------------
 void il2cpp_aes_decrypt_block(const Il2CppAesContext* ctx, const void* in16, void* out16)
 {
@@ -364,7 +364,7 @@ void il2cpp_aes_decrypt_block(const Il2CppAesContext* ctx, const void* in16, voi
 }
 
 //------------------------------------------------------------------------------
-// il2cpp_aes_encrypt_cbc -- CBC + PKCS7 (SP 800-38A §6.2 + RFC 5652 §6.3).
+// il2cpp_aes_encrypt_cbc -- CBC + PKCS7 (SP 800-38A section 6.2 + RFC 5652 section 6.3).
 // Output length == len + 16 (the padding block always exists).
 //------------------------------------------------------------------------------
 void il2cpp_aes_encrypt_cbc(const void* key, int32_t keyLen, const void* iv,

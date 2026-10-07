@@ -31,7 +31,7 @@ namespace Il2Cpp.Transpiler.Emit;
 //     special spellings pinned by numberformat.h (lines 7-8: "NaN"/"Infinity"/
 //     "-Infinity") fold here as get_NaNSymbol/get_PositiveInfinitySymbol/
 //     get_NegativeInfinitySymbol -- reachable, invariant-unique. The zh-CN
-//     currency symbol get_CurrencySymbol (U+00A5 '¥') is wired directly to the
+//     currency symbol get_CurrencySymbol (U+00A5, yen sign) is wired directly to the
 //     runtime icall il2cpp_number_format_currency_symbol (D-CUL-1 -- the same
 //     spelling formatext.cpp's C format emits, so the getter and ToString("C")
 //     agree).

@@ -1,9 +1,9 @@
 namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
-// MethodMap.Legacy -- LOUD rejections for the net48 audit §3/§6 legacy
-// families (icall-inventory-net48.md rows 786-824 / 980: "旧技术, 建议 LOUD
-// 拒绝" / "低频/legacy").
+// MethodMap.Legacy -- LOUD rejections for the net48 audit section 3/section 6
+// legacy families (icall-inventory-net48.md rows 786-824 / 980: "legacy
+// technology, suggested LOUD reject" / "low-frequency/legacy").
 //
 //   * System.Runtime.Remoting.* -- the 6 public-face RemotingServices gaps
 //     (CallDefaultCtor / AllocateInitializedObject / nSetRemoteActivation-
@@ -38,7 +38,7 @@ public static partial class MethodRefResolver
             case "System.Runtime.Remoting.Messaging.StackBuilderSink":
             case "System.Runtime.Remoting.Channels.ChannelServices":
                 throw new NotSupportedException(
-                    $"{name} is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit §3 (6 public-face gaps, '建议 LOUD 拒绝'): the runtime has no remoting infrastructure (no transparent proxies / ObjRef / channels / context-bound objects), so the member cannot be wired");
+                    $"{name} is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject'): the runtime has no remoting infrastructure (no transparent proxies / ObjRef / channels / context-bound objects), so the member cannot be wired");
             case "System.AppDomain":
                 // netcore21 audit closure: the six public InternalCall members
                 // wire to the existing single-domain stubs (stubs.cpp -- the
@@ -78,17 +78,17 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::icall_appdomain_n_unload", 1, false, false, false, new[] { "i" });
                 }
                 throw new NotSupportedException(
-                    $"{name} is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit §3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here");
+                    $"{name} is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here");
             case "System.ArgIterator":
                 throw new NotSupportedException(
-                    $"{name} is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit §3) with no runtime support: __arglist is not in the M3 model");
+                    $"{name} is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3) with no runtime support: __arglist is not in the M3 model");
             case "System.Threading.ReaderWriterLock":
                 // net48 closure: AnyWritersSince wires to the constant-false
                 // stub (stubs.cpp); the rest of the legacy lock stays LOUD.
                 if (name == "AnyWritersSince" && count == 1)
                     return I("il2cpp::runtime::icall_reader_writer_lock_any_writers_since", 1, true, false, false, new[] { "i" });
                 throw new NotSupportedException(
-                    $"{name} is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit §3) with no runtime icall: use the Monitor domain (monitor.h) or the Interlocked atomics (il2cpp_interlocked.h) instead");
+                    $"{name} is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3) with no runtime icall: use the Monitor domain (monitor.h) or the Interlocked atomics (il2cpp_interlocked.h) instead");
             default:
                 return null;
         }

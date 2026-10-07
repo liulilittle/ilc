@@ -5,7 +5,7 @@
 // The T1/T2/T3 crypto modules (md5.h/sha1.h/sha256.h/sha512.h/hmac.h/aes.h/
 // rng.h) expose PLAIN C++ computation: streaming contexts and one-shot
 // helpers, no managed objects. This header adds the MANAGED OBJECT layer
-// (crypto-domain.md §2.1 object model, path 1 -- ctx-inline objects) that
+// (crypto-domain.md section 2.1 object model, path 1 -- ctx-inline objects) that
 // the transpiler's MethodMap.Crypto.cs wires MD5.Create()/ComputeHash(),
 // HMACSHAx, Aes.Create()/CreateEncryptor()/TransformFinalBlock and
 // RNGCryptoServiceProvider.GetBytes onto:
@@ -18,19 +18,19 @@
 //     STREAMING CONTEXT (create/update/final live on the object: the
 //     "streaming" contract the task requires).
 //   * The legacy *CryptoServiceProvider / *Managed types (net48 aliases,
-//     crypto-domain.md §4.4) share the SAME layout and icalls -- their
+//     crypto-domain.md section 4.4) share the SAME layout and icalls -- their
 //     descriptors are aliases, so `new MD5CryptoServiceProvider()` links
 //     through the GLOBAL symbol while ComputeHash behaves identically.
 //   * HMAC objects carry the key as a GC reference field (refFieldBitmap
 //     bit 1 -- the stringbuilder/arraylist ref-field precedent); the
 //     embedded Il2CppHmacCtx is rebuilt from the stored key on every
-//     ComputeHash (zero cross-call shared state, crypto-domain.md §2.1).
+//     ComputeHash (zero cross-call shared state, crypto-domain.md section 2.1).
 //   * Aes objects carry Key/IV as GC reference fields (bits 1,2);
 //     AesTransform objects carry key/iv refs + the inline AES key schedule
 //     (no native pointers, GC-safe) + a decrypt flag.
 //   * RNGCryptoServiceProvider is a stateless instance (header only).
 //
-// SEMANTIC BASELINE: net48 with the crypto-domain.md §1.4 documented
+// SEMANTIC BASELINE: net48 with the crypto-domain.md section 1.4 documented
 // divergences (runtime klass identity, v1 scope). All icalls validate at
 // the boundary and throw the .NET exception types (ArgumentNullException /
 // ArgumentOutOfRangeException / NotSupportedException /
@@ -245,7 +245,7 @@ Il2CppObject* icall_hmac_compute_hash(Il2CppObject* self, Il2CppArray* data);
 void icall_hmac_dispose(Il2CppObject* self);
 
 //------------------------------------------------------------------------------
-// Aes object icalls (crypto-domain.md §2.4 -- CBC + PKCS7 only).
+// Aes object icalls (crypto-domain.md section 2.4 -- CBC + PKCS7 only).
 //
 //   icall_aes_create()                -- static Aes.Create(): a Key/IV-less
 //                                       instance (net48 default).

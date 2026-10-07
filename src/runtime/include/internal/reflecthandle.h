@@ -10,8 +10,8 @@
 // Type.GetTypeFromHandle consumes them). This runtime models a handle VALUE
 // as the address of its identity:
 //   * RuntimeTypeHandle   = Il2CppClass*            (the type descriptor;
-//     reflection-runtime-design.md §5.2: "RuntimeTypeHandle = Il2CppClass*
-//     包装" -- the transpiler folds typeof(T) to &{T}_class, so the handle
+//     reflection-runtime-design.md section 5.2: "RuntimeTypeHandle = Il2CppClass*
+//     wrapper" -- the transpiler folds typeof(T) to &{T}_class, so the handle
 //     the IL carries IS that descriptor address)
 //   * RuntimeMethodHandle = const Il2CppMethodInfo* (the typeinfo method
 //     table entry: declaringType + name + signature identity, typeinfo.h)
@@ -19,7 +19,7 @@
 //     entry: name + typeName identity, typeinfo.h)
 //
 // MINIMAL semantic surface (net48 mscorlib handle semantics, probed on the
-// reference machine; icall-inventory-core.md §8.2 -- the full FCall/QCall
+// reference machine; icall-inventory-core.md section 8.2 -- the full FCall/QCall
 // table -- GetAttributes/GetSlot/GetMethodDef/GetStaticFieldAddress etc. --
 // is a documented later expansion, NOT this surface):
 //   * get_value          -- handle.Value: the raw IntPtr (0 for the default

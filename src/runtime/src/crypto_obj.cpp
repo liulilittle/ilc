@@ -4,7 +4,7 @@
 // delegate to the T1/T2/T3 crypto cores (md5/sha1/sha256/sha512/hmac/aes/
 // rng). NO algorithm logic lives here -- every path funnels into the
 // existing pure contexts, so the object layer adds no behavioural
-// divergence beyond the §1.4 documented ones.
+// divergence beyond the section 1.4 documented ones.
 //------------------------------------------------------------------------------
 
 #include "crypto_obj.h"
@@ -134,7 +134,7 @@ void HashCtor(Il2CppObject* self, const HashAdapter<TCtx>* adapter)
 }
 
 //------------------------------------------------------------------------------
-// AES key/IV validation (net48 Aes semantics with the §1.4 AES-192 cut).
+// AES key/IV validation (net48 Aes semantics with the section 1.4 AES-192 cut).
 //------------------------------------------------------------------------------
 void ValidateAesKey(Il2CppArray* key)
 {
@@ -417,7 +417,7 @@ void icall_hmac_ctor(Il2CppObject* self, Il2CppArray* key)
     auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(self);
     obj->key = key;
     // The context is (re)built on every ComputeHash from the stored key --
-    // no state survives between calls (crypto-domain.md §2.1 HMAC contract).
+    // no state survives between calls (crypto-domain.md section 2.1 HMAC contract).
 }
 
 Il2CppObject* icall_hmac_compute_hash(Il2CppObject* self, Il2CppArray* data)

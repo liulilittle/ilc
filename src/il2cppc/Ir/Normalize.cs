@@ -6,7 +6,7 @@ namespace Il2Cpp.Transpiler.Ir;
 //------------------------------------------------------------------------------
 // Normalize -- algebraic-identity / constant-normalization pass (P0-1) plus
 // null-comparison folding (P0-3), modeled on coreclr's fgMorphSmpOp
-// (docs/research/coreclr-jit-optimization.md §2.3).
+// (docs/research/coreclr-jit-optimization.md section 2.3).
 //
 // Runs between StackFold and EmitBody (CodeGenerator.Generate). It rewrites
 // every expression bottom-up. After the pass, branch conditions that became

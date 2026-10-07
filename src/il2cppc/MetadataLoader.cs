@@ -31,7 +31,7 @@ public static class MetadataLoader
         foreach (var tdHandle in md.TypeDefinitions)
         {
             var td = md.GetTypeDefinition(tdHandle);
-            // Skip ALL nested types — they are handled by TypeEmitter.ExpandNestedTypes
+            // Skip ALL nested types -- they are handled by TypeEmitter.ExpandNestedTypes
             // which properly sets IsNested, DeclaringTypeName, and unique C++ names.
             if (td.IsNested) continue;
             var name = md.GetString(td.Name);
@@ -45,7 +45,7 @@ public static class MetadataLoader
                 IsModuleType = false,
                 BaseTypeName = DecodeBaseType(md, td.BaseType),
                 IsInterface = (td.Attributes & TypeAttributes.Interface) != 0,
-                // Devirt S1 (devirtualization-plan.md §S1): the metadata sealed
+                // Devirt S1 (devirtualization-plan.md section S1): the metadata sealed
                 // bit (TypeAttributes.Sealed 0x1) -- a sealed class cannot be
                 // subclassed, the basis for callvirt -> direct-call lowering.
                 // Also the abstract bit (0x20): abstract types (incl. static

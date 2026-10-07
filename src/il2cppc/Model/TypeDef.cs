@@ -76,7 +76,7 @@ public sealed class TypeDef
     // H7 includes base-chain interfaces). An interface with exactly ONE such
     // implementer has a statically-known implementation for every dispatch:
     // any receiver assigned to the interface must be that single type, so the
-    // callvirt can lower to a direct call (devirtualization-plan.md §S3).
+    // callvirt can lower to a direct call (devirtualization-plan.md section S3).
     // Filled by VTablePlanner.PlanAll after the interface maps are built.
     public int InterfaceImplementerCount { get; set; }
 
@@ -126,7 +126,7 @@ public sealed class TypeDef
     // unconstrained T to be treated as int32.
     //
     // Semantics per the project's generics doctrine (see .opencode/memory.md:
-    // "泛型实现的总纲"): a `where T : X` constraint is one of three equivalent
+    // "generics implementation doctrine"): a `where T : X` constraint is one of three equivalent
     // signals that tell us "T is at least X here" (the other two being an
     // explicit `as X` and a cast `(X)`). So the T-bearing call site is emitted
     // against X. An entry that is absent (or empty) means T is UNCONSTRAINED,

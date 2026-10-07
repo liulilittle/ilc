@@ -8,7 +8,7 @@
 // Break is a no-op; Log writes to the platform-independent stderr so AOT
 // diagnostics survive. net48's Log is a silent no-op when no debugger is
 // attached -- the stderr write is a deliberate, audit-sanctioned deviation
-// (docs/audit/icall-inventory-net48.md §5 item 7).
+// (docs/audit/icall-inventory-net48.md section 5 item 7).
 //
 // STRING ABI: managed strings cross as Il2CppString* (the emitter's "s" cast)
 // and are converted to UTF-8 internally -- the console module convention

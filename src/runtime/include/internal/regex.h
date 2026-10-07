@@ -3,7 +3,7 @@
 // regex.h -- System.Text.RegularExpressions string-API surface (basic domain).
 //
 // Four C entry points mirroring the STATIC Regex overloads wired by the
-// transpiler (docs/design/regex-domain.md §4): IsMatch / Match / Replace /
+// transpiler (docs/design/regex-domain.md section 4): IsMatch / Match / Replace /
 // Split. The parameter ORDER mirrors the .NET static signatures exactly --
 // input first, pattern second (net48: IsMatch(string input, string pattern))
 // -- because the transpiler emits arguments positionally in IL order (the M5
@@ -15,7 +15,7 @@
 // references (Il2CppArray* of Il2CppString*, element 0 = whole match).
 //
 // SEMANTIC BASELINE: .NET Framework 4.8 (net48) -- the project's reference
-// baseline -- with documented simplifications (regex-domain.md §1.4):
+// baseline -- with documented simplifications (regex-domain.md section 1.4):
 //
 //   * Match result shape: string[] [0]=whole match, [1..n]=capture groups;
 //     a group that did not participate is a NULL element (net48
@@ -28,9 +28,9 @@
 //     digit group + literal second digit); any other '$' sequence is kept
 //     literally.
 //   * RegexOptions subset: IgnoreCase=1 | Multiline=2 | Singleline=4. Any
-//     other bit throws NotSupportedException (loud, §1.2).
+//     other bit throws NotSupportedException (loud, section 1.2).
 //
-// ERROR SEMANTICS (net48-aligned, regex-domain.md §4.3): null pattern /
+// ERROR SEMANTICS (net48-aligned, regex-domain.md section 4.3): null pattern /
 // input / replacement -> ArgumentNullException; syntactically invalid
 // pattern -> ArgumentException; step-budget exhaustion -> no-match (never
 // throws). Exception helpers: il2cpp_exception_ext.h.
@@ -69,7 +69,7 @@ Il2CppString* il2cpp_regex_replace(Il2CppString* input, Il2CppString* pattern,
                                    int32_t options = 0);
 
 // Returns string[]: input split at every match (delimiter text excluded,
-// capture groups ignored -- §1.4-2). No match -> single-element array
+// capture groups ignored -- section 1.4-2). No match -> single-element array
 // [original input].
 Il2CppArray* il2cpp_regex_split(Il2CppString* input, Il2CppString* pattern,
                                 int32_t options = 0);

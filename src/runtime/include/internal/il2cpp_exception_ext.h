@@ -47,18 +47,21 @@ namespace il2cpp {
 void il2cpp_throw_argument_exception(const char* message);
 
 // System.ArgumentNullException -- the message is composed from 'paramName'
-// in the .NET Framework two-line format: the zh-CN host text
-// "值不能为 null。" + "\r\n" + "参数名: <paramName>" (net48 oracle on the
-// zh-CN e2e host; NOT .NET Core's one-line "(Parameter 'x')" suffix); a
-// nullptr paramName yields the plain default text alone.
+// in the .NET Framework two-line format: the zh-CN host resource
+// "\xE5\x80\xBC..." ("value cannot be null", UTF-8 byte escapes in
+// exceptionext.cpp, net48 oracle on the zh-CN e2e host) + "\r\n" +
+// "Parameter name: <paramName>" (NOT .NET Core's one-line "(Parameter 'x')"
+// suffix); a nullptr paramName yields the plain default text alone.
 void il2cpp_throw_argument_null_exception(const char* paramName);
 
 // System.ArgumentOutOfRangeException -- an EXPLICIT 'message' passes through
 // EXACTLY (the runtime's pinned net48-resource-text convention for the
 // (paramName, message) shape -- test_listi4; real net48 would append the
 // parameter-name line, a documented divergence). A nullptr message composes
-// the zh-CN default "指定的参数已超出有效值的范围。" + "\r\n" + "参数名: <paramName>"
-// for a non-empty paramName (net48 1-arg ctor semantics -- excext).
+// the default zh-CN host resource "\xE5\x87\xBA..." ("argument out of valid
+// range", UTF-8 byte escapes in exceptionext.cpp) + "\r\n" +
+// "Parameter name: <paramName>" for a non-empty paramName (net48
+// 1-arg ctor semantics -- excext).
 void il2cpp_throw_argument_out_of_range_exception(const char* paramName, const char* message);
 
 // System.InvalidOperationException -- 'message' or the standard default

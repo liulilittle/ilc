@@ -23,7 +23,7 @@
 //     (0.1 + 0.2) -> "0.3" (plain G15 -- net48 has NO round-trip fallback;
 //     .NET Core 3.0+ prints "0.30000000000000004") and the boundary values
 //     above match exactly.
-//     infinities render as the zh-CN culture symbols "∞"/"-∞" (U+221E,
+//     infinities render as the zh-CN culture symbols U+221E/-U+221E (U+221E,
 //     UTF-8 E2 88 9E), byte-identical to the net48 reference output.
 //   * int32 ToString("X"): uppercase hex without "0x"; no zero-padding
 //     ("FF", "10"); negative values print the full 8-digit twos-complement
@@ -33,7 +33,7 @@
 //     value outside [int.MinValue, int.MaxValue] -> OverflowException.
 //   * double.Parse: skips leading/trailing ASCII whitespace, optional sign,
 //     digits, optional '.', optional e/E exponent, or the exact culture
-//     words "NaN" / "∞" / "-∞" (U+221E -- the zh-CN NumberFormatInfo
+//     words "NaN" / U+221E / -U+221E (U+221E -- the zh-CN NumberFormatInfo
 //     infinity symbols); the ASCII words "Infinity"/"-Infinity" are NOT
 //     legal double text (FormatException, net48 zh-CN probe-pinned);
 //     anything else -> FormatException; |value| beyond double.MaxValue ->
@@ -77,7 +77,7 @@ Il2CppString* icall_bool_to_string(bool value);
 Il2CppString* icall_char_to_string(int32_t utf16);
 
 // double -> net48-style "G15" text (see header: 15 sig digits, .NET
-// fixed/scientific layout, specials "NaN"/"∞"/"-∞"/"0").
+// fixed/scientific layout, specials "NaN"/U+221E/-U+221E/"0").
 Il2CppString* icall_double_to_string(double value);
 
 // int32 -> uppercase hex, no "0x", no padding ("FF", "80000000" for

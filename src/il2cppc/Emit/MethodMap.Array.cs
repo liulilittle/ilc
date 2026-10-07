@@ -222,7 +222,7 @@ public static partial class MethodRefResolver
                 // now wired -- icall_array_find_index (il2cpp_array_ext2.h:145)
                 // consumes the Predicate<T> DELEGATE (single-cast static
                 // methodPtr ABI, the linq where_i4 callback pattern) directly.
-                //   C++ 签名: icall_array_find_index(Il2CppArray* arr,
+                //   C++ signature: icall_array_find_index(Il2CppArray* arr,
                 //   Il2CppObject* predicate, int32_t startIndex, int32_t count)
                 // net48: null array -> ANE, start/count out of range -> AOO,
                 // null match -> ANE; returns the first index whose element
@@ -355,7 +355,7 @@ public static partial class MethodRefResolver
                 // passes through uncast).
                 return I("il2cpp::runtime::icall_array_get_rank", 0, true, false, true);
             // ICALL-C (2026-08-07): the three rebuilt array icalls
-            // (icallc2 report §3 -- arrayext.cpp). All instance, receiver
+            // (icallc2 report section 3 -- arrayext.cpp). All instance, receiver
             // passes through uncast (the il2cpp_array_ext.h signatures take
             // Il2CppObject*).
             case "get_LongLength":

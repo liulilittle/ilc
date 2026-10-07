@@ -47,7 +47,7 @@ namespace Il2Cpp.Transpiler.Opt;
 //     without re-executing the def (def before a loop header read) are
 //     excluded -- the read would see a stale value. This is the exact safety
 //     argument behind TempSlotPass's run rule, generalized so branch-
-//     condition reads propagate too (the branch-chain collapse dce-plan §1c
+//     condition reads propagate too (the branch-chain collapse dce-plan section 1c
 //     requires).
 //   * Operands of the propagated RHS must not be reassigned between the def
 //     and any read, and must not be address-taken (a pointer write through
@@ -98,13 +98,13 @@ public static class DcePass
     }
 
     //--------------------------------------------------------------------------
-    // IntegrityViolations -- DCE's completeness invariant (dce-plan §4.3 #6):
+    // IntegrityViolations -- DCE's completeness invariant (dce-plan section 4.3 #6):
     // every LocExpr/LocAddrExpr name must have at least one AssignStmt def in
     // the statement list. Used by the unit tests to assert the invariant holds
     // after Run (and to catch the TempSlotPass.DelegateNewExpr rename gap).
     // The plan's decision point 1 keeps this WARNING-level for now (the
     // transpiler does not hard-fail on violations); raising it to a hard error
-    // is P1 after the two §3 bugs are fixed.
+    // is P1 after the two section 3 bugs are fixed.
     //--------------------------------------------------------------------------
     public static List<string> IntegrityViolations(IReadOnlyList<Stmt> stmts)
     {
@@ -122,7 +122,7 @@ public static class DcePass
     //==========================================================================
     // Pass 0 -- def/use collection (mirror of TempSlotPass.CollectUses,
     // complete over every Expr kind -- DelegateNewExpr.Target included, the
-    // §3.1 lesson). defs = AssignStmt.Target (non static-field); reads =
+    // section 3.1 lesson). defs = AssignStmt.Target (non static-field); reads =
     // LocExpr; addrTaken = LocAddrExpr names (poison).
     //==========================================================================
     private static void CollectNames(Stmt s, HashSet<string> defs, HashSet<string> reads)
@@ -313,7 +313,7 @@ public static class DcePass
     // Pure RHS: evaluating it can neither throw nor have a side effect, so the
     // whole store (and with it the slot's declaration and GC-root entry) dies.
     // IsPureArithmetic (Normalize) plus the extended constant/value-type kinds
-    // (dce-plan §4.2 Pass 1). Div/Rem are excluded (DivideByZeroException);
+    // (dce-plan section 4.2 Pass 1). Div/Rem are excluded (DivideByZeroException);
     // FieldExpr/FieldAddrExpr are excluded (NullReferenceException).
     private static bool IsDeletablePure(Expr e) => e switch
     {
@@ -389,7 +389,7 @@ public static class DcePass
         // value. This generalizes TempSlotPass's run rule (whose label/branch/
         // ret partition is a conservative superset): branch-condition reads
         // propagate too -- exactly what the branch-chain collapse (dce-plan
-        // §1c) requires, with the same safety argument.
+        // section 1c) requires, with the same safety argument.
         var labelBefore = new int[stmts.Count];
         var lastLabel = -1;
         for (var i = 0; i < stmts.Count; i++)

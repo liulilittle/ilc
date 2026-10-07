@@ -24,7 +24,7 @@
 //     byte[16] (matches .NET MD5.ComputeHash(byte[])), null data ->
 //     ArgumentNullException
 //
-// TEST VECTORS (RFC 1321 §A.5, also the .NET framework test vectors):
+// TEST VECTORS (RFC 1321 section A.5, also the .NET framework test vectors):
 //   MD5("")    = d41d8cd98f00b204e9800998ecf8427e
 //   MD5("abc") = 900150983cd24fb0d6963f7d28e17f72
 //   MD5(1M 'a')= 7707d6ae4e027c70eea2a935c2296f21

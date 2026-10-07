@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
 // marshalext5.cpp -- Marshal VARIANT + COM-identity gap batch (net48 inventory
-// §3 Marshal rows: GetObjectForNativeVariant / GetNativeVariantForObject /
+// section 3 Marshal rows: GetObjectForNativeVariant / GetNativeVariantForObject /
 // GetObjectsForNativeVariants / IsComObject). Declarations in
 // il2cpp_marshal_ext.h.
 //

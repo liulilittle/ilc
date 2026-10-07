@@ -7,7 +7,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // Owners: System.RuntimeTypeHandle / System.RuntimeMethodHandle /
 // System.RuntimeFieldHandle
 //
-// VALUE MODEL (refh-b23 §2.1): each handle value type wraps a raw runtime
+// VALUE MODEL (refh-b23 section 2.1): each handle value type wraps a raw runtime
 // pointer -- RuntimeTypeHandle = Il2CppClass*, RuntimeMethodHandle = const
 // Il2CppMethodInfo*, RuntimeFieldHandle = const Il2CppFieldInfo*. These ride
 // in the M-stage pointer carrier (an intptr_t slot, the IntPtr precedent).

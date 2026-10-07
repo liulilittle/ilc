@@ -24,7 +24,7 @@ namespace il2cpp { namespace runtime {
 namespace {
 
 constexpr uint32_t kTenToPowerNine = 1000000000u;
-constexpr int32_t kMaxScale = 28;          // decimal-domain.md §1.1
+constexpr int32_t kMaxScale = 28;          // decimal-domain.md section 1.1
 constexpr int32_t kMaxSignificantDigits = 29;
 
 // DecDivMod1E9 -- direct port of Decimal.DecCalc.cs (the current netcore
@@ -133,7 +133,7 @@ void RoundAway(std::string& digits, size_t keep)
     }
 }
 
-// G default layout (decimal-domain.md §2.3; net48 fixed point, trailing
+// G default layout (decimal-domain.md section 2.3; net48 fixed point, trailing
 // zeros preserved, negative sign incl. negative zero).
 std::string FormatG(const DecimalParts& p)
 {
@@ -265,7 +265,7 @@ bool IsInvariantProvider(Il2CppObject* provider)
     return s->length == 0;
 }
 
-// C body: sign + grouped integer + fraction (no symbol -- the fixed '¥'
+// C body: sign + grouped integer + fraction (no symbol -- the fixed U+00A5 (yen sign)
 // is prepended at the UTF-16 level; il2cpp_string_new_from_utf8 drops
 // multi-byte sequences, formatext.cpp MakeCurrencyString precedent).
 std::string FormatCTail(const DecimalParts& p, int prec)
@@ -389,7 +389,7 @@ std::string FormatP(const DecimalParts& p, int prec, bool invariant)
 // CUSTOM numeric format engine (net48 mscorlib System.Number.NumberToStringFormat
 // / clr classlibnative number.cpp port). A non-standard format string is a
 // user-defined pattern: '0' zero-fill digit, '#' optional digit, '.' decimal
-// point, ',' group separator / 1000-scale, '%'/'‰' percent scaling, E+/E-/E0
+// point, ',' group separator / 1000-scale, '%'/U+2030 (per-mille) percent scaling, E+/E-/E0
 // scientific, ';' sections, quotes and '\' literals. The port follows the
 // net48 native algorithm step by step (NumberBuffer: digits + scale + sign),
 // so decimal custom formats match the zh-CN net48 oracle byte for byte.
@@ -1115,8 +1115,8 @@ Il2CppString* icall_decimal_to_string_custom(const Il2CppDecimal* value,
         return ToManaged(FormatP(p, DefaultPrec(spec, 2), inv));
     case 'C':
     {
-        // zh-CN: fixed '¥' symbol + ASCII tail; invariant: U+00A4 with the
-        // negative wrapped in parens (pattern 0 -- "(¤1,234.50)").
+        // zh-CN: fixed U+00A5 (yen sign) symbol + ASCII tail; invariant: U+00A4 with the
+        // negative wrapped in parens (pattern 0 -- "(U+00A4 1,234.50)").
         const std::string tail = FormatCTail(p, DefaultPrec(spec, 2));
         std::vector<char16_t> units;
         units.reserve(tail.size() + 3);

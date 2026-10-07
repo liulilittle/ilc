@@ -42,7 +42,7 @@ public static partial class MethodRefResolver
             // direct finalizer trigger (il2cpp_gc_ext.h -- icall_gc_finalize_trigger
             // runs any due/pending finalizers synchronously, the gcext two-
             // collection model's synchronous counterpart to .NET's finalizer
-            // thread; see the gcext.cpp docblock + test_gcext.cpp §9). Static,
+            // thread; see the gcext.cpp docblock + test_gcext.cpp section 9). Static,
             // void, 0 params -- the same shape as the parameterless Collect.
             // The runtime surface was verified present (gcext.cpp:181) before
             // wiring -- no fabricated entry.
@@ -143,7 +143,7 @@ public static partial class MethodRefResolver
             case "ReportThreadStatus": return I("il2cpp::runtime::icall_thread_pool_report_thread_status", 1, false, false, false, new[] { "i" });
             case "NotifyWorkItemProgressNative": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_progress_native", 0, false, false, false);
             case "IsThreadPoolHosted": return I("il2cpp::runtime::icall_thread_pool_is_thread_pool_hosted", 0, true, false, false);
-            // WeakReference`1.Finalize — the generic weak reference's implicit
+            // WeakReference`1.Finalize -- the generic weak reference's implicit
             // finalizer (base Object.Finalize). Same no-op as Object::Finalize.
             case "Finalize": return I("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, true);
             // OverlappedData stubs

@@ -97,7 +97,7 @@ public sealed class MethodDef
     // captured after the call (MethodImportAttributes.SetLastError = 0x40).
     public bool PinvokeSetLastError { get; init; }
 
-    // 泛型信息 (M3 generics): the method's OWN generic arity -- the number of
+    // Generic information (M3 generics): the method's OWN generic arity -- the number of
     // METHOD-level type parameters (MVAR, `T Id<T>(T x)` has arity 1). Distinct
     // from the owner type's arity (TypeDef.GenericArity, class-level VARs).
     // MethodSignatureCoder.Decode currently skips the generic parameter count

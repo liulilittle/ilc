@@ -338,7 +338,7 @@ namespace Il2Cpp.Transpiler.Emit
                 case "Run":
                     // exc001: static Task<T> Run<T>(Func<T> function) -- the
                     // synchronous-completion model runs the delegate NOW and
-                    // wraps the value in a completed task (Run(f) ≡
+                    // wraps the value in a completed task (Run(f) ==
                     // FromResult(f.Invoke())). Generic over carriers by the
                     // same table as FromResult (int-family -> plain, ref
                     // carriers -> _s); the value slot's "run:i"/"run:r" cast

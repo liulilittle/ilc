@@ -24,7 +24,7 @@ public sealed class Int64ConstExpr : Expr { public required long Value { get; in
 // ldc.r8 constant (M5 wiring): the raw double from the IL operand. Emits as a
 // C++ double literal; NaN bit patterns emit il2cpp_double_from_bits(<raw>)
 // (bit-exact -- the C NAN macro is a float QNaN, not .NET's 0xFFF8...0000
-// canonical NaN) and ±Infinity emit INFINITY/-INFINITY (the generated header
+// canonical NaN) and +/-Infinity emit INFINITY/-INFINITY (the generated header
 // includes <cmath>). TryFoldInt32 does not fold this node.
 public sealed class DoubleConstExpr : Expr { public required double Value { get; init; } }
 public sealed class StringConstExpr : Expr { public required string Value { get; init; } }
