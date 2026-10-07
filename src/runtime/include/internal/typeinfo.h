@@ -248,6 +248,31 @@ void         il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObje
                                              Il2CppObject* value);
 
 //------------------------------------------------------------------------------
+// RF-N2 -- PropertyInfo.GetValue/SetValue: the property table's accessor
+// dispatch through the SAME invoker as MethodInfo.Invoke (il2cpp_methodinfo_
+// invoke's RF-1 instance-'this' path -- the C3-2 event accessor precedent).
+// The receiver is the PROPERTY-NAME string (the simplified member model, as
+// il2cpp_typeinfo_get_property returns); the declaring type is joined from
+// the TARGET object's klass and the property resolved in the own + base-chain
+// property tables.
+//   get: dispatches getterName with the index array elements as args (a
+//        null/empty index on a non-indexed property = the ordinary zero-arg
+//        getter). Returns the boxed value (int32/int64/ref -- the invoker's
+//        return-kind boxing).
+//   set: dispatches setterName with [index elements..., value] as args (the
+//        non-indexed set_<P>(T) has no index elements, so args = { value }).
+// Null target -> TargetException (net48 instance-property doctrine -- NOT
+// NullReferenceException, the field-value difference; probe-verified).
+// Unknown property -> nullptr (defensive query convention).
+// Missing accessor (write-only GetValue / read-only SetValue) -> LOUD
+// ArgumentException (net48 "Property Get/Set method not found").
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2CppObject* target,
+                                                 Il2CppArray* index);
+void         il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject* target,
+                                                Il2CppObject* value, Il2CppArray* index);
+
+//------------------------------------------------------------------------------
 // R3 (B4) -- MethodInfo.Invoke: il2cpp_methodinfo_invoke(memberName, target,
 // object[] args). The receiver is the METHOD-NAME string (the simplified
 // member model -- a member VALUE is its name string); the declaring type is

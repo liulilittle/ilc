@@ -1037,7 +1037,14 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
         }
         dispatchSig[pos] = '\0';
     }
-    int32_t ret = 0;
+    // The ret buffer is a full pointer-width slot: the I64/Dbl/Ref return
+    // kinds write 8 bytes (int64_t / double / object pointer), so a 4-byte
+    // int32_t buffer would overflow into the adjacent stack frame -- the
+    // RF-N2 probe exposed this on the reference-return path (get_Name string
+    // getter), a shape RF-1 never e2e-exercised (its instance probes were all
+    // int32-return). The low 4 bytes are read for the I32/I64/Dbl/Ref
+    // boxers below regardless.
+    uintptr_t ret = 0;
     if (il2cpp_invoker_invoke(found->fnPtr, dispatchSig, slots, argCount, &ret) != kInvokerOk)
     {
         return nullptr;
@@ -1051,6 +1058,131 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
     case 'R': return *reinterpret_cast<Il2CppObject**>(&ret);
     default:  return nullptr;
     }
+}
+
+//------------------------------------------------------------------------------
+// RF-N2 -- PropertyInfo.GetValue/SetValue. The receiver is the PROPERTY-NAME
+// string (the simplified member model, as il2cpp_typeinfo_get_property
+// returns); the declaring type is joined from the TARGET object's klass
+// (il2cpp_typeinfo_lookup_by_class) and the property is resolved in the own +
+// base-chain property tables (il2cpp_type_get_property -- inherited
+// properties resolve on a derived receiver, matching net48). The GETTER /
+// SETTER ACCESSOR METHOD (Il2CppPropertyInfo.getterName / setterName) is then
+// dispatched through il2cpp_methodinfo_invoke -- the SAME invoker wrapper as
+// MethodInfo.Invoke (RF-1 instance-'this' injection; the C3-2 event-accessor
+// precedent) -- with the index array elements (GetValue) / index elements +
+// value (SetValue) as the object[] args.
+//
+//   Null target -> TargetException (net48 instance-property doctrine: an
+//     instance-property GetValue/SetValue on a null obj throws TargetException
+//     -- NOT NullReferenceException, the field-value difference; probe-
+//     verified against v4.0.30319).
+//   Unknown property / unreflected type / malformed name -> nullptr (no-op
+//     defensive, the field/method query convention).
+//   Missing accessor (write-only GetValue / read-only SetValue) -> LOUD
+//     ArgumentException ("Property Get/Set method not found", net48 text).
+//   An indexer (indexParams > 0) is in scope through the same invoker: the
+//     getter's explicit params are the index values, the setter's are the
+//     index values + value. A null/empty index on a non-indexed property is
+//     the ordinary zero-explicit-param getter / one-param setter shape.
+//------------------------------------------------------------------------------
+namespace {
+
+// Throw TargetException for a null-target instance-property access (net48:
+// PropertyInfo.GetValue(null)/SetValue(null, ...) on an INSTANCE property
+// throws TargetException -- probe-verified; distinct from FieldInfo which
+// throws NullReferenceException).
+void ThrowPropertyTargetException()
+{
+    il2cpp_throw_new("System.Reflection.TargetException,System.Exception",
+        "Non-static method requires a target.");
+}
+
+// Build the object[] dispatched to the property accessor. For a getter the
+// args are the index array elements (null/empty -> zero explicit args -- the
+// non-indexed zero-param getter). For a setter the value is APPENDED after
+// the index elements (net48 setter signature: set_X([index...,] value)).
+Il2CppArray* BuildPropertyArgs(Il2CppArray* index, Il2CppObject* value, bool appendValue)
+{
+    const int32_t indexLen = index != nullptr ? index->length : 0;
+    const int32_t total = indexLen + (appendValue ? 1 : 0);
+    Il2CppArray* args = il2cpp_array_new(nullptr, sizeof(void*), true, total);
+    for (int32_t i = 0; i < indexLen; ++i)
+    {
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(args, i)) =
+            *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(index, i));
+    }
+    if (appendValue)
+    {
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(args, indexLen)) = value;
+    }
+    return args;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2CppObject* target,
+                                                 Il2CppArray* index)
+{
+    if (target == nullptr)
+    {
+        ThrowPropertyTargetException();
+    }
+    char nameBuf[kNameBufferSize];
+    if (propertyName == nullptr || !AsciiFromManagedString(propertyName, nameBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
+    if (info == nullptr)
+    {
+        return nullptr;
+    }
+    const Il2CppPropertyInfo* prop = il2cpp_type_get_property(info, nameBuf);
+    if (prop == nullptr)
+    {
+        return nullptr;
+    }
+    if (prop->getterName == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+            "Property Get method not found.");
+    }
+    Il2CppArray* args = BuildPropertyArgs(index, nullptr, false);
+    Il2CppObject* accessorStr = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(prop->getterName));
+    return il2cpp_methodinfo_invoke(accessorStr, target, args);
+}
+
+void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject* target,
+                                        Il2CppObject* value, Il2CppArray* index)
+{
+    if (target == nullptr)
+    {
+        ThrowPropertyTargetException();
+    }
+    char nameBuf[kNameBufferSize];
+    if (propertyName == nullptr || !AsciiFromManagedString(propertyName, nameBuf))
+    {
+        return;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
+    if (info == nullptr)
+    {
+        return;
+    }
+    const Il2CppPropertyInfo* prop = il2cpp_type_get_property(info, nameBuf);
+    if (prop == nullptr)
+    {
+        return;
+    }
+    if (prop->setterName == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+            "Property Set method not found.");
+    }
+    Il2CppArray* args = BuildPropertyArgs(index, value, true);
+    Il2CppObject* accessorStr = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(prop->setterName));
+    (void)il2cpp_methodinfo_invoke(accessorStr, target, args);
 }
 
 } // namespace il2cpp

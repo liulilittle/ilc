@@ -391,6 +391,68 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // RF-N2 -- PropertyInfo.GetValue/SetValue: the receiver is the PROPERTY-NAME
+    // string (the simplified member model, as il2cpp_typeinfo_get_property
+    // returns); the runtime joins the declaring type from the TARGET object's
+    // klass (own + base chain) and dispatches the property table's
+    // getterName/setterName accessor through the same invoker as MethodInfo.
+    // Invoke (RF-1 instance-'this'). net48 csc emits GetValue(object) for the
+    // common non-indexed shape and GetValue(object, object[]) for the indexed
+    // form; SetValue mirrors with (object, object) / (object, object, object[]).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_PropertyInfo_GetValue_MapsToPropertyGetIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "GetValue",
+            new byte[] { 0x00, 0x01, 0x1C, 0x1C }), "GetValue"); // (object)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_get_value", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_PropertyInfo_GetValue_Indexed_MapsToPropertyGetIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "GetValue",
+            new byte[] { 0x00, 0x02, 0x1C, 0x1C, 0x1D, 0x1C }), "GetValue"); // (object, object[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_get_value", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_PropertyInfo_SetValue_MapsToPropertySetIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "SetValue",
+            new byte[] { 0x00, 0x02, 0x01, 0x1C, 0x1C }), "SetValue"); // (object, object) -> void
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_set_value", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_PropertyInfo_SetValue_Indexed_MapsToPropertySetIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "SetValue",
+            new byte[] { 0x00, 0x03, 0x01, 0x1C, 0x1C, 0x1D, 0x1C }), "SetValue"); // (object, object, object[]) -> void
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_set_value", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(3, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // R3 -- MethodInfo.Invoke(object, object[]): the receiver is the METHOD-NAME
     // string (the simplified member model); the runtime joins the declaring
     // type from the target (klass join) and dispatches through

@@ -532,7 +532,32 @@ public static class TypeEmitter
         int refCount = 0;
         // Slot 0 = object header for reference types; value types have NO
         // header (M3 Task 11) -- their slots start at 0.
-        int slot = t.IsValueType ? 0 : 1;
+        // rf-props (RF-N2): a DERIVED class embeds its base instance fields
+        // (generated accessors cast to the base struct and read/write the
+        // base slots directly), so the layout must continue the base chain's
+        // slot grid and inherit its reference bits -- otherwise an empty
+        // derived class gets instanceSize = 8 (header only), GC bumps too few
+        // bytes and the next allocation lands INSIDE the instance (the
+        // PropertyInfo.GetValue arg-array overwrote the inherited _name slot,
+        // probe-exposed). Value types have no user inheritance (only
+        // System.ValueType/System.Enum BCL roots, zero fields), so they keep
+        // slot 0.
+        int slot;
+        if (t.IsValueType)
+        {
+            slot = 0;
+        }
+        else if (t.BaseType != null && t.BaseTypeName != "System.Object")
+        {
+            LayoutInstanceFields(t.BaseType); // base chain laid out first (multi-level)
+            slot = t.BaseType.InstanceSize / t.PointerSize;
+            bitmap = t.BaseType.RefFieldBitmap;
+            refCount = t.BaseType.RefFieldCount;
+        }
+        else
+        {
+            slot = 1;
+        }
         foreach (var f in t.InstanceFields)
         {
             f.SlotIndex = slot;
@@ -725,8 +750,11 @@ public static class TypeEmitter
         var w = new CppWriter();
         w.Line($"// Runtime type descriptor for {t.FullName} (registered with the runtime by entry.cpp).");
         // Interface types have no instances (instanceSize=0, never allocated); all other
-        // types = sizeof(struct).
-        var sizeExpr = t.IsInterface ? "0" : $"static_cast<int32_t>(sizeof({TypeCppName(t)}))";
+        // types = the LayoutInstanceFields size (a DERIVED class inherits its base
+        // slots -- the generated accessors cast to the base struct, so sizeof(struct)
+        // alone undercounts a derived type that adds no own fields; rf-props exposed
+        // the miss: instanceSize=8 let the next allocation land inside the instance).
+        var sizeExpr = t.IsInterface ? "0" : t.InstanceSize.ToString();
         w.Line($"Il2CppClass {TypeCppName(t)}_class = {{");
         w.Line($"    \"{ReflectionFullName(t)}\",                                        // name");
         w.Line($"    {sizeExpr},                                            // instanceSize");

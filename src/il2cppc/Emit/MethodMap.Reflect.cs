@@ -65,22 +65,52 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false)
                     : null;
             case "GetValue":
-                // FieldInfo.GetValue(object) -- instance. Only the FieldInfo
-                // owner is wired (PropertyInfo.GetValue rides the getter --
-                // not in the R2 narrow set; MethodInfo.GetValue is R3's
-                // il2cpp_methodinfo_invoke).
+                // RF-N2: PropertyInfo.GetValue -- the receiver is the
+                // PROPERTY-NAME string (the simplified member model); the
+                // runtime joins the declaring type from the TARGET's klass,
+                // resolves the property table entry and dispatches the
+                // GETTER accessor (getterName) through the same invoker as
+                // MethodInfo.Invoke (il2cpp_methodinfo_invoke -- RF-1
+                // instance-'this' injection). net48 csc emits GetValue(object)
+                // for the common non-indexed shape (ildasm-verified) and
+                // GetValue(object, object[]) for the indexed form; both map to
+                // the same 3-slot icall (the 1-param form appends a null index
+                // -- the non-indexed property's zero-arg getter). FieldInfo
+                // keeps its R2 narrow-set mapping.
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::il2cpp_typeinfo_property_get_value", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.Object",
+                        appendLiterals: new[] { "nullptr" });
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_property_get_value", 2, true, true, true,
+                        new[] { "", "", "a" }, returnTypeName: "System.Object");
                 if (owner == "System.Reflection.FieldInfo" && ps.Length == 1 && ps[0] == 0x1C)
                     return I("il2cpp::il2cpp_typeinfo_field_get_value", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.Object");
                 throw new NotSupportedException(
-                    $"{owner}::GetValue with {ps.Length} parameter(s) not wired in R2 -- only FieldInfo.GetValue(object) maps to il2cpp_typeinfo_field_get_value");
+                    $"{owner}::GetValue with {ps.Length} parameter(s) not wired in RF-N2 -- FieldInfo.GetValue(object) maps to il2cpp_typeinfo_field_get_value; PropertyInfo.GetValue(object) / GetValue(object, object[]) map to il2cpp_typeinfo_property_get_value");
             case "SetValue":
-                // FieldInfo.SetValue(object obj, object value) -- instance.
+                // RF-N2: PropertyInfo.SetValue -- the receiver is the
+                // PROPERTY-NAME string; the runtime resolves the property
+                // table entry (own + base chain, from the TARGET's klass) and
+                // dispatches the SETTER accessor (setterName) with
+                // [index..., value] through il2cpp_methodinfo_invoke (RF-1
+                // instance-'this'). net48 csc emits SetValue(object, object)
+                // for the common non-indexed shape (ildasm-verified) and
+                // SetValue(object, object, object[]) for the indexed form;
+                // both map to the same 4-slot icall (the 2-param form appends
+                // a null index). FieldInfo keeps its R2 narrow-set mapping.
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C)
+                    return I("il2cpp::il2cpp_typeinfo_property_set_value", 2, true, false, true,
+                        new[] { "", "", "" }, appendLiterals: new[] { "nullptr" });
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 3 && ps[0] == 0x1C && ps[1] == 0x1C && ps[2] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_property_set_value", 3, true, false, true,
+                        new[] { "", "", "", "a" });
                 if (owner == "System.Reflection.FieldInfo" && ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C)
                     return I("il2cpp::il2cpp_typeinfo_field_set_value", 2, true, false, true,
                         new[] { "", "", "" });
                 throw new NotSupportedException(
-                    $"{owner}::SetValue with {ps.Length} parameter(s) not wired in R2 -- only FieldInfo.SetValue(object, object) maps to il2cpp_typeinfo_field_set_value");
+                    $"{owner}::SetValue with {ps.Length} parameter(s) not wired in RF-N2 -- FieldInfo.SetValue(object, object) maps to il2cpp_typeinfo_field_set_value; PropertyInfo.SetValue(object, object) / SetValue(object, object, object[]) map to il2cpp_typeinfo_property_set_value");
             case "Invoke":
                 // MethodBase.Invoke(object obj, object[] parameters) / the
                 // MethodInfo override -- R3. net48 csc emits the BASE
