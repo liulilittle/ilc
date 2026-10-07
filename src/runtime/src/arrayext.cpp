@@ -120,11 +120,13 @@ Il2CppArray* RequireInt32Array(Il2CppArray* arr)
 }
 
 //------------------------------------------------------------------------------
-// RequireDimension -- one-dimensional scope: only dimension 0 exists.
+// RequireDimensionInRange -- validate a GetLength/GetUpperBound/GetLowerBound
+// dimension against the array's rank (GN-3: rank-aware). Single-dim arrays
+// (rank 1) accept only dimension 0; multidim arrays accept 0..rank-1.
 //------------------------------------------------------------------------------
-void RequireDimension(int32_t dimension)
+void RequireDimensionInRange(Il2CppArray* arr, int32_t dimension)
 {
-    if (dimension != 0)
+    if (dimension < 0 || dimension >= arr->rank)
     {
         il2cpp_throw_new(kIndexOutOfRangeChain, "Dimension is out of range.");
     }
@@ -303,24 +305,25 @@ int32_t icall_array_index_of(Il2CppObject* arr, Il2CppObject* value)
 }
 
 //------------------------------------------------------------------------------
-// icall_array_get_length -- instance Array.GetLength (one-dimensional scope).
+// icall_array_get_length -- instance Array.GetLength(int dimension).
+// Rank-aware (GN-3): single-dim -> dims[0] (== length); multidim -> dims[dim].
 //------------------------------------------------------------------------------
 int32_t icall_array_get_length(Il2CppObject* arr, int32_t dimension)
 {
     Il2CppArray* a = RequireInstanceArray(arr);
-    RequireDimension(dimension);
-    return a->length;
+    RequireDimensionInRange(a, dimension);
+    return a->dims[dimension];
 }
 
 //------------------------------------------------------------------------------
-// icall_array_get_upper_bound -- instance Array.GetUpperBound (one-
-// dimensional scope; -1 for an empty array, matching .NET).
+// icall_array_get_upper_bound -- instance Array.GetUpperBound(int dimension).
+// Rank-aware (GN-3): dims[dim] - 1 (net48: -1 for an empty array).
 //------------------------------------------------------------------------------
 int32_t icall_array_get_upper_bound(Il2CppObject* arr, int32_t dimension)
 {
     Il2CppArray* a = RequireInstanceArray(arr);
-    RequireDimension(dimension);
-    return a->length - 1;
+    RequireDimensionInRange(a, dimension);
+    return a->dims[dimension] - 1;
 }
 
 //------------------------------------------------------------------------------
@@ -381,8 +384,8 @@ uint8_t* icall_array_get_raw_data(Il2CppObject* arr)
 //------------------------------------------------------------------------------
 int32_t icall_array_get_lower_bound(Il2CppObject* arr, int32_t dimension)
 {
-    RequireInstanceArray(arr);
-    RequireDimension(dimension);
+    Il2CppArray* a = RequireInstanceArray(arr);
+    RequireDimensionInRange(a, dimension);
     return 0;
 }
 

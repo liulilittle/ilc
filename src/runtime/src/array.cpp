@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 
 namespace il2cpp {
@@ -184,7 +185,150 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
     arr->elemClass = isRefElement ? elemClass : nullptr;
     arr->isRefElem = isRefElement;
     arr->rank = 1; // one-dimensional scope; multi-dimensional support is future work
+    arr->dims[0] = length; // single-dim fills dims[0] (rank-aware GetLength/GetUpperBound parity)
     return arr;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_array_new_multi -- multi-dimensional array allocation (GN-3).
+// Per-dimension sizes are stored in the header (dims[0..rank-1]); the element
+// payload is ROW-MAJOR FLAT: element (i0, i1, ..., iN-1) sits at flat offset
+//   i0*(d1*d2*...*dN-1) + i1*(d2*...*dN-1) + ... + iN-1
+// (row-major = last dimension varies fastest, net48 Array layout). 'length'
+// carries the TOTAL element count (product of dims), so:
+//   * GC scan (gc.cpp:619-631) reads arr->data for arr->length slots via
+//     FIELD access -- the multidim payload is scanned as one flat run (the
+//     dims header field shifts offsetof(data) but every consumer uses the
+//     field / offsetof, so the scan and the flat-stelem initializer fold
+//     behave exactly as a 1-D array);
+//   * Array.Length returns the total count (net48 parity);
+//   * Array.GetLength(dim)/GetUpperBound(dim) read dims[dim] / dims[dim]-1
+//     (rank-aware; the single-dim path reads dims[0] == length).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_array_new_multi(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement,
+                                    int32_t rank, const int32_t* dims)
+{
+    EnsureArraysRegistered();
+    if (rank < 1 || rank > IL2CPP_MAX_ARRAY_RANK)
+    {
+        // Loud, non-catchable caller-bug guard (the transpiler only emits the
+        // rank-fixed allocators it sees; a rank beyond the compile-time ceiling
+        // is a programming error, not a runtime condition).
+        std::fprintf(stderr, "il2cpp: unsupported array rank %d (max %d)\n", rank,
+                     static_cast<int>(IL2CPP_MAX_ARRAY_RANK));
+        std::abort();
+    }
+    int64_t total = 1;
+    for (int32_t d = 0; d < rank; ++d)
+    {
+        const int32_t size = dims[d] < 0 ? 0 : dims[d]; // defensive: negative size is a caller bug
+        total *= static_cast<int64_t>(size);
+        if (total > static_cast<int64_t>(std::numeric_limits<int32_t>::max()))
+        {
+            std::fprintf(stderr, "il2cpp: multidim array length overflow (product of dims)\n");
+            std::abort();
+        }
+    }
+    const int32_t length = static_cast<int32_t>(total);
+    Il2CppClass* arrayClass = isRefElement ? ArrayClassForElement(elemClass) : &g_int32ArrayClass;
+    Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(
+        il2cpp_gc_alloc_size(arrayClass, ArrayAllocSize(elemSize, length)));
+    arr->length = length;
+    arr->elemSize = elemSize;
+    arr->elemClass = isRefElement ? elemClass : nullptr;
+    arr->isRefElem = isRefElement;
+    arr->rank = rank;
+    for (int32_t d = 0; d < rank; ++d)
+    {
+        arr->dims[d] = dims[d] < 0 ? 0 : dims[d];
+    }
+    return arr;
+}
+
+namespace {
+
+// Flat row-major offset for a multidim element index set. The caller passes
+// the receiver array (null -> NullReferenceException via the COLD failure
+// path) and the per-dim indices; bounds are checked per-dimension and an
+// out-of-range index throws IndexOutOfRangeException (net48 semantics). The
+// per-dim lengths come from the header dims field.
+int32_t MultidimFlatOffset(Il2CppArray* arr, int32_t rank, const int32_t* idx)
+{
+    // Null receiver -> NullReferenceException (never touches arr fields).
+    if (arr == nullptr)
+    {
+        il2cpp_array_fail(arr, idx[0]);
+    }
+    int32_t flat = 0;
+    for (int32_t d = 0; d < rank; ++d)
+    {
+        if (idx[d] < 0 || idx[d] >= arr->dims[d])
+        {
+            il2cpp_array_fail(arr, idx[d]);
+        }
+        flat = flat * arr->dims[d] + idx[d];
+    }
+    return flat;
+}
+
+} // namespace
+
+int32_t il2cpp_array_get_i4_2d(Il2CppArray* arr, int32_t i, int32_t j)
+{
+    const int32_t idx[2] = { i, j };
+    const int32_t flat = MultidimFlatOffset(arr, 2, idx);
+    return *reinterpret_cast<const int32_t*>(arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));
+}
+
+int32_t il2cpp_array_get_i4_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k)
+{
+    const int32_t idx[3] = { i, j, k };
+    const int32_t flat = MultidimFlatOffset(arr, 3, idx);
+    return *reinterpret_cast<const int32_t*>(arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));
+}
+
+void il2cpp_array_set_i4_2d(Il2CppArray* arr, int32_t i, int32_t j, int32_t value)
+{
+    const int32_t idx[2] = { i, j };
+    const int32_t flat = MultidimFlatOffset(arr, 2, idx);
+    *reinterpret_cast<int32_t*>(arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = value;
+}
+
+void il2cpp_array_set_i4_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k, int32_t value)
+{
+    const int32_t idx[3] = { i, j, k };
+    const int32_t flat = MultidimFlatOffset(arr, 3, idx);
+    *reinterpret_cast<int32_t*>(arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = value;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_array_new_multi_{v|ref}{2|3}d -- rank-fixed wrappers over the
+// generic allocator (the transpiler emits these exact names; the {v|ref} tag
+// mirrors the isRefElement argument the codegen derives from the element
+// suffix, and <N>d is the rank).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_array_new_multi_v2d(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement, int32_t d0, int32_t d1)
+{
+    const int32_t dims[2] = { d0, d1 };
+    return il2cpp_array_new_multi(elemClass, elemSize, isRefElement, 2, dims);
+}
+
+Il2CppArray* il2cpp_array_new_multi_v3d(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement, int32_t d0, int32_t d1, int32_t d2)
+{
+    const int32_t dims[3] = { d0, d1, d2 };
+    return il2cpp_array_new_multi(elemClass, elemSize, isRefElement, 3, dims);
+}
+
+Il2CppArray* il2cpp_array_new_multi_ref2d(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement, int32_t d0, int32_t d1)
+{
+    const int32_t dims[2] = { d0, d1 };
+    return il2cpp_array_new_multi(elemClass, elemSize, isRefElement, 2, dims);
+}
+
+Il2CppArray* il2cpp_array_new_multi_ref3d(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement, int32_t d0, int32_t d1, int32_t d2)
+{
+    const int32_t dims[3] = { d0, d1, d2 };
+    return il2cpp_array_new_multi(elemClass, elemSize, isRefElement, 3, dims);
 }
 
 //------------------------------------------------------------------------------
