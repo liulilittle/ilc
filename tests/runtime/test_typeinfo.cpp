@@ -177,6 +177,20 @@ il2cpp::Il2CppPropertyInfo derivedProperties[1] = {
     {"Name", "System.String", "get_Name", nullptr, 0},
 };
 
+// C3-1 / RF-N1: the event sub-tables (Il2CppEventInfo). baseInfo carries a
+// base-declared event (inherited by T.Derived), derivedInfo an own event --
+// the enumeration walks BOTH tables through the base chain.
+il2cpp::Il2CppEventInfo baseEvents[1] = {
+    {"ValueChanged",
+     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}, // the kComIidIUnknown bytes
+     "add_ValueChanged", "remove_ValueChanged"},
+};
+
+il2cpp::Il2CppEventInfo derivedEvents[1] = {
+    {"Changed", {0}, "add_Changed", "remove_Changed"},
+};
+
 // System.Object's own (empty) type info -- root of the baseType chain.
 il2cpp::Il2CppTypeInfo objectInfoInstance = {
     "System.Object", &objectClass, nullptr, nullptr, 0,
@@ -185,12 +199,12 @@ il2cpp::Il2CppTypeInfo objectInfoInstance = {
 
 il2cpp::Il2CppTypeInfo baseInfo = {
     "T.Base", &baseClass, &objectInfoInstance, nullptr, 0,
-    baseFields, 2, baseMethods, 3, baseProperties, 2,
+    baseFields, 2, baseMethods, 3, baseProperties, 2, baseEvents, 1,
 };
 
 il2cpp::Il2CppTypeInfo derivedInfo = {
     "T.Derived", &derivedClass, &baseInfo, nullptr, 0,
-    derivedFields, 1, derivedMethods, 2, derivedProperties, 1,
+    derivedFields, 1, derivedMethods, 2, derivedProperties, 1, derivedEvents, 1,
 };
 
 il2cpp::Il2CppTypeInfo ifaceInfo = {
@@ -448,6 +462,60 @@ int main()
         }
         Expect(hasName && hasValue && hasItem,
                "R2 get_properties names cover own+base properties");
+
+        // C3-1 / RF-N1: GetEvents -- own + base-chain event name array.
+        auto events = il2cpp_typeinfo_get_events(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
+        Expect(events != nullptr && events->length == 2,
+               "C3-1 get_events own+base count (Derived Changed + Base ValueChanged)");
+        bool hasChanged = false, hasValueChanged = false;
+        if (events != nullptr)
+        {
+            for (int32_t i = 0; i < events->length; ++i)
+            {
+                auto e = *reinterpret_cast<Il2CppObject**>(
+                    il2cpp::il2cpp_array_get_elem_ptr(events, i));
+                if (ManagedEqualsAscii(e, "Changed")) hasChanged = true;
+                if (ManagedEqualsAscii(e, "ValueChanged")) hasValueChanged = true;
+            }
+        }
+        Expect(hasChanged && hasValueChanged,
+               "C3-1 get_events names cover own+base events");
+
+        // C3-1: GetEvent(name) -- the single-event query (own + base chain).
+        const Il2CppEventInfo* ev = il2cpp_type_get_event(&derivedInfo, "Changed");
+        Expect(ev == &derivedEvents[0], "C3-1 get_event derived own \"Changed\"");
+        ev = il2cpp_type_get_event(&derivedInfo, "ValueChanged");
+        Expect(ev == &baseEvents[0], "C3-1 get_event inherited \"ValueChanged\"");
+        Expect(ev != nullptr && ev->addName != nullptr &&
+                   std::strcmp(ev->addName, "add_ValueChanged") == 0,
+               "C3-1 inherited event carries the add accessor name");
+        Expect(il2cpp_type_get_event(&derivedInfo, "Nope") == nullptr,
+               "C3-1 get_event missing -> null");
+        Expect(ThrowsManaged([&] { (void)il2cpp_type_get_event(nullptr, "Changed"); },
+                             "System.NullReferenceException"),
+               "C3-1 get_event null info -> NullReferenceException (net48)");
+        Expect(ThrowsManaged([&] { (void)il2cpp_type_get_event(&derivedInfo, nullptr); },
+                             "System.ArgumentNullException"),
+               "C3-1 get_event null name -> ArgumentNullException (net48)");
+
+        // C3-1: the managed-string GetEvent(name) icall returns the event-NAME
+        // string on a hit, null on a miss (the simplified member model).
+        auto evHit = il2cpp_typeinfo_get_event(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Changed")));
+        Expect(ManagedEqualsAscii(evHit, "Changed"),
+               "C3-1 typeinfo_get_event returns the event name string on a hit");
+        auto evMiss = il2cpp_typeinfo_get_event(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")),
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Nope")));
+        Expect(evMiss == nullptr,
+               "C3-1 typeinfo_get_event missing -> null");
+
+        auto evEmpty = il2cpp_typeinfo_get_events(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Never")));
+        Expect(evEmpty != nullptr && evEmpty->length == 0,
+               "C3-1 get_events unregistered type -> empty array (never null)");
 
         auto ctors = il2cpp_typeinfo_get_constructors(
             reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));

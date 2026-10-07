@@ -44,6 +44,14 @@ public sealed class TypeDef
     // (the emitted table stays nullptr/0).
     public List<PropertyDef> Properties { get; } = new();
 
+    // Reflected events (COM-C3 / RF-N1): populated by MetadataLoader from the
+    // EventDefinition table (the EventMap); emitted by TypeEmitter as the
+    // typeinfo event sub-table (typeinfo.h Il2CppEventInfo -- accessor names
+    // resolve through the same methods table, eventIID from the folded [Guid]
+    // of the event's COM source interface). Empty for event-free types (the
+    // emitted table stays nullptr/0 -- zero delta).
+    public List<EventDef> Events { get; } = new();
+
     public bool IsModuleType { get; init; }
     // Interface type flag (Task 8): interface TypeDefs have no instance fields
     // and their methods are abstract virtuals (dispatch contract only).

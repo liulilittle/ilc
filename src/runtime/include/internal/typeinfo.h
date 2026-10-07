@@ -87,6 +87,24 @@ struct Il2CppPropertyInfo
     int32_t     indexParams;   // indexer parameter count (0 = non-indexed)
 };
 
+// One reflected event (C3-1 / RF-N1 -- the COM-C3 event metadata pipeline
+// shares this sub-table with GetEvents). Accessors are resolved by name
+// through the SAME methods table (single source of truth -- no duplicated
+// fnPtrs, the Il2CppPropertyInfo convention).
+struct Il2CppEventInfo
+{
+    const char* name;          // event name
+    uint8_t     eventIID[16];  // COM event-source interface IID (the folded
+                               // [Guid], .NET Guid byte layout -- Data1/2/3
+                               // little-endian, Data4 in order, il2cpp_com.h
+                               // kComIid* convention). Zeroed = a managed-only
+                               // event (no COM source interface resolved) --
+                               // still enumerated by GetEvents; the C3-2 RCW
+                               // attach path LOUD-rejects a zeroed IID.
+    const char* addName;       // add accessor method name, null if none
+    const char* removeName;    // remove accessor method name, null if none
+};
+
 // Reflection metadata for one type. klass is the EXISTING runtime descriptor
 // (vtable/GC/baseClass are already there -- never duplicated).
 struct Il2CppTypeInfo
@@ -102,6 +120,8 @@ struct Il2CppTypeInfo
     int32_t              methodCount;
     const Il2CppPropertyInfo* properties; // property table, null = none
     int32_t              propertyCount;
+    const Il2CppEventInfo*    events;   // event table, null = none (C3-1/RF-N1)
+    int32_t              eventCount;
 };
 
 //------------------------------------------------------------------------------
@@ -151,6 +171,7 @@ const Il2CppTypeInfo* il2cpp_typeinfo_lookup_by_class(const Il2CppClass* klass);
 const Il2CppPropertyInfo* il2cpp_type_get_property(const Il2CppTypeInfo* info, const char* name);
 const Il2CppMethodInfo*   il2cpp_type_get_method(const Il2CppTypeInfo* info, const char* name);
 const Il2CppFieldInfo*    il2cpp_type_get_field(const Il2CppTypeInfo* info, const char* name);
+const Il2CppEventInfo*    il2cpp_type_get_event(const Il2CppTypeInfo* info, const char* name);
 
 //------------------------------------------------------------------------------
 // Managed-string ABI queries -- the icall surface the TRANSPILER wires
@@ -181,6 +202,7 @@ const Il2CppFieldInfo*    il2cpp_type_get_field(const Il2CppTypeInfo* info, cons
 Il2CppObject* il2cpp_typeinfo_get_property(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* memberName);
+Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* memberName);
 
 //------------------------------------------------------------------------------
 // R2 (B2) -- member ENUMERATION icalls. Each returns an Il2CppArray* of
@@ -200,6 +222,7 @@ Il2CppArray* il2cpp_typeinfo_get_fields(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_properties(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_constructors(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName);
+Il2CppArray* il2cpp_typeinfo_get_events(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
 // R2 (B2) -- FieldInfo.GetValue/SetValue narrow set (int32/int64/string/

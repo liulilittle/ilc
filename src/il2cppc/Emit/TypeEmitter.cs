@@ -1326,10 +1326,34 @@ public static class TypeEmitter
             w.Line();
         }
 
+        // Event sub-table (COM-C3 / RF-N1). The eventIID is the folded [Guid]
+        // of the event's COM source interface (16 raw bytes -- zeroed = a
+        // managed-only event, no COM source). The add/remove ACCESSORS are
+        // referenced by METHOD NAME (Il2CppEventInfo.addName/removeName), the
+        // same single-source-of-truth convention as the property table. 0
+        // events emit NO table (nullptr/0 -- zero delta for event-free types).
+        var eventEntries = t.Events
+            .Select(e => (e.Name,
+                IID: string.Join(", ", e.EventIID.Select(b => $"0x{b:x2}")),
+                Add: e.AddName == null ? "nullptr" : $"\"{e.AddName}\"",
+                Remove: e.RemoveName == null ? "nullptr" : $"\"{e.RemoveName}\""))
+            .ToList();
+        if (eventEntries.Count > 0)
+        {
+            w.Line($"static const il2cpp::Il2CppEventInfo {TypeCppName(t)}_typeinfo_events[] = {{");
+            w.Open();
+            foreach (var e in eventEntries)
+                w.Line($"{{ \"{e.Name}\", {{ {e.IID} }}, {e.Add}, {e.Remove} }},");
+            w.Close();
+            w.Line("};");
+            w.Line();
+        }
+
         // Main table.
         var methodsTable = t.Methods.Count > 0 ? $"{TypeCppName(t)}_typeinfo_methods" : "nullptr";
         var fieldsTable = fieldEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_fields" : "nullptr";
         var propertiesTable = propertyEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_properties" : "nullptr";
+        var eventsTable = eventEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_events" : "nullptr";
         var interfacesExpr = t.InterfaceTypes.Count > 0 ? ifaceArray : "nullptr";
         var klassExpr = !HasClassDescriptor(t) ? "nullptr" : $"&{TypeCppName(t)}_class";
         var baseExpr = t.BaseType != null
@@ -1349,6 +1373,7 @@ public static class TypeEmitter
         w.Line($"    {fieldsTable}, {fieldEntries.Count},                  // fields");
         w.Line($"    {methodsTable}, {t.Methods.Count},                    // methods");
         w.Line($"    {propertiesTable}, {t.Properties.Count},              // properties");
+        w.Line($"    {eventsTable}, {t.Events.Count},                      // events");
         w.Line("};");
         w.Line();
         return w.ToString();

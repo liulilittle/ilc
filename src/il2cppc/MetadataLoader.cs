@@ -226,6 +226,33 @@ public static class MetadataLoader
                     IndexParamCount = idxParams,
                 });
             }
+
+            // Reflected events (COM-C3 / RF-N1): the EventDefinition table (the
+            // EventMap, II.22.13/14). Only the NAME + add/remove ACCESSOR
+            // names are read here (the compiler emits add_Tick / remove_Tick
+            // accessors; a field-like event may omit the raise accessor). The
+            // eventIID (the folded [Guid] of the event's COM SOURCE interface)
+            // is resolved in the SECOND pass -- it needs the resolved
+            // interface graph (the "event -> source interface -> [Guid]"
+            // chain is only meaningful once InterfaceTypes are built).
+            foreach (var eh in td.GetEvents())
+            {
+                var ed = md.GetEventDefinition(eh);
+                var evAccessors = ed.GetAccessors();
+                string? evAddName = null;
+                string? evRemoveName = null;
+                if (!evAccessors.Adder.IsNil)
+                    evAddName = md.GetString(md.GetMethodDefinition(evAccessors.Adder).Name);
+                if (!evAccessors.Remover.IsNil)
+                    evRemoveName = md.GetString(md.GetMethodDefinition(evAccessors.Remover).Name);
+                typeDef.Events.Add(new EventDef
+                {
+                    Name = md.GetString(ed.Name),
+                    Owner = typeDef,
+                    AddName = evAddName,
+                    RemoveName = evRemoveName,
+                });
+            }
             types.Add(typeDef);
         }
 
@@ -265,7 +292,67 @@ public static class MetadataLoader
                         t.InterfaceTypes.Add(ifacePrefix);
                 }
         }
+
+        // C3-1 (COM-C3): fold each event's COM SOURCE interface [Guid] into the
+        // eventIID -- the "event -> source interface -> [Guid]" chain. The
+        // source interface = the FIRST interface in the type's own+base chain
+        // (resolved to a TypeDef in THIS assembly) whose [Guid] attribute is
+        // present AND which has a METHOD named exactly like the event (the COM
+        // event-source convention: one source-interface method per event --
+        // interface EVENTS are not methods, so you cannot missfire on them).
+        //
+        // Failure policy: a type whose event has NO matching interface keeps a
+        // ZEROED eventIID (a managed-only event -- still enumerated by
+        // GetEvents; the C3-2 RCW attach path LOUD-rejects it at RUNTIME). A
+        // matching interface WITHOUT a parseable [Guid] is WARNED, not fatal --
+        // LOUD would break every event-bearing fixture (the 0-event/0-delta
+        // shape must stay zero-regression). This keeps the transpile sweep safe
+        // while the C3-2 RCW attach carries the decision's parse-failure LOUD.
+        foreach (var t in types)
+        {
+            if (t.Events.Count == 0) continue;
+            foreach (var e in t.Events)
+            {
+                TypeDef? src = null;
+                for (var scan = t; scan != null && src == null; scan = scan.BaseType)
+                    src = scan.InterfaceTypes.FirstOrDefault(i => i.Methods.Any(m => m.Name == e.Name));
+                if (src == null) continue; // managed-only event -- zeroed IID
+                var iid = ReadComSourceEventIid(md, src);
+                if (iid == null)
+                {
+                    Console.WriteLine($"event: source interface '{src.FullName}' of event '{e.Name}' on '{t.FullName}' has no valid [Guid] -- the eventIID stays zeroed (managed-only; the C3-2 RCW attach LOUD-rejects a zeroed IID)");
+                    continue;
+                }
+                e.EventIID = iid;
+            }
+        }
         return types;
+    }
+
+    //--------------------------------------------------------------------------
+    // C3-1 (COM-C3): read a COM event-source interface's [Guid] CustomAttribute
+    // and fold it into the 16 raw IID bytes (the .NET Guid byte layout the
+    // runtime's kComIid* constants use -- Data1/2/3 little-endian, Data4 in
+    // order -- see il2cpp_com.h). Returns null when the interface TypeDef has
+    // no GuidAttribute or its blob cannot be decoded / parsed.
+    //--------------------------------------------------------------------------
+    private static byte[]? ReadComSourceEventIid(MetadataReader md, TypeDef iface)
+    {
+        foreach (var h in md.TypeDefinitions)
+        {
+            if (md.GetFullName(h) != iface.FullName) continue;
+            List<CustomAttributeDef> attrs;
+            try { attrs = ReadCustomAttributes(md, h); }
+            catch (NotSupportedException) { return null; }
+            foreach (var a in attrs)
+            {
+                if (a.AttributeType != "System.Runtime.InteropServices.GuidAttribute") continue;
+                if (a.FixedArgs.Count == 0 || a.FixedArgs[0] is not string s) return null;
+                return Guid.TryParse(s, out var g) ? g.ToByteArray() : null;
+            }
+            return null;
+        }
+        return null;
     }
 
     //--------------------------------------------------------------------------

@@ -644,6 +644,12 @@ public static class CodeGenerator
                     GetterName = p.GetterName, SetterName = p.SetterName,
                     IndexParamCount = p.IndexParamCount,
                 });
+            foreach (var e in def.Events)
+                clone.Events.Add(new EventDef
+                {
+                    Name = e.Name, Owner = clone, AddName = e.AddName,
+                    RemoveName = e.RemoveName, EventIID = (byte[])e.EventIID.Clone(),
+                });
             foreach (var iname in def.InterfaceNames)
                 clone.InterfaceNames.Add(iname);
             genericInstTypes[gKey] = clone;

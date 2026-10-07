@@ -289,6 +289,29 @@ const Il2CppFieldInfo* il2cpp_type_get_field(const Il2CppTypeInfo* info, const c
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_type_get_event -- simplified Type.GetEvent(name) primitive
+// (C3-1 / RF-N1; the COM-C3 event sub-table shares the Il2CppPropertyInfo
+// query shape). net48: a null info (null Type receiver) throws
+// NullReferenceException; a null name throws ArgumentNullException (param
+// "name"). "Event not found" -> nullptr (no throw). The events table has no
+// flags field (all events are enumerated -- the documented simplification),
+// so this is the plain FindMemberThroughBaseChain walk.
+//------------------------------------------------------------------------------
+const Il2CppEventInfo* il2cpp_type_get_event(const Il2CppTypeInfo* info, const char* name)
+{
+    if (info == nullptr)
+    {
+        ThrowNullTypeReceiver();
+    }
+    if (name == nullptr)
+    {
+        ThrowNullMemberName("name");
+    }
+    return FindMemberThroughBaseChain(info, name,
+        &Il2CppTypeInfo::events, &Il2CppTypeInfo::eventCount);
+}
+
+//------------------------------------------------------------------------------
 // AsciiFromManagedString -- UTF-16 managed string -> ASCII C-string buffer.
 //
 // Type and member names are ASCII by project convention (generated code is
@@ -408,6 +431,18 @@ Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* me
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_event -- managed-string Type.GetEvent(name) icall
+// (C3-1 / RF-N1 -- the C3-2 AttachEventHandler receiver join).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* memberName)
+{
+    return QueryManagedString(typeName, memberName, "name",
+        [](const Il2CppTypeInfo* info, const char* name) {
+            return il2cpp_type_get_event(info, name);
+        });
+}
+
+//------------------------------------------------------------------------------
 // R2 (B2) member enumeration + FieldInfo value helpers.
 //------------------------------------------------------------------------------
 namespace {
@@ -486,6 +521,7 @@ bool PublicMethod(const Il2CppMethodInfo& m)
 bool PublicCtor(const Il2CppMethodInfo& m) { return IsPublic(m.flags) && (m.flags & 4) != 0; }
 bool PublicField(const Il2CppFieldInfo& f) { return IsPublic(f.flags); }
 bool AnyProperty(const Il2CppPropertyInfo&) { return true; }
+bool AnyEvent(const Il2CppEventInfo&) { return true; }
 
 } // namespace
 
@@ -514,6 +550,15 @@ Il2CppArray* il2cpp_typeinfo_get_properties(Il2CppObject* typeName)
     const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
     if (info == nullptr) return EmptyStringArray();
     return EnumerateMembers(info, &Il2CppTypeInfo::properties, &Il2CppTypeInfo::propertyCount, AnyProperty);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_events(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembers(info, &Il2CppTypeInfo::events, &Il2CppTypeInfo::eventCount, AnyEvent);
 }
 
 Il2CppArray* il2cpp_typeinfo_get_constructors(Il2CppObject* typeName)

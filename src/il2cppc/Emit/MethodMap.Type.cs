@@ -139,6 +139,28 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_interfaces", 0, true, true, true,
                         returnTypeName: "System.Type[]");
                 throw new NotSupportedException($"Type.GetInterfaces with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_interfaces");
+            // C3-1 (COM-C3) / RF-N1: GetEvents() -- the event-table member
+            // enumeration (own + base chain, ALL events -- Il2CppEventInfo has
+            // no flags field, the documented simplification). The events
+            // sub-table is the shared piece with the COM-C3 event metadata
+            // pipeline (event name + add/remove accessors + the folded event
+            // IID). ReturnTypeName "System.String[]" keeps the Array-domain
+            // folds (.Length / element read / foreach) resolved.
+            case "GetEvents":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_events", 0, true, true, true,
+                        returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetEvents with {ps.Length} parameter(s) not wired in C3-1 -- only the () overload maps to il2cpp_typeinfo_get_events");
+            // C3-1 (COM-C3): Type.GetEvent(string) -- the single-event member
+            // query (own + base chain), the M5.5 get_property/get_method/get_field
+            // shape: the receiver is the Type VALUE (full-name string), the
+            // runtime returns the EVENT-NAME string on a hit or null (the
+            // simplified member model -- a member VALUE is its name string).
+            case "GetEvent":
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_typeinfo_get_event", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetEvent with {ps.Length} parameter(s) not wired in C3-1 -- only the (string) overload maps to il2cpp_typeinfo_get_event");
             // Type.op_Equality(Type, Type) -- the C# == operator (csc emits
             // `call`, never callvirt; the resolver's default op_* heuristic
             // classifies it INSTANCE and the call path would throw "pops this

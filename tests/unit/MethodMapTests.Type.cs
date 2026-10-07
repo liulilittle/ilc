@@ -243,15 +243,46 @@ public class MethodMapTestsType
     [Fact]
     public void Resolve_Type_UnmappedMember_FallsBackToGeneratedName()
     {
-        // GetEvents is NOT part of the R2 member-enumeration set (methods/
-        // fields/properties/constructors/interfaces), so it still falls back
-        // to the generated-name path.
+        // GetGenericTypeDefinition is NOT part of the R2 member-enumeration set
+        // (methods/fields/properties/constructors/interfaces/events), so it
+        // still falls back to the generated-name path.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetGenericTypeDefinition",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetGenericTypeDefinition"); // ()
+
+        Assert.StartsWith("System_Type_GetGenericTypeDefinition_", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // C3-1 / RF-N1 -- GetEvents() and GetEvent(string): the event-table
+    // member enumeration + single-event query (the COM-C3 event metadata
+    // pipeline shares the events sub-table with reflection).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetEvents_MapsToEventEnumIcall()
+    {
         var resolved = ResolveMember(Synthesize("System", "Type", "GetEvents",
             new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetEvents"); // ()
 
-        Assert.StartsWith("System_Type_GetEvents_", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_events", resolved.CppName);
         Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
         Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetEventString_MapsToEventIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetEvent",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x0E }), "GetEvent"); // (string)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_event", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
