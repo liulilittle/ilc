@@ -2103,8 +2103,45 @@ public static class StackFold
             if (arrRef is not LocExpr arrLoc)
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: the array argument is not the newarr temp ({arrRef.GetType().Name})");
-            // Locate the newarr allocation assignment: the array length and
-            // element type token are both in it.
+            // Locate the allocation assignment: the array length/dims and
+            // element type are both in it. Two allocation shapes:
+            //   * newarr_<token>   -- the SZARRAY `new T[N] {{...}}` (one
+            //     length arg; element token -> width).
+            //   * mdnew_<elem><rank> -- the multidim `new T[a,b] {{...}}`
+            //     (the dims as args; the RVA blob is row-major flat, so the
+            //     stelems run flat index 0..product(dims)-1 exactly like the
+            //     1-D case -- same data layout).
+            var mdAlloc = stmts.LastOrDefault(s => s is AssignStmt a && a.Target == arrLoc.Name
+                && a.Value is CallExpr c && c.Function.StartsWith("mdnew_", StringComparison.Ordinal));
+            if (mdAlloc is AssignStmt { Value: CallExpr mdArr })
+            {
+                var mdCount = 1;
+                foreach (var d in mdArr.Args)
+                {
+                    if (d is not IntConstExpr dimConst || dimConst.Value <= 0)
+                        throw new NotSupportedException(
+                            $"InitializeArray at offset 0x{ins.Offset:X4}: a multidim dimension length is not a constant (the initializer pattern requires `new T[..] {{...}}` with constant dims)");
+                    mdCount *= (int)dimConst.Value;
+                }
+                var mdElemName = MultidimElemName(mdArr.Function); // suffix after "mdnew_"
+                var mdWidth = MdSuffixWidth(mdElemName);
+                if (mdWidth == null)
+                    throw new NotSupportedException(
+                        $"InitializeArray at offset 0x{ins.Offset:X4}: multidim element {mdElemName} not supported (the array-initializer fold supports byte/sbyte/bool, char/short, int/uint/float, long/ulong/double)");
+                var mOp = (mdWidth, mdElemName) switch
+                {
+                    (1, _) => ILOpCode.Stelem_i1,
+                    (2, _) => ILOpCode.Stelem_i2,
+                    (4, "float") => ILOpCode.Stelem_r4,
+                    (4, _) => ILOpCode.Stelem_i4,
+                    (8, "double") => ILOpCode.Stelem_r8,
+                    (8, _) => ILOpCode.Stelem_i8,
+                    _ => throw new NotSupportedException(
+                        $"InitializeArray at offset 0x{ins.Offset:X4}: multidim element {mdElemName} (width {mdWidth}) not supported"),
+                };
+                EmitStelems(stmts, ins, md, pe, rva, field, arrRef, mdWidth.GetValueOrDefault(), mdElemName, mOp, need: mdCount * mdWidth.GetValueOrDefault());
+                return;
+            }
             var newarrStmt = stmts.LastOrDefault(s => s is AssignStmt a && a.Target == arrLoc.Name
                 && a.Value is CallExpr c && c.Function.StartsWith("newarr_", StringComparison.Ordinal));
             if (newarrStmt is not AssignStmt { Value: CallExpr newArr }
@@ -2114,10 +2151,11 @@ public static class StackFold
             if (newArr.Args.Count != 1 || newArr.Args[0] is not IntConstExpr lenConst)
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: the array length is not a constant (the initializer pattern requires `new T[N] {{...}}` with constant N)");
-            var count = lenConst.Value;
-            if (count <= 0)
+            var count1D = lenConst.Value;
+            if (count1D <= 0)
                 throw new NotSupportedException(
-                    $"InitializeArray at offset 0x{ins.Offset:X4}: non-positive array length {count} in the initializer pattern");
+                    $"InitializeArray at offset 0x{ins.Offset:X4}: non-positive array length {count1D} in the initializer pattern");
+            var count = count1D;
             var elemName = TypeFullNameFromToken(md, elemToken);
             var width = ElementWidth(elemName);
             if (width == null)
@@ -2134,20 +2172,30 @@ public static class StackFold
                 _ => throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} (width {width}) not supported"),
             };
-            var need = (int)(count * width);
-            var bytes = ReadRvaBytes(pe, rva, need);
+            EmitStelems(stmts, ins, md, pe, rva, field, arrRef, width.GetValueOrDefault(), elemName, stelemOp, need: (int)(count * width.GetValueOrDefault()));
+        }
+
+        // Emit the RVA stelem sequence for the multidim/SZARRAY initializer
+        // fold. count is the TOTAL element count (product of dims for
+        // multidim; the length arg for SZARRAY); the RVA blob is copied
+        // element-by-element into row-major flat order.
+        static void EmitStelems(List<Stmt> stmts, IlInstruction ins, MetadataReader md, PEReader? pe, int rva,
+            FieldDefinition field, Expr arrRef, int width, string elemName, ILOpCode stelemOp, int need)
+        {
+            var bytes = ReadRvaBytes(pe!, rva, need);
             if (bytes == null)
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: cannot read {need} byte(s) of RVA data at 0x{rva:X8} (field {md.GetString(field.Name)})");
+            var count = need / Math.Max(width, 1);
             for (var i = 0; i < count; i++)
             {
                 Expr val = (width, elemName) switch
                 {
                     (1, _) => new IntConstExpr { Value = bytes[i] },
                     (2, _) => new IntConstExpr { Value = BitConverter.ToInt16(bytes, i * 2) },
-                    (4, "System.Single") => new DoubleConstExpr { Value = BitConverter.ToSingle(bytes, i * 4) },
+                    (4, "float") or (4, "System.Single") => new DoubleConstExpr { Value = BitConverter.ToSingle(bytes, i * 4) },
                     (4, _) => new IntConstExpr { Value = BitConverter.ToInt32(bytes, i * 4) },
-                    (8, "System.Double") => new DoubleConstExpr { Value = BitConverter.ToDouble(bytes, i * 8) },
+                    (8, "double") or (8, "System.Double") => new DoubleConstExpr { Value = BitConverter.ToDouble(bytes, i * 8) },
                     (8, _) => new IntConstExpr { Value = BitConverter.ToInt64(bytes, i * 8) },
                     _ => throw new NotSupportedException(
                         $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} (width {width}) not supported"),
@@ -3613,6 +3661,31 @@ public static class StackFold
                 stack.Push(new LocExpr { Name = nbName });
                 return;
             }
+            // G1 (C1): a multidim ARRAY ctor (`new int[2,2]` lowers to
+            // `newobj int32_t[0...,0...,0...]::.ctor(int32,int32)` -- the ctor's
+            // DECLARING TYPE is the multidim array TypeSpec). The ctor args are
+            // the per-dimension lengths; the allocation is a runtime multidim
+            // array (il2cpp_array_new_multi<N> -- rank-fixed, row-major flat
+            // data, GC scan unchanged). ReturnsRef: multidim arrays are
+            // references (Il2CppArray*).
+            if (md != null && TryDecodeMultidimCtor(md, (int)ins.Operand, out var mdElemByte, out var mdRank))
+            {
+                var mname = $"t{temps.Count}";
+                temps.Add(mname);
+                var mdElemSuffix = MdElemSuffix(mdElemByte);
+                var mdAlloc = new CallExpr { Function = $"mdnew_{mdElemSuffix}{mdRank}", ReturnsRef = true };
+                mdAlloc.Args.AddRange(args); // per-dim lengths (ctor args)
+                stmts.Add(new AssignStmt
+                {
+                    Target = mname,
+                    Value = mdAlloc,
+                    SourceOffset = ins.Offset,
+                    SourceOpName = OpName(ins.OpCode)
+                });
+                objTypes[mname] = MultidimTypeName(md, (int)ins.Operand); // e.g. "[int2]" for Get/Set owner routing
+                stack.Push(new LocExpr { Name = mname });
+                return;
+            }
 
             // M3 Task 11: value-type newobj -- a struct instance is
             // initialized IN PLACE (no GC allocation; the value lives in the
@@ -4288,7 +4361,14 @@ public static class StackFold
             var sig = md.GetBlobReader(spec.Signature);
             var header = sig.ReadByte();
             if (header != 0x15)
+            {
+                // G1 (C1): a multidim ARRAY (0x14) TypeSpec owner -- the
+                // element- and rank-aware token (the same four-place multidim
+                // rule); multidim Get/Set/length MemberRefs resolve against it.
+                if (header == 0x14)
+                    return ReadM3MultidimArrayArg(md, ref sig);
                 throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3");
+            }
             var defType = sig.ReadByte();
             _ = defType;
             var defHandle = sig.ReadTypeHandle();
@@ -4594,6 +4674,73 @@ public static class StackFold
             };
         }
 
+        // G1 (C1): whether a newobj token is a MULTIDIM array ctor (`new
+        // int[2,2]` -> the MemberRef int32_t[0...,0...,0...]::.ctor). True when
+        // the ctor's declaring TypeSpec blob opens with ELEMENT_TYPE_ARRAY
+        // (0x14); the element byte and rank are decoded for the allocation.
+        static bool TryDecodeMultidimCtor(MetadataReader md, int token, out byte elemByte, out int rank)
+        {
+            elemByte = 0; rank = 0;
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var parent = md.GetMemberReference((MemberReferenceHandle)handle).Parent;
+            if (parent.Kind != HandleKind.TypeSpecification) return false;
+            var spec = md.GetTypeSpecification((TypeSpecificationHandle)parent).Signature;
+            var sig = md.GetBlobReader(spec);
+            if (sig.ReadByte() != 0x14) return false;
+            elemByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            rank = sig.ReadCompressedInteger();
+            var numSizes = sig.ReadCompressedInteger();
+            for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+            var numLoBounds = sig.ReadCompressedInteger();
+            for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
+            return true;
+        }
+
+        // G1 (C1): the multidim ELEMENT byte -> the M3 suffix used in the
+        // allocation function name and the generic-arg token.
+        static string MdElemSuffix(byte elem) => elem switch
+        {
+            0x02 => "bool", 0x03 => "char", 0x04 => "sbyte", 0x05 => "byte",
+            0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
+            0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
+            0x0E => "string", 0x1C => "object",
+            _ => throw new NotSupportedException($"multidim array element byte 0x{elem:X2} in M3 (allocation)"),
+        };
+
+        // G1 (C1): the multidim array TYPE NAME for a newobj token -- the
+        // element- and rank-aware bracket token ("[int2]") the Get/Set owner
+        // resolution and the generic-arg rule use.
+        static string MultidimTypeName(MetadataReader md, int token)
+        {
+            _ = TryDecodeMultidimCtor(md, token, out var elemByte, out var rank);
+            return "[" + MdElemSuffix(elemByte) + rank + "]";
+        }
+
+        // G1 (C1): the element SUFFIX of a `mdnew_<elem><rank>` allocation
+        // function name -- the rank digits are stripped (the suffix is the
+        // longest known element name at the head of the body).
+        static string MultidimElemName(string function)
+        {
+            var body = function["mdnew_".Length..];
+            foreach (var s in new[] { "bool", "char", "sbyte", "byte", "short", "ushort", "int", "uint", "long", "ulong", "float", "double", "string", "object" })
+            {
+                if (body.StartsWith(s, StringComparison.Ordinal)) return s;
+            }
+            return body;
+        }
+
+        // G1 (C1): the multidim element SUFFIX -> element width (the M3 suffix
+        // table, shared with MdElemSuffix).
+        static int? MdSuffixWidth(string suffix) => suffix switch
+        {
+            "bool" or "char" or "sbyte" or "byte" => 1,
+            "short" or "ushort" => 2,
+            "int" or "uint" or "float" => 4,
+            "long" or "ulong" or "double" => 8,
+            _ => null,
+        };
+
         // TypeSpec signature -> generic instance name. Signature: 0x15
         // (GenericInst) + TypeDefOrRef (generic definition) + arg count + arg
         // types. M3: an int32 arg -> "int"; instance name =
@@ -4604,7 +4751,19 @@ public static class StackFold
             var sig = md.GetBlobReader(spec.Signature);
             var header = sig.ReadByte();
             if (header != 0x15)
+            {
+                // G1 (C1): a multidim ARRAY (0x14) TypeSpec as the newobj
+                // ctor owner (`new int[2,2]` lowers to `newobj
+                // int32_t[0...,0...,0...]::.ctor(int32,int32)` -- the ctor's
+                // DECLARING TYPE is the multidim array, a reference slot). The
+                // element + rank decode below is the canonical multidim token
+                // (the same "[<elem><rank>]" the four-place generic-arg rule
+                // uses), so the ctor-type name for the multidim allocation
+                // stays element- and rank-aware.
+                if (header == 0x14)
+                    return ReadM3MultidimArrayArg(md, ref sig);
                 throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3 (newobj ctor-type resolution)");
+            }
             // GenericInst definition: ELEMENT_TYPE_CLASS(0x12)/VALUETYPE(0x11)/
             // TypeSpec(0x1B) + TypeDefOrRef coded index (Roslyn references the
             // generic definition with CLASS).
@@ -4661,6 +4820,7 @@ public static class StackFold
                  0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref s),
                 0x1C => "object",
                 0x1D => ReadM3ArrayArg(md, ref s),
+                0x14 => ReadM3MultidimArrayArg(md, ref s),
                 0x15 => ReadM3NestedGeneric(md, ref s),
                 // B2/B5 (boxunbox/generics): an OPEN TypeSpec arg (VAR 0x13 +
                 // index, e.g. `this.item` parented on Box<T> inside a generic
@@ -4699,6 +4859,36 @@ public static class StackFold
                     _ = ReadM3Arg(md, ref s, elem); // consume the element payload
                     return "array";
             }
+        }
+
+        // G1 (C1): a multidim ARRAY (0x14) generic argument. The blob is
+        // ELEMENT_TYPE_ARRAY: <element type> <rank:compressed> <numSizes:
+        // compressed> [sizes...] <numLoBounds:compressed> [lobounds...]. The
+        // token is element- AND rank-aware "[<elementSuffix><rank>]" (e.g.
+        // int[,] -> "[int2]", int[,,] -> "[int3]") so closed instantiations
+        // with different multidim shapes are DISTINCT (Box<int[,]> !=
+        // Box<int[,,]>). It mirrors SZARRAY's single-rank array token; the
+        // SimpleGenericArgSuffix authority produces the same token on the
+        // local-kind side. The bracket shape keeps IsArrayArgToken true
+        // (per-instance array emission, never the object-collapse).
+        static string ReadM3MultidimArrayArg(MetadataReader md, ref BlobReader s)
+        {
+            var elem = MethodSignatureCoder.SkipCustomModifiers(ref s, s.ReadByte());
+            var elemSuffix = elem switch
+            {
+                0x02 => "bool", 0x03 => "char", 0x04 => "sbyte", 0x05 => "byte",
+                0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
+                0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
+                0x0E => "string", 0x1C => "object",
+                0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref s),
+                _ => throw new NotSupportedException($"multidim array generic-argument element byte 0x{elem:X2} in M3"),
+            };
+            var rank = s.ReadCompressedInteger();
+            var numSizes = s.ReadCompressedInteger();
+            for (var i = 0; i < numSizes; i++) _ = s.ReadCompressedInteger();
+            var numLoBounds = s.ReadCompressedInteger();
+            for (var i = 0; i < numLoBounds; i++) _ = s.ReadCompressedInteger();
+            return "[" + elemSuffix + rank + "]";
         }
 
         static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader s)

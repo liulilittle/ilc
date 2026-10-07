@@ -514,6 +514,11 @@ public static class MethodBodyReader
             // argument decode is a helper (a switch-expression arm cannot
             // carry a statement body).
             0x1D => ArrayGenericArgSuffix(md, ref sig),
+            // G1 (C1): a multidim ARRAY (0x14) generic argument -- element- AND
+            // rank-aware "[<elementSuffix><rank>]" token (the four-place rule:
+            // StackFold / CodeGenerator / MethodRefResolver read the SAME
+            // token; this is the local-kind naming authority).
+            0x14 => MultidimArrayArgSuffix(md, ref sig),
             _ => null,
         };
     }
@@ -565,6 +570,28 @@ public static class MethodBodyReader
         if (elem != null) return "[" + elem + "]";
         _ = GenericArgSuffix(md, ref sig, ""); // consume the element payload
         return "array";
+    }
+
+    // G1 (C1): a multidim ARRAY (0x14) generic argument decodes ELEMENT- AND
+    // RANK-AWARE through the local-kind naming authority --
+    // "[<elementSuffix><rank>]" (int[,] -> "int2", int[,,] -> "int3"), the
+    // exact token the three GenericInstantiationName 0x14 arms (StackFold /
+    // CodeGenerator / MethodRefResolver) produce, so the local-kind scan
+    // synthesizes the same clone the call sites reference. The multidim blob
+    // is ELEMENT_TYPE_ARRAY: <element> <rank> <numSizes> [sizes...]
+    // <numLoBounds> [lobounds...]. Simple element shapes decode through
+    // SimpleGenericArgSuffix; complex shapes consume the payload via
+    // GenericArgSuffix and keep a rank-aware "array" fallback.
+    internal static string? MultidimArrayArgSuffix(MetadataReader md, ref BlobReader sig)
+    {
+        var elem = SimpleGenericArgSuffix(md, ref sig, out _);
+        var rank = sig.ReadCompressedInteger();
+        var numSizes = sig.ReadCompressedInteger();
+        for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+        var numLoBounds = sig.ReadCompressedInteger();
+        for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
+        var suffix = elem ?? "array";
+        return "[" + suffix + rank + "]";
     }
 
     // R2a (R77): decode a TypeSpecification generic instance and return the

@@ -6791,7 +6791,13 @@ default: return false;                           // primitives/VAR(handled by ca
         var sig = md.GetBlobReader(spec.Signature);
         var header = sig.ReadByte();
         if (header != 0x15)
+        {
+            // G1 (C1): a multidim ARRAY (0x14) TypeSpec -- the element- and
+            // rank-aware token (the same four-place multidim rule).
+            if (header == 0x14)
+                return ReadM3MultidimArrayArg(md, ref sig);
             throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3");
+        }
         // GenericInst definition: ELEMENT_TYPE_CLASS(0x12)/VALUETYPE(0x11)/
         // TypeSpec(0x1B) + TypeDefOrRef coded index (Roslyn references the
         // generic definition via CLASS).
@@ -6842,6 +6848,7 @@ default: return false;                           // primitives/VAR(handled by ca
              0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
             0x1C => "object",
             0x1D => ReadM3ArrayArg(md, ref sig),
+            0x14 => ReadM3MultidimArrayArg(md, ref sig),
             0x15 => ReadM3NestedGeneric(md, ref sig),
             // B2/B5 family (MyList<T> definition bodies decoded at emit
             // time, e.g. callvirt owner resolution): an OPEN TypeSpec arg
@@ -6885,6 +6892,32 @@ default: return false;                           // primitives/VAR(handled by ca
                 _ = ReadM3Arg(md, ref sig, elem); // consume the element payload
                 return "array";
         }
+    }
+
+    // G1 (C1): a multidim ARRAY (0x14) generic argument -- element- AND
+    // rank-aware "[<elementSuffix><rank>]" token (see StackFold.
+    // ReadM3MultidimArrayArg; this is the CodeGenerator mirror of the
+    // four-place rule). The blob is ELEMENT_TYPE_ARRAY: <element type> <rank:
+    // compressed> <numSizes:compressed> [sizes...] <numLoBounds:compressed>
+    // [lobounds...].
+    private static string ReadM3MultidimArrayArg(MetadataReader md, ref BlobReader sig)
+    {
+        var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        var elemSuffix = elem switch
+        {
+            0x02 => "bool", 0x03 => "char", 0x04 => "sbyte", 0x05 => "byte",
+            0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
+            0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
+            0x0E => "string", 0x1C => "object",
+            0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            _ => throw new NotSupportedException($"multidim array generic-argument element byte 0x{elem:X2} in M3"),
+        };
+        var rank = sig.ReadCompressedInteger();
+        var numSizes = sig.ReadCompressedInteger();
+        for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+        var numLoBounds = sig.ReadCompressedInteger();
+        for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
+        return "[" + elemSuffix + rank + "]";
     }
 
     private static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader sig)
@@ -8485,8 +8518,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // M3 arrays: newarr/ldlen/ldelem/stelem helpers.
         if (c.Function.StartsWith("newarr_", StringComparison.Ordinal)
             && int.TryParse(c.Function[7..], out var arrTok))
-        {
-            // Audit C4: the element type decides the allocation -- reference
+        {            // Audit C4: the element type decides the allocation -- reference
             // elements (string[]/object[]/user classes) need elemSize =
             // sizeof(void*) and isRefElement=true so the payload is scanned
             // as GC references and stelem_ref writes fit the stride. A
@@ -8513,6 +8545,38 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 ? ArrayElementClassCpp(elemName)
                 : $"il2cpp::il2cpp_class_by_name(\"{elemName}\")";
             return $"reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new({elemClassCpp}, {elemSize}, {(isRefElem ? "true" : "false")}, static_cast<int32_t>({EmitExpr(c.Args[0], md, types)})))";
+        }
+        // G1 (C1): a multidim ARRAY allocation (`new int[2,2]` -> the
+        // mdnew_<elem><rank> CallExpr with the per-dim lengths as args). The
+        // runtime exposes a rank-fixed multidim allocator (il2cpp_array_new_
+        // multi<N>d -- row-major flat data, GC scan unchanged; commit② of the
+        // GN-3 multidim support). The element width/isRef come from the M3
+        // element SUFFIX (MdSuffixWidth authority).
+        if (c.Function.StartsWith("mdnew_", StringComparison.Ordinal))
+        {
+            var body = c.Function["mdnew_".Length..];
+            // Parse "<elemSuffix><rank>" against the known M3 suffix table
+            // (the StackFold.MdElemSuffix authority): the suffix is the
+            // longest known element name at the head; the rest is the rank.
+            string? elemSuffix = null;
+            int elemWidth = 0;
+            foreach (var (s, w) in MdSuffixTable)
+            {
+                if (body.StartsWith(s, StringComparison.Ordinal) && s.Length > (elemSuffix?.Length ?? 0))
+                {
+                    elemSuffix = s; elemWidth = w;
+                }
+            }
+            if (elemSuffix == null)
+                throw new NotSupportedException($"multidim allocation {c.Function}: unknown element suffix in mdnew_ name");
+            var rankBody = body[elemSuffix.Length..];
+            if (!int.TryParse(rankBody, out var mdRank) || mdRank < 1)
+                throw new NotSupportedException($"multidim allocation {c.Function}: invalid rank '{rankBody}'");
+            var isRefElem = elemWidth == IntPtr.Size && (elemSuffix == "string" || elemSuffix == "object");
+            var dimExprs = string.Join(", ", c.Args.Select(a => $"static_cast<int32_t>({EmitExpr(a, md, types)})"));
+            var tag = isRefElem ? "ref" : "v";
+            var alloc = $"il2cpp::il2cpp_array_new_multi_{tag}{mdRank}d(nullptr, {elemWidth}, {(isRefElem ? "true" : "false")}, {dimExprs})";
+            return $"reinterpret_cast<Il2CppObject*>({alloc})";
         }
         if (c.Function.StartsWith("ldlen_", StringComparison.Ordinal))
         {
@@ -9559,8 +9623,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         BoxClassDescriptorCpp(typeName);
 
     //--------------------------------------------------------------------------
-    // ArrayElementType -- newarr element type → (elemSize, isRefElement).
-    //   System.Int32                 -> (4, false)
+    // G1 (C1): the M3 element-suffix/width table shared with the multidim
+    // allocation emission (the mdnew_<elem><rank> parser) -- the StackFold
+    // MdElemSuffix authority, mirrored for the CodeGenerator emit side.
+    private static readonly (string Suffix, int Width)[] MdSuffixTable =
+    {
+        ("bool", 1), ("char", 2), ("sbyte", 1), ("byte", 1),
+        ("short", 2), ("ushort", 2), ("int", 4), ("uint", 4),
+        ("long", 8), ("ulong", 8), ("float", 4), ("double", 8),
+        ("string", IntPtr.Size), ("object", IntPtr.Size),
+    };
+
+    // ArrayElementType -- newarr element type → (elemSize, isRefElement).    //   System.Int32                 -> (4, false)
     //   System.Byte                  -> (1, false)   (net-domain T0; ldelem.u1/
     //                                                 stelem.i1 width dispatch
     //                                                 already present)

@@ -525,6 +525,65 @@ public static partial class MethodRefResolver
             ReturnTypeName: IteratorInterfaceDefName(returnTypeName));
     }
 
+    // G1 (C1): a multidim ARRAY accessor MemberRef -- the multidim indexer
+    // reads/writes route to a rank-fixed runtime icall. Owner shape is the
+    // "[<elemSuffix><rank>]" token (e.g. "[int2]" for int[,], "[int3]" for
+    // int[,,]); element/rank are decoded from the token. Runtime surface
+    // (runtime multidim support, GN-3 commit②):
+    //   il2cpp::il2cpp_array_get_i4_<rank>d(Il2CppArray*, i, j, ...) -> elem
+    //   il2cpp::il2cpp_array_set_i4_<rank>d(Il2CppArray*, i, j, ..., v) -> void
+    // The receiver cast is "a" (get_Length precedent); the index args are
+    // int32; Set's value arg is the last. Only int32 multidim elements have
+    // the rank-fixed accessor surface (probe scope); everything else is LOUD.
+    private static ResolvedMethod? TryMapMultidimAccessor(string owner, string name, int pc)
+    {
+        if (owner.Length < 3 || owner[0] != '[' || owner[^1] != ']') return null;
+        var inner = owner[1..^1];
+        // The element suffix is the longest known M3 suffix at the head; the
+        // rest is the rank.
+        string? elem = null; int rank = 0;
+        foreach (var (s, w) in MdAccessorSuffixes)
+        {
+            if (inner.StartsWith(s, StringComparison.Ordinal) && s.Length > (elem?.Length ?? 0))
+            {
+                elem = s;
+                rank = int.TryParse(inner[s.Length..], out var r) && r >= 1 ? r : 0;
+            }
+        }
+        if (elem == null || rank == 0) return null;
+        // Get: pc == rank (the indices). Set: pc == rank + 1 (indices + value).
+        // Casts: slot 0 is the RECEIVER (the multidim array, Il2CppObject* ->
+        // "a"); slots 1..pc are the index/value slots (int32 -- the rank-fixed
+        // accessor signatures take int32_t indices and an int32_t value, the
+        // "i" cast, the icall_array_get_length index precedent). The array is
+        // sized pc+1 so EVERY emitted slot is covered (a shorter array falls
+        // back to raw passthrough for the trailing value slot).
+        if (name == "Get" && pc == rank)
+        {
+            var casts = Enumerable.Repeat("i", pc + 1).ToArray();
+            casts[0] = "a"; // the receiver
+            return I($"il2cpp::il2cpp_array_get_i4_{rank}d", pc, true, false, true, casts);
+        }
+        if (name == "Set" && pc == rank + 1)
+        {
+            var casts = Enumerable.Repeat("i", pc + 1).ToArray();
+            casts[0] = "a"; // the receiver
+            return I($"il2cpp::il2cpp_array_set_i4_{rank}d", pc, false, false, true, casts);
+        }
+        return null;
+    }
+
+    // The M3 element suffix/width table for the multidim accessor owner
+    // decode (int32-only accessor surface; the element width isn't needed for
+    // the i4 accessor names -- the suffix table drives the rank parse).
+    private static readonly (string Suffix, int Width)[] MdAccessorSuffixes =
+    {
+        ("bool", 1), ("char", 2), ("sbyte", 1), ("byte", 1),
+        ("short", 2), ("ushort", 2), ("int", 4), ("uint", 4),
+        ("long", 8), ("ulong", 8), ("float", 4), ("double", 8),
+        ("string", IntPtr.Size), ("object", IntPtr.Size),
+    };
+
     // P25c (yieldprobe/enprobe): a user method (e.g. GetEnumerator) whose
     // return type decodes to the generic iterator interface carries the
     // receiver hint for the foreach MoveNext re-resolve. The encoded name from
@@ -563,6 +622,16 @@ public static partial class MethodRefResolver
         var mrName = md.GetString(mr2.Name);
         var owner2 = ResolveOwnerFullName(md, mr2.Parent);
         var (pc, retType, pt, _) = MethodSignatureCoder.Decode(md, mr2.Signature);
+
+        // G1 (C1): a multidim ARRAY accessor -- the multidim indexer
+        // (`m[0,1]` -> int32_t[0...,0...]::Get(int32,int32)) or element write
+        // (`m[1,1,0]=7` -> ::Set). The owner token is the element- AND
+        // rank-aware "[<elem><rank>]" shape; the call routes to a rank-fixed
+        // runtime multidim accessor (il2cpp_array_get_i4_<rank>d / _set_.
+        // The receiver arrives as Il2CppObject* -> "a" cast (the get_Length
+        // precedent); the indices are int32, the Set value is last.
+        var mdAccessor = TryMapMultidimAccessor(owner2, mrName, pc);
+        if (mdAccessor != null) return mdAccessor;
 
         // Tuple Rest/Item chain (8-tuple long chains): get_Rest always yields
         // a Tuple receiver (reference slot); get_ItemK yields the K-th
@@ -2090,6 +2159,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
                 0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
                 0x0E => "string", 0x1C => "object", 0x1D => "array",
+                0x14 => ReadM3MultidimArg(md, ref sig),
                 0x11 or 0x12 or 0x40 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                 0x15 => GenericInstArgName(md, ref sig),
                 // 0x13/0x1E VAR: a resolver-context nested generic parameter
@@ -2277,7 +2347,18 @@ var userRecvLike = receiverType ?? arg0Type;
         var sig = md.GetBlobReader(spec.Signature);
         var header = sig.ReadByte();
         if (header != 0x15)
+        {
+            // G1 (C1): a multidim ARRAY (0x14) TypeSpec as the MemberRef OWNER
+            // (`int32_t[0...,0...]::Get(int32,int32)` -- the multidim indexer
+            // lower: Get/Set are runtime-synthesized array methods whose owner
+            // is the multidim array type). The token is element- and
+            // rank-aware "[<elem><rank>]" -- the SAME token the four-place
+            // generic-arg rule emits, so the multidim owner's method hash
+            // binds to the multidim icall the MethodMap emits.
+            if (header == 0x14)
+                return ReadM3MultidimArg(md, ref sig);
             throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3 (owner-resolution context)");
+        }
         var defType = sig.ReadByte();
         _ = defType;
         var defHandle = sig.ReadTypeHandle();
@@ -2427,7 +2508,13 @@ var userRecvLike = receiverType ?? arg0Type;
         var sig = md.GetBlobReader(spec.Signature);
         var header = sig.ReadByte();
         if (header != 0x15)
+        {
+            // G1 (C1): a multidim ARRAY (0x14) TypeSpec -- the element- and
+            // rank-aware token (the same four-place multidim rule).
+            if (header == 0x14)
+                return ReadM3MultidimArg(md, ref sig);
             throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not GenericInst(0x15) in M3");
+        }
         // GenericInst definition: ELEMENT_TYPE_CLASS(0x12)/VALUETYPE(0x11)/
         // TypeSpec(0x1B) + TypeDefOrRef coded index (Roslyn references the
         // generic definition via CLASS).
@@ -2474,6 +2561,7 @@ var userRecvLike = receiverType ?? arg0Type;
                  0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                 0x1C => "object",
                 0x1D => ReadM3ArrayArg(md, ref sig),
+                0x14 => ReadM3MultidimArg(md, ref sig),
                 0x15 => ReadM3GenericArgNested(md, ref sig),
                 // B2/B5 family (boxunbox/generics; MyList<T> definition
                 // bodies): an OPEN TypeSpec arg (VAR 0x13 + index) denotes
@@ -2538,6 +2626,57 @@ var userRecvLike = receiverType ?? arg0Type;
                 throw new NotSupportedException($"generic argument byte 0x{elem:X2} in M3 (SZARRAY element)");
         }
         return "array";
+    }
+
+    // G1 (C1): a multidim ARRAY (0x14) generic argument -- element- AND
+    // rank-aware "[<elementSuffix><rank>]" token (the MethodRefResolver mirror
+    // of the four-place rule; the SZARRAY sibling above is the precedent). The
+    // blob is ELEMENT_TYPE_ARRAY: <element type> <rank:compressed> <numSizes:
+    // compressed> [sizes...] <numLoBounds:compressed> [lobounds...].
+    private static string ReadM3MultidimArg(MetadataReader md, ref BlobReader sig)
+    {
+        var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        var elemSuffix = elem switch
+        {
+            0x02 => "bool",
+            0x03 => "char",
+            0x04 => "sbyte",
+            0x05 => "byte",
+            0x06 => "short",
+            0x07 => "ushort",
+            0x08 => "int",
+            0x09 => "uint",
+            0x0A => "long",
+            0x0B => "ulong",
+            0x0C => "float",
+            0x0D => "double",
+            0x0E => "string",
+            0x1C => "object",
+            0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            // Complex element (nested generic / SZARRAY element / VAR): consume
+            // the payload so the next arg stays aligned; fall back to a
+            // rank-aware shared token (the multidim array is a reference slot
+            // regardless of element shape).
+            var ce => ConsumeComplexM3ArgPayload(md, ref sig, ce),
+        };
+        var rank = sig.ReadCompressedInteger();
+        var numSizes = sig.ReadCompressedInteger();
+        for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+        var numLoBounds = sig.ReadCompressedInteger();
+        for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
+        return "[" + elemSuffix + rank + "]";
+    }
+
+    private static string ConsumeComplexM3ArgPayload(MetadataReader md, ref BlobReader sig, byte elem)
+    {
+        switch (elem)
+        {
+            case 0x15: _ = ReadM3GenericArgNested(md, ref sig); return "array";
+            case 0x1D: _ = ReadM3ArrayArg(md, ref sig); return "array";
+            case 0x13: _ = ReadM3VarArg(ref sig); return "int";
+            default:
+                throw new NotSupportedException($"generic argument byte 0x{elem:X2} in M3 (multidim ARRAY element)");
+        }
     }
 
     // A generic-argument that is ITSELF a generic instantiation
