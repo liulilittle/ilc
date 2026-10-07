@@ -243,15 +243,91 @@ public class MethodMapTestsType
     [Fact]
     public void Resolve_Type_UnmappedMember_FallsBackToGeneratedName()
     {
-        // GetGenericTypeDefinition is NOT part of the R2 member-enumeration set
-        // (methods/fields/properties/constructors/interfaces/events), so it
-        // still falls back to the generated-name path.
+        // MakeArrayType is NOT part of the RF-N4 generic-identify set
+        // (GetGenericArguments/IsGenericType/IsGenericTypeDefinition/
+        // GetGenericTypeDefinition are wired), so it still falls back to the
+        // generated-name path.
+        var resolved = ResolveMember(Synthesize("System", "Type", "MakeArrayType",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "MakeArrayType"); // ()
+
+        Assert.StartsWith("System_Type_MakeArrayType_", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // RF-N4 -- generic-type identification (裁决①三分落转译端, NEXT2-DECISION
+    // section ② RF-N4):
+    //   * GetGenericArguments -- TYPEINFO icall, THREE-WAY at runtime:
+    //     non-generic -> EMPTY array; genericArity > 0 -> LOUD (禁伪造, the
+    //     genericArgNames B方案 is deferred). ReturnTypeName "System.Type[]"
+    //     keeps the Array-domain folds (.Length / element read) resolved.
+    //   * get_IsGenericType -- the runtime predicate: judged by the typeinfo's
+    //     emitted genericArity (both the definition AND its closed clones
+    //     register under the SAME name key -- TypeEmitter.ReflectionFullName
+    //     -- so a runtime arity check is the single source of truth for BOTH
+    //     "Box`1" (open def) and "Box`1" (a closed instantiation).
+    //   * get_IsGenericTypeDefinition -- TRANSPILE-TIME decided (StackFold
+    //     intercepts the folded typeof chain): the runtime registry cannot
+    //     distinguish a definition from its clones (clone name == def.Name),
+    //     so a RUNTIME receiver (obj.GetType()) fails LOUD
+    //     (NotSupportedException) instead of guessing.
+    //   * GetGenericTypeDefinition -- TYPEINFO icall: the definition's own
+    //     name (identity -- the simplified Type model; a non-generic receiver
+    //     throws InvalidOperationException, net48).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetGenericArguments_MapsToGenericArgsIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetGenericArguments",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetGenericArguments"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_generic_arguments", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_IsGenericType_MapsToIsGenericIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "get_IsGenericType",
+            new byte[] { 0x00, 0x00, 0x02 }), "get_IsGenericType"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_is_generic_type", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetGenericTypeDefinition_MapsToGenericDefIcall()
+    {
         var resolved = ResolveMember(Synthesize("System", "Type", "GetGenericTypeDefinition",
             new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetGenericTypeDefinition"); // ()
 
-        Assert.StartsWith("System_Type_GetGenericTypeDefinition_", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_generic_type_definition", resolved.CppName);
         Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
         Assert.Equal(0, resolved.ParamCount);
+    }
+
+    // get_IsGenericTypeDefinition is the FOLD-TIME predicate: StackFold
+    // intercepts the folded typeof chain (definition -> 1, closed instance ->
+    // 0); a RUNTIME receiver (obj.GetType()) reaches this mapping -- the
+    // registry cannot distinguish the definition from its clones (same name
+    // key), so it fails LOUD instead of guessing.
+    [Fact]
+    public void Resolve_Type_IsGenericTypeDefinition_UntrackedReceiver_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System", "Type", "get_IsGenericTypeDefinition",
+                new byte[] { 0x00, 0x00, 0x02 }), "get_IsGenericTypeDefinition")); // ()
+
+        Assert.Contains("System.Type::get_IsGenericTypeDefinition", ex.Message);
     }
 
     //--------------------------------------------------------------------------

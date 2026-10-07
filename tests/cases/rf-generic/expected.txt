@@ -1,0 +1,10 @@
+int_isgeneric=False
+int_isgenericdef=False
+int_args_len=0
+int_def_throws=True
+boxdef_isgeneric=True
+boxdef_isgenericdef=True
+boxdef_defname=Cases.Box`1
+boxint_isgeneric=True
+boxint_isgenericdef=False
+boxint_defname=Cases.Box`1
