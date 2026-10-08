@@ -1221,6 +1221,18 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
             case 'r':
                 slots[i + explicitBase].ptr = boxed;
                 break;
+            case 'B':
+                // RF-N8 (NEXT2-DECISION section 2): a reflected method with a
+                // REF/OUT (by-ref) parameter cannot be dispatched -- the invoker
+                // has no by-ref address ABI and the by-ref argument must NEVER be
+                // silently defaulted to nullptr (the pre-RF-N8 behavior: this
+                // 'B:' encoding fell to the default arm and the invoke returned
+                // null without a word). Explicit LOUD, mirroring the RF-N7
+                // rejection style; the throw does not return, so the icall's
+                // return value narrows to the throw path only (no ABI change).
+                il2cpp_throw_not_supported_exception(
+                    "MethodInfo.Invoke: a reflected method with a ref/out (by-ref) parameter is not wired in RF-N8 -- the invoker has no by-ref address ABI (explicit LOUD; the by-ref argument is never silently passed as null)");
+                break; // unreachable -- the throw does not return
             default:
                 return nullptr;
             }

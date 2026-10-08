@@ -388,6 +388,10 @@ void         il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2C
 //   fnPtr == null (trimmed / abstract / interface) -> LOUD
 //     NotSupportedException (runtime-unreachable, checked for every method
 //     bearing the requested name regardless of arity -- committed shape).
+//   A REF/OUT (by-ref) parameter in the resolved method's signature -> LOUD
+//     NotSupportedException (RF-N8 -- the invoker has no by-ref address ABI,
+//     so the by-ref argument is NEVER silently defaulted to nullptr; the
+//     reject fires before any value conversion, mirroring the RF-N7 style).
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* target,
                                        Il2CppArray* args);
