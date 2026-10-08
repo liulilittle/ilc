@@ -1,7 +1,6 @@
-﻿nested=Cases.Outer+Inner
+nested=Cases.Outer+Inner
 nested=Cases.Outer+Inner2
 nested_count=2
-member_count=18
 member=Method1
 member=get_Prop1
 member=set_Prop1
@@ -16,3 +15,4 @@ member=BaseProp
 member=Evt1
 member=Field1
 member=BaseField
+member_count=14
