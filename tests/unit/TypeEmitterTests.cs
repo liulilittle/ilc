@@ -122,6 +122,68 @@ public class TypeEmitterTests
         Assert.Equal(0, t.RefFieldCount);
     }
 
+    // O-1 (RF-N4 audit A): a DERIVED class's own instance fields continue the
+    // base chain's slot grid -- a derived class with its OWN reference field
+    // must lay it out AFTER the base region (slot = base.InstanceSize/ptr),
+    // and EmitClassStruct must emit the base chain's fields INLINE so the C++
+    // member offsets match the slot offsets the GC bitmap scans.
+    private static (TypeDef BaseT, TypeDef Derived) MakeDerivedWithOwnRefField()
+    {
+        var baseT = new TypeDef { Name = "GcBase", Namespace = "Cases" };
+        baseT.InstanceFields.Add(new FieldDef { Name = "name", Owner = baseT, TypeKind = FieldTypeKind.Reference, FieldTypeName = "System.String" });
+        var derived = new TypeDef { Name = "GcLeaf", Namespace = "Cases", BaseTypeName = "Cases.GcBase" };
+        derived.BaseType = baseT;
+        derived.InstanceFields.Add(new FieldDef { Name = "extra", Owner = derived, TypeKind = FieldTypeKind.Reference, FieldTypeName = "System.String" });
+        return (baseT, derived);
+    }
+
+    [Fact]
+    public void Layout_DerivedOwnRefField_ContinuesBaseSlotGrid()
+    {
+        var (baseT, derived) = MakeDerivedWithOwnRefField();
+        TypeEmitter.LayoutInstanceFields(baseT);
+        TypeEmitter.LayoutInstanceFields(derived);
+        // base: header slot 0, name slot 1 (ref). instanceSize = 2*ptr.
+        Assert.Equal(1, baseT.InstanceFields[0].SlotIndex);
+        Assert.Equal(0b10u, baseT.RefFieldBitmap);
+        Assert.Equal(2 * IntPtr.Size, baseT.InstanceSize);
+        // derived: own extra slot starts AFTER the base region (slot 2).
+        Assert.Equal(2, derived.InstanceFields[0].SlotIndex);
+        Assert.Equal(0b110u, derived.RefFieldBitmap); // base bit1 + own bit2
+        Assert.Equal(2, derived.RefFieldCount);       // inherited (1) + own (1)
+        Assert.Equal(3 * IntPtr.Size, derived.InstanceSize);
+    }
+
+    [Fact]
+    public void EmitClassStruct_DerivedOwnRefField_EmbedsBaseFieldsInline()
+    {
+        var (baseT, derived) = MakeDerivedWithOwnRefField();
+        var code = TypeEmitter.EmitClassStruct(derived);
+        // The base field member must appear (inline, at its base offset) so the
+        // C++ struct offsets match the slot grid: extra at offset 2*ptr.
+        Assert.Contains("Il2CppObject* name;", code);
+        Assert.Contains("Il2CppObject* extra;", code);
+        Assert.Contains($"slot 2 at offset {2 * IntPtr.Size}", code);
+        Assert.Contains("Il2CppObject _obj;", code);
+    }
+
+    [Fact]
+    public void EmitClassStruct_DerivedNoOwnRefField_StillEmbedsBaseFields()
+    {
+        // An EMPTY derived class (rf-props PropHost shape) must also embed the
+        // base chain fields inline -- otherwise the struct sizeof undercounts
+        // the object and any subsequent own-field layout would collide.
+        var baseT = new TypeDef { Name = "GcBase", Namespace = "Cases" };
+        baseT.InstanceFields.Add(new FieldDef { Name = "name", Owner = baseT, TypeKind = FieldTypeKind.Reference, FieldTypeName = "System.String" });
+        var derived = new TypeDef { Name = "GcLeaf", Namespace = "Cases", BaseTypeName = "Cases.GcBase" };
+        derived.BaseType = baseT;
+        TypeEmitter.LayoutInstanceFields(baseT);
+        TypeEmitter.LayoutInstanceFields(derived);
+        Assert.Equal(2 * IntPtr.Size, derived.InstanceSize); // base region
+        var code = TypeEmitter.EmitClassStruct(derived);
+        Assert.Contains("Il2CppObject* name;", code);
+    }
+
     [Fact]
     public void Layout_ValueFieldAtSlot32_IsAllowed()
     {

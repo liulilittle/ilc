@@ -585,6 +585,25 @@ public static class TypeEmitter
         t.InstanceSize = slot * t.PointerSize;
     }
 
+    // O-1 (RF-N4 audit A): the instance fields of a class in INLINE layout
+    // order -- the base chain's fields (base-first, recursively) followed by
+    // the type's own fields. The emitted C++ struct uses this list so its
+    // member offsets match the slot grid that LayoutInstanceFields assigned
+    // (a derived class's slots continue from the base chain). Value types have
+    // no user inheritance (only System.ValueType/System.Enum BCL roots, zero
+    // fields), so the base pass is skipped and the list is just the own fields
+    // -- the historical behavior.
+    public static IEnumerable<FieldDef> InlineLayoutFields(TypeDef t)
+    {
+        if (!t.IsValueType && t.BaseType != null && t.BaseTypeName != "System.Object")
+        {
+            foreach (var f in InlineLayoutFields(t.BaseType))
+                yield return f;
+        }
+        foreach (var f in t.InstanceFields)
+            yield return f;
+    }
+
     //--------------------------------------------------------------------------
     // EmitClassStruct -- the generated C++ struct for one translated class.
     //--------------------------------------------------------------------------
@@ -612,7 +631,16 @@ public static class TypeEmitter
         {
             w.Line("Il2CppObject _obj; // object header: runtime type descriptor pointer (offset 0)");
         }
-        foreach (var f in t.InstanceFields)
+        // O-1 (RF-N4 audit A): a DERIVED class's slot grid continues from its
+        // base chain (LayoutInstanceFields starts the own slots at
+        // base.InstanceSize / pointerSize). The C++ struct must therefore
+        // embed the base chain's instance fields INLINE, base-first, so the
+        // member byte offsets match the slot offsets the GC refFieldBitmap
+        // scans -- otherwise a derived class's OWN reference field would land
+        // right after _obj (offset ptr) while the collector scans its slot
+        // (offset base.InstanceSize), reading the wrong slot / a neighbour.
+        // Value types have no user inheritance, so they skip the base pass.
+        foreach (var f in InlineLayoutFields(t))
         {
             var cppType = f.TypeKind switch
             {
