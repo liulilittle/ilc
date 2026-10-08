@@ -87,6 +87,17 @@ public static class StackFold
         // site forwards them to the emitter so the managed exception carrier
         // carries the REAL message instead of the hardcoded "exception thrown".
         var exceptionMessages = new Dictionary<string, List<Expr>>();
+        // RF-N4: the typeof-chain IsGenericTypeDefinition decision. The
+        // typeof fold resolves a closed GENERICINST (typeof(Box<int>)) and
+        // the open definition (typeof(Box<>)) to the SAME full-name string
+        // ("Cases.Box`1" -- the simplified Type model), so the string alone
+        // cannot tell a definition from an instance. When the GetTypeFromHandle
+        // fold creates the folded name string, record whether the ldtoken was
+        // an OPEN generic DEFINITION (TypeDef/TypeRef with arity > 0), keyed
+        // by the GetTypeFromHandle CALL's offset. The consumer fold for
+        // get_IsGenericTypeDefinition (prevIns == that call) looks it up:
+        // definition -> 1, closed instance / non-generic -> 0.
+        var typeFromHandleGenericDef = new Dictionary<int, bool>();
         // valdeep L26: temp VALUE width ("l"/"d" = 64-bit slot, else int32).
         // LocKindOf only knows "loc" locals; temps (t*) materialized from
         // calls/joins/snapshots carry their width here so the conv.u8 fold
@@ -2390,6 +2401,14 @@ public static class StackFold
                 && IsGetTypeFromHandle(md, (int)ins.Operand))
             {
                 stack.Pop();
+                // RF-N4: record whether the folded type is an OPEN generic
+                // definition (the ldtoken was a TypeDef/TypeRef with arity>0
+                // vs a closed GENERICINST TypeSpec / a non-generic type). The
+                // get_IsGenericTypeDefinition consumer fold (below) needs this
+                // -- the folded NAME string cannot distinguish a definition
+                // from its clones (TypeEmitter.ReflectionFullName registers
+                // both under the definition's name).
+                typeFromHandleGenericDef[ins.Offset] = IsOpenGenericDefToken(md, (int)ldtMarker.Value);
                 Push(new StringConstExpr { Value = TypeNameForReflection(md, (int)ldtMarker.Value) }, ins);
                 return;
             }
@@ -2422,6 +2441,21 @@ public static class StackFold
                 {
                     stack.Pop();
                     Push(new IntConstExpr { Value = TypeCodeOfTypeName(foldedType.Value) }, ins);
+                    return;
+                }
+                // RF-N4: Type.get_IsGenericTypeDefinition on a FOLDED typeof
+                // chain -- decided AT FOLD TIME (the runtime registry cannot
+                // distinguish a definition from its closed clones; the folded
+                // NAME is the definition's name for both). The ldtoken's
+                // open-definition flag was recorded when the GetTypeFromHandle
+                // fold ran (keyed by prevCall.Offset): typeof(Box<>) -> 1,
+                // typeof(Box<int>) / typeof(int) -> 0. A RUNTIME receiver
+                // never reaches this fold -- it hits the MethodMap.Type.cs
+                // LOUD rejection instead.
+                if (IsTypeGetIsGenericTypeDefinition(md, (int)ins.Operand))
+                {
+                    stack.Pop();
+                    Push(new IntConstExpr { Value = typeFromHandleGenericDef.TryGetValue(prevCall.Offset, out var isDef) && isDef ? 1 : 0 }, ins);
                     return;
                 }
             }
@@ -4252,6 +4286,50 @@ public static class StackFold
             var sig = md.GetBlobReader(mr.Signature);
             sig.ReadSignatureHeader();
             return sig.ReadCompressedInteger() == 1;
+        }
+
+        // typeof-chain (RF-N4): whether the call token is Type::
+        // get_IsGenericTypeDefinition -- the fold-time generic-definition
+        // predicate. Roslyn emits it with parent System.Type (a bool getter).
+        static bool IsTypeGetIsGenericTypeDefinition(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            return md.GetFullName((TypeReferenceHandle)mr.Parent) == "System.Type"
+                && md.GetString(mr.Name) == "get_IsGenericTypeDefinition";
+        }
+
+        // RF-N4: whether the ldtoken TYPE token is an OPEN generic DEFINITION
+        // (TypeDef/TypeRef with arity > 0). A closed GENERICINST TypeSpec
+        // (typeof(Box<int>)) and a typeof(T) VAR both fold to a name string
+        // but are NOT definitions -> false. The arity of a TypeReference is
+        // read from its "`N" suffix (a cross-assembly ref has no GenericParam
+        // rows in this reader).
+        static bool IsOpenGenericDefToken(MetadataReader md, int token)
+        {
+            var t = MetadataTokens.Handle(token);
+            switch (t.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                    return md.GetTypeDefinition((TypeDefinitionHandle)t).GetGenericParameters().Count > 0;
+                case HandleKind.TypeReference:
+                    return GenericArityFromName(md.GetFullName((TypeReferenceHandle)t)) > 0;
+                default:
+                    return false; // TypeSpec (GENERICINST instance / VAR), other kinds
+            }
+        }
+
+        // "Cases.Box`1" -> 1, "Cases.Box`2" -> 2, "System.Int32" -> 0.
+        static int GenericArityFromName(string name)
+        {
+            var tick = name.IndexOf('`');
+            if (tick < 0 || tick + 1 >= name.Length) return 0;
+            var n = 0;
+            for (var i = tick + 1; i < name.Length && char.IsDigit(name[i]); i++)
+                n = n * 10 + (name[i] - '0');
+            return n;
         }
 
         // typeof-chain (F1 follow-up): whether the call token is

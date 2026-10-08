@@ -1402,6 +1402,14 @@ public static class TypeEmitter
         w.Line($"    {methodsTable}, {t.Methods.Count},                    // methods");
         w.Line($"    {propertiesTable}, {t.Properties.Count},              // properties");
         w.Line($"    {eventsTable}, {t.Events.Count},                      // events");
+        // RF-N4: genericArity -- the runtime IsGenericType / GetGenericArguments
+        // / GetGenericTypeDefinition icalls read this field (typeinfo.h). Both
+        // a generic DEFINITION and its closed CLONES emit the definition's
+        // arity (TypeEmitter.ReflectionFullName registers both under the same
+        // name key; a clone carries the SAME GenericArity as its definition),
+        // so the runtime answers IsGenericType for typeof(Box<>) and
+        // typeof(Box<int>) alike. 0 = non-generic (the zero-delta default).
+        w.Line($"    {t.GenericArity},                                    // genericArity");
         w.Line("};");
         w.Line();
         return w.ToString();

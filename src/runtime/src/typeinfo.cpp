@@ -689,6 +689,79 @@ Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName)
 }
 
 //------------------------------------------------------------------------------
+// RF-N4 -- generic-type identification icalls (typeinfo.h managed-string ABI).
+// The receiver is the Type VALUE (full-name string); each reads the typeinfo's
+// genericArity. A generic DEFINITION and its closed CLONES both register under
+// the definition's name key (TypeEmitter.ReflectionFullName) with the SAME
+// arity, so IsGenericType answers True for typeof(Box<>) and typeof(Box<int>)
+// alike; the runtime NEVER distinguishes a definition from its clones
+// (IsGenericTypeDefinition is the transpiler's fold-time decision).
+//------------------------------------------------------------------------------
+int32_t il2cpp_typeinfo_is_generic_type(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    // An unregistered type (BCL / boxed / snapshot) is treated as NON-generic
+    // (net48 typeof(int).IsGenericType == False).
+    return (info != nullptr && info->genericArity > 0) ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_get_generic_arity(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    return info != nullptr ? info->genericArity : 0;
+}
+
+Il2CppArray* il2cpp_typeinfo_get_generic_arguments(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr || info->genericArity <= 0)
+    {
+        // Non-generic / unregistered: net48 returns an EMPTY array.
+        return EmptyStringArray();
+    }
+    // genericArity > 0: the genericArgNames B方案 is deferred (RF-N4 裁决①) --
+    // the runtime cannot fabricate the closed argument types (the folded name
+    // of an instantiation collapses to the definition's name), so this path
+    // is a LOUD gap, never a silent wrong result.
+    il2cpp_throw_not_supported_exception(
+        "Type.GetGenericArguments() on a generic type is not wired in RF-N4 (the genericArgNames B方案 is deferred -- no fabricated argument list; only the non-generic empty-array path is supported)");
+    return EmptyStringArray(); // unreachable -- the throw does not return
+}
+
+Il2CppObject* il2cpp_typeinfo_get_generic_type_definition(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf))
+    {
+        // Unknown receiver: treat as non-generic (net48 typeof(int)
+        // GetGenericTypeDefinition() throws InvalidOperationException).
+        il2cpp_throw_invalid_operation_exception(
+            "This operation is only valid on generic types.");
+        return nullptr; // unreachable -- the throw does not return
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr || info->genericArity <= 0)
+    {
+        // Non-generic / unregistered: net48 typeof(int).GetGenericTypeDefinition()
+        // throws InvalidOperationException.
+        il2cpp_throw_invalid_operation_exception(
+            "This operation is only valid on generic types.");
+        return nullptr; // unreachable -- the throw does not return
+    }
+    // genericArity > 0: the DEFINITION'S OWN NAME -- identity. The folded name
+    // of a closed instantiation IS the definition's full name and a runtime
+    // GetType() of a generic object reads klass->name (also the definition's
+    // reflection name), so the receiver itself is the definition.
+    return typeName;
+}
+
+//------------------------------------------------------------------------------
 // FindPublicFieldThroughBaseChain -- own table first, then the baseType chain
 // (inherited fields live under THEIR declaring type's table), public only
 // (the net48 GetField / FieldInfo.GetValue default binding).

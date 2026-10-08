@@ -122,6 +122,16 @@ struct Il2CppTypeInfo
     int32_t              propertyCount;
     const Il2CppEventInfo*    events;   // event table, null = none (C3-1/RF-N1)
     int32_t              eventCount;
+    // RF-N4: generic-type identification (NEXT2-DECISION section ② RF-N4).
+    // Trailing field (0 for non-generic types -- the zero-delta default; the
+    // transpiler emits it from TypeDef.GenericArity). A generic DEFINITION
+    // AND its closed CLONES both carry the definition's arity and register
+    // under the SAME name key (ReflectionFullName -- the clone's name IS the
+    // definition's name), so the runtime answers IsGenericType for
+    // typeof(Box<>) and typeof(Box<int>) alike and can never distinguish a
+    // definition from its clones (IsGenericTypeDefinition is decided at
+    // TRANSPILE time by the TypeEmitter/StackFold fold, NOT at runtime).
+    int32_t              genericArity;
 };
 
 //------------------------------------------------------------------------------
@@ -203,6 +213,39 @@ Il2CppObject* il2cpp_typeinfo_get_property(Il2CppObject* typeName, Il2CppObject*
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* memberName);
+
+//------------------------------------------------------------------------------
+// RF-N4 -- generic-type identification icalls (NEXT2-DECISION section ② RF-N4,
+// 裁决①三分落转译端). Each takes the Type VALUE (full-name string, the same
+// carrier the single-member queries use) and reads the typeinfo's genericArity.
+//
+//   il2cpp_typeinfo_is_generic_type          -- Type.IsGenericType: 1 iff the
+//        typeinfo exists AND genericArity > 0 (0 for an unregistered /
+//        non-generic type -- net48 typeof(int).IsGenericType == False).
+//   il2cpp_typeinfo_get_generic_arity        -- the raw genericArity (int32).
+//   il2cpp_typeinfo_get_generic_arguments   -- Type.GetGenericArguments():
+//        THREE-WAY split -- an unregistered / non-generic type -> an EMPTY
+//        array (net48 typeof(int).GetGenericArguments() is empty); a type
+//        with genericArity > 0 -> LOUD NotSupportedException (the genericArg-
+//        Names B方案 is deferred -- no argument fabrication, ever). The
+//        empty-array path reuses BuildNameArray so callers get the same
+//        reference-element array the member enumerators return.
+//   il2cpp_typeinfo_get_generic_type_definition -- Type.GetGenericTypeDefinition():
+//        genericArity > 0 -> the receiver ITSELF (identity -- the simplified
+//        Type model; the folded name of a closed instantiation IS the
+//        definition's full name, so identity IS the definition). Non-generic /
+//        unregistered -> LOUD InvalidOperationException (net48
+//        typeof(int).GetGenericTypeDefinition() throws InvalidOperation-
+//        Exception).
+// A null / malformed typeName is treated as an unknown (non-generic) type:
+// predicates -> 0, GetGenericArguments -> empty array, GetGenericTypeDefinition
+// -> InvalidOperationException (defensive query convention; a null Type
+// receiver is not valid IL).
+//------------------------------------------------------------------------------
+int32_t il2cpp_typeinfo_is_generic_type(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_get_generic_arity(Il2CppObject* typeName);
+Il2CppArray* il2cpp_typeinfo_get_generic_arguments(Il2CppObject* typeName);
+Il2CppObject* il2cpp_typeinfo_get_generic_type_definition(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
 // R2 (B2) -- member ENUMERATION icalls. Each returns an Il2CppArray* of
