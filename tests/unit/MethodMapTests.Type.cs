@@ -625,6 +625,52 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // RF-N7 (NEXT2-DECISION section ② RF-N7): the three reflection operations
+    // that must fail LOUD instead of falling to a spelling generated-member
+    // name. Each maps to a runtime stub that ALWAYS throws NotSupportedException
+    // (typeinfo.h RF-N7 contract) -- the call side sees an explicit exception,
+    // never a phantom link.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_MethodInfo_MakeGenericMethod_MapsToLoudIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "MethodInfo", "MakeGenericMethod",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x1D, 0x12, 0x05 }), "MakeGenericMethod"); // (Type[])
+
+        Assert.Equal("il2cpp::il2cpp_makegenericmethod_loud", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_MakeGenericType_MapsToLoudIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "MakeGenericType",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x1D, 0x12, 0x05 }), "MakeGenericType"); // (Type[])
+
+        Assert.Equal("il2cpp::il2cpp_makegenerictype_loud", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Delegate_CreateDelegate_MapsToLoudIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Delegate", "CreateDelegate",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x12, 0x05, 0x12, 0x05 }), "CreateDelegate"); // (Type, MethodInfo)
+
+        Assert.Equal("il2cpp::il2cpp_createdelegate_loud", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Delegate", resolved.ReturnTypeName);
+        Assert.False(resolved.IsInstance); // STATIC (Delegate.*)
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // C3-2 (COM-C3) -- EventInfo.AddEventHandler(object, Delegate) /
     // EventInfo.RemoveEventHandler(object, Delegate): the managed events-table
     // accessor delivery (the C3 genevt fake-source self-loop's green path).

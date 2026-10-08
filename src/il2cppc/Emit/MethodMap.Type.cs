@@ -165,6 +165,18 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_members", 0, true, true, true,
                         returnTypeName: "System.String[]");
                 throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5 -- only the () overload maps to il2cpp_typeinfo_get_members");
+            // RF-N7 (NEXT2-DECISION section ② RF-N7): Type.MakeGenericType
+            // -- explicit LOUD. The runtime has no generic-argument fabrication
+            // (禁伪造, the genericArgNames B方案 stays deferred) and no SRE-like
+            // type loading, so the (Type[]) overload maps to a runtime stub that
+            // ALWAYS throws NotSupportedException (il2cpp_makegenerictype_loud)
+            // -- never a silent spelling generated-member name. Receiver =
+            // Type VALUE (full-name string); the typeArgs array rides as a ref.
+            case "MakeGenericType":
+                if (ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::il2cpp_makegenerictype_loud", 1, true, true, true,
+                        new[] { "", "a" }, returnTypeName: "System.Type");
+                throw new NotSupportedException($"Type.MakeGenericType with {ps.Length} parameter(s) not wired in RF-N7 -- only the (Type[]) overload maps to the LOUD stub il2cpp_makegenerictype_loud");
             // C3-1 (COM-C3) / RF-N1: GetEvents() -- the event-table member
             // enumeration (own + base chain, ALL events -- Il2CppEventInfo has
             // no flags field, the documented simplification). The events

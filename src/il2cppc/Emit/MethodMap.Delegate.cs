@@ -77,6 +77,20 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1)
                     return I("il2cpp::runtime::icall_expr_dynamic_invoke", 1, true, true, true, new[] { "", "drop" });
                 return null;
+            // RF-N7 (NEXT2-DECISION section ② RF-N7): Delegate.CreateDelegate
+            // -- explicit LOUD. Binding a delegate to a runtime MethodInfo has
+            // no AOT support (the member VALUE is a name string; there is no
+            // runtime method binding table), so the net48 (Type, MethodInfo)
+            // overload maps to a runtime stub that ALWAYS throws
+            // NotSupportedException (il2cpp_createdelegate_loud) -- never a
+            // silent spelling generated-member name. STATIC (Delegate.*) --
+            // no receiver slot; both IL args ride as ref slots.
+            case "CreateDelegate":
+                if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                    return I("il2cpp::il2cpp_createdelegate_loud", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Delegate");
+                throw new NotSupportedException(
+                    $"Delegate.CreateDelegate with {ps.Length} parameter(s) not wired in RF-N7 -- only the net48 (Type, MethodInfo) overload maps to the LOUD stub il2cpp_createdelegate_loud");
             // P6: Delegate internal helpers -- the BCL calls these for delegate
             // infrastructure but the ILC runtime reimplements delegates natively.
             // Stubs return sensible defaults.

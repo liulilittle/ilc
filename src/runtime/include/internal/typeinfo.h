@@ -417,4 +417,30 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_attribute_member_get_custom(Il2CppObject* memberName, int32_t inherit);
 
+//------------------------------------------------------------------------------
+// RF-N7 (NEXT2-DECISION section ② RF-N7) -- the reflection operations that
+// have NO AOT implementation and MUST fail loudly instead of falling to a
+// spelling generated-member name (the pre-RF-N7 behavior: an unwired BCL
+// member fell to the generated-name path, a phantom symbol that never linked):
+//
+//   il2cpp_makegenericmethod_loud(memberName, typeArgs) -- MethodInfo.
+//       MakeGenericMethod(Type[]). Runtime generic-method instantiation has
+//       no AOT support -> throws NotSupportedException unconditionally.
+//   il2cpp_makegenerictype_loud(typeName, typeArgs)     -- Type.MakeGenericType
+//       (Type[]). Same: no fabricated generic arguments (禁伪造) -> throws
+//       NotSupportedException unconditionally.
+//   il2cpp_createdelegate_loud(delegateType, methodName) -- Delegate.CreateDelegate
+//       (Type, MethodInfo). The MethodInfo receiver rides as the member-name
+//       string (the simplified member model); binding a delegate to a runtime
+//       member has no AOT support -> throws NotSupportedException.
+//
+// All three keep the net48 null-receiver doctrine untouched by NOT throwing
+// NRE first -- the rejection is unconditional and explicit (NotSupported-
+// Exception), so a caller can never observe a silent wrong link or a null
+// deref masquerading as "not implemented".
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_makegenericmethod_loud(Il2CppObject* memberName, Il2CppArray* typeArgs);
+Il2CppObject* il2cpp_makegenerictype_loud(Il2CppObject* typeName, Il2CppArray* typeArgs);
+Il2CppObject* il2cpp_createdelegate_loud(Il2CppObject* delegateType, Il2CppObject* methodName);
+
 } // namespace il2cpp

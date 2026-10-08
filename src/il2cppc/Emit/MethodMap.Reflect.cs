@@ -153,6 +153,20 @@ public static partial class MethodRefResolver
                         new[] { "", "", "" });
                 throw new NotSupportedException(
                     $"{owner}::RemoveEventHandler with {ps.Length} parameter(s) not wired in C3-2 -- only EventInfo.RemoveEventHandler(object, Delegate) maps to il2cpp_eventinfo_remove");
+            // RF-N7 (NEXT2-DECISION section ② RF-N7): MethodInfo.MakeGenericMethod
+            // -- explicit LOUD. Runtime generic-method instantiation has no AOT
+            // support, so the (Type[]) overload maps to a runtime stub that
+            // ALWAYS throws NotSupportedException (il2cpp_makegenericmethod_loud)
+            // -- the call never silently falls to a spelling generated-member
+            // name (the pre-RF-N7 phantom-symbol trap). The receiver is the
+            // METHOD-NAME string; the typeArgs array rides as a ref slot.
+            case "MakeGenericMethod":
+                if ((owner is "System.Reflection.MethodInfo" or "System.Reflection.MethodBase")
+                    && ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::il2cpp_makegenericmethod_loud", 1, true, true, true,
+                        new[] { "", "a" }, returnTypeName: "System.String");
+                throw new NotSupportedException(
+                    $"{owner}::MakeGenericMethod with {ps.Length} parameter(s) not wired in RF-N7 -- only the (Type[]) overload maps to the LOUD stub il2cpp_makegenericmethod_loud");
             default:
                 return null;
         }

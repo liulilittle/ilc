@@ -1589,4 +1589,38 @@ Il2CppArray* il2cpp_attribute_member_get_custom(Il2CppObject* memberName, int32_
     return result;
 }
 
+//------------------------------------------------------------------------------
+// RF-N7 -- the LOUD icalls (typeinfo.h contract). Each throws an explicit
+// NotSupportedException instead of letting the transpiler fall to a spelling
+// generated-member name (the pre-RF-N7 phantom-symbol trap). Arguments are
+// consumed for signature shape only; the rejection is unconditional (the
+// operations have no AOT implementation and must never fabricate a result).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_makegenericmethod_loud(Il2CppObject* memberName, Il2CppArray* typeArgs)
+{
+    (void)memberName;
+    (void)typeArgs;
+    il2cpp_throw_not_supported_exception(
+        "MethodInfo.MakeGenericMethod is not wired in RF-N7 -- runtime generic-method instantiation has no AOT support (explicit LOUD; the generated-name fallback is disabled)");
+    return nullptr; // unreachable -- the throw does not return
+}
+
+Il2CppObject* il2cpp_makegenerictype_loud(Il2CppObject* typeName, Il2CppArray* typeArgs)
+{
+    (void)typeName;
+    (void)typeArgs;
+    il2cpp_throw_not_supported_exception(
+        "Type.MakeGenericType is not wired in RF-N7 -- no fabricated generic arguments (禁伪造), the generated-name fallback is disabled (explicit LOUD)");
+    return nullptr; // unreachable -- the throw does not return
+}
+
+Il2CppObject* il2cpp_createdelegate_loud(Il2CppObject* delegateType, Il2CppObject* methodName)
+{
+    (void)delegateType;
+    (void)methodName;
+    il2cpp_throw_not_supported_exception(
+        "Delegate.CreateDelegate is not wired in RF-N7 -- binding a delegate to a runtime member has no AOT support (explicit LOUD; the generated-name fallback is disabled)");
+    return nullptr; // unreachable -- the throw does not return
+}
+
 } // namespace il2cpp
