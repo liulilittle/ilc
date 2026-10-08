@@ -640,8 +640,38 @@ public static class TypeEmitter
         // right after _obj (offset ptr) while the collector scans its slot
         // (offset base.InstanceSize), reading the wrong slot / a neighbour.
         // Value types have no user inheritance, so they skip the base pass.
-        foreach (var f in InlineLayoutFields(t))
+        //
+        // Name collision guard: the inline BASE-chain copies are LAYOUT-ONLY
+        // (field access always casts to the DECLARING owner's struct -- a
+        // base field is read through the base struct, never through the
+        // derived one -- see CodeGenerator.FieldAccess), so a base copy whose
+        // canonical name is already taken (a derived `new`-hidden field, e.g.
+        // reflprop2's PropBase2.BaseProp vs PropDerived2.BaseProp) is renamed
+        // with its slot index. Own fields KEEP their canonical name (access
+        // sites emit them by name).
+        var inlineFields = InlineLayoutFields(t).ToList();
+        var ownNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var f in t.InstanceFields)
         {
+            ownNames.Add(Sanitize(f.Name) == "_obj" ? "_obj_field" : Sanitize(f.Name));
+        }
+        var usedNames = new HashSet<string>(ownNames, StringComparer.Ordinal);
+        foreach (var f in inlineFields)
+        {
+            var canonical = Sanitize(f.Name) == "_obj" ? "_obj_field" : Sanitize(f.Name);
+            var isOwn = ReferenceEquals(f.Owner, t);
+            var memberName = canonical;
+            if (!isOwn && !usedNames.Add(canonical))
+            {
+                // Collision with an own field or a sibling base copy -- the
+                // base copy is layout padding, name it uniquely by slot.
+                memberName = $"{canonical}_slot{f.SlotIndex}";
+                usedNames.Add(memberName);
+            }
+            else
+            {
+                usedNames.Add(canonical);
+            }
             var cppType = f.TypeKind switch
             {
                 FieldTypeKind.Int32 => "int32_t",
@@ -655,7 +685,6 @@ public static class TypeEmitter
             // field that sanitizes to _obj (e.g. SerializationMonkey._obj)
             // would collide -- rename the member (access sites use FieldCppName
             // uniformly, see below).
-            var memberName = Sanitize(f.Name) == "_obj" ? "_obj_field" : Sanitize(f.Name);
             w.Line($"{cppType} {memberName}; // slot {f.SlotIndex} at offset {f.SlotIndex * t.PointerSize} ({(f.TypeKind == FieldTypeKind.Reference ? "GC reference" : "value")})");
         }
         // enumdeep/enumdeep2/enumops (M7R2 cmake build): an ENUM type is

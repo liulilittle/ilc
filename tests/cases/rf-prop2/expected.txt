@@ -1,0 +1,6 @@
+indexer_getvalue_nullidx_tpc=True
+indexer_setvalue_nullidx_tpc=True
+indexer_getvalue_idx=True
+indexer_setvalue_idx=True
+unknown_get_exc=nre
+unknown_set_exc=nre

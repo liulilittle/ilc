@@ -185,6 +185,31 @@ public class TypeEmitterTests
     }
 
     [Fact]
+    public void EmitClassStruct_DerivedShadowsBaseField_DisambiguatesMemberNames()
+    {
+        // reflprop2 shape: PropBase2.BaseProp (auto-property backing field)
+        // and PropDerived2's `new int BaseProp` both sanitize to
+        // _BaseProp_k__BackingField. The derived struct must keep its OWN
+        // field at the canonical name (access sites emit it by name) while
+        // the INLINE base copy (layout-only) is disambiguated -- the C++
+        // struct cannot carry two same-named members.
+        var baseT = new TypeDef { Name = "PropBase2", Namespace = "Cases" };
+        baseT.InstanceFields.Add(new FieldDef { Name = "_BaseProp_k__BackingField", Owner = baseT, TypeKind = FieldTypeKind.Int32 });
+        var derived = new TypeDef { Name = "PropDerived2", Namespace = "Cases", BaseTypeName = "Cases.PropBase2" };
+        derived.BaseType = baseT;
+        derived.InstanceFields.Add(new FieldDef { Name = "_BaseProp_k__BackingField", Owner = derived, TypeKind = FieldTypeKind.Int32 });
+        TypeEmitter.LayoutInstanceFields(baseT);
+        TypeEmitter.LayoutInstanceFields(derived);
+        Assert.Equal(3 * IntPtr.Size, derived.InstanceSize); // base slot1 + own slot2
+        var code = TypeEmitter.EmitClassStruct(derived);
+        // own field keeps the canonical member name; the base copy is
+        // disambiguated with its slot index.
+        Assert.Contains("int32_t _BaseProp_k__BackingField; // slot 2 at offset", code);
+        Assert.Contains("_BaseProp_k__BackingField_slot1; // slot 1 at offset", code);
+        Assert.Contains("Il2CppObject _obj;", code);
+    }
+
+    [Fact]
     public void Layout_ValueFieldAtSlot32_IsAllowed()
     {
         // Value fields beyond slot 31 are FINE (no bitmap bit is needed) --

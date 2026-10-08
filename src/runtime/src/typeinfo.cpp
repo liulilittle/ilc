@@ -1171,6 +1171,31 @@ void ThrowPropertyTargetException()
         "Non-static method requires a target.");
 }
 
+// Throw TargetParameterCountException when the index array length does not
+// match the property's indexer arity (RF-N2 审计A①, observation B -- net48
+// probe-verified: an indexer with a null/empty index AND a non-indexed
+// property receiving a non-null index array BOTH throw
+// TargetParameterCountException; the runtime previously built a 0-length
+// arg array and the invoker arity mismatch silently returned nullptr).
+void ThrowPropertyParamCountException()
+{
+    il2cpp_throw_new("System.Reflection.TargetParameterCountException,System.Exception",
+        "Parameter count mismatch.");
+}
+
+// Throw NullReferenceException for a null property-name receiver (RF-N2 审计
+// A②, observation C -- net48 probe-verified: typeof(X).GetProperty("Missing")
+// returns null and the chained .GetValue/.SetValue call then dereferences the
+// null PropertyInfo receiver, throwing NullReferenceException; the runtime
+// previously returned nullptr silently). Declaration by managed name through
+// the thrown-type chain: the catch matcher (il2cpp_exception_matches) walks
+// every segment, so the first element is the canonical managed full name.
+void ThrowPropertyNullReceiver()
+{
+    il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
+        "Object reference not set to an instance of an object.");
+}
+
 // Build the object[] dispatched to the property accessor. For a getter the
 // args are the index array elements (null/empty -> zero explicit args -- the
 // non-indexed zero-param getter). For a setter the value is APPENDED after
@@ -1202,7 +1227,17 @@ Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2
         ThrowPropertyTargetException();
     }
     char nameBuf[kNameBufferSize];
-    if (propertyName == nullptr || !AsciiFromManagedString(propertyName, nameBuf))
+    if (propertyName == nullptr)
+    {
+        // RF-N2 审计A② (observation C): a null property-name receiver is the
+        // "unknown property" path (GetProperty returned null on a miss) --
+        // net48 NREs on the null receiver (probe-verified). The non-ASCII
+        // malformed-name case below keeps the defensive nullptr (a bad
+        // managed string is unreachable from GetProperty, which null-returns
+        // on a miss).
+        ThrowPropertyNullReceiver();
+    }
+    if (!AsciiFromManagedString(propertyName, nameBuf))
     {
         return nullptr;
     }
@@ -1221,6 +1256,14 @@ Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2
         il2cpp_throw_new("System.ArgumentException,System.Exception",
             "Property Get method not found.");
     }
+    // RF-N2 审计A① (observation B): the index array length must equal the
+    // property's indexer arity; a mismatch (indexer + null index, or a
+    // non-indexed property receiving a non-null index) is a
+    // TargetParameterCountException on net48.
+    if ((index != nullptr ? index->length : 0) != prop->indexParams)
+    {
+        ThrowPropertyParamCountException();
+    }
     Il2CppArray* args = BuildPropertyArgs(index, nullptr, false);
     Il2CppObject* accessorStr = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(prop->getterName));
     return il2cpp_methodinfo_invoke(accessorStr, target, args);
@@ -1234,7 +1277,14 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
         ThrowPropertyTargetException();
     }
     char nameBuf[kNameBufferSize];
-    if (propertyName == nullptr || !AsciiFromManagedString(propertyName, nameBuf))
+    if (propertyName == nullptr)
+    {
+        // RF-N2 审计A② (observation C): null receiver == unknown property
+        // (GetProperty null-returned on a miss) -> net48 NullReferenceException
+        // on the chained call (probe-verified; see the getter twin above).
+        ThrowPropertyNullReceiver();
+    }
+    if (!AsciiFromManagedString(propertyName, nameBuf))
     {
         return;
     }
@@ -1252,6 +1302,12 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
     {
         il2cpp_throw_new("System.ArgumentException,System.Exception",
             "Property Set method not found.");
+    }
+    // RF-N2 审计A① (observation B): index-array arity must match the indexer
+    // (see the getter twin above); mismatch -> TargetParameterCountException.
+    if ((index != nullptr ? index->length : 0) != prop->indexParams)
+    {
+        ThrowPropertyParamCountException();
     }
     Il2CppArray* args = BuildPropertyArgs(index, value, true);
     Il2CppObject* accessorStr = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(prop->setterName));
