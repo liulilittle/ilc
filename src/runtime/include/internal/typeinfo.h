@@ -142,6 +142,19 @@ struct Il2CppTypeInfo
     // .BaseType == null). Trailing field (like genericArity) -- the emitter
     // emits it for every reflected type.
     const char*          baseTypeName;
+    // RF-N5 (NEXT2-DECISION section ② RF-N5): nested-type sub-table. One
+    // name per DIRECT nested type (metadata declaration order -- net48
+    // GetNestedTypes enumerates own nested types only, never inherited).
+    // Each name is the nested type's REFLECTION full name -- the net48 '+'
+    // form ("Cases.Outer+Inner", TypeEmitter.ReflectionFullName of the
+    // expanded nested TypeDef, the same key its own typeinfo registers
+    // under) -- so the GetNestedTypes result elements are Type VALUES
+    // (full-name strings) exactly like the other Type-returning icalls.
+    // null = no nested types. Trailing field (like genericArity/baseTypeName
+    // -- the zero-delta default; the emitter emits nothing for nested-free
+    // types).
+    const char* const*  nestedNames;
+    int32_t             nestedCount;
 };
 
 //------------------------------------------------------------------------------
@@ -284,6 +297,23 @@ Il2CppArray* il2cpp_typeinfo_get_properties(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_constructors(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_events(Il2CppObject* typeName);
+// RF-N5 (NEXT2-DECISION section ② RF-N5): GetNestedTypes / GetMembers.
+//   il2cpp_typeinfo_get_nested_types -- OWN nested types only (name strings
+//     in metadata declaration order; net48 never inherits nested types).
+//   il2cpp_typeinfo_get_members   -- the five-enumeration union (methods +
+//     ctors + properties + events + fields, own + base chain). Probe-pinned
+//     net48 order: methods (public, INCLUDING accessors get_/set_/add_/
+//     remove_ -- net48 returns them as method members, excluding .ctor/.cctor),
+//     then ctors (public, of the queried type ONLY -- net48 never returns an
+//     inherited constructor), then properties (all), then events (all), then
+//     fields (public). Accessors stay in the methods list (the simplified
+//     member model folds every active property/event accessor into the
+//     methods table -- net48 GetMembers returns them as members too).
+// A null / malformed / unregistered typeName -> an EMPTY array (net48
+// returns an empty array, never null).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_nested_types(Il2CppObject* typeName);
+Il2CppArray* il2cpp_typeinfo_get_members(Il2CppObject* typeName);
 // C3-2: EventInfo.AddEventHandler / RemoveEventHandler (the managed events-
 // table accessor delivery; an RCW receiver doors the deferred shape A).
 void il2cpp_eventinfo_add(Il2CppObject* eventName, Il2CppObject* target, Il2CppObject* handler);

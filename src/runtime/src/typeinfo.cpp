@@ -661,6 +661,13 @@ bool PublicMethod(const Il2CppMethodInfo& m)
     // deviation, pinned by the R2 enumeration probe.)
     return IsPublic(m.flags);
 }
+// RF-N5: GetMembers methods slice -- public NON-ctor methods (net48
+// GetMembers' first group is every method member INCLUDING property/event
+// accessors, excluding the constructors, which follow as their own group).
+bool PublicNonCtorMethod(const Il2CppMethodInfo& m)
+{
+    return IsPublic(m.flags) && (m.flags & 4) == 0;
+}
 bool PublicCtor(const Il2CppMethodInfo& m) { return IsPublic(m.flags) && (m.flags & 4) != 0; }
 bool PublicField(const Il2CppFieldInfo& f) { return IsPublic(f.flags); }
 bool AnyProperty(const Il2CppPropertyInfo&) { return true; }
@@ -734,6 +741,92 @@ Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName)
         {
             StoreName(result, dst++, scan->interfaces[i] != nullptr ? scan->interfaces[i]->name : nullptr);
         }
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// RF-N5 -- GetNestedTypes / GetMembers (NEXT2-DECISION section ② RF-N5).
+//   GetNestedTypes: OWN nested types only, name strings in metadata
+//     declaration order (the typeinfo's emitted nestedNames sub-table).
+//   GetMembers: the five-enumeration union, own + base chain. Probe-pinned
+//     net48 order (rf-members expected.txt): methods (public, INCLUDING the
+//     property/event accessors -- net48 returns get_/set_/add_/remove_ as
+//     method members, excluding .ctor/.cctor), then ctors (public), then
+//     properties (all), then events (all), then fields (public).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_nested_types(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    Il2CppArray* result = BuildNameArray(info->nestedCount);
+    for (int32_t i = 0; i < info->nestedCount; ++i)
+    {
+        StoreName(result, i, info->nestedNames != nullptr ? info->nestedNames[i] : nullptr);
+    }
+    return result;
+}
+
+Il2CppArray* il2cpp_typeinfo_get_members(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    // Count pass (five global slices, net48 probe-pinned):
+    //   1. methods -- public non-ctor methods, own + base chain (net48
+    //      returns PROPERTY/EVENT accessors as method members too, so
+    //      get_/set_/add_/remove_ stay here -- rf-members oracle);
+    //   2. ctors -- public ctors of the QUERIED TYPE ONLY (net48 never
+    //      returns an inherited constructor);
+    //   3. properties -- all, own + base chain;
+    //   4. events -- all, own + base chain;
+    //   5. fields -- public, own + base chain.
+    int32_t methodN = 0, ctorN = 0, propN = 0, evtN = 0, fieldN = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (PublicNonCtorMethod(scan->methods[i])) ++methodN;
+        propN += scan->propertyCount;
+        evtN += scan->eventCount;
+        if (scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (PublicField(scan->fields[i])) ++fieldN;
+    }
+    if (info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (PublicCtor(info->methods[i])) ++ctorN;
+    Il2CppArray* result = BuildNameArray(methodN + ctorN + propN + evtN + fieldN);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (PublicNonCtorMethod(scan->methods[i])) StoreName(result, dst++, scan->methods[i].name);
+    }
+    if (info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (PublicCtor(info->methods[i])) StoreName(result, dst++, info->methods[i].name);
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->properties != nullptr)
+            for (int32_t i = 0; i < scan->propertyCount; ++i)
+                StoreName(result, dst++, scan->properties[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->events != nullptr)
+            for (int32_t i = 0; i < scan->eventCount; ++i)
+                StoreName(result, dst++, scan->events[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (PublicField(scan->fields[i])) StoreName(result, dst++, scan->fields[i].name);
     }
     return result;
 }

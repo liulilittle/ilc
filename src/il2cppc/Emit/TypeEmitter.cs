@@ -1300,7 +1300,7 @@ public static class TypeEmitter
     // pass), same pass as EmitClassDescriptor.
     //--------------------------------------------------------------------------
     public static string EmitTypeInfo(TypeDef t, IReadOnlyCollection<string>? reflectedNames = null, MetadataReader? md = null,
-        IReadOnlySet<string>? foldedAccessorNames = null)
+        IReadOnlySet<string>? foldedAccessorNames = null, IReadOnlyList<TypeDef>? allTypes = null)
     {
         if (reflectedNames != null && !reflectedNames.Contains(t.FullName)) return "";
         LayoutInstanceFields(t);
@@ -1434,6 +1434,31 @@ public static class TypeEmitter
             w.Line();
         }
 
+        // RF-N5: nested-type sub-table (typeinfo.h Il2CppTypeInfo nestedNames/
+        // nestedCount -- GetNestedTypes). The nested types were expanded to
+        // independent top-level entries by ExpandNestedTypes; this table
+        // references each DIRECT nested type's REFLECTION full name (the '+'
+        // form, TypeEmitter.ReflectionFullName -- the same key its own
+        // typeinfo registers under, so the GetNestedTypes result elements are
+        // full-name strings). Metadata declaration order = the types list
+        // order (ExpandNestedTypes appends in md.TypeDefinitions order). 0
+        // nested types emit NO table (nullptr/0 -- zero delta for
+        // nested-free types).
+        var nestedEntries = (allTypes ?? Enumerable.Empty<TypeDef>())
+            .Where(x => x.IsNested && x.DeclaringTypeName == ReflectionFullName(t))
+            .Select(ReflectionFullName)
+            .ToList();
+        if (nestedEntries.Count > 0)
+        {
+            w.Line($"static const char* {TypeCppName(t)}_typeinfo_nested[] = {{");
+            w.Open();
+            foreach (var n in nestedEntries)
+                w.Line($"    \"{n}\",");
+            w.Close();
+            w.Line("};");
+            w.Line();
+        }
+
         // Main table.
         var methodsTable = t.Methods.Count > 0 ? $"{TypeCppName(t)}_typeinfo_methods" : "nullptr";
         var fieldsTable = fieldEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_fields" : "nullptr";
@@ -1488,6 +1513,9 @@ public static class TypeEmitter
             ? "nullptr"
             : $"\"{t.BaseTypeName}\"";
         w.Line($"    {baseTypeNameExpr},  // baseTypeName (BCL base terminal)");
+        // RF-N5: nested-type sub-table row (main table).
+        var nestedExpr = nestedEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_nested" : "nullptr";
+        w.Line($"    {nestedExpr}, {nestedEntries.Count},                  // nested (RF-N5)");
         w.Line("};");
         w.Line();
         return w.ToString();

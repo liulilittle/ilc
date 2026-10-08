@@ -457,6 +457,42 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // RF-N5 -- GetNestedTypes / GetMembers (NEXT2-DECISION section ② RF-N5).
+    //   GetNestedTypes : il2cpp_typeinfo_get_nested_types -- the typeinfo's
+    //       nested-name sub-table; each element is the nested type's '+'-form
+    //       reflection full name (a Type VALUE), ReturnTypeName "System.Type[]"
+    //       keeps the Array-domain folds (get_FullName on the elements).
+    //   GetMembers     : il2cpp_typeinfo_get_members -- the five-enumeration
+    //       union (methods-with-accessors + ctors + properties + events +
+    //       fields), member-NAME strings, ReturnTypeName "System.String[]".
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetNestedTypes_MapsToNestedIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetNestedTypes",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetNestedTypes"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_nested_types", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetMembers_MapsToMembersIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetMembers",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetMembers"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_members", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // R2 -- FieldInfo.GetValue/SetValue narrow set (the member VALUE is the
     // field name string; the declaring type is joined at runtime from the
     // TARGET object's klass). GetValue -> Il2CppObject* (boxed value),

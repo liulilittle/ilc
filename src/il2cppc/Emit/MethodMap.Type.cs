@@ -139,6 +139,32 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_interfaces", 0, true, true, true,
                         returnTypeName: "System.Type[]");
                 throw new NotSupportedException($"Type.GetInterfaces with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_interfaces");
+            // RF-N5 (NEXT2-DECISION section ② RF-N5): GetNestedTypes() -- the
+            // typeinfo's nested sub-table (own nested types only, metadata
+            // declaration order; net48 never inherits nested types). Each
+            // element is the nested type's REFLECTION full name ("Cases.Outer+
+            // Inner" -- the '+' form), i.e. a Type VALUE (full-name string)
+            // like GetInterfaces/GetGenericArguments -- ReturnTypeName
+            // "System.Type[]" keeps the Array-domain folds (get_FullName on
+            // the elements) resolved.
+            case "GetNestedTypes":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_nested_types", 0, true, true, true,
+                        returnTypeName: "System.Type[]");
+                throw new NotSupportedException($"Type.GetNestedTypes with {ps.Length} parameter(s) not wired in RF-N5 -- only the () overload maps to il2cpp_typeinfo_get_nested_types");
+            // RF-N5 (NEXT2-DECISION section ② RF-N5): GetMembers() -- the
+            // five-enumeration union (the runtime concats the public methods
+            // WITH their property/event accessors -- net48 returns accessors
+            // as method members -- then the public ctors, then properties,
+            // then events, then fields; own + base chain). Elements are
+            // member-NAME strings, the same carrier as GetMethods/GetFields,
+            // so ReturnTypeName "System.String[]" keeps the Array-domain
+            // folds (.Length / foreach / element read) resolved.
+            case "GetMembers":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_members", 0, true, true, true,
+                        returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5 -- only the () overload maps to il2cpp_typeinfo_get_members");
             // C3-1 (COM-C3) / RF-N1: GetEvents() -- the event-table member
             // enumeration (own + base chain, ALL events -- Il2CppEventInfo has
             // no flags field, the documented simplification). The events

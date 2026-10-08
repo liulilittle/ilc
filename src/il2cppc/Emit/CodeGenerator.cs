@@ -1173,7 +1173,7 @@ public static class CodeGenerator
             // methods get fnPtr=nullptr (no undefined-symbol link error).
             if (ShouldEmitTypeInfo(t, reflectedNames, noTypeInfoOwners))
             {
-                var typeInfoBlock = TypeEmitter.EmitTypeInfo(t, reflectedNames, md, foldedAccessorNames.GetValueOrDefault(t.FullName));
+                var typeInfoBlock = TypeEmitter.EmitTypeInfo(t, reflectedNames, md, foldedAccessorNames.GetValueOrDefault(t.FullName), types);
                 if (typeInfoBlock.Length > 0)
                 {
                     w.Line(typeInfoBlock);
