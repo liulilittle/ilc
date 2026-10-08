@@ -247,5 +247,34 @@ Il2CppObject* il2cpp_attribute_get_single(Il2CppClass* klass,
                                           int32_t inherit,
                                           int32_t* outCount);
 
+//------------------------------------------------------------------------------
+// RF-N6 (NEXT2-DECISION section ② RF-N6) -- MEMBER-level attributes
+// (method / field / property). The type-level registry above stays keyed by
+// type name only; this separate registry hangs attribute arrays on a MEMBER
+// key "ownerReflectionFullName::memberName" (a member name is unique within
+// its declaring type -- methods/fields/properties cannot share a name).
+//
+//   il2cpp_attribute_register_member -- hang a compile-time-built attribute
+//     array on a member key (transpiler-emitted static initializer, same
+//     single-threaded-startup contract as the type registry).
+//       memberKey  : "FullName::memberName" static string (never copied)
+//       attributes : the attribute objects, declaration order (null + 0 ok)
+//       count      : >= 0
+//     Returns 1 on success, 0 on rejection (null key / count<0 / full / null
+//     array with count>0). Re-registering an existing key REPLACES (the new
+//     registration wins). count == 0 registers nothing and returns 1.
+//
+//   il2cpp_attribute_lookup_member -- the READ side consumed by the RF-N6
+//     query icall (typeinfo.cpp il2cpp_attribute_member_get_custom): returns
+//     the stored array POINTER + outCount (0 / nullptr when unregistered).
+//     No .NET exception surface -- the member query aggregates whole chains
+//     and throws only from the caller's level.
+//------------------------------------------------------------------------------
+int32_t il2cpp_attribute_register_member(const char* memberKey,
+                                         Il2CppObject* const* attributes,
+                                         int32_t count);
+Il2CppObject** il2cpp_attribute_lookup_member(const char* memberKey,
+                                              int32_t* outCount);
+
 } // namespace runtime
 } // namespace il2cpp

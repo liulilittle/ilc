@@ -489,11 +489,78 @@ public static class MetadataLoader
         return result;
     }
 
+    //--------------------------------------------------------------------------
+    // LoadAllMemberCustomAttributes -- EVERY type's METHOD / FIELD / PROPERTY
+    // CustomAttribute rows (RF-N6, NEXT2-DECISION section ② RF-N6). Returns
+    // (type metadata full name, member name, decoded attributes) in metadata
+    // declaration order per type. A member whose blob cannot be decoded is
+    // SKIPPED (warned, not fatal -- the same simplification as the type-level
+    // loader). The member-registry key is built by the emitter from the type
+    // full name + member name ("FullName::memberName").
+    //--------------------------------------------------------------------------
+    public static List<(string TypeName, string MemberName, List<CustomAttributeDef> Attributes)> LoadAllMemberCustomAttributes(MetadataReader md)
+    {
+        var result = new List<(string, string, List<CustomAttributeDef>)>();
+        foreach (var th in md.TypeDefinitions)
+        {
+            var td = md.GetTypeDefinition(th);
+            var typeName = md.GetFullName(th);
+            foreach (var mh in td.GetMethods())
+            {
+                var mdef = md.GetMethodDefinition(mh);
+                var mName = md.GetString(mdef.Name);
+                try
+                {
+                    var attrs = DecodeCustomAttributes(md, mdef.GetCustomAttributes());
+                    if (attrs.Count > 0) result.Add((typeName, mName, attrs));
+                }
+                catch (NotSupportedException ex)
+                {
+                    Console.WriteLine($"attribute: skipping custom attributes of member '{typeName}::{mName}' (unsupported blob: {ex.Message})");
+                }
+            }
+            foreach (var fh in td.GetFields())
+            {
+                var fdef = md.GetFieldDefinition(fh);
+                var fName = md.GetString(fdef.Name);
+                try
+                {
+                    var attrs = DecodeCustomAttributes(md, fdef.GetCustomAttributes());
+                    if (attrs.Count > 0) result.Add((typeName, fName, attrs));
+                }
+                catch (NotSupportedException ex)
+                {
+                    Console.WriteLine($"attribute: skipping custom attributes of member '{typeName}::{fName}' (unsupported blob: {ex.Message})");
+                }
+            }
+            foreach (var ph in td.GetProperties())
+            {
+                var pdef = md.GetPropertyDefinition(ph);
+                var pName = md.GetString(pdef.Name);
+                try
+                {
+                    var attrs = DecodeCustomAttributes(md, pdef.GetCustomAttributes());
+                    if (attrs.Count > 0) result.Add((typeName, pName, attrs));
+                }
+                catch (NotSupportedException ex)
+                {
+                    Console.WriteLine($"attribute: skipping custom attributes of member '{typeName}::{pName}' (unsupported blob: {ex.Message})");
+                }
+            }
+        }
+        return result;
+    }
+
     private static List<CustomAttributeDef> ReadCustomAttributes(MetadataReader md, TypeDefinitionHandle tdHandle)
     {
         var td = md.GetTypeDefinition(tdHandle);
+        return DecodeCustomAttributes(md, td.GetCustomAttributes());
+    }
+
+    private static List<CustomAttributeDef> DecodeCustomAttributes(MetadataReader md, CustomAttributeHandleCollection handles)
+    {
         var result = new List<CustomAttributeDef>();
-        foreach (var cah in td.GetCustomAttributes())
+        foreach (var cah in handles)
         {
             var ca = md.GetCustomAttribute(cah);
             string ctorName;

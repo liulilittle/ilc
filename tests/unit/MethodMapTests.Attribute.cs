@@ -117,6 +117,41 @@ public class MethodMapAttributeTests
     //--------------------------------------------------------------------------
     // Dispatch miss within the domain -- falls back to the generated-name path
     //--------------------------------------------------------------------------
+        //--------------------------------------------------------------------------
+    // RF-N6 (NEXT2-DECISION section ② RF-N6): MEMBER-level GetCustomAttributes.
+    // The receiver is the MEMBER-NAME string (the simplified member model);
+    // the bool inherit form maps to il2cpp_attribute_member_get_custom (the
+    // RF-N6 member-attribute registry + typeinfo base-chain scan). The
+    // (Type, bool) attributeType-filter form is not wired and fails LOUD.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_MemberInfo_GetCustomAttributes_Bool_MapsToMemberIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "MemberInfo", "GetCustomAttributes",
+                Sig(0x1C, 1, 0x02)), // (bool inherit) -> object[]
+            "GetCustomAttributes");
+
+        Assert.Equal("il2cpp::il2cpp_attribute_member_get_custom", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal("System.Object[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_MemberInfo_GetCustomAttributes_TypeBool_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Reflection", "MemberInfo", "GetCustomAttributes",
+                Sig(0x1C, 2, 0x12, 0x05, 0x02)), // (Type, bool)
+            "GetCustomAttributes"));
+
+        Assert.Contains("not wired in RF-N6", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // Dispatch miss within the domain -- falls back to the generated-name path
+    //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Attribute_UnwiredMember_FallsBackToGeneratedName()
     {

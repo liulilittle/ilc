@@ -194,6 +194,25 @@ public static partial class MethodRefResolver
                 // re-resolve (recvType hint) can still select the Type path;
                 // a direct MemberInfo::get_Name on a MethodInfo would fall to
                 // the generated-name path (loud C++ undefined symbol).
+                // RF-N6 (NEXT2-DECISION section ② RF-N6): member-level
+                // GetCustomAttributes(bool inherit) -- the receiver is the
+                // MEMBER-NAME string (the simplified member model, the same
+                // carrier the GetMethod/GetField/GetProperty icalls return);
+                // the runtime scans the typeinfo registry for the deepest
+                // declaring type and walks the own + base chain collecting
+                // the same-named member's registered attributes
+                // (il2cpp_attribute_member_get_custom -- typeinfo.h RF-N6
+                // contract). Only the net48 (bool) overload reaches the
+                // icall; the (Type, bool) attributeType-filter form fails
+                // LOUD (no fabricated filter -- 禁伪造). ReturnTypeName
+                // "System.Object[]" keeps the Array-domain folds (.Length /
+                // foreach element -> o.GetType().Name) resolved.
+                if (name == "GetCustomAttributes" && ps.Length == 1 && ps[0] == 0x02)
+                    return I("il2cpp::il2cpp_attribute_member_get_custom", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.Object[]");
+                if (name == "GetCustomAttributes")
+                    throw new NotSupportedException(
+                        $"System.Reflection.MemberInfo::GetCustomAttributes with {ps.Length} parameter(s) not wired in RF-N6 -- only the net48 (bool inherit) overload maps to il2cpp_attribute_member_get_custom (the (Type, bool) attributeType-filter form is not wired)");
                 return null;
             default: return null;
         }

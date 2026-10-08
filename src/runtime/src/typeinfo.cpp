@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // typeinfo.cpp -- runtime reflection metadata registry + member queries
 // (see typeinfo.h for the contract).
 //
@@ -20,6 +20,7 @@
 
 #include "typeinfo.h"
 
+#include "attribute.h"          // RF-N6 member-attribute registry (lookup_member)
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception / _null_reference
 #include "il2cpp_string.h"        // Il2CppString (managed-string ABI queries)
 #include "il2cpp_runtime.h"       // il2cpp_box_int32 / il2cpp_unbox_int32 (R2 field values)
@@ -746,7 +747,7 @@ Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName)
 }
 
 //------------------------------------------------------------------------------
-// RF-N5 -- GetNestedTypes / GetMembers (NEXT2-DECISION section ② RF-N5).
+// RF-N5 -- GetNestedTypes / GetMembers (NEXT2-DECISION section 鈶?RF-N5).
 //   GetNestedTypes: OWN nested types only, name strings in metadata
 //     declaration order (the typeinfo's emitted nestedNames sub-table).
 //   GetMembers: the five-enumeration union, own + base chain. Probe-pinned
@@ -868,12 +869,12 @@ Il2CppArray* il2cpp_typeinfo_get_generic_arguments(Il2CppObject* typeName)
         // Non-generic / unregistered: net48 returns an EMPTY array.
         return EmptyStringArray();
     }
-    // genericArity > 0: the genericArgNames B方案 is deferred (RF-N4 裁决①) --
+    // genericArity > 0: the genericArgNames B鏂规 is deferred (RF-N4 瑁佸喅鈶? --
     // the runtime cannot fabricate the closed argument types (the folded name
     // of an instantiation collapses to the definition's name), so this path
     // is a LOUD gap, never a silent wrong result.
     il2cpp_throw_not_supported_exception(
-        "Type.GetGenericArguments() on a generic type is not wired in RF-N4 (the genericArgNames B方案 is deferred -- no fabricated argument list; only the non-generic empty-array path is supported)");
+        "Type.GetGenericArguments() on a generic type is not wired in RF-N4 (the genericArgNames B鏂规 is deferred -- no fabricated argument list; only the non-generic empty-array path is supported)");
     return EmptyStringArray(); // unreachable -- the throw does not return
 }
 
@@ -1315,7 +1316,7 @@ void ThrowPropertyTargetException()
 }
 
 // Throw TargetParameterCountException when the index array length does not
-// match the property's indexer arity (RF-N2 审计A①, observation B -- net48
+// match the property's indexer arity (RF-N2 瀹¤A鈶? observation B -- net48
 // probe-verified: an indexer with a null/empty index AND a non-indexed
 // property receiving a non-null index array BOTH throw
 // TargetParameterCountException; the runtime previously built a 0-length
@@ -1326,8 +1327,8 @@ void ThrowPropertyParamCountException()
         "Parameter count mismatch.");
 }
 
-// Throw NullReferenceException for a null property-name receiver (RF-N2 审计
-// A②, observation C -- net48 probe-verified: typeof(X).GetProperty("Missing")
+// Throw NullReferenceException for a null property-name receiver (RF-N2 瀹¤
+// A鈶? observation C -- net48 probe-verified: typeof(X).GetProperty("Missing")
 // returns null and the chained .GetValue/.SetValue call then dereferences the
 // null PropertyInfo receiver, throwing NullReferenceException; the runtime
 // previously returned nullptr silently). Declaration by managed name through
@@ -1372,7 +1373,7 @@ Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2
     char nameBuf[kNameBufferSize];
     if (propertyName == nullptr)
     {
-        // RF-N2 审计A② (observation C): a null property-name receiver is the
+        // RF-N2 瀹¤A鈶?(observation C): a null property-name receiver is the
         // "unknown property" path (GetProperty returned null on a miss) --
         // net48 NREs on the null receiver (probe-verified). The non-ASCII
         // malformed-name case below keeps the defensive nullptr (a bad
@@ -1399,7 +1400,7 @@ Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2
         il2cpp_throw_new("System.ArgumentException,System.Exception",
             "Property Get method not found.");
     }
-    // RF-N2 审计A① (observation B): the index array length must equal the
+    // RF-N2 瀹¤A鈶?(observation B): the index array length must equal the
     // property's indexer arity; a mismatch (indexer + null index, or a
     // non-indexed property receiving a non-null index) is a
     // TargetParameterCountException on net48.
@@ -1422,7 +1423,7 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
     char nameBuf[kNameBufferSize];
     if (propertyName == nullptr)
     {
-        // RF-N2 审计A② (observation C): null receiver == unknown property
+        // RF-N2 瀹¤A鈶?(observation C): null receiver == unknown property
         // (GetProperty null-returned on a miss) -> net48 NullReferenceException
         // on the chained call (probe-verified; see the getter twin above).
         ThrowPropertyNullReceiver();
@@ -1446,7 +1447,7 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
         il2cpp_throw_new("System.ArgumentException,System.Exception",
             "Property Set method not found.");
     }
-    // RF-N2 审计A① (observation B): index-array arity must match the indexer
+    // RF-N2 瀹¤A鈶?(observation B): index-array arity must match the indexer
     // (see the getter twin above); mismatch -> TargetParameterCountException.
     if ((index != nullptr ? index->length : 0) != prop->indexParams)
     {
@@ -1455,6 +1456,137 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
     Il2CppArray* args = BuildPropertyArgs(index, value, true);
     Il2CppObject* accessorStr = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(prop->setterName));
     (void)il2cpp_methodinfo_invoke(accessorStr, target, args);
+}
+
+//------------------------------------------------------------------------------
+// RF-N6 -- il2cpp_attribute_member_get_custom (typeinfo.h contract): the
+// member-level GetCustomAttributes icall. The receiver is the MEMBER-NAME
+// string; the declaring type is found by scanning the typeinfo registry for
+// the type that DECLARES the member (own method/field/property tables) and
+// picking the DEEPEST one (net48 most-derived-first). inherit walks the
+// declaring type's own + base chain collecting the same-named member's
+// registered attributes from the RF-N6 member registry (attribute.cpp).
+//------------------------------------------------------------------------------
+namespace {
+
+// Own-table declaration check for one member name across the three member
+// kinds (a member value cannot distinguish kind -- net48 member names are
+// unique within a type, so the deepest declaring type is unambiguous across
+// kinds).
+bool DeclaresMemberName(const Il2CppTypeInfo* info, const char* name)
+{
+    if (info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (info->methods[i].name != nullptr && std::strcmp(info->methods[i].name, name) == 0)
+                return true;
+    if (info->fields != nullptr)
+        for (int32_t i = 0; i < info->fieldCount; ++i)
+            if (info->fields[i].name != nullptr && std::strcmp(info->fields[i].name, name) == 0)
+                return true;
+    if (info->properties != nullptr)
+        for (int32_t i = 0; i < info->propertyCount; ++i)
+            if (info->properties[i].name != nullptr && std::strcmp(info->properties[i].name, name) == 0)
+                return true;
+    return false;
+}
+
+int32_t BaseChainDepth(const Il2CppTypeInfo* info)
+{
+    int32_t depth = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        ++depth;
+    }
+    return depth;
+}
+
+// Build the member-registry key: "ownerReflectionFullName::memberName".
+void BuildMemberKey(const Il2CppTypeInfo* info, const char* name,
+                    char (&buf)[kNameBufferSize * 2 + 2])
+{
+    std::snprintf(buf, sizeof(buf), "%s::%s", info->name != nullptr ? info->name : "", name);
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_attribute_member_get_custom(Il2CppObject* memberName, int32_t inherit)
+{
+    if (memberName == nullptr)
+    {
+        // net48: ((MemberInfo)null).GetCustomAttributes(false) ->
+        // NullReferenceException.
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+        return nullptr; // unreachable -- the throw does not return
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf))
+    {
+        return EmptyStringArray();
+    }
+    // Find the deepest registered type that DECLARES the member (own tables).
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info != nullptr && DeclaresMemberName(info, nameBuf))
+        {
+            const int32_t depth = BaseChainDepth(info);
+            if (depth > bestDepth)
+            {
+                bestDepth = depth;
+                best = info;
+            }
+        }
+    }
+    if (best == nullptr)
+    {
+        return EmptyStringArray();
+    }
+    // Count pass: most-derived level first, walking the base chain while
+    // inherit is set; each level contributes the SAME-NAMED member's member-
+    // registry entries (inherited members live under their DECLARING type's
+    // table, so the declaring-type name keys the registry).
+    int32_t total = 0;
+    for (const Il2CppTypeInfo* level = best; level != nullptr; level = level->baseType)
+    {
+        if (level != best && !inherit)
+        {
+            break;
+        }
+        if (!DeclaresMemberName(level, nameBuf))
+        {
+            continue;
+        }
+        char key[kNameBufferSize * 2 + 2];
+        BuildMemberKey(level, nameBuf, key);
+        int32_t count = 0;
+        (void)runtime::il2cpp_attribute_lookup_member(key, &count);
+        total += count;
+    }
+    Il2CppArray* result = il2cpp_array_new(nullptr, sizeof(void*), true, total);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* level = best; level != nullptr; level = level->baseType)
+    {
+        if (level != best && !inherit)
+        {
+            break;
+        }
+        if (!DeclaresMemberName(level, nameBuf))
+        {
+            continue;
+        }
+        char key[kNameBufferSize * 2 + 2];
+        BuildMemberKey(level, nameBuf, key);
+        int32_t count = 0;
+        Il2CppObject** attrs = runtime::il2cpp_attribute_lookup_member(key, &count);
+        for (int32_t j = 0; j < count; ++j)
+        {
+            *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(result, dst++)) = attrs[j];
+        }
+    }
+    return result;
 }
 
 } // namespace il2cpp

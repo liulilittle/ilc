@@ -597,5 +597,97 @@ Il2CppObject* il2cpp_attribute_get_single_ex_named(Il2CppObject* typeName,
     return count > 0 ? scratch[0] : nullptr;
 }
 
+//------------------------------------------------------------------------------
+// RF-N6 -- MEMBER-level attribute registry (method / field / property). A
+// separate flat fixed-capacity registry keyed by "ownerReflectionFullName::
+// memberName" (a member name is unique within its declaring type). Same
+// single-threaded-startup / read-only-afterwards contract as the type-level
+// registry (see header). The READ side (il2cpp_attribute_lookup_member) is
+// consumed by the RF-N6 query icall in typeinfo.cpp, which scans the typeinfo
+// registry to find the declaring type and aggregates the base-chain walk.
+//------------------------------------------------------------------------------
+namespace {
+
+constexpr int32_t kMaxAttributeMembers = 64;
+
+struct MemberAttributeEntry
+{
+    const char*    memberKey;   // "FullName::memberName" (static string)
+    Il2CppObject** attributes;  // the register-time array (owned by generated code)
+    int32_t        count;       // number of attributes
+};
+
+MemberAttributeEntry g_memberEntries[kMaxAttributeMembers];
+int32_t              g_memberEntryCount = 0;
+
+// Linear key lookup for the member registry; returns the index or -1.
+int32_t FindMemberEntry(const char* memberKey)
+{
+    for (int32_t i = 0; i < g_memberEntryCount; ++i)
+    {
+        if (std::strcmp(g_memberEntries[i].memberKey, memberKey) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+} // namespace
+
+int32_t il2cpp_attribute_register_member(const char* memberKey,
+                                         Il2CppObject* const* attributes,
+                                         int32_t count)
+{
+    if (memberKey == nullptr || count < 0)
+    {
+        return 0;
+    }
+    if (count > 0 && attributes == nullptr)
+    {
+        return 0;
+    }
+    if (count == 0)
+    {
+        return 1; // a member without attributes is an unregistered member
+    }
+    const int32_t existing = FindMemberEntry(memberKey);
+    if (existing >= 0)
+    {
+        g_memberEntries[existing].attributes = const_cast<Il2CppObject**>(attributes);
+        g_memberEntries[existing].count = count;
+        return 1;
+    }
+    if (g_memberEntryCount >= kMaxAttributeMembers)
+    {
+        return 0; // loud rejection: the transpiler must raise capacity
+    }
+    g_memberEntries[g_memberEntryCount].memberKey = memberKey;
+    g_memberEntries[g_memberEntryCount].attributes = const_cast<Il2CppObject**>(attributes);
+    g_memberEntries[g_memberEntryCount].count = count;
+    ++g_memberEntryCount;
+    return 1;
+}
+
+Il2CppObject** il2cpp_attribute_lookup_member(const char* memberKey,
+                                              int32_t* outCount)
+{
+    if (outCount != nullptr)
+    {
+        *outCount = 0;
+    }
+    if (memberKey == nullptr || outCount == nullptr)
+    {
+        return nullptr;
+    }
+    const int32_t index = FindMemberEntry(memberKey);
+    if (index < 0)
+    {
+        return nullptr;
+    }
+    *outCount = g_memberEntries[index].count;
+    return g_memberEntries[index].attributes;
+}
+
 } // namespace runtime
 } // namespace il2cpp

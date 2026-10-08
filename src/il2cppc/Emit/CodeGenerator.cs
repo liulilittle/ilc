@@ -10348,13 +10348,75 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         }
     }
 
+    //--------------------------------------------------------------------------
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section ②
+    // RF-N6): construct the MEMBER-level custom attribute instances (methods /
+    // fields / properties) and register each annotated member's array in the
+    // RF-N6 member registry (attribute.h) under the "FullName::memberName"
+    // key. Mirrors the type-level registration above (same object construction
+    // + GC-root contract); capacity kMaxAttributeMembers (attribute.cpp) is
+    // enforced at COMPILE time (overflow is a loud rejection).
+    //--------------------------------------------------------------------------
+    private static void EmitMemberAttributeRegistrations(CppWriter w, MetadataReader md, List<TypeDef> types, StringPool pool)
+    {
+        const int kMaxAttributeMembers = 64; // must stay in sync with attribute.cpp
+        var annotated = MetadataLoader.LoadAllMemberCustomAttributes(md);
+        var memberIndex = 0;
+        var attrIndex = 0;
+        foreach (var (ownerName, memberName, attrs) in annotated)
+        {
+            var emitAttrs = new List<(CustomAttributeDef Def, TypeDef Cls)>();
+            foreach (var ca in attrs)
+            {
+                // The metadata attribute-type name is the full name; match a
+                // translated TypeDef (either the top-level FullName or a
+                // nested '+' form -- MatchesFullName accepts both) or the
+                // member's attributes silently skip registration (BCL /
+                // non-translated attribute class: not constructible).
+                var cls = types.FirstOrDefault(t => t.MatchesFullName(ca.AttributeType));
+                if (cls == null)
+                    continue;
+                emitAttrs.Add((ca, cls));
+            }
+            if (emitAttrs.Count == 0)
+                continue;
+            if (memberIndex >= kMaxAttributeMembers)
+                throw new NotSupportedException(
+                    $"member attribute registry capacity: {kMaxAttributeMembers} annotated members is the runtime maximum (attribute.cpp kMaxAttributeMembers); '{ownerName}::{memberName}' would overflow");
+            w.Line($"// RF-N6: custom attributes of member '{ownerName}::{memberName}' (attribute.h member registry)");
+            var temps = new List<string>();
+            foreach (var (ca, cls) in emitAttrs)
+            {
+                var tName = $"__il2cpp_mattr_{attrIndex++}";
+                temps.Add(tName);
+                w.Line($"Il2CppObject* {tName} = il2cpp_object_new(&{TypeEmitter.TypeCppName(cls)}_class);");
+                if (ca.FixedArgs.Count == 0)
+                {
+                    w.Line($"il2cpp::runtime::il2cpp_object_ctor_nop({tName});");
+                }
+                else
+                {
+                    var ctorCpp = MethodRefResolver.Resolve(md, ca.ConstructorToken, types).CppName;
+                    var argCpp = ca.FixedArgs.Select(a => EmitAttributeArg(a, pool)).ToList();
+                    w.Line($"{ctorCpp}({tName}, {string.Join(", ", argCpp)});");
+                }
+                foreach (var na in ca.NamedArgs)
+                    EmitAttributeNamedArgStore(w, tName, cls, na, pool);
+            }
+            w.Line($"static Il2CppObject* __il2cpp_mattr_arr_{memberIndex}[] = {{ {string.Join(", ", temps)} }};");
+            for (var i = 0; i < temps.Count; i++)
+                w.Line($"il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&__il2cpp_mattr_arr_{memberIndex}[{i}]));");
+            w.Line($"il2cpp::runtime::il2cpp_attribute_register_member(\"{EscapeC(ownerName)}::{EscapeC(memberName)}\", __il2cpp_mattr_arr_{memberIndex}, {temps.Count});");
+            ++memberIndex;
+        }
+    }
+
     // The boxed .NET constant of a decoded custom-attribute arg -> the C++
     // literal the generated ctor/field-store expects (string -> the interned
     // pool object, integers/bool/char/enum -> int32/int64 literals per the M1
     // 32-bit contract, null -> nullptr). Unsupported shapes are LOUD (never
     // silently mis-typed).
-    private static string EmitAttributeArg(object? value, StringPool pool)
-    {
+    private static string EmitAttributeArg(object? value, StringPool pool)    {
         switch (value)
         {
             case null:
@@ -10470,6 +10532,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // Program.cs after Generate with the FINAL pool), so g_strPool indices
         // are valid -- and this call must precede the LiteralCount>0 fill check.
         EmitAttributeRegistrations(w, md, types, pool);
+        EmitMemberAttributeRegistrations(w, md, types, pool);
         // T3 string pool (design section 2.3): eager fill BEFORE any generated user
         // code can run -- the Main-type .cctor (ensure_cctor_* below) may
         // ldstr; the table must be filled or ldstr reads uninitialized slots.

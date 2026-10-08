@@ -392,4 +392,29 @@ void         il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2C
 Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* target,
                                        Il2CppArray* args);
 
+//------------------------------------------------------------------------------
+// RF-N6 (NEXT2-DECISION section ② RF-N6) -- MEMBER-level GetCustomAttributes.
+// The receiver is the MEMBER-NAME string (the simplified member model, the
+// same carrier il2cpp_typeinfo_get_method/field/property return).
+//
+//   memberName : the member name string (method / field / property -- the
+//                declaring type is NOT carried by the receiver, so the
+//                runtime scans the typeinfo registry for the type that
+//                DECLARES the member and picks the deepest one -- net48
+//                most-derived-first doctrine; a member name unique across
+//                the program is the documented simplification).
+//   inherit    : 1 -> walk the declaring type's own + base chain collecting
+//                the SAME-NAMED member's registered attributes, most-derived
+//                first (net48 GetCustomAttributes(true) on an overridden
+//                virtual returns derived + base declarations; fields have no
+//                base-chain duplicates so they agree); 0 -> the declaring
+//                member's attributes only.
+//
+// Returns an Il2CppArray* of the registered attribute objects, most-derived
+// first. A member with no registered attributes -> EMPTY array (never null);
+// a null memberName -> NullReferenceException (the net48 null-receiver
+// doctrine); malformed / non-ASCII / over-long -> empty array.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_attribute_member_get_custom(Il2CppObject* memberName, int32_t inherit);
+
 } // namespace il2cpp
