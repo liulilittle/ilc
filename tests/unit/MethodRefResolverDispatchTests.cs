@@ -686,17 +686,43 @@ public class MethodRefResolverDispatchTests
     [Fact]
     public void Resolve_UserGenericMethod_MethodSpecNonInt32Arg_ThrowsLoud()
     {
-        // Given: Id<long>("...") -- the model generates only the T->int32
+        // Given: Id<short>("...") -- the model generates only the T->int32
         // default instantiation (the definition body transpiles with T =
-        // int32_t) plus the M7 STRING (0x0E) variant (genlist); any other
-        // concrete type (int64 here) has no generated function.
-        using var pe = new PEReader(SynthesizeUserGenericMethod(memberRefForm: false, genericArg: 0x0A));
+        // int32_t), the STRING (0x0E) variant and the GN-N4 long/double
+        // (0x0A/0x0D) slot variants; any OTHER concrete type (short/byte/
+        // bool here) has no generated function.
+        using var pe = new PEReader(SynthesizeUserGenericMethod(memberRefForm: false, genericArg: 0x06));
         var md = pe.GetMetadataReader();
 
         // When/Then: loud, self-identifying NotSupportedException
         var ex = Assert.Throws<NotSupportedException>(() =>
             MethodRefResolver.Resolve(md, MetadataTokens.GetToken(MetadataTokens.MethodSpecificationHandle(1)), Array.Empty<TypeDef>()));
         Assert.Contains("no BCL mapping", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_UserGenericMethod_IdLong_MapsToLongVariant()
+    {
+        // Given: Id<long>("...") -- the GN-N4 stage-1 case. A single LONG
+        // (0x0A) by-value generic argument routes to the emitted {defCppName}
+        // _long pass-through variant (int64_t slot -- MethodRefResolver.cs
+        // 357-365): the int64 MVAR param/return now have a generated body.
+        using var pe = new PEReader(SynthesizeUserGenericMethod(memberRefForm: false, genericArg: 0x0A));
+        var md = pe.GetMetadataReader();
+
+        // When: resolved through the public Resolve entry point
+        var spec = MethodRefResolver.Resolve(md, MetadataTokens.GetToken(MetadataTokens.MethodSpecificationHandle(1)), Array.Empty<TypeDef>());
+
+        // Then: routes to the `_long` variant -- int64 value slots (no
+        // throw), the "l" ResultKind types the consumer temp, same static
+        // shape (the MVAR slots stay value-width; no ref lift).
+        Assert.StartsWith("Cases_GenList_Id_", spec.CppName);
+        Assert.EndsWith("_long", spec.CppName);
+        Assert.False(spec.IsInstance);
+        Assert.True(spec.ReturnsValue);
+        Assert.Equal(1, spec.ParamCount);
+        Assert.False(spec.ParamIsRef[0]);
+        Assert.Equal("l", spec.ResultKind);
     }
 
     [Fact]

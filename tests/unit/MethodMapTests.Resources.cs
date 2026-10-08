@@ -102,10 +102,11 @@ public class MethodMapResourcesTests
     }
 
     //--------------------------------------------------------------------------
-    // b23 (MethodMap.Resource.cs): the 2-arg GetString(string, CultureInfo) is
-    // WIRED -- the culture argument is DROPPED (ILC pins the invariant
-    // culture; the RM ctor resolved the invariant blob), the lookup runs on
-    // the receiver blob. NOT a fall-through anymore.
+    // b23 + R2 (MethodMap.Resource.cs:75-79): the 2-arg GetString(string,
+    // CultureInfo) maps to the culture-aware icall
+    // il2cpp_resource_manager_get_string_culture -- the net48 fallback chain
+    // walks the registry (the culture arg is the CultureInfo handle-gap name
+    // string). Sync'd to the current wiring (resource batch b713eee1).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_ResourceManager_GetString_TwoArgs_MapsToGetString()
@@ -113,12 +114,12 @@ public class MethodMapResourcesTests
         var m = ResolveMember("System.Resources", "ResourceManager", "GetString",
             Sig(Ret(0x0E), 0x0E, 0x0E));
 
-        Assert.Equal("il2cpp::il2cpp_resource_manager_get_string", m.CppName);
+        Assert.Equal("il2cpp::il2cpp_resource_manager_get_string_culture", m.CppName);
         Assert.True(m.IsInstance);
         Assert.True(m.ReturnsValue);
         Assert.True(m.ReturnsRef); // string
         Assert.Equal(2, m.ParamCount);
-        Assert.Equal(new[] { "", "", "drop" }, m.ParamTypeNames);
+        Assert.Equal(new[] { "", "", "" }, m.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
