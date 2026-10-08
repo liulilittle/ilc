@@ -697,6 +697,39 @@ public static class CodeGenerator
                     }
                 }
                 catch { }
+                // GN-N4 stage-2 (Id<Pt> by-value MVAR): collect the USER VALUE
+                // TYPE (VALUETYPE, TypeDefinition in this assembly) generic
+                // arguments of METHOD-generic call sites (MethodSpecification
+                // tokens -- `Id<Pt>(...)`). The pass-through variant emission
+                // keys on this set to synthesize {name}_Cases_Pt concrete-struct
+                // slots; every other by-value MVAR arg stays LOUD.
+                try
+                {
+                    foreach (var ins in IlDecoder.DecodeMethod(scanInfo.IlBytes, md))
+                    {
+                        if (ins.OperandKind != IlOperandKind.MethodToken) continue;
+                        var h = MetadataTokens.Handle((int)ins.Operand);
+                        if (h.Kind != HandleKind.MethodSpecification) continue;
+                        var ms = md.GetMethodSpecification((MethodSpecificationHandle)h);
+                        var gsig = md.GetBlobReader(ms.Signature);
+                        if (gsig.ReadByte() != 0x0A) continue;
+                        var argc = gsig.ReadCompressedInteger();
+                        for (var i = 0; i < argc; i++)
+                        {
+                            var gb = MethodSignatureCoder.SkipCustomModifiers(ref gsig, gsig.ReadByte());
+                            if (gb != 0x11) continue; // VALUETYPE user struct only
+                            var gth = gsig.ReadTypeHandle();
+                            if (gth.Kind != HandleKind.TypeDefinition) continue;
+                            var gtd = md.GetTypeDefinition((TypeDefinitionHandle)gth);
+                            var gDef = types.FirstOrDefault(t => t.FullName == md.GetFullName((TypeDefinitionHandle)gth));
+                            if (gDef == null || !gDef.IsValueType) continue;
+                            _ = md.GetString(gtd.Name); // metadata sanity (name read)
+                            GenericUsageAnalyzer.MethodSpecUserStructArgs ??= new HashSet<string>(StringComparer.Ordinal);
+                            GenericUsageAnalyzer.MethodSpecUserStructArgs.Add(TypeEmitter.TypeCppName(gDef));
+                        }
+                    }
+                }
+                catch { }
             }
         }
         // R2b scan source 3: model strings -- a generic-inst BASE type
@@ -1647,6 +1680,17 @@ public static class CodeGenerator
                     EmitVariant("_string", "Il2CppObject*");
                     EmitVariant("_long", "int64_t");
                     EmitVariant("_double", "double");
+                    // GN-N4 stage-2 (Id<Pt> by-value MVAR): the concrete user
+                    // struct slots the MethodSpec scan observed. The pass-through
+                    // body is type-agnostic, so {name}_Cases_Pt takes/returns the
+                    // struct by value exactly like the primitive slot variants.
+                    // The call site's genArg names the SAME C++ name
+                    // (TypeEmitter.TypeCppName), so the resolver route matches.
+                    if (GenericUsageAnalyzer.MethodSpecUserStructArgs != null)
+                    {
+                        foreach (var scpp in GenericUsageAnalyzer.MethodSpecUserStructArgs)
+                            EmitVariant("_" + scpp, scpp);
+                    }
                 }
                 }
                 catch (NotSupportedException inner)
@@ -3870,6 +3914,19 @@ public static class CodeGenerator
                     if (resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_decimal", StringComparison.Ordinal)
                         || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_biginteger", StringComparison.Ordinal)
                         || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_dtoffset", StringComparison.Ordinal))
+                        thisCode = $"(&{thisCode})";
+                    // GN-N4 stage-2 (Id<Pt> by-value MVAR): a USER value-type
+                    // ctor (`Cases_Pt__ctor_...` -- NOT an il2cpp:: runtime
+                    // icall) declares its receiver `this` as `{T}*` (the
+                    // value-type instance-method ABI). The newobj fold pushes
+                    // the struct VALUE (LocExpr t3), so the ctor call must take
+                    // the slot ADDRESS (`(&t3)`) or "cannot convert 'Cases_Pt'
+                    // to 'Cases_Pt*'" aborts the build. Every il2cpp:: runtime
+                    // value-type ctor is either ResultIsReceiver (DateTime/
+                    // TimeSpan -- value-taking) or explicitly addressed above
+                    // (decimal/biginteger/dtoffset); a bare user method name is
+                    // exactly the user-struct ctor shape.
+                    else if (!resolvedVc.CppName.StartsWith("il2cpp::", StringComparison.Ordinal))
                         thisCode = $"(&{thisCode})";
                     // drop-cast fix (icallwide): the old inline walk ignored
                     // ParamTypeNames -- a trailing "drop" (DateTime
@@ -7826,6 +7883,15 @@ default: return false;                           // primitives/VAR(handled by ca
             // (&(arg))-> form (arg1 is a plain C++ value -- `arg1->V` did not compile).
             if (obj is LocAddrExpr || (obj is LocExpr le && IsAddressArg(le.Name)))
                 return $"{objCode}->{fieldCppName}";
+            // GN-N4 stage-2 (Id<Pt> by-value MVAR): a value-type field receiver
+            // that is a FUNCTION-CALL RESULT (the pass-through generic variant
+            // {name}_Cases_Pt returns the struct BY VALUE -- `Pt p = Id<Pt>(..)`
+            // then `p.X` folds the field access onto the call expression).
+            // `(&(call))->field` takes the address of an rvalue -- C++ rejects
+            // it ("taking address of rvalue"); member access on the prvalue
+            // (`(call).field`) is legal and reads the returned struct directly.
+            if (obj is CallExpr)
+                return $"{objCode}.{fieldCppName}";
             return $"(&({objCode}))->{fieldCppName}";
         }
         var ownerCpp = TypeCppName(owner);

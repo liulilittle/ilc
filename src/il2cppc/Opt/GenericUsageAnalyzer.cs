@@ -49,6 +49,17 @@ public static class GenericUsageAnalyzer
     public static HashSet<string>? SharedGenericDefs { get; set; }
 
     //--------------------------------------------------------------------------
+    // GN-N4 stage-2 (by-value MVAR user-struct per-instance): the set of
+    // USER VALUE-TYPE generic arguments observed at MethodSpec call sites
+    // (a method-generic call `Id<Pt>` -- the user struct is a CONCRETE
+    // by-value MVAR). CodeGenerator's pre-emission MethodSpec scan collects
+    // these; the pass-through generic-method variant emission keys on them to
+    // synthesize {name}_Cases_Pt concrete-struct variants (Id<Pt> byte-exact
+    // needs the struct slot). Null/empty = no struct MVAR surface.
+    //--------------------------------------------------------------------------
+    public static HashSet<string>? MethodSpecUserStructArgs { get; set; }
+
+    //--------------------------------------------------------------------------
     // Collapse a closed instantiation's argument list onto plain "object"
     // when the definition is in the active share set (all parameters are
     // shareable -- the mask is all-true). Mutates args in place; returns true

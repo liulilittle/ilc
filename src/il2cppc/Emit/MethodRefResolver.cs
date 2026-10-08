@@ -372,6 +372,33 @@ public static partial class MethodRefResolver
                         ResultKind = "d",
                     };
                 }
+                // GN-N4 stage-2 (Id<Pt> by-value MVAR): a single USER VALUE
+                // TYPE (0x11 VALUETYPE) generic argument routes to the emitted
+                // concrete-struct variant ({defCppName}_{structCppName} --
+                // CodeGenerator emits the pass-through identity body for the
+                // struct slot, keyed on the MethodSpec scan's
+                // MethodSpecUserStructArgs set). The result temp is the struct
+                // C++ type (ResultKind "us:{CppName}" -- the same slot kind
+                // the P25b struct box/unbox uses). The decoded genArgNames[0]
+                // (GenericArgFullNames) carries the struct's FULL name; the C++
+                // name comes from the types collection (TypeEmitter.TypeCppName
+                // -- matches the emission key). Unknown/unregistered shapes stay
+                // LOUD (no fabricated variant).
+                if (genArgs.Length == 1 && genArgs[0] == 0x11
+                    && genArgNames is { Length: >= 1 } && genArgNames[0] is { } structFullName)
+                {
+                    var structDef = knownTypes.FirstOrDefault(t => t.MatchesFullName(structFullName));
+                    if (structDef != null && structDef.IsValueType)
+                    {
+                        var def = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                        var scpp = TypeEmitter.TypeCppName(structDef);
+                        return def with
+                        {
+                            CppName = def.CppName + "_" + scpp,
+                            ResultKind = "us:" + scpp,
+                        };
+                    }
+                }
                 EnsureInt32DefaultInstantiation(md.GetFullName(dm.GetDeclaringType()), md.GetString(dm.Name), genArgs);
                 return ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
             }
