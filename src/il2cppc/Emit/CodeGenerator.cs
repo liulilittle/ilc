@@ -1620,15 +1620,33 @@ public static class CodeGenerator
                     // leading offset and bounds-guard (a static/instance skew
                     // overran the tail -- IndexOutOfRange on smoke input).
                     var lead = paramTypes.Length - shape.ParamMvar.Length;
-                    var strParamTypes = paramTypes.Select((pt, i) =>
+                    // GN-N4 stage-1: BY-VALUE MVAR concrete value variants. A
+                    // pass-through generic method (T Id<T>(T x) => x) is
+                    // TYPE-AGNOSTIC -- the same folded body compiles for ANY
+                    // slot width (long -> int64_t, double -> double) exactly
+                    // like the string variant. The resolver routes a MethodSpec
+                    // with a long (0x0A)/double (0x0D) by-value generic argument
+                    // to {name}_long / {name}_double (GN-5 by-value MVAR,
+                    // GENERICS-FULL-ARG-GAPS.md 1.5). Every OTHER by-value
+                    // MVAR arg stays LOUD (no fabricated variant -- the
+                    // decision's LOSSY escape keeps explicit LOUD + expected).
+                    string[] SlotTypes(string slot) => paramTypes.Select((pt, i) =>
                     {
                         var j = i - lead;
-                        return j >= 0 && j < shape.ParamMvar.Length && shape.ParamMvar[j] ? "Il2CppObject*" : pt;
+                        return j >= 0 && j < shape.ParamMvar.Length && shape.ParamMvar[j] ? slot : pt;
                     }).ToArray();
-                    var strReturnType = shape.ReturnMvar ? "Il2CppObject*" : returnType;
-                    w.Line(MethodEmitter.EmitMethod(cppMethodName + "_string", paramNames, strReturnType, body, strParamTypes));
-                    w.Line();
-                    generatedHeader.Line($"{strReturnType} {cppMethodName}_string({ParamListTyped(paramNames, strParamTypes)});");
+                    string SlotReturn(string slot) => shape.ReturnMvar ? slot : returnType;
+                    void EmitVariant(string suffix, string slot)
+                    {
+                        var vParamTypes = SlotTypes(slot);
+                        var vReturnType = SlotReturn(slot);
+                        w.Line(MethodEmitter.EmitMethod(cppMethodName + suffix, paramNames, vReturnType, body, vParamTypes));
+                        w.Line();
+                        generatedHeader.Line($"{vReturnType} {cppMethodName}{suffix}({ParamListTyped(paramNames, vParamTypes)});");
+                    }
+                    EmitVariant("_string", "Il2CppObject*");
+                    EmitVariant("_long", "int64_t");
+                    EmitVariant("_double", "double");
                 }
                 }
                 catch (NotSupportedException inner)

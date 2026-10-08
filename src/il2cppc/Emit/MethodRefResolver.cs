@@ -344,6 +344,34 @@ public static partial class MethodRefResolver
                         ReturnTypeName = "System.String",
                     };
                 }
+                // GN-N4 stage-1 (GN-5 by-value MVAR, 1.5): a single LONG
+                // (0x0A) / DOUBLE (0x0D) by-value generic argument routes to
+                // the emitted int64_t/double slot variant of the definition
+                // ({defCppName}_long / {defCppName}_double -- CodeGenerator
+                // emits the pass-through identity body for the concrete slot
+                // width, mirroring the string variant). The caller result temp
+                // gets the width ResultKind ("l"/"d") and the MVAR param slots
+                // are value slots (ParamIsRef false). Any OTHER by-value MVAR
+                // argument stays LOUD (no fabricated variant -- explicit LOUD +
+                // expected is the decision's LOSSY escape).
+                if (genArgs.Length == 1 && genArgs[0] == 0x0A)
+                {
+                    var def = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                    return def with
+                    {
+                        CppName = def.CppName + "_long",
+                        ResultKind = "l",
+                    };
+                }
+                if (genArgs.Length == 1 && genArgs[0] == 0x0D)
+                {
+                    var def = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                    return def with
+                    {
+                        CppName = def.CppName + "_double",
+                        ResultKind = "d",
+                    };
+                }
                 EnsureInt32DefaultInstantiation(md.GetFullName(dm.GetDeclaringType()), md.GetString(dm.Name), genArgs);
                 return ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
             }
