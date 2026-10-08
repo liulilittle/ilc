@@ -1,6 +1,6 @@
-// fieldprobe.cs — 字段族（ldfld/stfld/ldsfld/stsfld/ldflda）net48 实证。
-// 关键：null 接收者 NRE（ldfld/stfld）、实例访问静态字段不发 null 检查（ldsfld/stsfld）、
-// cctor 时机、字段默认值、ldflda 取址、volatile 字段（内存序语义单线程不可观测）。
+// fieldprobe.cs — field family (ldfld/stfld/ldsfld/stsfld/ldflda) net48 evidence.
+// Key points: null receiver NRE (ldfld/stfld), instance access to static fields emits no null check (ldsfld/stsfld),
+// cctor timing, field default values, ldflda address-of, volatile fields (memory-order semantics not observable single-threaded).
 using System;
 
 class FieldProbe
@@ -35,42 +35,42 @@ class FieldProbe
         public int Y;
     }
 
-    volatile int _vol;      // C# volatile → IL volatile. 前缀（ldfld.volatile/stfld.volatile）
+    volatile int _vol;      // C# volatile -> IL volatile. prefix (ldfld.volatile/stfld.volatile)
     static volatile int _svol;
 
     static void Main()
     {
-        // ---- cctor：静态字段首访触发类型初始化（ldsfld/stsfld 前）----
+        // ---- cctor: first access of a static field triggers type init (before ldsfld/stsfld) ----
         P("cctor: 首访前 trace=" + (Box.StaticCtorTrace ?? "<null>"));
         Pi("ldsfld: Box.StaticCount", Box.StaticCount);
         Box.StaticCount = 11;
         Pi("stsfld: Box.StaticCount=11", Box.StaticCount);
 
-        // ---- 实例访问静态字段：C# 7.3 直接禁止（CS0176 实例限定静态成员）。
-        //      IL 的 ldsfld/stsfld 操作数只有字段 token，无接收者 → 不存在 null 检查：
-        //      语义上"null 实例访问静态字段"不抛 NRE（ECMA II.III.4.28/4.30）。----
-        // var b0 = (Box)null; b0.StaticCount = 5;  // CS0176 编译期拒绝
+        // ---- Instance access to static fields is outright forbidden in C# 7.3 (CS0176 instance-qualified static member).
+        //      The IL ldsfld/stsfld operands hold only a field token, no receiver -> no null check exists:
+        //      semantically "null instance accessing a static field" does not throw NRE (ECMA II.III.4.28/4.30). ----
+        // var b0 = (Box)null; b0.StaticCount = 5;  // rejected at compile time by CS0176
 
-        // ---- 实例字段：默认值 / 读写 ----
+        // ---- instance fields: default values / read-write ----
         var bb = new Box();
         Pi("ldfld: 默认 int 字段", bb.X);
         P("ldfld: 默认 string 字段 = " + (bb.S == null ? "<null>" : bb.S));
         bb.X = 123;
         Pi("ldfld: 写后读", bb.X);
 
-        // ---- ldfld/stfld null 接收者：NullReferenceException ----
+        // ---- ldfld/stfld null receiver: NullReferenceException ----
         Try(() => { Box n = null; int v = n.X; P("v=" + v); }, "ldfld: null 接收者");
         Try(() => { Box n = null; n.X = 1; }, "stfld: null 接收者");
 
-        // ---- ldflda：字段取址（ref 写）----
+        // ---- ldflda: field address (ref write) ----
         {
             var pt = new Point { X = 1, Y = 2 };
-            ref int rx = ref pt.X;               // ldloca+ldflda（值类型局部）
+            ref int rx = ref pt.X;               // ldloca+ldflda (value-type local)
             rx = 100;
             Pi("ldflda: ref 写 pt.X", pt.X);
         }
 
-        // ---- volatile 字段：单线程读写往返（内存序语义见文档；C# volatile 编译为 volatile. 前缀）----
+        // ---- volatile fields: single-threaded read-write roundtrip (memory-order semantics in docs; C# volatile compiles to volatile. prefix) ----
         {
             var fp = new FieldProbe();
             fp._vol = 7;
@@ -79,7 +79,7 @@ class FieldProbe
             Pi("volatile 静态字段往返", _svol);
         }
 
-        // ---- 实例字段继承：基类字段经派生实例读 ----
+        // ---- instance field inheritance: base-class field read through a derived instance ----
         {
             var d = new Derived();
             d.BaseField = 5;

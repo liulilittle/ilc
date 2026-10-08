@@ -1,5 +1,5 @@
-// cmpprobe.cs — 比较族（ceq/cgt/clt/cgt.un/clt.un）net48 实证。
-// 覆盖 int32 / int64 / float / 引用 各操作数类型 + NaN 行为 + 无符号语义。
+// cmpprobe.cs — comparison family (ceq/cgt/clt/cgt.un/clt.un) net48 evidence.
+// Covers int32 / int64 / float / reference operand types + NaN behavior + unsigned semantics.
 using System;
 
 class CmpProbe
@@ -15,16 +15,16 @@ class CmpProbe
 
     static void Main()
     {
-        // ---- int32 有符号 ----
+        // ---- int32 signed ----
         Pb("ceq(1,1)", 1 == I1);
         Pb("cgt(2,1)", I2 > I1);
         Pb("clt(1,2)", I1 < I2);
-        Pb("cgt(-1,1) [有符号]", IM1 > I1);   // 有符号：-1 > 1 为假
-        Pb("clt(-1,1) [有符号]", IM1 < I1);   // 有符号：-1 < 1 为真
+        Pb("cgt(-1,1) [有符号]", IM1 > I1);   // signed: -1 > 1 is false
+        Pb("clt(-1,1) [有符号]", IM1 < I1);   // signed: -1 < 1 is true
 
-        // ---- int32 无符号（cgt.un/clt.un = uint 比较）----
-        Pb("cgt.un(0xFFFFFFFF, 1) [无符号]", (uint)IM1 > U1);   // 4294967295 > 1 为真
-        Pb("cgt(0xFFFFFFFF, 1) [有符号]", IM1 > I1);            // 对照：有符号为假
+        // ---- int32 unsigned (cgt.un/clt.un = uint comparison) ----
+        Pb("cgt.un(0xFFFFFFFF, 1) [无符号]", (uint)IM1 > U1);   // 4294967295 > 1 is true
+        Pb("cgt(0xFFFFFFFF, 1) [有符号]", IM1 > I1);            // contrast: signed is false
         Pb("clt.un(0, 0xFFFFFFFF)", 0u < (uint)IM1);
         Pb("clt.un(0xFFFFFFFF, 1)", (uint)IM1 < U1);
 
@@ -35,16 +35,16 @@ class CmpProbe
         Pb("cgt.un(0xFFFFFFFFFFFFFFFF, 1L) [无符号]", (ulong)LM1 > (ulong)L1);
         Pb("cgt(0xFFFFFFFFFFFFFFFF, 1L) [有符号]", LM1 > L1);
 
-        // ---- float/double（有符号比较对 NaN = 全假）----
+        // ---- float/double (signed comparison against NaN = all false) ----
         Pb("cgt(NaN, 0) [有符号]", NaN > 0.0);
         Pb("clt(NaN, 0) [有符号]", NaN < 0.0);
         Pb("ceq(NaN, NaN)", NaN == NaN);
         Pb("cgt(2.0, 1.0)", 2.0 > 1.0);
         Pb("clt(1.0, 2.0)", 1.0 < 2.0);
         Pb("cgt.un(NaN, 0) [C# 不可达：clt.un 浮点 NaN→真 仅 ECMA]",
-            NaN != 0.0); // != 走 ceq+neg；clt.un/cgt.un 浮点 NaN 语义 C# 编译器不发射
+            NaN != 0.0); // != uses ceq+neg; clt.un/cgt.un float NaN semantics are not emitted by the C# compiler
 
-        // ---- 引用（ceq/cgt.un 指针比较；字符串 = 引用恒等非内容）----
+        // ---- reference (ceq/cgt.un pointer comparison; strings = reference identity, not content) ----
         object o1 = new string('x', 1);
         object o2 = new string('x', 1);
         object o3 = o1;
@@ -54,7 +54,7 @@ class CmpProbe
         Pb("ceq(ref, null)", o1 == null);
         Pb("ceq(null, null)", (object)null == null);
 
-        // ---- 比较结果类型：int32 0/1 ----
+        // ---- comparison result type: int32 0/1 ----
         Pi("cgt(2,1) 值", I2 > I1 ? 1 : 0);
         Pi("ceq(2,1) 值", I2 == I1 ? 1 : 0);
     }

@@ -1,6 +1,6 @@
-// exprobe.cs — 异常族（throw 重抛 / catch 过滤 / finally 确定性）net48 实证。
-// 关键：throw; 保留原异常与堆栈 / throw ex; 重置堆栈；catch-when 过滤先于 handler 求值、
-// 过滤为假不进入 handler、过滤内抛异常传播过滤异常；finally 全路径确定性。
+// exprobe.cs — exception family (throw rethrow / catch filters / finally determinism) net48 evidence.
+// Key points: throw; keeps the original exception and stack / throw ex; resets the stack; the catch-when filter is evaluated before the handler,
+// a false filter does not enter the handler, an exception thrown inside the filter propagates the filter's exception; finally is deterministic on all paths.
 using System;
 using System.Runtime.CompilerServices;
 
@@ -23,7 +23,7 @@ class ExProbe
 
     static void Main()
     {
-        // ---- catch 类型匹配：精确类型优先于基类 ----
+        // ---- catch type matching: most-derived type selected before base ----
         P("-- 多重 catch 顺序 --");
         try { throw new InvalidOperationException("x"); }
         catch (InvalidOperationException) { P("catch: InvalidOperationException"); }
@@ -32,7 +32,7 @@ class ExProbe
         catch (InvalidOperationException) { P("catch: InvalidOperationException"); }
         catch (Exception) { P("catch: Exception"); }
 
-        // ---- throw; vs throw ex;：堆栈轨迹 ----
+        // ---- throw; vs throw ex;: stack trace ----
         P("-- rethrow --");
         try { RethrowOrig(); }
         catch (Exception e)
@@ -47,7 +47,7 @@ class ExProbe
             Pb("throw ex; 消息保留", e.Message == "orig");
         }
 
-        // ---- catch 内抛新异常：InnerException 链 ----
+        // ---- throwing a new exception inside catch: InnerException chain ----
         P("-- 抛新异常包装 --");
         try
         {
@@ -60,7 +60,7 @@ class ExProbe
             P("InnerException: " + (e.InnerException != null ? e.InnerException.GetType().Name : "<null>"));
         }
 
-        // ---- catch-when 过滤：真 → handler；假 → 不进入（向外传播）----
+        // ---- catch-when filter: true -> handler; false -> not entered (propagates outward) ----
         P("-- catch 过滤 --");
         try
         {
@@ -76,7 +76,7 @@ class ExProbe
         }
         catch (Exception e) { P("outer-handler: " + e.Message); }
 
-        // ---- 过滤内抛异常：传播过滤的异常（原异常被替换）----
+        // ---- exception thrown inside filter: propagates the filter's exception (original replaced) ----
         P("-- 过滤抛异常 --");
         try
         {
@@ -85,13 +85,13 @@ class ExProbe
         }
         catch (Exception e) { P("outer: " + e.GetType().Name + " / " + e.Message); }
 
-        // ---- finally 确定性：正常 / 异常 / return 全执行 ----
+        // ---- finally determinism: runs on normal / exception / return paths ----
         P("-- finally 全路径 --");
-        TryFinally(0);    // 正常
+        TryFinally(0);    // normal
         try { TryFinally(1); } catch (Exception e) { P("  caught: " + e.GetType().Name); }
         P("finally+return 返回值: " + FinallyReturn());
 
-        // ---- 嵌套 try/catch/finally 顺序：try → catch → finally ----
+        // ---- nested try/catch/finally order: try -> catch -> finally ----
         P("-- try/catch/finally 顺序 --");
         try
         {

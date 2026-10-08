@@ -1,6 +1,6 @@
-// boxprobe.cs — 装箱族（box/unbox.any/isinst/castclass）net48 实证。
-// 关键：装箱快照拷贝、盒对象引用身份（无值类型驻留）、isinst/castclass 的 null 输入、
-// 类型不匹配失败语义、unbox.any null → NRE。
+// boxprobe.cs — boxing family (box/unbox.any/isinst/castclass) net48 evidence.
+// Key points: boxing snapshot copy, boxed-object reference identity (no value-type interning), null inputs to isinst/castclass,
+// type-mismatch failure semantics, unbox.any null -> NRE.
 using System;
 
 class BoxProbe
@@ -25,15 +25,15 @@ class BoxProbe
 
     static void Main()
     {
-        // ---- box：值快照拷贝 ----
+        // ---- box: value snapshot copy ----
         {
             S s = new S { X = 1 };
-            object o = s;          // box：拷贝
+            object o = s;          // box: copy
             s.X = 2;
             Pi("box: 装箱快照（改原值不影响盒）", ((S)o).X);   // 1
         }
 
-        // ---- box 身份：同一值两次装箱 = 不同对象（无驻留）----
+        // ---- box identity: boxing the same value twice = different objects (no interning) ----
         {
             object a = 5;
             object b = 5;
@@ -43,7 +43,7 @@ class BoxProbe
             Pb("box 身份: a == c（同引用）", a == c);          // true
         }
 
-        // ---- box 大整型/其他类型 ----
+        // ---- box big integers / other types ----
         {
             object l = 5L;
             Pb("isinst: 盒 long 是 long", l is long);
@@ -56,11 +56,11 @@ class BoxProbe
         // ---- unbox.any：null → NullReferenceException ----
         Try(() => { int v = (int)(object)null; P("v=" + v); }, "unbox.any: (int)null");
 
-        // ---- unbox.any：类型不匹配 → InvalidCastException ----
+        // ---- unbox.any: type mismatch -> InvalidCastException ----
         Try(() => { string s = (string)(object)5; P("s=" + s); }, "unbox.any: (string)盒 int");
         Try(() => { long v = (long)(object)5; P("v=" + v); }, "unbox.any: (long)盒 int");
 
-        // ---- isinst：类型匹配返回原引用 / 不匹配返回 null（不抛）----
+        // ---- isinst: on match returns the original reference / on mismatch returns null (does not throw) ----
         {
             object o = 5;
             Pb("isinst: 盒 int is int", o is int);
@@ -73,23 +73,23 @@ class BoxProbe
             Pb("isinst: A 实例 is B", new A() is B);
         }
 
-        // ---- castclass：null 输入 → null（不抛）----
+        // ---- castclass: null input -> null (does not throw) ----
         {
             string s = (string)(object)null;
             P("castclass: (string)null = " + (s == null ? "<null>" : s));
         }
 
-        // ---- castclass：不匹配 → InvalidCastException ----
+        // ---- castclass: mismatch -> InvalidCastException ----
         Try(() => { string s = (string)(object)5; }, "castclass: (string)盒 int");
 
-        // ---- castclass：isinst 判定（先 as 后强制）----
+        // ---- castclass: isinst path (as first, then cast) ----
         {
             object o = "hello";
             string s = (string)o;
             Pi("castclass: (string)object[字符串]", s.Length);
         }
 
-        // ---- 盒 double 的 isinst 精度（位模式）----
+        // ---- isinst precision of a boxed double (bit pattern) ----
         {
             object d1 = 0.1;
             object d2 = 0.1;

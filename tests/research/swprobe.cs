@@ -1,6 +1,6 @@
-// swprobe.cs — 控制流族（switch 表 + leave/endfinally）net48 实证。
-// 关键：switch 越界/负值 → default；long switch = 比较链非跳表；leave 退出 try 必执行 finally；
-// 嵌套 finally LIFO；return/break/continue 各退出路径的 finally 确定性。
+// swprobe.cs — control-flow family (switch table + leave/endfinally) net48 evidence.
+// Key points: out-of-range/negative switch value -> default; long switch = comparison chain, not a jump table; leave exiting try always runs finally;
+// nested finally LIFO; finally determinism on every exit path (return/break/continue).
 using System;
 
 class SwProbe
@@ -10,7 +10,7 @@ class SwProbe
 
     static int SwInt(int x)
     {
-        // 连续整数 → IL switch（跳转表）
+        // consecutive integers -> IL switch (jump table)
         switch (x)
         {
             case 0: return 100;
@@ -29,30 +29,30 @@ class SwProbe
         Pi("switch(-1) [default]", SwInt(-1));
         Pi("switch(100) [default]", SwInt(100));
 
-        // switch 稀疏 + 负 case：不连续区间走比较链（il2cpp 转译器需注意）
+        // sparse switch + negative case: non-contiguous ranges become a comparison chain (il2cpp transpiler note)
         Pi("sparse(5)", Sparse(5));
         Pi("sparse(-3)", Sparse(-3));
         Pi("sparse(7) [default]", Sparse(7));
 
-        // long switch（C# 7 起合法；IL 为比较链非 switch 指令）
+        // long switch (legal since C# 7; IL is a comparison chain, not a switch instruction)
         Pi("longSwitch(5L)", LongSwitch(5L));
         Pi("longSwitch(99L) [default]", LongSwitch(99L));
 
-        // goto case（同一跳表）
+        // goto case (same jump table)
         Pi("gotoCase(1)", GotoCase(1));
 
-        // ---- leave/finally：return 退出 try → finally 仍执行 ----
+        // ---- leave/finally: return exiting try -> finally still runs ----
         Pi("retThroughFinally(1)", RetThroughFinally(1));
         P("-- retThroughFinally(2) 异常路径 --");
         try { Pi("retThroughFinally(2)", RetThroughFinally(2)); }
         catch (Exception e) { P("caught: " + e.GetType().Name); }
 
-        // ---- finally 在异常传播前执行（try/finally 无 catch）----
+        // ---- finally runs before exception propagation (try/finally without catch) ----
         P("-- try/finally 异常传播顺序 --");
         try { ThrowInTryFinally(); }
         catch (Exception e) { P("caught: " + e.GetType().Name); }
 
-        // ---- 嵌套 finally：LIFO（异常被外层 catch 接住，程序正常退出）----
+        // ---- nested finally: LIFO (exception caught by outer catch, program exits normally) ----
         P("-- 嵌套 finally LIFO --");
         try
         {
@@ -63,7 +63,7 @@ class SwProbe
         finally { P("finally: outer"); }
         P("-- end --");
 
-        // ---- break/continue 在循环内 try 的 finally ----
+        // ---- finally of a try inside a loop on break/continue ----
         P("-- 循环内 try/finally break --");
         for (int i = 0; i < 3; i++)
         {
@@ -123,7 +123,7 @@ class SwProbe
         {
             if (mode == 2) throw new Exception("boom");
             P("try: mode=" + mode);
-            return mode * 10;      // leave：finally 先执行，返回值为 10
+            return mode * 10;      // leave: finally runs first, return value is 10
         }
         finally
         {
