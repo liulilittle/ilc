@@ -234,7 +234,7 @@ public static partial class MethodRefResolver
             case "get_HasElementType":
                 return I("il2cpp::runtime::il2cpp_type_has_element_type", 0, true, false, true);
             case "get_BaseType":
-                return I("il2cpp::runtime::il2cpp_type_get_base_type", 0, true, true, true, returnTypeName: "System.Type");
+                return I("il2cpp::il2cpp_typeinfo_get_base_type", 0, true, true, true, returnTypeName: "System.Type");
             // RF-N4 -- generic-type identification (NEXT2-DECISION section ②
             // RF-N4, 裁决①三分落转译端):
             //   * get_IsGenericType -- the RUNTIME predicate, judged by the

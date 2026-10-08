@@ -1467,6 +1467,19 @@ public static class TypeEmitter
         // so the runtime answers IsGenericType for typeof(Box<>) and
         // typeof(Box<int>) alike. 0 = non-generic (the zero-delta default).
         w.Line($"    {t.GenericArity},                                    // genericArity");
+        // D (audit A3/observation 3): baseTypeName -- the BCL non-Object base
+        // terminal. When the resolved baseType pointer is null (BCL base not
+        // translated) but the METADATA base is a BCL type other than
+        // System.Object (e.g. CustomEx : System.Exception), net48
+        // typeof(CustomEx).BaseType is NON-null -- the runtime get_BaseType
+        // icall answers this full base name. User bases (baseType pointer set)
+        // and System.Object roots keep nullptr (net48 typeof(object).BaseType
+        // == null; a user base rides the baseType pointer). Trailing field --
+        // mirrors the struct order in typeinfo.h (after genericArity).
+        var baseTypeNameExpr = t.BaseType != null || t.BaseTypeName == "System.Object"
+            ? "nullptr"
+            : $"\"{t.BaseTypeName}\"";
+        w.Line($"    {baseTypeNameExpr},  // baseTypeName (BCL base terminal)");
         w.Line("};");
         w.Line();
         return w.ToString();

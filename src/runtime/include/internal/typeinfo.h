@@ -128,10 +128,20 @@ struct Il2CppTypeInfo
     // AND its closed CLONES both carry the definition's arity and register
     // under the SAME name key (ReflectionFullName -- the clone's name IS the
     // definition's name), so the runtime answers IsGenericType for
-    // typeof(Box<>) and typeof(Box<int>) alike and can never distinguish a
-    // definition from its clones (IsGenericTypeDefinition is decided at
-    // TRANSPILE time by the TypeEmitter/StackFold fold, NOT at runtime).
+    //   typeof(Box<>) and typeof(Box<int>) alike and can never distinguish a
+    //   definition from its clones (IsGenericTypeDefinition is decided at
+    //   TRANSPILE time by the TypeEmitter/StackFold fold, NOT at runtime).
     int32_t              genericArity;
+    // D (audit A3/observation 3): the BCL non-Object base terminal. When a
+    // user type derives directly from a BCL type (CustomEx : System.Exception),
+    // the resolved baseType pointer stays null (BCL bases are not translated)
+    // but net48 Type.BaseType is NON-null (System.Exception) -- the runtime
+    // get_BaseType icall returns this full base name on the BCL-base edge.
+    // User bases (baseType pointer set) keep this null; System.Object roots
+    // (BaseTypeName "System.Object") keep this null (net48 typeof(object)
+    // .BaseType == null). Trailing field (like genericArity) -- the emitter
+    // emits it for every reflected type.
+    const char*          baseTypeName;
 };
 
 //------------------------------------------------------------------------------
@@ -213,6 +223,14 @@ Il2CppObject* il2cpp_typeinfo_get_property(Il2CppObject* typeName, Il2CppObject*
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* memberName);
+// D (audit A3/observation 3): Type.BaseType on a Type VALUE (full-name
+// string). Resolves the typeinfo registry and returns the BASE type's full
+// name string (the simplified Type model) on a hit -- the resolved user base
+// (baseType pointer -> its name) or the BCL terminal base
+// (baseTypeName field). System.Object roots / unregistered / malformed ->
+// nullptr. Null typeName -> NullReferenceException (net48: ((Type)null)
+// .BaseType throws NRE).
+Il2CppObject* il2cpp_typeinfo_get_base_type(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
 // RF-N4 -- generic-type identification icalls (NEXT2-DECISION section ② RF-N4,
@@ -228,8 +246,8 @@ Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* me
 //        array (net48 typeof(int).GetGenericArguments() is empty); a type
 //        with genericArity > 0 -> LOUD NotSupportedException (the genericArg-
 //        Names B方案 is deferred -- no argument fabrication, ever). The
-//        empty-array path reuses BuildNameArray so callers get the same
-//        reference-element array the member enumerators return.
+//        empty-array path returns EmptyStringArray() (the shared zero-length
+//        reference-element array the not-found member enumerators also use).
 //   il2cpp_typeinfo_get_generic_type_definition -- Type.GetGenericTypeDefinition():
 //        genericArity > 0 -> the receiver ITSELF (identity -- the simplified
 //        Type model; the folded name of a closed instantiation IS the

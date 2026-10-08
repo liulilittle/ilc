@@ -1,0 +1,4 @@
+base_type=CustomEx
+base_base_type=Exception
+root_base=<null>
+top_base=Exception

@@ -199,6 +199,28 @@ public class MethodMapTestsType
         Assert.Equal(1, resolved.ParamCount);
     }
 
+    //--------------------------------------------------------------------------
+    // get_BaseType -- instance: the base type of a Type VALUE (full-name
+    // string). The receiver is the name string; the runtime resolves the
+    // typeinfo registry and returns the BASE type's full-name string (or
+    // null for System.Object / unregistered). The old mapping pointed at the
+    // klass-based il2cpp_type_get_base_type(Il2CppClass*) -- a name-string
+    // receiver does not compile (audit A3/D). ReturnTypeName "System.Type"
+    // keeps the Type-domain linkage (get_Name on the result).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetBaseType_MapsToTypeinfoIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "get_BaseType",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_BaseType"); // ()
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_base_type", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);   // the base type full-name string
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
     [Fact]
     public void Resolve_Type_GetMethodString_MapsToTypeinfoIcall()
     {

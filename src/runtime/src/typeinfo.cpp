@@ -453,6 +453,56 @@ Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* me
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_base_type -- managed-string Type.BaseType icall (D /
+// audit A3 observation 3).
+//
+// The Type VALUE is the full-name string (the simplified Type model). The
+// icall resolves the typeinfo registry and returns the base type's FULL-NAME
+// string:
+//   * a resolved USER base  -> info->baseType->name (e.g. "Cases.CustomEx"
+//     for CustomMid : CustomEx -- the base typeinfo's name field).
+//   * a BCL non-Object base -> info->baseTypeName (e.g. "System.Exception"
+//     for CustomEx : Exception -- the emitter's BCL terminal name; the
+//     baseType pointer is null there because BCL bases are not translated,
+//     but net48 Type.BaseType is NON-null for this edge).
+//   * System.Object root    -> nullptr (net48: typeof(object).BaseType == null;
+//     a BCL type itself is not registered, so the lookup also yields null).
+// Null typeName -> NullReferenceException (net48: ((Type)null).BaseType
+// throws NRE -- the null-Type-receiver doctrine, same as the member queries).
+// The RESULT is a Type VALUE (full-name string) -- get_Name downstream
+// truncates to the short name, exactly like the member-query results.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_base_type(Il2CppObject* typeName)
+{
+    if (typeName == nullptr)
+    {
+        ThrowNullTypeReceiver();
+    }
+    char typeBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr)
+    {
+        return nullptr;
+    }
+    const char* base = nullptr;
+    if (info->baseType != nullptr)
+    {
+        base = info->baseType->name;
+    }
+    else if (info->baseTypeName != nullptr)
+    {
+        base = info->baseTypeName;
+    }
+    return base != nullptr
+        ? reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(base))
+        : nullptr;
+}
+
+//------------------------------------------------------------------------------
 // C3-2 -- EventInfo.AddEventHandler / EventInfo.RemoveEventHandler.
 //
 // The receiver is the EVENT-NAME string (the simplified member model, as
