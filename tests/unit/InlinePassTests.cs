@@ -672,7 +672,7 @@ public class InlinePassTests
     };
 
     //--------------------------------------------------------------------------
-    // callvirt non-virtual inlining (the "opt 批" extension -- Roslyn emits
+    // callvirt non-virtual inlining (the "opt-batch" extension -- Roslyn emits
     // callvirt for EVERY instance call; a non-virtual callee is a compile-time
     // direct call and is inlineable).
     //--------------------------------------------------------------------------

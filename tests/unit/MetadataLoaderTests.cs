@@ -75,7 +75,7 @@ public class MetadataLoaderTests
     }
 
     //--------------------------------------------------------------------------
-    // refl2 方案 D8 (reflops d1_prop): the PropertyMap/Property tables load
+    // refl2 plan D8 (reflops d1_prop): the PropertyMap/Property tables load
     // into the PropertyDef model -- name, full type name (decoded from the
     // PropertySig return slot), getter/setter METHOD NAMES (the typeinfo
     // property table references accessors by name through the SAME methods

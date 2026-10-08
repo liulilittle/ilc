@@ -5,18 +5,18 @@ using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Model;
 using Xunit;
 
-// Queue/Stack canonical-shared dispatch (A4 虚派发改造 + 泛型禁重复特例化铁律):
-//   * GetEnumerator: 全实例化走单一通用臂 (同一 icall, token 由统一函数机械计算),
-//     消灭按 int/long/double/string/object/class/dotted 分臂;
-//   * get_Current: 未知/无约束 enumerator token 落 object 共享臂
-//     (il2cpp_*_enumerator_get_current 跟踪 System.Object), 禁止静默回退到
-//     int 拆箱 (Queue 旧缺省) 或误跟踪 string (Stack 旧缺省);
-//   * 未知值型实例化 (float/bool/...) 的容器成员保持 LOUD -- 无泛型 box 发射,
-//     不得误走 object 共享臂 (会产生类型错误的 C++).
+// Queue/Stack canonical-shared dispatch (A4 virtual-dispatch rework + the no-repeated-generic-specialization rule):
+//   * GetEnumerator: all instantiations go through a single common arm (same icall; token mechanically computed by a unified function),
+//     eliminating per-int/long/double/string/object/class/dotted arms;
+//   * get_Current: unknown/unconstrained enumerator token falls to the shared object arm
+//     (il2cpp_*_enumerator_get_current tracks System.Object); no silent fallback to
+//     int unboxing (Queue old default) or mistakenly tracking string (Stack old default);
+//   * container members of unknown value-type instantiations (float/bool/...) stay LOUD -- no generic box emission,
+//     must not wrongly go through the shared object arm (would produce type-incorrect C++).
 public class MethodMapTestsQueueCanonical
 {
     //--------------------------------------------------------------------------
-    // Queue GetEnumerator: int token 经通用臂保持 (collapse 前后同 icall+token).
+    // Queue GetEnumerator: int token stays on the common arm (same icall+token before/after collapse).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Queue_GetEnumerator_IntToken_ViaUniversalArm()
@@ -30,7 +30,7 @@ public class MethodMapTestsQueueCanonical
     }
 
     //--------------------------------------------------------------------------
-    // Queue get_Current: 已知 int token 保持值型快路径 (拆箱 icall).
+    // Queue get_Current: known int token keeps the value-type fast path (unboxing icall).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Queue_GetCurrent_IntToken_KeepsIntUnbox()
@@ -43,7 +43,7 @@ public class MethodMapTestsQueueCanonical
     }
 
     //--------------------------------------------------------------------------
-    // Queue get_Current: 未知 token 落 object 共享臂 (今日红: 静默 int 拆箱).
+    // Queue get_Current: unknown token falls to the shared object arm (today red: silent int unboxing).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Queue_GetCurrent_UnknownToken_MapsToSharedObjectArm()
@@ -57,7 +57,7 @@ public class MethodMapTestsQueueCanonical
     }
 
     //--------------------------------------------------------------------------
-    // Queue 容器: 未知值型实例化保持 LOUD (不得误走 object 臂).
+    // Queue container: unknown value-type instantiations stay LOUD (must not wrongly take the object arm).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Queue_GetEnumerator_FloatTag_ThrowsLoud()
@@ -71,7 +71,7 @@ public class MethodMapTestsQueueCanonical
     }
 
     //--------------------------------------------------------------------------
-    // Stack GetEnumerator: int token 经通用臂保持.
+    // Stack GetEnumerator: int token stays on the common arm.
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Stack_GetEnumerator_IntToken_ViaUniversalArm()
@@ -85,7 +85,7 @@ public class MethodMapTestsQueueCanonical
     }
 
     //--------------------------------------------------------------------------
-    // Stack get_Current: 已知 int token 保持值型快路径.
+    // Stack get_Current: known int token keeps the value-type fast path.
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Stack_GetCurrent_IntToken_KeepsIntUnbox()
@@ -98,7 +98,7 @@ public class MethodMapTestsQueueCanonical
     }
 
     //--------------------------------------------------------------------------
-    // Stack get_Current: 未知 token 落 object 共享臂 (今日红: 误跟踪 string).
+    // Stack get_Current: unknown token falls to the shared object arm (today red: mistakenly tracks string).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Stack_GetCurrent_UnknownToken_MapsToSharedObjectArm()
@@ -112,7 +112,7 @@ public class MethodMapTestsQueueCanonical
     }
 
     //--------------------------------------------------------------------------
-    // Stack 容器: 未知值型实例化保持 LOUD.
+    // Stack container: unknown value-type instantiations stay LOUD.
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Stack_GetEnumerator_FloatTag_ThrowsLoud()

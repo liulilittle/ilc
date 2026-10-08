@@ -13,7 +13,7 @@ using Xunit;
 
 //------------------------------------------------------------------------------
 // GenericUsageAnalyzer tests -- compile-pruning verdicts for generic-type
-// sharing (the user-mandated architecture, GENERIC-SHARE-DESIGN.md 搂2).
+// sharing (the user-mandated architecture, GENERIC-SHARE-DESIGN.md §2).
 //
 // Covers the dominant multi-type-parameter template shapes:
 //   Pair<T1,T2>    -- pure object-compatible slot access  -> both params share
@@ -222,7 +222,7 @@ public class GenericUsageAnalyzerTests
     // knots that wrap a METHOD-level MVAR (0x1E): the 0x1B GenericInst knot,
     // the 0x14 multidimensional ARRAY, and the 0x1D SZARRAY. Each shape must
     // report true when it wraps 0x1E, false when it wraps a CLASS-level 0x13
-    // VAR, and false when the blob cannot be decoded (conservative, "宁可特例化").
+    // VAR, and false when the blob cannot be decoded (conservative, "prefer explicit specialization").
     // Blobs are hand-synthesized (MetadataBuilder TypeSpec rows, no compiler can
     // emit an MVAR in a standalone TypeSpec); the private scanner is reached via
     // reflection (the same NonPublic|Static pattern as CodeGeneratorTests.

@@ -132,9 +132,9 @@ public class CliTests
     [Fact]
     public void Main_ReflectionList_FiltersManifestToAssemblyTypes()
     {
-        // Mode B generation rule (reflection-runtime-design.md 搂4): generate reflection
+        // Mode B generation rule (reflection-runtime-design.md §4): generate reflection
         // metadata only for types on the manifest. Manifest entries must be validated
-        // against actual assembly types first 鈥?the calc.dll fixture only contains
+        // against actual assembly types first —the calc.dll fixture only contains
         // Calc.Program, so types absent from the manifest must be filtered (the first
         // step in consuming the manifest on the generation side).
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
@@ -158,7 +158,7 @@ public class CliTests
     [Fact]
     public void Main_ReflectionList_WarnsOnDroppedTypes()
     {
-        // Filtered manifest entries must warn (non-fatal) 鈥?user typos become
+        // Filtered manifest entries must warn (non-fatal) —user typos become
         // diagnosable but never block generation.
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
         var manifest = TempManifest("Calc.Program", "Calc.Math");
@@ -189,7 +189,7 @@ public class CliTests
         Assert.Equal(1, code);
     }
 
-    // Exit-code contract (user-guide.md 搂3.2): 0 = success, 1 = parse error,
+    // Exit-code contract (user-guide.md §3.2): 0 = success, 1 = parse error,
     // 2 = transpile failure. Parse errors and failures go to STDERR with the
     // "il2cppc error:" prefix; success diagnostics go to stdout.
 
@@ -220,7 +220,7 @@ public class CliTests
     [Fact]
     public void Main_MissingInputAssembly_ExitsTwo_WithStderrError()
     {
-        // user-guide.md 搂3.2: exit 2 = transpile failure (metadata load throws),
+        // user-guide.md §3.2: exit 2 = transpile failure (metadata load throws),
         // message + stack trace on stderr with the "il2cppc error:" prefix.
         var originalErr = Console.Error;
         var captured = new StringWriter();
@@ -243,7 +243,7 @@ public class CliTests
     [Fact]
     public void Main_ParseError_ExitsOne_WithStderrPrefix()
     {
-        // user-guide.md 搂3.2: exit 1 = command-line parse error, message on stderr.
+        // user-guide.md §3.2: exit 1 = command-line parse error, message on stderr.
         var originalErr = Console.Error;
         var captured = new StringWriter();
         try
@@ -271,7 +271,7 @@ public class CliTests
     [Fact]
     public void Main_Success_PrintsGeneratedMessageToStdout()
     {
-        // user-guide.md 搂3.2: exit 0 success prints "generated N type(s) -> <dir>"
+        // user-guide.md §3.2: exit 0 success prints "generated N type(s) -> <dir>"
         // to stdout (stdout = diagnostics, stderr = errors/warnings).
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
         var originalOut = Console.Out;
@@ -293,7 +293,7 @@ public class CliTests
     [Fact]
     public void ReflectionList_GranularityValues_AreCaseInsensitive()
     {
-        // user-guide.md 搂3.1: granularity values are case-insensitive.
+        // user-guide.md §3.1: granularity values are case-insensitive.
         var manifest = TempManifest("Calc.Program");
         try
         {
@@ -319,7 +319,7 @@ public class CliTests
     [Fact]
     public void ReflectionList_FlagsAcceptedAfterPositionals()
     {
-        // user-guide.md 搂3.1: options may appear before, between, or after the positionals.
+        // user-guide.md §3.1: options may appear before, between, or after the positionals.
         var manifest = TempManifest("Calc.Program");
         try
         {

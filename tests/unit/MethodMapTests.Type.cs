@@ -278,11 +278,11 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
-    // RF-N4 -- generic-type identification (裁决①三分落转译端, NEXT2-DECISION
+    // RF-N4 -- generic-type identification (ruling ① three-way split lands on the transpiler side, NEXT2-DECISION
     // section ② RF-N4):
     //   * GetGenericArguments -- TYPEINFO icall, THREE-WAY at runtime:
-    //     non-generic -> EMPTY array; genericArity > 0 -> LOUD (禁伪造, the
-    //     genericArgNames B方案 is deferred). ReturnTypeName "System.Type[]"
+    //     non-generic -> EMPTY array; genericArity > 0 -> LOUD (no fabrication, the
+    //     genericArgNames plan B is deferred). ReturnTypeName "System.Type[]"
     //     keeps the Array-domain folds (.Length / element read) resolved.
     //   * get_IsGenericType -- the runtime predicate: judged by the typeinfo's
     //     emitted genericArity (both the definition AND its closed clones

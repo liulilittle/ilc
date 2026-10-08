@@ -9,7 +9,7 @@ using Xunit;
 // il2cpp_gen_exe (self-test executable; host.cpp ONLY in the exe). The static
 // form must be installable/distributable (install(TARGETS) + IL2CPP_LIB_NAME
 // naming) and the runtime must be position-independent so a Linux .so can link
-// the static runtime (P-F-AUDIT-1 双审定案 §1/§2/§3).
+// the static runtime (P-F-AUDIT-1 dual-review verdict §1/§2/§3).
 public class BuildFormTests
 {
     private static string FixturePath(string name = "calc")
@@ -148,7 +148,7 @@ public class BuildFormTests
     public void Runtime_CmakeHasPositionIndependentCode()
     {
         var runtimeCmake = File.ReadAllText(Path.Combine(RepoRoot(), "src", "runtime", "CMakeLists.txt"));
-        // P-F 双审定案 §1: the static runtime must build PIC so a Linux .so
+        // P-F dual-review verdict §1: the static runtime must build PIC so a Linux .so
         // target can fold it without non-PIC relocations
         Assert.Contains("POSITION_INDEPENDENT_CODE ON", runtimeCmake);
     }

@@ -22,7 +22,7 @@ using Xunit;
 //   * multidim ARRAY (0x14): element + rank + sizes/lobounds lists -> "r".
 //     The matrixcase probe E wall (formerly "multidim-array/function-pointer
 //     local ... not supported" @MethodBodyReader.cs:193) is now decoded
-//     (multidim-probe.md fix direction: "0x14 按引用槽 'r' + 完整消费").
+//     (multidim-probe.md fix direction: "0x14 per-reference slot 'r' + full consumption").
 //   * ELEMENT_TYPE_U (0x19, native uint): single-byte, no trailing -> "i"
 //     (pre-fix it was wrongly lumped with multidim and REJECTED).
 //   * PTR (0x0F) / BYREF (0x10): the element type byte follows and must be

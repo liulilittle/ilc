@@ -16,7 +16,7 @@ public class MethodMapTestsLegacy
 {
     //--------------------------------------------------------------------------
     // System.Runtime.Remoting.* -- the 6 public-face RemotingServices gaps
-    // (net48 audit §3 row 979: "旧技术, 建议 LOUD 拒绝"). The family has no
+    // (net48 audit §3 row 979: "legacy technique, LOUD rejection recommended"). The family has no
     // runtime infrastructure (proxies/ObjRef/channels/contexts).
     //--------------------------------------------------------------------------
     [Theory]
