@@ -12,12 +12,12 @@
 //      `{n,m}?`. Each pair is shown producing a DIFFERENT observable result
 //      (Replace expansion or Match success) so a wrong default (all-greedy /
 //      all-lazy) fails the byte-diff.
-//   2. GIVE-BACK / BACKTRACKING (回溯): greedy quantifiers give back to a
+//   2. GIVE-BACK / BACKTRACKING (backtracking): greedy quantifiers give back to a
 //      following atom ("a+ab" needs the + to release one 'a'), lazy
 //      quantifiers grow one iteration at a time until the continuation
 //      succeeds ("a+?b" takes the minimum then grows), and nested
 //      alternation give-back ("^(a|ab)+$" iterates 'ab','ab').
-//   3. NESTED QUANTIFIERS (嵌套量词): quantified groups whose child is itself
+//   3. NESTED QUANTIFIERS (nested quantifiers): quantified groups whose child is itself
 //      quantified -- `(a+)+`, `(a*)*`, `(ab+)*`, `(ab*)+`, `(a{2,3})+`,
 //      `((a)+)+`, `((a|b)+)+` -- including the empty-iteration guard
 //      ("(a*)*" on "b"), and lazy INSIDE greedy (`(a+?)+`).

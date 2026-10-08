@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// hglobalops.cs -- HGlobal family deep probe (e2e batch C28, "hglobal 深测:
-// StringToHGlobalUni / GlobalFree 配对 -- GlobalAlloc 修复后"). Built AFTER
+// hglobalops.cs -- HGlobal family deep probe (e2e batch C28, "hglobal deep probe:
+// StringToHGlobalUni / GlobalFree pairing -- after the GlobalAlloc fix"). Built AFTER
 // commit 177bbe0 (GlobalAlloc/GMEM_FIXED on the Windows hglobal alloc side +
 // GlobalFree on the free side) to VERIFY the allocator pairing end-to-end and
 // probe its edges WITHOUT a clipboard/window (clipops already covers the

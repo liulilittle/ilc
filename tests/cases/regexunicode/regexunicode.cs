@@ -9,7 +9,7 @@
 //   1. CJK LITERALS + ANCHORS: literal hanzi in pattern/input, ^/$ anchors
 //      with CJK, CJK + ASCII in one anchored pattern.
 //   2. UNICODE CHAR-CLASS RANGES (the supported \p{...} replacement -- \p{L}
-//      etc. are out of subset, see GAPS): [一-龥] CJK, [ぁ-ん] hiragana,
+//      etc. are out of subset, see GAPS): [U+4E00-U+9FA5] CJK, [ぁ-ん] hiragana,
 //      [ァ-ヶ] katakana, [가-힣] hangul, [０-９] fullwidth digits, a mixed
 //      half/full-width ASCII digit range, Greek [α-ω], plus negation and a
 //      CJK+ASCII union class. (All BMP single code units: net48 char-class

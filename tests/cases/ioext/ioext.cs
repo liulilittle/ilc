@@ -4,19 +4,19 @@
 // over the fully-wired IO surface (MethodMap.IO.cs -> io.cpp/il2cpp_io.h +
 // MethodMap.StreamIO.cs -> streamio.cpp):
 //
-//   1. DIRECTORY TRAVERSAL (遍历): a nested 3-level tree (root/a/b/c) with a
+//   1. DIRECTORY TRAVERSAL (traversal): a nested 3-level tree (root/a/b/c) with a
 //      file written at the deepest level, Exists checks at every level,
 //      Directory.Exists(false) on a FILE path and File.Exists(false) on a
 //      DIRECTORY path, then recursive Delete(true) of the whole tree with the
 //      root kept -- plus the non-recursive delete of an EMPTY dir (1-arg and
 //      2-arg false both succeed on an empty directory, both runtimes).
-//   2. FileInfo PROPERTIES (属性): FileInfo.Length across write / append /
+//   2. FileInfo PROPERTIES (properties): FileInfo.Length across write / append /
 //      copy / move chains (the Length of the same physical file re-stated
 //      through a fresh FileInfo after each mutation), plus the D-IOEXT-1
 //      exception semantics: Length on a MISSING path or a DIRECTORY path
 //      throws FileNotFoundException (net48-probed; the runtime matches after
 //      the fix -- the try/catch flags print True on both runtimes).
-//   3. STREAM WRAPPING (流包装): StreamWriter(Stream) wrapping a FileStream,
+//   3. STREAM WRAPPING (stream wrapping): StreamWriter(Stream) wrapping a FileStream,
 //      StreamReader(Stream) wrapping a FileStream (ReadLine chain + EOF null),
 //      MemoryStream + StreamWriter + ToArray byte-exact, MemoryStream +
 //      StreamReader + ReadToEnd, StreamWriter(path) direct-write + read-back,

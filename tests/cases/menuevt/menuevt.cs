@@ -1,5 +1,5 @@
-// menuevt.cs -- MENU EVENT deep probe (e2e batch C25, "菜单事件深测: 多菜单项/
-// 状态联动/退订 -- WinForms 阶段 10 后"). Builds on winforms1 Phase 10 (the
+// menuevt.cs -- MENU EVENT deep probe (e2e batch C25, "menu event deep probe: multiple menu items /
+// state linkage / unsubscribe -- after WinForms stage 10"). Builds on winforms1 Phase 10 (the
 // MainMenu/MenuItem surface: CreateMenu + CreatePopupMenu + AppendMenuW +
 // SetMenu, WM_COMMAND dispatch by item id -> WfMenuItem.Click, status linkage)
 // and goes DEEPER on the menu event model:

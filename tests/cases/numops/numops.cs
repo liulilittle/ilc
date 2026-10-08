@@ -1,17 +1,17 @@
-// numops.cs -- numeric operations deep probe (e2e batch C21, "数字操作深测:
-// Convert 全形态 / Parse 边界 / 格式往返, convert/parse 修复后"). Uses ONLY the
+// numops.cs -- numeric operations deep probe (e2e batch C21, "numeric operations deep probe:
+// Convert all forms / Parse boundaries / format roundtrip, after the convert/parse fix"). Uses ONLY the
 // wired surface (MethodMap.Convert.cs M7 + MethodMap.ValueType.cs M7/M8 +
 // MethodMap.Format.cs) so the transpile is clean; the net48 oracle is the
 // byte-diff authority.
 //
 // Sections:
-//   S1 Convert 全形态 -- every wired Convert form with a boundary matrix:
+//   S1 Convert all forms -- every wired Convert form with a boundary matrix:
 //      ToInt32(string/long/double/char/(string,base)), ToInt64(string),
 //      ToDouble(string/int), ToString(int/long/double/bool/char/(int,base)),
 //      ToBoolean(int), ToChar(int), BitConverter bit round-trips.
-//   S2 Parse 边界 -- int.Parse / int.TryParse consistency matrix, long/byte/
+//   S2 Parse boundaries -- int.Parse / int.TryParse consistency matrix, long/byte/
 //      bool/double TryParse boundaries, double.Parse throws.
-//   S3 格式往返 -- ToString(D/X) -> Parse / Convert-fromBase round-trips for
+//   S3 format roundtrip -- ToString(D/X) -> Parse / Convert-fromBase round-trips for
 //      int/int64/double, exact-string pins for well-known doubles.
 //
 // AVOIDED (documented gaps, would NOT diff clean): long.Parse (LOUD-unwired),
@@ -48,7 +48,7 @@ namespace Cases
 
         public static void Main()
         {
-            // ================= S1: Convert 全形态 =================
+            // ================= S1: Convert all forms =================
             // -- ToInt32(string): whitespace / sign / zeros / boundaries --
             P("c32_s0", Convert.ToString(Convert.ToInt32("0")));                 // 0
             P("c32_sign", Convert.ToString(Convert.ToInt32("  +123  ")));        // 123
@@ -198,7 +198,7 @@ namespace Cases
             Console.WriteLine("bc_i2d=" + (BitConverter.Int64BitsToDouble(0x3FF0000000000000L) == 1.0)); // True
             Console.WriteLine("bc_zero=" + (BitConverter.DoubleToInt64Bits(0.0) == 0L));                  // True
 
-            // ================= S2: Parse 边界 =================
+            // ================= S2: Parse boundaries =================
             P("p_max", int.Parse("2147483647").ToString());              // 2147483647
             P("p_min", int.Parse("-2147483648").ToString());             // -2147483648
             P("p_zpad", int.Parse("0000000000000000001").ToString());    // 1
@@ -270,7 +270,7 @@ namespace Cases
             Console.WriteLine("dt_empty=" + double.TryParse("", out dv));                             // False
             Console.WriteLine("dt_null=" + double.TryParse(null, out dv));                            // False
 
-            // ================= S3: 格式往返 =================
+            // ================= S3: format roundtrip =================
             P("f_d4_42", (42).ToString("D4"));                       // 0042
             P("f_d4_neg", (-42).ToString("D4"));                     // -0042
             P("f_d4_0", (0).ToString("D4"));                         // 0000

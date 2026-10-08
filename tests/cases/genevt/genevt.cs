@@ -2,8 +2,8 @@
 // genevt.cs -- C3 (A3) managed e2e probe: the IConnectionPoint SINK event
 // mounting surface through the reflection event APIs, net48 oracle.
 //
-// The fake-source SELF-LOOP (DECISION C3-0 "net48 oracle = managed 源实现事件
-// 接口"): the event source is a MANAGED class (FakeSource) exposing the event
+// The fake-source SELF-LOOP (DECISION C3-0 "net48 oracle = managed source implementing the event
+// interface"): the event source is a MANAGED class (FakeSource) exposing the event
 // interface IFakeEvents (a COM event-source interface whose [Guid] folds into
 // the event IID at TRANSPILE time -- the C3-1 "event -> source interface ->
 // [Guid]" chain). The sink is a managed object (FakeSink) attached through
@@ -21,7 +21,7 @@
 //
 // Byte-stability: every line prints a labeled string/bool/count; net48 is
 // the reference baseline. No real COM dependency, no environment sensitivity
-// (pure-memory managed self-loop -- the C3 managed e2e "假源自环").
+// (pure-memory managed self-loop -- the C3 managed e2e "fake-source self-loop").
 //------------------------------------------------------------------------------
 using System;
 using System.Reflection;

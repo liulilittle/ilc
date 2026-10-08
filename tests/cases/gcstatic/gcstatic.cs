@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// gcstatic.cs -- STATIC GC-ROOT deep probe (e2e batch C28, "静态 GC 根深测:
-// 多静态字段/压缩/委托静态 -- 根注册后"). Built AFTER commit 01afb99
+// gcstatic.cs -- STATIC GC-ROOT deep probe (e2e batch C28, "static GC-root deep probe:
+// multiple static fields / compaction / static delegates -- after root registration"). Built AFTER commit 01afb99
 // (reference static fields now register as GC roots via entry.cpp
 // il2cpp_gc_add_static_root) to VERIFY the fix at higher depth than the C27
 // gcroot case. gcroot planted ONE field at a time and checked retention; this

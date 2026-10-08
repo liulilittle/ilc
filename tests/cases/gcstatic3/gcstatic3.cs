@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// gcstatic3.cs -- STATIC GC-ROOT deep probe 3 (e2e batch C30, "静态 GC 根深测
-// 3: 压力压缩/多类型 -- 根注册后"). gcroot (C27) planted ONE static root per
+// gcstatic3.cs -- STATIC GC-ROOT deep probe 3 (e2e batch C30, "static GC-root deep probe
+// 3: stress compaction / multiple types -- after root registration"). gcroot (C27) planted ONE static root per
 // family and gcstatic (C28) stressed the MULTI-FIELD table (8 fields across
 // THREE types + 10 collects with 8KiB churn + static delegates + cross-type
 // reachability). THIS case pushes the registered-static-root contract

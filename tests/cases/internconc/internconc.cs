@@ -1,5 +1,5 @@
 // internconc.cs -- String.Intern CONCURRENCY deep probe (e2e batch C23,
-// "Intern 并发深测: 多线程 Intern 同一池/不同串 -- Intern 互斥后"). Builds on
+// "Intern concurrency deep probe: multi-threaded Intern on the same/different strings -- after the Intern mutex"). Builds on
 // internops (C20, 4 workers) and the thread-safe intern pool mutex
 // (stringintern.cpp: the recursive g_internMutex serializes find/insert/grow).
 // THIS case goes DEEPER on the mutex's concurrency contract:

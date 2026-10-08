@@ -1,5 +1,5 @@
-// lockperf.cs -- LOCK DEEP 2 (e2e batch C24, "lock 深测 2: 竞争/重入深 --
-// lock 修复后"). Builds on lockdeep (single-threaded nesting/exception/
+// lockperf.cs -- LOCK DEEP 2 (e2e batch C24, "lock deep probe 2: contention / deep reentry --
+// after the lock fix"). Builds on lockdeep (single-threaded nesting/exception/
 // manual-Enter matrix, batch C23) + conccases (8-thread lock/Interlocked
 // baseline, framestack thread_local fix 9fa9ba5) and goes DEEPER on the
 // CONTENTION and REENTRANCY dimensions of the lock statement's lowering:

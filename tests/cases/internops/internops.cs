@@ -2,7 +2,7 @@
 // oracle runs the SAME source; the ILC side must produce byte-identical
 // identity booleans AND concurrency results.
 //
-// Focus (per the batch worklist "Intern/IsInterned/并发 -- Intern 互斥后"):
+// Focus (per the batch worklist "Intern/IsInterned/concurrency -- after the Intern mutex"):
 //   * Identity semantics beyond internchain: Intern on a literal returns the
 //     literal itself; Intern on a runtime-built copy returns the POOL entry
 //     (distinct from the copy); Intern is idempotent; distinct contents get

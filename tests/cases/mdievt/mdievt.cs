@@ -1,5 +1,5 @@
-// mdievt.cs -- MDI EVENT deep probe (e2e batch C26, "MDI 事件深测: 子激活序/
-// 各自事件/父子联动 -- WinForms 阶段 11 后"). Builds on winforms1 Phase 11 (the
+// mdievt.cs -- MDI EVENT deep probe (e2e batch C26, "MDI event deep probe: child activation order /
+// per-child events / parent-child linkage -- after WinForms stage 11"). Builds on winforms1 Phase 11 (the
 // simplified MDI surface: an MDI FRAME (top-level, WS_CLIPCHILDREN) -> its MDI
 // CLIENT (a WS_CHILD, the single parent of all children) -> 3 MDI CHILD
 // windows (WS_CHILD of the client, each with its OWN WfMdiChild managed model

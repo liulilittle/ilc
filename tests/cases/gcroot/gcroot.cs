@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// gcroot.cs -- GC-ROOT deep probe (e2e batch C27, "GC 根深测: 静态引用字段保持/
-// 压缩下存活/委托静态 -- GC 根修复后"). Built AFTER commit 01afb99 (reference
+// gcroot.cs -- GC-ROOT deep probe (e2e batch C27, "GC root deep probe: static reference fields kept /
+// survival under compaction / static delegates -- after the GC-root fix"). Built AFTER commit 01afb99 (reference
 // static fields now register as GC roots via entry.cpp il2cpp_gc_add_static_root)
 // to VERIFY the fix on the reference-static-field surface and probe its edges.
 //

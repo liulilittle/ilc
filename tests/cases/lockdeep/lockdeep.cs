@@ -1,5 +1,5 @@
-// lockdeep.cs -- LOCK DEEP probe (e2e batch C23, "lock 深测: 嵌套/重入/异常
-// 释放 -- lock 修复后"). Builds on lockcase (single-threaded lock statement /
+// lockdeep.cs -- LOCK DEEP probe (e2e batch C23, "lock deep probe: nesting / reentry / exception
+// release -- after the lock fix"). Builds on lockcase (single-threaded lock statement /
 // Monitor surface, label-at-end fix 82d0770) and goes DEEPER on the lock
 // statement's lowering semantics:
 //

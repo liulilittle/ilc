@@ -101,7 +101,7 @@ namespace Cases
             // backed object (resdeep GAPS D-RD-1). The class IDENTITY is a
             // documented divergence -- the probe AVOIDS it (probe avoidance)
             // and pins the BUFFER-BOUNDS contract that net48 validates at
-            // call time (Read 越界抛; Position 越界等):
+            // call time (Read out-of-bounds throws; Position out-of-bounds, etc.):
             //   * offset/count negative            -> ArgumentOutOfRangeException
             //   * offset + count > buffer.Length   -> ArgumentException
             //   * count beyond the stream remainder but INSIDE the buffer ->

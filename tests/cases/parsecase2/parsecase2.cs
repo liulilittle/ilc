@@ -1,5 +1,5 @@
-// parsecase2.cs -- PARSE DEEP 2 (e2e batch C24, "Parse 深测 2:
-// fromBase/uint wrap -- parse 修复后"). Builds on parsecase (single-layer
+// parsecase2.cs -- PARSE DEEP 2 (e2e batch C24, "Parse deep probe 2:
+// fromBase/uint wrap -- after the parse fix"). Builds on parsecase (single-layer
 // TryParse/Convert surface) and goes DEEPER on the base-N conversions +
 // the uint32 two's-complement wraparound that dominates the fromBase
 // contract:

@@ -5,18 +5,18 @@ namespace Cases { public static class RegexDeep2 {
     // regex2/regex3/regdeep over the WIRED static surface (MethodMap.Regex.cs
     // -> regex_api.cpp: IsMatch/Match/Split/Replace) with four deeper axes:
     //
-    //   1. CHAR CLASSES (字符类): union/negation combos, meta-characters as
+    //   1. CHAR CLASSES (character classes): union/negation combos, meta-characters as
     //      class literals ([+*], [.]), builtin \d\w as class members, class
     //      sequences, '^' as a literal inside a class.
-    //   2. GROUPS (分组): nested capturing groups and net48 group NUMBERING
+    //   2. GROUPS (groups): nested capturing groups and net48 group NUMBERING
     //      (outermost-left-to-right: ((a)(b))c -> $1 outer, $2/$3 inner),
     //      groups under quantifiers, alternation inside a group, empty
     //      groups.
-    //   3. BACKTRACKING (回溯): alternation first-branch-fail, greedy
+    //   3. BACKTRACKING (backtracking): alternation first-branch-fail, greedy
     //      quantifier give-back under a following atom, nested-quantifier
     //      iteration, anchored .* give-back.
     //   4. UNICODE (Unicode): literal CJK in input/pattern/replacement, CJK
-    //      char-class RANGE ([一-龥] code-unit range), negation probes, CJK
+    //      char-class RANGE ([U+4E00-U+9FA5] code-unit range), negation probes, CJK
     //      split separator. Output stays ASCII bool (the e2e wide-char diff
     //      is UTF-8 pinned on both sides, but ASCII output is the safest).
     //

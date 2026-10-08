@@ -4,16 +4,16 @@
 // (MethodMap.Uri.cs -> versionuri.h: .ctor(string) / get_Scheme / get_Host /
 // get_AbsolutePath / ToString):
 //
-//   1. PARSING (解析): scheme grammar edges (multi-char / '+' / '.' / digit
+//   1. PARSING (parsing): scheme grammar edges (multi-char / '+' / '.' / digit
 //      continuation, single-letter, IP-literal hosts, deep paths, trailing
 //      slash, root path "/"), each probed via the four accessors + ToString.
-//   2. COMPOSITION (组合): the accessor COMBINATION identity
+//   2. COMPOSITION (composition): the accessor COMBINATION identity
 //      Scheme + "://" + Host + AbsolutePath == ToString on path-bearing URIs,
 //      plus ToString round-trip stability (parse -> ToString -> parse ->
 //      ToString is idempotent) and mixed-case PATH preservation (net48 keeps
 //      the path case verbatim while normalizing scheme/host -- only lowercase
 //      scheme/host are probed, the common subset).
-//   3. RELATIVE / MALFORMED (相对): relative-form strings ("a/b", "/x",
+//   3. RELATIVE / MALFORMED (relative): relative-form strings ("a/b", "/x",
 //      "//h/x") and grammar violations (digit-leading scheme, space in scheme,
 //      empty scheme, empty host) throw on BOTH runtimes -- net48
 //      UriFormatException, ILC ArgumentException, common base SystemException

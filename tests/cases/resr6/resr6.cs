@@ -9,15 +9,15 @@
 //
 //   1. NON-ASCII KEYS in the invariant .resources blob, through
 //      ResourceManager.GetString: Latin-1 ("Greeting_de" / "Schlüssel"),
-//      CJK ("中文键"), Cyrillic ("Русский"). Values are non-ASCII too
-//      ("Überraschung", "中文值", "Привет") so the value byte path is pinned
+//      CJK ("zhongwenjian"), Cyrillic ("Русский"). Values are non-ASCII too
+//      ("Überraschung", "zhongwenzhi", "Привет") so the value byte path is pinned
 //      end-to-end.
 //   2. ORDINAL miss semantics: a case-mutated key ("GREETING_DE") and a
-//      prefix key ("中键") are BOTH null (net48 key lookup is ordinal -- no
+//      prefix key ("zhongjian") are BOTH null (net48 key lookup is ordinal -- no
 //      case folding, no prefix match), so the UTF-8 compare must be exact.
-//   3. NON-ASCII MANIFEST resource name: "resr6.数据.bin" is embedded raw;
+//   3. NON-ASCII MANIFEST resource name: "resr6.shuju.bin" is embedded raw;
 //      GetManifestResourceNames must contain it and
-//      GetManifestResourceStream("resr6.数据.bin") must return the exact
+//      GetManifestResourceStream("resr6.shuju.bin") must return the exact
 //      payload bytes (registry lookup is UTF-8 strcmp).
 //   4. NON-ASCII BASE NAME: a ResourceManager over "resr6.Résumé" resolves
 //      "resr6.Résumé.resources" (the ctor validates the base name in UTF-8;

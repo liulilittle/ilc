@@ -23,7 +23,7 @@
 //     FormatException for a null text (il2cpp_format.h:321/395) where net48
 //     throws ArgumentNullException; the null inputs below are therefore
 //     exercised through TryParse only (returns false on both).
-//   * int.Parse 各进制 Convert.ToInt32(string, fromBase) -- LOUD rejection
+//   * int.Parse (each base) vs Convert.ToInt32(string, fromBase) -- LOUD rejection
 //     (MethodMap.Convert.cs:37); the runtime has only the no-throw
 //     icall_try_parse_int32_base. GAPS.md D-PAR-1.
 //   * long.Parse -- LOUD rejection (MethodMap.ValueType.cs:65, no int64 Parse
