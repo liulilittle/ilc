@@ -62,7 +62,26 @@ namespace Il2Cpp.Transpiler.Emit
                 // precedent). BCL struct full names stay LOUD.
                 || DottedRefArg(instName ?? receiverType) != null;
             var isArray = instName?.Contains("_array", StringComparison.Ordinal) == true
-                || genArgs is { Length: 1 } && (genArgs[0] == 0x1D || genArgs[0] == 0x1F);
+                || genArgs is { Length: 1 } && (genArgs[0] == 0x1D || genArgs[0] == 0x1F)
+                // A2 (asynccase Task<int[]>): the INSTANCE-call path
+                // (awaiter GetResult / builder SetResult / Task`1.get_Result)
+                // carries no genArgs -- instName alone decides the carrier.
+                // For an SZARRAY/multidim generic arg the M3 arg producers
+                // (CodeGenerator ReadM3ArrayArg / ReadM3MultidimArrayArg)
+                // emit an element-aware "[...]" token ("[int]" / "[Cases.Foo]"
+                // / "[int2]"); the bare "array" fallback (complex element
+                // shapes) is covered by the "_array" prefix check above. A
+                // CLASS/VALUETYPE arg never contains "[", so "[" identifies
+                // the array shape unambiguously (net48 asynccase byte-exact
+                // repro: Task<int[]> rode the int32 carrier and the awaiter
+                // GetResult unboxed the array as int32 -- a faulted task that
+                // surfaced as an UNHANDLED AggregateException at AF().Result).
+                || IsArrayInstArg(instName);
+            // A2: an instantiation name carrying an ARRAY generic-argument
+            // token ("[...]") is a managed reference -- any array (SZARRAY or
+            // multidim, any element type) rides the shared "s" ref carrier.
+            static bool IsArrayInstArg(string? name) =>
+                name != null && name.IndexOf('[', StringComparison.Ordinal) >= 0;
             // batch 165b: VALUETYPE instantiations (Task<decimal> 0x11,
             // Task<DateTime> 0x11, Task<Guid> -- the 16-byte struct carriers
             // are NOT built): LOUD reject. Without this gate the int32
