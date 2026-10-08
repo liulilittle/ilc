@@ -179,6 +179,26 @@ public class TypeEmitterTypeInfoTests
         Assert.Contains("nullptr, // baseType (System.Object)", code);
     }
 
+    // NB-1: a USER class derived directly from System.Object (root class) must
+    // carry baseTypeName "System.Object" (net48: root class BaseType=Object),
+    // while an interface (also BaseTypeName "System.Object" via the nil-extends
+    // decode) must keep baseTypeName nullptr (net48: interface BaseType=null).
+    [Fact]
+    public void EmitTypeInfo_BaseTypeName_RootClassEmitsObjectString()
+    {
+        var t = new TypeDef { Name = "Root", Namespace = "Calc" };
+        var code = TypeEmitter.EmitTypeInfo(t);
+        Assert.Contains("\"System.Object\",  // baseTypeName (BCL base terminal)", code);
+    }
+
+    [Fact]
+    public void EmitTypeInfo_BaseTypeName_InterfaceNullPtr()
+    {
+        var t = new TypeDef { Name = "Iface", Namespace = "Calc", IsInterface = true };
+        var code = TypeEmitter.EmitTypeInfo(t);
+        Assert.Contains("nullptr,  // baseTypeName (BCL base terminal)", code);
+    }
+
     [Fact]
     public void EmitTypeInfo_Interfaces_ArrayEmittedWithCount()
     {

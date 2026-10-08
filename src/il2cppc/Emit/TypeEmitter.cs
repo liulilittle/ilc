@@ -1467,16 +1467,24 @@ public static class TypeEmitter
         // so the runtime answers IsGenericType for typeof(Box<>) and
         // typeof(Box<int>) alike. 0 = non-generic (the zero-delta default).
         w.Line($"    {t.GenericArity},                                    // genericArity");
-        // D (audit A3/observation 3): baseTypeName -- the BCL non-Object base
-        // terminal. When the resolved baseType pointer is null (BCL base not
-        // translated) but the METADATA base is a BCL type other than
-        // System.Object (e.g. CustomEx : System.Exception), net48
-        // typeof(CustomEx).BaseType is NON-null -- the runtime get_BaseType
-        // icall answers this full base name. User bases (baseType pointer set)
-        // and System.Object roots keep nullptr (net48 typeof(object).BaseType
-        // == null; a user base rides the baseType pointer). Trailing field --
-        // mirrors the struct order in typeinfo.h (after genericArity).
-        var baseTypeNameExpr = t.BaseType != null || t.BaseTypeName == "System.Object"
+        // D / NB-1: baseTypeName -- the base-type terminal answered by the
+        // runtime get_BaseType icall. net48 semantics, disambiguated by
+        // IsInterface (D conflated the class:object root with the interface):
+        //   * USER base (baseType pointer set) -> nullptr (the runtime rides
+        //     info->baseType->name).
+        //   * INTERFACE (IsInterface)         -> nullptr (net48 interface
+        //     BaseType == null; an interface decodes a NIL extends so its
+        //     BaseTypeName reads "System.Object" too -- exactly the case D
+        //     mis-mapped).
+        //   * ROOT CLASS (non-interface, BaseTypeName "System.Object") ->
+        //     "System.Object" (net48: typeof(RootClass).BaseType == Object).
+        //   * BCL non-Object base (e.g. CustomEx : System.Exception) ->
+        //     the BaseTypeName string (baseType pointer null there).
+        // null/empty BaseTypeName is unreachable in production (the decoders
+        // always return a full name) but maps to nullptr for safety. Trailing
+        // field -- mirrors the struct order in typeinfo.h (after genericArity).
+        var baseTypeNameExpr = t.BaseType != null || t.IsInterface
+            || string.IsNullOrEmpty(t.BaseTypeName)
             ? "nullptr"
             : $"\"{t.BaseTypeName}\"";
         w.Line($"    {baseTypeNameExpr},  // baseTypeName (BCL base terminal)");
