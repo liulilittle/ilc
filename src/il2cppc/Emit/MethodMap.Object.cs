@@ -204,7 +204,7 @@ public static partial class MethodRefResolver
                 // (il2cpp_attribute_member_get_custom -- typeinfo.h RF-N6
                 // contract). Only the net48 (bool) overload reaches the
                 // icall; the (Type, bool) attributeType-filter form fails
-                // LOUD (no fabricated filter -- 禁伪造). ReturnTypeName
+                // LOUD (no fabricated filter -- no fabrication). ReturnTypeName
                 // "System.Object[]" keeps the Array-domain folds (.Length /
                 // foreach element -> o.GetType().Name) resolved.
                 if (name == "GetCustomAttributes" && ps.Length == 1 && ps[0] == 0x02)

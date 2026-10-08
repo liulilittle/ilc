@@ -165,9 +165,9 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_members", 0, true, true, true,
                         returnTypeName: "System.String[]");
                 throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5 -- only the () overload maps to il2cpp_typeinfo_get_members");
-            // RF-N7 (NEXT2-DECISION section ② RF-N7): Type.MakeGenericType
+            // RF-N7 (NEXT2-DECISION section 2 RF-N7): Type.MakeGenericType
             // -- explicit LOUD. The runtime has no generic-argument fabrication
-            // (禁伪造, the genericArgNames B方案 stays deferred) and no SRE-like
+            // (no fabrication, the genericArgNames Plan B stays deferred) and no SRE-like
             // type loading, so the (Type[]) overload maps to a runtime stub that
             // ALWAYS throws NotSupportedException (il2cpp_makegenerictype_loud)
             // -- never a silent spelling generated-member name. Receiver =
@@ -273,8 +273,8 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::il2cpp_type_has_element_type", 0, true, false, true);
             case "get_BaseType":
                 return I("il2cpp::il2cpp_typeinfo_get_base_type", 0, true, true, true, returnTypeName: "System.Type");
-            // RF-N4 -- generic-type identification (NEXT2-DECISION section ②
-            // RF-N4, 裁决①三分落转译端):
+            // RF-N4 -- generic-type identification (NEXT2-DECISION section 2
+            // RF-N4, ruling 1: the three-way split lands on the transpiler side):
             //   * get_IsGenericType -- the RUNTIME predicate, judged by the
             //     typeinfo's emitted genericArity (il2cpp_typeinfo_is_generic_type).
             //     Both the generic DEFINITION and its closed CLONES register
@@ -295,8 +295,8 @@ public static partial class MethodRefResolver
                     "Type.get_IsGenericTypeDefinition on a runtime (GetType-derived) Type is not decidable: the typeinfo registry cannot distinguish a generic definition from its closed clones (both register the definition's name -- RF-N4), so StackFold must fold this on a typeof chain and this runtime path cannot be wired");
             //   * GetGenericArguments() -- the THREE-WAY runtime split
             //     (il2cpp_typeinfo_get_generic_arguments): non-generic ->
-            //     EMPTY array; genericArity > 0 -> LOUD (禁伪造 -- the
-            //     genericArgNames B方案 is deferred). ReturnTypeName
+            //     EMPTY array; genericArity > 0 -> LOUD (no fabrication -- the
+            //     genericArgNames Plan B is deferred). ReturnTypeName
             //     "System.Type[]" keeps the Array-domain folds (.Length /
             //     element read) resolved.
             //   * GetGenericTypeDefinition() -- returns the DEFINITION's own

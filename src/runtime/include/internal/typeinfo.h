@@ -246,8 +246,8 @@ Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* me
 Il2CppObject* il2cpp_typeinfo_get_base_type(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
-// RF-N4 -- generic-type identification icalls (NEXT2-DECISION section ② RF-N4,
-// 裁决①三分落转译端). Each takes the Type VALUE (full-name string, the same
+// RF-N4 -- generic-type identification icalls (NEXT2-DECISION section 2 RF-N4,
+// ruling 1: the three-way split lands on the transpiler side). Each takes the Type VALUE (full-name string, the same
 // carrier the single-member queries use) and reads the typeinfo's genericArity.
 //
 //   il2cpp_typeinfo_is_generic_type          -- Type.IsGenericType: 1 iff the
@@ -258,7 +258,7 @@ Il2CppObject* il2cpp_typeinfo_get_base_type(Il2CppObject* typeName);
 //        THREE-WAY split -- an unregistered / non-generic type -> an EMPTY
 //        array (net48 typeof(int).GetGenericArguments() is empty); a type
 //        with genericArity > 0 -> LOUD NotSupportedException (the genericArg-
-//        Names B方案 is deferred -- no argument fabrication, ever). The
+//        Names Plan B is deferred -- no argument fabrication, ever). The
 //        empty-array path returns EmptyStringArray() (the shared zero-length
 //        reference-element array the not-found member enumerators also use).
 //   il2cpp_typeinfo_get_generic_type_definition -- Type.GetGenericTypeDefinition():
@@ -431,7 +431,7 @@ Il2CppArray* il2cpp_attribute_member_get_custom(Il2CppObject* memberName, int32_
 //       MakeGenericMethod(Type[]). Runtime generic-method instantiation has
 //       no AOT support -> throws NotSupportedException unconditionally.
 //   il2cpp_makegenerictype_loud(typeName, typeArgs)     -- Type.MakeGenericType
-//       (Type[]). Same: no fabricated generic arguments (禁伪造) -> throws
+//       (Type[]). Same: no fabricated generic arguments (no fabrication) -> throws
 //       NotSupportedException unconditionally.
 //   il2cpp_createdelegate_loud(delegateType, methodName) -- Delegate.CreateDelegate
 //       (Type, MethodInfo). The MethodInfo receiver rides as the member-name
