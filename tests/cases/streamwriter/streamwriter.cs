@@ -101,7 +101,7 @@ namespace Cases { public static class StreamWriterCase {
         spr.Close();
 
         // ============ 3. ENCODING FACE: UTF-8 no-BOM byte accuracy ============
-        // "中" (U+4E2D) = E4 B8 AD, "文" (U+6587) = E6 96 87, the pair = 6 bytes;
+        // "zhong" (U+4E2D) = E4 B8 AD, "wen" (U+6587) = E6 96 87, the pair = 6 bytes;
         // CRLF = 0x0D 0x0A. GetBytes is the wired utf8 page -- the same codec
         // the runtime's write_line uses (streamio.cpp CsToUtf8).
         File.Delete(file);

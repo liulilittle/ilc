@@ -1,5 +1,5 @@
-// winevent.cs -- WINDOW EVENT deep probe (e2e batch C22, "窗口事件深测: 事件
-// 序列/退订/多处理器 -- WinForms 事件系统后"). Builds on winformsext (C20,
+// winevent.cs -- WINDOW EVENT deep probe (e2e batch C22, "window event deep probe: event
+// sequence / unsubscribe / multiple handlers -- after the WinForms event system"). Builds on winformsext (C20,
 // the 8-section sequence/unsubscribe matrix) and winforms1 Phase 4/7. The
 // net48 oracle runs the SAME source; the ILC side must produce byte-identical
 // sequence strings and subscription counts.

@@ -1,5 +1,5 @@
-// strformat.cs -- STRING FORMAT deep probe (e2e batch C25, "字符串格式深测:
-// 复合格式全形态/对齐/精度 -- format 完整后"). Builds on strfmt (per-type
+// strformat.cs -- STRING FORMAT deep probe (e2e batch C25, "string format deep probe:
+// composite-format all forms / alignment / precision -- after the format completion"). Builds on strfmt (per-type
 // ToString(format) wired subset) and format2 (which EXPOSED alignment/precision
 // as NotSupportedException defects). The composite engine is now complete --
 // stringbuilder.cpp AppendFormatCore + formatext.cpp icall_format_composite_item

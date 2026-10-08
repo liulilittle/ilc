@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 // tokenops.cs -- TOKENIZER (System.String.Split) DEEP e2e reference case
 // (net48 oracle, byte-for-byte). Created in e2e batch C61, after the split
-// domain landed: the 1-arg icall_string_split (char[] separators, split 域)
+// domain landed: the 1-arg icall_string_split (char[] separators, split domain)
 // AND the 2-arg icall_string_split_options (char[]/string[] separators +
 // StringSplitOptions, the M6 batch-36 RT-SPL2 wiring) are both wired.
 //

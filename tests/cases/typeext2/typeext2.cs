@@ -24,7 +24,7 @@
 //      user type; GetProperty on a property-free type -> null (no-property
 //      miss shape).
 //
-// RECORDED DEFECTS (D-TYPEX-1..5, NOT probed -- 缺陷记录不修):
+// RECORDED DEFECTS (D-TYPEX-1..5, NOT probed -- defects recorded, not fixed):
 //   * D-TYPEX-1 Type.IsInstanceOfType(Type) -- NO MethodMap case and no
 //     runtime is-instance-of-type icall (only the isinst/`is` operator path
 //     through il2cpp_is_instance / icall_type_is_instance). NOT CALLED.

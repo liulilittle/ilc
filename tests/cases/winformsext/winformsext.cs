@@ -5,7 +5,7 @@
 // SAME source; the ILC side must produce byte-identical sequence strings and
 // subscription counts.
 //
-// Coverage (the worklist's "事件序列/退订 -- 阶段 4 后验证"):
+// Coverage (the worklist's "event sequence/unsubscribe -- stage-4 post-fix verification"):
 //   * Order preservation: 3-handler multicast fires in subscription order;
 //     removing the MIDDLE handler keeps first/third order.
 //   * Duplicate handler added twice fires TWICE; one -= removes the LAST

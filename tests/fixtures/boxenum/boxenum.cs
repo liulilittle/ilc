@@ -10,7 +10,7 @@ namespace AuditFix
 
         public static void Main()
         {
-            // Enum box (timecase 施工单 2 follow-up): both a USER enum
+            // Enum box (timecase work-order 2 follow-up): both a USER enum
             // TypeDef (MyColor) and a BCL enum TypeRef (System.DayOfWeek)
             // must box onto the int64 carrier (icall_box_long).
             _slot = MyColor.Green;

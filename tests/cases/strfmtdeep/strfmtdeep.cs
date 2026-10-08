@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// strfmtdeep.cs -- STRING FORMAT DEEP probe (e2e batch C55, "字符串格式深测:
-// 复合格式/对齐/占位符 -- format 域后"). Builds on the format-domain surface
+// strfmtdeep.cs -- STRING FORMAT DEEP probe (e2e batch C55, "string format deep probe:
+// composite format / alignment / placeholders -- after the format domain"). Builds on the format-domain surface
 // (strfmt C: ToString(format) wired subset; strformat C25: composite
 // alignment/precision/forms; format2 C28: wired+defect-exposing; format3:
 // deeper composite grammar; customfmt: custom engine) and goes DEEPER on the

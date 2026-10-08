@@ -1,5 +1,5 @@
 // statusprog.cs -- STATUSBAR/PROGRESSBAR DEEP (e2e batch C24, "StatusBar/
-// ProgressBar 深测 -- 阶段 9 后"). Builds on winforms1 Phase 9 (the stage-9
+// ProgressBar deep probe -- after stage 9"). Builds on winforms1 Phase 9 (the stage-9
 // status-strip surface: comctl32 StatusBar "msctls_statusbar32" +
 // ProgressBar "msctls_progress32" over the raw SB_*/PBM_* message channels)
 // and goes DEEPER on both controls:

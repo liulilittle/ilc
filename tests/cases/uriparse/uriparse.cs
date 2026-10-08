@@ -8,7 +8,7 @@
 // netdeep2 (C48: scheme grammar / composition identity / relative forms):
 // THIS case drives the three axes the task names --
 //
-//   1) RELATIVE (相对): the THROW matrix over relative-form strings, grammar
+//   1) RELATIVE (relative): the THROW matrix over relative-form strings, grammar
 //      violations and empty inputs, asserting BOTH runtimes raise a
 //      SystemException. Every invalid input below was verified to throw on
 //      net48 AND to be rejected by the ILC grammar (versionuri.h: no "//"
@@ -17,14 +17,14 @@
 //      D-UP-1): "a:b" (net48 DOS-drive reject vs ILC single-letter opaque
 //      accept), "http:" / "http:/x" (net48 rejects a "://"-less scheme part
 //      that ILC parses as opaque).
-//   2) COMPOSITION (组合): the accessor-combination identity
+//   2) COMPOSITION (composition): the accessor-combination identity
 //      Scheme + "://" + Host + AbsolutePath == ToString and the ToString
 //      round-trip stability (parse -> ToString -> parse -> ToString is
 //      idempotent) over path-bearing hierarchical URIs -- plus the RESERVED-
 //      ESCAPE verbatim rule (net48 keeps %3F/%23/%40/%3B/%2F escaped in
 //      both AbsolutePath and ToString; ILC keeps everything verbatim --
 //      the COMMON subset).
-//   3) OPAQUE (转义/opaque): "scheme:rest" forms -- urn: with a reserved
+//   3) OPAQUE (escape/opaque): "scheme:rest" forms -- urn: with a reserved
 //      escape (path = the whole rest VERBATIM, host empty), mailto: with a
 //      userinfo@host split, and the "//host" network-path -> file form
 //      (scheme/host probed only -- net48 normalizes its path/ToString, so

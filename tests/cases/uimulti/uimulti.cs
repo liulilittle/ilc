@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// uimulti.cs -- MULTI-THREADED UI deep probe 2 (e2e batch C30, "多线程 UI 深测
-// 2: 跨线程计数/状态一致性 -- 阶段 13 后"). The WinForms stage-13 surface
+// uimulti.cs -- MULTI-THREADED UI deep probe 2 (e2e batch C30, "multi-threaded UI deep probe
+// 2: cross-thread counting / state consistency -- after stage 13"). The WinForms stage-13 surface
 // (commit 8f7b6cd, winforms1 Phase 13) wired ONE worker thread posting four
 // WF_WORKER_MSG cross-thread messages to the main form and proved posted count
 // == processed count 1:1. THIS case goes DEEPER on the same wired channel

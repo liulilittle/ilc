@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------
-// rf-rootobj.cs -- independent verification probe (审计B) for the D fix gap:
+// rf-rootobj.cs -- independent verification probe (audit-B) for the D fix gap:
 // a USER class that derives DIRECTLY from System.Object. net48 truth:
 //   typeof(PlainRoot).BaseType == typeof(object)  (NON-null, Name "Object")
 //   typeof(PlainMid).BaseType  == typeof(PlainRoot) (user base)

@@ -1,5 +1,5 @@
-// wmresize.cs -- window LAYOUT deep probe (e2e batch C21, "窗口布局深测
-// -- MoveWindow/GetWindowRect/父子层次, 阶段 5 后"). winforms1 Phase 5
+// wmresize.cs -- window LAYOUT deep probe (e2e batch C21, "window layout deep probe
+// -- MoveWindow/GetWindowRect/parent-child hierarchy, after stage 5"). winforms1 Phase 5
 // established the baseline (MoveWindow + GetWindowRect on a button/child,
 // deltas + sizes, GetParent chain). THIS case goes deeper on the layout
 // surface that a WinForms LayoutEngine depends on:

@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------
-// rf-prop2.cs -- RF-N2 审计A probe (观察项 B/C): indexer null-index and
+// rf-prop2.cs -- RF-N2 audit-A probe (observations B/C): indexer null-index and
 // unknown-property-name semantics against the net48 oracle, byte-for-byte.
 //
 //   B. INDEXER + null index: GetValue(obj) / SetValue(obj, value) -- the

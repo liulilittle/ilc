@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------
-// rf-base.cs -- RF-N2 审计A③ (observation D) probe: Type.BaseType semantics
+// rf-base.cs -- RF-N2 audit-A-③ (observation D) probe: Type.BaseType semantics
 // for a USER class whose base chain ends in a BCL NON-Object base
 // (System.Exception). The descriptor's baseClass link is only set for
 // RESOLVED USER bases (BaseType != null); a BCL base stays null. net48's

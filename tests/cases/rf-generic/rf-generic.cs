@@ -20,7 +20,7 @@
 //                     definition's full name, so identity IS the definition).
 //
 // GetGenericArguments on arity>0 types is deliberately NOT probed: the
-// runtime LOUDs (NotSupportedException -- the genericArgNames B方案 is
+// runtime LOUDs (NotSupportedException -- the genericArgNames plan B is
 // deferred, no argument fabrication), which would not match the net48 oracle
 // (Length==1). The empty-array non-generic path IS probed and byte-identical.
 // The LOUD arity>0 path is pinned by the MethodMapTests.Type.cs icall mapping
