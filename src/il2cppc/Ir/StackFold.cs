@@ -2700,6 +2700,26 @@ public static class StackFold
                             args[0] = new LocExpr { Name = recvAddr.Name };
                             arg0IsAddr = false;
                         }
+                        // GN-N3 (p-iface): the constrained receiver may also be
+                        // an INSTANCE FIELD address (`item.CompareTo(other)` on
+                        // the `T item` field -- csc emits ldflda, a FieldAddrExpr).
+                        // A reference-typed clone holds the object directly in the
+                        // field (Il2CppObject*); deref the field address to the
+                        // field VALUE (FieldExpr) so the interface icall receives
+                        // the object, not `Il2CppObject**`.
+                        else if (args[0] is FieldAddrExpr recvFieldAddr
+                            && MethodRefResolver.SharedCloneVarTypeIsRef(md, (int)constrainedMarker.Operand, types))
+                        {
+                            args[0] = new FieldExpr
+                            {
+                                Object = recvFieldAddr.Object,
+                                FieldCppName = recvFieldAddr.FieldCppName,
+                                OwnerFullName = recvFieldAddr.OwnerFullName,
+                                IsRefField = true,
+                                IsValueTypeObject = recvFieldAddr.IsValueTypeObject,
+                            };
+                            arg0IsAddr = false;
+                        }
                     }
                 }
                 // G2 (audit recurse-recheck f14b): callvirt Object::ToString on
@@ -2862,6 +2882,27 @@ public static class StackFold
                 {
                     var boxedRecv = new CallExpr { Function = $"box_{constrainedToken}", ReturnsRef = true };
                     boxedRecv.Args.Add(new LocExpr { Name = vRecvAddr.Name });
+                    args[0] = boxedRecv;
+                    arg0IsAddr = false;
+                }
+                // GN-N3 (p-iface): the constrained VALUE receiver may be an
+                // INSTANCE FIELD address (`item.CompareTo(other)` with T=item
+                // int32 -- ldflda, a FieldAddrExpr). Box the field VALUE (the
+                // same box_{constrainedToken} wraps a FieldExpr -- the emitter
+                // picks the value-width box by the concrete clone arg), exactly
+                // like the LocAddrExpr arm above boxes the local VALUE.
+                else if (resolved != null && resolved.CppName == "il2cpp::il2cpp_icomparable_compare_to"
+                    && constrainedToken >= 0 && args.Count > 0 && args[0] is FieldAddrExpr vRecvFieldAddr)
+                {
+                    var boxedRecv = new CallExpr { Function = $"box_{constrainedToken}", ReturnsRef = true };
+                    boxedRecv.Args.Add(new FieldExpr
+                    {
+                        Object = vRecvFieldAddr.Object,
+                        FieldCppName = vRecvFieldAddr.FieldCppName,
+                        OwnerFullName = vRecvFieldAddr.OwnerFullName,
+                        IsRefField = false,
+                        IsValueTypeObject = vRecvFieldAddr.IsValueTypeObject,
+                    });
                     args[0] = boxedRecv;
                     arg0IsAddr = false;
                 }

@@ -97,5 +97,10 @@ bool icall_value_equals_i8(int64_t* self, int64_t value);
 bool icall_value_equals_f8(double* self, double value);
 bool icall_value_equals_f4(double* self, double value);
 
+// GN-N3 (p-iface): Int32.CompareTo(int32) -- net48 sign verdict (-1/0/+1).
+// Receiver is the value-slot ADDRESS (ldflda on an int field); same receiver
+// ABI as icall_value_equals_i4 (cast "").
+int32_t icall_int32_compare_to(int32_t* self, int32_t value);
+
 } // namespace runtime
 } // namespace il2cpp

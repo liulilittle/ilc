@@ -271,6 +271,16 @@ bool icall_value_equals_i4(int32_t* self, int32_t value)
     return *self == value;
 }
 
+// GN-N3 (p-iface): Int32.CompareTo(int32) -- the net48 sign verdict (-1/0/+1,
+// NOT the raw difference). Receiver arrives as the value-slot ADDRESS (csc
+// `N.CompareTo(it.N)` emits ldflda on the int field); the icall reads the
+// slot and compares against the by-value argument, mirroring the
+// icall_value_equals_i4 receiver ABI (cast "").
+int32_t icall_int32_compare_to(int32_t* self, int32_t value)
+{
+    return *self < value ? -1 : (*self > value ? 1 : 0);
+}
+
 bool icall_value_equals_i8(int64_t* self, int64_t value)
 {
     return *self == value;

@@ -48,6 +48,14 @@ public static partial class MethodRefResolver
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_int32_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:i" : "unbox:i" });
+                // GN-N3 (p-iface): Int32.CompareTo(int32) -- the net48 sign
+                // verdict. The receiver arrives as the value-slot ADDRESS (the
+                // ldflda on Item.N); icall_int32_compare_to reads the slot and
+                // compares the by-value argument (same receiver ABI as
+                // icall_value_equals_i4 -- the arg cast "i" is the value).
+                if (name == "CompareTo" && ps.Length == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_int32_compare_to", 1, true, false, true,
+                        new[] { "", "i" });
                 // M5 wiring: Int32.Equals(object) on a boxed receiver -- the
                 // boxed-value equality dispatcher (boxingext2 domain). D5
                 // cov2: Equals(int32) on an UNBOXED receiver (implicit-this
