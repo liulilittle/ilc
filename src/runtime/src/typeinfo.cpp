@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // typeinfo.cpp -- runtime reflection metadata registry + member queries
 // (see typeinfo.h for the contract).
 //
@@ -747,7 +747,7 @@ Il2CppArray* il2cpp_typeinfo_get_interfaces(Il2CppObject* typeName)
 }
 
 //------------------------------------------------------------------------------
-// RF-N5 -- GetNestedTypes / GetMembers (NEXT2-DECISION section 鈶?RF-N5).
+// RF-N5 -- GetNestedTypes / GetMembers (NEXT2-DECISION section ② RF-N5).
 //   GetNestedTypes: OWN nested types only, name strings in metadata
 //     declaration order (the typeinfo's emitted nestedNames sub-table).
 //   GetMembers: the five-enumeration union, own + base chain. Probe-pinned
@@ -869,12 +869,12 @@ Il2CppArray* il2cpp_typeinfo_get_generic_arguments(Il2CppObject* typeName)
         // Non-generic / unregistered: net48 returns an EMPTY array.
         return EmptyStringArray();
     }
-    // genericArity > 0: the genericArgNames B鏂规 is deferred (RF-N4 瑁佸喅鈶? --
+    // genericArity > 0: the genericArgNames B方案 is deferred (RF-N4 裁决①) --
     // the runtime cannot fabricate the closed argument types (the folded name
     // of an instantiation collapses to the definition's name), so this path
     // is a LOUD gap, never a silent wrong result.
     il2cpp_throw_not_supported_exception(
-        "Type.GetGenericArguments() on a generic type is not wired in RF-N4 (the genericArgNames B鏂规 is deferred -- no fabricated argument list; only the non-generic empty-array path is supported)");
+        "Type.GetGenericArguments() on a generic type is not wired in RF-N4 (the genericArgNames B方案 is deferred -- no fabricated argument list; only the non-generic empty-array path is supported)");
     return EmptyStringArray(); // unreachable -- the throw does not return
 }
 
@@ -1328,7 +1328,7 @@ void ThrowPropertyTargetException()
 }
 
 // Throw TargetParameterCountException when the index array length does not
-// match the property's indexer arity (RF-N2 瀹¤A鈶? observation B -- net48
+// match the property's indexer arity (RF-N2 审计A①, observation B -- net48
 // probe-verified: an indexer with a null/empty index AND a non-indexed
 // property receiving a non-null index array BOTH throw
 // TargetParameterCountException; the runtime previously built a 0-length
@@ -1339,8 +1339,8 @@ void ThrowPropertyParamCountException()
         "Parameter count mismatch.");
 }
 
-// Throw NullReferenceException for a null property-name receiver (RF-N2 瀹¤
-// A鈶? observation C -- net48 probe-verified: typeof(X).GetProperty("Missing")
+// Throw NullReferenceException for a null property-name receiver (RF-N2 审计
+// A②, observation C -- net48 probe-verified: typeof(X).GetProperty("Missing")
 // returns null and the chained .GetValue/.SetValue call then dereferences the
 // null PropertyInfo receiver, throwing NullReferenceException; the runtime
 // previously returned nullptr silently). Declaration by managed name through
@@ -1385,7 +1385,7 @@ Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2
     char nameBuf[kNameBufferSize];
     if (propertyName == nullptr)
     {
-        // RF-N2 瀹¤A鈶?(observation C): a null property-name receiver is the
+        // RF-N2 审计A② (observation C): a null property-name receiver is the
         // "unknown property" path (GetProperty returned null on a miss) --
         // net48 NREs on the null receiver (probe-verified). The non-ASCII
         // malformed-name case below keeps the defensive nullptr (a bad
@@ -1412,7 +1412,7 @@ Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2
         il2cpp_throw_new("System.ArgumentException,System.Exception",
             "Property Get method not found.");
     }
-    // RF-N2 瀹¤A鈶?(observation B): the index array length must equal the
+    // RF-N2 审计A① (observation B): the index array length must equal the
     // property's indexer arity; a mismatch (indexer + null index, or a
     // non-indexed property receiving a non-null index) is a
     // TargetParameterCountException on net48.
@@ -1435,7 +1435,7 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
     char nameBuf[kNameBufferSize];
     if (propertyName == nullptr)
     {
-        // RF-N2 瀹¤A鈶?(observation C): null receiver == unknown property
+        // RF-N2 审计A② (observation C): null receiver == unknown property
         // (GetProperty null-returned on a miss) -> net48 NullReferenceException
         // on the chained call (probe-verified; see the getter twin above).
         ThrowPropertyNullReceiver();
@@ -1459,7 +1459,7 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
         il2cpp_throw_new("System.ArgumentException,System.Exception",
             "Property Set method not found.");
     }
-    // RF-N2 瀹¤A鈶?(observation B): index-array arity must match the indexer
+    // RF-N2 审计A① (observation B): index-array arity must match the indexer
     // (see the getter twin above); mismatch -> TargetParameterCountException.
     if ((index != nullptr ? index->length : 0) != prop->indexParams)
     {
