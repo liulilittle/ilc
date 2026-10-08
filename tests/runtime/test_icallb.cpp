@@ -201,7 +201,7 @@ int main()
     Expect(il2cpp_assembly_get_type(overLong) == nullptr,
            "assembly_get_type(over-long name) -> null");
 
-    const char16_t nonAscii[] = { 0x4E2D, 0x6587, 0 }; // "中文" (BMP, non-ASCII)
+    const char16_t nonAscii[] = { 0x4E2D, 0x6587, 0 }; // "zhong wen" (BMP, non-ASCII)
     Il2CppObject* hanzi = reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nonAscii, 2));
     Expect(il2cpp_assembly_get_type(hanzi) == nullptr,
            "assembly_get_type(non-ASCII name) -> null");

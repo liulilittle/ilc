@@ -310,7 +310,7 @@ int main()
     // verified via the platform layer (wide on Windows) -- it only finds the
     // file when the on-disk name is EXACTLY the UTF-8 name.
     {
-        // "数据.txt" in UTF-8 (BMP -- il2cpp_string_new_from_utf8 handles it).
+        // "data.txt" in UTF-8 (BMP -- il2cpp_string_new_from_utf8 handles it).
         const char* kU8Path = "io_tmp/\xE6\x95\xB0\xE6\x8D\xAE.txt";
         Il2CppObject* u8 = reinterpret_cast<Il2CppObject*>(
             il2cpp::il2cpp_string_new_from_utf8(kU8Path));

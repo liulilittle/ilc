@@ -1295,7 +1295,7 @@ int main()
 
     // Reset (slot 5) rewinds the cursor; a partial fetch at the end returns
     // S_FALSE but STILL writes the fetched items and pceltFetched (the
-    // documented IEnumVARIANT contract -- "S_FALSE 浠嶅啓 pceltFetched").
+    // documented IEnumVARIANT contract -- "S_FALSE still writes back pceltFetched").
     NativeEnumResetFn enumReset =
         reinterpret_cast<NativeEnumResetFn>(const_cast<void*>(ComVtable(enumView)[kComEnumSlotReset]));
     Expect(enumReset(reinterpret_cast<void*>(enumView)) == kComHrOk,
@@ -2954,7 +2954,7 @@ int main()
     icall_com_bstr_free(embBstr);
 
     // Unicode: a non-ASCII BMP string round-trips byte-identically.
-    const char16_t uni[4] = { 0x4E2D, 0x6587, 0x00E9, 0x00E8 }; // 涓枃 + 茅 + 猫
+    const char16_t uni[4] = { 0x4E2D, 0x6587, 0x00E9, 0x00E8 }; // "zhong wen" + e-acute + e-grave
     il2cpp::Il2CppString* uniStr = il2cpp::il2cpp_string_new(uni, 4);
     const intptr_t uniBstr = icall_com_bstr_from_string(uniStr);
     Expect(uniBstr != 0, "StringToBSTR(Unicode) returns a non-zero BSTR");

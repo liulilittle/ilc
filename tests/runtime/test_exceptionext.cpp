@@ -13,7 +13,7 @@
 //      (checked by an expected substring).
 //   5. ArgumentNullException / ArgumentOutOfRangeException compose a message
 //      in the .NET Framework two-line format (base text + "\r\n" +
-//      "参数名: <name>", zh-CN host net48 oracle); a nullptr/empty paramName
+//      "parameter name: <name>", zh-CN host net48 oracle); a nullptr/empty paramName
 //      still yields a non-empty default message.
 //   6. An unrelated caught type never matches (no false positives).
 //   7. EXC2 audit (get_Message carrier integrity): the transpiler's

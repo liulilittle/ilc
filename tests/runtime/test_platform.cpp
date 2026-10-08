@@ -361,10 +361,10 @@ int main()
     // (GetEnvironmentVariableA/SetEnvironmentVariableA) interpret bytes
     // through the ANSI code page and mangle non-ASCII UTF-8 values on any
     // non-UTF-8 codepage; the W-variants the platform layer bridges keep
-    // the exact bytes ("你好" = E4 BD A0 E5 A5 BD).
+    // the exact bytes ("hello" = E4 BD A0 E5 A5 BD).
     {
         const char* kU8Env = "IL2CPP_PLATFORM_TEST_ENV_U8";
-        const char* u8Value = "\xE4\xBD\xA0\xE5\xA5\xBD"; // 你好
+        const char* u8Value = "\xE4\xBD\xA0\xE5\xA5\xBD"; // "hello"
         Expect(plat_env_set(kU8Env, u8Value, true), "utf8 env set succeeds");
         Expect(plat_env_get(kU8Env) == u8Value, "utf8 env value round-trips exactly");
         Expect(plat_env_set(kU8Env, "", true), "utf8 env empty deletes");
@@ -444,10 +444,10 @@ int main()
     // narrow CRT (_stat/_mkdir/_rmdir) would read the UTF-8 bytes through
     // the ANSI code page and mangle (or miss) non-ASCII names; the wide CRT
     // (_wstat/_wmkdir/_wrmdir) creates and probes by the exact name
-    // ("数据" = E6 95 B0 E6 8D AE).
+    // ("data" = E6 95 B0 E6 8D AE).
     {
         const std::string u8Dir = UniqueTestDir() + "_u8";
-        const std::string u8Suffix = "\xE6\x95\xB0\xE6\x8D\xAE"; // 数据
+        const std::string u8Suffix = "\xE6\x95\xB0\xE6\x8D\xAE"; // data
         const std::string u8Path = u8Dir + u8Suffix;
         Expect(plat_dir_mkdir(u8Path.c_str()), "utf8 dir mkdir succeeds");
         Expect(plat_dir_exists(u8Path.c_str()), "utf8 dir exists after mkdir");

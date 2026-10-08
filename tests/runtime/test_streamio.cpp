@@ -788,7 +788,7 @@ int main()
 
     // ReadToEnd UTF-8 astral/BMP roundtrip through the object surface.
     const char16_t zhWrite[] = { u'\u4E2D', u'\u6587', u'\u8FD4', u'\u5F80',
-                                 0xD83D, 0xDE00 }; // 中文往返 + emoji (astral pair)
+                                 0xD83D, 0xDE00 }; // Chinese roundtrip + emoji (astral pair)
     // write_line appends CRLF, so ReadToEnd sees the line + the terminator.
     const char16_t zhWithCrlf[] = { u'\u4E2D', u'\u6587', u'\u8FD4', u'\u5F80',
                                     0xD83D, 0xDE00, u'\r', u'\n' };

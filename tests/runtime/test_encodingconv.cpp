@@ -5,10 +5,10 @@
 // Coverage (normal + edge + error paths), mirroring the UTF-16BE surface
 // added to il2cpp_encoding.h / encoding.cpp:
 //   1. il2cpp_encoding_unicodebe_get_bytes: ASCII "AB" -> {00 41 00 42}
-//      (each unit's high byte first), Chinese "中" (U+4E2D) -> {4E 2D},
+//      (each unit's high byte first), Chinese "zhong" (U+4E2D) -> {4E 2D},
 //      empty string -> byte[0], null text (ArgumentNullException).
 //   2. il2cpp_encoding_unicodebe_get_string: {00 41 00 42} -> "AB",
-//      {4E 2D} -> "中", empty byte[0] -> "", null array
+//      {4E 2D} -> "zhong", empty byte[0] -> "", null array
 //      (ArgumentNullException), an odd byte count decodes the dangling byte
 //      to U+FFFD (the net48 default UnicodeEncoding replacement fallback).
 //   3. Round trip: get_bytes then get_string reproduces the original string
@@ -120,7 +120,7 @@ int main()
                "GetBytes(\"AB\") -> {00 41 00 42} (big-endian units)");
     }
     {
-        const char16_t zh[1] = { 0x4E2D }; // U+4E2D '中'
+        const char16_t zh[1] = { 0x4E2D }; // U+4E2D 'zhong'
         il2cpp::Il2CppString* s = il2cpp::il2cpp_string_new(zh, 1);
         const uint8_t expected[2] = { 0x4E, 0x2D };
         Expect(ArrayEqualsBytes(il2cpp::runtime::il2cpp_encoding_unicodebe_get_bytes(s),
@@ -186,7 +186,7 @@ int main()
 
     // --- 3. Round trip: GetBytes then GetString reproduces the string ---
     {
-        const char16_t mixed[3] = { u'A', 0x4E2D, u'B' }; // "A中B"
+        const char16_t mixed[3] = { u'A', 0x4E2D, u'B' }; // "A-zhong-B"
         il2cpp::Il2CppString* s = il2cpp::il2cpp_string_new(mixed, 3);
         il2cpp::Il2CppArray* bytes = il2cpp::runtime::il2cpp_encoding_unicodebe_get_bytes(s);
         il2cpp::Il2CppString* back = reinterpret_cast<il2cpp::Il2CppString*>(
