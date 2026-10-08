@@ -5,17 +5,17 @@
 // icall_multicast_invoke_i4 fast path -- int32 return, <=4 int32 args).
 // Three deeper axes:
 //
-//   1. MULTICAST + MIDDLE REMOVAL (多播+移除中间): chains built by += and by
+//   1. MULTICAST + MIDDLE REMOVAL (multicast + middle removal): chains built by += and by
 //      Delegate.Combine/Remove; removing the MIDDLE leaf of a 3-chain keeps
 //      [first, last] with call order preserved; removing FIRST/LAST leaves;
 //      removing an ABSENT leaf returns the SAME object (identity -- net48
 //      Delegate.Remove never copies); removing the whole chain -> null;
 //      Combine null rules (null+a == a == a+null; Remove(x,null) == x).
-//   2. EVENT PATTERN (事件模式): a field-backed custom event with add/remove;
+//   2. EVENT PATTERN (event pattern): a field-backed custom event with add/remove;
 //      subscribe 3 -> raise (call order + last-wins) -> remove the MIDDLE
 //      handler -> raise (order evidence) -> unsubscribe all -> "raise=none";
 //      re-subscribe rebuilds the chain. An instance-bound leaf joins a chain.
-//   3. EXCEPTION (异常): [A, THROW, B] aborts at the first throwing leaf (B
+//   3. EXCEPTION (exceptions): [A, THROW, B] aborts at the first throwing leaf (B
 //      skipped, order probe); [THROW, A] runs nothing; [A, B, THROW] runs
 //      both; the chain is IMMUTABLE after the throw (still 3 leaves); a
 //      throws-once leaf re-invokes from the start; an EVENT handler that

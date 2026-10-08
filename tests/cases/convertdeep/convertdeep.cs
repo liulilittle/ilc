@@ -4,7 +4,7 @@ namespace Cases { public static class ConvertDeep {
     // diffs the transpiled run byte-for-byte). Extends convertcase/convdeep
     // over the WIRED M7 surface (MethodMap.Convert.cs):
     //
-    //   1. BASE CONVERSIONS (基变换): Convert.ToString(int, 2/8/10/16) --
+    //   1. BASE CONVERSIONS (base conversions): Convert.ToString(int, 2/8/10/16) --
     //      bases 2/8/16 render the uint32 two's-complement (negatives print
     //      their full unsigned bit pattern, lowercase hex); and
     //      Convert.ToInt32(string, base) -- net48 allows ONLY 2/8/10/16:
@@ -15,11 +15,11 @@ namespace Cases { public static class ConvertDeep {
     //      radix validator accepts 2..36 (net48 rejects 3/36 with
     //      ArgumentException -- the runtime parses; benign since valid net48
     //      programs never pass such a base).
-    //   2. STRING<->NUMERIC FAMILY (字符串↔数值全族): the wired
+    //   2. STRING<->NUMERIC FAMILY (string<->numeric full family): the wired
     //      ToInt32/ToInt64/ToDouble/ToString/ToBoolean/ToChar forms with
     //      whitespace/sign/exponent/boundary/leading-zero probes plus
     //      string<->number round trips.
-    //   3. EXCEPTION SURFACE (异常面): FormatException/OverflowException/
+    //   3. EXCEPTION SURFACE (exception surface): FormatException/OverflowException/
     //      ArgumentException/ArgumentOutOfRangeException, captured by TYPE
     //      NAME (messages are OS-localized, never byte-diffed).
     //

@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
 // decformat.cs -- DECIMAL FORMAT full-surface probe (e2e batch C30, "decimal
-// 格式全测: E/P/G/F/N/C/custom -- 4 缺陷修复后验证"). decfmt (C26) mapped the
+// full-format test: E/P/G/F/N/C/custom -- post-fix verification of 4 defects"). decfmt (C26) mapped the
 // first-contact surface (G/F/N/E/C/lowercase/alignment/composite/exceptions)
 // and decfmt2 (C28) went DEEP on the three families that were then DEFECTS
 // (E exponent form, P percent, CUSTOM literal fallback). THIS case is the

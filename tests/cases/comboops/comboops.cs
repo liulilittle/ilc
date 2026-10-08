@@ -1,5 +1,5 @@
 // comboops.cs -- ComboBox / ListBox DEEP probe (e2e batch C23, "ComboBox/ListBox
-// 深测: 添加/选择/文本回读/事件 -- WinForms stage 8 后"). Builds on winforms1
+// deep probe: add/select/text-readback/events -- after WinForms stage 8"). Builds on winforms1
 // Phase 8 (the WfDialogControl list-control surface: CB_*/LB_* add/count/
 // cursels/gettext/selection-change events) and goes DEEPER on the
 // ListControl behavior the stage-8 baseline only touched once:

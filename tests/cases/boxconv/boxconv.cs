@@ -1,5 +1,5 @@
-// boxconv.cs -- BOX CONVERSION deep probe (e2e batch C26, "box 转换深测:
-// boxed 值转换/IConvertible/ToInt32 形态 -- box 域后"). Builds on the box-domain
+// boxconv.cs -- BOX CONVERSION deep probe (e2e batch C26, "box conversion deep probe:
+// boxed value conversion / IConvertible / ToInt32 shapes -- after the box-domain fix"). Builds on the box-domain
 // surface (boxops/boxunbox/boxdeep/boxing2: boxed ToString/GetHashCode/Equals/
 // unbox + IConvertible.GetTypeCode) and goes DEEPER on the boxed-VALUE
 // CONVERSION surface:

@@ -14,7 +14,7 @@
 //
 //   B. THROW FACTORY MESSAGES -- every wired factory emits the .NET
 //      message text: ArgumentNullException(paramName) composes the zh-CN
-//      host text (值不能为 null。\n参数名: param); ArgumentOutOfRangeException
+//      host text ("Value cannot be null.\nParameter name: param"); ArgumentOutOfRangeException
 //      (paramName, message) lets an explicit message win; the base
 //      factories carry their default text. The case compares the caught
 //      message against the expected text with a bool (== literal), so the
@@ -90,7 +90,7 @@ namespace Cases { public static class Excextdeep {
 
         // ============ B. throw factory messages ============
         // B.1 ArgumentNullException(paramName): the zh-CN host composes
-        //     "值不能为 null。\n参数名: param" (exceptionext.cpp). Compare
+        //     "Value cannot be null.\nParameter name: param" (exceptionext.cpp). Compare
         //     against the expected literal -- culture-proof diff.
         try { throw new ArgumentNullException("param"); }
         catch (ArgumentNullException ex)

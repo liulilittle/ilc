@@ -1,5 +1,5 @@
-// decops.cs -- DECIMAL OPS deep probe (e2e batch C25, "decimal 深测: ctor
-// 边界/算术/parse -- UB 修复后"). Builds on decimalcase (T1/T2 basics) and
+// decops.cs -- DECIMAL OPS deep probe (e2e batch C25, "decimal deep probe: ctor
+// boundaries / arithmetic / parse -- after the UB fix"). Builds on decimalcase (T1/T2 basics) and
 // targets the d1cfbfd ctor fix (int32/int64 MIN unsigned-magnitude UB:
 // `-2147483648` / `-9223372036854775808` must ctor to the SIGNED magnitude)
 // plus the DEEPER T2 surface.

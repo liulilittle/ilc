@@ -15,8 +15,8 @@
 // /3-arg net48 overloads (FindIndex(array, match) / FindIndex(array, start,
 // match)) are NOT folded by the MethodMap (their IL pushes 2/3 args against a
 // ParamCount=4 declaration -> StackFold "pops 4 args but the stack has only
-// 0/2" transpile abort; recorded as D-findidx-1). The scenarios 命中 / 未命中
-// / start+count 窗口 / 越界 / null are all expressed through the 4-arg form
+// 0/2" transpile abort; recorded as D-findidx-1). The scenarios hit / miss
+// / start+count window / out-of-bounds / null are all expressed through the 4-arg form
 // (the full-window form FindIndex(arr, 0, arr.Length, match) covers the 2-arg
 // semantics).
 //

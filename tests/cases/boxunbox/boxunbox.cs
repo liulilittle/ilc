@@ -55,7 +55,7 @@
 using System;
 public class Box<T> { public T item; public T Get() { return item; } public void Set(T v) { item = v; } }
 // P-G5 D6 probe: a SHARED generic CLASS method whose RETURN TYPE is an SZArray
-// of the class parameter (T[]), passed through directly (直传 -- `newarr T` is
+// of the class parameter (T[]), passed through directly (direct pass-through -- `newarr T` is
 // directed, so straight pass-through is the ONLY SZArray-returning shape a
 // shared clone can carry). Probes the def-side return bridge
 // (CodeGenerator.cs:3546), the callvirt direct arm (:5283), and the fnPtr arm
@@ -118,7 +118,7 @@ namespace Cases { public static class BoxUnbox {
         // returning T[] exercises the def-side Il2CppArray* bridge and the
         // call-site object-slot bridge (which the sharedCallee retCpp override
         // turns into an implicit upcast). `sb == sa` proves the ROUND-TRIP is
-        // the SAME array (直传 identity, not a copy).
+        // the SAME array (passed-through identity, not a copy).
         ArrWrap<string> aw = new ArrWrap<string>();
         string[] sa = new string[] { "p", "q" };
         string[] sb = aw.Make(sa);

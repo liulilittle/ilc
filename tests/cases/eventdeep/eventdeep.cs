@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// eventdeep.cs -- EVENT DEEP probe (e2e batch C55, "事件深测: 事件模式/订阅/
-// 多播组合 -- delegate 域后"). Builds on the delegate-domain surface
+// eventdeep.cs -- EVENT DEEP probe (e2e batch C55, "event deep probe: event pattern / subscription /
+// multicast composition -- after the delegate domain"). Builds on the delegate-domain surface
 // (delegatechain C41: multicast + middle removal + event pattern; delegateops
 // C49: Combine/Remove matrix + event subscription; mdievt C26: per-child
 // instance events over a WinForms window) and goes DEEPER on the EVENT axis

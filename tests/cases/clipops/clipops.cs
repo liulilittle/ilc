@@ -1,5 +1,5 @@
-// clipops.cs -- CLIPBOARD deep probe (e2e batch C27, "剪贴板深测: 设置/获取/多格式
-// -- WinForms 阶段 12 后"). Builds on winforms1 Phase 12 (the clipboard COPY/PASTE
+// clipops.cs -- CLIPBOARD deep probe (e2e batch C27, "clipboard deep probe: set/get/multi-format
+// -- after WinForms stage 12"). Builds on winforms1 Phase 12 (the clipboard COPY/PASTE
 // surface: OpenClipboard -> EmptyClipboard -> SetClipboardData(CF_UNICODETEXT) ->
 // CloseClipboard, then OpenClipboard -> GetClipboardData -> GlobalLock ->
 // PtrToStringUni -> GlobalUnlock -> CloseClipboard) and goes DEEPER on the

@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// boxop2.cs -- BOX OPERATION deep probe 2 (e2e batch C27, "box 操作深测 2:
-// TypeCode 全类型/转换/拼接 -- type_code 修复后"). Built AFTER commit e6f41f9
+// boxop2.cs -- BOX OPERATION deep probe 2 (e2e batch C27, "box operations deep probe 2:
+// TypeCode all types / conversion / concatenation -- after the type_code fix"). Built AFTER commit e6f41f9
 // (icall_object_get_type_code full 12-type mapping, typecheck.cpp 192-278:
 // Int32=9, UInt32=10, Int64=11, UInt64=12, Byte=6, SByte=5, Int16=7, UInt16=8,
 // Single=13, Double=14, Boolean=3, Char=4, String=18, Decimal=15) to VERIFY the

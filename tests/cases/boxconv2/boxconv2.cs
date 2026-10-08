@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
-// boxconv2.cs -- BOX CONVERSION deep probe 2 (e2e batch C55, "装箱转换深测 2:
-// 装箱/拆箱/转换链组合 -- box 域后"). Builds on the box-domain surface
+// boxconv2.cs -- BOX CONVERSION deep probe 2 (e2e batch C55, "boxing-conversion deep probe 2:
+// boxing / unboxing / conversion-chain composition -- after the box-domain fix"). Builds on the box-domain surface
 // (boxconv C26: GetTypeCode sweep + ToInt32 shapes; boxop2 C27: TypeCode
 // full sweep + Convert via unbox; boxdeep2 C50: boxed uint ToString/GetType)
 // and goes DEEPER on the CHAIN axis: multi-step box -> unbox -> convert ->

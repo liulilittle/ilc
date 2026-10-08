@@ -1,5 +1,5 @@
-// fmtround.cs -- FORMAT ROUND-TRIP deep probe (e2e batch C22, "格式往返深测:
-// ToString/Parse 往返/精度/分组 -- numfmt 修复后"). Builds on numfmtdeep
+// fmtround.cs -- FORMAT ROUND-TRIP deep probe (e2e batch C22, "format roundtrip deep probe:
+// ToString/Parse roundtrip / precision / grouping -- after the numfmt fix"). Builds on numfmtdeep
 // (C20, the memchr group-scan fix) and formatcase. The net48 oracle runs the
 // SAME source; the ILC side must produce byte-identical strings, so every
 // ToString row IS the oracle assertion and every Parse row round-trips back

@@ -21,14 +21,14 @@
 //   2) RETHROW CHAIN: bare `throw;` through an inner catch + a finally
 //      re-presents the SAME type + carrier at the outer catch (read before
 //      and after the rethrow -- e8 proves the carrier is not consumed).
-//   3) PARAM-NAME PASSTHROUGH (参数名透传) -- BCL factories, which DO get the
+//   3) PARAM-NAME PASSTHROUGH (parameter-name passthrough) -- BCL factories, which DO get the
 //      ctor-arg forwarding: `throw new ArgumentNullException("pxy")` ->
 //      `ex.Message.Contains("pxy")` is True on BOTH runtimes (net48 composes
-//      "值不能为 null。...参数名: pxy" -- LOCALIZED, so raw Message text is
+//      "Value cannot be null. ...Parameter name: pxy" -- LOCALIZED, so raw Message text is
 //      deliberately never printed for BCL factories; the Contains probe is
 //      locale-invariant). `new ArgumentOutOfRangeException(p, m)` -> the
 //      custom message literal flows into the composed text on both
-//      (Contains("range msg") invariant; net48 appends "参数名: pyz", ILC
+//      (Contains("range msg") invariant; net48 appends "Parameter name: pyz", ILC
 //      keeps the bare message). `new ArgumentException(msg)` -> the custom
 //      message passthrough is byte-exact.
 //   4) INNER EXCEPTION (InnerException) -- PARKED (D-EX2-1): get_InnerException
@@ -112,7 +112,7 @@ namespace Cases { public static class Exops2 {
 
         // e5: ArgumentOutOfRangeException(paramName, message) -- the custom
         // message literal flows into the composed text on BOTH runtimes
-        // (net48 appends the localized "参数名: pyz" suffix, the ILC carrier
+        // (net48 appends the localized "Parameter name: pyz" suffix, the ILC carrier
         // keeps the bare message -- the Contains("range msg") probe is the
         // cross-runtime invariant; raw equality / param-name containment
         // would diverge and are deliberately not probed).

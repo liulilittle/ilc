@@ -10,13 +10,13 @@
 // ("Thread is dead; state cannot be accessed."), matching net48. threadops2
 // had this exact probe PARKED (D-THR2-3); bgthread ACTIVATES it:
 //
-//   * FG/BG SWITCH (前台后台): a NEW thread defaults foreground; set
+//   * FG/BG SWITCH (foreground/background): a NEW thread defaults foreground; set
 //     true/false roundtrips on an UNSTARTED thread, on the CURRENT thread,
 //     and on a RUNNING thread (the guard accepts every non-stopped state,
 //     net48-legal). The running-set is made deterministic with a child-set
 //     static flag + bounded poll (single-writer static, D1) and a 200 ms
 //     child sleep.
-//   * STOPPED THROW (STOPPED 抛): after Join the thread is STOPPED -- setting
+//   * STOPPED THROW (STOPPED throw): after Join the thread is STOPPED -- setting
 //     IsBackground throws ThreadStateException (caught, exact type asserted
 //     via ex.GetType().Name), the FAILED set leaves the stored flag
 //     unchanged (net48 + the icall both mutate only on success), and a base

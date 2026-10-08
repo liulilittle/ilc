@@ -1,5 +1,5 @@
-// decfmt.cs -- DECIMAL FORMAT deep probe (e2e batch C26, "decimal 格式深测:
-// ToString 全格式/复合格式 decimal 参数 -- decops 后"). Builds on decops (the
+// decfmt.cs -- DECIMAL FORMAT deep probe (e2e batch C26, "decimal format deep probe:
+// ToString all formats / composite-format decimal args -- after decops"). Builds on decops (the
 // decimal ctor/arith/parse surface + ONE composite N2 line) and goes DEEPER on
 // the decimal FORMATTING surface through the WIRED composite path -- a boxed
 // decimal flows into icall_format_composite_item -> icall_decimal_to_string_custom

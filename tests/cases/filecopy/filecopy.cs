@@ -9,15 +9,15 @@
 // ThrowFileOperationFailure + the factories in exceptionext.cpp). This case
 // is the exception-mapping acceptance surface:
 //
-//   * Copy(missingSrc, dst)      -> FileNotFoundException (源缺失); dst NOT
+//   * Copy(missingSrc, dst)      -> FileNotFoundException (source missing); dst NOT
 //     created (net48 throws before any write).
 //   * Copy(src, existingDst)     -> IOException (2-arg never overwrites); the
 //     src stays in place, the dst content is untouched.
-//   * Copy(src, dst, false)      -> IOException (覆盖抛: overwrite=false on an
+//   * Copy(src, dst, false)      -> IOException (overwrite throws: overwrite=false on an
 //     existing destination); overwrite=true REPLACES.
 //   * Copy(src, src)             -> IOException (the destination exists).
 //   * Move(missingSrc, dst)      -> FileNotFoundException.
-//   * Move(src, existingDst)     -> IOException (目标存在); the SOURCE is KEPT
+//   * Move(src, existingDst)     -> IOException (destination exists); the SOURCE is KEPT
 //     (a failed Move leaves the source in place -- net48 + io.cpp).
 //   * BASE CATCH: FileNotFoundException derives from IOException -- a
 //     `catch (IOException)` catches the missing-source failure on both
@@ -55,7 +55,7 @@ namespace Cases { public static class FileCopy {
         Console.WriteLine("f1_copy_src_kept=" + (File.Exists(a) ? 1 : 0));
 
         // ============ 2) Copy(src, dst, false) on an existing dst =======
-        // net48 + io.cpp: IOException (覆盖抛); src intact, dst untouched.
+        // net48 + io.cpp: IOException (overwrite throws); src intact, dst untouched.
         File.WriteAllText(b, "old");
         bool f2 = false;
         try { File.Copy(a, b, false); }
@@ -75,7 +75,7 @@ namespace Cases { public static class FileCopy {
         Console.WriteLine("f4_ow_content=" + (File.ReadAllText(b) == "one" ? 1 : 0));
 
         // ============ 5) Copy(missingSrc, dst) -> FileNotFoundException =
-        // 源缺失: the failure type is exact, the dst is NOT created.
+        // Source missing: the failure type is exact, the dst is NOT created.
         bool f5 = false;
         try { File.Copy(m, c); }
         catch (FileNotFoundException ex) { f5 = ex.GetType().Name == "FileNotFoundException"; }
@@ -101,7 +101,7 @@ namespace Cases { public static class FileCopy {
         Console.WriteLine("f8_move_missing_throws=" + (f8 ? 1 : 0));
 
         // ============ 9) Move(src, existingDst) -> IOException; src kept ==
-        // 目标存在: the source must survive a failed move on BOTH runtimes.
+        // Destination exists: the source must survive a failed move on BOTH runtimes.
         File.WriteAllText(a, "src");
         File.WriteAllText(d, "dst");
         bool f9 = false;

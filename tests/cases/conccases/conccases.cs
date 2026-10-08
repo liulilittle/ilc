@@ -1,5 +1,5 @@
-// conccases.cs -- CONCURRENCY deep probe (e2e batch C21, "并发深测:
-// Interlocked/锁/Monitor 重入/ThreadPool 互作, 线程域后"). Builds on the
+// conccases.cs -- CONCURRENCY deep probe (e2e batch C21, "concurrency deep probe:
+// Interlocked / locks / Monitor reentry / ThreadPool interaction, after the threading domain"). Builds on the
 // thread domain (threadcase/threadcase2/bgthread) + the M7 ref/out wiring
 // (interlockedcase / lockcase TODO: the 8-thread Interlocked accumulation
 // interlockedcase.cs:16-20 explicitly deferred until threading).

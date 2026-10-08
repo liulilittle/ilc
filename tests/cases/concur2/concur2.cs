@@ -1,5 +1,5 @@
-// concur2.cs -- CONCURRENCY deep probe 2 (e2e batch C22, "并发深测 2: 多线程
-// 锁/帧完整性/ThreadPool+锁 -- framestack 修复后"). conccases (C21) pinned
+// concur2.cs -- CONCURRENCY deep probe 2 (e2e batch C22, "concurrency deep probe 2: multi-threading
+// locks / frame integrity / ThreadPool+locks -- after the framestack fix"). conccases (C21) pinned
 // the pre-fix baseline with allocation-free workers whose ANY ref-typed local/
 // param (a `lock(gate)` gate local, an object pool state) corrupted the then-
 // SHARED frame chain. Commit 9fa9ba5 made g_frameHead thread_local, so THIS

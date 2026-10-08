@@ -21,7 +21,7 @@
 //   4. ARBITRARY-BYTE multi-block: a 1000-byte buffer filled with a
 //      non-repeating byte pattern (i % 251) hashed one-shot == range form,
 //      and MD5 == MD5 across two instances.
-//   5. ROUNDTRIP (往返): ComputeHash(ComputeHash(x)) -- the digest bytes
+//   5. ROUNDTRIP (roundtrip): ComputeHash(ComputeHash(x)) -- the digest bytes
 //      fed BACK into the same algorithm -- is deterministic and identical
 //      across two independent instances (digest-of-digest roundtrip);
 //      repeated calls on ONE instance are independent (each ComputeHash
