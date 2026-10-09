@@ -547,6 +547,13 @@ public static class CodeGenerator
             if (mask is { } mm && mm.All(x => x)) shareSet.Add(st.FullName);
         }
         GenericUsageAnalyzer.SharedGenericDefs = shareSet;
+        // GN-N4 D5: the session set of USER VALUE TYPE full names (user
+        // struct / user enum -- IsValueType TypeDefs) for the shared-collapse
+        // guard (GenericUsageAnalyzer.CollapseInstantiation): a generic arg
+        // naming one of these keeps per-instance emission (the shared object
+        // clone's int32 box helper would corrupt a struct/enum payload).
+        GenericUsageAnalyzer.UserValueTypeFullNames = new HashSet<string>(
+            types.Where(t => t.IsValueType).Select(t => t.FullName), StringComparer.Ordinal);
         // R2b scan source helper: synthesize a clone for one (defFullName,
         // suffix) pair from the definition in this assembly (same helper the
         // local-kind scan uses; also fed by the newobj/TypeSpec and model
@@ -581,7 +588,20 @@ public static class CodeGenerator
                 // (Foo<int[]> != Foo<string[]>) and the suffix must stay
                 // element-aware so the call-side name matches this clone.
                 if (gSuffix.Split('_').All(s => !GenericUsageAnalyzer.IsArrayArgToken(s)))
-                    gSuffix = string.Join("_", Enumerable.Repeat("object", def.GenericArity));
+                {
+                    // GN-N4 D5: a USER VALUE TYPE argument (user struct / user
+                    // enum -- the suffix IS the type's full name, e.g.
+                    // "Cases.Pt" / "Cases.Color", present in the session
+                    // value-type set) keeps per-instance emission. The shared
+                    // object clone's int32 box helper would corrupt a
+                    // struct/enum payload; the concrete {def}_<StructCppName>
+                    // clone is emitted instead (mirrors the array-arg rule and
+                    // GenericUsageAnalyzer.CollapseInstantiation's guard).
+                    var keepsPerInstance = gSuffix.Split('_')
+                        .Any(s => GenericUsageAnalyzer.UserValueTypeFullNames?.Contains(s) == true);
+                    if (!keepsPerInstance)
+                        gSuffix = string.Join("_", Enumerable.Repeat("object", def.GenericArity));
+                }
             }
             var gKey = gDef + "|" + gSuffix;
             if (genericInstTypes.ContainsKey(gKey)) return;

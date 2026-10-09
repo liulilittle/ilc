@@ -49,6 +49,17 @@ public static class GenericUsageAnalyzer
     public static HashSet<string>? SharedGenericDefs { get; set; }
 
     //--------------------------------------------------------------------------
+    // GN-N4 D5: the FULL NAMES of every USER VALUE TYPE (user struct / user
+    // enum -- a TypeDef whose IsValueType is true) in this assembly. Codegen
+    // populates it from the loaded type list before emission; the shared
+    // collapse consults it so a closed instantiation whose generic argument is
+    // a user value type keeps per-instance emission (the shared object clone
+    // boxes value args with the primitive int32 helper -- struct/enum payloads
+    // would be corrupted). Mirrors SharedGenericDefs' session-scope contract.
+    //--------------------------------------------------------------------------
+    public static HashSet<string>? UserValueTypeFullNames { get; set; }
+
+    //--------------------------------------------------------------------------
     // GN-N4 stage-2 (by-value MVAR user-struct per-instance): the set of
     // USER VALUE-TYPE generic arguments observed at MethodSpec call sites
     // (a method-generic call `Id<Pt>` -- the user struct is a CONCRETE
@@ -90,6 +101,23 @@ public static class GenericUsageAnalyzer
         // Foo<int[]> != Foo<string[]>), so an array argument must NOT collapse
         // onto the shared object clone -- it gets its own element-aware clone.
         if (args.Any(IsArrayArgToken)) return false;
+        // GN-N4 D5: a USER VALUE TYPE argument (user struct / user enum -- a
+        // TypeDef in this assembly with IsValueType) keeps per-instance. The
+        // shared object clone stores T slots as Il2CppObject* and boxes value
+        // args with the PRIMITIVE int32 box helper -- a struct payload would
+        // be corrupted (or fail to compile). Mirroring the array rule, the
+        // struct/enum instantiation gets its own concrete {def}_<StructCppName>
+        // clone (the GN-N4 stage-2 per-instance variant) instead of collapsing.
+        // User REFERENCE-typed args still collapse (Il2CppObject* is correct).
+        // The value-type set is populated by CodeGenerator before emission
+        // (session scope, exactly like SharedGenericDefs).
+        if (UserValueTypeFullNames != null)
+        {
+            foreach (var a in args)
+            {
+                if (UserValueTypeFullNames.Contains(a)) return false;
+            }
+        }
         for (var i = 0; i < args.Length; i++) args[i] = "object";
         return true;
     }
