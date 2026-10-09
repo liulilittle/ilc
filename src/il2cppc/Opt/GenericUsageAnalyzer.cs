@@ -100,7 +100,13 @@ public static class GenericUsageAnalyzer
         // The array element type is observable (distinct closed types:
         // Foo<int[]> != Foo<string[]>), so an array argument must NOT collapse
         // onto the shared object clone -- it gets its own element-aware clone.
-        if (args.Any(IsArrayArgToken)) return false;
+        // GN-8: judge the WHOLE '_'-joined arg list by the SAME '[' predicate as
+        // EnsureClone (!gSuffix.Contains('[')) -- an array nested inside a
+        // composite generic argument ("Cases.Inner`1_[int]") does not START with
+        // '[', so the per-arg IsArrayArgToken test slips past and mis-collapses
+        // the instantiation (shared Box<Outer<Inner<int[]>>> fork). '[' can
+        // never appear in a managed full name, so a single Contains is exact.
+        if (string.Join("_", args).Contains('[')) return false;
         // GN-N4 D5: a USER VALUE TYPE argument (user struct / user enum -- a
         // TypeDef in this assembly with IsValueType) keeps per-instance. The
         // shared object clone stores T slots as Il2CppObject* and boxes value

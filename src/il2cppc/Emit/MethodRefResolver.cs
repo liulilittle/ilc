@@ -2777,9 +2777,9 @@ var userRecvLike = receiverType ?? arg0Type;
                  0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                  0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                  0x13 => InstantiationSuffixHint ?? "int", // nested VAR argument: the enclosing clone's closed suffix (C2n closure -- replaces the stubbed "int")
-                0x1C => "object",
-                0x1D => "array",
-                0x15 => ReadM3GenericArgNested(md, ref sig),
+                 0x1C => "object",
+                 0x1D => ReadM3ArrayArg(md, ref sig),
+                 0x15 => ReadM3GenericArgNested(md, ref sig),
                 var other => throw new NotSupportedException($"nested generic argument byte 0x{other:X2} in M3"),
             };
         }
