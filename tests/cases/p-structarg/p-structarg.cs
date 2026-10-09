@@ -1,14 +1,18 @@
 // p-structarg.cs -- GN-0 probe: USER STRUCT generic argument (GENERICS-FULL-
-// ARG-GAPS.md 1.1/5, P-structarg). Locks the status quo; no implementation
-// changes in this batch (GN-1+ repair).
+// ARG-GAPS.md 1.1/5, P-structarg). Locks the status quo; D5 target: the
+// SwapRef<Pt> shared byref cell (part 2) is currently LOUD (GN-1 ruling (2)
+// -- no shared box/unbox bridge for user structs). Red at HEAD; D5 adds the
+// bridge to make the byte-exact swap pass.
 //
 // Shapes probed:
 //   * per-instance user generic Box<Pt> box/unbox round-trip -- the P25b
 //     ref-free path (locked as covered in the gap doc);
 //   * a SHARED byref-MVAR generic method (SwapRef<T>) called with a user
-//     struct -- the 1.1 cell: MethodSpecGenArgFullName falls to the
-//     `_ =>` int32 bridge (StackFold.cs:5499-5500), silently box/unboxing the
-//     struct as int32 instead of LOUD-rejecting.
+//     struct -- the 1.1 cell: MethodSpecGenArgFullName re-read mis-decoded a
+//     VALUETYPE genArg as a TypeRef coded index (the element byte 0x11 was
+//     read as the handle), naming 'DebuggableAttribute+DebuggingModes'
+//     instead of 'Cases.Pt'; D5 fixes the decode and adds the user-struct
+//     shared box/unbox bridge.
 //
 // net48 oracle: both lines True (the swap is a plain 8-byte struct move).
 // If the transpiled side renders the shared bridge as int32, the swapped
