@@ -5137,8 +5137,11 @@ public static class StackFold
         // G1 (C1): an SZARRAY (0x1D) generic argument -- element-aware
         // "[<elementSuffix>]" token (see CodeGenerator.ReadM3ArrayArg; this is
         // the StackFold mirror of the four-place rule). Simple element shapes
-        // decode through ReadM3Arg; complex shapes consume the payload and keep
-        // the historical "array" token (shared-object fallback).
+        // decode through ReadM3Arg. GN-10 (ii): a COMPLEX element that is
+        // itself an ARRAY (0x1D/0x14) is decoded recursively so the token
+        // matches MethodBodyReader.ArrayGenericArgSuffix ("int[][]" ->
+        // "[[int]]"); a nested GenericInst (0x15) / VAR (0x13) element keeps
+        // the historical "array" token.
         static string ReadM3ArrayArg(MetadataReader md, ref BlobReader s)
         {
             var elem = MethodSignatureCoder.SkipCustomModifiers(ref s, s.ReadByte());
@@ -5149,6 +5152,8 @@ public static class StackFold
                 case 0x0E: case 0x1C:
                 case 0x11: case 0x12:
                     return "[" + ReadM3Arg(md, ref s, elem) + "]";
+                case 0x1D: return "[" + ReadM3ArrayArg(md, ref s) + "]";
+                case 0x14: return "[" + ReadM3MultidimArrayArg(md, ref s) + "]";
                 default:
                     _ = ReadM3Arg(md, ref s, elem); // consume the element payload
                     return "array";
@@ -5175,7 +5180,11 @@ public static class StackFold
                 0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
                 0x0E => "string", 0x1C => "object",
                 0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref s),
-                _ => throw new NotSupportedException($"multidim array generic-argument element byte 0x{elem:X2} in M3"),
+                // GN-10 (ii): a COMPLEX element that is itself an ARRAY
+                // (0x1D/0x14) decodes recursively to the element-aware token
+                // (the MethodBodyReader.MultidimArrayArgSuffix rule); nested
+                // GenericInst / VAR keep the shared fallback token.
+                var ce => ConsumeComplexM3ArrayElem(md, ref s, ce),
             };
             var rank = s.ReadCompressedInteger();
             var numSizes = s.ReadCompressedInteger();
@@ -5183,6 +5192,19 @@ public static class StackFold
             var numLoBounds = s.ReadCompressedInteger();
             for (var i = 0; i < numLoBounds; i++) _ = s.ReadCompressedInteger();
             return "[" + elemSuffix + rank + "]";
+        }
+
+        static string ConsumeComplexM3ArrayElem(MetadataReader md, ref BlobReader s, byte elem)
+        {
+            switch (elem)
+            {
+                case 0x1D: return ReadM3ArrayArg(md, ref s);
+                case 0x14: return ReadM3MultidimArrayArg(md, ref s);
+                case 0x15: _ = ReadM3NestedGeneric(md, ref s); return "array";
+                case 0x13: _ = ReadM3VarArg(ref s); return "int";
+                default:
+                    throw new NotSupportedException($"multidim array generic-argument element byte 0x{elem:X2} in M3");
+            }
         }
 
         static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader s)

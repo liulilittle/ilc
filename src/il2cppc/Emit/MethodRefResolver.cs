@@ -2675,9 +2675,13 @@ var userRecvLike = receiverType ?? arg0Type;
     // "[<elementSuffix>]" token (the MethodRefResolver mirror of the four-place
     // ReadM3ArrayArg rule; MethodBodyReader.SimpleGenericArgSuffix is the
     // local-kind naming authority). Simple element shapes (primitives / string
-    // / object / user class / user struct) decode through the shared arg table;
-    // complex shapes consume the payload and keep the historical "array" token
-    // (the shared-object collapse fallback the local-kind scan agrees on).
+    // / object / user class / user struct) decode through the shared arg table.
+    // GN-10 (ii): a COMPLEX element that is itself an ARRAY (SZARRAY 0x1D /
+    // multidim 0x14) is decoded RECURSIVELY so the token matches
+    // MethodBodyReader.ArrayGenericArgSuffix ("int[][]" -> "[[int]]",
+    // "int[][,]" -> "[[int2]]"); a nested GenericInst (0x15) / VAR (0x13)
+    // element keeps the historical "array" token (the local-kind scan's own
+    // 0x15 special case agrees).
     private static string ReadM3ArrayArg(MetadataReader md, ref BlobReader sig)
     {
         var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
@@ -2701,17 +2705,16 @@ var userRecvLike = receiverType ?? arg0Type;
             _ => null,
         };
         if (elemSuffix != null) return "[" + elemSuffix + "]";
-        // Complex element: consume the payload so the next arg stays aligned,
-        // then keep the legacy shared token.
+        // Complex element: consume the payload so the next arg stays aligned.
         switch (elem)
         {
-            case 0x15: _ = ReadM3GenericArgNested(md, ref sig); break;
-            case 0x1D: _ = ReadM3ArrayArg(md, ref sig); break;
-            case 0x13: _ = ReadM3VarArg(ref sig); break;
+            case 0x1D: return "[" + ReadM3ArrayArg(md, ref sig) + "]";
+            case 0x14: return "[" + ReadM3MultidimArg(md, ref sig) + "]";
+            case 0x15: _ = ReadM3GenericArgNested(md, ref sig); return "array";
+            case 0x13: _ = ReadM3VarArg(ref sig); return "array";
             default:
                 throw new NotSupportedException($"generic argument byte 0x{elem:X2} in M3 (SZARRAY element)");
         }
-        return "array";
     }
 
     // G1 (C1): a multidim ARRAY (0x14) generic argument -- element- AND
@@ -2719,6 +2722,10 @@ var userRecvLike = receiverType ?? arg0Type;
     // of the four-place rule; the SZARRAY sibling above is the precedent). The
     // blob is ELEMENT_TYPE_ARRAY: <element type> <rank:compressed> <numSizes:
     // compressed> [sizes...] <numLoBounds:compressed> [lobounds...].
+    // GN-10 (ii): a COMPLEX element that is itself an ARRAY (0x1D/0x14) is
+    // decoded recursively so the token matches MethodBodyReader.
+    // MultidimArrayArgSuffix ("int[,][,]" -> "[[int2]2]", "int[,][]" ->
+    // "[[int]2]").
     private static string ReadM3MultidimArg(MetadataReader md, ref BlobReader sig)
     {
         var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
@@ -2739,10 +2746,8 @@ var userRecvLike = receiverType ?? arg0Type;
             0x0E => "string",
             0x1C => "object",
             0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
-            // Complex element (nested generic / SZARRAY element / VAR): consume
-            // the payload so the next arg stays aligned; fall back to a
-            // rank-aware shared token (the multidim array is a reference slot
-            // regardless of element shape).
+            // Complex element (nested generic / SZARRAY element / multidim
+            // element / VAR): consume the payload so the next arg stays aligned.
             var ce => ConsumeComplexM3ArgPayload(md, ref sig, ce),
         };
         var rank = sig.ReadCompressedInteger();
@@ -2757,8 +2762,12 @@ var userRecvLike = receiverType ?? arg0Type;
     {
         switch (elem)
         {
+            // GN-10 (ii): an ARRAY element (SZARRAY/multidim) decodes
+            // recursively to the element-aware token; nested GenericInst / VAR
+            // keep the shared fallback token.
+            case 0x1D: return ReadM3ArrayArg(md, ref sig);
+            case 0x14: return ReadM3MultidimArg(md, ref sig);
             case 0x15: _ = ReadM3GenericArgNested(md, ref sig); return "array";
-            case 0x1D: _ = ReadM3ArrayArg(md, ref sig); return "array";
             case 0x13: _ = ReadM3VarArg(ref sig); return "int";
             default:
                 throw new NotSupportedException($"generic argument byte 0x{elem:X2} in M3 (multidim ARRAY element)");

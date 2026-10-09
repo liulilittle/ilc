@@ -7081,9 +7081,12 @@ default: return false;                           // primitives/VAR(handled by ca
     // The token mirrors MethodBodyReader.SimpleGenericArgSuffix (the local-kind
     // naming authority) exactly -- the simple-element set (primitives / string /
     // object / user class / user struct) decodes through this producer's own
-    // arg table; complex element shapes (nested generic / array-of-array /
-    // VAR) keep the historical "array" token so the call side and the def side
-    // both fall back to the shared object clone.
+    // arg table. GN-10 (ii): a COMPLEX element that is itself an ARRAY
+    // (0x1D/0x14) is decoded RECURSIVELY so the token matches
+    // MethodBodyReader.ArrayGenericArgSuffix ("int[][]" -> "[[int]]"); a nested
+    // GenericInst (0x15) / VAR (0x13) element keeps the historical "array"
+    // token so the call side and the def side both fall back to the shared
+    // object clone.
     private static string ReadM3ArrayArg(MetadataReader md, ref BlobReader sig)
     {
         var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
@@ -7094,6 +7097,8 @@ default: return false;                           // primitives/VAR(handled by ca
             case 0x0E: case 0x1C:
             case 0x11: case 0x12:
                 return "[" + ReadM3Arg(md, ref sig, elem) + "]";
+            case 0x1D: return "[" + ReadM3ArrayArg(md, ref sig) + "]";
+            case 0x14: return "[" + ReadM3MultidimArrayArg(md, ref sig) + "]";
             default:
                 _ = ReadM3Arg(md, ref sig, elem); // consume the element payload
                 return "array";
@@ -7116,7 +7121,11 @@ default: return false;                           // primitives/VAR(handled by ca
             0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
             0x0E => "string", 0x1C => "object",
             0x11 or 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
-            _ => throw new NotSupportedException($"multidim array generic-argument element byte 0x{elem:X2} in M3"),
+            // GN-10 (ii): a COMPLEX element that is itself an ARRAY (0x1D/0x14)
+            // decodes recursively to the element-aware token (the
+            // MethodBodyReader.MultidimArrayArgSuffix rule); nested GenericInst
+            // / VAR keep the shared fallback token.
+            var ce => ConsumeComplexM3ArrayElem(md, ref sig, ce),
         };
         var rank = sig.ReadCompressedInteger();
         var numSizes = sig.ReadCompressedInteger();
@@ -7124,6 +7133,19 @@ default: return false;                           // primitives/VAR(handled by ca
         var numLoBounds = sig.ReadCompressedInteger();
         for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
         return "[" + elemSuffix + rank + "]";
+    }
+
+    private static string ConsumeComplexM3ArrayElem(MetadataReader md, ref BlobReader sig, byte elem)
+    {
+        switch (elem)
+        {
+            case 0x1D: return ReadM3ArrayArg(md, ref sig);
+            case 0x14: return ReadM3MultidimArrayArg(md, ref sig);
+            case 0x15: _ = ReadM3NestedGeneric(md, ref sig); return "array";
+            case 0x13: _ = ReadM3VarArgCG(ref sig); return "int";
+            default:
+                throw new NotSupportedException($"multidim array generic-argument element byte 0x{elem:X2} in M3");
+        }
     }
 
     private static string ReadM3NestedGeneric(MetadataReader md, ref BlobReader sig)
