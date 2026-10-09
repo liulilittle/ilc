@@ -122,6 +122,33 @@ public static class GenericUsageAnalyzer
         return true;
     }
 
+    //--------------------------------------------------------------------------
+    // GN-N6 obs2: does a '-' joined generic-instance SUFFIX token contain a
+    // USER VALUE TYPE argument as a whole arg? Mirrors CollapseInstantiation's
+    // per-arg full-name match so EnsureClone (clone-side suffix scan) and the
+    // call-side collapse decide identically. Matching is against the FULL NAME
+    // ("Cases.A_B" -- a type name may itself contain '_', GN-N5), so the
+    // suffix must NOT be naively Split('_') (that would chop "Cases.A_B" into
+    // "Cases"/"A"/"B" and miss the set). Checks each full name as a bounded
+    // '_'-delimited arg segment.
+    //--------------------------------------------------------------------------
+    public static bool SuffixContainsUserValueType(string suffix)
+    {
+        if (UserValueTypeFullNames == null || suffix == null) return false;
+        if (suffix.Length == 0) return false;
+        foreach (var u in UserValueTypeFullNames)
+        {
+            if (u.Length == 0) continue;
+            // Whole suffix == one arg.
+            if (suffix == u) return true;
+            // Leading, trailing, or embedded bounded arg segment.
+            if (suffix.StartsWith(u + "_", StringComparison.Ordinal)) return true;
+            if (suffix.EndsWith("_" + u, StringComparison.Ordinal)) return true;
+            if (suffix.IndexOf("_" + u + "_", StringComparison.Ordinal) >= 0) return true;
+        }
+        return false;
+    }
+
     // Object members a shared clone can still call directly (the slot is a
     // real object -- these dispatch through object semantics, no exact type).
     private static readonly HashSet<string> s_objectMembers = new(StringComparer.Ordinal)

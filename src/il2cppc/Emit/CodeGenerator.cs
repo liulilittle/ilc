@@ -589,7 +589,7 @@ public static class CodeGenerator
                 // element-aware so the call-side name matches this clone.
                 if (gSuffix.Split('_').All(s => !GenericUsageAnalyzer.IsArrayArgToken(s)))
                 {
-                    // GN-N4 D5: a USER VALUE TYPE argument (user struct / user
+// GN-N4 D5: a USER VALUE TYPE argument (user struct / user
                     // enum -- the suffix IS the type's full name, e.g.
                     // "Cases.Pt" / "Cases.Color", present in the session
                     // value-type set) keeps per-instance emission. The shared
@@ -597,8 +597,11 @@ public static class CodeGenerator
                     // struct/enum payload; the concrete {def}_<StructCppName>
                     // clone is emitted instead (mirrors the array-arg rule and
                     // GenericUsageAnalyzer.CollapseInstantiation's guard).
-                    var keepsPerInstance = gSuffix.Split('_')
-                        .Any(s => GenericUsageAnalyzer.UserValueTypeFullNames?.Contains(s) == true);
+                    // GN-N6 obs2: match by FULL NAME (boundary-aware), the same
+                    // semantics as CollapseInstantiation -- a user full name
+                    // may itself contain '_' (GN-N5: Cases.A_B), so a naive
+                    // Split('_') fragments it and misses the value-type set.
+                    var keepsPerInstance = GenericUsageAnalyzer.SuffixContainsUserValueType(gSuffix);
                     if (!keepsPerInstance)
                         gSuffix = string.Join("_", Enumerable.Repeat("object", def.GenericArity));
                 }
