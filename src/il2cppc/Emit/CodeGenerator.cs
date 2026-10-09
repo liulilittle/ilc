@@ -5559,21 +5559,34 @@ public static class CodeGenerator
                 // compile a static_cast of the struct to int32). The local kind
                 // is the struct's C++ name ("Cases_Pt" -- ExprKind's
                 // ValueTypeNewExpr arm) or "v:<FullName>"; match a TypeDef.
+                // A CONSTANT argument (`Color.Green`, `DayOfWeek.Thursday`) has
+                // no expr-kind type -- fall back to the METHOD's parent TypeSpec
+                // argument (the slot's concrete T).
+                TypeDef? vDef = null;
                 if (k is { } vk)
                 {
-                    TypeDef? vDef = null;
                     if (vk.StartsWith("v:", StringComparison.Ordinal))
                         vDef = types.FirstOrDefault(t => t.MatchesFullName(vk[2..]));
                     else
                         vDef = types.FirstOrDefault(t => t.IsValueType && TypeEmitter.TypeCppName(t) == vk);
-                    if (vDef != null)
-                    {
-                        var vCpp = TypeEmitter.TypeCppName(vDef);
-                        if (vDef.BaseTypeName == "System.Enum")
-                            return $"il2cpp::runtime::icall_box_enum(&{vCpp}_class, static_cast<int64_t>({expr}))";
-                        return $"il2cpp::runtime::icall_box_user_struct(&{vCpp}_class, &({expr}), sizeof({vCpp}))";
-                    }
                 }
+                if (vDef == null && CallSiteVarArgFullName(md, v.MethodToken) is { } csFull)
+                    vDef = types.FirstOrDefault(t => t.MatchesFullName(csFull));
+                if (vDef != null && (vDef.IsValueType || vDef.BaseTypeName == "System.Enum"))
+                {
+                    var vCpp = TypeEmitter.TypeCppName(vDef);
+                    if (vDef.BaseTypeName == "System.Enum")
+                        return $"il2cpp::runtime::icall_box_enum(&{vCpp}_class, static_cast<int64_t>({expr}))";
+                    return $"il2cpp::runtime::icall_box_user_struct(&{vCpp}_class, &({expr}), sizeof({vCpp}))";
+                }
+                // D5: a BCL ENUM arg (System.DayOfWeek -- a VALUETYPE TypeRef
+                // with no generated {T}_class in this assembly) boxes through
+                // the int64 carrier (icall_box_long), mirroring the p25b enum
+                // box (KnownBclEnumNames at the box_ emitter). The MethodRef
+                // parent TypeSpec names the argument.
+                if (CallSiteVarArgFullName(md, v.MethodToken) is { } bclFull
+                    && KnownBclEnumNames.Contains(bclFull))
+                    return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_box_long(static_cast<int64_t>({expr})))";
                 return $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({expr}))";
             }
             return expr;
@@ -5872,6 +5885,46 @@ public static class CodeGenerator
         if (argByte == 0x13)
             return _curInstantiationSuffix is not (null or "int");
         return VarArgByteIsRef(ref sig, argByte);
+    }
+
+    // D5: the concrete FULL NAME of a single-argument shared clone's T
+    // (Box`1<Cases.Pt> -> "Cases.Pt", Box`1<System.DayOfWeek> -> "System.DayOfWeek").
+    // The caller-side shared-callee box/unbox bridge needs the concrete value
+    // TYPE of the generic slot (a constant `Color.Green` or `DayOfWeek.Thursday`
+    // argument carries no expr-kind type info -- only the MethodRef parent
+    // TypeSpec knows T). Returns null when the TypeSpec does not decode to a
+    // single TypeDefOrRef argument (these stay on the int32/long ref paths).
+    private static string? CallSiteVarArgFullName(MetadataReader md, int token)
+    {
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.MemberReference) return null;
+        var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return null;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent).Signature);
+        if (sig.ReadByte() != 0x15) return null;
+        _ = sig.ReadByte(); // CLASS/VALUETYPE marker
+        _ = sig.ReadTypeHandle();
+        if (sig.ReadCompressedInteger() != 1) return null;
+        var argByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        if (argByte == 0x13) return null; // open VAR: suffix-resolved elsewhere
+        return VarArgByteFullName(md, ref sig, argByte);
+    }
+
+    private static string? VarArgByteFullName(MetadataReader md, ref BlobReader sig, byte b)
+    {
+        switch (b)
+        {
+            case 0x11 or 0x12: // VALUETYPE / CLASS
+                var th = sig.ReadTypeHandle();
+                return th.Kind switch
+                {
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+                    _ => null,
+                };
+            default:
+                return null; // primitives/object/string/arrays: legacy ref paths
+        }
     }
 
     private static bool VarArgByteIsRef(ref BlobReader sig, byte b)
@@ -8269,6 +8322,9 @@ default: return false;                           // primitives/VAR(handled by ca
             "System.DayOfWeek",
             "System.Runtime.GCLatencyMode",
         };
+    // D5: public accessor for the same whitelist (StackFold's shared-clone
+    // return-unbox site needs it to unbox BCL-enum returns).
+    public static bool IsKnownBclEnumName(string typeName) => KnownBclEnumNames.Contains(typeName);
     private static bool IsEnumReceiverType(string typeName, IReadOnlyList<TypeDef> types)
         => typeName == "System.Enum"
            || KnownBclEnumNames.Contains(typeName)

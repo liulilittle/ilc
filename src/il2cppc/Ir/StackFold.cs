@@ -2100,17 +2100,36 @@ public static class StackFold
             // reference-typed return is already the object (the consumer's
             // local is Il2CppObject*-typed).
             var concreteDef = types?.FirstOrDefault(t => t.MatchesFullName(concrete));
-            if (concreteDef == null || !concreteDef.IsValueType) return value;
-            // The target local must be the SAME user value type (declared as a
-            // value local "v:<FullName>"), else the object slot was intended.
-            var targetKind = LocWidth(targetName, ctx, tempWidths);
-            if (!targetKind.StartsWith("v:", StringComparison.Ordinal)
-                && targetKind != "us:" + TypeEmitter.TypeCppName(concreteDef)) return value;
+            if (concreteDef == null || !IsUserValueType(concreteDef)) return value;
+            var isEnum = concreteDef.BaseTypeName == "System.Enum";
+            if (!isEnum)
+            {
+                // User STRUCT: the target local must be a value local of the
+                // same struct ("v:<FullName>" or "us:<CppName>") -- the
+                // object-typed slot is left untouched.
+                var targetKind = LocWidth(targetName, ctx, tempWidths);
+                if (!targetKind.StartsWith("v:", StringComparison.Ordinal)
+                    && targetKind != "us:" + TypeEmitter.TypeCppName(concreteDef)) return value;
+            }
+            // User ENUM: the enum value rides the int32 carrier slot; the boxed
+            // enum's payload is the int64 carrier (icall_box_enum), so the
+            // return unbox reads it back via icall_unbox_long (accepts enum
+            // boxes) -- NOT unbox_{token}, whose user-enum branch is void (the
+            // model's IsValueType is false for enums -- base is System.Enum).
+            // The int64 result implicitly narrows to the enum's int32 slot.
+            if (isEnum)
+                return new CallExpr
+                {
+                    Function = "il2cpp::runtime::icall_unbox_long",
+                    ReturnsRef = false,
+                    ResultKind = "l",
+                    Args = { value },
+                };
             return new CallExpr
             {
                 Function = $"unbox_{token}",
                 ReturnsRef = false,
-                ResultKind = concreteDef.BaseTypeName == "System.Enum" ? "i" : "us:" + TypeEmitter.TypeCppName(concreteDef),
+                ResultKind = "us:" + TypeEmitter.TypeCppName(concreteDef),
                 Args = { value },
             };
         }
@@ -3168,17 +3187,74 @@ public static class StackFold
                     // `ldloca slot; call int32::ToString()` knows the slot
                     // holds a BOXED value (the object, not an int32 address)
                     // and consumes it via unbox (SharedReturnConcreteType).
-                    if (md != null && stack.Peek() is LocExpr rtv
-                        && ReturnIsVar(md, (int)ins.Operand)
+                    // D5: a USER VALUE TYPE shared return (Box<Color>.Get ->
+                    // the boxed enum, Box<Pt>.Get -> the boxed struct) is
+                    // UNBOXED HERE, at the return site: every consumer (a
+                    // comparison `c == Color.Green`, WriteLine_i, a value-local
+                    // store) then sees the concrete value, not the object.
+                    // The pushed boxed temp is replaced by the unboxed value.
+                    if (md != null && ReturnIsVar(md, (int)ins.Operand)
                         && (VarArgRefFullName(md, (int)ins.Operand) ?? SharedReturnConcreteType(md, (int)ins.Operand)) is string sharedRet)
                     {
-                        objTypes[rtv.Name] = sharedRet;
-                        // D5: record the concrete type's metadata token (only
-                        // when it IS the instance's TypeSpec arg -- the VAR/object
-                        // fallback has none) so a later store into a USER VALUE
-                        // TYPE local can build the unbox_{token} bridge.
-                        if (SharedReturnConcreteToken(md, (int)ins.Operand) is int srt)
-                            sharedReturnTokens[rtv.Name] = srt;
+                        var isUserValue = types?.FirstOrDefault(t => t.MatchesFullName(sharedRet) && IsUserValueType(t)) != null;
+                        var retToken = SharedReturnConcreteToken(md, (int)ins.Operand);
+                        if (isUserValue && retToken != null && stack.Peek() is LocExpr rtv)
+                        {
+                            // Replace the boxed temp on the stack with the
+                            // unboxed value. Enum: icall_unbox_long (accepts
+                            // enum boxes, int64 carrier) narrowing into the
+                            // int32 slot; struct: unbox_{token} (the P25b cast
+                            // emission). Push materializes the unbox into its
+                            // own temp (ResultKind -> the value's slot width).
+                            var concreteDef = types!.First(t => t.MatchesFullName(sharedRet));
+                            Expr unboxed;
+                            if (concreteDef.BaseTypeName == "System.Enum")
+                                unboxed = new CallExpr
+                                {
+                                    Function = "il2cpp::runtime::icall_unbox_long",
+                                    ReturnsRef = false,
+                                    ResultKind = "l",
+                                    Args = { rtv },
+                                };
+                            else
+                                unboxed = new CallExpr
+                                {
+                                    Function = $"unbox_{retToken}",
+                                    ReturnsRef = false,
+                                    ResultKind = "us:" + TypeEmitter.TypeCppName(concreteDef),
+                                    Args = { rtv },
+                                };
+                            var popped = stack.Pop();
+                            Push(unboxed, ins);
+                            _ = popped;
+                        }
+                        // D5: a BCL ENUM shared return (Box<DayOfWeek>.Get --
+                        // System.DayOfWeek, a VALUETYPE TypeRef invisible to the
+                        // user-assembly `types` list) is unboxed the same way
+                        // (icall_unbox_long accepts enum boxes) so consumers
+                        // compare the int32 carrier, not the boxed object.
+                        else if (CodeGenerator.IsKnownBclEnumName(sharedRet) && stack.Peek() is LocExpr bclEnumRtv)
+                        {
+                            var popped = stack.Pop();
+                            Push(new CallExpr
+                            {
+                                Function = "il2cpp::runtime::icall_unbox_long",
+                                ReturnsRef = false,
+                                ResultKind = "l",
+                                Args = { bclEnumRtv },
+                            }, ins);
+                            _ = popped;
+                        }
+                        else if (stack.Peek() is LocExpr rtv2)
+                        {
+                            objTypes[rtv2.Name] = sharedRet;
+                            // D5: record the concrete type's metadata token (only
+                            // when it IS the instance's TypeSpec arg -- the VAR/object
+                            // fallback has none) so a later store into a USER VALUE
+                            // TYPE local can build the unbox_{token} bridge.
+                            if (retToken is int srt)
+                                sharedReturnTokens[rtv2.Name] = srt;
+                        }
                     }
                 }
                 else
@@ -5853,6 +5929,14 @@ public static class StackFold
         or "System.Single" or "System.Double" or "System.Boolean" or "System.Char"
         or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16";
 
+    // D5: whether a TypeDef is a USER VALUE TYPE (user struct OR user enum).
+    // The model's IsValueType flag is set ONLY for a System.ValueType base
+    // (MetadataLoader.cs:62); a user ENUM's base is System.Enum, so
+    // IsValueType is false for enums. Both need the concrete box/unbox bridge
+    // (their {T}_class descriptors / int32 enum carrier exist).
+    static bool IsUserValueType(TypeDef t) =>
+        t.IsValueType || t.BaseTypeName == "System.Enum";
+
     // P-G3 R-E: the per-explicit-parameter byref-VAR flags of a call to a
     // SHARED generic method (SwapRef<T> -> [true, true]). The shared object
     // ABI declares those params Il2CppObject** and the caller must bridge
@@ -5933,7 +6017,7 @@ public static class StackFold
         var structDef = concrete != null && types != null
             ? types.FirstOrDefault(t => t.MatchesFullName(concrete))
             : null;
-        if (concrete != null && structDef != null && structDef.IsValueType)
+        if (concrete != null && structDef != null && IsUserValueType(structDef))
         {
             var typeToken = MethodSpecGenArgToken(md, ms.Signature, mvIdx);
             var cpp = TypeEmitter.TypeCppName(structDef);
