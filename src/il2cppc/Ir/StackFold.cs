@@ -2118,6 +2118,14 @@ public static class StackFold
             // model's IsValueType is false for enums -- base is System.Enum).
             // The int64 result implicitly narrows to the enum's int32 slot.
             if (isEnum)
+            {
+                // GN-N6 obs1: mirror the struct gate above -- only unbox into
+                // an ENUM value slot ("v:" or "us:"); an object-typed target
+                // (e.g. `object o = box.Get();` for a shared VAR enum return)
+                // must keep the BOXED value, not the int64 carrier.
+                var targetKind = LocWidth(targetName, ctx, tempWidths);
+                if (!targetKind.StartsWith("v:", StringComparison.Ordinal)
+                    && targetKind != "us:" + TypeEmitter.TypeCppName(concreteDef)) return value;
                 return new CallExpr
                 {
                     Function = "il2cpp::runtime::icall_unbox_long",
@@ -2125,6 +2133,7 @@ public static class StackFold
                     ResultKind = "l",
                     Args = { value },
                 };
+            }
             return new CallExpr
             {
                 Function = $"unbox_{token}",

@@ -45,6 +45,14 @@ public static class PEnumArg {
         bd.Set(DayOfWeek.Thursday);
         Console.WriteLine(bd.Get() == DayOfWeek.Thursday);  // True
 
+        // ---- 2b. GN-N6 obs1: shared VAR enum return stored into an
+        // OBJECT slot ("object o = box.Get();" with a USER enum -- the
+        // shared object clone delivers the boxed enum) keeps the BOXED
+        // value, not the unboxed int64 carrier. net48 boxes the enum. ----
+        object bo = bc.Get();
+        Console.WriteLine(bo != null);                // True
+        Console.WriteLine(bo.Equals(Color.Green));    // True
+
         // ---- 3. shared byref-MVAR SwapRef<T> with enum arg (1.1) ----
         Color x = Color.Red;
         Color y = Color.Blue;
