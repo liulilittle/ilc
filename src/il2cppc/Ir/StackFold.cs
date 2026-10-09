@@ -3535,9 +3535,37 @@ public static class StackFold
                     // int32 -> il2cpp_box_int32, double -> icall_box_double,
                     // ...). The old int32-only bridge read only the low 32
                     // bits of a double/int64 slot.
-                    var (boxFn, boxDeref, unboxFn, unboxKind) =
-                        SharedByrefConcreteBridge(md!, (int)ins.Operand, bi)
-                        ?? ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i");
+                    var br = SharedByrefConcreteBridge(md!, (int)ins.Operand, bi, types);
+                    string boxFn, boxDeref, unboxFn, unboxKind;
+                    bool userValueBox = false;
+                    if (br?.IsUserValue == true)
+                    {
+                        // D5: a USER VALUE TYPE byref slot. The box goes
+                        // through the SAME box_{token} emission path the
+                        // per-instance P25b path uses (struct -> the struct's
+                        // own {T}_class descriptor + byte-exact payload copy;
+                        // enum -> icall_box_enum). The VALUE slot is read as a
+                        // value expression (LocExpr), not the address -- the
+                        // box_{token} emitter wraps &(value) itself. The
+                        // unbox: user structs use the unbox_{token} cast
+                        // emitter (*reinterpret_cast<T*>(...)); user enums
+                        // unbox through icall_unbox_long (accepts enum boxes,
+                        // int64 carrier -- the enum local slot is int32_t).
+                        boxFn = $"box_{br.UserValueToken}";
+                        boxDeref = "";
+                        unboxFn = br.IsEnum
+                            ? "il2cpp::runtime::icall_unbox_long"
+                            : $"unbox_{br.UserValueToken}";
+                        unboxKind = br.UnboxKind;
+                        userValueBox = true;
+                    }
+                    else
+                    {
+                        (boxFn, boxDeref, unboxFn, unboxKind) =
+                            br != null
+                            ? (br.BoxFn, br.BoxDeref, br.UnboxFn, br.UnboxKind)
+                            : ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i");
+                    }
                     var boxCall = new CallExpr
                     {
                         Function = boxFn,
@@ -3550,7 +3578,10 @@ public static class StackFold
                     };
                     if (boxFn == "il2cpp::il2cpp_box_int32")
                         boxCall.Args.Add(new NullExpr());
-                    boxCall.Args.Add(laB);
+                    // D5 user value types: pass the VALUE slot (the box_{token}
+                    // emitter adds the &(...) itself). Primitives pass the
+                    // ADDRESS (the boxDeref cast reads the value through it).
+                    boxCall.Args.Add(userValueBox ? new LocExpr { Name = laB.Name } : laB);
                     stmts.Add(new AssignStmt
                     {
                         Target = btemp,
@@ -5810,8 +5841,22 @@ public static class StackFold
     // to the int32 pair -- the legal System.Int32 branch keeps the legacy
     // int32 pair explicitly. Returns null for non-shared / non-byref shapes
     // (caller keeps the zero-copy pass-through).
-    static (string BoxFn, string BoxDeref, string UnboxFn, string UnboxKind)? SharedByrefConcreteBridge(
-        MetadataReader md, int token, int paramIndex)
+    // D5: the shared-byref box/unbox bridge result. For the PRIMITIVE (scalar)
+    // concrete arguments it carries the simple (boxFn, boxDeref, unboxFn,
+    // unboxKind) tuple the caller historically built. For a USER VALUE TYPE
+    // (user struct / user enum) it carries the concrete type's metadata token
+    // and C++ name; the caller then emits box_{token}/unbox_{token} CallExprs
+    // (the SAME CodeGenerator handlers the per-instance P25b path uses for
+    // user structs/enums -- byte-exact payload copy + cast unbox).
+    sealed record SharedByrefBridge(
+        string BoxFn, string BoxDeref, string UnboxFn, string UnboxKind,
+        int? UserValueToken = null, string? UserStructCpp = null, bool IsEnum = false)
+    {
+        public bool IsUserValue => UserValueToken != null;
+    }
+
+    static SharedByrefBridge? SharedByrefConcreteBridge(
+        MetadataReader md, int token, int paramIndex, IReadOnlyList<TypeDef>? types)
     {
         var h = MetadataTokens.Handle(token);
         if (h.Kind != HandleKind.MethodSpecification) return null;
@@ -5821,32 +5866,58 @@ public static class StackFold
         if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) != true) return null;
         var mvIdx = ByrefParamMvarIndex(md, dm, paramIndex);
         if (mvIdx < 0) return null;
-        return MethodSpecGenArgFullName(md, ms.Signature, mvIdx) switch
+        var concrete = MethodSpecGenArgFullName(md, ms.Signature, mvIdx);
+        // D5: a USER value type concrete argument (user struct / user enum)
+        // now gets a real shared byref box/unbox bridge instead of LOUD. The
+        // box allocates an object with the struct's OWN generated descriptor
+        // (&{T}_class -- byte-exact payload copy) and the unbox reads the
+        // payload back as a {T} struct value; the callee (the shared object
+        // ABI) swaps the two object POINTERS, which round-trips the struct
+        // bytes exactly (net48: the byte-exact struct swap). The {T}_class
+        // descriptor must exist (bounded: user types in this assembly).
+        var structDef = concrete != null && types != null
+            ? types.FirstOrDefault(t => t.MatchesFullName(concrete))
+            : null;
+        if (concrete != null && structDef != null && structDef.IsValueType)
         {
-            "System.Double" => ("il2cpp::runtime::icall_box_double", "deref:d", "il2cpp::runtime::icall_unbox_double", "d"),
-            "System.Int64" => ("il2cpp::runtime::icall_box_long", "deref:l", "il2cpp::runtime::icall_unbox_long", "l"),
-            "System.Boolean" => ("il2cpp::runtime::icall_box_bool", "deref:b", "il2cpp::runtime::icall_unbox_bool", "b"),
-            "System.Char" => ("il2cpp::runtime::icall_box_char", "deref:c", "il2cpp::runtime::icall_unbox_char", "c"),
-            "System.Byte" => ("il2cpp::runtime::icall_box_byte", "deref:u1", "il2cpp::runtime::icall_unbox_byte", "b"),
-            "System.SByte" => ("il2cpp::runtime::icall_box_sbyte", "deref:i", "il2cpp::runtime::icall_unbox_sbyte", "b"),
-            "System.Int16" => ("il2cpp::runtime::icall_box_short", "deref:u2", "il2cpp::runtime::icall_unbox_short", "b"),
-            "System.UInt16" => ("il2cpp::runtime::icall_box_ushort", "deref:u2", "il2cpp::runtime::icall_unbox_ushort", "c"),
-            "System.UInt32" => ("il2cpp::runtime::icall_box_uint", "deref:ui", "il2cpp::runtime::icall_unbox_uint", "i"),
-            "System.UInt64" => ("il2cpp::runtime::icall_box_ulong", "deref:ul", "il2cpp::runtime::icall_unbox_ulong", "l"),
-            "System.Single" => ("il2cpp::runtime::icall_box_float", "deref:d", "il2cpp::runtime::icall_unbox_float", "d"),
+            var typeToken = MethodSpecGenArgToken(md, ms.Signature, mvIdx);
+            var cpp = TypeEmitter.TypeCppName(structDef);
+            // Struct or enum? Enums have the System.Enum base: box via
+            // icall_box_enum (the value is an int32 carrier widened to int64),
+            // unbox via icall_unbox_long narrowed back to int32 -- the enum
+            // local slot is int32_t. User structs box/unbox their own
+            // descriptor ({T}_class / il2cpp_unbox_user_struct).
+            if (structDef.BaseTypeName == "System.Enum")
+                return new SharedByrefBridge("", "", "", "i", typeToken, cpp, IsEnum: true);
+            return new SharedByrefBridge("", "", "", "us:" + cpp, typeToken, cpp, IsEnum: false);
+        }
+        // Primitives keep the exact legacy scalar bridge.
+        return concrete switch
+        {
+            "System.Double" => new SharedByrefBridge("il2cpp::runtime::icall_box_double", "deref:d", "il2cpp::runtime::icall_unbox_double", "d"),
+            "System.Int64" => new SharedByrefBridge("il2cpp::runtime::icall_box_long", "deref:l", "il2cpp::runtime::icall_unbox_long", "l"),
+            "System.Boolean" => new SharedByrefBridge("il2cpp::runtime::icall_box_bool", "deref:b", "il2cpp::runtime::icall_unbox_bool", "b"),
+            "System.Char" => new SharedByrefBridge("il2cpp::runtime::icall_box_char", "deref:c", "il2cpp::runtime::icall_unbox_char", "c"),
+            "System.Byte" => new SharedByrefBridge("il2cpp::runtime::icall_box_byte", "deref:u1", "il2cpp::runtime::icall_unbox_byte", "b"),
+            "System.SByte" => new SharedByrefBridge("il2cpp::runtime::icall_box_sbyte", "deref:i", "il2cpp::runtime::icall_unbox_sbyte", "b"),
+            "System.Int16" => new SharedByrefBridge("il2cpp::runtime::icall_box_short", "deref:u2", "il2cpp::runtime::icall_unbox_short", "b"),
+            "System.UInt16" => new SharedByrefBridge("il2cpp::runtime::icall_box_ushort", "deref:u2", "il2cpp::runtime::icall_unbox_ushort", "c"),
+            "System.UInt32" => new SharedByrefBridge("il2cpp::runtime::icall_box_uint", "deref:ui", "il2cpp::runtime::icall_unbox_uint", "i"),
+            "System.UInt64" => new SharedByrefBridge("il2cpp::runtime::icall_box_ulong", "deref:ul", "il2cpp::runtime::icall_unbox_ulong", "l"),
+            "System.Single" => new SharedByrefBridge("il2cpp::runtime::icall_box_float", "deref:d", "il2cpp::runtime::icall_unbox_float", "d"),
             // GN-1 (ruling (2)): the legal Int32 branch -- the shared ABI's dedicated
             // box helper (takes the null class-slot first arg, see the caller).
-            "System.Int32" => ("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i"),
-            // GN-1 (ruling (2)): unknown concrete argument (user struct / enum /
-            // nested GenericInst value type / undecodable shape) is NO LONGER
-            // silently boxed/unboxed as int32 -- that would corrupt the value.
+            "System.Int32" => new SharedByrefBridge("il2cpp::il2cpp_box_int32", "deref:i", "il2cpp::il2cpp_unbox_int32", "i"),
+            // GN-1 (ruling (2)): unknown concrete argument (nested GenericInst
+            // value type / undecodable shape) is NO LONGER silently
+            // boxed/unboxed as int32 -- that would corrupt the value.
             // LOUD-reject: the fold catch turns the enclosing method into the
             // M5 stub (runtime throws a managed NotSupportedException). The
             // per-instance (P25b) path or an explicit Int32 instantiation are
             // the supported ways to use a struct/enum T.
             var other => throw new NotSupportedException(
                 $"shared byref-MVAR generic argument '{other ?? "<?>"}' has no box/unbox bridge " +
-                "(only Int32 + primitives share the byref bridge); user struct/enum T must use per-instance generic (P25b) or explicit Int32 specialization"),
+                "(only Int32 + primitives + user value types share the byref bridge); nested GenericInst value types must use per-instance generic (P25b) or explicit Int32 specialization"),
         };
     }
 
@@ -6084,6 +6155,37 @@ public static class StackFold
     // decode (primitives/string/object/class/value-type).
     static string? MethodSpecGenArgFullName(MetadataReader md, in BlobHandle genSigHandle, int genIndex)
     {
+        // D5: the token variant shares the decoded TypeDefOrRef handle; a
+        // VALUETYPE/CLASS arg's coded index doubles as the metadata token the
+        // CodeGenerator box_/unbox_ branches key on.
+        return MethodSpecGenArgHandle(md, genSigHandle, genIndex) is { } fh
+            ? fh.Kind switch
+            {
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)fh),
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)fh),
+                _ => null,
+            }
+            : MethodSpecGenArgScalarName(md, genSigHandle, genIndex);
+    }
+
+    // D5: the metadata TOKEN of a VALUETYPE/CLASS MethodSpec generic argument
+    // (TypeDefinition / TypeReference coded index), or null for primitive /
+    // open / undecodable args. The shared-byref bridge routes user structs and
+    // enums through the CodeGenerator box_{token}/unbox_{token} emission
+    // paths, which resolve the concrete type from THIS token.
+    static int? MethodSpecGenArgToken(MetadataReader md, in BlobHandle genSigHandle, int genIndex)
+    {
+        if (MethodSpecGenArgHandle(md, genSigHandle, genIndex) is not { } th) return null;
+        return MetadataTokens.GetToken(th);
+    }
+
+    // Re-shared decode: skip to the genArg at genIndex, return the
+    // TypeDefOrRef handle for VALUETYPE (0x11) / CLASS (0x12) args, null for
+    // every other shape. The prior-arg walk consumes VALUETYPE/CLASS handles
+    // so multi-arg MethodSpecs decode at the right offset (D5 decode fix:
+    // the element byte 0x11 must NEVER be read as a TypeDefOrRef coded index).
+    static EntityHandle? MethodSpecGenArgHandle(MetadataReader md, in BlobHandle genSigHandle, int genIndex)
+    {
         var gsig = md.GetBlobReader(genSigHandle);
         if (gsig.ReadByte() != 0x0A) return null; // not GENERICINST
         var argc = gsig.ReadCompressedInteger();
@@ -6091,22 +6193,33 @@ public static class StackFold
         byte b = 0;
         for (var i = 0; i <= genIndex; i++)
             b = MethodSignatureCoder.SkipCustomModifiers(ref gsig, gsig.ReadByte());
-        if (b is 0x11 or 0x12)
+        if (b is not (0x11 or 0x12)) return null;
+        // Re-read to the CURRENT arg's handle: earlier VALUETYPE/CLASS args
+        // carry a trailing TypeHandle that the element-only skip must consume.
+        var gs2 = md.GetBlobReader(genSigHandle);
+        if (gs2.ReadByte() != 0x0A) return null;
+        var argc2 = gs2.ReadCompressedInteger();
+        for (var i = 0; i < genIndex; i++)
         {
-            // Re-read the concrete argument's TypeDefOrRef full name.
-            var gs2 = md.GetBlobReader(genSigHandle);
-            if (gs2.ReadByte() != 0x0A) return null;
-            var argc2 = gs2.ReadCompressedInteger();
-            for (var i = 0; i < genIndex; i++)
-                _ = MethodSignatureCoder.SkipCustomModifiers(ref gs2, gs2.ReadByte());
-            var th = gs2.ReadTypeHandle();
-            return th.Kind switch
-            {
-                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
-                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
-                _ => null,
-            };
+            var prior = MethodSignatureCoder.SkipCustomModifiers(ref gs2, gs2.ReadByte());
+            if (prior is 0x11 or 0x12) _ = gs2.ReadTypeHandle();
         }
+        _ = MethodSignatureCoder.SkipCustomModifiers(ref gs2, gs2.ReadByte());
+        return gs2.ReadTypeHandle();
+    }
+
+    // The scalar (primitive/String/Object) arm of the genArg name decode --
+    // unchanged original byte table, kept separate so the D5 handle variant
+    // does not perturb the primitive path.
+    static string? MethodSpecGenArgScalarName(MetadataReader md, in BlobHandle genSigHandle, int genIndex)
+    {
+        var gsig = md.GetBlobReader(genSigHandle);
+        if (gsig.ReadByte() != 0x0A) return null; // not GENERICINST
+        var argc = gsig.ReadCompressedInteger();
+        if ((uint)genIndex >= (uint)argc) return null;
+        byte b = 0;
+        for (var i = 0; i <= genIndex; i++)
+            b = MethodSignatureCoder.SkipCustomModifiers(ref gsig, gsig.ReadByte());
         return b switch
         {
             0x02 => "System.Boolean",
@@ -6123,7 +6236,7 @@ public static class StackFold
             0x0D => "System.Double",
             0x0E => "System.String",
             0x1C => "System.Object",
-            _ => null, // arrays/nested-generic/open-VAR: keep the legacy semantics
+            _ => null, // VALUETYPE/CLASS (handle decode) / arrays/nested-generic/open-VAR
         };
     }
 
