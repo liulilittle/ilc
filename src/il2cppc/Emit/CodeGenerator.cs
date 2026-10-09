@@ -5551,6 +5551,29 @@ public static class CodeGenerator
                 if (k is "ref" or "r" or "ptr") return expr;
                 if (k is "l")
                     return $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_box_long(static_cast<int64_t>({expr})))";
+                // D5: a USER VALUE TYPE argument (user struct / user enum) to
+                // a shared clone's generic slot (Box<Pt>.Set(Pt)). The clone's
+                // slot is Il2CppObject*, so the struct value must be boxed with
+                // ITS OWN descriptor (byte-exact payload copy) -- the int32
+                // box below would corrupt the struct bytes (and cannot even
+                // compile a static_cast of the struct to int32). The local kind
+                // is the struct's C++ name ("Cases_Pt" -- ExprKind's
+                // ValueTypeNewExpr arm) or "v:<FullName>"; match a TypeDef.
+                if (k is { } vk)
+                {
+                    TypeDef? vDef = null;
+                    if (vk.StartsWith("v:", StringComparison.Ordinal))
+                        vDef = types.FirstOrDefault(t => t.MatchesFullName(vk[2..]));
+                    else
+                        vDef = types.FirstOrDefault(t => t.IsValueType && TypeEmitter.TypeCppName(t) == vk);
+                    if (vDef != null)
+                    {
+                        var vCpp = TypeEmitter.TypeCppName(vDef);
+                        if (vDef.BaseTypeName == "System.Enum")
+                            return $"il2cpp::runtime::icall_box_enum(&{vCpp}_class, static_cast<int64_t>({expr}))";
+                        return $"il2cpp::runtime::icall_box_user_struct(&{vCpp}_class, &({expr}), sizeof({vCpp}))";
+                    }
+                }
                 return $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({expr}))";
             }
             return expr;

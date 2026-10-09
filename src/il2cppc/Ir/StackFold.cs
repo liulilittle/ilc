@@ -81,6 +81,11 @@ public static class StackFold
         // derived type must match; before the fix every throw was a fixed
         // System.Exception and derived catches never matched).
         var objTypes = new Dictionary<string, string>();
+        // D5: temp -> the METADATA TOKEN of the shared-clone concrete VAR/
+        // MVAR return (Box<Pt>.Get's result temp -> the Cases.Pt TypeDef
+        // token). Recorded alongside objTypes so a later store into a USER
+        // VALUE TYPE local can build the unbox_{token} bridge.
+        var sharedReturnTokens = new Dictionary<string, int>();
         // excext (m7m): newobj temp -> the BCL-exception ctor's arguments
         // (the .ctor(string) message / (string, string) paramName+message,
         // captured in original order AFTER the implicit `this`). The throw
@@ -2061,11 +2066,53 @@ public static class StackFold
             }
             stack.Clear();
             foreach (var e in rebuilt) stack.Push(e); // rebuilt is bottom-to-top; pushing in order reproduces the same order
-            stmts.Add(new AssignStmt { Target = target, Value = value, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                        stmts.Add(new AssignStmt { Target = target, Value = SharedReturnToValueLocal(value, target), SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
             // M5 wiring: propagate the recorded managed type through the
             // store (`object d = 3.14;` -- the box temp's type follows into
             // the local so WriteLine(d) resolves the boxed type).
             PropagateObjType(target, value);
+        }
+
+        // D5: a SHARED clone's VAR/MVAR return stored into a USER VALUE TYPE
+        // local (Box<Pt>.Get() -> `Pt p`). The shared object ABI returns the
+        // BOXED object slot; the store into the concrete struct/enum local
+        // must unbox it (`p = (*reinterpret_cast<Cases_Pt*>(il2cpp_unbox_user_
+        // struct(obj)))`), or the assignment Il2CppObject* -> Cases_Pt fails
+        // to compile. Returns an unbox CallExpr (the unbox_{token} CodeGenerator
+        // emission path, same as the P25b per-instance unbox) for a user VALUE
+        // return; the original value otherwise.
+        Expr SharedReturnToValueLocal(Expr value, string targetName)
+        {
+            string? concrete = null;
+            int? token = null;
+            if (value is VirtualCallExpr vcr && md != null)
+            {
+                concrete = SharedReturnConcreteType(md, vcr.MethodToken);
+                if (concrete != null) token = SharedReturnConcreteToken(md, vcr.MethodToken);
+            }
+            else if (value is LocExpr tlv && objTypes.TryGetValue(tlv.Name, out var tracked))
+            {
+                concrete = tracked;
+                if (sharedReturnTokens.TryGetValue(tlv.Name, out var st)) token = st;
+            }
+            if (concrete == null || token == null) return value;
+            // Only USER value types (struct/enum) need the return unbox; a
+            // reference-typed return is already the object (the consumer's
+            // local is Il2CppObject*-typed).
+            var concreteDef = types?.FirstOrDefault(t => t.MatchesFullName(concrete));
+            if (concreteDef == null || !concreteDef.IsValueType) return value;
+            // The target local must be the SAME user value type (declared as a
+            // value local "v:<FullName>"), else the object slot was intended.
+            var targetKind = LocWidth(targetName, ctx, tempWidths);
+            if (!targetKind.StartsWith("v:", StringComparison.Ordinal)
+                && targetKind != "us:" + TypeEmitter.TypeCppName(concreteDef)) return value;
+            return new CallExpr
+            {
+                Function = $"unbox_{token}",
+                ReturnsRef = false,
+                ResultKind = concreteDef.BaseTypeName == "System.Enum" ? "i" : "us:" + TypeEmitter.TypeCppName(concreteDef),
+                Args = { value },
+            };
         }
 
         // Whether the expression tree directly/indirectly references a local or
@@ -3124,7 +3171,15 @@ public static class StackFold
                     if (md != null && stack.Peek() is LocExpr rtv
                         && ReturnIsVar(md, (int)ins.Operand)
                         && (VarArgRefFullName(md, (int)ins.Operand) ?? SharedReturnConcreteType(md, (int)ins.Operand)) is string sharedRet)
+                    {
                         objTypes[rtv.Name] = sharedRet;
+                        // D5: record the concrete type's metadata token (only
+                        // when it IS the instance's TypeSpec arg -- the VAR/object
+                        // fallback has none) so a later store into a USER VALUE
+                        // TYPE local can build the unbox_{token} bridge.
+                        if (SharedReturnConcreteToken(md, (int)ins.Operand) is int srt)
+                            sharedReturnTokens[rtv.Name] = srt;
+                    }
                 }
                 else
                 {
@@ -6097,7 +6152,11 @@ public static class StackFold
             ts2.ReadTypeHandle();
             var argc2 = ts2.ReadCompressedInteger();
             for (var i = 0; i < varIdx; i++)
-                _ = MethodSignatureCoder.SkipCustomModifiers(ref ts2, ts2.ReadByte());
+            {
+                var prior = MethodSignatureCoder.SkipCustomModifiers(ref ts2, ts2.ReadByte());
+                if (prior is 0x11 or 0x12) _ = ts2.ReadTypeHandle();
+            }
+            _ = MethodSignatureCoder.SkipCustomModifiers(ref ts2, ts2.ReadByte());
             var th = ts2.ReadTypeHandle();
             return th.Kind switch
             {
@@ -6126,7 +6185,49 @@ public static class StackFold
         };
     }
 
-    // D5: the CONCRETE generic-argument type of a SHARED method-level generic
+    // D5: the METADATA TOKEN of the concrete generic-argument type of a
+    // SHARED clone's VAR/MVAR return (Box<Pt>.Get -> the Cases.Pt TypeDef
+    // token, for the unbox_{token} emission path). Mirrors
+    // SharedReturnConcreteType's decode but keeps the handle token. Null for
+    // non-VALUETYPE/CLASS args / undecodable shapes.
+    static int? SharedReturnConcreteToken(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind == HandleKind.MethodSpecification)
+            return MethodSpecMvarReturnConcreteToken(md, (MethodSpecificationHandle)h);
+        if (h.Kind != HandleKind.MemberReference) return null;
+        var mr = md.GetMemberReference((MemberReferenceHandle)h);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return null;
+        var par = (TypeSpecificationHandle)mr.Parent;
+        if (GenericInstAllInt(md, par)) return null;
+        var gdn = GenericInstDefName(md, par);
+        if (gdn == null || GenericUsageAnalyzer.SharedGenericDefs?.Contains(gdn) != true) return null;
+        var sig = md.GetBlobReader(mr.Signature);
+        sig.ReadByte();                    // calling convention
+        sig.ReadCompressedInteger();       // param count
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        int varIdx;
+        if (ret is 0x13 or 0x1E) varIdx = sig.ReadCompressedInteger(); else return null;
+        var ts = md.GetBlobReader(md.GetTypeSpecification(par).Signature);
+        if (ts.ReadByte() != 0x15) return null; // not a GenericInst
+        ts.ReadByte();                    // CLASS/VALUETYPE marker
+        ts.ReadTypeHandle();
+        var argc = ts.ReadCompressedInteger();
+        for (var i = 0; i < argc; i++)
+        {
+            var b = MethodSignatureCoder.SkipCustomModifiers(ref ts, ts.ReadByte());
+            if (b is 0x11 or 0x12 && i < varIdx) _ = ts.ReadTypeHandle();
+            if (b is 0x11 or 0x12 && i == varIdx)
+            {
+                var th = ts.ReadTypeHandle();
+                return MetadataTokens.GetToken(th);
+            }
+            if (i >= varIdx) break;
+        }
+        return null;
+    }
+
+    // D5: the concrete generic-argument type of a SHARED method-level generic
     // method's MVAR return (PickUser2::Pick<System.Int32> -> "System.Int32").
     // The shared clone returns the boxed object slot; the caller unboxes by
     // this concrete T. Decode the underlying MethodDef signature's return
@@ -6147,6 +6248,25 @@ public static class StackFold
         int mvarIdx;
         if (ret is 0x13 or 0x1E) mvarIdx = sig.ReadCompressedInteger(); else return null;
         return MethodSpecGenArgFullName(md, ms.Signature, mvarIdx);
+    }
+
+    // D5: the METADATA TOKEN of the concrete generic argument of a SHARED
+    // method-level generic method's MVAR return (PickUser2::Pick<Pt> -> the
+    // Cases.Pt TypeDef token, for the unbox_{token} emission path).
+    static int? MethodSpecMvarReturnConcreteToken(MetadataReader md, MethodSpecificationHandle msHandle)
+    {
+        var ms = md.GetMethodSpecification(msHandle);
+        if (ms.Method.Kind != HandleKind.MethodDefinition) return null;
+        var dm = md.GetMethodDefinition((MethodDefinitionHandle)ms.Method);
+        if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) != true) return null;
+        var sig = md.GetBlobReader(dm.Signature);
+        var hdr = sig.ReadSignatureHeader();
+        if (hdr.IsGeneric) sig.ReadCompressedInteger();
+        sig.ReadCompressedInteger(); // param count
+        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        int mvarIdx;
+        if (ret is 0x13 or 0x1E) mvarIdx = sig.ReadCompressedInteger(); else return null;
+        return MethodSpecGenArgToken(md, ms.Signature, mvarIdx);
     }
 
     // Read the concrete generic-argument FULL NAME at genIndex from a MethodSpec
