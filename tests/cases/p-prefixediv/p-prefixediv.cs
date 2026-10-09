@@ -22,7 +22,15 @@ using System;
 
 namespace Cases {
 
+// NOTE: A stays FIELD-BEARING on purpose -- the M3/P25b value-type
+// descriptor gate emits {T}_class only for field-bearing or .ctor-bearing
+// structs (CodeGenerator.cpp descriptor condition); a fieldless struct's
+// missing descriptor breaks the Box<A> box bridge (icall_box_user_struct)
+// independently of this probe's name-divergence target. The probe's scope
+// is the '_'-prefix name divergence, so the struct shape mirrors the
+// known-good p-structarg probes (field X/Y).
 struct A {
+    public int F;
     public int Value() { return 1; }
 }
 
@@ -41,11 +49,13 @@ public static class PPrefixDiv {
         // Class arg whose full name prefixes user struct "Cases.A".
         Box<A_B> b1 = new Box<A_B>();
         b1.Set(new A_B());
-        Console.WriteLine(b1.Get().Value());   // 2
+        A_B ab = b1.Get();
+        Console.WriteLine(ab.Value());   // 2
 
         // The user struct itself.
         Box<A> b2 = new Box<A>();
         b2.Set(new A());
-        Console.WriteLine(b2.Get().Value());   // 1
+        A a = b2.Get();
+        Console.WriteLine(a.Value());   // 1
     }
 }}

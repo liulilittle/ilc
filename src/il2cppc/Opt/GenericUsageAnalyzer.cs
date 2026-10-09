@@ -108,16 +108,18 @@ public static class GenericUsageAnalyzer
         // be corrupted (or fail to compile). Mirroring the array rule, the
         // struct/enum instantiation gets its own concrete {def}_<StructCppName>
         // clone (the GN-N4 stage-2 per-instance variant) instead of collapsing.
-        // User REFERENCE-typed args still collapse (Il2CppObject* is correct).
         // The value-type set is populated by CodeGenerator before emission
         // (session scope, exactly like SharedGenericDefs).
-        if (UserValueTypeFullNames != null)
-        {
-            foreach (var a in args)
-            {
-                if (UserValueTypeFullNames.Contains(a)) return false;
-            }
-        }
+        // GN-N7 obs1: the WHOLE arg list is judged by the SAME '_'-joined
+        // suffix predicate as EnsureClone (SuffixContainsUserValueType) so both
+        // sides of an instantiation decide identically. The predicate is
+        // deliberately CONSERVATIVE: a user value-type full name matched as a
+        // '_'-delimited arg segment (whole/leading/embedded/trailing) keeps
+        // per-instance even when that segment belongs to a user REFERENCE-typed
+        // arg whose name merely prefixes a user value type (class "Cases.A_B"
+        // vs struct "Cases.A" -- GN-N7 p-prefixediv). Over-keeping is safe; the
+        // two sides disagreeing is the build break.
+        if (SuffixContainsUserValueType(string.Join("_", args))) return false;
         for (var i = 0; i < args.Length; i++) args[i] = "object";
         return true;
     }

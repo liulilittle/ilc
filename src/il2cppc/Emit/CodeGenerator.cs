@@ -587,7 +587,14 @@ public static class CodeGenerator
                 // keeps per-instance emission -- the closed types are distinct
                 // (Foo<int[]> != Foo<string[]>) and the suffix must stay
                 // element-aware so the call-side name matches this clone.
-                if (gSuffix.Split('_').All(s => !GenericUsageAnalyzer.IsArrayArgToken(s)))
+                // GN-N7 obs1: the Split-based scan fragments an element name
+                // that itself contains '_' ("[Cases.A_B]" splits into
+                // "[Cases"/"A"/"B]"), slips past the per-part test and
+                // mis-collapses the array clone. '[' can never appear in a
+                // managed full name -- a single Contains is the exact
+                // array-token test (mirrors CollapseInstantiation's
+                // IsArrayArgToken).
+                if (!gSuffix.Contains('['))
                 {
 // GN-N4 D5: a USER VALUE TYPE argument (user struct / user
                     // enum -- the suffix IS the type's full name, e.g.
