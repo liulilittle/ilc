@@ -429,6 +429,52 @@ public class MethodMapMarshalTests
     }
 
     //--------------------------------------------------------------------------
+    // GN-10 (i): GenericArgFullNames consumption contract. A bare multidim
+    // ARRAY (0x14) generic argument has NO arm in the name table -- the element
+    // + rank + size/lobound bytes are NOT consumed, so the stream misaligns
+    // and every following argument decodes from the wrong byte. With a
+    // VALUETYPE struct as the SECOND argument the name table must still reach
+    // it and return "Cases.Pt" (the contract: GAFN's consumption rules equal
+    // ReadParamByte's).
+    // MethodSpec blob: GENERICINST(0x0A) + argc=2 + arg0 multidim int[,]
+    // (0x14 08 02 00 00) + arg1 VALUETYPE Cases.Pt (0x11 08 -- TypeDef row 2).
+    // Pre-fix: the 0x14 payload leaks, arg1 reads a stray byte, names is null.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void GenericArgFullNames_MultidimThenStruct_SecondArgIsStruct()
+    {
+        using var reader = new PEReader(SynthesizeGdfpMultidimStruct());
+        var md = reader.GetMetadataReader();
+        var ms = md.GetMethodSpecification(MetadataTokens.MethodSpecificationHandle(1));
+        var names = InvokeGenericArgFullNames(md, ms.Signature, new byte[] { 0x14, 0x11 });
+
+        Assert.NotNull(names);
+        Assert.Equal("Cases.Pt", names![1]);
+    }
+
+    //--------------------------------------------------------------------------
+    // GN-10 (i) 补正1(d): the genArgs PRODUCER (ReadParamByte) must consume a
+    // multidim (0x14) payload EMBEDDED inside a nested GenericInst (0x15) too.
+    // GAFN already consumes it (via GenericInstArgName's 0x14 arm) but
+    // ReadParamByte's 0x15 recursion does not -- an index>0 latent misalignment.
+    // MethodSpec blob: GENERICINST(0x0A) + argc=2 + arg0 GenericInst(0x15)
+    // CLASS Cases.Dummy (0x12 04 -- TypeDef row 1) with one multidim int[,]
+    // arg (0x14 08 02 00 00) + arg1 VALUETYPE Cases.Pt (0x11 08).
+    // Pre-fix: genArgs == [0x15, 0x08] (the leaked int element byte).
+    // Post-fix: genArgs == [0x15, 0x11] (payload consumed, arg1 aligned).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void ReadParamByte_NestedGenericEmbeddedMultidim_NextArgStaysAligned()
+    {
+        using var reader = new PEReader(SynthesizeGdfpNestedMultidimStruct());
+        var md = reader.GetMetadataReader();
+        var ms = md.GetMethodSpecification(MetadataTokens.MethodSpecificationHandle(1));
+        var genArgs = InvokeReadMethodSpecGenArgs(md, ms.Signature);
+
+        Assert.Equal(new byte[] { 0x15, 0x11 }, genArgs);
+    }
+
+    //--------------------------------------------------------------------------
     // P-D2 #3 (guard): the NON-generic GetDelegateForFunctionPointer(IntPtr,
     // Type) form -- the runtime-Type overload left to a later milestone -- must
     // NOT map (a type object argument is not resolvable to a typeId at
@@ -936,6 +982,74 @@ public class MethodMapMarshalTests
         mdb.AddMethodSpecification(memberRef,
             mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, 0x15, 0x12, funcCoded, 0x01, 0x1D, 0x08 }));
         return Serialize(mdb);
+    }
+
+    // GN-10 (i): a synthetic PE with two TypeDefs (row 1 = Cases.Dummy, row 2 =
+    // Cases.Pt) so a VALUETYPE coded index (0x08 = row 2 << 2) can name
+    // "Cases.Pt", plus one MethodSpec row: GENERICINST(0x0A) + argc=2 +
+    // arg0 multidim int[,] (0x14 08 02 00 00) + arg1 VALUETYPE Cases.Pt
+    // (0x11 08). The Marshal member itself is irrelevant (only the MethodSpec
+    // blob is decoded).
+    private static MemoryStream SynthesizeGdfpMultidimStruct() =>
+        SynthesizeWithTwoStructs(new byte[] { 0x0A, 0x02, 0x14, 0x08, 0x02, 0x00, 0x00, 0x11, 0x08 });
+
+    // GN-10 (i) 补正1(d): GENERICINST(0x0A) + argc=2 + arg0 GenericInst(0x15)
+    // CLASS Cases.Dummy (0x12 04 = row 1 << 2) with one multidim int[,] arg
+    // (0x14 08 02 00 00) + arg1 VALUETYPE Cases.Pt (0x11 08).
+    private static MemoryStream SynthesizeGdfpNestedMultidimStruct() =>
+        SynthesizeWithTwoStructs(new byte[]
+        {
+            0x0A, 0x02, 0x15, 0x12, 0x04, 0x01, 0x14, 0x08, 0x02, 0x00, 0x00, 0x11, 0x08,
+        });
+
+    private static MemoryStream SynthesizeWithTwoStructs(byte[] methodSpecBlob)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var objRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        // Row 1 = Cases.Dummy (the nested GenericInst definition), row 2 =
+        // Cases.Pt (the VALUETYPE second argument).
+        var dummy = mdb.AddTypeDefinition(TypeAttributes.Public, mdb.GetOrAddString("Cases"),
+            mdb.GetOrAddString("Dummy"), objRef, default(FieldDefinitionHandle), default(MethodDefinitionHandle));
+        var pt = mdb.AddTypeDefinition(TypeAttributes.Public, mdb.GetOrAddString("Cases"),
+            mdb.GetOrAddString("Pt"), objRef, default(FieldDefinitionHandle), default(MethodDefinitionHandle));
+        var marshalRef = mdb.AddTypeReference(asmRef,
+            mdb.GetOrAddString("System.Runtime.InteropServices"), mdb.GetOrAddString("Marshal"));
+        var memberRef = mdb.AddMemberReference(marshalRef, mdb.GetOrAddString("GetDelegateForFunctionPointer"),
+            mdb.GetOrAddBlob(MemberRefSig(Ret(0x13, 0x00), new byte[] { 0x18 })));
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(methodSpecBlob));
+        return Serialize(mdb);
+    }
+
+    // GN-10 (i): reflection into the private name-table helper (the resolver's
+    // internal consumption contract; no public surface exposes it).
+    private static string[]? InvokeGenericArgFullNames(MetadataReader md, BlobHandle sigHandle, byte[] genArgs)
+    {
+        var mi = typeof(MethodRefResolver).GetMethod("GenericArgFullNames",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        return (string[]?)mi!.Invoke(null, new object[] { md, sigHandle, genArgs });
+    }
+
+    // GN-10 (i) 补正1(d): replay the MethodSpec genArg PRODUCER (ReadParamByte)
+    // to observe the dispatch byte stream the resolver actually sees.
+    private static byte[] InvokeReadMethodSpecGenArgs(MetadataReader md, BlobHandle sigHandle)
+    {
+        var sig = md.GetBlobReader(sigHandle);
+        if (sig.ReadByte() != 0x0A) throw new InvalidOperationException("not GENERICINST");
+        var argc = sig.ReadCompressedInteger();
+        var rp = typeof(MethodRefResolver).GetMethod("ReadParamByte",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        var genArgs = new byte[argc];
+        for (var i = 0; i < argc; i++)
+        {
+            var args = new object[] { md, sig };
+            genArgs[i] = (byte)rp!.Invoke(null, args)!;
+            sig = (BlobReader)args[1];
+        }
+        return genArgs;
     }
 
     // P2-HARDEN #2: a synthetic PE with a NON-delegate TypeDef (Cases.Fake --
