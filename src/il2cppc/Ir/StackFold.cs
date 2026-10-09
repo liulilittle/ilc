@@ -5908,7 +5908,7 @@ public static class StackFold
             // object-typed through this branch).
             HandleKind.MemberReference => md.GetMemberReference((MemberReferenceHandle)callHandle).Parent is { Kind: HandleKind.TypeSpecification } par
                 && !GenericInstAllInt(md, (TypeSpecificationHandle)par)
-                && GenericInstDefIsUserTypeDef(md, (TypeSpecificationHandle)par),
+                && GenericInstDefIsUserRefClass(md, (TypeSpecificationHandle)par),
             // D5: a MethodSpec call names a generic method of a SHARED
             // definition (PickUser2::Pick<int> -- the arity-0 def's method-level
             // share body). The VAR/MVAR-return guard at the callers means this
@@ -5941,18 +5941,32 @@ public static class StackFold
         return true;
     }
 
-    // GN-8: whether a closed GenericInst TypeSpec's GENERIC DEFINITION handle is
-    // a USER TypeDefinition (in this assembly). A per-instance clone is emitted
-    // for such definitions and its VAR-return ABI is the object slot (RefVar
-    // renders every non-"int" closed arg as Il2CppObject*). BCL generic defs
-    // arrive as TypeReference (cross-assembly) and have no per-instance clone --
-    // they must never be object-typed through this gate.
-    static bool GenericInstDefIsUserTypeDef(MetadataReader md, TypeSpecificationHandle tsHandle)
+    // GN-8: whether a closed GenericInst TypeSpec's GENERIC DEFINITION is a USER
+    // REFERENCE CLASS in this assembly -- the exact clone scope of EnsureClone
+    // (CodeGenerator:577 `if (def.IsInterface || def.IsValueType) return;`). Only
+    // these emit per-instance clones whose VAR-return ABI is the object slot
+    // (RefVar renders every non-"int" closed arg as Il2CppObject*). Interfaces
+    // and value types (struct/enum) are explicitly excluded -- their generic
+    // VAR returns are NOT object-typed and labeling them "r" would mis-type the
+    // caller. BCL generic defs arrive as TypeReference (cross-assembly) and
+    // have no per-instance clone -- they must never be object-typed through
+    // this gate.
+    static bool GenericInstDefIsUserRefClass(MetadataReader md, TypeSpecificationHandle tsHandle)
     {
         var sig = md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature);
         if (sig.ReadByte() != 0x15) return false; // not a GenericInst
         sig.ReadByte();                          // CLASS/VALUETYPE marker
-        return sig.ReadTypeHandle().Kind == HandleKind.TypeDefinition;
+        var defHandle = sig.ReadTypeHandle();
+        if (defHandle.Kind != HandleKind.TypeDefinition) return false;
+        var td = md.GetTypeDefinition((TypeDefinitionHandle)defHandle);
+        if ((td.Attributes & System.Reflection.TypeAttributes.Interface) != 0) return false;
+        var baseName = td.BaseType.IsNil ? "System.Object" : td.BaseType.Kind switch
+        {
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)td.BaseType),
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)td.BaseType),
+            _ => null,
+        };
+        return baseName != "System.ValueType" && baseName != "System.Enum";
     }
 
     // P-G3 D1: whether an objTypes entry names a BOXED primitive VALUE slot
