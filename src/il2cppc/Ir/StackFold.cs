@@ -4781,9 +4781,14 @@ public static class StackFold
                     var hint = MethodRefResolver.InstantiationSuffixHint;
                     if (hint != null)
                     {
-                        var parts = hint.Split('_');
-                        if (vIdx < parts.Length)
-                            return SuffixToManagedTypeName(parts[vIdx]);
+                        // GN-13 fix4: an arity>=2 clone resolves the index
+                        // through the per-argument array; arity-1 keeps the
+                        // legacy single-suffix split.
+                        var part = MethodRefResolver.InstantiationSuffixHintParts is { Length: > 1 }
+                            ? MethodRefResolver.InstantiationVarSuffix(vIdx)
+                            : hint.Split('_') is { } pp && vIdx < pp.Length ? pp[vIdx] : null;
+                        if (part != null)
+                            return SuffixToManagedTypeName(part);
                     }
                     return "System.Int32"; // M3 single-instantiation default
                 }
@@ -4847,9 +4852,15 @@ public static class StackFold
                 var hint = MethodRefResolver.InstantiationSuffixHint;
                 if (hint != null)
                 {
-                    var parts = hint.Split('_');
-                    if (vIdx < parts.Length)
-                        return SuffixToManagedTypeName(parts[vIdx]);
+                    // GN-13 fix4: an arity>=2 clone resolves the index through
+                    // the per-argument array; arity-1 keeps the legacy
+                    // single-suffix split (the array-hint "[int]" token is a
+                    // single component with no '_').
+                    var part = MethodRefResolver.InstantiationSuffixHintParts is { Length: > 1 }
+                        ? MethodRefResolver.InstantiationVarSuffix(vIdx)
+                        : hint.Split('_') is { } pp && vIdx < pp.Length ? pp[vIdx] : null;
+                    if (part != null)
+                        return SuffixToManagedTypeName(part);
                 }
                 return "System.Int32";
             }

@@ -2557,9 +2557,14 @@ var userRecvLike = receiverType ?? arg0Type;
         var vIdx = sig.ReadCompressedInteger();
         var hint = InstantiationSuffixHint;
         if (hint == null) return null;
-        var parts = hint.Split('_');
-        if (vIdx >= parts.Length) return null;
-        return SuffixToManagedTypeName(parts[vIdx]);
+        // GN-13 fix4: an arity>=2 clone resolves the index through the
+        // per-argument array (a component may itself contain '_'); arity-1
+        // keeps the legacy single-suffix split (StackFoldTests.Ldtoken).
+        var part = InstantiationSuffixHintParts is { Length: > 1 }
+            ? InstantiationVarSuffix(vIdx)
+            : hint.Split('_') is { } pp && vIdx < pp.Length ? pp[vIdx] : null;
+        if (part == null) return null;
+        return SuffixToManagedTypeName(part);
     }
 
     // P-G3/paircase Cmp: true when the VAR TypeSpec's concrete clone arg is a
