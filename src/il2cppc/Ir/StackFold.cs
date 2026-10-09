@@ -3914,11 +3914,10 @@ public static class StackFold
             // array (il2cpp_array_new_multi<N> -- rank-fixed, row-major flat
             // data, GC scan unchanged). ReturnsRef: multidim arrays are
             // references (Il2CppArray*).
-            if (md != null && TryDecodeMultidimCtor(md, (int)ins.Operand, out var mdElemByte, out var mdRank))
+            if (md != null && TryDecodeMultidimCtor(md, (int)ins.Operand, out var mdElemSuffix, out var mdRank))
             {
                 var mname = $"t{temps.Count}";
                 temps.Add(mname);
-                var mdElemSuffix = MdElemSuffix(mdElemByte);
                 var mdAlloc = new CallExpr { Function = $"mdnew_{mdElemSuffix}{mdRank}", ReturnsRef = true };
                 mdAlloc.Args.AddRange(args); // per-dim lengths (ctor args)
                 stmts.Add(new AssignStmt
@@ -4968,9 +4967,9 @@ public static class StackFold
         // int[2,2]` -> the MemberRef int32_t[0...,0...,0...]::.ctor). True when
         // the ctor's declaring TypeSpec blob opens with ELEMENT_TYPE_ARRAY
         // (0x14); the element byte and rank are decoded for the allocation.
-        static bool TryDecodeMultidimCtor(MetadataReader md, int token, out byte elemByte, out int rank)
+        static bool TryDecodeMultidimCtor(MetadataReader md, int token, out string elemSuffix, out int rank)
         {
-            elemByte = 0; rank = 0;
+            elemSuffix = "object"; rank = 0;
             var handle = MetadataTokens.Handle(token);
             if (handle.Kind != HandleKind.MemberReference) return false;
             var parent = md.GetMemberReference((MemberReferenceHandle)handle).Parent;
@@ -4978,7 +4977,13 @@ public static class StackFold
             var spec = md.GetTypeSpecification((TypeSpecificationHandle)parent).Signature;
             var sig = md.GetBlobReader(spec);
             if (sig.ReadByte() != 0x14) return false;
-            elemByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            var elem = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            // GN-11: the element type is a self-delimiting FULL type -- it has to
+            // be consumed BEFORE the outer rank/sizes/lobounds are read. A
+            // complex element (array / nested generic) otherwise leaves its
+            // payload under the rank read (e.g. `new int[2,2][,]` read the inner
+            // int32 0x08 byte as rank 8 instead of 2).
+            elemSuffix = ReadMultidimElemSuffix(md, ref sig, elem);
             rank = sig.ReadCompressedInteger();
             var numSizes = sig.ReadCompressedInteger();
             for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
@@ -4987,24 +4992,62 @@ public static class StackFold
             return true;
         }
 
-        // G1 (C1): the multidim ELEMENT byte -> the M3 suffix used in the
-        // allocation function name and the generic-arg token.
-        static string MdElemSuffix(byte elem) => elem switch
+        // GN-11: the multidim ELEMENT byte -> the M3 suffix, FULLY consuming the
+        // element type. A reference element (string/object/class/SZARRAY/
+        // multidim/nested reference generic) maps to the existing "object" slot
+        // (an IntPtr-size reference); primitive elements keep their width; a
+        // non-primitive VALUE element (VALUETYPE, or a VALUETYPE nested generic)
+        // is LOUD -- the multidim allocator has no value-element width for it.
+        static string ReadMultidimElemSuffix(MetadataReader md, ref BlobReader sig, byte elem)
         {
-            0x02 => "bool", 0x03 => "char", 0x04 => "sbyte", 0x05 => "byte",
-            0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
-            0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
-            0x0E => "string", 0x1C => "object",
-            _ => throw new NotSupportedException($"multidim array element byte 0x{elem:X2} in M3 (allocation)"),
-        };
+            switch (elem)
+            {
+                case 0x02: return "bool";
+                case 0x03: return "char";
+                case 0x04: return "sbyte";
+                case 0x05: return "byte";
+                case 0x06: return "short";
+                case 0x07: return "ushort";
+                case 0x08: return "int";
+                case 0x09: return "uint";
+                case 0x0A: return "long";
+                case 0x0B: return "ulong";
+                case 0x0C: return "float";
+                case 0x0D: return "double";
+                case 0x0E: return "string";
+                case 0x1C: return "object";
+                case 0x12: // CLASS (reference element) -> IntPtr-size ref slot
+                    _ = sig.ReadTypeHandle();
+                    return "object";
+                case 0x11: // VALUETYPE (user struct/enum): no value-element width
+                    _ = sig.ReadTypeHandle();
+                    throw new NotSupportedException("multidim array element byte 0x11 (VALUETYPE) in M3 (allocation)");
+                case 0x1D: // SZARRAY -> reference element ("object" slot)
+                    _ = ReadM3ArrayArg(md, ref sig);
+                    return "object";
+                case 0x14: // multidim ARRAY -> reference element ("object" slot)
+                    _ = ReadM3MultidimArrayArg(md, ref sig);
+                    return "object";
+                case 0x15: // GENERICINST (nested): reference -> "object", value -> LOUD
+                {
+                    var peek = sig; // BlobReader copy: inspect the marker without consuming
+                    if (peek.ReadByte() == 0x11)
+                        throw new NotSupportedException("multidim array element byte 0x15 (VALUETYPE nested generic) in M3 (allocation)");
+                    _ = ReadM3NestedGeneric(md, ref sig);
+                    return "object";
+                }
+                default:
+                    throw new NotSupportedException($"multidim array element byte 0x{elem:X2} in M3 (allocation)");
+            }
+        }
 
         // G1 (C1): the multidim array TYPE NAME for a newobj token -- the
         // element- and rank-aware bracket token ("[int2]") the Get/Set owner
         // resolution and the generic-arg rule use.
         static string MultidimTypeName(MetadataReader md, int token)
         {
-            _ = TryDecodeMultidimCtor(md, token, out var elemByte, out var rank);
-            return "[" + MdElemSuffix(elemByte) + rank + "]";
+            _ = TryDecodeMultidimCtor(md, token, out var elemSuffix, out var rank);
+            return "[" + elemSuffix + rank + "]";
         }
 
         // G1 (C1): the element SUFFIX of a `mdnew_<elem><rank>` allocation
@@ -5021,7 +5064,7 @@ public static class StackFold
         }
 
         // G1 (C1): the multidim element SUFFIX -> element width (the M3 suffix
-        // table, shared with MdElemSuffix).
+        // table, shared with ReadMultidimElemSuffix).
         static int? MdSuffixWidth(string suffix) => suffix switch
         {
             "bool" or "char" or "sbyte" or "byte" => 1,
