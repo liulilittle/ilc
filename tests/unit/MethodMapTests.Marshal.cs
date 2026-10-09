@@ -400,6 +400,35 @@ public class MethodMapMarshalTests
     }
 
     //--------------------------------------------------------------------------
+    // GN-9 (a): GetDelegateForFunctionPointer<Func<int[]>>(IntPtr) -- a
+    // GENERIC-INST generic argument whose nested SZARRAY arg (0x1D) must be
+    // ELEMENT-aware. The pre-fix GenericInstArgName encoded the SZARRAY arg as
+    // the constant token "array" WITHOUT consuming the element-type byte (the
+    // stream then misaligns on a multi-arg instantiation like
+    // Func<int[],string[]>), so the GDFFP delegate typeId
+    // (SigHash.UInt64Literal of the full name) diverged from a delegate
+    // newobj's GenericInstantiationName stamp "System.Func`1_[int]" -- the
+    // Combine/Equals type check then rejected a GDFFP-created delegate against
+    // a normally-created one. The fix routes 0x1D through ReadM3ArrayArg (the
+    // same element-aware helper GenericInstantiationName already uses).
+    // MethodSpec blob: GENERICINST(0x0A) + argc=1 + GenericInst arg(0x15) +
+    // CLASS(0x12) Func`1 TypeRef + count=1 + SZARRAY(0x1D) + int(0x08).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Marshal_GetDelegateForFunctionPointer_Func1Szarray_MethodSpec_MapsToFromFnPtrIcall()
+    {
+        var m = ResolveMethodSpec(SynthesizeGdfpFunc1Array());
+
+        Assert.Equal("il2cpp::runtime::icall_delegate_from_fn_ptr", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal("ref", m.ResultKind);
+        Assert.Equal(new[] { "n" }, m.ParamTypeNames);
+        Assert.Equal(SigHash.UInt64Literal("System.Func`1_[int]"), m.AppendLiterals![0]);
+    }
+
+    //--------------------------------------------------------------------------
     // P-D2 #3 (guard): the NON-generic GetDelegateForFunctionPointer(IntPtr,
     // Type) form -- the runtime-Type overload left to a later milestone -- must
     // NOT map (a type object argument is not resolvable to a typeId at
@@ -883,6 +912,29 @@ public class MethodMapMarshalTests
             mdb.GetOrAddBlob(MemberRefSig(Ret(0x13, 0x00), VarParam())));
         mdb.AddMethodSpecification(memberRef,
             mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, 0x12, (byte)(MetadataTokens.GetRowNumber(cb) << 2) }));
+        return Serialize(mdb);
+    }
+
+    // GN-9 (a): a synthetic PE with a System.Func`1 TypeRef (the nested
+    // GenericInst definition) + one MethodSpec row: the generic
+    // Marshal.GetDelegateForFunctionPointer<T>(IntPtr) MemberRef instantiated
+    // at Func`1<int[]> -- GENERICINST(0x0A) + argc=1 + GenericInst arg(0x15) +
+    // CLASS(0x12) Func`1 TypeRef + count=1 + SZARRAY(0x1D) + int(0x08).
+    private static MemoryStream SynthesizeGdfpFunc1Array()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var funcRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`1"));
+        var marshalRef = mdb.AddTypeReference(asmRef,
+            mdb.GetOrAddString("System.Runtime.InteropServices"), mdb.GetOrAddString("Marshal"));
+        var memberRef = mdb.AddMemberReference(marshalRef, mdb.GetOrAddString("GetDelegateForFunctionPointer"),
+            mdb.GetOrAddBlob(MemberRefSig(Ret(0x13, 0x00), new byte[] { 0x18 })));
+        var funcCoded = (byte)((MetadataTokens.GetRowNumber(funcRef) << 2) | 1); // TypeRef tag
+        mdb.AddMethodSpecification(memberRef,
+            mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, 0x15, 0x12, funcCoded, 0x01, 0x1D, 0x08 }));
         return Serialize(mdb);
     }
 
