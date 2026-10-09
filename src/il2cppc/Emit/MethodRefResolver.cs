@@ -2109,6 +2109,11 @@ var userRecvLike = receiverType ?? arg0Type;
             case 0x0F: return ReadParamByte(md, ref sig);
             case 0x11 or 0x12 or 0x40: _ = sig.ReadTypeHandle(); break;
             case 0x1D: _ = ReadParamByte(md, ref sig); break; // SZARRAY: element follows
+            // GN-10 (i): multidim ARRAY (0x14) -- element type + rank +
+            // sizes + lobounds must ALL be consumed, otherwise the payload
+            // leaks into the next param/arg slot and shifts every following
+            // mapping. Mirrors the GenericArgFullNames name table's rule.
+            case 0x14: ConsumeMultidimPayload(md, ref sig); break;
             case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); break; // VAR/MVAR: index follows
             case 0x15:                                                // GenericInst
                 // CLASS/VALUETYPE marker byte precedes the definition index
@@ -2123,6 +2128,20 @@ var userRecvLike = receiverType ?? arg0Type;
                 break;
         }
         return b;
+    }
+
+    // GN-10 (i): consume a multidim ARRAY (0x14) type payload -- element type
+    // (through the full ReadParamByte table so nested shapes recurse), rank,
+    // sizes and lobounds. Shared by ReadParamByte (the genArgs producer) and
+    // GenericArgFullNames (the name table) so both stay byte-parallel.
+    private static void ConsumeMultidimPayload(MetadataReader md, ref BlobReader sig)
+    {
+        _ = ReadParamByte(md, ref sig); // element type
+        _ = sig.ReadCompressedInteger(); // rank
+        var numSizes = sig.ReadCompressedInteger();
+        for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+        var numLoBounds = sig.ReadCompressedInteger();
+        for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
     }
 
     // D-MAR-1 + P-D2 #3: capture the FULL TYPE NAME of every nameful generic
@@ -2165,7 +2184,16 @@ var userRecvLike = receiverType ?? arg0Type;
                     break;
                 }
                 case 0x1D or 0x1F:
-                    _ = sig.ReadByte(); // SZARRAY: one element byte follows
+                    // GN-10 (i): SZARRAY -- the element type follows and must be
+                    // consumed through the SAME recursive rule as ReadParamByte
+                    // (a bare ReadByte leaves a struct/array element's payload
+                    // to be misread as the next argument).
+                    _ = ReadParamByte(md, ref sig);
+                    break;
+                case 0x14:
+                    // GN-10 (i): multidim ARRAY -- element + rank + sizes +
+                    // lobounds (the ReadParamByte-parallel consumption).
+                    ConsumeMultidimPayload(md, ref sig);
                     break;
                 case 0x13 or 0x1E:
                     _ = sig.ReadCompressedInteger(); // VAR/MVAR: index follows
