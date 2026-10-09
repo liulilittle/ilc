@@ -584,13 +584,22 @@ public static class MethodBodyReader
     // GenericArgSuffix and keep a rank-aware "array" fallback.
     internal static string? MultidimArrayArgSuffix(MetadataReader md, ref BlobReader sig)
     {
-        var elem = SimpleGenericArgSuffix(md, ref sig, out _);
+        var elem = SimpleGenericArgSuffix(md, ref sig, out var elemByte);
         var rank = sig.ReadCompressedInteger();
         var numSizes = sig.ReadCompressedInteger();
         for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
         var numLoBounds = sig.ReadCompressedInteger();
         for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
-        var suffix = elem ?? "array";
+        // GN-11: a nested GENERICINST (0x15) multidim element keeps the shared
+        // "array" fallback token -- the three call-side producers
+        // (MethodRefResolver / StackFold / CodeGenerator ConsumeComplexM3*
+        // 0x15 arms) return "array", and the element-aware nested token
+        // ("List`1_int") would fork the clone key on the two sides
+        // (definition "[List`1_int2]" vs call "[array2]"). A 0x15 multidim
+        // element is always a reference (Il2CppObject*), so Box<T> object
+        // erasure rides the object ABI safely -- the SZARRAY precedent
+        // (ArrayGenericArgSuffix) is the same rule.
+        var suffix = elemByte == 0x15 ? "array" : (elem ?? "array");
         return "[" + suffix + rank + "]";
     }
 
