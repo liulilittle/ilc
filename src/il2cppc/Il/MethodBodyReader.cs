@@ -652,7 +652,14 @@ public static class MethodBodyReader
             parts[i] = s;
         }
         var suffix = string.Join("_", parts);
-        return $"g:{md.GetFullName((TypeDefinitionHandle)defHandle)}:{suffix}";
+        // GN-13 fix4: for arity>=2 append the per-argument parts after the
+        // joined suffix ("g:def:suffix:p0:p1") so EnsureClone can build the
+        // per-argument array. A component may itself contain '_' (nested
+        // generic "System.Nullable`1_int", user name "Cases.A_B", array
+        // token), so the joined suffix cannot be split back unambiguously.
+        // Arity-1 keeps the legacy two-field shape (parts.Length == 1).
+        var partsField = parts.Length > 1 ? ":" + string.Join(":", parts) : "";
+        return $"g:{md.GetFullName((TypeDefinitionHandle)defHandle)}:{suffix}{partsField}";
     }
 
     // R77: decode one generic-argument byte to its instantiation-suffix

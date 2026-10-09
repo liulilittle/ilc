@@ -2523,6 +2523,26 @@ var userRecvLike = receiverType ?? arg0Type;
     // keep the historical "int" encoding.
     public static string? InstantiationSuffixHint { get; set; }
 
+    // GN-13 fix4: the per-argument components of the current clone's
+    // InstantiationSuffix (see TypeDef.InstantiationSuffixParts). Set in
+    // lockstep with InstantiationSuffixHint around each body pass. A VAR
+    // (0x13) argument inside an open self/owner TypeSpec is resolved by INDEX
+    // through InstantiationVarSuffix so an arity>=2 clone does not echo the
+    // whole joined suffix once per argument (the doubling this batch fixes).
+    // Null for arity-1 / definition bodies (legacy path).
+    public static string[]? InstantiationSuffixHintParts { get; set; }
+
+    // GN-13 fix4: the clone argument at generic-parameter index `idx`, or null
+    // when no per-argument array is active (arity-1 / definition / non-generic
+    // pass -> the caller keeps the legacy whole-suffix behavior). Single
+    // implementation shared by the four 0x13 arms (StackFold / CodeGenerator /
+    // MethodRefResolver x2) so all producers name the same token.
+    public static string? InstantiationVarSuffix(int idx)
+        => InstantiationSuffixHintParts is { Length: > 1 } parts
+           && (uint)idx < (uint)parts.Length
+            ? parts[idx]
+            : null;
+
     // P-G3/paircase Cmp: resolve a VAR (0x13) TypeSpec to the CONCRETE type
     // name through the enclosing clone's suffix (InstantiationSuffixHint --
     // the R2b P2 mechanism). "string_string" -> VAR:0 = "string" -> the
@@ -2667,8 +2687,10 @@ var userRecvLike = receiverType ?? arg0Type;
     // VAR (0x13) generic-argument consumption: the index byte follows.
     private static string ReadM3VarArg(ref BlobReader sig)
     {
-        sig.ReadCompressedInteger();
-        return InstantiationSuffixHint ?? "int";
+        // GN-13 fix4: per-argument resolution when the clone carries a
+        // per-argument array (arity>=2); legacy whole-suffix otherwise.
+        var i = sig.ReadCompressedInteger();
+        return InstantiationVarSuffix(i) ?? InstantiationSuffixHint ?? "int";
     }
 
     // G1 (C1): an SZARRAY (0x1D) generic argument -- element-aware
@@ -2831,10 +2853,12 @@ var userRecvLike = receiverType ?? arg0Type;
 
     // GN-12 diagnostic: consume a nested VAR (0x13) / MVAR (0x1E) compressed
     // parameter index and return the enclosing clone's closed suffix name.
+    // GN-13 fix4: for an arity>=2 clone resolve the index through the
+    // per-argument array (the 0x1E MVAR shape does not occur in a TypeSpec).
     private static string ReadNestedVarArgName(ref BlobReader sig)
     {
-        sig.ReadCompressedInteger();
-        return InstantiationSuffixHint ?? "int";
+        var i = sig.ReadCompressedInteger();
+        return InstantiationVarSuffix(i) ?? InstantiationSuffixHint ?? "int";
     }
 
     private static string Sanitize(string s) => string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']'));

@@ -558,7 +558,7 @@ public static class CodeGenerator
         // suffix) pair from the definition in this assembly (same helper the
         // local-kind scan uses; also fed by the newobj/TypeSpec and model
         // string scans below -- newobj-only instantiations have no local kind).
-        void EnsureClone(string gDef, string gSuffix)
+        void EnsureClone(string gDef, string gSuffix, string[]? parts = null)
         {
             var def = types.FirstOrDefault(x => x.FullName == gDef && x.InstantiationSuffix == null);
             if (def == null) return;
@@ -610,7 +610,12 @@ public static class CodeGenerator
                     // Split('_') fragments it and misses the value-type set.
                     var keepsPerInstance = GenericUsageAnalyzer.SuffixContainsUserValueType(gSuffix);
                     if (!keepsPerInstance)
+                    {
                         gSuffix = string.Join("_", Enumerable.Repeat("object", def.GenericArity));
+                        // GN-13 fix4: keep the collapse's per-argument array in
+                        // lockstep with the collapsed suffix.
+                        parts = Enumerable.Repeat("object", def.GenericArity).ToArray();
+                    }
                 }
             }
             var gKey = gDef + "|" + gSuffix;
@@ -621,6 +626,12 @@ public static class CodeGenerator
                 Namespace = def.Namespace,
                 GenericArity = def.GenericArity,
                 InstantiationSuffix = gSuffix,
+                // GN-13 fix4: per-argument components for arity>=2 (arity-1
+                // keeps the legacy single-suffix split; the definition clone
+                // path supplies its own parts, ScanModelName passes null and
+                // is arity-1 only).
+                InstantiationSuffixParts = parts
+                    ?? (def.GenericArity == 1 ? new[] { gSuffix } : null),
                 IsInterface = false,
                 IsValueType = false,
                 IsSealed = def.IsSealed,
@@ -701,7 +712,11 @@ public static class CodeGenerator
                     if (lk == null || !lk.StartsWith("g:", StringComparison.Ordinal)) continue;
                     var gParts = lk[2..].Split(':');
                     if (gParts.Length < 2) continue;
-                    EnsureClone(gParts[0], gParts[1]);
+                    // GN-13 fix4: an arity>=2 local kind appends the
+                    // per-argument parts after the "_"-joined suffix
+                    // ("g:def:suffix:p0:p1"); arity-1 kinds carry no trailer.
+                    var gArgParts = gParts.Length > 2 ? gParts[2..] : null;
+                    EnsureClone(gParts[0], gParts[1], gArgParts);
                 }
                 // R2b scan source 2: newobj-only instantiations (e.g.
                 // `new Box<string>()` with no local). The newobj operand is a
@@ -723,7 +738,13 @@ public static class CodeGenerator
                             md, (TypeSpecificationHandle)mr2.Parent);
                         if (inst == null) continue;
                         var ip = inst[2..].Split(':');
-                        if (ip.Length >= 2) EnsureClone(ip[0], ip[1]);
+                        if (ip.Length >= 2)
+                        {
+                            // GN-13 fix4: same per-argument trailer as the
+                            // local-kind scan above.
+                            var iArgParts = ip.Length > 2 ? ip[2..] : null;
+                            EnsureClone(ip[0], ip[1], iArgParts);
+                        }
                     }
                 }
                 catch { }
@@ -1521,7 +1542,9 @@ public static class CodeGenerator
                 // Save/restore around the fold so the hint cannot leak into
                 // later bodies (R1 review item).
                 var prevVarHint = MethodRefResolver.InstantiationSuffixHint;
+                var prevVarHintParts = MethodRefResolver.InstantiationSuffixHintParts;
                 MethodRefResolver.InstantiationSuffixHint = t.InstantiationSuffix;
+                MethodRefResolver.InstantiationSuffixHintParts = t.InstantiationSuffixParts;
                 try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}", CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null }, md, types, accessors, pe); }
                 catch (Exception ex)
                 {
@@ -1529,7 +1552,11 @@ public static class CodeGenerator
                     EmitNotTranspiledStub(w, t, m, bodyInfo, returnType);
                     continue;
                 }
-                finally { MethodRefResolver.InstantiationSuffixHint = prevVarHint; }
+                finally
+                {
+                    MethodRefResolver.InstantiationSuffixHint = prevVarHint;
+                    MethodRefResolver.InstantiationSuffixHintParts = prevVarHintParts;
+                }
                 // P0-1/P0-3: algebraic identities + null-comparison folding
                 // (constant propagation already happened inside StackFold.Fold;
                 // branch conditions that became constants feed the existing
@@ -1601,7 +1628,9 @@ public static class CodeGenerator
                 // emission sees the same closed context (save/restore: the
                 // hint must never leak across bodies).
                 var prevEmitHint = MethodRefResolver.InstantiationSuffixHint;
+                var prevEmitHintParts = MethodRefResolver.InstantiationSuffixHintParts;
                 MethodRefResolver.InstantiationSuffixHint = t.InstantiationSuffix;
+                MethodRefResolver.InstantiationSuffixHintParts = t.InstantiationSuffixParts;
                 string body;
                 List<string> refLocals;
                 RootSlotPass.Analysis rootAnalysis;
@@ -1613,6 +1642,7 @@ public static class CodeGenerator
                 finally
                 {
                     MethodRefResolver.InstantiationSuffixHint = prevEmitHint;
+                    MethodRefResolver.InstantiationSuffixHintParts = prevEmitHintParts;
                 }
                 // Audit C1: reference-typed parameters (including 'this') are
                 // GC frame roots while the method is on the call stack -- an
@@ -7070,8 +7100,11 @@ default: return false;                           // primitives/VAR(handled by ca
     // VAR (0x13) generic-argument consumption: the index byte follows.
     private static string ReadM3VarArgCG(ref BlobReader sig)
     {
-        sig.ReadCompressedInteger();
-        return MethodRefResolver.InstantiationSuffixHint ?? "int";
+        // GN-13 fix4: per-argument resolution when the clone carries a
+        // per-argument array (arity>=2); legacy whole-suffix otherwise.
+        var i = sig.ReadCompressedInteger();
+        return MethodRefResolver.InstantiationVarSuffix(i)
+            ?? MethodRefResolver.InstantiationSuffixHint ?? "int";
     }
 
     // G1 (C1): an SZARRAY (0x1D) generic argument -- consume the element type

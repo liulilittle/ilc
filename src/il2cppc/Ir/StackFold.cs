@@ -5173,8 +5173,12 @@ public static class StackFold
 
         static string ReadM3VarArg(ref BlobReader s)
         {
-            s.ReadCompressedInteger(); // VAR index byte follows 0x13
-            return MethodRefResolver.InstantiationSuffixHint ?? "int";
+            // GN-13 fix4: resolve the VAR index per-argument when the clone
+            // carries a per-argument array (arity>=2); otherwise keep the
+            // legacy whole-suffix behavior (arity-1 / definition bodies).
+            var i = s.ReadCompressedInteger(); // VAR index byte follows 0x13
+            return MethodRefResolver.InstantiationVarSuffix(i)
+                ?? MethodRefResolver.InstantiationSuffixHint ?? "int";
         }
 
         // G1 (C1): an SZARRAY (0x1D) generic argument -- element-aware

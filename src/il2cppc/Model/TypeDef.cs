@@ -207,6 +207,19 @@ public static class GenericConstraintReader
 
     public string? InstantiationSuffix { get; set; }
 
+    // GN-13 fix4: the PER-ARGUMENT components of InstantiationSuffix for an
+    // arity>=2 closed clone (e.g. Pair<int[,],string> -> ["[int2]","string"]).
+    // InstantiationSuffix is their "_"-join, but a component may itself
+    // contain '_' (nested generic "System.Nullable`1_int", user name
+    // "Cases.A_B", array token), so splitting the joined suffix on '_' is
+    // ambiguous. Inside the clone's method body an open self/owner TypeSpec
+    // (Pair`2<!0,!1>) decodes each VAR (0x13) argument by INDEX; the
+    // per-argument array lets the VAR arms resolve parts[idx] instead of
+    // echoing the whole suffix once per argument (the GN-13 fix4 doubling).
+    // Null for the definition and for arity-1 clones (they keep the legacy
+    // single-suffix split semantics). Set by CodeGenerator.EnsureClone.
+    public string[]? InstantiationSuffixParts { get; set; }
+
     // R2b (R77 clone identity): a synthetic closed instantiation shares the
     // DEFINITION's FullName (the C++ symbol/hash channels key on the
     // definition name -- see R1/R2b design), so FullName cannot serve as the
