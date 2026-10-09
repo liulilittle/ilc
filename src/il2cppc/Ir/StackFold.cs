@@ -5894,11 +5894,21 @@ public static class StackFold
             // P-G3: MethodDef = the definition's default-int body (all-int
             // instantiation is per-instance); its VAR returns are int32.
             HandleKind.MethodDefinition => false,
+            // P-G3 extended (GN-8): a MemberRef on a closed GenericInst TypeSpec
+            // whose generic DEFINITION is a USER TypeDefinition (shared or not)
+            // and whose args are not the all-int default emits a per-instance
+            // clone whose VAR-return ABI is the object slot (RefVar renders any
+            // non-"int" closed arg as Il2CppObject*, EnsureClone RefVar). The
+            // shared-only gate missed NON-shared user clones and typed the
+            // call-site result temp int32_t -- invalid conversion against the
+            // emitted Il2CppObject* return. Shared user defs are unchanged
+            // (shared set is a subset of the in-assembly TypeDefinitions).
+            // BCL generic defs arrive as TypeReference (cross-assembly) and have
+            // no per-instance clone -- they keep the legacy gate (never
+            // object-typed through this branch).
             HandleKind.MemberReference => md.GetMemberReference((MemberReferenceHandle)callHandle).Parent is { Kind: HandleKind.TypeSpecification } par
                 && !GenericInstAllInt(md, (TypeSpecificationHandle)par)
-                ? GenericInstDefName(md, (TypeSpecificationHandle)par) is { } gdn
-                    && GenericUsageAnalyzer.SharedGenericDefs?.Contains(gdn) == true
-                : false,
+                && GenericInstDefIsUserTypeDef(md, (TypeSpecificationHandle)par),
             // D5: a MethodSpec call names a generic method of a SHARED
             // definition (PickUser2::Pick<int> -- the arity-0 def's method-level
             // share body). The VAR/MVAR-return guard at the callers means this
@@ -5912,7 +5922,7 @@ public static class StackFold
         };
     }
 
-    // P-G3: whether a closed generic-instance TypeSpec's arguments are ALL the
+    // P-G3 D1: whether a closed generic-instance TypeSpec's arguments are ALL the
     // int32 default (0x08) -- the M3 definition-default instantiation that
     // CollapseInstantiation refuses to share. Mirrors
     // CodeGenerator.SharedCallInstanceAllInt's decode (same blob shape).
@@ -5929,6 +5939,20 @@ public static class StackFold
             if (b != 0x08) return false; // only the exact int32 default counts
         }
         return true;
+    }
+
+    // GN-8: whether a closed GenericInst TypeSpec's GENERIC DEFINITION handle is
+    // a USER TypeDefinition (in this assembly). A per-instance clone is emitted
+    // for such definitions and its VAR-return ABI is the object slot (RefVar
+    // renders every non-"int" closed arg as Il2CppObject*). BCL generic defs
+    // arrive as TypeReference (cross-assembly) and have no per-instance clone --
+    // they must never be object-typed through this gate.
+    static bool GenericInstDefIsUserTypeDef(MetadataReader md, TypeSpecificationHandle tsHandle)
+    {
+        var sig = md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature);
+        if (sig.ReadByte() != 0x15) return false; // not a GenericInst
+        sig.ReadByte();                          // CLASS/VALUETYPE marker
+        return sig.ReadTypeHandle().Kind == HandleKind.TypeDefinition;
     }
 
     // P-G3 D1: whether an objTypes entry names a BOXED primitive VALUE slot
