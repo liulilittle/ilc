@@ -814,6 +814,12 @@ public static class CodeGenerator
         // descriptor/vtable/body generation all see the final slot layout.
         VTablePlanner.PlanAll(types);
 
+        // GN-N5: resolve C++-name collisions AFTER all clones are created
+        // (Sanitize maps '.' and '_' both to '_', so e.g. "Cases.A_B" and the
+        // nested "Cases.A.B" collide onto "Cases_A_B"; the deterministic
+        // hash-suffix map feeds TypeCppName + the generic-instance producers).
+        TypeEmitter.ResolveTypeCppNameCollisions(types);
+
         // Rule 2j: property-folding pre-scan -- simple accessors (get/set that
         // directly return/store a same-type field) are folded into field
         // accesses at every call site and their FUNCTIONS are not emitted.
@@ -5739,6 +5745,16 @@ public static class CodeGenerator
     // callvirt/devirt owners share it.
     private static TypeDef? ResolveInstantiationOwner(IReadOnlyList<TypeDef> types, string name)
     {
+        // GN-N5: match a clone by its FINAL C++ name FIRST (TypeCppName may
+        // carry the disambiguation hash suffix when the sanitized name
+        // collides -- "Cases_Box_1_Cases_A_B_hf9484f3f" for the Box<A_B>
+        // clone). The receiver hint (objTypes) carries that exact name. The
+        // hint may arrive RAW from GenericInstantiationName
+        // ("Cases.Box`1_Cases.A_B_hf9484f3f" -- backtick/dot dots) -- Sanitize
+        // both sides (idempotent on an already-sanitized name).
+        var byCpp = types.FirstOrDefault(t => t.InstantiationSuffix != null
+            && TypeEmitter.TypeCppName(t) == TypeEmitter.Sanitize(name));
+        if (byCpp != null) return byCpp;
         var exact = types.FirstOrDefault(t => t.InstantiationSuffix != null
             && t.FullName + "_" + t.InstantiationSuffix == name);
         if (exact != null) return exact;
@@ -6996,7 +7012,10 @@ default: return false;                           // primitives/VAR(handled by ca
             args[i] = ReadM3Arg(md, ref sig, b);
         }
         GenericUsageAnalyzer.CollapseInstantiation(defName, args); // P-G2 shared collapse
-        return defName + "_" + string.Join("_", args);
+        // GN-N5: disambiguate colliding generic-instance names (Sanitize maps
+        // '.' and '_' identically -- "Box<Cases.A_B>" vs "Box<Cases.A.B>").
+        return defName + "_" + string.Join("_", args)
+            + TypeEmitter.GenericInstanceCppNameSuffix(defName, args);
     }
 
     // The M3 generic-ARGUMENT byte table (0x15 = a NESTED generic

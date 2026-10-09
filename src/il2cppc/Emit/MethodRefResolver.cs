@@ -2630,7 +2630,10 @@ var userRecvLike = receiverType ?? arg0Type;
             };
         }
         GenericUsageAnalyzer.CollapseInstantiation(defName, args); // P-G2 shared collapse
-        return defName + "_" + string.Join("_", args);
+        // GN-N5: disambiguate colliding generic-instance names (Sanitize maps
+        // '.' and '_' identically -- "Box<Cases.A_B>" vs "Box<Cases.A.B>").
+        return defName + "_" + string.Join("_", args)
+            + TypeEmitter.GenericInstanceCppNameSuffix(defName, args);
     }
 
     // VAR (0x13) generic-argument consumption: the index byte follows.

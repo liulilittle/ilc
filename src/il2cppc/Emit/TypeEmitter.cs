@@ -443,6 +443,20 @@ public static class TypeEmitter
 
     public static string TypeCppName(TypeDef t)
     {
+        var core = TypeCppNameCore(t);
+        // GN-N5: append the deterministic disambiguation suffix when THIS type's
+        // C++ name collides with another type's (Sanitize maps '.' and '_' both
+        // to '_', so e.g. 'Cases.A_B' and nested 'Cases.A.B' both become
+        // 'Cases_A_B'). The suffix is keyed by the type identity
+        // (ResolveTypeCppNameCollisions); null/absent = no collision.
+        if (_cppNameOverrides != null
+            && _cppNameOverrides.TryGetValue(TypeCppIdentity(t), out var sfx))
+            return core + sfx;
+        return core;
+    }
+
+    static string TypeCppNameCore(TypeDef t)
+    {
         // r78 fix: nested types need declaring-type prefix to avoid name collisions.
         // Multiple enclosing types can have nested types with the same short name
         // (e.g., 25 different types each have a `<>c` nested class -- all sanitize to __c).
@@ -477,6 +491,75 @@ public static class TypeEmitter
             return baseName + "_" + Sanitize(defSuffix ?? "int");
         }
         return baseName;
+    }
+
+    //--------------------------------------------------------------------------
+    // GN-N5 (p-namediv): deterministic C++-name collision resolution. The
+    // Sanitize rule maps '.' and '_' both to '_', so two DIFFERENT managed
+    // types can produce the SAME C++ identifier ("Cases.A_B" and the nested
+    // "Cases.A.B" both -> "Cases_A_B" -- duplicate struct at build time, or a
+    // generic-instance clone Box_1_Cases_A_B shared by two args). The session
+    // map records, per type identity, a deterministic hash suffix applied by
+    // TypeCppName (and the generic-instance name producers). Identity:
+    //   nested  -> DeclaringTypeName + "+" + Name ("Cases.A+B")
+    //   top     -> FullName
+    //   clone   -> FullName + "|" + InstantiationSuffix (the arg suffix
+    //              distinguishes Box<Cases.A_B> from Box<Cases.A.B>)
+    // The FIRST identity (ordinal) keeps the bare name; the rest get
+    // "_h{fnv1a}" so the suffix is stable across runs.
+    //--------------------------------------------------------------------------
+    private static System.Collections.Generic.Dictionary<string, string>? _cppNameOverrides;
+
+    private static string TypeCppIdentity(TypeDef t)
+        => (t.IsNested && t.DeclaringTypeName.Length > 0 ? t.DeclaringTypeName + "+" + t.Name : t.FullName)
+           + "|" + (t.InstantiationSuffix ?? "");
+
+    // Public for CodeGenerator (called once per Generate, after all clones are
+    // created -- the session map is deterministic on the final type list).
+    public static void ResolveTypeCppNameCollisions(IReadOnlyList<TypeDef> types)
+    {
+        var byName = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var t in types)
+        {
+            var core = TypeCppNameCore(t);
+            if (!byName.TryGetValue(core, out var ids))
+                byName[core] = ids = new List<string>();
+            ids.Add(TypeCppIdentity(t));
+        }
+        var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var kv in byName)
+        {
+            if (kv.Value.Count < 2) continue;
+            var unique = kv.Value.Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            if (unique.Count < 2) continue; // same identity twice (impossible)
+            for (var i = 1; i < unique.Count; i++)
+                overrides[unique[i]] = "_h" + Fnv1a(unique[i]);
+        }
+        _cppNameOverrides = overrides;
+    }
+
+    // GN-N5: the disambiguation suffix for a GENERIC-INSTANCE name produced by
+    // the string-side (MethodRefResolver/StackFold/CodeGenerator
+    // GenericInstantiationName -- defName + "_" + args). Keyed by the SAME
+    // identity the clone TypeDef uses (FullName|suffix), so the call-site name
+    // matches the emitted clone struct. "" = no collision.
+    public static string GenericInstanceCppNameSuffix(string defName, string[] args)
+    {
+        if (_cppNameOverrides == null) return "";
+        var key = defName + "|" + string.Join("_", args);
+        return _cppNameOverrides.TryGetValue(key, out var sfx) ? sfx : "";
+    }
+
+    // FNV-1a 32-bit hex (lowercase) -- deterministic, no random state.
+    private static string Fnv1a(string s)
+    {
+        uint h = 2166136261;
+        foreach (var c in s)
+        {
+            h ^= c;
+            h *= 16777619;
+        }
+        return h.ToString("x8");
     }
 
     //--------------------------------------------------------------------------

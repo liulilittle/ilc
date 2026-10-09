@@ -5070,7 +5070,11 @@ public static class StackFold
             // aligning with TypeEmitter's generic instance name
             // {TypeCppName}_int ("Box`1" -> "Box_1_int").
             GenericUsageAnalyzer.CollapseInstantiation(defName, args); // P-G2 shared collapse
-            return defName + "_" + string.Join("_", args);
+            // GN-N5: append the deterministic disambiguation suffix when this
+            // generic-instance name collides with another's ("Box<Cases.A_B>"
+            // vs "Box<Cases.A.B>" -- Sanitize maps '.' and '_' identically).
+            return defName + "_" + string.Join("_", args)
+                + TypeEmitter.GenericInstanceCppNameSuffix(defName, args);
         }
 
         // The M3 generic-ARGUMENT byte table (0x15 = a NESTED generic
