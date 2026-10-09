@@ -32,6 +32,15 @@ struct Pt {
     public Pt(int x, int y) { X = x; Y = y; }
 }
 
+// GN-N6 obs2: a user STRUCT whose FULL NAME contains '_' ("Cases.A_B").
+// Sanitize maps both '.' and '_' to '_' for the C++ name, but the M3 arg
+// name is the full name "Cases.A_B" -- EnsureClone must match it whole.
+struct A_B {
+    public int X;
+    public int Y;
+    public A_B(int x, int y) { X = x; Y = y; }
+}
+
 class Box<T> {
     T item;
     public void Set(T v) { item = v; }
@@ -45,6 +54,17 @@ public static class PStructArg {
         b.Set(new Pt(3, 4));
         Pt p = b.Get();
         Console.WriteLine(p.X == 3 && p.Y == 4);   // True
+
+        // ---- 1b. GN-N6 obs2: SHARED Box + user struct whose FULL NAME
+        // itself contains '_' ("Cases.A_B"). EnsureClone's naive Split('_')
+        // would fragment "Cases.A_B" into "Cases"/"A"/"B" and miss the
+        // user-value-type set (collapsing Box<A_B> to the object clone),
+        // while CollapseInstantiation's per-arg FULL-NAME match keeps
+        // per-instance -- a C++ name divergence. ----
+        Box<A_B> b2 = new Box<A_B>();
+        b2.Set(new A_B(5, 6));
+        A_B q = b2.Get();
+        Console.WriteLine(q.X == 5 && q.Y == 6);   // True
 
         // ---- 2. shared byref-MVAR SwapRef<T> with user-struct arg (1.1) ----
         Pt a = new Pt(1, 2);
