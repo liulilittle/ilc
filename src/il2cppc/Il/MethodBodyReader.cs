@@ -519,8 +519,24 @@ public static class MethodBodyReader
             // StackFold / CodeGenerator / MethodRefResolver read the SAME
             // token; this is the local-kind naming authority).
             0x14 => MultidimArrayArgSuffix(md, ref sig),
+            // GN-12: a VAR (0x13) / MVAR (0x1E) generic argument denotes the
+            // enclosing generic parameter. The compressed parameter index MUST
+            // be consumed or every later byte (rank/sizes/args) misaligns; the
+            // name is the hard call-side default "int" (the three producer
+            // multidim-element arms -- MethodRefResolver ConsumeComplexM3ArgPayload
+            // / StackFold and CodeGenerator ConsumeComplexM3ArrayElem -- hard-code
+            // "int" for a 0x13/0x1E element).
+            0x13 or 0x1E => ConsumeGenericParamSuffix(ref sig),
             _ => null,
         };
+    }
+
+    // GN-12: consume a VAR (0x13) / MVAR (0x1E) generic-argument compressed
+    // parameter index and return the call-side default name "int".
+    private static string ConsumeGenericParamSuffix(ref BlobReader sig)
+    {
+        sig.ReadCompressedInteger(); // VAR/MVAR: parameter index
+        return "int";
     }
 
     // GN-2 (Nullable): decode a nested GENERICINST (0x15) generic argument to
@@ -567,6 +583,13 @@ public static class MethodBodyReader
         // The nested payload is consumed above; the call side's three
         // ReadM3ArrayArg mirrors agree on the "array" token.
         if (elemByte == 0x15) return "array";
+        // GN-12: a bare VAR (0x13) / MVAR (0x1E) array element keeps the
+        // shared "array" token -- the three SZARRAY producers
+        // (MethodRefResolver / StackFold / CodeGenerator ReadM3ArrayArg) return
+        // "array" for a 0x13/0x1E element (the VAR index is consumed there by
+        // the default arm), so an element-aware "[int]" token would fork the
+        // clone key on the two sides. Must precede the generic element check.
+        if (elemByte is 0x13 or 0x1E) return "array";
         if (elem != null) return "[" + elem + "]";
         _ = GenericArgSuffix(md, ref sig, ""); // consume the element payload
         return "array";

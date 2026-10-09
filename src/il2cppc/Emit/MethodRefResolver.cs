@@ -2813,7 +2813,12 @@ var userRecvLike = receiverType ?? arg0Type;
                 0x0E => "string",
                  0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                  0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
-                 0x13 => InstantiationSuffixHint ?? "int", // nested VAR argument: the enclosing clone's closed suffix (C2n closure -- replaces the stubbed "int")
+                 // GN-12 diagnostic: a nested VAR (0x13) / MVAR (0x1E) -- the
+                 // compressed parameter index MUST be consumed (the sibling
+                 // StackFold/CodeGenerator ReadM3NestedGeneric go through
+                 // ReadM3Arg which consumes it) or every later nested byte
+                 // misaligns. Name mirrors StackFold.ReadM3Arg's 0x13 arm.
+                 0x13 or 0x1E => ReadNestedVarArgName(ref sig),
                  0x1C => "object",
                  0x1D => ReadM3ArrayArg(md, ref sig),
                  0x14 => ReadM3MultidimArg(md, ref sig),
@@ -2822,6 +2827,14 @@ var userRecvLike = receiverType ?? arg0Type;
             };
         }
         return nestedName + "_" + string.Join("_", nestedArgs);
+    }
+
+    // GN-12 diagnostic: consume a nested VAR (0x13) / MVAR (0x1E) compressed
+    // parameter index and return the enclosing clone's closed suffix name.
+    private static string ReadNestedVarArgName(ref BlobReader sig)
+    {
+        sig.ReadCompressedInteger();
+        return InstantiationSuffixHint ?? "int";
     }
 
     private static string Sanitize(string s) => string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']'));
