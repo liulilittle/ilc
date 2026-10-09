@@ -2213,7 +2213,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 0x02 => "bool", 0x03 => "char", 0x04 => "sbyte", 0x05 => "byte",
                 0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
                 0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
-                0x0E => "string", 0x1C => "object", 0x1D => "array",
+                0x0E => "string", 0x1C => "object", 0x1D => ReadM3ArrayArg(md, ref sig),
                 0x14 => ReadM3MultidimArg(md, ref sig),
                 0x11 or 0x12 or 0x40 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                 0x15 => GenericInstArgName(md, ref sig),
@@ -2779,6 +2779,7 @@ var userRecvLike = receiverType ?? arg0Type;
                  0x13 => InstantiationSuffixHint ?? "int", // nested VAR argument: the enclosing clone's closed suffix (C2n closure -- replaces the stubbed "int")
                  0x1C => "object",
                  0x1D => ReadM3ArrayArg(md, ref sig),
+                 0x14 => ReadM3MultidimArg(md, ref sig),
                  0x15 => ReadM3GenericArgNested(md, ref sig),
                 var other => throw new NotSupportedException($"nested generic argument byte 0x{other:X2} in M3"),
             };
