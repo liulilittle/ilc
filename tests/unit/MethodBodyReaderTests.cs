@@ -180,6 +180,29 @@ public class MethodBodyReaderTests
     }
 
     [Fact]
+    public void LocalSig_BareVar_ConsumesIndex_KindCarriesIndex()
+    {
+        // GN-15: a bare VAR (0x13) local inside a closed clone must surface the
+        // generic-parameter INDEX so the emitter can classify the slot
+        // per-argument (Pair<int[,],int>: VAR0 -> reference, VAR1 -> value).
+        // locSig {07 01 13 00}: one local, VAR index 0.
+        using var pe = Synthesize(EmitRet, 2, new byte[] { 0x07, 0x01, 0x13, 0x00 });
+        var info = ReadBody(pe);
+        Assert.Equal(new[] { "v#0" }, info.LocalKinds);
+    }
+
+    [Fact]
+    public void LocalSig_BareMvar_IndexConsumed_LegacyKind()
+    {
+        // GN-15: MVAR (0x1E) is a METHOD-level parameter (GN-14 convention:
+        // -1, no class parts) -- it keeps the legacy whole-suffix "v" kind.
+        // locSig {07 01 1E 00}: one local, MVAR index 0.
+        using var pe = Synthesize(EmitRet, 2, new byte[] { 0x07, 0x01, 0x1E, 0x00 });
+        var info = ReadBody(pe);
+        Assert.Equal(new[] { "v" }, info.LocalKinds);
+    }
+
+    [Fact]
     public void LocalSig_MixedPrimitives_WidthKindsAligned()
     {
         // i4("i") / i8("l") / r4("d") / bool("i") -- the int64/double widths the
