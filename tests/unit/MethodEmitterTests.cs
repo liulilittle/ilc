@@ -61,7 +61,7 @@ public class MethodEmitterTests
             Assert.Contains("_ctor_", name);
             return;
         }
-        Assert.Fail("fixture calc.dll 无 .ctor MemberReference");
+        Assert.Fail("fixture calc.dll has no .ctor MemberReference");
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class MethodEmitterTests
             Assert.Equal(1, resolved.ParamCount);
             return;
         }
-        Assert.Fail("fixture calc.dll 无 WriteLine MemberReference");
+        Assert.Fail("fixture calc.dll has no WriteLine MemberReference");
     }
 
     [Fact]

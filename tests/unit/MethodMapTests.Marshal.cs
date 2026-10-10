@@ -453,7 +453,7 @@ public class MethodMapMarshalTests
     }
 
     //--------------------------------------------------------------------------
-    // GN-10 (i) 补正1(d): the genArgs PRODUCER (ReadParamByte) must consume a
+    // GN-10 (i) correction 1(d): the genArgs PRODUCER (ReadParamByte) must consume a
     // multidim (0x14) payload EMBEDDED inside a nested GenericInst (0x15) too.
     // GAFN already consumes it (via GenericInstArgName's 0x14 arm) but
     // ReadParamByte's 0x15 recursion does not -- an index>0 latent misalignment.
@@ -993,7 +993,7 @@ public class MethodMapMarshalTests
     private static MemoryStream SynthesizeGdfpMultidimStruct() =>
         SynthesizeWithTwoStructs(new byte[] { 0x0A, 0x02, 0x14, 0x08, 0x02, 0x00, 0x00, 0x11, 0x08 });
 
-    // GN-10 (i) 补正1(d): GENERICINST(0x0A) + argc=2 + arg0 GenericInst(0x15)
+    // GN-10 (i) correction 1(d): GENERICINST(0x0A) + argc=2 + arg0 GenericInst(0x15)
     // CLASS Cases.Dummy (0x12 04 = row 1 << 2) with one multidim int[,] arg
     // (0x14 08 02 00 00) + arg1 VALUETYPE Cases.Pt (0x11 08).
     private static MemoryStream SynthesizeGdfpNestedMultidimStruct() =>
@@ -1033,7 +1033,7 @@ public class MethodMapMarshalTests
         return (string[]?)mi!.Invoke(null, new object[] { md, sigHandle, genArgs });
     }
 
-    // GN-10 (i) 补正1(d): replay the MethodSpec genArg PRODUCER (ReadParamByte)
+    // GN-10 (i) correction 1(d): replay the MethodSpec genArg PRODUCER (ReadParamByte)
     // to observe the dispatch byte stream the resolver actually sees.
     private static byte[] InvokeReadMethodSpecGenArgs(MetadataReader md, BlobHandle sigHandle)
     {
