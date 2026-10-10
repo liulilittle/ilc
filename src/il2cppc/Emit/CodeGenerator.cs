@@ -2266,8 +2266,11 @@ public static class CodeGenerator
                     // UNDEFINED C++ type `System_Int32`. The VAR channel
                     // decides the slot exactly like every other VAR face:
                     // closed reference clone -> ref; definition/int -> value.
-                    if (IsVarOrMvarTypeSpec(md, ioTok))
-                        locKind[laCtor.Name] = _curInstantiationSuffix is not (null or "int") ? "ref" : "val";
+                    // GN-15: a VAR (0x13) initobj resolves the slot PER
+                    // ARGUMENT in an arity>=2 clone (index-aware); MVAR (0x1E)
+                    // and arity-1 keep the legacy whole-suffix classifier.
+                    if (TryVarTypeSpecIndex(md, ioTok, out var initobjVarIdx))
+                        locKind[laCtor.Name] = TypeDef.CloneArgSlotIsRef(_curInstantiationSuffix, MethodRefResolver.InstantiationSuffixHintParts, initobjVarIdx) ? "ref" : "val";
                     // GN-2 (Nullable): initobj of a Nullable`1<T> instantiation
                     // -- the slot is the boxed-object reference (Il2CppObject*;
                     // the emitter's reference-slot null store). The generic
@@ -2568,6 +2571,25 @@ public static class CodeGenerator
             {
                 refLocals.Add(d);
                 w.Line($"Il2CppObject* {d} = nullptr;");
+                continue;
+            }
+            // GN-15: a bare VAR (0x13) local carries its generic-parameter index
+            // ("v#<idx>") so a closed arity>=2 clone resolves the slot PER
+            // ARGUMENT (Pair<int[,],int>: VAR0 -> reference, VAR1 -> value).
+            // The whole-suffix arm above erased a value-T local to a reference.
+            // Explicit emit + continue so the later kind arms never see it.
+            if (ilKind != null && ilKind.Length > 2 && ilKind.StartsWith("v#", StringComparison.Ordinal)
+                && int.TryParse(ilKind.AsSpan(2), out var bareVarIdx))
+            {
+                if (TypeDef.CloneArgSlotIsRef(_curInstantiationSuffix, MethodRefResolver.InstantiationSuffixHintParts, bareVarIdx))
+                {
+                    refLocals.Add(d);
+                    w.Line($"Il2CppObject* {d} = nullptr;");
+                }
+                else
+                {
+                    w.Line($"{MuPrefix(d)}int32_t {d};");
+                }
                 continue;
             }
             if (ilKind != null && ilKind.StartsWith("v:", StringComparison.Ordinal))
@@ -4206,8 +4228,12 @@ public static class CodeGenerator
                         // it overruns the slot. Closed reference clones keep
                         // the reference-slot null store (and every non-VAR
                         // TypeSpec -- the awaiter GenericInst -- is a ref).
-                        if (IsVarOrMvarTypeSpec(md, initobjTok)
-                            && _curInstantiationSuffix is null or "int")
+                        // GN-15: a VAR (0x13) resolves PER ARGUMENT in an
+                        // arity>=2 clone (Pair<int[,],int>: VAR1 -> int32 zero
+                        // store, not the 8-byte reference store); MVAR (0x1E)
+                        // and arity-1 keep the legacy whole-suffix classifier.
+                        if (TryVarTypeSpecIndex(md, initobjTok, out var initobjVarIdx)
+                            && !TypeDef.CloneArgSlotIsRef(_curInstantiationSuffix, MethodRefResolver.InstantiationSuffixHintParts, initobjVarIdx))
                         {
                             w.LineAligned($"(*reinterpret_cast<int32_t*>({initobjAddr})) = 0;",
                                 $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize VAR slot (default(T) in a generic body)");
@@ -9885,6 +9911,30 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if (handle.Kind != HandleKind.TypeSpecification) return false;
         var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
         return sig.ReadByte() is 0x13 or 0x1E;
+    }
+
+    // GN-15: the VAR (0x13) generic-parameter index carried by a VAR/MVAR
+    // TypeSpec (0x13 -> its compressed index; 0x1E MVAR -> -1, method-level
+    // with no class parts per the GN-14 convention). Returns false for any
+    // other token/shape so callers keep the legacy whole-suffix behavior.
+    private static bool TryVarTypeSpecIndex(MetadataReader md, int token, out int varIndex)
+    {
+        varIndex = -1;
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.TypeSpecification) return false;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+        var b = sig.ReadByte();
+        if (b == 0x13)
+        {
+            varIndex = sig.ReadCompressedInteger();
+            return true;
+        }
+        if (b == 0x1E)
+        {
+            varIndex = -1;
+            return true;
+        }
+        return false;
     }
 
     // GN-2 (Nullable): the generic DEFINITION full name of a GENERICINST (0x15)

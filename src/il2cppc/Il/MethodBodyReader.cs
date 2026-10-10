@@ -409,8 +409,13 @@ public static class MethodBodyReader
         }
         if (b is 0x13 or 0x1E)
         {
-            sig.ReadCompressedInteger(); // VAR/MVAR: parameter index
-            return "v";
+            // GN-15: a bare VAR (0x13) local must carry its generic-parameter
+            // INDEX so a closed arity>=2 clone's per-argument classifier can
+            // resolve the slot width (Pair<int[,],int>: VAR0 -> reference,
+            // VAR1 -> value). MVAR (0x1E) is a METHOD-level parameter with no
+            // class parts (GN-14 convention: -1) -> legacy whole-suffix "v".
+            var varIndex = sig.ReadCompressedInteger(); // VAR/MVAR parameter index
+            return b == 0x13 ? "v#" + varIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "v";
         }
         if (b is 0x1D)
         {
