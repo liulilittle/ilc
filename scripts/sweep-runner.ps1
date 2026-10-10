@@ -1,11 +1,11 @@
-﻿param(
+param(
     # 4-channel generalization draft: mingw | msvc | clang.
     [int]$Worker = 0,
     [int]$Workers = 8,
     [int]$ShardCount = 32,
     [ValidateSet("mingw", "msvc", "clang")][string]$Compiler = "mingw",
     [int]$BuildParallel = 4,
-    [string]$Root = "E:\il2cpp",
+    [string]$Root = "F:\il2cpp",
     [string]$PauseFlag = ""
 )
 $ErrorActionPreference = "Continue"

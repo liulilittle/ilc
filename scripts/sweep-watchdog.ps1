@@ -1,9 +1,9 @@
-﻿param(
+param(
     # 4-channel generalization draft: mingw | msvc | clang.
     # Per-compiler, isolated: results glob shard*_<compiler>.txt, own pause flag,
     # own process match (-Compiler <channel>), restart via the matching supervisor.
     [ValidateSet("mingw", "msvc", "clang")][string]$Compiler = "mingw",
-    [string]$Root = "E:\il2cpp",
+    [string]$Root = "F:\il2cpp",
     [string]$ResultsDir = "",
     [int]$CompleteThreshold = 563,
     [int]$Workers = 2,

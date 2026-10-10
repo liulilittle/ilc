@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)][string]$List,
     [Parameter(Mandatory = $true)][string]$Out,
     [ValidateSet("mingw", "msvc", "clang")][string]$Compiler = "mingw",
@@ -9,16 +9,16 @@ $ErrorActionPreference = "Continue"
 $Root = Split-Path -Parent $PSScriptRoot
 $env:CMAKE_BUILD_PARALLEL_LEVEL = "$BuildParallel"
 if ($Compiler -eq "mingw") {
-    $env:Path = "E:\il2cpp\.opencode\tmp\ccache-shim;D:\Program Files\mingw\msys2\mingw64\bin;D:\android\sdk\cmake\3.22.1\bin;" + $env:Path
-    $env:CCACHE_DIR = "E:\il2cpp\.opencode\tmp\ccache"
+    $env:Path = "F:\il2cpp\.opencode\tmp\ccache-shim;D:\Program Files\mingw\msys2\mingw64\bin;D:\android\sdk\cmake\3.22.1\bin;" + $env:Path
+    $env:CCACHE_DIR = "F:\il2cpp\.opencode\tmp\ccache"
     $env:CCACHE_MAXSIZE = "30G"
 }
 if ($Compiler -eq "msvc") {
     # A2 msvcpre 实测：新 shell 无 cmake/g++/msbuild；mylib 用例需 g++（msys2）；
     # CL=/MP2 让 cl.exe 单例内并行（msvc 分支串行构建时的实测加速）。
-    $env:Path = "E:\il2cpp\.opencode\tmp\tools\sccache\sccache-v0.17.0-x86_64-pc-windows-msvc;D:\android\sdk\cmake\3.22.1\bin;D:\Program Files\mingw\msys2\mingw64\bin;" + $env:Path
+    $env:Path = "F:\il2cpp\.opencode\tmp\tools\sccache\sccache-v0.17.0-x86_64-pc-windows-msvc;D:\android\sdk\cmake\3.22.1\bin;D:\Program Files\mingw\msys2\mingw64\bin;" + $env:Path
     $env:CL = "/MP2"
-    $env:SCCACHE_DIR = "E:\il2cpp\.opencode\tmp\sccache"
+    $env:SCCACHE_DIR = "F:\il2cpp\.opencode\tmp\sccache"
     $env:SCCACHE_IGNORE_SERVER_IO_ERROR = "1"
 }
 
@@ -26,8 +26,8 @@ if ($Compiler -eq "clang") {
     # Clang 23 windows-gnu + MSYS2 sysroot; ccache 自动由 cmake\clang-mingw-w64.cmake
     # find_program 挂接。build_clang 无年龄规则: run-tests clang 分支每次构建前清目录
     # (工具链漂移不可复用), ccache 缓存目录本身跨用例保留。
-    $env:Path = "E:\il2cpp\.opencode\tmp\ccache-shim;D:\Program Files\mingw\msys2\mingw64\bin;D:\android\sdk\cmake\3.22.1\bin;" + $env:Path
-    $env:CCACHE_DIR = "E:\il2cpp\.opencode\tmp\ccache"
+    $env:Path = "F:\il2cpp\.opencode\tmp\ccache-shim;D:\Program Files\mingw\msys2\mingw64\bin;D:\android\sdk\cmake\3.22.1\bin;" + $env:Path
+    $env:CCACHE_DIR = "F:\il2cpp\.opencode\tmp\ccache"
     $env:CCACHE_MAXSIZE = "30G"
 }
 $logDir = Join-Path $Root ".opencode\logs"

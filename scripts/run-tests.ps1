@@ -1,4 +1,4 @@
-﻿param(
+param(
     [ValidateSet("msvc","mingw","wsl","clang")][string]$Compiler = "mingw",
     [string]$Case = "",
     [switch]$ContinueOnError,
@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 # 以脚本位置为基准解析仓库根，避免 -File 模式下 CWD 不确定导致相对路径失效
 $Root = Split-Path -Parent $PSScriptRoot
 
-# E:\il2cpp\xxx -> /mnt/e/il2cpp/xxx（先 Resolve-Path 到绝对路径再转换，相对路径 Substring(0,1) 会取错盘符）
+# F:\il2cpp\xxx -> /mnt/e/il2cpp/xxx（先 Resolve-Path 到绝对路径再转换，相对路径 Substring(0,1) 会取错盘符）
 function ConvertTo-WslPath([string]$winPath) {
     $drive = $winPath.Substring(0,1).ToLower()
     $rest = $winPath.Substring(3).Replace("\","/")
@@ -356,13 +356,13 @@ foreach ($caseDir in $caseDirs) {
                 }
             }
         }
-        $sccache = "E:\il2cpp\.opencode\tmp\tools\sccache\sccache-v0.17.0-x86_64-pc-windows-msvc\sccache.exe"
+        $sccache = "F:\il2cpp\.opencode\tmp\tools\sccache\sccache-v0.17.0-x86_64-pc-windows-msvc\sccache.exe"
         $ninja = "D:\android\sdk\cmake\3.22.1\bin\ninja.exe"
         # Ninja has no -A platform concept (the VS generator does); an explicit
         # -Arch forces the VS generator path so -A reaches the toolchain.
         $useSccache = (Test-Path $sccache) -and (Test-Path $ninja) -and ($Arch -eq "")
         if ($useSccache) {
-            $env:SCCACHE_DIR = "E:\il2cpp\.opencode\tmp\sccache"
+            $env:SCCACHE_DIR = "F:\il2cpp\.opencode\tmp\sccache"
             $env:SCCACHE_IGNORE_SERVER_IO_ERROR = "1"
             $rc = Invoke-BoundedCmd $sccache "--start-server" 10000
             if ($null -eq $rc -or $rc -ne 0) {

@@ -1,10 +1,10 @@
-﻿param(
+param(
     # 4-channel generalization draft: mingw | msvc | clang (live behavior unchanged for mingw)
     [ValidateSet("mingw", "msvc", "clang")][string]$Compiler = "mingw",
     [int]$Workers = 6,
     [int]$ShardCount = 32,
     [int]$BuildParallel = 3,
-    [string]$Root = "E:\il2cpp",
+    [string]$Root = "F:\il2cpp",
     [string]$RunnerScript = "",
     [string]$PauseFlag = "",
     [switch]$DryRun
