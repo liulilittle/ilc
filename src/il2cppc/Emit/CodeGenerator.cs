@@ -718,18 +718,23 @@ public static class CodeGenerator
                     var gArgParts = gParts.Length > 2 ? gParts[2..] : null;
                     EnsureClone(gParts[0], gParts[1], gArgParts);
                 }
-                // R2b scan source 2: newobj-only instantiations (e.g.
-                // `new Box<string>()` with no local). The newobj operand is a
-                // METHOD token (0x73), NOT a TypeSpec -- the constructed type
-                // lives in the MemberRef's PARENT (a TypeSpec for a generic
-                // instantiation). A3/A9 anchor: MethodDef (same-assembly
-                // generic ctor) and MethodSpec (generic-method token) have no
-                // useful TypeSpec here.
+                // R2b scan source 2: instantiations referenced only through a
+                // member token (e.g. `new Box<string>()`, a STATIC call
+                // `Host9<string>.Shared()`, a callvirt, ldftn/ldvirtftn or a
+                // field reference) with no local variable. The operand is a
+                // MethodToken / FieldToken (NOT a TypeSpec) -- the constructed
+                // type lives in the MemberRef's PARENT (a TypeSpec for a
+                // generic instantiation). A3/A9 anchor: MethodDef
+                // (same-assembly generic ctor) and MethodSpec (generic-method
+                // token) have no useful TypeSpec here. GN-14 (b): the scan used
+                // to be newobj-only, so a static-call/field-ref owner TypeSpec
+                // was never registered -> the call resolved to a per-instance
+                // clone that was never emitted ("was not declared").
                 try
                 {
                     foreach (var ins in IlDecoder.DecodeMethod(scanInfo.IlBytes, md))
                     {
-                        if (ins.OpCode != System.Reflection.Metadata.ILOpCode.Newobj) continue;
+                        if (ins.OperandKind is not (IlOperandKind.MethodToken or IlOperandKind.FieldToken)) continue;
                         var h = MetadataTokens.Handle((int)ins.Operand);
                         if (h.Kind != HandleKind.MemberReference) continue;
                         var mr2 = md.GetMemberReference((MemberReferenceHandle)h);
