@@ -161,6 +161,44 @@ public class TypeEmitterNestedTests
         return Serialize(mdb);
     }
 
+    // GN-14 (a-2): a nested instance field of type
+    // Dictionary`2<VAR0, string> exercises TypeEmitter.NestedTypeArgName's
+    // 0x13/0x1E arm (the field-type decode path). Shape:
+    //   Cases.Recurse (static class)
+    //     + Holder     (nested class, instance field `d` Dictionary<T,string>)
+    // The field blob is FIELD(0x06) GENERICINST(0x15) CLASS(0x12) TypeDefOrRef
+    // (Dictionary`2) argcount=2 arg0=VAR(0x13)+index0 arg1=STRING(0x0E).
+    private static MemoryStream SynthesizeNestedGenericArgField()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("nestedgen.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var objRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var dictRef = mdb.AddTypeReference(asmRef,
+            mdb.GetOrAddString("System.Collections.Generic"), mdb.GetOrAddString("Dictionary`2"));
+        var ctorSig = mdb.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }); // instance, 0 params, void
+
+        // FIELD(0x06) + GENERICINST(0x15) + CLASS(0x12) + TypeDefOrRef(Dictionary`2)
+        // + argCount(0x02) + arg0 VAR(0x13)+index(0x00) + arg1 STRING(0x0E).
+        var codedDict = (MetadataTokens.GetRowNumber(dictRef) << 2) | 1; // TypeRef tag 1
+        var dField = mdb.AddFieldDefinition(FieldAttributes.Public,
+            mdb.GetOrAddString("d"),
+            mdb.GetOrAddBlob(new byte[] { 0x06, 0x15, 0x12, (byte)codedDict, 0x02, 0x13, 0x00, 0x0E }));
+        var holderCtor = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig, MethodImplAttributes.IL,
+            mdb.GetOrAddString(".ctor"), ctorSig, 0, default(ParameterHandle));
+
+        var recurse = mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.Abstract,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Recurse"), objRef, dField, holderCtor);
+        var holder = mdb.AddTypeDefinition(TypeAttributes.NestedPublic,
+            default(StringHandle), mdb.GetOrAddString("Holder"), objRef, dField, holderCtor);
+        mdb.AddNestedType(holder, recurse);
+
+        return Serialize(mdb);
+    }
+
     private static MemoryStream Serialize(MetadataBuilder mdb)
     {
         var root = new MetadataRootBuilder(mdb, "v4.0.30319");
@@ -484,6 +522,30 @@ public class TypeEmitterNestedTests
             Assert.Contains("struct Cases_Recurse_Bag", code);
             Assert.Contains("Il2CppObject* kids;", code);
             Assert.Contains("slot 1 at offset 8 (GC reference)", code);
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+    }
+
+    // GN-14 (a-2): NestedTypeArgName's 0x13/0x1E arm MUST consume the VAR
+    // parameter index. Without consumption the following argument byte (the
+    // 0x00 index) is misread through the tolerant fallback as "System.Object";
+    // the Dictionary`2<VAR0,string> field type name forks to
+    // "...<int,System.Object>" instead of "...<int,System.String>".
+    [Fact]
+    public void Expand_NestedType_GenericInstVarArg_ConsumesIndex()
+    {
+        var tmp = Path.GetTempFileName();
+        try
+        {
+            var (types, _) = Load(tmp, SynthesizeNestedGenericArgField());
+            var holder = types.Single(t => t.FullName == "Holder");
+            var d = Assert.Single(holder.InstanceFields);
+            Assert.Equal("d", d.Name);
+            Assert.Equal(FieldTypeKind.Reference, d.TypeKind);
+            Assert.Equal("System.Collections.Generic.Dictionary`2<int,System.String>", d.FieldTypeName);
         }
         finally
         {

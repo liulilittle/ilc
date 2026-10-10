@@ -1672,7 +1672,11 @@ public static class CodeGenerator
                     for (var i = 0; i < parts.Length; i++)
                         if (parts[i].StartsWith("r:", StringComparison.Ordinal)
                             || (m.ParamIsVar is { } piv && i < piv.Length && piv[i]
-                                && m.Owner.InstantiationSuffix != null))
+                                // GN-14 (c): a VAR parameter is a root only when
+                                // THIS slot is a reference in the closed clone
+                                // (mirrors ParamTypesCpp's per-index rule); an
+                                // arity>=2 value argument keeps the raw value slot.
+                                && m.Owner.CloneArgSlotIsRef(m.ParamVarIndex is { } pvi && i < pvi.Length ? pvi[i] : -1)))
                             paramRoots.Add(m.IsStatic ? $"arg{i}" : $"arg{i + 1}");
                 }
                 refLocals = refLocals.Concat(paramRoots).ToList();
