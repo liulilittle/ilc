@@ -1,16 +1,16 @@
-# Linux x86_64 (WSL) 交叉编译 Toolchain
+# Linux x86_64 (WSL) cross-compilation Toolchain
 #
-# 用途: 从 Windows 主机通过 WSL 交叉编译到 Linux x86_64
-# 用法: cmake -DCMAKE_TOOLCHAIN_FILE=cmake/linux-x64-toolchain.cmake -B build-linux -G "Unix Makefiles" ..
+# Purpose: cross-compile from a Windows host to Linux x86_64 via WSL
+# Usage: cmake -DCMAKE_TOOLCHAIN_FILE=cmake/linux-x64-toolchain.cmake -B build-linux -G "Unix Makefiles" ..
 #
-# 前置条件: 已安装 WSL (Ubuntu 发行版)
-# 目标: Linux x86_64 (glibc), 产物为 ELF .a 静态库
+# Prerequisite: WSL installed (Ubuntu distribution)
+# Target: Linux x86_64 (glibc), artifact is an ELF .a static library
 
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
 
 # ---------------------------------------------------------------------------
-# 查找 WSL 可执行文件
+# Find the WSL executable
 # ---------------------------------------------------------------------------
 find_program(WSL_EXECUTABLE
     NAMES wsl.exe wsl
@@ -27,9 +27,9 @@ endif()
 message(STATUS "WSL executable: ${WSL_EXECUTABLE}")
 
 # ---------------------------------------------------------------------------
-# 编译器配置 — 使用 WSL 内的 GCC
-#   CMAKE_C_COMPILER_LAUNCHER 会在每次编译命令前插入 wsl.exe
-#   实际调用形式: wsl.exe gcc <flags> -c file.cpp -o file.o
+# Compiler configuration -- use GCC inside WSL
+#   CMAKE_C_COMPILER_LAUNCHER inserts wsl.exe before every compile command
+#   Actual invocation form: wsl.exe gcc <flags> -c file.cpp -o file.o
 # ---------------------------------------------------------------------------
 set(CMAKE_C_COMPILER gcc)
 set(CMAKE_CXX_COMPILER g++)
@@ -37,7 +37,7 @@ set(CMAKE_C_COMPILER_LAUNCHER ${WSL_EXECUTABLE})
 set(CMAKE_CXX_COMPILER_LAUNCHER ${WSL_EXECUTABLE})
 
 # ---------------------------------------------------------------------------
-# 目标根路径 (WSL 内的 Linux 系统根)
+# Target root path (the Linux system root inside WSL)
 # ---------------------------------------------------------------------------
 set(CMAKE_FIND_ROOT_PATH
     "/usr"
@@ -47,7 +47,7 @@ set(CMAKE_FIND_ROOT_PATH
 )
 
 # ---------------------------------------------------------------------------
-# 搜索行为控制
+# Search behavior control
 # ---------------------------------------------------------------------------
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
@@ -55,7 +55,7 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 
 # ---------------------------------------------------------------------------
-# Linux 特定定义
+# Linux-specific definitions
 # ---------------------------------------------------------------------------
 set(CMAKE_EXECUTABLE_SUFFIX "")
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
@@ -63,12 +63,12 @@ set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
 set(CMAKE_IMPORT_LIBRARY_SUFFIX ".a")
 
 # ---------------------------------------------------------------------------
-# Linux 链接器标志
+# Linux linker flags
 # ---------------------------------------------------------------------------
 set(CMAKE_EXE_LINKER_FLAGS "-pthread ${CMAKE_EXE_LINKER_FLAGS}")
 
 # ---------------------------------------------------------------------------
-# 调试/发布默认标志
+# Debug/Release default flags
 # ---------------------------------------------------------------------------
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)

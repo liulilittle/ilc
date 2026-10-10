@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   One-command build for an IL2CPP-transpiled application.
-  P-F friendly-compiler one-click entry (P-F-AUDIT-1 双审定案 §5/§6).
+  P-F friendly-compiler one-click entry (P-F-AUDIT-1 agreed plan §5/§6).
 
 .DESCRIPTION
   Takes a managed program (.csproj or already-built .exe/.dll) and produces one

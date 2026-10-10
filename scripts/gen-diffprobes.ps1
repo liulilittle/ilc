@@ -10,14 +10,15 @@ $Root = Split-Path -Parent $PSScriptRoot
 if (-not $A6Dir) { $A6Dir = "$Root/final-report" }
 if (-not $Out)   { $Out = "$Root/.opencode/tmp/diffharness/manifest.tsv" }
 
-# 差分探针清单生成器（A3）：输入 = A6 apiscan/entries.tsv（=MethodMap 映射清单）∩ 实际 `case "Name"` 标签扫描
-# ∩ triage-top20.tsv 的 P0 序；输出 manifest.tsv：domain owner name wired tfm priority class vectors source rank。
-#   * wired   = 名称出现在任一 MethodMap 的 `case "..."` 标签中（含 .ctor / op_* / get_*）。
-#   * domain  = 来源 MethodMap 文件（entries.tsv 的 file 列，去掉 MethodMap. 前缀与 .cs 后缀）。
-#   * priority= 命中 triage-top20 时 `P0#<rank>`，否则 `PMAP`（A6 缺失时 `PMAP-待核`）。
-#   * tfm     = net48 默认；vectors = 内置形状提示；class = pure（批次作者按需改 io/effectful）。
-# A6 缺失时降级 source=methodmap 并把 priority 标 PMAP-待核（不静默冒用）。
-# 注意：本脚本含中文注释，必须以 UTF-8+BOM 落盘（PS 5.1 否则按 GBK 解析出错——F66）。
+# Differential probe manifest generator (A3): input = A6 apiscan/entries.tsv (=MethodMap mapping list) INTERSECT
+# an actual `case "Name"` label scan INTERSECT the P0 order of triage-top20.tsv; output manifest.tsv:
+# domain owner name wired tfm priority class vectors source rank.
+#   * wired   = the name appears in some MethodMap's `case "..."` label (including .ctor / op_* / get_*).
+#   * domain  = the source MethodMap file (the file column of entries.tsv, stripping the MethodMap. prefix and .cs suffix).
+#   * priority= `P0#<rank>` when it hits triage-top20, otherwise `PMAP` (`PMAP-pending-review` when A6 is missing).
+#   * tfm     = net48 default; vectors = built-in shape hints; class = pure (batch authors change to io/effectful as needed).
+# When A6 is missing, degrade to source=methodmap and mark priority as the pending-review literal (do not silently pass it off).
+# Note: this script contains Chinese comments and must be written as UTF-8+BOM (otherwise PS 5.1 parses it as GBK and errors -- F66).
 
 function Get-MethodMapWired {
     $map = @{}

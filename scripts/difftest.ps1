@@ -9,15 +9,17 @@ $Root = Split-Path -Parent $PSScriptRoot
 if (-not $ReportDir) { $ReportDir = "$Root/.opencode/tmp/diffharness" }
 New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 
-# 差分对照 harness（A3）：net48 oracle vs 我们的运行时，**逐字节**比较 stdout/stderr/退出码。
-# 复用点（与 run-tests.ps1 同构）：net48 Exe 参考运行 + il2cppc 转译 + cmake 通道构建 + il2cpp_gen_exe。
-# 关键差异（run-tests 的 harness 缺陷修正）：
-#   1. 所有原生调用经 cmd /c 重定向到日志文件 —— PS 5.1 在 $ErrorActionPreference='Stop' 下会把
-#      原生命令 stderr（如转译器 warning）转成 NativeCommandError 终止异常，导致用例在转译阶段
-#      被静默中止（本 pilot 实证）。经 cmd /c 重定向后 stderr 只落日志，退出码是唯一失败信号。
-#   2. 输出按**原始字节**采集（不经 UTF-8 文本解码），避免解码归一化掩盖字节级差异。
-#   3. 控制台输出代码页钉到 UTF-8(65001)：net48 oracle 跟随控制台 CP 输出，运行时固定 UTF-8；
-#      不钉则非 ASCII 记录（如 enc.utf8.getstring）产生纯编码伪影（与 run-tests L60-69 同法）。
+# Differential comparison harness (A3): net48 oracle vs our runtime, **byte-for-byte** compare of stdout/stderr/exit code.
+# Reused points (isomorphic with run-tests.ps1): net48 Exe reference run + il2cppc transpile + cmake channel build + il2cpp_gen_exe.
+# Key differences (fixing run-tests harness defects):
+#   1. All native invocations redirect to log files via cmd /c -- under $ErrorActionPreference='Stop',
+#      PS 5.1 turns native stderr (e.g. transpiler warnings) into NativeCommandError terminating exceptions,
+#      silently aborting the case at the transpile stage (demonstrated in this pilot). After cmd /c
+#      redirection, stderr only lands in the log and the exit code is the sole failure signal.
+#   2. Output is captured as **raw bytes** (no UTF-8 text decoding), avoiding decode normalization masking byte-level differences.
+#   3. Console output code page pinned to UTF-8(65001): the net48 oracle follows the console CP output, while
+#      the runtime is fixed to UTF-8; without pinning, non-ASCII records (e.g. enc.utf8.getstring) produce
+#      pure encoding artifacts (same method as run-tests L60-69).
 
 $origOutputEncoding = [Console]::OutputEncoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -73,8 +75,9 @@ function Resolve-ToolDir {
     foreach ($c in $Candidates) { if ($c -and (Test-Path (Join-Path $c $Exe))) { return $c } }
     return $null
 }
-# 工具链 PATH 注入：run-tests 依赖调用方环境已配好 cmake/MinGW；本 harness 自带探测，
-# 使单机（无 CI 外壳）也能一键复现，避免 "cmake 不在 PATH" 之类的环境噪声污染差分结论。
+# Toolchain PATH injection: run-tests relies on the caller's environment having cmake/MinGW set up;
+# this harness carries its own detection so a single machine (without a CI shell) can reproduce in
+# one command, avoiding environment noise like "cmake not in PATH" polluting the diff conclusion.
 $cmakeDir = Resolve-ToolDir @('D:\android\sdk\cmake\3.22.1\bin','C:\Program Files\CMake\bin','C:\msys64\mingw64\bin') 'cmake.exe'
 $mingwDir = Resolve-ToolDir @('D:\Program Files\mingw\msys2\mingw64\bin','C:\msys64\mingw64\bin','C:\mingw64\bin','D:\mingw64\bin') 'g++.exe'
 foreach ($d in @($cmakeDir, $mingwDir)) { if ($d -and ($env:PATH -notlike "*$d*")) { $env:PATH = "$d;$env:PATH" } }
@@ -82,8 +85,9 @@ foreach ($d in @($cmakeDir, $mingwDir)) { if ($d -and ($env:PATH -notlike "*$d*"
 $caseDir  = "$Root/tests/cases/$Case"
 $csproj   = "$caseDir/$Case.csproj"
 if (-not (Test-Path $csproj)) { throw "missing $csproj" }
-# 唯一化本轮日志名：同名日志在"上一次调用异常退出、其 cmake/cmd 子进程仍持有句柄"时
-# 会让下一次重定向直接失败（cmd 无法打开 > 目标 → 非退出码类错误，NativeCommandError）。
+# Unique log name per round: a same-named log, when a previous invocation aborted and its
+# cmake/cmd child processes still hold the handle, makes the next redirect fail outright
+# (cmd cannot open > target -> a non-exit-code error, NativeCommandError).
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $oracleDir = "$caseDir/out_stage_diff"
 $logDir    = "$Root/.opencode/logs"
@@ -130,7 +134,7 @@ $rtExe = "$buildDir/il2cpp_gen_exe.exe"
 if (-not (Test-Path $rtExe)) { throw "runtime exe missing: $rtExe" }
 $act = Invoke-RawRun $rtExe $TimeoutMs
 
-# 原始输出留证：运行时中止/崩溃类结论必须能回看原始 stdout/stderr（字节级）。
+# Keep raw output as evidence: abort/crash conclusions must be traceable to the original stdout/stderr (byte-level).
 [System.IO.File]::WriteAllBytes("$ReportDir/$Case.$Compiler.oracle.out.bin", $exp.Out)
 [System.IO.File]::WriteAllBytes("$ReportDir/$Case.$Compiler.oracle.err.bin", $exp.Err)
 [System.IO.File]::WriteAllBytes("$ReportDir/$Case.$Compiler.runtime.out.bin", $act.Out)

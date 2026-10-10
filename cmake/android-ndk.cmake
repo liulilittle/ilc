@@ -1,19 +1,22 @@
-# Android NDK toolchain (P-F 一键入口 -Toolchain ndk 骨架，P-F-AUDIT-1 §2/§6/§8)。
+# Android NDK toolchain (P-F one-click entry -Toolchain ndk skeleton, P-F-AUDIT-1 sections 2/6/8).
 #
-# 此文件是跨平台 friendly-compiler 的 NDK 构建入口：它复用 NDK 自带的
-# android.toolchain.cmake，面向 ABI arm64-v8a / minSdk 21 生成静态库/动态库
-# 目标。Bionic 下的链接解析（Threads::Threads / CMAKE_DL_LIBS / ws2_32 分流）
-# 属后续验证项——ws2_32 在 src/runtime 的 if(WIN32) 内，B/NDK 不会误链。
+# This file is the NDK build entry for the cross-platform friendly-compiler: it reuses
+# the NDK-provided android.toolchain.cmake, targeting ABI arm64-v8a / minSdk 21 to
+# generate static/shared library targets. Link resolution under Bionic
+# (Threads::Threads / CMAKE_DL_LIBS / ws2_32 routing) is a follow-up verification
+# item -- ws2_32 lives inside if(WIN32) in src/runtime, so B/NDK never links it wrongly.
 #
-# NDK 根目录从**环境变量**发现（P-F-FIX D3：禁止 -DANDROID_NDK 直连——cmake
-# 3.22 的 ABI try_compile 子构建不注入非 CMAKE_ 前缀缓存变量，直接传 -D
-# 会在子构建内 FATAL；env 沿父进程传递天然可用）：
-#   优先 IL2CPP_NDK_ROOT，其次 NDK_ROOT。
-# 同时在缓存里写入 CMAKE_ANDROID_NDK（CMAKE_ 前缀，try_compile 子构建继承），
-# 与 ANDROID_NDK 双写以保证 android.toolchain.cmake 在新旧版本上都能解析。
+# The NDK root is discovered from **environment variables** (P-F-FIX D3: -DANDROID_NDK
+# direct pass-through is forbidden -- cmake 3.22's ABI try_compile sub-build does not
+# inject non-CMAKE_-prefixed cache variables, so passing -D directly causes a FATAL in
+# the sub-build; env vars propagate along the parent process and are naturally usable):
+#   Prefer IL2CPP_NDK_ROOT, then NDK_ROOT.
+# Also write CMAKE_ANDROID_NDK into the cache (CMAKE_ prefix, inherited by try_compile
+# sub-builds), dual-written with ANDROID_NDK so android.toolchain.cmake parses on both
+# old and new versions.
 #
-# 用法（经 scripts/build-app.ps1 -Toolchain ndk 一键，或直接）：
-#   $env:IL2CPP_NDK_ROOT="<ndk 根目录>"
+# Usage (via scripts/build-app.ps1 -Toolchain ndk one-click, or directly):
+#   $env:IL2CPP_NDK_ROOT="<ndk root dir>"
 #   cmake -S <gen> -B <build> -G Ninja \
 #         -DCMAKE_BUILD_TYPE=Release \
 #         -DCMAKE_TOOLCHAIN_FILE=cmake/android-ndk.cmake \
@@ -21,18 +24,18 @@
 
 set(CMAKE_SYSTEM_NAME Android)
 
-# ABI / API 默认值：可经 -DANDROID_ABI / -DANDROID_PLATFORM 覆盖。
-# G5（CROSSPLATFORM-DECISION 批 B）：去 FORCE 改普通 CACHE，使
-# -DANDROID_ABI=armeabi-v7a / x86_64 等非默认 ABI 真正可覆盖（FORCE 会把
-# -D 值重新钉回 arm64-v8a，见 RED 证据）。
+# ABI / API defaults: overridable via -DANDROID_ABI / -DANDROID_PLATFORM.
+# G5 (CROSSPLATFORM-DECISION batch B): drop FORCE and use a plain CACHE entry so
+# non-default ABIs like -DANDROID_ABI=armeabi-v7a / x86_64 can truly override (FORCE
+# would pin the -D value back to arm64-v8a, see RED evidence).
 set(ANDROID_ABI "arm64-v8a" CACHE STRING "Android ABI")
 set(ANDROID_PLATFORM "android-21" CACHE STRING "Android API level" FORCE)
-# 共享库默认使用 c++_shared；静态库场景可改 ANDROID_STL=c++_static。
+# Shared libraries default to c++_shared; static-library scenarios can set ANDROID_STL=c++_static.
 set(ANDROID_STL "c++_shared" CACHE STRING "Android STL" FORCE)
 
 # ---------------------------------------------------------------------------
-# NDK 根目录发现：仅 env（IL2CPP_NDK_ROOT / NDK_ROOT）；-D 传入仅在
-# CMAKE_ANDROID_NDK 形态（CMAKE_ 前缀）下作为兜底接受。
+# NDK root discovery: env only (IL2CPP_NDK_ROOT / NDK_ROOT); a -D pass-through is
+# only accepted as a fallback in the CMAKE_ANDROID_NDK (CMAKE_-prefixed) form.
 # ---------------------------------------------------------------------------
 set(_PF_NDK_ROOT "")
 if(DEFINED ENV{IL2CPP_NDK_ROOT})
@@ -54,8 +57,8 @@ endif()
 
 message(STATUS "Android NDK: ${_PF_NDK_ROOT} (ABI=${ANDROID_ABI}, platform=${ANDROID_PLATFORM})")
 
-# 双写 ANDROID_NDK（android.toolchain.cmake 传统入口）与 CMAKE_ANDROID_NDK
-# （CMAKE_ 前缀，ABI try_compile 子构建可继承；P-F-FIX D3）。
+# Dual-write ANDROID_NDK (the traditional android.toolchain.cmake entry) and
+# CMAKE_ANDROID_NDK (CMAKE_ prefix, inheritable by ABI try_compile sub-builds; P-F-FIX D3).
 set(ANDROID_NDK "${_PF_NDK_ROOT}" CACHE PATH "Android NDK root" FORCE)
 set(CMAKE_ANDROID_NDK "${_PF_NDK_ROOT}" CACHE PATH "Android NDK root" FORCE)
 

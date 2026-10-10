@@ -1,17 +1,19 @@
 ﻿$ErrorActionPreference = "Stop"
-# 以脚本位置为基准解析仓库根，避免 -File 模式下 CWD 不确定导致相对路径失效
+# Resolve the repo root from the script location, avoiding relative-path failures
+# when CWD is undefined in -File mode
 $Root = Split-Path -Parent $PSScriptRoot
 
-# 一键全量 CI：
-#   1. 构建转译器（dotnet build src/il2cppc）
-#   2. 构建 fixtures（dotnet build tests/fixtures，单测与 e2e 的输入，干净检出自包含）
-#   3. 单元测试（dotnet test tests/unit）
-#   4. 端到端 MinGW（6 用例，net48 参考 vs 转译产物 stdout 逐字节 diff）
-#   5. 端到端 MSVC
-#   6. 端到端 WSL（GCC 7.5 基线）
-# 任一步失败 → 非零退出；全部通过 → 输出 "=== CI PASS ==="。
-# 注意：run-tests.ps1 内部用 Split-Path -Parent $PSScriptRoot 做路径基准，
-#       必须以 pwsh 7 调用（Windows PowerShell 5.1 无 $PSScriptRoot 兼容问题，但统一走 pwsh）。
+# One-shot full CI:
+#   1. Build the transpiler (dotnet build src/il2cppc)
+#   2. Build fixtures (dotnet build tests/fixtures, inputs for unit and e2e tests, self-contained on a clean checkout)
+#   3. Unit tests (dotnet test tests/unit)
+#   4. End-to-end MinGW (6 cases, byte-for-byte diff of net48 reference vs transpiled stdout)
+#   5. End-to-end MSVC
+#   6. End-to-end WSL (GCC 7.5 baseline)
+# Any step fails -> non-zero exit; all pass -> print "=== CI PASS ===".
+# Note: run-tests.ps1 uses Split-Path -Parent $PSScriptRoot as its path base,
+#       and must be invoked with pwsh 7 (Windows PowerShell 5.1 has no $PSScriptRoot
+#       compatibility issue, but we standardize on pwsh).
 
 Write-Host "=== 1. build transpiler ==="
 dotnet build "$Root/src/il2cppc/il2cppc.csproj"

@@ -14,7 +14,7 @@ $OutBase = "$Root/build/capi_check"
 switch ($Compiler) {
     "mingw" { $Gen = "MinGW Makefiles"; $Out = "$OutBase/mingw" }
     "msvc"  { $Gen = "Visual Studio 17 2022"; $Out = "$OutBase/msvc" }
-    "wsl"   { $Gen = ""; $Out = "$OutBase/wsl" }  # WSL 用 -G 缺省 + cmake 在 WSL 内
+    "wsl"   { $Gen = ""; $Out = "$OutBase/wsl" }  # WSL uses the default -G + cmake inside WSL
 }
 
 # 1) fixture
@@ -29,13 +29,13 @@ if ($LASTEXITCODE -ne 0) { throw "transpile capicalc failed" }
 
 $BuildDir = "$Out/build"
 if ($Compiler -eq "wsl") {
-    # Windows 路径 -> WSL 路径（E:\a\b -> /mnt/e/a/b）
+    # Windows path -> WSL path (E:\a\b -> /mnt/e/a/b)
     $drive = $GenDir.Substring(0, 1).ToLower()
     $rest = $GenDir.Substring(2).Replace("\", "/")
     $wslGen = "/mnt/$drive$rest"
-    # 老版本 cmake（Ubuntu 1804 自带）不认识 -S：用 -H/--build 形式
-    # 先清 build 目录：残留 CMakeCache 会指向旧 CAPILLIB_DIR，产生误导性失败
-    # WSL 产物无 .exe 后缀（Linux ELF）
+    # Old cmake (bundled with Ubuntu 1804) does not understand -S: use the -H/--build form
+    # Clean the build dir first: a stale CMakeCache pointing at an old CAPILLIB_DIR produces misleading failures
+    # WSL artifacts have no .exe suffix (Linux ELF)
     wsl -d Ubuntu1804 bash -lc "cd /mnt/e/il2cpp && rm -rf build/capi_check/wsl/build && cmake -Htests/capi -Bbuild/capi_check/wsl/build -D'CAPILLIB_DIR=$wslGen' && cmake --build build/capi_check/wsl/build && ./build/capi_check/wsl/build/capi_host"
     if ($LASTEXITCODE -ne 0) { throw "capi_host (wsl) failed" }
 }

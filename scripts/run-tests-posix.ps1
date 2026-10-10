@@ -5,11 +5,11 @@
     [string]$ResultsFile = ""
 )
 $ErrorActionPreference = "Stop"
-# 以脚本位置为基准解析仓库根，避免 -File 模式下 CWD 不确定导致相对路径失效
+# Resolve the repo root from the script location, avoiding relative-path failures when CWD is undefined in -File mode
 $Root = Split-Path -Parent $PSScriptRoot
 
-# 原生进程捕获：stdout/stderr 分别以 UTF-8 解码（与 run-tests.ps1 同一语义）。
-# 异步读避免大输出时的管道死锁；超时后 kill 进程树并标记 TIMEOUT。
+# Native process capture: stdout/stderr decoded as UTF-8 separately (same semantics as run-tests.ps1).
+# Async reads avoid pipe deadlock on large output; after timeout, kill the process tree and mark TIMEOUT.
 function Invoke-NativeRun {
     param([string]$ExePath, [int]$TimeoutSec)
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -49,7 +49,7 @@ if (-not (Test-Path $TestDir)) {
     throw "TestDir '$TestDir' does not exist. Build tests/runtime first (cmake -S tests/runtime -B $TestDir -G 'Unix Makefiles' && cmake --build $TestDir)."
 }
 
-# 收集测试 exe：tests/runtime 的 CMakeLists GLOB 生成 test_*.cpp -> test_*.exe（POSIX 下无 .exe 后缀）
+# Collect test exes: the CMakeLists in tests/runtime GLOBs test_*.cpp -> test_*.exe (no .exe suffix on POSIX)
 $exes = @(Get-ChildItem $TestDir -File | Where-Object {
     $_.Name -like "test_*" -and $_.Extension -notin @(".o", ".obj", ".a", ".lib", ".pdb", ".ilk", ".dll", ".so", ".dylib")
 })

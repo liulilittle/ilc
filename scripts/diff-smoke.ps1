@@ -11,33 +11,37 @@ $Root = Split-Path -Parent $PSScriptRoot
 if (-not $OutDir) { $OutDir = "$Root/.opencode/tmp/diffharness" }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-# 差分冒烟集（B6）：一条命令跑 DIFFERENTIAL-SMOKE-SET.md 登记的用例，
-# 逐例调用 scripts/difftest.ps1（net48 oracle vs 运行时，逐字节），汇总 PASS/DIFF 并给出非零退出码。
-#   * 增量落盘：每例完成即写 smoke-summary.tsv，中途中断可续跑（已完成例不必重跑，除非 -Only 指定）。
-#   * 退出码：所有例 ok=True → 0；否则 1（任何 FAIL）。-AllowKnownRed 时以基线表判红（默认不启用）。
-#   * 单例耗时以运行时全量编译为主（~2-5 min/例）；-Only 可先跑子集验证。
+# Differential smoke set (B6): one command runs the cases registered in
+# DIFFERENTIAL-SMOKE-SET.md, invoking scripts/difftest.ps1 per case (net48 oracle
+# vs runtime, byte-for-byte), summarizing PASS/DIFF and returning a non-zero exit code.
+#   * Incremental output: smoke-summary.tsv is written as each case completes, so an
+#     interrupted run can resume (completed cases need not rerun unless -Only is given).
+#   * Exit code: all cases ok=True -> 0; otherwise 1 (any FAIL). With -AllowKnownRed,
+#     red is judged against the baseline table (disabled by default).
+#   * Per-case time is dominated by the full runtime compile (~2-5 min/case); -Only
+#     lets you run a subset first for verification.
 
 $Cases = @(
-    "diffdt001c",   # TimeSpan 全族（含 double->int64 路径）
-    "diffmin001",   # 最小复现锚（BitConverter 偏移 + Char Nd）
-    "diffio002",    # Encoding + MemoryStream（回归哨兵）
-    "diffchar001",  # Char 族 Unicode
+    "diffdt001c",   # TimeSpan full family (including the double->int64 path)
+    "diffmin001",   # minimal reproduction anchor (BitConverter offset + Char Nd)
+    "diffio002",    # Encoding + MemoryStream (regression sentinel)
+    "diffchar001",  # Char family Unicode
     "diffio001",    # File/Path/Directory/FileInfo
-    "diffdt001",    # DateTime 主体
+    "diffdt001",    # DateTime main body
     "diffenv001",   # GC/GCSettings/Environment
-    "diffthread001", # Thread 族（实例委托 ctor / set_Priority）
-    "diffthread003", # Thread 静态委托边界（无实例委托时的基线）
-    "diffthread004", # ManagedThreadId 构造语义（net48 分配规则基线）
-    "diffcol001",    # Collections 4 域验收锚（DomainSortedSet 已隔离至 diffcolset001）
-    "diffcolset001", # SortedSet<int> 域（A4 死循环修复锚；当前运行时挂起 rc=99）
-    "diffdict001",   # dictsi 枚举序边界（插入序 / Current 起始 / 删除重加 / rehash；A4 修复锚）
-    "diffuri001",    # System.Uri 对象模型虚派发 + net48 规范化（A4 P1 修复锚）
-    "diffuri002",    # System.Uri 规范化补充向量（相对/ftp端口/userinfo/反转义/+/尾斜杠）
-    "diffuri003",    # System.Uri 边界向量（IPv6/file:///空段/%2f/前导零端口/大小写/超长路径）
-    "g4dicturistr",   # T4 class-非末位泛型参数探针（Dictionary`2<Uri,string> 0x12 后 TypeDefOrRef handle 消费）
-    "diffenv002",    # GC LatencyMode 非法值语义（EX ArgumentException 单红点；ENV-BOUNDARY-SPEC ⑤）
-    "diffthread005",  # Thread.Name 跨线程可见性（双通道稳定 2 红：read=0/value=null）
-    "diffthread002"  # Thread 新线程创建/Start/Join（03:39 旧崩溃已闭合，CC2EFF70 下 PASS diff0）
+    "diffthread001", # Thread family (instance-delegate ctor / set_Priority)
+    "diffthread003", # Thread static-delegate boundary (baseline without instance delegates)
+    "diffthread004", # ManagedThreadId construction semantics (net48 allocation-rule baseline)
+    "diffcol001",    # Collections 4-domain acceptance anchor (DomainSortedSet isolated to diffcolset001)
+    "diffcolset001", # SortedSet<int> domain (A4 infinite-loop fix anchor; currently the runtime hangs rc=99)
+    "diffdict001",   # dictsi enumeration-order boundary (insertion order / Current start / remove-readd / rehash; A4 fix anchor)
+    "diffuri001",    # System.Uri object-model virtual dispatch + net48 normalization (A4 P1 fix anchor)
+    "diffuri002",    # System.Uri normalization supplementary vectors (relative/ftp port/userinfo/unescape/+/trailing slash)
+    "diffuri003",    # System.Uri boundary vectors (IPv6/file:///empty segment/%2f/leading-zero port/case/long path)
+    "g4dicturistr",   # T4 class-non-last generic-arg probe (Dictionary`2<Uri,string> 0x12 followed by TypeDefOrRef handle consumption)
+    "diffenv002",    # GC LatencyMode illegal-value semantics (EX ArgumentException single red point; ENV-BOUNDARY-SPEC 5)
+    "diffthread005",  # Thread.Name cross-thread visibility (stable 2 red on both channels: read=0/value=null)
+    "diffthread002"  # Thread new-thread create/Start/Join (old 03:39 crash closed; PASS diff0 under CC2EFF70)
 )
 if ($Only) {
     $want = @($Only -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -49,7 +53,7 @@ if ($Skip) {
 }
 
 $summaryPath = "$OutDir/smoke-summary.tsv"
-# 跨批次增量：载入既有汇总（按 case+compiler 去重覆盖），使 -Only 分批执行能累积而非覆盖。
+# Cross-batch incremental: load the existing summary (deduped/overwritten by case+compiler) so -Only batched runs accumulate rather than overwrite.
 $merged = [ordered]@{}
 if (Test-Path $summaryPath) {
     $prev = [System.IO.File]::ReadAllLines($summaryPath, [System.Text.Encoding]::UTF8)

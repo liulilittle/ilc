@@ -14,8 +14,8 @@ if ($Compiler -eq "mingw") {
     $env:CCACHE_MAXSIZE = "30G"
 }
 if ($Compiler -eq "msvc") {
-    # A2 msvcpre 实测：新 shell 无 cmake/g++/msbuild；mylib 用例需 g++（msys2）；
-    # CL=/MP2 让 cl.exe 单例内并行（msvc 分支串行构建时的实测加速）。
+    # A2 msvcpre measured: a fresh shell has no cmake/g++/msbuild; mylib cases need g++ (msys2);
+    # CL=/MP2 lets cl.exe parallelize within a single invocation (measured speedup when the msvc branch builds serially).
     $env:Path = "F:\il2cpp\.opencode\tmp\tools\sccache\sccache-v0.17.0-x86_64-pc-windows-msvc;D:\android\sdk\cmake\3.22.1\bin;D:\Program Files\mingw\msys2\mingw64\bin;" + $env:Path
     $env:CL = "/MP2"
     $env:SCCACHE_DIR = "F:\il2cpp\.opencode\tmp\sccache"
@@ -23,9 +23,9 @@ if ($Compiler -eq "msvc") {
 }
 
 if ($Compiler -eq "clang") {
-    # Clang 23 windows-gnu + MSYS2 sysroot; ccache 自动由 cmake\clang-mingw-w64.cmake
-    # find_program 挂接。build_clang 无年龄规则: run-tests clang 分支每次构建前清目录
-    # (工具链漂移不可复用), ccache 缓存目录本身跨用例保留。
+    # Clang 23 windows-gnu + MSYS2 sysroot; ccache is hooked up automatically by cmake\clang-mingw-w64.cmake
+    # find_program. build_clang has no age rule: the run-tests clang branch clears the directory before each
+    # build (toolchain drift cannot be reused), while the ccache dir itself is retained across cases.
     $env:Path = "F:\il2cpp\.opencode\tmp\ccache-shim;D:\Program Files\mingw\msys2\mingw64\bin;D:\android\sdk\cmake\3.22.1\bin;" + $env:Path
     $env:CCACHE_DIR = "F:\il2cpp\.opencode\tmp\ccache"
     $env:CCACHE_MAXSIZE = "30G"
@@ -142,16 +142,18 @@ foreach ($c in $cases) {
         if ($cacheText -match "ming-w64") { Remove-Item -Recurse -Force $bd -ErrorAction SilentlyContinue }
     }
     if ($Compiler -eq "msvc" -and (Test-Path -LiteralPath $bd)) {
-        # 旧 cache 绑定已卸载工具集（14.39→14.44）会让 configure 直接失败（A2 实测）；
-        # msvc 每例本就全量重编 runtime，无缓存收益，统一删除最稳。
+        # An old cache bound to an unloaded toolset (14.39->14.44) makes configure fail outright (A2 measured);
+        # the msvc branch fully rebuilds the runtime per case anyway, so there is no cache benefit -- always deleting is safest.
         Remove-Item -Recurse -Force $bd -ErrorAction SilentlyContinue
     }
     $logOut = Join-Path $logDir "$($c)_$Compiler.sweep.log"
     $logErr = Join-Path $logDir "$($c)_$Compiler.sweep.err"
-    # 崩溃恢复标记：开始构建前落盘，结束后删除；硬复位腰斩会遗留标记，
-    # 由 sweep-supervisor.ps1 启动时清除对应 build_<Compiler> 半写产物后重跑。
-    # 用例级硬超时 + 可靠退出码：PS5.1 Start-Process -PassThru + 重定向在非 -Wait 模式下
-    # ExitCode 恒 null（会误判全 FAIL）——改用 .NET Process 直启并异步读流。
+    # Crash-recovery marker: written before the build starts and removed after it ends; a hard reset
+    # leaves the marker behind, and sweep-supervisor.ps1 clears the corresponding build_<Compiler>
+    # half-written artifacts at startup and reruns.
+    # Per-case hard timeout + reliable exit code: PS5.1 Start-Process -PassThru with redirection in
+    # non -Wait mode always yields ExitCode null (misjudging everything as FAIL) -- so launch .NET
+    # Process directly and read the streams asynchronously.
     $marker = Join-Path $Root ".opencode\tmp\building_$($c).flag"
     New-Item -ItemType File -Force -Path $marker | Out-Null
     $start = Get-Date
@@ -181,8 +183,9 @@ foreach ($c in $cases) {
     [System.IO.File]::WriteAllText($logOut, $outTask.GetAwaiter().GetResult(), (New-Object System.Text.UTF8Encoding($false)))
     [System.IO.File]::WriteAllText($logErr, $errTask.GetAwaiter().GetResult(), (New-Object System.Text.UTF8Encoding($false)))
     Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-    # 后置归档门禁（NDK/Android 通道；IL2CPP_ARCHIVE_GATE=1 时启用）：构建成功后
-    # 校验运行时归档（成员数+符号哨兵），失败即把该用例标为 FAIL。
+    # Post-build archive gate (NDK/Android channel; enabled when IL2CPP_ARCHIVE_GATE=1):
+    # after a successful build, validate the runtime archive (member count + symbol sentinels);
+    # on failure, mark the case as FAIL.
     $gateOk = $true
     if (-not $timedOut -and $proc.ExitCode -eq 0 -and $env:IL2CPP_ARCHIVE_GATE -eq '1') {
         $gateArchive = if ($env:IL2CPP_ARCHIVE_PATH) { $env:IL2CPP_ARCHIVE_PATH } else { Join-Path $Root "tests\cases\$c\build_$Compiler\libil2cpp_runtime.a" }

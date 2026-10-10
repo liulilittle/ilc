@@ -12,10 +12,10 @@ function ConvertTo-WslPath([string]$winPath) {
 }
 
 if ($Compiler -eq "wsl") {
-    # WSL cmake 3.10.2 不支持 -S/-B（cmake 3.13 引入），须 cd 进 build 目录 + 绝对源路径。
+    # WSL cmake 3.10.2 does not support -S/-B (introduced in cmake 3.13), so cd into the build dir + absolute source path.
     $wslGen = ConvertTo-WslPath (Resolve-Path $GenDir)
     $wslRoot = ConvertTo-WslPath (Resolve-Path ".").Path
-    # -d Ubuntu1804: 显式锁定 GCC 7.5 兼容基线发行版，避免默认发行版漂移
+    # -d Ubuntu1804: explicitly pin the GCC 7.5-compatible baseline distro to avoid default-distro drift
     wsl -d Ubuntu1804 bash -c "cd `"$wslRoot`" && rm -rf build/wsl && mkdir -p build/wsl && cd build/wsl && cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release `"$wslGen`" && cmake --build ."
     if ($LASTEXITCODE -ne 0) { throw "wsl build failed" }
     $exe = "build/wsl/il2cpp_gen_exe"
