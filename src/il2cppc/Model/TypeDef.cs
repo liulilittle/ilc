@@ -220,6 +220,32 @@ public static class GenericConstraintReader
     // single-suffix split semantics). Set by CodeGenerator.EnsureClone.
     public string[]? InstantiationSuffixParts { get; set; }
 
+    // GN-14 (c): whether a VAR (0x13) slot at generic-parameter index
+    // `varIndex` is a managed REFERENCE in THIS closed clone. Arity>=2 with a
+    // per-argument array resolves the EXACT argument ("Pair<int[,],int>" ->
+    // index 0 "[int2]" ref, index 1 "int" value); arity-1 / an invalid index
+    // keeps the legacy whole-suffix classifier (suffix != "int"), so
+    // Box<long>/struct arity-1 behavior is untouched. The classifier stays
+    // `!= "int"` (an array token "[int2]" is a reference; a user struct/full
+    // name is likewise non-"int").
+    public bool CloneArgSlotIsRef(int varIndex)
+    {
+        var parts = InstantiationSuffixParts;
+        if (parts is { Length: > 1 } && (uint)varIndex < (uint)parts.Length)
+            return parts[varIndex] != "int";
+        return InstantiationSuffix != null && InstantiationSuffix != "int";
+    }
+
+    // GN-14 (c): the SAME rule as an instance method, usable on the CALL side
+    // where only the decoded InstantiationSuffix (+ per-argument parts) is at
+    // hand (no TypeDef clone). See CloneArgSlotIsRef(int).
+    public static bool CloneArgSlotIsRef(string? suffix, string[]? parts, int varIndex)
+    {
+        if (parts is { Length: > 1 } && (uint)varIndex < (uint)parts.Length)
+            return parts[varIndex] != "int";
+        return suffix != null && suffix != "int";
+    }
+
     // R2b (R77 clone identity): a synthetic closed instantiation shares the
     // DEFINITION's FullName (the C++ symbol/hash channels key on the
     // definition name -- see R1/R2b design), so FullName cannot serve as the

@@ -216,7 +216,13 @@ public static class VTablePlanner
         {
             if (sp[i] == dp[i]) continue;
             var isVar = slot.ParamIsVar is { } piv && i < piv.Length && piv[i];
-            if (isVar && dp[i].StartsWith("r:", StringComparison.Ordinal)) continue;
+            // GN-14 (c): a clone VAR slot matches an "r:" derived argument only
+            // when THAT slot is a reference in this closed clone (per-argument).
+            // A value argument (arity>=2 "Pair<int[,],int>" index 1) does NOT
+            // match a reference override.
+            if (isVar
+                && slot.Owner.CloneArgSlotIsRef(slot.ParamVarIndex is { } pvi && i < pvi.Length ? pvi[i] : -1)
+                && dp[i].StartsWith("r:", StringComparison.Ordinal)) continue;
             return false;
         }
         return true;

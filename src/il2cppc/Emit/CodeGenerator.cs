@@ -641,10 +641,11 @@ public static class CodeGenerator
                 BeforeFieldInit = def.BeforeFieldInit,
                 BaseTypeName = def.BaseTypeName,
             };
-            // R2b P2: a VAR field becomes the concrete reference storage in a
-            // reference instantiation (Il2CppObject* -- the uniform managed
-            // reference representation).
-            bool RefVar(FieldDef f) => f.IsGenericVar && gSuffix != "int";
+            // R2b P2 / GN-14 (c): a VAR field becomes the concrete reference
+            // storage in a reference instantiation (Il2CppObject*) and keeps the
+            // raw value slot for a value argument. Resolved PER generic-parameter
+            // index for an arity>=2 clone (whole suffix otherwise).
+            bool RefVar(FieldDef f) => f.IsGenericVar && clone.CloneArgSlotIsRef(f.GenericVarIndex);
             foreach (var f in def.StaticFields)
                 clone.StaticFields.Add(new FieldDef
                 {
@@ -653,6 +654,7 @@ public static class CodeGenerator
                     TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
                     FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
                     IsGenericVar = f.IsGenericVar,
+                    GenericVarIndex = f.GenericVarIndex,
                 });
             foreach (var f in def.InstanceFields)
                 clone.InstanceFields.Add(new FieldDef
@@ -662,6 +664,7 @@ public static class CodeGenerator
                     TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
                     FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
                     IsGenericVar = f.IsGenericVar,
+                    GenericVarIndex = f.GenericVarIndex,
                 });
             foreach (var m in def.Methods)
                 clone.Methods.Add(new MethodDef
@@ -677,6 +680,10 @@ public static class CodeGenerator
                     GenericArity = m.GenericArity,
                     ParamIsVar = m.ParamIsVar, ReturnIsVar = m.ReturnIsVar,
                     ParamIsByrefVar = m.ParamIsByrefVar,
+                    // GN-14 (c): carry the per-slot VAR indices into the clone
+                    // so the declaration/call faces resolve the exact argument.
+                    ReturnVarIndex = m.ReturnVarIndex,
+                    ParamVarIndex = m.ParamVarIndex,
                 });
             foreach (var p in def.Properties)
                 clone.Properties.Add(new PropertyDef
@@ -1518,10 +1525,11 @@ public static class CodeGenerator
                 var methodLevelSharedDef = defShared && t.InstantiationSuffix == null
                     && t.GenericArity == 0 && t.Methods.Any(mm => mm.GenericArity > 0);
                 if (managedRetStruct == null && m.ReturnIsVar
-                    && (t.InstantiationSuffix != null || methodLevelSharedDef))
+                    && (t.CloneArgSlotIsRef(m.ReturnVarIndex) || methodLevelSharedDef))
                     returnType = "Il2CppObject*";
                 _curInstantiationSuffix = t.InstantiationSuffix;
                 _curReturnIsVar = m.ReturnIsVar;
+                _curReturnVarIndex = m.ReturnVarIndex;
                 // P-G4 F1: the member check MUST gate BOTH faces. The old shape
                 // only applied SharedGenericDefs to the arity-0 clause, so ANY
                 // non-shared def's reference clone (suffix != null, != "int" --
@@ -3634,6 +3642,9 @@ public static class CodeGenerator
     // instantiations render VAR slots as Il2CppObject*.
     private static string? _curInstantiationSuffix;
     private static bool _curReturnIsVar;
+    // GN-14 (c): the VAR (0x13) index of the current method's return (-1 for
+    // MVAR / non-VAR). Resolves the return slot per-argument in an arity>=2 clone.
+    private static int _curReturnVarIndex = -1;
     // P-G3 (method-level sharing): whether the type whose method is currently
     // emitted is a SHARED generic implementation -- either the arity-0 generic
     // definition itself (Swap -- the definition IS the object template) or the
@@ -3883,7 +3894,9 @@ public static class CodeGenerator
                     // D5: a SHARED method-level generic definition's MVAR
                     // return (arity-0 def, InstantiationSuffix == null) is the
                     // same boxed-object slot -- the upcast applies to it too.
-                    if (_curReturnIsVar && (_curInstantiationSuffix != null || _curMethodShare) && retKind is "ref" or "ptr")
+                    if (_curReturnIsVar
+                        && (TypeDef.CloneArgSlotIsRef(_curInstantiationSuffix, MethodRefResolver.InstantiationSuffixHintParts, _curReturnVarIndex) || _curMethodShare)
+                        && retKind is "ref" or "ptr")
                         retExpr = $"static_cast<Il2CppObject*>({retExpr})";
                     else if ((_curReturnType == SignatureTypeCode.Int32 || _curReturnType == SignatureTypeCode.Int64) && retKind is "ref" or "ptr")
                         retExpr = IntPtrBridge(ReturnTypeCpp(_curReturnType), retExpr);
@@ -5582,7 +5595,7 @@ public static class CodeGenerator
             var sigH = MetadataTokens.Handle(v.MethodToken).Kind == HandleKind.MethodDefinition
                 ? md.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(v.MethodToken)).Signature
                 : md.GetMemberReference((MemberReferenceHandle)MetadataTokens.Handle(v.MethodToken)).Signature;
-            var (retVar2, paramVars2, _) = MethodSignatureCoder.DecodeVarFlags(md, sigH);
+            var (retVar2, paramVars2, _, _, _) = MethodSignatureCoder.DecodeVarFlags(md, sigH);
             if (retVar2) retCpp = "Il2CppObject*";
             for (var pi = 0; pi < paramCpp.Length && pi < paramVars2.Length; pi++)
                 if (paramVars2[pi]) paramCpp[pi] = "Il2CppObject*";
@@ -10450,11 +10463,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     types.Add("Il2CppObject**");
                     continue;
                 }
-                // R2b P2: a VAR parameter in a reference instantiation is the
-                // managed reference (Il2CppObject*); definitions and int
-                // instantiations keep the raw int32 slot.
+                // R2b P2 / GN-14 (c): a VAR parameter in a reference instantiation is the
+                // managed reference (Il2CppObject*); definitions, int
+                // instantiations and a VALUE argument of an arity>=2 clone keep
+                // the raw value slot. Resolved PER index through the clone helper.
                 if (m.ParamIsVar is { } piv && i < piv.Length && piv[i]
-                    && m.Owner.InstantiationSuffix != null)
+                    && m.Owner.CloneArgSlotIsRef(m.ParamVarIndex is { } pvi && i < pvi.Length ? pvi[i] : -1))
                 {
                     types.Add("Il2CppObject*");
                     continue;

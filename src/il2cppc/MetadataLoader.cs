@@ -119,11 +119,15 @@ public static class MetadataLoader
                 // R2b P2: VAR/MVAR field (generic parameter) -- parallel flag,
                 // the M3 default kind/name above stays for definitions.
                 bool fieldIsVar;
+                var fieldVarIndex = -1;
                 {
                     var fsig = md.GetBlobReader(fd.Signature);
                     _ = fsig.ReadByte(); // FIELD (0x06)
                     var fb = fsig.ReadByte();
                     fieldIsVar = fb is 0x13 or 0x1E;
+                    // GN-14 (c): a bare VAR (0x13) field carries its class
+                    // parameter index; MVAR (0x1E) is method-level -> -1.
+                    if (fb == 0x13) fieldVarIndex = fsig.ReadCompressedInteger();
                 }
                 var field = new FieldDef
                 {
@@ -136,6 +140,7 @@ public static class MetadataLoader
                     TypeKind = kind,
                     FieldTypeName = typeName,
                     IsGenericVar = fieldIsVar,
+                    GenericVarIndex = fieldVarIndex,
                 };
                 if (isStatic)
                     typeDef.StaticFields.Add(field);
@@ -150,7 +155,7 @@ public static class MetadataLoader
                 var (paramCount, returnType, paramTypes, returnTypeName) = MethodSignatureCoder.Decode(md, mdInfo.Signature);
                 // R2b P2: parallel VAR channel (0x13/0x1E positions) -- the raw
                 // encodings above stay untouched (hash contract).
-                var (returnIsVar, paramIsVars, paramIsByrefVars) = MethodSignatureCoder.DecodeVarFlags(md, mdInfo.Signature);
+                var (returnIsVar, paramIsVars, paramIsByrefVars, returnVarIndex, paramVarIndex) = MethodSignatureCoder.DecodeVarFlags(md, mdInfo.Signature);
                 var attrs = mdInfo.Attributes;
                 // P/Invoke (M4 Task 1): the ImplMap entry names the native
                 // library + imported symbol ([DllImport] in source).
@@ -196,6 +201,9 @@ public static class MetadataLoader
                     ParamIsVar = paramIsVars,
                     ReturnIsVar = returnIsVar,
                     ParamIsByrefVar = paramIsByrefVars,
+                    // GN-14 (c): the VAR (0x13) per-slot class-parameter indices.
+                    ReturnVarIndex = returnVarIndex,
+                    ParamVarIndex = paramVarIndex,
                 });
             }
 

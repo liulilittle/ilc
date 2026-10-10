@@ -59,6 +59,13 @@ public sealed class FieldDef
     // instantiations) without disturbing the definition's default-int path.
     public bool IsGenericVar { get; init; }
 
+    // GN-14 (c): the VAR (0x13) class generic-parameter index of a
+    // IsGenericVar field, or -1 when the signature is not a bare VAR (MVAR
+    // 0x1E / non-generic). A closed arity>=2 clone uses this index to resolve
+    // its OWN per-argument slot (CloneArgSlotIsRef) instead of collapsing every
+    // VAR slot to a reference on the whole suffix.
+    public int GenericVarIndex { get; init; } = -1;
+
     // IsReference (computed): the field is a managed GC reference
     // (TypeKind == Reference). Convenience mirror of TypeKind -- the reference/
     // value distinction drives the class descriptor's refFieldBitmap and the

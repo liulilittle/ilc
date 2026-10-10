@@ -88,7 +88,7 @@ public static class MethodSignatureCoder
     /// emitter consumes to declare the byref T parameters. A by-value VAR/MVAR
     /// is NOT byref-VAR.
     /// </summary>
-    public static (bool ReturnIsVar, bool[] ParamIsVar, bool[] ParamIsByrefVar) DecodeVarFlags(MetadataReader md, BlobHandle sigHandle)
+    public static (bool ReturnIsVar, bool[] ParamIsVar, bool[] ParamIsByrefVar, int ReturnVarIndex, int[] ParamVarIndex) DecodeVarFlags(MetadataReader md, BlobHandle sigHandle)
     {
         var sig = md.GetBlobReader(sigHandle);
         var header = sig.ReadSignatureHeader();
@@ -96,26 +96,34 @@ public static class MethodSignatureCoder
         var paramCount = sig.ReadCompressedInteger();
         var returnByte = SkipCustomModifiers(ref sig, sig.ReadByte());
         var returnIsVar = returnByte is 0x13 or 0x1E;
-        ConsumeVarSigType(md, ref sig, returnByte);
+        // GN-14 (c): carry the VAR (0x13) parameter index (MVAR 0x1E is
+        // method-level -- no class parts -> -1, preserving the legacy behavior).
+        var returnVarIndex = -1;
+        if (returnByte == 0x13) returnVarIndex = sig.ReadCompressedInteger();
+        else ConsumeVarSigType(md, ref sig, returnByte);
         var flags = new bool[paramCount];
         var byrefFlags = new bool[paramCount];
+        var varIndex = new int[paramCount];
         for (var i = 0; i < paramCount; i++)
         {
             var b = SkipCustomModifiers(ref sig, sig.ReadByte());
+            varIndex[i] = -1;
             if (b == 0x10) // BYREF wrapper: the POINTEE decides the slot
             {
                 var pointee = SkipCustomModifiers(ref sig, sig.ReadByte());
                 flags[i] = pointee is 0x13 or 0x1E;
                 byrefFlags[i] = pointee is 0x13 or 0x1E;
-                ConsumeVarSigType(md, ref sig, pointee);
+                if (pointee == 0x13) varIndex[i] = sig.ReadCompressedInteger();
+                else ConsumeVarSigType(md, ref sig, pointee);
             }
             else
             {
                 flags[i] = b is 0x13 or 0x1E;
-                ConsumeVarSigType(md, ref sig, b);
+                if (b == 0x13) varIndex[i] = sig.ReadCompressedInteger();
+                else ConsumeVarSigType(md, ref sig, b);
             }
         }
-        return (returnIsVar, flags, byrefFlags);
+        return (returnIsVar, flags, byrefFlags, returnVarIndex, varIndex);
     }
 
     // Consume one signature type byte plus its trailing payload (the minimal

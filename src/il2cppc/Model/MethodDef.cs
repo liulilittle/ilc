@@ -119,6 +119,13 @@ public sealed class MethodDef
     // Il2CppObject** (a slot holding the BOXED T object); the byref-VAR
     // channel feeds ParamTypesCpp / ArgAddressMap.
     public bool[]? ParamIsByrefVar { get; init; }
+
+    // GN-14 (c): the VAR (0x13) class generic-parameter index of a VAR return /
+    // VAR parameter (-1 for MVAR 0x1E / non-VAR slots). A closed arity>=2 clone
+    // uses these to resolve its OWN per-argument slot (CloneArgSlotIsRef)
+    // instead of collapsing every VAR slot to a reference on the whole suffix.
+    public int ReturnVarIndex { get; init; } = -1;
+    public int[]? ParamVarIndex { get; init; }
 }
 
 //------------------------------------------------------------------------------

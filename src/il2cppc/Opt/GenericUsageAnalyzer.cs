@@ -280,7 +280,7 @@ public static class GenericUsageAnalyzer
     //--------------------------------------------------------------------------
     private static bool MethodMvarShareable(MetadataReader md, MethodDef m, MethodBodyInfo bio)
     {
-        var (returnIsVar, paramIsVar, paramIsByrefVar) =
+        var (returnIsVar, paramIsVar, paramIsByrefVar, _, _) =
             MethodSignatureCoder.DecodeVarFlags(md, md.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(bio.MethodToken)).Signature);
         // (1) D5: an MVAR return no longer blocks method-level sharing -- the
         // shared object ABI (GENERIC-SHARE-DESIGN.md section 5) renders the return

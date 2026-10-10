@@ -2085,7 +2085,7 @@ public static class StackFold
         {
             string? concrete = null;
             int? token = null;
-            if (value is VirtualCallExpr vcr && md != null)
+            if (value is VirtualCallExpr vcr && md != null && vcr.ReturnsRef)
             {
                 concrete = SharedReturnConcreteType(md, vcr.MethodToken);
                 if (concrete != null) token = SharedReturnConcreteToken(md, vcr.MethodToken);
@@ -3203,6 +3203,7 @@ public static class StackFold
                     // store) then sees the concrete value, not the object.
                     // The pushed boxed temp is replaced by the unboxed value.
                     if (md != null && ReturnIsVar(md, (int)ins.Operand)
+                        && VarReturnIsObjectSlot(md, (int)ins.Operand)
                         && (VarArgRefFullName(md, (int)ins.Operand) ?? SharedReturnConcreteType(md, (int)ins.Operand)) is string sharedRet)
                     {
                         var isUserValue = types?.FirstOrDefault(t => t.MatchesFullName(sharedRet) && IsUserValueType(t)) != null;
@@ -3772,6 +3773,7 @@ public static class StackFold
                 // is recorded here too -- the consumer (Console.WriteLine /
                 // Int32::ToString) then unboxes by the tracked type.
                 else if (md != null && stack.Peek() is LocExpr rtc
+                    && VarReturnIsObjectSlot(md, (int)ins.Operand)
                     && SharedReturnConcreteType(md, (int)ins.Operand) is string callSharedRet)
                     objTypes[rtc.Name] = callSharedRet;
                 foreach (var mt in pinvokeFreeTemps)
@@ -5986,9 +5988,7 @@ public static class StackFold
             // BCL generic defs arrive as TypeReference (cross-assembly) and have
             // no per-instance clone -- they keep the legacy gate (never
             // object-typed through this branch).
-            HandleKind.MemberReference => md.GetMemberReference((MemberReferenceHandle)callHandle).Parent is { Kind: HandleKind.TypeSpecification } par
-                && !GenericInstAllInt(md, (TypeSpecificationHandle)par)
-                && GenericInstDefIsUserRefClass(md, (TypeSpecificationHandle)par),
+            HandleKind.MemberReference => MemberRefReturnSlotIsRef(md, (MemberReferenceHandle)callHandle),
             // D5: a MethodSpec call names a generic method of a SHARED
             // definition (PickUser2::Pick<int> -- the arity-0 def's method-level
             // share body). The VAR/MVAR-return guard at the callers means this
@@ -6000,6 +6000,68 @@ public static class StackFold
                     ?.Contains(md.GetFullName(md.GetMethodDefinition((MethodDefinitionHandle)md.GetMethodSpecification((MethodSpecificationHandle)callHandle).Method).GetDeclaringType())) == true,
             _ => false,
         };
+    }
+
+    // GN-14 (c): whether a VAR (0x13) return is the OBJECT slot -- the shared
+    // object clone (all args "object") or a reference argument; a per-instance
+    // clone's VALUE argument keeps the raw value slot (so no unbox bridge is
+    // applied). Undecodable shapes keep the legacy object classification.
+    static bool VarReturnIsObjectSlot(MetadataReader md, int token)
+    {
+        var h = MetadataTokens.Handle(token);
+        if (h.Kind == HandleKind.MethodSpecification) return true;
+        if (h.Kind != HandleKind.MemberReference) return true;
+        var mr = md.GetMemberReference((MemberReferenceHandle)h);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return true;
+        var par = (TypeSpecificationHandle)mr.Parent;
+        var kind = MethodBodyReader.TryClassGenericInstanceKind(md, par);
+        if (kind == null) return true;
+        var ip = kind[2..].Split(':');
+        if (ip.Length < 2) return true;
+        var suffix = ip[1];
+        string[]? parts = ip.Length > 2 ? ip[2..] : null;
+        if (suffix == "object" || (parts != null && parts.Length > 0 && parts.All(p => p == "object")))
+            return true;
+        var rs = md.GetBlobReader(mr.Signature);
+        var hdr = rs.ReadSignatureHeader();
+        if (hdr.IsGeneric) _ = rs.ReadCompressedInteger();
+        _ = rs.ReadCompressedInteger();
+        var rb = MethodSignatureCoder.SkipCustomModifiers(ref rs, rs.ReadByte());
+        if (rb != 0x13) return true;
+        var retIdx = rs.ReadCompressedInteger();
+        return TypeDef.CloneArgSlotIsRef(suffix, parts, retIdx);
+    }
+
+    // GN-14 (c): the call-side per-argument refinement of the MemberReference
+    // branch above. A closed GenericInst TypeSpec whose generic DEFINITION is a
+    // USER reference class renders its VAR-return ABI as the object slot ONLY
+    // for a REFERENCE argument; an arity>=2 clone with a VALUE argument at the
+    // return's VAR index keeps the raw value slot (mirrors
+    // TypeDef.CloneArgSlotIsRef on the declaration side). arity-1 / an
+    // un-decodable shape keep the legacy whole-suffix answer (true -- the
+    // historical object classification).
+    static bool MemberRefReturnSlotIsRef(MetadataReader md, MemberReferenceHandle mrh)
+    {
+        var mr = md.GetMemberReference(mrh);
+        if (mr.Parent.Kind != HandleKind.TypeSpecification) return false;
+        var par = (TypeSpecificationHandle)mr.Parent;
+        if (GenericInstAllInt(md, par) || !GenericInstDefIsUserRefClass(md, par)) return false;
+        // Decode the method's return VAR (0x13) index; a non-VAR return on a
+        // ref-class owner keeps the legacy object classification.
+        var rs = md.GetBlobReader(mr.Signature);
+        var hdr = rs.ReadSignatureHeader();
+        if (hdr.IsGeneric) _ = rs.ReadCompressedInteger();
+        _ = rs.ReadCompressedInteger(); // parameter count
+        var rb = MethodSignatureCoder.SkipCustomModifiers(ref rs, rs.ReadByte());
+        if (rb != 0x13) return true;
+        var retIdx = rs.ReadCompressedInteger();
+        var kind = MethodBodyReader.TryClassGenericInstanceKind(md, par);
+        if (kind == null) return true;
+        var ip = kind[2..].Split(':');
+        if (ip.Length < 2) return true;
+        var suffix = ip[1];
+        string[]? parts = ip.Length > 2 ? ip[2..] : null;
+        return TypeDef.CloneArgSlotIsRef(suffix, parts, retIdx);
     }
 
     // P-G3 D1: whether a closed generic-instance TypeSpec's arguments are ALL the
@@ -6097,7 +6159,7 @@ public static class StackFold
         var dm = md.GetMethodDefinition(mdh);
         if (GenericUsageAnalyzer.SharedGenericDefs?.Contains(md.GetFullName(dm.GetDeclaringType())) != true)
             return null;
-        var (_, _, byrefVar) = MethodSignatureCoder.DecodeVarFlags(md, dm.Signature);
+        var (_, _, byrefVar, _, _) = MethodSignatureCoder.DecodeVarFlags(md, dm.Signature);
         return byrefVar;
     }
 
