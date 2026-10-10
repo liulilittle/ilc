@@ -6,20 +6,20 @@ param(
     [string]$Arch = ""
 )
 $ErrorActionPreference = "Stop"
-# 以脚本位置为基准解析仓库根，避免 -File 模式下 CWD 不确定导致相对路径失效
+# Resolve the repo root relative to this script location; avoids relative-path breakage when CWD is undefined under -File mode
 $Root = Split-Path -Parent $PSScriptRoot
 
-# F:\il2cpp\xxx -> /mnt/e/il2cpp/xxx（先 Resolve-Path 到绝对路径再转换，相对路径 Substring(0,1) 会取错盘符）
+# F:\il2cpp\xxx -> /mnt/f/il2cpp/xxx (Resolve-Path to an absolute path first; on a relative path Substring(0,1) picks the wrong drive)
 function ConvertTo-WslPath([string]$winPath) {
     $drive = $winPath.Substring(0,1).ToLower()
     $rest = $winPath.Substring(3).Replace("\","/")
     return "/mnt/$drive/$rest"
 }
 
-# 原生进程捕获：stdout/stderr 分别以 UTF-8 解码（不用 2>&1 合并——合并顺序依赖 CRT
-# 缓冲/调度，连 net48 oracle 自身都会在两次运行间翻转，是 console3/consolestream
-# 流序 diff FAIL 的 harness 伪影）。返回 {Out, Err, Code}，调用方按流逐字节比对：
-# 内容语义与原合并比对等价，且顺序确定。异步读避免大输出时的管道死锁。
+# Native process capture: decode stdout/stderr separately as UTF-8 (no 2>&1 merge -- merge order depends on CRT
+# buffering/scheduling and even flips between two runs of the net48 oracle itself; that artifact is the root of
+# console3/consolestream stream-order diff FAILs). Returns {Out, Err, Code}; the caller compares per stream:
+# semantics equal the old merged compare, with a deterministic order. Async read avoids pipe deadlock on large output.
 function Invoke-NativeRun {
     param([string]$ExePath, [int]$TimeoutMs = 120000, [string]$WorkingDirectory = $Root)
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -36,8 +36,8 @@ function Invoke-NativeRun {
     $psi.WorkingDirectory = $WorkingDirectory
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
-    # stdin 立即 EOF：部分用例（consoleio）显式测试"EOF stdin 下 ReadLine=null"语义，
-    # 且可避免在非交互宿主（计划任务 SYSTEM）下 ReadLine 阻塞挂死整个 worker。
+# stdin EOF immediately: some cases (consoleio) explicitly test the "ReadLine=null under EOF stdin" semantics,
+# and it prevents ReadLine from blocking and hanging the whole worker under a non-interactive host (scheduled-task SYSTEM).
     $psi.RedirectStandardInput = $true
     $psi.UseShellExecute = $false
     $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
@@ -59,10 +59,10 @@ function Invoke-NativeRun {
     }
 }
 
-# D4 (P-D4): 把用例的 SHARED 原生库 .dll 部署到转译后 exe 旁（清单外 resolve 在
-# 运行期经 LoadLibrary 加载——Windows 首先搜索 exe 所在目录）。MinGW/clang 把
-# .dll 落在库目标自身的二进制子目录（buildDir/<mod>/）；MSVC 还多一层 config
-# 子目录。静态库（mylib.a/.lib）与 INTERFACE 垫片（kernel32）无 .dll，天然跳过。
+# D4 (P-D4): deploy the case SHARED native library .dll next to the transpiled exe (off-manifest resolve
+# loads it at runtime via LoadLibrary -- Windows searches the exe own directory first). MinGW/clang put
+# the .dll under the library target own binary subdirectory (buildDir/<mod>/); MSVC adds another config
+# subdirectory. Static libraries (mylib.a/.lib) and INTERFACE shims (kernel32) have no .dll and are skipped naturally.
 function Deploy-NativeLibs([string]$buildDir) {
     $exeDir = (Resolve-Path $buildDir).Path
     $dlls = Get-ChildItem $buildDir -Recurse -Filter *.dll -ErrorAction SilentlyContinue
@@ -73,7 +73,7 @@ function Deploy-NativeLibs([string]$buildDir) {
     }
 }
 
-# 捕获文本按行拆分（统一 CRLF/LF、去掉末尾空行）——与原 & 捕获的按行数组语义一致。
+# Split captured text into lines (normalize CRLF/LF, drop the trailing empty line) -- same per-line array semantics as the old & capture.
 function Split-CaptureLines([string]$text) {
     if ($null -eq $text) { return @() }
     $lines = @($text -split "`r?`n")
@@ -82,37 +82,37 @@ function Split-CaptureLines([string]$text) {
 }
 
 $failures = 0
-# --- UTF-8 捕获管线（console3 unicode 编码修复，2026-08-11）---
-# pwsh 用 [Console]::OutputEncoding 解码原生命令输出。net48 oracle 的
-# Console.OutputEncoding 默认取活动控制台输出代码页（本机 936/GBK），wide 字符
-# 按 GBK 输出；转译运行时则固定输出 UTF-8。两者经同一个代码页解码时必有一方乱码
-# （console3 的 wide 行 diff FAIL 根因）。把控制台输出代码页钉到 UTF-8 (65001)
-# 后两侧一致：net48 oracle 跟随控制台 CP（SetConsoleOutputCP 传播到子进程）也输出
-# UTF-8，运行时本即 UTF-8，pwsh 按 UTF-8 解码——同一组 code point，与主机代码页
-# 无关。ASCII 输出在两种代码页下字节恒等，其余用例不受影响。
+# --- UTF-8 capture pipeline (console3 unicode encoding fix, 2026-08-11) ---
+# pwsh decodes native command output with [Console]::OutputEncoding. The net48 oracle Console.OutputEncoding
+# defaults to the active console output code page (936/GBK on this host), so wide chars are emitted as GBK;
+# the transpiled runtime always emits UTF-8. Decoding both through one code page garbles one side
+# (the root cause of the console3 wide-line diff FAIL). Pinning the console output code page to UTF-8 (65001)
+# aligns both sides: the net48 oracle follows the console CP (SetConsoleOutputCP propagates to children) and
+# also emits UTF-8, the runtime is UTF-8 already, and pwsh decodes as UTF-8 -- the same code points, independent of
+# the host code page. ASCII output is byte-identical under either code page, so other cases are unaffected.
 $origOutputEncoding = [Console]::OutputEncoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-# --- RT-fix (2026-09-13): 同 case 跨通道并发 + 残留进程文件锁的健壮化 ---
-# 实证根因: tests/cases/<case>/out 为多通道共享; 残留的 <case>.exe 进程锁住 PE
-# 镜像, 下一次 dotnet build 复制 obj->out 时 MSB3026 重试 10 次后 MSB3027 失败
-# (consoleio PID 30376 实锤; autogen044 同型重试后成功)。另: gen/ 与 out/ 跨通道
-# 并发读写, 以及 sweep-cases 超时 taskkill /T 竞态遗留孤儿进程。三道防线:
-#   (1) Enter-CaseLock: 每 case 跨进程命名 Mutex, 串行化同 case 的共享目录读写;
-#   (2) Stop-ResidualCaseProcess: 持锁后按"精确 exe 路径"回收残留镜像进程
-#       (只杀 ExecutablePath 完全等于 out/staging 内该 case exe 的进程);
-#   (3) staging 参考输出目录: 构建/参考运行不写共享 out, 结束后尽力发布回 out
-#       (发布失败仅警告, 不影响用例判定)。
+# --- RT-fix (2026-09-13): robustness against same-case cross-channel concurrency + residual-process file locks ---
+# Proven root cause: tests/cases/<case>/out is shared across channels; a residual <case>.exe process locks the PE
+# image, so the next dotnet build copying obj->out fails MSB3027 after MSB3026 retries 10 times
+# (confirmed with consoleio PID 30376; autogen044 succeeds after the same-shape retry). Also: gen/ and out/ are
+# read+written concurrently across channels, and a sweep-cases timeout taskkill /T race leaves orphan processes. Three defenses:
+#   (1) Enter-CaseLock: a per-case cross-process named Mutex serializes shared-directory reads/writes for the same case;
+#   (2) Stop-ResidualCaseProcess: after taking the lock, reclaim residual image processes by exact exe path
+#       (kill only processes whose ExecutablePath exactly equals this case exe under out/staging);
+#   (3) staging reference-output directory: build/reference-run does not write the shared out, and best-effort publishes back to out after
+#       (a publish failure only warns and does not affect the case verdict).
 function Enter-CaseLock {
     param([string]$CaseName, [int]$TimeoutMs = 0)
-    # R1: WaitOne 的返回值必须检查。RTFIX 基线 `$null = $m.WaitOne(...)` 在超时
-    # (返回 $false) 后仍把未持有的 mutex 当锁返回; 之后 ReleaseMutex 抛
-    # ApplicationException 又被 catch{} 吞掉 —— 结果=静默无锁放行且无任何记录。
-    # R1: 超时=有活持有者; 执行路径与基线等价(仍无锁继续, 用例照跑保兼容),
-    # 但显式告警留痕(审计)并丢弃未持有的 mutex; 释放只针对真正持有的锁,
-    # 释放失败=真异常必须告警(不再吞)。
-    # 等待上限可经 IL2CPP_RUNTESTS_LOCK_MS 覆写(默认 480000ms 与基线一致;
-    # 供超时分支自测与 CI 调优)。
+    # R1: the WaitOne return value must be checked. The RTFIX baseline treated an unheld mutex as the lock after
+    # a timeout (returning $false); then ReleaseMutex threw ApplicationException which catch{} swallowed -- the result
+    # was a silent unlocked pass with no record. R1: a timeout means a live holder; the execution path equals the
+    # baseline (still continues unlocked, cases still run for compatibility), but it logs an explicit warning (audit)
+    # and drops the unheld mutex; release only targets a truly held lock, and a release failure is a real exception
+    # that must warn (no longer swallowed). The wait cap can be overridden via IL2CPP_RUNTESTS_LOCK_MS
+    # (default 480000ms, same as baseline, for timeout-branch self-test and CI tuning).
+    # for the timeout-branch self-test and CI tuning).
     if ($TimeoutMs -le 0) {
         $TimeoutMs = 480000
         if ($env:IL2CPP_RUNTESTS_LOCK_MS -match '^\d+$' -and [int]$env:IL2CPP_RUNTESTS_LOCK_MS -gt 0) {
@@ -125,7 +125,7 @@ function Enter-CaseLock {
             $m = [System.Threading.Mutex]::new($false, "$ns\il2cpp_runtests_$CaseName")
             $acquired = $false
             try { $acquired = $m.WaitOne($TimeoutMs) }
-            catch [System.Threading.AbandonedMutexException] { $acquired = $true } # 前任持有者已死=已获得
+            catch [System.Threading.AbandonedMutexException] { $acquired = $true } # previous holder died = acquired
             if (-not $acquired) {
                 Write-Warning "case lock timeout after ${TimeoutMs}ms for $CaseName ($ns): proceeding WITHOUT the lock"
                 try { $m.Dispose() } catch { }
@@ -141,7 +141,7 @@ function Enter-CaseLock {
 }
 function Exit-CaseLock {
     param($Lock)
-    # R1: 只释放真正持有的锁; 释放失败必须告警(基线 catch{} 静默吞掉)。
+    # R1: release only a truly held lock; a release failure must warn (baseline catch{} swallowed silently).
     if ($Lock -and $Lock.Acquired -and $Lock.Mutex) {
         try { $Lock.Mutex.ReleaseMutex() } catch { Write-Warning "case lock release failed: $_" }
         try { $Lock.Mutex.Dispose() } catch { }
@@ -149,7 +149,7 @@ function Exit-CaseLock {
 }
 function Stop-ResidualCaseProcess {
     param([string]$ExePath)
-    # 调用处用 "/" 拼路径, WMI 返回 "\"; 不归一化则字符串比较永不相等 (自测实证)。
+    # Callers join paths with "/", WMI returns "\"; without normalization the string compare never matches (self-test proven).
     $full = [System.IO.Path]::GetFullPath($ExePath)
     if (-not (Test-Path -LiteralPath $full)) { return }
     $exeName = Split-Path $full -Leaf
@@ -159,7 +159,7 @@ function Stop-ResidualCaseProcess {
         foreach ($procInfo in @($procs)) {
             try {
                 Stop-Process -Id $procInfo.ProcessId -Force -ErrorAction Stop
-                # TerminateProcess 异步: 镜像文件锁可能仍短暂存在, 等其真正退出再构建。
+                # TerminateProcess is async: the image file lock may linger briefly, so wait for a real exit before building.
                 try { $null = [System.Diagnostics.Process]::GetProcessById($procInfo.ProcessId).WaitForExit(5000) } catch { }
                 Write-Host "reaped residual $exeName PID $($procInfo.ProcessId)"
             } catch { Write-Warning "reap failed for PID $($procInfo.ProcessId): $_" }
@@ -168,15 +168,15 @@ function Stop-ResidualCaseProcess {
         Write-Warning "residual scan failed for ${exeName}: $_"
     }
 }
-# 结果表：每用例一条记录 {Case, Status(PASS/FAIL), Stage(失败阶段或错误信息)}
+# Result table: one record per case {Case, Status(PASS/FAIL), Stage(failing stage or error message)}
 $results = [System.Collections.Generic.List[object]]::new()
-# 用例 = tests/cases 下每个独立目录（tests/cases/<name>/<name>.cs + <name>.csproj）。
-# wf1probe 二期：同目录变体工程可被精确点名 —— `-Case <variant>` 先按目录名匹配；
-# 目录未命中时再精确匹配 tests/cases/*/<variant>.csproj（恰好一处；零处沿用原报错，
-# 多处报歧义）。命中变体后：记录/日志/锁/产物名一律用变体工程名（与既有单例同格式，
-# 可进 check-final 聚合）；目录级共享路径（gen/build/out/staging）沿用所在目录并在
-# 每次运行前重建（与主例同）；变体与主例不得并发（锁名不同，门只跑目录池，变体仅
-# 手工单例串行调用）。
+# A case = each standalone directory under tests/cases (tests/cases/<name>/<name>.cs + <name>.csproj).
+# wf1probe phase 2: a same-directory variant project can be addressed by name -- -Case <variant> matches the directory name first;
+# if the directory does not match, it then exactly matches tests/cases/*/<variant>.csproj (exactly one; zero keeps the original error,
+# multiple reports ambiguity). After a variant matches: names for records/logs/locks/artifacts all use the variant project name (same format as existing singletons,
+# eligible for check-final aggregation); directory-level shared paths (gen/build/out/staging) follow the containing directory and are
+# rebuilt before each run (same as the main case); a variant and the main case must not run concurrently (different lock names, the gate only runs the directory pool,
+# and a variant is invoked only by manual serial singletons).
 $caseDirs = Get-ChildItem "$Root/tests/cases" -Directory | Sort-Object Name
 $projName = ""
 if ($Case) {
@@ -193,15 +193,15 @@ if ($Case) {
 $total = $caseDirs.Count
 
 foreach ($caseDir in $caseDirs) {
-    # 变体点名时记录名用工程名（目录名仅定位共享路径）；主例/全池时两者一致。
-    # 所有落盘工作目录一律按所在目录键（$dirName），与主例共享并在每次运行前重建；
-    # 变体工程名（$name）仅用于记录 Case、日志名、锁名（锁按目录取，与主例互斥串行）、
-    # 产物 exe 名与隔离工作区。如此转译器的 caseRoot（程序集上两级）恒为真实 case
-    # 目录，P/Invoke 垫片（kernel32/…）相对路径恒可解。
+    # When a variant is named, the record uses the project name (the directory name only locates shared paths); for the main case/full pool the two are identical.
+    # Every on-disk working directory is keyed by the containing directory ($dirName), shared with the main case and rebuilt before each run;
+    # the variant project name ($name) is used only for the record Case, log names, lock names (locks are taken per directory, mutually serialized with the main case),
+    # the artifact exe name, and the isolated workspace. This keeps the transpiler caseRoot (two levels up from the assembly) always the real case
+    # directory, so P/Invoke shim (kernel32/...) relative paths always resolve.
     $name = if ($projName) { $projName } else { $caseDir.Name }
     $dirName = $caseDir.Name
     Write-Host "=== case: $name ($Compiler) ==="
-    # RT-fix: 同 case 跨通道串行化（共享 out/gen 的读写互斥）; 持锁期间回收残留进程。
+    # RT-fix: serialize the same case across channels (mutual exclusion on shared out/gen reads+writes); reclaim residual processes while holding the lock.
     $caseLock = Enter-CaseLock $dirName
     try {
     try {
@@ -234,34 +234,34 @@ foreach ($caseDir in $caseDirs) {
         $caseCwd = $Root
     }
 
-    # 1. 编译为 net48 程序集（fixtures 模式：net48 Exe → 产物是 <name>.exe，非 dll）
+    # 1. Compile to a net48 assembly (fixtures mode: net48 Exe -> artifact is <name>.exe, not a dll)
     $csproj = "$Root/tests/cases/$($caseDir.Name)/$name.csproj"
     if (-not (Test-Path $csproj)) { throw "missing $csproj" }
-    # RT-fix: 参考输出构建进本通道私有 staging（不写共享 out，免疫残留进程文件锁）;
-    # 持 case 锁后先按精确路径回收锁住 out/staging 镜像的残留进程。
+    # RT-fix: the reference output builds into this channel private staging (does not write the shared out, immune to residual-process file locks);
+    # after taking the case lock, first reclaim residual processes by exact path that lock the out/staging image.
     $outDir = "$Root/tests/cases/$dirName/out"
     $staging = "$Root/tests/cases/$dirName/out_stage_$Compiler"
     Stop-ResidualCaseProcess "$outDir/$name.exe"
     Stop-ResidualCaseProcess "$staging/$name.exe"
     Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $staging | Out-Null
-    # dotnet 输出落盘取证（曾因 Out-Null 吞掉零填充 project.assets.json 的首错文本）；
-    # cmd /c 传退出码，日志含 stdout+stderr。
+    # Persist dotnet output as evidence (Out-Null once swallowed the first-error text of a zero-filled project.assets.json);
+    # cmd /c carries the exit code, and the log holds stdout+stderr.
     $dotnetLog = "$Root/.opencode/logs/$($name)_$Compiler.dotnet.log"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dotnetLog) | Out-Null
     cmd /c "dotnet build `"$csproj`" -c Release -o `"$staging`" > `"$dotnetLog`" 2>&1"
     if ($LASTEXITCODE -ne 0) { throw "build $name failed" }
 
-    # 3/1.5 转译输入判定必须在本步骤（原生库构建之前）完成：net8+ 用例的产物是
-    # 原生 apphost exe + 托管 dll（转译读 dll）；net48 只产 exe（转译读 exe）。
-    # 原生库（如 extdll 与用例同名）随后会进入 staging 生成 <name>.dll，若此时
-    # 才判定会把原生 dll 误当托管程序集（"PE image does not have metadata"）。
+    # 3/1.5 The transpile-input decision must be made in this step (before building native libs): a net8+ case artifact is
+    # a native apphost exe + a managed dll (the transpiler reads the dll); net48 produces only an exe (the transpiler reads the exe).
+    # A native library (e.g. extdll with the same name as the case) subsequently enters staging as <name>.dll; deciding
+    # now would mistake the native dll for a managed assembly ("PE image does not have metadata").
     $transpileInput = if (Test-Path "$staging/$name.dll") { "$staging/$name.dll" } else { "$staging/$name.exe" }
 
-    # 1.5 M4/D4 P/Invoke: 用例自带原生库目录（mylib/ 与 SHARED 库如 extdll/）→
-    # 构建 DLL 供 net48 参考运行动态加载（net48 是 Windows 进程 → 始终 g++ -shared）。
-    # 库名取自目录的 CMakeLists project()（无则用目录名）；无 .cpp 的目录（系统
-    # DLL 的 INTERFACE 垫片 kernel32/user32/...）自然跳过。
+    # 1.5 M4/D4 P/Invoke: a case own native library directories (mylib/ and SHARED libs such as extdll/) ->
+    # build a DLL for dynamic loading by the net48 reference run (net48 is a Windows process -> always g++ -shared).
+    # The library name comes from the directory CMakeLists project() (fallback: the directory name); directories with no .cpp (the system
+    # DLL INTERFACE shims kernel32/user32/...) are skipped naturally.
     $nativeLibDirs = @(Get-ChildItem "$Root/tests/cases/$dirName" -Directory -ErrorAction SilentlyContinue |
         Where-Object { Test-Path (Join-Path $_.FullName 'CMakeLists.txt') })
     foreach ($libDir in $nativeLibDirs) {
@@ -276,21 +276,21 @@ foreach ($caseDir in $caseDirs) {
         }
     }
 
-    # 2. 参考运行：.NET Framework 4.8 直接执行 net48 exe（.NET 8 host 不能跑 net48 程序集）
+    # 2. Reference run: .NET Framework 4.8 executes the net48 exe directly (a .NET 8 host cannot run a net48 assembly)
     $exp = Invoke-NativeRun "$staging/$name.exe" -WorkingDirectory $caseCwd
     if ($exp.Code -ne 0) { throw "reference run $name failed" }
 
-    # 2.5 RT-fix: 尽力发布到共享 out（兼容消费方/诊断）; 被外部进程锁住时仅警告, 不影响判定。
+    # 2.5 RT-fix: best-effort publish to the shared out (compatibility/diagnostics); if locked by an external process, only warn and do not affect the verdict.
     try {
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
         Copy-Item "$staging/*" $outDir -Recurse -Force -ErrorAction Stop
     } catch { Write-Warning "publish to out failed (non-fatal): $_" }
 
-    # 3. 转译：输入用转译输入（net8 dll / net48 exe，见前判定）
+    # 3. Transpile: input is the transpile input (net8 dll / net48 exe, see the earlier decision)
     $gen = "$Root/tests/cases/$dirName/gen"
     Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
-    # G4-x86: 把架构参数透传给转译器（--arch），使生成布局 + G1 入口互锁与
-    # cmake -A 平台一致（默认宿主宽转译 + -A Win32 构建会被互锁按设计拒绝）。
+    # G4-x86: pass the arch parameter through to the transpiler (--arch) so the generated layout + G1 entry interlock match
+    # the cmake -A platform (by design the interlock rejects a default host-width transpile + -A Win32 build).
     $tArch = switch ($Arch) {
         "Win32" { "x86" }
         "x64"   { "x64" }
@@ -308,18 +308,18 @@ foreach ($caseDir in $caseDirs) {
     }
     if ($LASTEXITCODE -ne 0) { throw "transpile $name failed" }
 
-    # 4. 三编译器构建 + 运行
+    # 4. Build + run for the three compilers
     $buildDir = "$Root/tests/cases/$dirName/build_$Compiler"
     if ($Compiler -eq "wsl") {
-        # WSL cmake 3.10.2 无 -S/-B（3.13 引入）→ cd 进 build 目录 + 绝对源路径；
-        # -d Ubuntu1804 显式锁定 GCC 7.5 兼容基线发行版
+        # WSL cmake 3.10.2 has no -S/-B (introduced in 3.13) -> cd into the build dir + absolute source path;
+        # -d Ubuntu1804 explicitly pins the GCC 7.5 compatibility baseline distro
         $wslGen = ConvertTo-WslPath (Resolve-Path $gen)
         New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
         $wslBuild = ConvertTo-WslPath (Resolve-Path $buildDir)
         wsl -d Ubuntu1804 bash -c "cd `"$wslBuild`" && rm -rf * && cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release `"$wslGen`" && cmake --build ."
         if ($LASTEXITCODE -ne 0) { throw "wsl cmake build $name failed" }
-        # WSL 运行：一次运行、shell 重定向分流到临时文件（再按流读取比对，与
-        # Invoke-NativeRun 同一语义——避免 2>&1 合并顺序伪影）。
+        # WSL run: one run, shell redirects split to temp files (then read per stream for comparison, the same
+        # semantics as Invoke-NativeRun -- avoids 2>&1 merge-order artifacts).
         $wslTmpOut = "/tmp/il2cpp_${name}_out.txt"
         $wslTmpErr = "/tmp/il2cpp_${name}_err.txt"
         wsl -d Ubuntu1804 bash -c "`"$wslBuild/il2cpp_gen_exe`" > `"$wslTmpOut`" 2> `"$wslTmpErr`""
@@ -395,15 +395,15 @@ foreach ($caseDir in $caseDirs) {
             $actual = Invoke-NativeRun "$buildDir/Release/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
         }
     } elseif ($Compiler -eq "clang") {
-        # Clang 23 (windows-gnu) + MSYS2 MinGW-w64 sysroot: 该 LLVM 不做 GCC 探测,
-        # winpthread 由工具链文件注入; ccache 由工具链 find_program 自动挂接。
-        # build_clang 按编译器隔离, 但首次接入/工具链变更后的 cache 不可复用 -> 清。
+        # Clang 23 (windows-gnu) + MSYS2 MinGW-w64 sysroot: this LLVM does no GCC probing,
+        # winpthread is injected by the toolchain file; ccache is auto-hooked via the toolchain find_program.
+        # build_clang is isolated per compiler, but the cache is not reusable after first setup/toolchain change -> clear it.
         $env:PATH = "D:\android\sdk\cmake\3.22.1\bin;D:\Program Files\mingw\msys2\mingw64\bin;" + $env:PATH
         Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
-        # P-F-FIX D1: MinGW/clang 分支的原生 stderr（编译器 warning，如 gcc16
-        # -Warray-bounds formatext.cpp:436）在 PS5.1 + EAP=Stop 下经 |Out-Null 管道
-        # 变 NativeCommandError 中止一个实际 exit=0 的成功构建。stderr 2>nul 分流
-        # （构建成败只看 $LASTEXITCODE），与 run-tests 其它分支同口径。
+        # P-F-FIX D1: native stderr in the MinGW/clang branch (compiler warnings, e.g. gcc16
+        # -Warray-bounds formatext.cpp:436) under PS5.1 + EAP=Stop via the |Out-Null pipe becomes
+        # a NativeCommandError and aborts a build that actually exits 0. Route stderr 2>nul
+        # (build success is judged solely by $LASTEXITCODE), the same policy as other run-tests branches.
         cmd /c "cmake -S `"$gen`" -B `"$buildDir`" -G `"MinGW Makefiles`" -DCMAKE_BUILD_TYPE=Release `"-DCMAKE_TOOLCHAIN_FILE=$Root/cmake/clang-mingw-w64.cmake`" 2>nul" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "cmake configure $name failed" }
         cmd /c "cmake --build `"$buildDir`" --config Release 2>nul" | Out-Null
@@ -425,15 +425,15 @@ foreach ($caseDir in $caseDirs) {
         $actual = Invoke-NativeRun "$buildDir/il2cpp_gen_exe.exe" -WorkingDirectory $caseCwd
     }
 
-    # 4.5 Archive gate（NDK/Android 通道；IL2CPP_ARCHIVE_GATE=1 时启用）：
-    # 运行时归档成员数=源清单 + 关键符号哨兵；失败按用例 FAIL 处理（throw 进 catch）。
+    # 4.5 Archive gate (NDK/Android channel; enabled when IL2CPP_ARCHIVE_GATE=1):
+    # the runtime archive member count = source manifest + key-symbol sentinels; a failure is treated as a case FAIL (throw into catch).
     if ($env:IL2CPP_ARCHIVE_GATE -eq '1') {
         $gateArchive = if ($env:IL2CPP_ARCHIVE_PATH) { $env:IL2CPP_ARCHIVE_PATH } else { Join-Path $buildDir 'libil2cpp_runtime.a' }
         $gateSources = if ($env:IL2CPP_ARCHIVE_SOURCES) { $env:IL2CPP_ARCHIVE_SOURCES } else { Join-Path $Root '.opencode/tmp/ndk/files.txt' }
         & "$Root/scripts/archive-gate.ps1" -Archive $gateArchive -SourceList $gateSources
         if ($LASTEXITCODE -ne 0) { throw "archive gate failed: $gateArchive" }
     }
-    # 5. 逐字节 diff：stdout/stderr 分列比对（UTF-8 解码，按行拆分后 LF join 归一化换行）
+    # 5. Byte-for-byte diff: compare stdout/stderr separately (UTF-8 decode, split into lines then LF-join to normalize newlines,
     $eOut = ((Split-CaptureLines $exp.Out)  -join "`n")
     $eErr = ((Split-CaptureLines $exp.Err)  -join "`n")
     $aOut = ((Split-CaptureLines $actual.Out) -join "`n")
@@ -451,7 +451,7 @@ foreach ($caseDir in $caseDirs) {
         Write-Host "PASS: $name"
     }
     } catch {
-        # -ContinueOnError：任一阶段失败（含转译）→ 记录到结果表并继续下一个用例；默认行为不变（立即中止）
+        # -ContinueOnError: any stage failure (including transpile) -> record in the result table and continue to the next case; default behavior unchanged (abort immediately)
         if (-not $ContinueOnError) { throw }
         $failures++
         $results.Add([pscustomobject]@{ Case = $name; Status = "FAIL"; Stage = $_.Exception.Message })
