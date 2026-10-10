@@ -424,10 +424,29 @@ public static class TypeEmitter
             // <AF>d__3 awaiter field signature carries TaskAwaiter`1<int[]>):
             // the element type follows the 0x1D/0x1F byte (recursive).
             0x1D => NestedTypeArgName(md, ref sig) + "[]",
-            0x13 or 0x1E => "int", // VAR/MVAR: generic argument parameter
+            // GN-14 (a-2): VAR/MVAR generic argument -- the compressed
+            // parameter index MUST be consumed (mirrors
+            // MethodBodyReader.ConsumeGenericParamSuffix) or the next argument
+            // byte (the index) is misread through the tolerant fallback as
+            // "System.Object" (the silent wrong closure-field name). This is a
+            // local-kind naming authority: the value stays the call-side
+            // default "int" (NOT hint-aware -- body-pass global state must not
+            // leak into this shared helper).
+            0x13 or 0x1E => ConsumeNestedGenericParamIndex(ref sig),
             // Tolerant fallback: exotic arg types map to Object.
             var other => "System.Object",
         };
+    }
+
+    // GN-14 (a-2): consume a VAR (0x13) / MVAR (0x1E) generic-argument
+    // compressed parameter index and return the call-side default name "int"
+    // (mirrors MethodBodyReader.ConsumeGenericParamSuffix; no InstantiationSuffix
+    // hint lookup -- this shared nested-type name helper must not observe
+    // body-pass global state).
+    private static string ConsumeNestedGenericParamIndex(ref BlobReader sig)
+    {
+        sig.ReadCompressedInteger(); // VAR/MVAR: parameter index
+        return "int";
     }
 
     // Nested-type constant decode -- mirrors MetadataLoader.TryReadConstant.

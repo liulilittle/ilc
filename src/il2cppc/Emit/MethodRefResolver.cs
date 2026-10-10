@@ -2245,10 +2245,14 @@ var userRecvLike = receiverType ?? arg0Type;
                 0x14 => ReadM3MultidimArg(md, ref sig),
                 0x11 or 0x12 or 0x40 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
                 0x15 => GenericInstArgName(md, ref sig),
-                // 0x13/0x1E VAR: a resolver-context nested generic parameter
-                // resolves to the M3 default "int" (StackFold ReadM3Arg would
-                // use InstantiationSuffixHint, null outside a body pass).
-                0x13 or 0x1E => "int",
+                // GN-14 (a-1): 0x13/0x1E VAR/MVAR. The compressed parameter
+                // index MUST be consumed (the sibling GEN-12/GN-13 VAR arms --
+                // StackFold/CodeGenerator ReadM3VarArg, MethodRefResolver
+                // .ReadM3VarArg -- all consume it); the old literal "int" left
+                // the index byte in the stream, misaligning the next argument
+                // (the "byte 0x00 in P-D2 #3 GDFFP typeId naming" crash).
+                // Outside a body pass ReadM3VarArg's hint is null -> "int".
+                0x13 or 0x1E => ReadM3VarArg(ref sig),
                 var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in P-D2 #3 GDFFP typeId naming"),
             };
         }
