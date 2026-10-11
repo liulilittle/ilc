@@ -6002,6 +6002,45 @@ public static class StackFold
         };
     }
 
+    // GN-16: whether a closed GenericInst TypeSpec collapses onto the SHARED
+    // OBJECT clone -- the SAME verdict the code generator computes
+    // (GenericUsageAnalyzer.CollapseInstantiation) so these return-slot
+    // classifiers agree with the ABI the clone is actually emitted with. A
+    // collapsing definition (in the active share set, no all-int default, no
+    // array argument, no user value-type argument) emits ONE clone whose EVERY
+    // T slot is Il2CppObject* (the shared object ABI). ANY VAR return of its
+    // methods is therefore the object slot, regardless of the per-argument
+    // value/reference classification. Without this gate Pair<int,string> (all
+    // args non-value/non-array -> collapse) had GetFirst() typed by the
+    // per-arg refinement (index 0 arg "int" -> value slot) while the emitted
+    // clone returns Il2CppObject* (the GN-14 (c) paircase regression). The
+    // decode mirrors MethodBodyReader.TryClassGenericInstanceKind's defName +
+    // per-arg suffix tokens so both sides decide identically; an undecodable
+    // arg returns false (the caller keeps the legacy per-arg logic).
+    static bool InstantiationCollapses(MetadataReader md, TypeSpecificationHandle tsHandle)
+    {
+        var sig = md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature);
+        if (sig.ReadByte() != 0x15) return false; // not GENERICINST
+        sig.ReadByte();                           // CLASS/VALUETYPE marker
+        var defHandle = sig.ReadTypeHandle();
+        var defName = defHandle.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+            _ => null,
+        };
+        if (defName == null) return false;
+        var argc = sig.ReadCompressedInteger();
+        var args = new string[argc];
+        for (var i = 0; i < argc; i++)
+        {
+            var s = MethodBodyReader.SimpleGenericArgSuffix(md, ref sig, out _);
+            if (s == null) return false; // undecodable argument: keep legacy logic
+            args[i] = s;
+        }
+        return GenericUsageAnalyzer.CollapseInstantiation(defName, args);
+    }
+
     // GN-14 (c): whether a VAR (0x13) return is the OBJECT slot -- the shared
     // object clone (all args "object") or a reference argument; a per-instance
     // clone's VALUE argument keeps the raw value slot (so no unbox bridge is
@@ -6014,6 +6053,9 @@ public static class StackFold
         var mr = md.GetMemberReference((MemberReferenceHandle)h);
         if (mr.Parent.Kind != HandleKind.TypeSpecification) return true;
         var par = (TypeSpecificationHandle)mr.Parent;
+        // GN-16: a collapsing (shared object) clone returns the object slot for
+        // EVERY VAR, ahead of the per-argument refinement below.
+        if (InstantiationCollapses(md, par)) return true;
         var kind = MethodBodyReader.TryClassGenericInstanceKind(md, par);
         if (kind == null) return true;
         var ip = kind[2..].Split(':');
@@ -6045,6 +6087,14 @@ public static class StackFold
         var mr = md.GetMemberReference(mrh);
         if (mr.Parent.Kind != HandleKind.TypeSpecification) return false;
         var par = (TypeSpecificationHandle)mr.Parent;
+        // GN-16: a collapsing (shared object) clone returns the object slot for
+        // EVERY VAR, ahead of the per-argument refinement below -- the shared
+        // object clone stores all T slots as Il2CppObject* regardless of the
+        // closed argument's value/reference classification. Without this gate
+        // Pair<int,string> (collapse) had GetFirst() typed by the per-arg rule
+        // (index 0 "int" -> value slot) against the emitted Il2CppObject*
+        // return (the paircase regression).
+        if (InstantiationCollapses(md, par)) return true;
         if (GenericInstAllInt(md, par) || !GenericInstDefIsUserRefClass(md, par)) return false;
         // Decode the method's return VAR (0x13) index; a non-VAR return on a
         // ref-class owner keeps the legacy object classification.
