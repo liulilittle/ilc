@@ -24,7 +24,7 @@ class ExProbe
     static void Main()
     {
         // ---- catch type matching: most-derived type selected before base ----
-        P("-- 多重 catch 顺序 --");
+        P("-- multiple catch order --");
         try { throw new InvalidOperationException("x"); }
         catch (InvalidOperationException) { P("catch: InvalidOperationException"); }
         catch (Exception) { P("catch: Exception"); }
@@ -37,18 +37,18 @@ class ExProbe
         try { RethrowOrig(); }
         catch (Exception e)
         {
-            Pb("throw; 保留原始堆栈（含 InnerThrow）", e.StackTrace.Contains("InnerThrow"));
-            Pb("throw; 消息保留", e.Message == "orig");
+            Pb("throw; preserves the original stack (includes InnerThrow)", e.StackTrace.Contains("InnerThrow"));
+            Pb("throw; message preserved", e.Message == "orig");
         }
         try { RethrowNew(); }
         catch (Exception e)
         {
-            Pb("throw ex; 堆栈被重置（不含 InnerThrow）", !e.StackTrace.Contains("InnerThrow"));
-            Pb("throw ex; 消息保留", e.Message == "orig");
+            Pb("throw ex; resets the stack (no InnerThrow)", !e.StackTrace.Contains("InnerThrow"));
+            Pb("throw ex; message preserved", e.Message == "orig");
         }
 
         // ---- throwing a new exception inside catch: InnerException chain ----
-        P("-- 抛新异常包装 --");
+        P("-- throw new exception wrapping --");
         try
         {
             try { InnerThrow(); }
@@ -56,12 +56,12 @@ class ExProbe
         }
         catch (Exception e)
         {
-            P("外层: " + e.GetType().Name);
+            P("outer: " + e.GetType().Name);
             P("InnerException: " + (e.InnerException != null ? e.InnerException.GetType().Name : "<null>"));
         }
 
         // ---- catch-when filter: true -> handler; false -> not entered (propagates outward) ----
-        P("-- catch 过滤 --");
+        P("-- catch filter --");
         try
         {
             P("  try");
@@ -77,7 +77,7 @@ class ExProbe
         catch (Exception e) { P("outer-handler: " + e.Message); }
 
         // ---- exception thrown inside filter: propagates the filter's exception (original replaced) ----
-        P("-- 过滤抛异常 --");
+        P("-- filter throws --");
         try
         {
             try { throw new Exception("original"); }
@@ -86,13 +86,13 @@ class ExProbe
         catch (Exception e) { P("outer: " + e.GetType().Name + " / " + e.Message); }
 
         // ---- finally determinism: runs on normal / exception / return paths ----
-        P("-- finally 全路径 --");
+        P("-- finally all paths --");
         TryFinally(0);    // normal
         try { TryFinally(1); } catch (Exception e) { P("  caught: " + e.GetType().Name); }
-        P("finally+return 返回值: " + FinallyReturn());
+        P("finally+return value: " + FinallyReturn());
 
         // ---- nested try/catch/finally order: try -> catch -> finally ----
-        P("-- try/catch/finally 顺序 --");
+        P("-- try/catch/finally order --");
         try
         {
             P("  try");

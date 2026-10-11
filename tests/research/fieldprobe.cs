@@ -41,7 +41,7 @@ class FieldProbe
     static void Main()
     {
         // ---- cctor: first access of a static field triggers type init (before ldsfld/stsfld) ----
-        P("cctor: 首访前 trace=" + (Box.StaticCtorTrace ?? "<null>"));
+        P("cctor: trace before first access=" + (Box.StaticCtorTrace ?? "<null>"));
         Pi("ldsfld: Box.StaticCount", Box.StaticCount);
         Box.StaticCount = 11;
         Pi("stsfld: Box.StaticCount=11", Box.StaticCount);
@@ -53,37 +53,37 @@ class FieldProbe
 
         // ---- instance fields: default values / read-write ----
         var bb = new Box();
-        Pi("ldfld: 默认 int 字段", bb.X);
-        P("ldfld: 默认 string 字段 = " + (bb.S == null ? "<null>" : bb.S));
+        Pi("ldfld: default int field", bb.X);
+        P("ldfld: default string field = " + (bb.S == null ? "<null>" : bb.S));
         bb.X = 123;
-        Pi("ldfld: 写后读", bb.X);
+        Pi("ldfld: read after write", bb.X);
 
         // ---- ldfld/stfld null receiver: NullReferenceException ----
-        Try(() => { Box n = null; int v = n.X; P("v=" + v); }, "ldfld: null 接收者");
-        Try(() => { Box n = null; n.X = 1; }, "stfld: null 接收者");
+        Try(() => { Box n = null; int v = n.X; P("v=" + v); }, "ldfld: null receiver");
+        Try(() => { Box n = null; n.X = 1; }, "stfld: null receiver");
 
         // ---- ldflda: field address (ref write) ----
         {
             var pt = new Point { X = 1, Y = 2 };
             ref int rx = ref pt.X;               // ldloca+ldflda (value-type local)
             rx = 100;
-            Pi("ldflda: ref 写 pt.X", pt.X);
+            Pi("ldflda: ref write pt.X", pt.X);
         }
 
         // ---- volatile fields: single-threaded read-write roundtrip (memory-order semantics in docs; C# volatile compiles to volatile. prefix) ----
         {
             var fp = new FieldProbe();
             fp._vol = 7;
-            Pi("volatile 字段往返", fp._vol);
+            Pi("volatile field round-trip", fp._vol);
             _svol = 13;
-            Pi("volatile 静态字段往返", _svol);
+            Pi("volatile static field round-trip", _svol);
         }
 
         // ---- instance field inheritance: base-class field read through a derived instance ----
         {
             var d = new Derived();
             d.BaseField = 5;
-            Pi("ldfld: 派生读基类字段", ((BaseClass)d).BaseField);
+            Pi("ldfld: derived reads base-class field", ((BaseClass)d).BaseField);
         }
     }
 

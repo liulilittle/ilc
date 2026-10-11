@@ -56,7 +56,7 @@ class ConvProbe
         // ---- widening (conv.i8 sign extension / zero extension) ----
         Pl("conv.i8: (long)-1", (long)I1);
         Pl("conv.i8: (long)uint.MaxValue", (long)UMAX);
-        Pi("conv.i: (int)(IntPtr)(-1) [native int 32 位时]",
+        Pi("conv.i: (int)(IntPtr)(-1) [when native int is 32-bit]",
             unchecked((int)(IntPtr)I1));
 
         // ---- int64 narrowing wraparound (conv.i4 keeps low 32 bits) ----
@@ -69,24 +69,24 @@ class ConvProbe
         P("conv.r8: (double)(uint)uint.MaxValue = " + (double)UMAX);       // 2^32-1 exact in double
         P("conv.r4: (double)(float)0.1 = " + (double)(float)D01);
         P("conv.r4: (double)(float)16777217 = " + (double)F16777217);      // rounds to 2^24
-        Pi("conv.i4: (int)2.9 [向零截断]", unchecked((int)D29));
-        Pi("conv.i4: (int)-2.9 [向零截断]", unchecked((int)DM29));
+        Pi("conv.i4: (int)2.9 [truncate toward zero]", unchecked((int)D29));
+        Pi("conv.i4: (int)-2.9 [truncate toward zero]", unchecked((int)DM29));
         Pu("conv.u8: unchecked((ulong)(double)-1.0)", unchecked((ulong)DNeg1));
         Pu("conv.u8: (ulong)1.5", (ulong)1.5);
         P("conv.r_un: (double)(uint)4294967295 = " + (double)UMAX);
 
         // ---- checked overflow conversions (conv.ovf.*) ----
-        // conv.ovf.i4（int64→int32 checked）
+        // conv.ovf.i4 (int64 -> int32 checked)
         Pi("ovf.i4: checked((int)2147483647L)", checked((int)2147483647L));
         Pi("ovf.i4: checked((int)-2147483648L)", checked((int)-2147483648L));
         TryI(() => checked((int)L2147483648), "ovf.i4: checked((int)2147483648L)");
         TryI(() => checked((int)Lm2147483649), "ovf.i4: checked((int)-2147483649L)");
-        // conv.ovf.i4（double→int32 checked）
+        // conv.ovf.i4 (double -> int32 checked)
         Pi("ovf.i4: checked((int)2147483647.0)", checked((int)D2147483647));
         Pi("ovf.i4: checked((int)-2147483648.0)", checked((int)Dm2147483648));
         TryI(() => checked((int)D2147483648), "ovf.i4: checked((int)2147483648.0)");
         TryI(() => checked((int)Dm2147483649), "ovf.i4: checked((int)-2147483649.0)");
-        // conv.ovf.i8（double→int64 checked）
+        // conv.ovf.i8 (double -> int64 checked)
         Pl("ovf.i8: checked((long)9223372036854774784.0)", checked((long)D63m1024));
         TryL(() => checked((long)D63), "ovf.i8: checked((long)2^63)");
         TryL(() => checked((long)DNaN), "ovf.i8: checked((long)NaN)");
@@ -95,7 +95,7 @@ class ConvProbe
         Pu("ovf.u4: checked((uint)4294967295L)", checked((uint)4294967295L));
         TryU(() => checked((uint)L4294967296), "ovf.u4: checked((uint)4294967296L)");
         TryU(() => checked((uint)Lm1), "ovf.u4: checked((uint)(-1L))");
-        // conv.ovf.i8.un（ulong→long checked）
+        // conv.ovf.i8.un (ulong -> long checked)
         Pl("ovf.i8.un: checked((long)9223372036854775807UL)", checked((long)9223372036854775807UL));
         TryL(() => checked((long)ULONG_MAX), "ovf.i8.un: checked((long)ulong.MaxValue)");
         // conv.ovf.u1.un / i2.un / u2.un (uint -> narrow types, checked)
@@ -110,10 +110,10 @@ class ConvProbe
         Pu("ovf.u4.un: checked((uint)uint.MaxValue)", checked((uint)UMAX));
 
         // ---- unchecked float overflow conversion = indeterminate int (cvttsd2si semantics) ----
-        Pi("unchecked (int)(double)2147483648.0 [不定值]", unchecked((int)D2147483648));
-        Pi("unchecked (int)(double)NaN [不定值]", unchecked((int)DNaN));
-        Pi("unchecked (int)(double)+Inf [不定值]", unchecked((int)DInf));
-        Pl("unchecked (long)(double)2^63 [不定值]", unchecked((long)D63));
+        Pi("unchecked (int)(double)2147483648.0 [indeterminate]", unchecked((int)D2147483648));
+        Pi("unchecked (int)(double)NaN [indeterminate]", unchecked((int)DNaN));
+        Pi("unchecked (int)(double)+Inf [indeterminate]", unchecked((int)DInf));
+        Pl("unchecked (long)(double)2^63 [indeterminate]", unchecked((long)D63));
     }
 
     // Exception catcher: prints "label -> OverflowException" or "label -> <type>"

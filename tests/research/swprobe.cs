@@ -43,17 +43,17 @@ class SwProbe
 
         // ---- leave/finally: return exiting try -> finally still runs ----
         Pi("retThroughFinally(1)", RetThroughFinally(1));
-        P("-- retThroughFinally(2) 异常路径 --");
+        P("-- retThroughFinally(2) exception path --");
         try { Pi("retThroughFinally(2)", RetThroughFinally(2)); }
         catch (Exception e) { P("caught: " + e.GetType().Name); }
 
         // ---- finally runs before exception propagation (try/finally without catch) ----
-        P("-- try/finally 异常传播顺序 --");
+        P("-- try/finally exception propagation order --");
         try { ThrowInTryFinally(); }
         catch (Exception e) { P("caught: " + e.GetType().Name); }
 
         // ---- nested finally: LIFO (exception caught by outer catch, program exits normally) ----
-        P("-- 嵌套 finally LIFO --");
+        P("-- nested finally LIFO --");
         try
         {
             try { throw new Exception("inner"); }
@@ -64,7 +64,7 @@ class SwProbe
         P("-- end --");
 
         // ---- finally of a try inside a loop on break/continue ----
-        P("-- 循环内 try/finally break --");
+        P("-- try/finally break inside loop --");
         for (int i = 0; i < 3; i++)
         {
             try
@@ -74,7 +74,7 @@ class SwProbe
             }
             finally { P("finally iter " + i); }
         }
-        P("-- 循环内 try/finally continue --");
+        P("-- try/finally continue inside loop --");
         for (int i = 0; i < 3; i++)
         {
             try
@@ -127,13 +127,13 @@ class SwProbe
         }
         finally
         {
-            P("finally: 执行于 return/异常之前");
+            P("finally: runs before return/exception");
         }
     }
 
     static void ThrowInTryFinally()
     {
-        try { P("try: 抛异常"); throw new InvalidOperationException("x"); }
-        finally { P("finally: 异常传播前"); }
+        try { P("try: throw"); throw new InvalidOperationException("x"); }
+        finally { P("finally: before exception propagation"); }
     }
 }

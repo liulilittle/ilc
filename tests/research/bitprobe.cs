@@ -30,9 +30,9 @@ class BitProbe
         Pi("shl: 1 << 30", 1 << 30);
 
         // ---- shr (arithmetic right shift: sign extension for negatives) ----
-        Pi("shr: 0x80000000 >> 1 [算术]", IMIN >> 1);   // 0xC0000000 = -1073741824
-        Pi("shr: 0x80000001 >> 1 [算术]", IMIN1 >> 1);  // 0xC0000000
-        Pi("shr: -1 >> 5 [算术]", N1 >> 5);             // -1
+        Pi("shr: 0x80000000 >> 1 [arith]", IMIN >> 1);   // 0xC0000000 = -1073741824
+        Pi("shr: 0x80000001 >> 1 [arith]", IMIN1 >> 1);  // 0xC0000000
+        Pi("shr: -1 >> 5 [arith]", N1 >> 5);             // -1
 
         // ---- shr.un (logical right shift: high bits filled with 0) ----
         Pi("shr.un: (uint)0x80000000 >> 1", (int)(((uint)IMIN) >> 1));  // 0x40000000 = 1073741824
@@ -47,13 +47,13 @@ class BitProbe
         // ---- int64 (count masked with &63) ----
         Pl("shl: 1L << 63", 1L << 63);                   // long.MinValue
         Pl("shl: 1L << 65 [65&63=1]", 1L << 65);         // 2
-        Pl("shr: 0x8000000000000000 >> 63 [算术]", LMIN >> 63);   // -1
+        Pl("shr: 0x8000000000000000 >> 63 [arith]", LMIN >> 63);   // -1
         Pu("shr.un: (ulong)0x8000000000000000 >> 63", (ulong)LMIN >> 63); // 1
         Pl("shr.un: (ulong)-1L >> 62", (long)((ulong)Lm1 >> 62));        // 3
-        Pl("shl: 3L << 62 [回绕]", 3L << 62);            // 0xC000000000000000 = -4611686018427387904
+        Pl("shl: 3L << 62 [wraparound]", 3L << 62);            // 0xC000000000000000 = -4611686018427387904
 
         // ---- shr.un vs shr on int64 comparison ----
         Pu("shr.un: (ulong)0xFFFFFFFFFFFFFFFF >> 4", (ulong)Lm1 >> 4);    // 0x0FFFFFFFFFFFFFFF
-        Pl("shr: -1L >> 4 [算术]", Lm1 >> 4);                             // -1
+        Pl("shr: -1L >> 4 [arith]", Lm1 >> 4);                             // -1
     }
 }
