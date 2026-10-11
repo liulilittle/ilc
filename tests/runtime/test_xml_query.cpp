@@ -239,19 +239,19 @@ void TestPathHits()
 
 void TestPathMisses()
 {
-    Expect(QueryCount(&g_root, "/other") == 0, "/other -> 空 (根名不匹配)");
-    Expect(QueryCount(&g_root, "/root/zzz") == 0, "/root/zzz -> 空");
-    Expect(QueryCount(&g_root, "/root/sub") == 0, "/root/sub -> 空 (非直接子)");
-    Expect(QueryCount(&g_root, "/root/item/zzz") == 0, "/root/item/zzz -> 空");
+    Expect(QueryCount(&g_root, "/other") == 0, "/other -> empty (root name mismatch)");
+    Expect(QueryCount(&g_root, "/root/zzz") == 0, "/root/zzz -> empty");
+    Expect(QueryCount(&g_root, "/root/sub") == 0, "/root/sub -> empty (not a direct child)");
+    Expect(QueryCount(&g_root, "/root/item/zzz") == 0, "/root/item/zzz -> empty");
 }
 
 void TestIndex()
 {
     EXPECT_NODES(&g_root, "/root/item[1]", g_item1);
     EXPECT_NODES(&g_root, "/root/item[2]", g_item2);
-    Expect(QueryCount(&g_root, "/root/item[3]") == 0, "/root/item[3] -> 空 (不足)");
+    Expect(QueryCount(&g_root, "/root/item[3]") == 0, "/root/item[3] -> empty (out of range)");
     Expect(QueryCount(&g_root, "/root/item[2]/sub") == 0,
-           "/root/item[2]/sub -> 空 (item2 无子)");
+           "/root/item[2]/sub -> empty (item2 has no child)");
     Expect(QueryCount(&g_root, "/root/item[1]/sub/item[1]") == 1,
            "/root/item[1]/sub/item[1] -> 1");
     Expect(QueryCount(&g_root, "/root/item[1]/sub/item[2]") == 0,
@@ -272,10 +272,10 @@ void TestAttributes()
 {
     // /root/@id -> attribute hit copy: kind=element, name=="@id", text=="r1".
     XmlNode* idHit = QueryNode(&g_root, "/root/@id", 0);
-    Expect(idHit != nullptr, "/root/@id 命中");
+    Expect(idHit != nullptr, "/root/@id hit");
     Expect(idHit != nullptr && idHit->name == "@id", "/root/@id name == \"@id\"");
     Expect(idHit != nullptr && idHit->text == "r1", "/root/@id text == r1");
-    Expect(idHit != nullptr && idHit->attributes.empty(), "属性命中无属性");
+    Expect(idHit != nullptr && idHit->attributes.empty(), "attribute hit has no attributes");
     il2cpp_xml_node_free(idHit);
 
     // //@lang: descendant-or-self::node()/@lang -- the ROOT's own attributes are in
@@ -291,10 +291,10 @@ void TestAttributes()
     il2cpp_xml_node_free(lang2);
 
     // //item/@lang: item1(fr) + item3(de).
-    Expect(QueryCount(&g_root, "//item/@lang") == 2, "//item/@lang 计数 == 2");
-    Expect(QueryCount(&g_root, "/root/item/@lang") == 1, "/root/item/@lang 计数 == 1");
-    Expect(QueryCount(&g_root, "/root/@missing") == 0, "/root/@missing -> 空");
-    Expect(QueryCount(&g_root, "/root/item[2]/@id") == 1, "/root/item[2]/@id 计数 == 1");
+    Expect(QueryCount(&g_root, "//item/@lang") == 2, "//item/@lang count == 2");
+    Expect(QueryCount(&g_root, "/root/item/@lang") == 1, "/root/item/@lang count == 1");
+    Expect(QueryCount(&g_root, "/root/@missing") == 0, "/root/@missing -> empty");
+    Expect(QueryCount(&g_root, "/root/item[2]/@id") == 1, "/root/item[2]/@id count == 1");
 }
 
 void TestGetAttribute()
@@ -306,7 +306,7 @@ void TestGetAttribute()
     Expect(StringEqualsAscii(il2cpp_xml_get_attribute(g_item1, "lang"), "fr"),
            "get_attribute(item1, lang) == fr");
     Expect(il2cpp_xml_get_attribute(g_item3, "id") == nullptr,
-           "get_attribute(item3, id) == nullptr (无 id 属性)");
+           "get_attribute(item3, id) == nullptr (no id attribute)");
     Expect(il2cpp_xml_get_attribute(g_item4, "zzz") == nullptr,
            "get_attribute(item4, zzz) == nullptr");
 }
@@ -316,13 +316,13 @@ void TestGetText()
     Expect(StringEqualsAscii(il2cpp_xml_get_text(g_item1), "text1"),
            "get_text(item1) == text1");
     Expect(il2cpp_xml_get_text(g_item2) == nullptr,
-           "get_text(item2) == nullptr (无文本)");
+           "get_text(item2) == nullptr (no text)");
     Expect(il2cpp_xml_get_text(&g_root) == nullptr,
-           "get_text(root) == nullptr (无直接文本)");
+           "get_text(root) == nullptr (no direct text)");
     // The text of an attribute-hit node = the attribute value.
     XmlNode* idHit = QueryNode(&g_root, "/root/@id", 0);
     Expect(idHit != nullptr && StringEqualsAscii(il2cpp_xml_get_text(idHit), "r1"),
-           "get_text(属性命中) == 属性值");
+           "get_text(attribute hit) == attribute value");
     il2cpp_xml_node_free(idHit);
 }
 
@@ -377,15 +377,15 @@ void TestNullArguments()
 void TestArrayShape()
 {
     il2cpp::Il2CppArray* arr = il2cpp_xml_query(&g_root, "/root/item");
-    Expect(il2cpp_array_get_length(arr) == 2, "数组长度 == 2");
-    Expect(!arr->isRefElem, "数组 isRefElem == false (原生指针元素)");
+    Expect(il2cpp_array_get_length(arr) == 2, "array length == 2");
+    Expect(!arr->isRefElem, "array isRefElem == false (native pointer elements)");
     Expect(arr->elemSize == static_cast<int32_t>(sizeof(XmlNode*)),
-           "数组 elemSize == sizeof(XmlNode*)");
+           "array elemSize == sizeof(XmlNode*)");
     // A hit node IS the original tree node pointer (identity, not a copy).
-    Expect(QueryNode(&g_root, "/root", 0) == &g_root, "命中即原节点指针");
+    Expect(QueryNode(&g_root, "/root", 0) == &g_root, "hit is the original node pointer");
     // Empty hit array.
     Expect(il2cpp_array_get_length(il2cpp_xml_query(&g_root, "/nope")) == 0,
-           "未命中 -> 空数组 (length 0)");
+           "no match -> empty array (length 0)");
 }
 
 // Integration: queries over a real tree produced by the T1 parser.
@@ -394,32 +394,32 @@ void TestParsedTreeIntegration()
     XmlNode doc;
     const char* xml =
         "<root><a id='1'>hi</a><b/><a id='2'/><a><c/></a></root>";
-    Expect(il2cpp_xml_parse(xml, &doc) == 1, "il2cpp_xml_parse 成功");
+    Expect(il2cpp_xml_parse(xml, &doc) == 1, "il2cpp_xml_parse succeeds");
 
     EXPECT_NODES(&doc, "/root/a", &doc.children[0], &doc.children[2],
                  &doc.children[3]);
-    Expect(QueryCount(&doc, "//a") == 3, "//a 计数 == 3");
-    Expect(QueryCount(&doc, "/root/a[2]") == 1, "/root/a[2] 计数 == 1");
+    Expect(QueryCount(&doc, "//a") == 3, "//a count == 3");
+    Expect(QueryCount(&doc, "/root/a[2]") == 1, "/root/a[2] count == 1");
     XmlNode* a2 = QueryNode(&doc, "/root/a[2]", 0);
-    Expect(a2 == &doc.children[2], "/root/a[2] 命中 == children[2]");
+    Expect(a2 == &doc.children[2], "/root/a[2] hit == children[2]");
 
     // Attribute hits (real parsed attributes).
     XmlNode* idHit = QueryNode(&doc, "/root/a[1]/@id", 0);
     Expect(idHit != nullptr && idHit->name == "@id" && idHit->text == "1",
-           "解析树 /root/a[1]/@id == 1");
+           "parsed tree /root/a[1]/@id == 1");
     il2cpp_xml_node_free(idHit);
     idHit = QueryNode(&doc, "/root/a[2]/@id", 0);
     Expect(idHit != nullptr && idHit->text == "2",
-           "解析树 /root/a[2]/@id == 2");
+           "parsed tree /root/a[2]/@id == 2");
     il2cpp_xml_node_free(idHit);
 
     // get_text on the parsed tree (a[0]'s direct text "hi").
     Expect(StringEqualsAscii(il2cpp_xml_get_text(&doc.children[0]), "hi"),
-           "解析树 get_text(a[0]) == hi");
+           "parsed tree get_text(a[0]) == hi");
     Expect(il2cpp_xml_get_text(&doc.children[1]) == nullptr,
-           "解析树 get_text(b) == nullptr");
+           "parsed tree get_text(b) == nullptr");
     // Missed path (legal) -> empty.
-    Expect(QueryCount(&doc, "/root/zzz") == 0, "解析树未命中 -> 空");
+    Expect(QueryCount(&doc, "/root/zzz") == 0, "parsed tree no match -> empty");
 }
 
 // New contract: Comment nodes are also stored in children (document order);
@@ -428,16 +428,16 @@ void TestCommentSkipped()
 {
     XmlNode doc;
     const char* xml = "<root><!--c--><a id='1'>hi</a></root>";
-    Expect(il2cpp_xml_parse(xml, &doc) == 1, "il2cpp_xml_parse (带注释) 成功");
+    Expect(il2cpp_xml_parse(xml, &doc) == 1, "il2cpp_xml_parse (with comment) succeeds");
     Expect(doc.children.size() == 2 && doc.children[0].kind == XmlNodeKind::comment,
-           "注释节点按契约存入 children[0]");
+           "comment node is stored in children[0] per contract");
     EXPECT_NODES(&doc, "/root/a", &doc.children[1]);
-    Expect(QueryCount(&doc, "//a") == 1, "//a 跳过注释 -> 1");
-    Expect(QueryCount(&doc, "//comment") == 0, "注释不参与元素匹配");
-    Expect(il2cpp_xml_get_text(&doc) == nullptr, "get_text 跳过注释 (无文本)");
+    Expect(QueryCount(&doc, "//a") == 1, "//a skips comments -> 1");
+    Expect(QueryCount(&doc, "//comment") == 0, "comments do not participate in element matching");
+    Expect(il2cpp_xml_get_text(&doc) == nullptr, "get_text skips comments (no text)");
     // A comment is not an element; text concatenation excludes comments.
     Expect(il2cpp_xml_get_text(&doc.children[0]) == nullptr,
-           "get_text(注释节点) == nullptr");
+           "get_text(comment node) == nullptr");
 }
 
 } // namespace

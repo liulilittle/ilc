@@ -9,21 +9,24 @@
 # generated code uses, exercising the exact PUBLIC include/compile contract
 # that generated translation units link against.
 #
-# M4 并行扩展：GLOB 自动发现 test_*.cpp（各域代理只加自己的测试文件，无需
-# 修改本文件；新增文件后需重新运行 cmake configure）。
+# M4 parallel extension: GLOB automatically discovers test_*.cpp (each domain
+# agent only adds its own test files, no need to edit this file; cmake configure
+# must be re-run after adding files).
 #
-# COM stage 17 batch 1：test_com 额外链入 com17type fixture 的提交生成物
-# （tests/cases/com17type/gen_v1，WinForms-mirror IDropTarget 接口 + 双实现者
-# WfDropSource/WfDropSource2）——test_com section 19 用 il2cpp_interface_dispatch
-# 无头验证 r: 参数接口派发。不改 GLOB；只有 test_com 链生成代码（其他 test_*.exe
-# 不受影响）。生成物重生成流程见 tests/cases/com17type/com17type.cs 头注释。
+# COM stage 17 batch 1: test_com additionally links the committed com17type fixture
+# output (tests/cases/com17type/gen_v1, WinForms-mirror IDropTarget interface + two
+# implementers WfDropSource/WfDropSource2) -- test_com section 19 uses
+# il2cpp_interface_dispatch to headlessly verify r: parameter interface dispatch.
+# GLOB is unchanged; only test_com links generated code (other test_*.exe are
+# unaffected). See the header comment of tests/cases/com17type/com17type.cs for the
+# regeneration flow.
 #------------------------------------------------------------------------------
 cmake_minimum_required(VERSION 3.10)
 project(il2cpp_runtime_tests CXX)
 
-# monitor.cpp (il2cpp_runtime) 在 POSIX 下直接使用 pthread_mutex_*——
-# Linux/WSL 链接需 -pthread。Windows/MinGW 下 Threads 模块自动解析为
-# 空/系统线程，无副作用。
+# monitor.cpp (il2cpp_runtime) uses pthread_mutex_* directly on POSIX --
+# Linux/WSL linking needs -pthread. On Windows/MinGW the Threads module resolves
+# to an empty/system thread target with no side effects.
 find_package(Threads REQUIRED)
 
 add_subdirectory(../../src/runtime ${CMAKE_BINARY_DIR}/runtime)
@@ -38,14 +41,14 @@ foreach(TEST_SRC ${TEST_SOURCES})
     target_link_libraries(${TEST_NAME} PRIVATE il2cpp_runtime Threads::Threads)
     target_compile_features(${TEST_NAME} PRIVATE cxx_std_17)
     if(NOT MSVC)
-        # POSIX dlopen/dlsym 需要 -ldl（WSL/GCC 基线）
+        # POSIX dlopen/dlsym needs -ldl (WSL/GCC baseline)
         target_link_libraries(${TEST_NAME} PRIVATE ${CMAKE_DL_LIBS})
     endif()
     if(MSVC)
-        # /utf-8: 源文件为 UTF-8 无 BOM（含中文注释），MSVC 默认按代码页 936 解析会乱码并吞掉后续声明
+        # /utf-8: sources are UTF-8 without BOM (including non-ASCII comments); MSVC defaults to code page 936 and garbles them, swallowing later declarations
         target_compile_options(${TEST_NAME} PRIVATE /W4 /EHsc /bigobj /utf-8)
     else()
-        # -Wall -Wextra: CI 质量门双编译器零警告（风格规范 §7），PUBLIC 传播到链接方生成代码
+        # -Wall -Wextra: CI quality gate, zero warnings on both compilers (style spec §7), PUBLIC propagates to linked generated code
         target_compile_options(${TEST_NAME} PRIVATE -Wall -Wextra -fexceptions)
     endif()
 endforeach()

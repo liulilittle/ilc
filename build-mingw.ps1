@@ -1,47 +1,48 @@
 ﻿<#
 .SYNOPSIS
-    MinGW-w64 交叉编译自动化脚本 — 从 Windows/Linux 主机交叉编译到 Windows x86_64。
+    MinGW-w64 cross-compile automation script -- cross-compiles to Windows x86_64 from a Windows/Linux host.
 
 .DESCRIPTION
-    自动检测系统 MinGW-w64 安装, 使用 cmake/mingw-w64.cmake toolchain 配置项目,
-    执行构建, 并验证产物 PE 格式。
+    Auto-detects a system MinGW-w64 install, configures the project with the
+    cmake/mingw-w64.cmake toolchain, runs the build, and verifies the PE format
+    of the artifacts.
 
 .PARAMETER BuildDir
-    构建输出目录, 默认 build-mingw
+    Build output directory, default build-mingw
 
 .PARAMETER BuildType
-    构建类型 (Debug/Release/RelWithDebInfo/MinSizeRel), 默认 Release
+    Build type (Debug/Release/RelWithDebInfo/MinSizeRel), default Release
 
 .PARAMETER CMakeGenerator
-    CMake 生成器, 默认 "MinGW Makefiles" (自动检测 Ninja/NMake/Unix Makefiles)
+    CMake generator, default "MinGW Makefiles" (auto-detects Ninja/NMake/Unix Makefiles)
 
 .PARAMETER Jobs
-    并行编译任务数, 默认 CPU 逻辑核心数
+    Number of parallel compile jobs, default CPU logical core count
 
 .PARAMETER MingwRoot
-    显式指定 MinGW-w64 安装根目录 (覆盖自动检测)
+    Explicitly specify the MinGW-w64 install root (overrides auto-detection)
 
 .PARAMETER RunTests
-    构建完成后运行测试 (ctest), 默认 true
+    Run tests (ctest) after the build, default true
 
 .PARAMETER CleanClean
-    清理构建目录后重新配置
+    Clean the build directory then reconfigure
 
 .EXAMPLE
     .\build-mingw.ps1
-    默认 Release 构建, 自动检测 MinGW
+    Default Release build, auto-detects MinGW
 
 .EXAMPLE
     .\build-mingw.ps1 -BuildType Debug -Clean
-    Debug 构建, 清理后重建
+    Debug build, clean then rebuild
 
 .EXAMPLE
     .\build-mingw.ps1 -MingwRoot "C:\msys64\mingw64"
-    显式指定 MSYS2 MinGW 路径
+    Explicitly specify the MSYS2 MinGW path
 
 .EXAMPLE
     ./build-mingw.sh
-    Linux/WSL 主机请使用 build-mingw.sh
+    Linux/WSL hosts should use build-mingw.sh
 #>
 
 [CmdletBinding()]
@@ -60,8 +61,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path $ScriptDir
 
-# ---------------------------------------------------------------------------
-# 日志辅助
+# Logging helpers
 # ---------------------------------------------------------------------------
 function Write-Info { param([string]$Message) Write-Host "[INFO] $Message" -ForegroundColor Cyan }
 function Write-Success { param([string]$Message) Write-Host "[OK]   $Message" -ForegroundColor Green }
@@ -69,40 +69,40 @@ function Write-Warn { param([string]$Message) Write-Host "[WARN] $Message" -Fore
 function Write-Fatal { param([string]$Message) Write-Host "[FAIL] $Message" -ForegroundColor Red; exit 1 }
 
 # ---------------------------------------------------------------------------
-# 1. 检测 MinGW-w64
+# 1. Detect MinGW-w64
 # ---------------------------------------------------------------------------
-Write-Host "`n=== MinGW-w64 交叉编译构建 ===" -ForegroundColor White
+Write-Host "`n=== MinGW-w64 cross-compile build ===" -ForegroundColor White
 Write-Host "Project: $ProjectRoot" -ForegroundColor Gray
 
 if ($MingwRoot) {
-    Write-Info "使用显式 MinGW 根目录: $MingwRoot"
+    Write-Info "Using explicit MinGW root: $MingwRoot"
     $env:MINGW_ROOT = $MingwRoot
     $mingwBin = Join-Path $MingwRoot "bin"
     if (Test-Path $mingwBin) {
         $env:PATH = "$mingwBin;$env:PATH"
-        Write-Info "已将 $mingwBin 添加到 PATH"
+        Write-Info "Added $mingwBin to PATH"
     }
 }
 
-# 检测编译器
+# Detect the compiler
 $mingwCCompiler = Get-Command x86_64-w64-mingw32-gcc -ErrorAction SilentlyContinue
 $mingwCxxCompiler = Get-Command x86_64-w64-mingw32-g++ -ErrorAction SilentlyContinue
 $mingwClang = Get-Command x86_64-w64-mingw32-clang -ErrorAction SilentlyContinue
 
-# 如果没找到精确前缀, 尝试 clang (mingw-w64 的 clang 也可以交叉编译)
+# If no exact prefix is found, try clang (mingw-w64 clang can cross-compile too)
 if (-not $mingwCCompiler) {
     $mingwClangPlain = Get-Command clang -ErrorAction SilentlyContinue
     if ($mingwClangPlain) {
         $clangVersion = & clang --version 2>&1 | Select-Object -First 1
         if ($clangVersion -match "windows-gnu|w64") {
             $mingwCCompiler = $mingwClangPlain
-            Write-Info "使用 clang 作为交叉编译器 (target: windows-gnu)"
+            Write-Info "Using clang as the cross compiler (target: windows-gnu)"
         }
     }
 }
 
 if (-not $mingwCCompiler) {
-    # 扫描常见安装路径 (按优先级排序)
+    # Scan common install paths (in priority order)
     $searchPaths = @(
         "C:\Program Files\ming-w64\bin",
         "C:\msys64\mingw64\bin",
@@ -118,32 +118,32 @@ if (-not $mingwCCompiler) {
         if (Test-Path $candidate) {
             $mingwCCompiler = @{ Source = $candidate } | ForEach-Object { New-Object PSObject -Property $_ }
             $env:PATH = "$sp;$env:PATH"
-            Write-Info "在 $sp 找到交叉编译器"
+            Write-Info "Found the cross compiler at $sp"
             break
         }
     }
 }
 
 if (-not $mingwCCompiler) {
-    Write-Fatal "未找到 MinGW-w64 交叉编译器。请安装 mingw-w64 并确保 x86_64-w64-mingw32-gcc 在 PATH 中。"
+    Write-Fatal "MinGW-w64 cross compiler not found. Install mingw-w64 and make sure x86_64-w64-mingw32-gcc is in PATH."
 }
 
 $ccPath = if ($mingwCCompiler.Source) { $mingwCCompiler.Source } else { $mingwCCompiler }
-Write-Info "C 编译器: $ccPath"
+Write-Info "C compiler: $ccPath"
 & $ccPath --version 2>&1 | Select-Object -First 1
 
 # ---------------------------------------------------------------------------
-# 2. 检测 CMake
+# 2. Detect CMake
 # ---------------------------------------------------------------------------
 $cmakeCmd = Get-Command cmake -ErrorAction SilentlyContinue
 if (-not $cmakeCmd) {
-    Write-Fatal "未找到 cmake。请安装 CMake 3.10+ 并确保在 PATH 中。"
+    Write-Fatal "cmake not found. Install CMake 3.10+ and make sure it is in PATH."
 }
 $cmakeVersion = & cmake --version 2>&1 | Select-Object -First 1
 Write-Info "CMake: $cmakeVersion"
 
 # ---------------------------------------------------------------------------
-# 3. 检测生成器
+# 3. Detect the generator
 # ---------------------------------------------------------------------------
 if (-not $CMakeGenerator) {
     $ninja = Get-Command ninja -ErrorAction SilentlyContinue
@@ -155,35 +155,35 @@ if (-not $CMakeGenerator) {
         $CMakeGenerator = "Unix Makefiles"
     }
 }
-Write-Info "生成器: $CMakeGenerator"
+Write-Info "Generator: $CMakeGenerator"
 
 # ---------------------------------------------------------------------------
-# 4. 并行任务数
+# 4. Parallel job count
 # ---------------------------------------------------------------------------
 if ($Jobs -le 0) {
     $cpuCores = (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
     if (-not $cpuCores) { $cpuCores = 4 }
     $Jobs = $cpuCores
 }
-Write-Info "并行任务: $Jobs"
+Write-Info "Parallel jobs: $Jobs"
 
 # ---------------------------------------------------------------------------
-# 5. 清理 (可选)
+# 5. Clean (optional)
 # ---------------------------------------------------------------------------
 $buildFullPath = Join-Path $ProjectRoot $BuildDir
 if ($Clean -and (Test-Path $buildFullPath)) {
-    Write-Info "清理构建目录: $buildFullPath"
+    Write-Info "Cleaning build directory: $buildFullPath"
     Remove-Item -Recurse -Force $buildFullPath
 }
 
 # ---------------------------------------------------------------------------
-# 6. CMake 配置
+# 6. CMake configure
 # ---------------------------------------------------------------------------
-Write-Host "`n--- CMake 配置 ---" -ForegroundColor White
+Write-Host "`n--- CMake configure ---" -ForegroundColor White
 
 $toolchainFile = Join-Path $ProjectRoot "cmake\mingw-w64.cmake"
 if (-not (Test-Path $toolchainFile)) {
-    Write-Fatal "Toolchain 文件不存在: $toolchainFile"
+    Write-Fatal "Toolchain file does not exist: $toolchainFile"
 }
 Write-Info "Toolchain: $toolchainFile"
 
@@ -195,17 +195,17 @@ $cmakeArgs = @(
     "-DCMAKE_TOOLCHAIN_FILE=$toolchainFile"
 )
 
-# 子目录CMakeLists.txt检测 — 根目录无顶层CMakeLists.txt, 使用 src/runtime
+# Subdirectory CMakeLists.txt detection -- no top-level CMakeLists.txt at the root, use src/runtime
 $rootCMake = Join-Path $ProjectRoot "CMakeLists.txt"
 if (-not (Test-Path $rootCMake)) {
-    Write-Info "根目录无 CMakeLists.txt, 使用 src/runtime 作为入口"
-    # 用户需要从 src/runtime 开始构建, 或创建一个顶层 CMakeLists
-    # 这里我们将使用 src/runtime 的 CMakeLists.txt
+    Write-Info "No CMakeLists.txt at the root, using src/runtime as the entry point"
+    # The user needs to build from src/runtime, or create a top-level CMakeLists
+    # Here we will use src/runtime's CMakeLists.txt
     $srcRuntimeCMake = Join-Path $ProjectRoot "src\runtime\CMakeLists.txt"
     if (Test-Path $srcRuntimeCMake) {
-        Write-Info "检测到 src/runtime/CMakeLists.txt"
-        # 创建临时顶层 wrapper 或提示用户
-        Write-Warn "项目使用 src/runtime 子目录构建, 将使用 -S src/runtime"
+        Write-Info "Detected src/runtime/CMakeLists.txt"
+        # Create a temporary top-level wrapper or prompt the user
+        Write-Warn "Project builds from the src/runtime subdirectory, using -S src/runtime"
         $cmakeArgs = @(
             "-S", (Join-Path $ProjectRoot "src\runtime"),
             "-B", $buildFullPath,
@@ -219,14 +219,14 @@ if (-not (Test-Path $rootCMake)) {
 Write-Host "cmake $cmakeArgs" -ForegroundColor Gray
 & cmake @cmakeArgs 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Fatal "CMake 配置失败 (exit $LASTEXITCODE)"
+    Write-Fatal "CMake configure failed (exit $LASTEXITCODE)"
 }
-Write-Success "CMake 配置完成"
+Write-Success "CMake configure complete"
 
 # ---------------------------------------------------------------------------
-# 7. CMake 构建
+# 7. CMake build
 # ---------------------------------------------------------------------------
-Write-Host "`n--- 构建 ($BuildType) ---" -ForegroundColor White
+Write-Host "`n--- Build ($BuildType) ---" -ForegroundColor White
 
 $buildArgs = @(
     "--build", $buildFullPath,
@@ -238,14 +238,14 @@ $buildArgs = @(
 & cmake @buildArgs 2>&1
 $buildExit = $LASTEXITCODE
 if ($buildExit -ne 0) {
-    Write-Fatal "构建失败 (exit $buildExit)"
+    Write-Fatal "Build failed (exit $buildExit)"
 }
-Write-Success "构建完成 (0 errors)"
+Write-Success "Build complete (0 errors)"
 
 # ---------------------------------------------------------------------------
-# 8. PE 格式验证
+# 8. PE format verification
 # ---------------------------------------------------------------------------
-Write-Host "`n--- PE 格式验证 ---" -ForegroundColor White
+Write-Host "`n--- PE format verification ---" -ForegroundColor White
 
 $exeFiles = Get-ChildItem -Path $buildFullPath -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
 $dllFiles = Get-ChildItem -Path $buildFullPath -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue
@@ -253,39 +253,39 @@ $libFiles = Get-ChildItem -Path $buildFullPath -Filter "*.a" -Recurse -ErrorActi
 
 $peFiles = @($exeFiles) + @($dllFiles)
 if ($peFiles.Count -eq 0) {
-    Write-Warn "未找到 PE 可执行文件 (.exe/.dll)"
+    Write-Warn "No PE executable files found (.exe/.dll)"
 } else {
-    Write-Info "找到 $($peFiles.Count) 个 PE 文件, $($libFiles.Count) 个静态库 (.a)"
+    Write-Info "Found $($peFiles.Count) PE file(s), $($libFiles.Count) static librar(ies) (.a)"
     foreach ($pe in $peFiles) {
         $bytes = [System.IO.File]::ReadAllBytes($pe.FullName)
         if ($bytes.Count -ge 2 -and $bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) {
-            Write-Success "PE: $($pe.Name) (MZ 头 OK, 大小: $($pe.Length) bytes)"
+            Write-Success "PE: $($pe.Name) (MZ header OK, size: $($pe.Length) bytes)"
         } else {
-            Write-Warn "PE: $($pe.Name) 可能缺少 MZ 头 (前2字节: 0x$($bytes[0].ToString('X2')) 0x$($bytes[1].ToString('X2')))"
+            Write-Warn "PE: $($pe.Name) may be missing the MZ header (first 2 bytes: 0x$($bytes[0].ToString('X2')) 0x$($bytes[1].ToString('X2')))"
         }
     }
 }
 
 # ---------------------------------------------------------------------------
-# 9. 输出汇总
+# 9. Output summary
 # ---------------------------------------------------------------------------
-Write-Host "`n=== 构建结果 ===" -ForegroundColor White
-Write-Host "构建目录: $buildFullPath" -ForegroundColor Gray
-Write-Host "构建类型: $BuildType" -ForegroundColor Gray
-Write-Host "编译器  : $ccPath" -ForegroundColor Gray
+Write-Host "`n=== Build result ===" -ForegroundColor White
+Write-Host "Build directory: $buildFullPath" -ForegroundColor Gray
+Write-Host "Build type     : $BuildType" -ForegroundColor Gray
+Write-Host "Compiler       : $ccPath" -ForegroundColor Gray
 
 if ($libFiles.Count -gt 0) {
-    Write-Host "`n静态库:" -ForegroundColor White
+    Write-Host "`nStatic libraries:" -ForegroundColor White
     foreach ($lib in $libFiles) {
         Write-Host "  $($lib.Name) ($([math]::Round($lib.Length/1KB,1)) KB)" -ForegroundColor Gray
     }
 }
 
 if ($peFiles.Count -gt 0) {
-    Write-Host "`n可执行文件:" -ForegroundColor White
+    Write-Host "`nExecutables:" -ForegroundColor White
     foreach ($pe in $peFiles) {
         Write-Host "  $($pe.Name) ($([math]::Round($pe.Length/1KB,1)) KB)" -ForegroundColor Gray
     }
 }
 
-Write-Host "`n=== MinGW 交叉编译构建成功 ===" -ForegroundColor Green
+Write-Host "`n=== MinGW cross-compile build succeeded ===" -ForegroundColor Green

@@ -301,9 +301,9 @@ int main()
         il2cpp::Il2CppString* enc =
             il2cpp_convert_to_base64_string(BytesFrom(utf8, 12));
         Expect(StringIs(enc, "5L2g5aW95LiW55WM"),
-               "to_base64(你好世界 UTF-8) == \"5L2g5aW95LiW55WM\"");
+               "to_base64(ni hao shi jie UTF-8) == \"5L2g5aW95LiW55WM\"");
         Expect(ArrayBytesEqual(il2cpp_convert_from_base64_string(enc), utf8, 12),
-               "from_base64(to_base64(你好世界 UTF-8)) == original bytes");
+               "from_base64(to_base64(ni hao shi jie UTF-8)) == original bytes");
     }
 
     // --- 3b. net48 re-probe 2026-08-08 (csc.exe Framework64 v4.0.30319):

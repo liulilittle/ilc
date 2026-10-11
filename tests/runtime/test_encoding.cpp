@@ -309,10 +309,10 @@ int main()
         uint8_t buf[8];
         Expect(il2cpp::runtime::il2cpp_encoding_get_bytes(s, il2cpp::runtime::il2cpp_encoding_code_page::utf8,
                                                           buf, 8) == 6,
-               "get_bytes(utf8): 中中 -> 6 bytes");
+               "get_bytes(utf8): zhongzhong -> 6 bytes");
         Expect(il2cpp::runtime::il2cpp_encoding_get_bytes(s, il2cpp::runtime::il2cpp_encoding_code_page::unicode,
                                                           buf, 8) == 4,
-               "get_bytes(unicode): 中中 -> 4 bytes");
+               "get_bytes(unicode): zhongzhong -> 4 bytes");
         Expect(buf[0] == 0x2D && buf[1] == 0x4E && buf[2] == 0x2D && buf[3] == 0x4E,
                "get_bytes(unicode): UTF-16LE byte order (2D 4E 2D 4E)");
         Expect(il2cpp::runtime::il2cpp_encoding_get_bytes(s, il2cpp::runtime::il2cpp_encoding_code_page::ascii,
@@ -400,7 +400,7 @@ int main()
             buf, len, il2cpp::runtime::il2cpp_encoding_code_page::utf8);
         const uint8_t head[3] = { 0xE4, 0xBD, 0xA0 }; // ni
         Expect(need == 15 && len == 15,
-               "round trip: 你好，世界 encodes to 15 UTF-8 bytes");
+               "round trip: ni hao, shi jie encodes to 15 UTF-8 bytes");
         Expect(std::memcmp(buf, head, 3) == 0,
                "round trip: first character encodes as E4 BD A0");
         Expect(StrLen(back) == StrLen(s) &&
@@ -420,11 +420,11 @@ int main()
                ByteAt(u8, 0) == expected[0] && ByteAt(u8, 1) == expected[1] &&
                ByteAt(u8, 2) == expected[2] && ByteAt(u8, 3) == expected[3] &&
                ByteAt(u8, 4) == expected[4] && ByteAt(u8, 5) == expected[5],
-               "utf8_get_bytes: '你好' -> E4 BD A0 E5 A5 BD");
+               "utf8_get_bytes: 'nihao' -> E4 BD A0 E5 A5 BD");
         // GetString round trip: decode the bytes back to the identical string.
         il2cpp::Il2CppString* back = il2cpp::runtime::il2cpp_encoding_utf8_get_string(u8);
         Expect(StrLen(back) == 2 && back->chars[0] == 0x4F60 && back->chars[1] == 0x597D,
-               "utf8_get_string: E4 BD A0 E5 A5 BD round-trips to '你好'");
+               "utf8_get_string: E4 BD A0 E5 A5 BD round-trips to 'nihao'");
     }
     {
         // Supplementary-plane round trip: a valid surrogate pair encodes to a
@@ -518,7 +518,7 @@ int main()
         il2cpp::Il2CppArray* u8 = il2cpp::runtime::il2cpp_encoding_utf8_get_bytes(s);
         il2cpp::Il2CppArray* back = il2cpp::runtime::il2cpp_encoding_utf8_get_chars(u8);
         Expect(ArrLen(back) == 2 && CharAt(back, 0) == 0x4F60 && CharAt(back, 1) == 0x597D,
-               "utf8_get_chars: E4 BD A0 E5 A5 BD -> char[] '你好'");
+               "utf8_get_chars: E4 BD A0 E5 A5 BD -> char[] 'nihao'");
     }
     {
         // ASCII bytes pass through; invalid byte 0xFF decodes to U+FFFD and

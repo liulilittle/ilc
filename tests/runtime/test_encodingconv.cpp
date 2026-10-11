@@ -125,7 +125,7 @@ int main()
         const uint8_t expected[2] = { 0x4E, 0x2D };
         Expect(ArrayEqualsBytes(il2cpp::runtime::il2cpp_encoding_unicodebe_get_bytes(s),
                                 expected, 2),
-               "GetBytes(\"中\") -> {4E 2D} (high byte first)");
+               "GetBytes(\"zhong\") -> {4E 2D} (high byte first)");
     }
     {
         il2cpp::Il2CppString* empty = il2cpp::il2cpp_string_new(nullptr, 0);
@@ -157,7 +157,7 @@ int main()
                    reinterpret_cast<il2cpp::Il2CppString*>(
                        il2cpp::runtime::il2cpp_encoding_unicodebe_get_string(MakeBytes(bytes, 2))),
                    zh, 1),
-               "GetString({4E 2D}) -> \"中\"");
+               "GetString({4E 2D}) -> \"zhong\"");
     }
     {
         Expect(StringEqualsUnits(
@@ -192,7 +192,7 @@ int main()
         il2cpp::Il2CppString* back = reinterpret_cast<il2cpp::Il2CppString*>(
             il2cpp::runtime::il2cpp_encoding_unicodebe_get_string(bytes));
         Expect(StringEqualsUnits(back, mixed, 3),
-               "GetBytes then GetString round-trips \"A中B\"");
+               "GetBytes then GetString round-trips \"A-zhong-B\"");
     }
 
     // --- 4. GetChars (ranged form) ---

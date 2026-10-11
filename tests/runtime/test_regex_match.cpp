@@ -310,7 +310,7 @@ int main()
         const char16_t input[] = {u'\u4F60', u'\u597D', u'1', u'2', u'3'};
         const MatchResult r = MatchUtf16(pattern, 5, input, 5);
         Expect(r.success && r.matchedLength == 5,
-               "你好\\d+ matches 你好123 (UTF-16 units)");
+               "nihao\\d+ matches nihao123 (UTF-16 units)");
     }
 
     //--------------------------------------------------------------------------
@@ -377,8 +377,8 @@ int main()
         {
             // CJK/kana/hangul/Greek are letters (single UTF-16 units).
             const char16_t pat[] = {u'\\', u'p', u'{', u'L', u'}'};
-            Expect(MatchUtf16(pat, 5, u"\u4E2D", 1).success, "\\p{L} matches 中");
-            Expect(MatchUtf16(pat, 5, u"\u9FA5", 1).success, "\\p{L} matches 龥");
+             Expect(MatchUtf16(pat, 5, u"\u4E2D", 1).success, "\\p{L} matches U+4E2D");
+             Expect(MatchUtf16(pat, 5, u"\u9FA5", 1).success, "\\p{L} matches U+9FA5");
             Expect(MatchUtf16(pat, 5, u"\u3042", 1).success, "\\p{L} matches あ");
             Expect(MatchUtf16(pat, 5, u"\u30A2", 1).success, "\\p{L} matches ア");
             Expect(MatchUtf16(pat, 5, u"\uD55C", 1).success, "\\p{L} matches 한");
@@ -401,7 +401,7 @@ int main()
             Expect(MatchUtf16(pat, 5, u"\u2162", 1).success,
                    "\\p{N} matches Roman Ⅲ");
             Expect(!MatchUtf16(pat, 5, u"\u4E2D", 1).success,
-                   "\\p{N} rejects 中");
+                    "\\p{N} rejects U+4E2D");
         }
 
         // ---- \p{P}: punctuation (ASCII + CJK) ----
@@ -419,7 +419,7 @@ int main()
             Expect(MatchUtf16(pat, 5, u"\uFF1F", 1).success,
                    "\\p{P} matches ？");
             Expect(!MatchUtf16(pat, 5, u"\u4E2D", 1).success,
-                   "\\p{P} rejects 中");
+                    "\\p{P} rejects U+4E2D");
         }
 
         // ---- \p{Lu} / \p{Ll}: case-specific ----
@@ -438,9 +438,9 @@ int main()
             Expect(MatchUtf16(ll, 6, u"\u03B1", 1).success,
                    "\\p{Ll} matches Greek α");
             Expect(!MatchUtf16(lu, 6, u"\u4E2D", 1).success,
-                   "\\p{Lu} rejects CJK 中");
+                    "\\p{Lu} rejects CJK U+4E2D");
             Expect(!MatchUtf16(ll, 6, u"\u4E2D", 1).success,
-                   "\\p{Ll} rejects CJK 中");
+                    "\\p{Ll} rejects CJK U+4E2D");
         }
 
         // ---- \P{...}: complement (top level) ----
@@ -449,7 +449,7 @@ int main()
         {
             const char16_t pat[] = {u'\\', u'P', u'{', u'L', u'}'};
             Expect(!MatchUtf16(pat, 5, u"\u4E2D", 1).success,
-                   "\\P{L} rejects 中");
+                    "\\P{L} rejects U+4E2D");
             Expect(MatchUtf16(pat, 5, u"!", 1).success, "\\P{L} matches '!'");
         }
 
@@ -496,7 +496,7 @@ int main()
                                     u'$'};
             const char16_t input[] = {u'a', u'b', u'c', u'\u4E2D', u'\u6587'};
             Expect(MatchUtf16(pat, 8, input, 5).success,
-                   "^\\p{L}+$ matches 'abc中文'");
+                    "^\\p{L}+$ matches 'abc' + CJK");
         }
 
         // ---- IgnoreCase folds \p{Lu}/\p{Ll} ASCII members (net48 probe) ----

@@ -99,7 +99,7 @@ bool StrEquals(il2cpp::Il2CppObject* s, const char* ascii)
     return true;
 }
 
-// Managed string <-> UTF-16 units comparison helper (Chinese / NUL tests).
+// Managed string <-> UTF-16 units comparison helper (non-ASCII / NUL tests).
 bool StrEquals16(il2cpp::Il2CppObject* s, const char16_t* units, int32_t length)
 {
     if (s == nullptr)
@@ -402,7 +402,7 @@ int main()
         // "ni hao": 6 UTF-8 bytes (E4 BD A0 E5 A5 BD) after prefix 0x06.
         Expect(WByte(arr, 4) == 0x06 && WByte(arr, 5) == 0xE4 && WByte(arr, 6) == 0xBD && WByte(arr, 7) == 0xA0
                && WByte(arr, 8) == 0xE5 && WByte(arr, 9) == 0xA5 && WByte(arr, 10) == 0xBD,
-               "string Chinese: prefix is the UTF-8 byte count (你好 -> 06)");
+               "string non-ASCII: prefix is the UTF-8 byte count (nihao -> 06)");
         // "a" NUL "b": prefix 0x03 + 61 00 62 (embedded NUL is content).
         Expect(WByte(arr, 11) == 0x03 && WByte(arr, 12) == 0x61 && WByte(arr, 13) == 0x00 && WByte(arr, 14) == 0x62,
                "string embedded NUL: unit 0x00 encodes as content byte 0x00");
@@ -416,7 +416,7 @@ int main()
 
         Il2CppBinaryReader* r = ReaderOf(arr);
         Expect(StrEquals(il2cpp_binary_read_string(r), "abc"), "string ASCII round-trips");
-        Expect(StrEquals16(il2cpp_binary_read_string(r), han, 2), "string Chinese round-trips");
+        Expect(StrEquals16(il2cpp_binary_read_string(r), han, 2), "string non-ASCII round-trips");
         Expect(StrEquals16(il2cpp_binary_read_string(r), nl, 3), "string embedded NUL round-trips");
         Expect(StrEquals16(il2cpp_binary_read_string(r), empty, 0), "string empty round-trips");
         Expect(StrEquals16(il2cpp_binary_read_string(r), empty, 0), "string null write round-trips as empty");
@@ -456,7 +456,7 @@ int main()
         Expect(il2cpp_binary_read_int64(r) == -9, "reader over writer A reads writer B's int64");
         Expect(il2cpp_binary_read_single(r) == 0.25f, "reader over writer A reads writer B's single");
         Expect(StrEquals16(il2cpp_binary_read_string(r), u"\u4E2D\u6587", 2),
-               "reader over writer A reads writer B's Chinese string");
+               "reader over writer A reads writer B's non-ASCII string");
         il2cpp_binary_reader_destroy(r);
         il2cpp_binary_writer_destroy(a);
         il2cpp_binary_writer_destroy(b);
@@ -482,7 +482,7 @@ int main()
         Expect(il2cpp_binary_read_int64(r) == 0x1122334455667788LL, "mixed sequence int64");
         Expect(il2cpp_binary_read_single(r) == 3.5f, "mixed sequence single");
         Expect(StrEquals16(il2cpp_binary_read_string(r), u"\u4F60\u597D\uFF0C\u4E16\u754C", 5),
-               "mixed sequence Chinese string");
+               "mixed sequence non-ASCII string");
         il2cpp_binary_reader_destroy(r);
         il2cpp_binary_writer_destroy(w);
     }
@@ -837,7 +837,7 @@ int main()
         icall_stream_memory_ctor(sms);
         Il2CppObject* sw = NewBinaryWriter();
         icall_binary_writer_ctor(sw, sms);
-        icall_binary_write_string(sw, Cs16(u"\u4F60\u597D", 2));         // Chinese BMP
+        icall_binary_write_string(sw, Cs16(u"\u4F60\u597D", 2));         // non-ASCII BMP
         icall_binary_write_string(sw, Cs16(u"", 0));                     // empty
         icall_binary_write_string(sw, nullptr);                          // null -> empty
         icall_binary_write_string(sw, Cs16(u"\u4E2D\u6587\u8FD4\u5F80", 4)); // BMP round-trip
@@ -845,7 +845,7 @@ int main()
         Il2CppObject* sr = NewBinaryReader();
         icall_binary_reader_ctor(sr, sms);
         Expect(StrEquals16(icall_binary_read_string(sr), u"\u4F60\u597D", 2),
-               "object string Chinese BMP round-trips");
+               "object string non-ASCII BMP round-trips");
         Expect(StrEquals16(icall_binary_read_string(sr), u"", 0),
                "object string empty round-trips");
         Expect(StrEquals16(icall_binary_read_string(sr), u"", 0),
