@@ -1430,7 +1430,9 @@ public class CodeGeneratorTests
             // The call result lands in a void* slot (was int32_t loc0)...
             Assert.Contains("void* loc0", cpp);
             // ...and the indirect call is emitted through it with a null guard.
-            Assert.Contains("loc0 = make_inc()", cpp);
+            // GN-17 wraps the P/Invoke call in il2cpp_pinvoke_call<void*>(...)
+            // (SEH boundary); the wrapper still feeds the void* loc0 slot.
+            Assert.Contains("loc0 = il2cpp::runtime::il2cpp_pinvoke_call<void*>(make_inc)", cpp);
             Assert.Contains("NullReferenceException", cpp);
         }
         finally
