@@ -51,9 +51,14 @@ namespace Cases { public static class FnPtr {
             // void* cast preserves the address.
             void* vp = (void*)q;
             Console.WriteLine(vp == (void*)q);     // True
-            // NOTE: `(IntPtr)fnptr` is NOT asserted here -- it routes through
-            // BCL System.IntPtr::op_Explicit(void*), whose body the transpiler
-            // has no generated body for (pre-existing P2 gap, P-D3 out of scope).
+            // GN-18 B3: `(IntPtr)fnptr` -- the fnptr value IS a void* ("p"
+            // slot); IntPtr::op_Explicit(void*) bridges it to the intptr_t
+            // carrier (net48 address bits preserved), so the IntPtr compares
+            // equal to the void* reinterpretation of the same address.
+            IntPtr iq = (IntPtr)q;
+            Console.WriteLine(iq != IntPtr.Zero);  // True
+            Console.WriteLine(iq == (IntPtr)q2);   // True (q and q2 both &Twice)
+            Console.WriteLine(iq == (IntPtr)vp);   // True (same address)
         }
     }
 }}
