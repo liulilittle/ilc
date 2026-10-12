@@ -10426,6 +10426,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         var b when (byte)b is 0x0D => "double",    // Double
         var b when (byte)b is 0x02 => "bool",      // Boolean
         var b when (byte)b is 0x03 => "char16_t",  // Char
+        // GN-18 B2 (user-method fnptr RETURN): a user method returning a
+        // `delegate*` (ELEMENT_TYPE_FNPTR 0x1B) declares its return as the
+        // full-width void* pointer carrier -- the fnptr value IS a raw void*
+        // ("p" slot, see FuncPtrExpr :4957 and CalliReturnCpp :9345). Without
+        // this arm ReturnTypeCpp LOUD-rejected "return type FunctionPointer is
+        // not supported by M3"; the net48 function address (64-bit on x64)
+        // must survive the return declaration unchanged. Mirrors the P/Invoke
+        // side (PinvokeReturnTypeCpp :7836 -- same FunctionPointer->void* rule).
+        SignatureTypeCode.FunctionPointer => "void*",
         // TypedReference (0x16), ByRef (0x10), Ptr (0x0F) tolerant fallbacks
         var b when (byte)b is 0x16 => "Il2CppObject*",
         var b when (byte)b is 0x10 => "void*",

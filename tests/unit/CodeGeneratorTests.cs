@@ -1492,21 +1492,24 @@ public class CodeGeneratorTests
     }
 
     //--------------------------------------------------------------------------
-    // P-D3 P1 (USER-method fnptr RETURN -- LOUD lock): a user method returning
-    // a `delegate*` hits ReturnTypeCpp with no 0x1B arm -> NotSupportedException
-    // (hard gate, NO silent truncation). P-D3 keeps the LOUD reject and locks
-    // it with this red test; wiring the return carrier is a recorded follow-up.
+    // P-D3 P1 => GN-18 B2 (USER-method fnptr RETURN -- full-width carrier): a
+    // user method returning a `delegate*` (ELEMENT_TYPE_FNPTR 0x1B) now
+    // declares its return as void* via ReturnTypeCpp's 0x1B arm (the old no-arm
+    // NotSupportedException is gone). The generated body returns the raw
+    // function address and the caller's calli rides the void* "p" slot.
     // Fixture: tests/fixtures/fnptrretuser.dll.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Generate_UserMethodFnPtrReturn_LoudlyRejected()
+    public void Generate_UserMethodFnPtrReturn_EmitsVoidStarReturn()
     {
         var types = MetadataLoader.LoadAssembly(FixturePath("fnptrretuser"));
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
-            var ex = Assert.ThrowsAny<NotSupportedException>(() => CodeGenerator.Generate(types, dir, FixturePath("fnptrretuser")));
-            Assert.Contains("return type", ex.Message);
+            CodeGenerator.Generate(types, dir, FixturePath("fnptrretuser")); // must NOT throw (was a LOUD reject)
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_FnPtrRetUser.cpp"));
+            // The fnptr-returning method is declared void* (full-width carrier).
+            Assert.Contains("void* Cases_FnPtrRetUser_GetInc", cpp);
         }
         finally
         {
@@ -1520,15 +1523,19 @@ public class CodeGeneratorTests
     // type::method identity, so a top-level transpile failure names the exact
     // method that rejected loudly. The wrapper must preserve the inner
     // exception chain (the throw-point message stays reachable).
+    // NOTE: the trigger is the multidim fixture (Make returns int[,] -- the
+    // multidim-array return stays LOUD "return type Array is not supported by
+    // M3"; the fnptrretuser fixture was the old trigger but GN-18 B2 wired the
+    // user-method fnptr return, so it no longer fails at Generate).
     //--------------------------------------------------------------------------
     [Fact]
     public void MethodContextException_OnGenerateFailure()
     {
-        var types = MetadataLoader.LoadAssembly(FixturePath("fnptrretuser"));
+        var types = MetadataLoader.LoadAssembly(FixturePath("multidim"));
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
-            var ex = Assert.Throws<MethodContextException>(() => CodeGenerator.Generate(types, dir, FixturePath("fnptrretuser")));
+            var ex = Assert.Throws<MethodContextException>(() => CodeGenerator.Generate(types, dir, FixturePath("multidim")));
             Assert.False(string.IsNullOrWhiteSpace(ex.TypeName), "TypeName must identify the owning type");
             Assert.False(string.IsNullOrWhiteSpace(ex.MethodName), "MethodName must identify the failing method");
             Assert.Contains("return type", ex.InnerException!.Message);
