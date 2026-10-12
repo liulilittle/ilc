@@ -9369,12 +9369,26 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // value feeds the slot directly (no teardown).
         if (encoded.StartsWith("F:", StringComparison.Ordinal)) return "void*";
         if (encoded.StartsWith("P:", StringComparison.Ordinal)) return "void*";
+        // GN-18 B4 (calli V:/B: value-parameter arms): a BYREF (0x10) parameter
+        // is passed BY ADDRESS -- the C++ calli target takes a POINTER to the
+        // slot (Il2CppObject** for ref string/object, int32_t* for ref int,
+        // TypeCppName* for a ref struct). The call site passes &slot; this is
+        // the ordinary user-method ref/out ABI, never the "p" pointer-carrier
+        // value arm. Inner encoded type is decoded recursively, then widened.
+        if (encoded.StartsWith("B:", StringComparison.Ordinal))
+            return CalliParamCpp(encoded[2..]) + "*";
         return encoded switch
         {
             "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" or "n" => "int32_t",
             "l" or "q" => "int64_t",
             "f" or "d" => "double",
-            _ => throw new NotSupportedException($"calli parameter type '{encoded}' not supported in fnptr-b23 (only int32/int64/double/ref/ptr)"),
+            // GN-18 B4 (calli V:/B: value-parameter arms): a VALUETYPE (0x11)
+            // parameter is a struct passed BY VALUE -- the C++ calli target
+            // takes the full struct type (TypeCppName, e.g. Cases_Pt), and the
+            // call site passes the struct value (value-copy store/load), NOT an
+            // int32 truncation or a "p" pointer slot.
+            var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
+            _ => throw new NotSupportedException($"calli parameter type '{encoded}' not supported in fnptr-b23 (only int32/int64/double/ref/ptr/value)"),
         };
     }
 
@@ -10701,6 +10715,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     "n" => "intptr_t",
                     var arr when arr.StartsWith("r:System.Array", StringComparison.Ordinal) => "Il2CppArray*",
                     var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
+                    // GN-18 B4 (calli V:/B: value param, ordinary-method side):
+                    // a BYREF reference parameter (`ref string` / `ref object` --
+                    // "B:r:<name>") is the ADDRESS of the managed-reference
+                    // slot (Il2CppObject**), the same ref/out ABI the calli
+                    // B: arm emits. Without this arm the encoded param fell to
+                    // the int32_t default and the ref body's stind.ref wrote
+                    // through a truncated slot (stack corruption / AV).
+                    var br when br.StartsWith("B:r:", StringComparison.Ordinal) => "Il2CppObject**",
                     // fnptr domain b23: a `delegate*` parameter is a raw
                     // function pointer -- typed void* (the pointer-sized slot
                     // the model uses for native pointers; the calli site
@@ -10715,7 +10737,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     // caudit2-fix: a BY-REF value-type param (ref/out struct) is
                     // an ADDRESS -- declare the struct POINTER (the int32_t default
                     // truncated the x64 address and mis-typed the field access).
-                    var bv when bv.StartsWith("B:V:", StringComparison.Ordinal) => TypeCppName(bv[4..]) + "*",
+                    // GN-18 B4 (user-method B: arm): a BYREF parameter (0x10,
+                    // encoded "B:<inner>") is passed BY ADDRESS -- ref string/
+                    // object is Il2CppObject**, ref int32 int32_t*, ref int64
+                    // int64_t*, ref struct TypeCppName*. Reuse CalliParamCpp's
+                    // B: decode (the SAME widening: inner value type + "*") so
+                    // the user-method prototype and the calli target agree.
+                    var b when b.StartsWith("B:", StringComparison.Ordinal) => CalliParamCpp(b),
                     var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
                     _ => "int32_t",
                 });
