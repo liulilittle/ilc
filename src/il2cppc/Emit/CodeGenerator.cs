@@ -2377,15 +2377,23 @@ public static class CodeGenerator
             else if (fieldDefP != null && fieldDefP.TypeKind == FieldTypeKind.NativeInt && string.IsNullOrEmpty(fieldDefP.FieldTypeName))
                 locKind[asp.Target] = "p";
         }
+        for (var i = 0; i < stmts.Count; i++)
+        {
+            if (!reachable[i] || stmts[i] is not AssignStmt a) continue;
+            if (a.Value is StaticFieldExpr) continue; // already classified above
+            var kind = ExprKind(a.Value, locKind);
+            if (kind != null) locKind[a.Target] = kind;
+        }
         // GN-18 B1 (fnptr fields): an INSTANCE/NESTED fnptr field read into a
         // local (`delegate* p = obj.cb;`) carries a void* value -- seed the
         // target local "p" (declared void*) so the copy keeps the pointer
-        // width. The ExprKind default for a non-reference FieldExpr is "val"
-        // (int32_t), which would fail the void* -> int32_t C++ assignment (or
-        // truncate the x64 address). Same fnptr marker as the static seed
-        // (NativeInt kind + EMPTY FieldTypeName; real IntPtr fields carry
-        // "System.IntPtr"). The owner/field lookup mirrors the static pattern
-        // above (nested types are keyed by SHORT FullName).
+        // width. This must run AFTER the generic ExprKind loop: a FieldExpr
+        // with IsRefField=false falls to ExprKind's default "val", which would
+        // otherwise clobber the seed with int32_t (failing the void* ->
+        // int32_t C++ assignment or truncating the x64 address). Same fnptr
+        // marker as the static seed (NativeInt kind + EMPTY FieldTypeName;
+        // real IntPtr fields carry "System.IntPtr"). The owner lookup mirrors
+        // the static pattern (nested types are keyed by SHORT FullName).
         for (var i = 0; i < stmts.Count; i++)
         {
             if (!reachable[i] || stmts[i] is not AssignStmt aif) continue;
@@ -2395,13 +2403,6 @@ public static class CodeGenerator
             var fieldDefI = ownerDefI?.InstanceFields.FirstOrDefault(ff => TypeEmitter.Sanitize(ff.Name) == fe.FieldCppName);
             if (fieldDefI != null && fieldDefI.TypeKind == FieldTypeKind.NativeInt && string.IsNullOrEmpty(fieldDefI.FieldTypeName))
                 locKind[aif.Target] = "p";
-        }
-        for (var i = 0; i < stmts.Count; i++)
-        {
-            if (!reachable[i] || stmts[i] is not AssignStmt a) continue;
-            if (a.Value is StaticFieldExpr) continue; // already classified above
-            var kind = ExprKind(a.Value, locKind);
-            if (kind != null) locKind[a.Target] = kind;
         }
         // M5 wiring: IL-declared int64/double locals are authoritative -- a
         // copy (`long b = a;`) must propagate the 64-bit kind even when the
