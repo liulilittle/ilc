@@ -4504,6 +4504,20 @@ public static class CodeGenerator
                     w.LineAligned($"{fnStmt}({callArgsStmt});",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- capture the exception message into the side table)");
                 }
+                else if (resolvedStmt is { IsPInvoke: true } pinvokeStmtStmt)
+                {
+                    // GN-17: a P/Invoke call in STATEMENT position (the result
+                    // is discarded -- most often a void DllImport entry named
+                    // as a bare statement, e.g. `Native();`). The native
+                    // library may throw a C++ exception; wrap the whole call in
+                    // the il2cpp_pinvoke_call boundary so the escape surfaces
+                    // as SEHException on the managed side (void specialization
+                    // of the helper -- the native result, if the declared
+                    // return is a discardable value, is dropped).
+                    var pinvokeCallCodeStmt = PinvokeCallWrapCode(pinvokeStmtStmt, fnStmt, callArgsStmt ?? "", "void");
+                    w.LineAligned($"{pinvokeCallCodeStmt};",
+                        $"IL {At(c.SourceOpName, c.SourceOffset)} -- invoke {DescribeCall(fnStmt)} (P/Invoke SEH boundary)");
+                }
                 else
                 {
                     w.LineAligned($"{fnStmt}({callArgsStmt});",
@@ -4893,21 +4907,22 @@ public static class CodeGenerator
                 return $"{TypeCppName(vn.TypeFullName)} {{ }}";
             case ExceptionEntryExpr:
                 // M5 wiring: the synthetic catch-handler entry -- the
-                // exception's SHORT type name interned as a managed string
-                // (e.GetType().Name). __il2cpp_ex is in scope ONLY inside
-                // the generated catch block (where the entry is consumed).
-                // The runtime type_name() is a chain "Type,Base1,Base2,...":
-                // the short name is the last '.' segment of the FIRST
-                // comma-separated entry, null-terminated (a bare pointer
-                // into the chain would run to the chain's end; the pre-M5
-                // strrchr('.')+1 grabbed "Exception" from the trailing base
-                // entry instead). The std::string temporary lives through
-                // the full expression, so c_str() is valid for the intern.
+                // exception type name interned as a managed string. The Type
+                // model's documented convention (MethodMap.Type.cs) is a Type
+                // VALUE = the FULL type name string, and MemberInfo::get_Name
+                // on it truncates at runtime (il2cpp_type_get_short_name) while
+                // get_FullName is the identity -- so the entry carries the full
+                // name and both properties resolve correctly (GN-17 probe A:
+                // e.GetType().FullName == System.Runtime.InteropServices.
+                // SEHException). __il2cpp_ex is in scope ONLY inside the
+                // generated catch block (where the entry is consumed). The
+                // runtime type_name() is a chain "Type,Base1,Base2,...": the
+                // full name is the FIRST comma-separated entry. The std::string
+                // temporary lives through the full expression, so c_str() is
+                // valid for the intern.
                 return "il2cpp::il2cpp_string_intern_literal(" +
                     "[](const char* n) -> std::string { const char* c = std::strchr(n, ','); " +
-                    "std::string seg = c != nullptr ? std::string(n, static_cast<size_t>(c - n)) : std::string(n); " +
-                    "auto dot = seg.rfind('.'); " +
-                    "return dot == std::string::npos ? seg : seg.substr(dot + 1); " +
+                    "return c != nullptr ? std::string(n, static_cast<size_t>(c - n)) : std::string(n); " +
                     "}(__il2cpp_ex.type_name()).c_str())";
             case FuncPtrExpr fp:
                 // ldftn: the address of the target method's generated function.
@@ -9181,10 +9196,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // per (dll, entry), so repeated calls are a table lookup. Failure
         // (library/symbol missing) is a managed exception at the call
         // boundary -- DllNotFoundException / EntryPointNotFoundException.
-        if (resolved2 is { IsPInvoke: true, PinvokeModule: not null } pm
-            && TryPinvokeDynamicSig(pm.PinvokeModule, cppName2, out var dynRet, out var dynParams))
+        //
+        // GN-17 (SEH boundary): BOTH P/Invoke call shapes -- the static extern
+        // "C" direct call (callCode2 built above as `cppName2(args)`) and the
+        // dynamic resolve cast -- are wrapped in
+        // il2cpp::runtime::il2cpp_pinvoke_call<Ret> (PinvokeCallWrapCode picks
+        // the dynamic signature when PinvokeModule is a SHARED/out-of-manifest
+        // library, else wraps the static symbol). A C++ exception escaping
+        // from the native library becomes a managed SEHException at the
+        // boundary instead of unwinding to std::terminate.
+        if (resolved2 is { IsPInvoke: true } pivoke)
         {
-            callCode2 = $"(({dynRet}(*)({dynParams}))il2cpp::il2cpp_pinvoke_resolve(\"{pm.PinvokeModule}\",\"{cppName2}\"))({callArgs2})";
+            callCode2 = PinvokeCallWrapCode(pivoke, cppName2, callArgs2 ?? "", "");
         }
         // P/Invoke "ptr" result bridge (il2cpp_pinvoke_bridge.h): the native
         // return may be an SDK pointer/size type (HWND/HMODULE/LRESULT/...)
@@ -9380,6 +9403,55 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     //--------------------------------------------------------------------------
     private static string PinvokeArgBridge(string code)
         => code == "nullptr" ? code : $"il2cpp::runtime::il2cpp_pinvoke_arg({code})";
+
+    //--------------------------------------------------------------------------
+    // PinvokeCallWrapCode -- GN-17: P/Invoke exception boundary. Every P/Invoke
+    // call site (static extern "C" direct call AND the dynamic
+    // il2cpp_pinvoke_resolve cast -- CodeGenerator.cs:9198/4507) is wrapped in
+    // il2cpp::runtime::il2cpp_pinvoke_call<Ret>(fn, args...) so a C++ exception
+    // escaping from the native library surfaces as a managed SEHException at
+    // the boundary (net48 semantics; the old naked call let it unwind to
+    // std::terminate). The wrapper's RET mirroring:
+    //   * "void" -- a statement-position call whose native result (if any) is
+    //     discarded (e.g. `Native();` -- a void DllImport entry, or any
+    //     statement-position call where the value is unused);
+    //   * ResultKind "ptr"  -> intptr_t (IntPtr/UIntPtr carrier);
+    //   * ResultKind "l"    -> int64_t;
+    //   * ResultKind "d"    -> double;
+    //   * default (incl. a plain int32-returning entry) -> int32_t.
+    // The dynamic path carries its own signature (TryPinvokeDynamicSig: dynRet
+    // / dynParams) -- the cast's native return type deduces into Ret directly.
+    //--------------------------------------------------------------------------
+    private static string PinvokeCallWrapCode(ResolvedMethod r, string fn, string args, string retOverride)
+    {
+        // The dynamic signature, when the module is a SHARED/out-of-manifest
+        // library: the fn expression becomes the cast of il2cpp_pinvoke_resolve
+        // to the native signature, and its dynRet IS the return carrier (the
+        // same type the naked `((Ret(*)(Params))resolve(...))(args)` call had).
+        if (r.PinvokeModule != null
+            && !string.IsNullOrEmpty(fn)
+            && TryPinvokeDynamicSig(r.PinvokeModule, fn, out var dynRet, out var dynParams))
+        {
+            var resolveCall = $"(({dynRet}(*)({dynParams}))il2cpp::il2cpp_pinvoke_resolve(\"{r.PinvokeModule}\",\"{fn}\"))";
+            return string.IsNullOrEmpty(args)
+                ? $"il2cpp::runtime::il2cpp_pinvoke_call<{dynRet}>({resolveCall})"
+                : $"il2cpp::runtime::il2cpp_pinvoke_call<{dynRet}>({resolveCall}, {args})";
+        }
+        // Static-direct path: the extern "C" symbol called directly; Ret is the
+        // managed-visible carrier (target override, else derived from ResultKind).
+        var retCpp = retOverride != ""
+            ? retOverride
+            : r.ResultKind switch
+            {
+                "ptr" => "intptr_t",
+                "l" => "int64_t",
+                "d" => "double",
+                _ => "int32_t",
+            };
+        return string.IsNullOrEmpty(args)
+            ? $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({fn})"
+            : $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({fn}, {args})";
+    }
 
     private static string? EmitIcallCallArgs(ResolvedMethod r, List<Expr> args, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
@@ -11093,6 +11165,25 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         h.Line("} catch (const il2cpp::DotNetException& __il2cpp_unhandled) {");
         h.Open();
         h.Line("return il2cpp::il2cpp_report_unhandled_exception(__il2cpp_unhandled.message_text());");
+        h.Close();
+        // GN-17 (方案乙): a native std::exception or any other C++ escape that
+        // slips past the P/Invoke boundary wrap (il2cpp_pinvoke_call) must NOT
+        // reach std::terminate/abort -- report and exit non-zero (the .NET
+        // process contract: an uncaught native exception is a reported,
+        // non-aborting failure). The catch clauses CHAIN (the previous body's
+        // closing brace is the next `} catch`): the DotNetException catch body
+        // stays the FIRST handler (managed exceptions keep their exact
+        // message), the std::exception handler reports what(), and the
+        // catch-all reports the unknown escape -- all exit non-zero.
+        h.Line("} catch (const std::exception& __il2cpp_cxx) {");
+        h.Open();
+        h.Line("std::fprintf(stderr, \"Unhandled native C++ exception: %s\\n\", __il2cpp_cxx.what());");
+        h.Line("return 1;");
+        h.Close();
+        h.Line("} catch (...) {");
+        h.Open();
+        h.Line("std::fprintf(stderr, \"Unhandled native exception (unknown type).\\n\");");
+        h.Line("return 1;");
         h.Close();
         h.Line("}");
         h.Close();

@@ -29,11 +29,27 @@
 // identity). il2cpp_pinvoke_result<T> is the result-side counterpart the
 // emitter applies when the managed return is an IntPtr carrier ("ptr" kind).
 //
+// GN-17 (pinvoke exception boundary): a native library may throw a C++
+// exception that would otherwise escape the P/Invoke call and terminate the
+// process (the generated catch is type-matched against DotNetException only).
+// il2cpp_pinvoke_call<Ret>(fn, args...) wraps the whole call so every such
+// escape surfaces to the managed side as
+// System.Runtime.InteropServices.SEHException -- the net48 P/Invoke boundary
+// contract. Catch ORDER matters: il2cpp::DotNetException IS a std::exception
+// subclass, so the managed-exception rethrow must come FIRST or the
+// std::exception handler would swallow it (the generated try/catch depends on
+// the DotNetException unwinding to its type-matched clause).
+//
 // All helpers are inline templates -- zero runtime cost, no symbol emitted.
 //------------------------------------------------------------------------------
 
 #include <cstdint>
 #include <type_traits>
+// GN-17: il2cpp_pinvoke_call references il2cpp::DotNetException and
+// il2cpp::il2cpp_throw_new (the managed-exception transport declared in
+// il2cpp_exception.h; no include cycle -- that header pulls only the C++
+// standard <exception>). <exception> is brought in transitively.
+#include "il2cpp_exception.h"
 
 namespace il2cpp {
 namespace runtime {
@@ -85,6 +101,78 @@ template <typename T, typename R>
 inline T il2cpp_pinvoke_result(R r)
 {
     return il2cpp_pinvoke_native_convert<T>(r);
+}
+
+//------------------------------------------------------------------------------
+// GN-17: P/Invoke exception boundary (see the header comment).
+//
+// The chain handed to il2cpp_throw_new follows the exceptionext/com.cpp
+// convention "{Type},{Type},{Base1},..." -- the first element is the exact
+// managed full name (what e.type_name() reports, so GetType().FullName of the
+// catch variable reads the full name) and the remaining elements are the
+// .NET base classes, so a catch of SEHException / ExternalException /
+// SystemException / Exception all match.
+//------------------------------------------------------------------------------
+const char kPinvokeSehChain[] =
+    "System.Runtime.InteropServices.SEHException,"
+    "System.Runtime.InteropServices.SEHException,"
+    "System.Runtime.InteropServices.ExternalException,"
+    "System.SystemException,System.Exception";
+
+// The message is a fixed STATIC literal (never e.what()): DotNetException
+// stores the message POINTER without copying (il2cpp_exception.h), so a
+// caller-buffer pointer would dangle once the catch block that owned the
+// native exception unwinds.
+const char kPinvokeSehMessage[] = "External component has thrown an exception.";
+
+// Wrap a native P/Invoke call so a C++ exception escaping from the library
+// surfaces as SEHException on the managed side. `fn` is the native callable
+// (a statically-linked extern "C" symbol or the il2cpp_pinvoke_resolve cast
+// expression); `args` are the SAME il2cpp_pinvoke_arg(...) bridge arguments
+// the unwrapped call would pass -- their conversion operators still deduce
+// the native parameter types at the point the template calls fn(args...), so
+// the arg-bridge semantics are preserved. Ret is the managed-visible return
+// CARRIER (int32_t/int64_t/double/intptr_t -- or void for a statement-position
+// call); the native result is converted to it through il2cpp_pinvoke_native_
+// convert, so a Windows-SDK pointer result (HWND/HMODULE/...) reinterprets
+// back to the intptr_t carrier exactly as the standalone il2cpp_pinvoke_result
+// bridge did.
+template <typename Ret, typename Fn, typename... Args>
+Ret il2cpp_pinvoke_call(Fn fn, Args... args)
+{
+    try
+    {
+        if constexpr (std::is_void<Ret>::value)
+        {
+            fn(args...);
+        }
+        else
+        {
+            return il2cpp_pinvoke_native_convert<Ret>(fn(args...));
+        }
+    }
+    catch (const il2cpp::DotNetException&)
+    {
+        // Managed exception: rethrow FIRST so the generated try/catch still
+        // type-matches it (DotNetException derives from std::exception; a
+        // std::exception catch below must not swallow it).
+        throw;
+    }
+    catch (const std::exception&)
+    {
+        // Native C++ exception escaping the P/Invoke boundary -> SEHException.
+        il2cpp::il2cpp_throw_new(kPinvokeSehChain, kPinvokeSehMessage);
+    }
+    catch (...)
+    {
+        // Any other escape (SEH-style) -> the same managed SEHException.
+        il2cpp::il2cpp_throw_new(kPinvokeSehChain, kPinvokeSehMessage);
+    }
+#ifdef _MSC_VER
+    __assume(0);
+#else
+    __builtin_unreachable();
+#endif
 }
 
 }} // namespace il2cpp::runtime
