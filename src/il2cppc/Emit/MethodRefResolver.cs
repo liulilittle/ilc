@@ -200,7 +200,15 @@ public sealed record ResolvedMethod(
     // emitter uses it to route the call site: a library absent from the
     // static-link manifest is resolved DYNAMICALLY via il2cpp_pinvoke_resolve
     // (and its extern "C" declaration is suppressed). Null = static direct call.
-    string? PinvokeModule = null)
+    string? PinvokeModule = null,
+    // GN-17 P0 (pinvokewide): the native C++ RETURN type of a real DllImport,
+    // derived from the method signature (mirrors PinvokeReturnTypeCpp:
+    // int64_t/double/uint64_t/float/intptr_t/struct). The il2cpp_pinvoke_call
+    // wrapper's Ret must equal the native return width -- deriving it from
+    // ResultKind narrows int64/double/float/uint64 to int32_t (the P0
+    // 4000000001 -> -294967295 regression). Only a REAL DllImport (MethodDef
+    // with an Import) carries it; mapped QCalls stay null.
+    string? PinvokeRetType = null)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -551,10 +559,31 @@ public static partial class MethodRefResolver
                 IsPInvoke: true, ParamTypeNames: CodeGenerator.SplitTopLevel(paramTypes).Select(p =>
                     utf16Strings && p == "r:System.String" ? "u16:System.String" : PInvokeCastCode(p)).ToArray(),
                 SetLastError: setLastError,
-                // M4.5: IntPtr/UIntPtr-returning P/Invoke -> "ptr" result kind
-                // (the emitter declares the result temp intptr_t instead of
-                // int32_t -- an int32_t temp truncates the x64 pointer).
-                ResultKind: returnType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
+                // M4.5/P-D1 (result-width mirrors, GN-17 P0): the result kind
+                // must mirror PinvokeReturnTypeCpp / StackFold.UserCallResultKind
+                // for EVERY native width -- int64/uint64 -> "l" (int64_t),
+                // float/double -> "d" (double), native intptr -> "ptr", and
+                // fnptr -> "p" (void*). The old "IntPtr/UIntPtr only" mapping
+                // left int64/double/float/uint64 returns null, so BOTH the
+                // result temp AND the GN-17 il2cpp_pinvoke_call<Ret> wrapper
+                // collapsed them to int32_t (pinvokewide 4000000001 -> a
+                // -294967295 truncation after the 5eacaad3 wrapper wrap).
+                ResultKind: returnType switch
+                {
+                    SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr => "ptr",
+                    SignatureTypeCode.Int64 or SignatureTypeCode.UInt64 => "l",
+                    SignatureTypeCode.Single or SignatureTypeCode.Double => "d",
+                    SignatureTypeCode.FunctionPointer => "p",
+                    _ => null,
+                },
+                // GN-17 P0 (pinvokewide): the native C++ return type, so
+                // il2cpp_pinvoke_call<Ret> carries the FULL native width
+                // (deriving Ret from ResultKind narrows int64/double/float/
+                // uint64 to int32_t -- the P0 regression). Mirrors
+                // PinvokeReturnTypeCpp; struct returns go through the same
+                // raw-name path (PinvokeRetCpp returns null -> the struct
+                // type is resolved by the emitter as before).
+                PinvokeRetType: PinvokeRetCpp(returnType),
                 // P-D4: carry the [DllImport] library name so the call site
                 // can route static vs dynamic (see the record field).
                 PinvokeModule: importModuleName);
@@ -1959,6 +1988,27 @@ var userRecvLike = receiverType ?? arg0Type;
         "V:System.Drawing.Point" or "B:V:System.Drawing.Point" => "point",
         "V:System.Windows.Forms.Message" or "B:V:System.Windows.Forms.Message" => "msg",
         _ => token,
+    };
+
+    // GN-17 P0 (pinvokewide): the native C++ RETURN type of a P/Invoke method,
+    // derived from the signature's return element type. Mirrors
+    // CodeGenerator.PinvokeReturnTypeCpp (int64/uint64 -> int64_t/uint64_t,
+    // float/double -> float/double, native int -> intptr_t/uintptr_t, fnptr ->
+    // void*). null = not a full-width primitive (int32-family, struct, etc.) --
+    // the emitter falls back to the ResultKind-derived carrier exactly as
+    // before. This is the width the il2cpp_pinvoke_call<Ret> wrapper MUST use;
+    // the old ResultKind-only mapping narrowed every non-"ptr" return to
+    // int32_t (int64 4000000001 -> a truncated -294967295).
+    private static string? PinvokeRetCpp(SignatureTypeCode returnType) => returnType switch
+    {
+        SignatureTypeCode.Int64 => "int64_t",
+        SignatureTypeCode.UInt64 => "uint64_t",
+        SignatureTypeCode.Single => "float",
+        SignatureTypeCode.Double => "double",
+        SignatureTypeCode.IntPtr => "intptr_t",
+        SignatureTypeCode.UIntPtr => "uintptr_t",
+        SignatureTypeCode.FunctionPointer => "void*",
+        _ => null,
     };
 
     // Decode the signature blob -> (param count, return type byte, per-param raw

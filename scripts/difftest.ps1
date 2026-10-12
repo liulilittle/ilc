@@ -98,12 +98,53 @@ New-Item -ItemType Directory -Force -Path $oracleDir | Out-Null
 $net48Log = "$logDir/${Case}_diff.$stamp.net48.log"
 cmd /c "dotnet build `"$csproj`" -c Release -o `"$oracleDir`" > `"$net48Log`" 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "net48 build failed (see $net48Log)" }
+# P/Invoke cases: build the case-own native libs (mylib/ etc.) into the oracle output dir with the
+# SAME x64 flavor as the oracle exe (net48 oracle must load mylib.dll at the same architecture).
+# The runtime channel compiles the native lib STATIC into il2cpp_gen_exe (CMake), so only the
+# oracle side needs the DLL; without it the net48 oracle fails LoadLibrary/DllNotFoundException.
+$nativeLibDirs = @(Get-ChildItem "$caseDir" -Directory -ErrorAction SilentlyContinue |
+    Where-Object { (Test-Path (Join-Path $_.FullName 'CMakeLists.txt')) -and $_.Name -notlike 'gen*' -and $_.Name -notlike 'build*' })
+foreach ($libDir in $nativeLibDirs) {
+    $cmakeTxt = Get-Content (Join-Path $libDir.FullName 'CMakeLists.txt') -Raw -ErrorAction SilentlyContinue
+    $libName = ''
+    if ($cmakeTxt -and $cmakeTxt -match 'project\(\s*([A-Za-z0-9_]+)') { $libName = $Matches[1] }
+    if (-not $libName) { $libName = $libDir.Name }
+    $libSrc = Get-ChildItem $libDir.FullName -Filter *.cpp | Select-Object -First 1
+    if ($libSrc) {
+        $libBuildLog = "$logDir/${Case}_diff.$stamp.$libName.dll.log"
+        cmd /c "g++ -shared -o `"$oracleDir/$libName.dll`" `"$($libSrc.FullName)`" > `"$libBuildLog`" 2>&1"
+        if ($LASTEXITCODE -ne 0) { throw "build $libName.dll for oracle $Case failed (see $libBuildLog)" }
+    }
+}
 $oracleExe = "$oracleDir/$Case.exe"
 if (-not (Test-Path $oracleExe)) { throw "oracle exe missing: $oracleExe" }
+# Decide the transpile input BEFORE deploying native libs: a case-owned native dll (mylib/ etc.) must not be mistaken
+# for the managed assembly (run-tests L255-259); net48 produces only an exe here.
+$transpileInput = if (Test-Path "$oracleDir/$Case.dll") { "$oracleDir/$Case.dll" } else { $oracleExe }
+
+# 2.5 Oracle native-lib deployment: a case-owned native library directory (mylib/ and SHARED libs) is consumed by the
+# net48 oracle via LoadLibrary, so its DLL must sit next to the oracle exe (the transpiled runtime links it statically
+# and needs nothing extra). Built with g++ -shared (net48 oracle runs on Windows); the oracle exe architecture is pinned
+# by the case csproj PlatformTarget so exe and DLL stay aligned. Mirrors run-tests L261-277.
+$nativeLibDirs = @(Get-ChildItem $caseDir -Directory -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path (Join-Path $_.FullName 'CMakeLists.txt') })
+foreach ($libDir in $nativeLibDirs) {
+    $cmakeTxt = Get-Content (Join-Path $libDir.FullName 'CMakeLists.txt') -Raw -ErrorAction SilentlyContinue
+    $libName = ''
+    if ($cmakeTxt -and $cmakeTxt -match 'project\(\s*([A-Za-z0-9_]+)') { $libName = $Matches[1] }
+    if (-not $libName) { $libName = $libDir.Name }
+    $libSrc = Get-ChildItem $libDir.FullName -Filter *.cpp | Select-Object -First 1
+    if ($libSrc) {
+        $libLog = "$logDir/${Case}_diff.$stamp.libbuild.log"
+        cmd /c "g++ -shared -o `"$oracleDir/$libName.dll`" `"$($libSrc.FullName)`" > `"$libLog`" 2>&1"
+        if ($LASTEXITCODE -ne 0) { throw "build $libName.dll for oracle failed (see $libLog)" }
+    }
+}
+
 $exp = Invoke-RawRun $oracleExe $TimeoutMs
 
 $transpileLog = "$logDir/${Case}_diff.$stamp.transpile.log"
-$input = if (Test-Path "$oracleDir/$Case.dll") { "$oracleDir/$Case.dll" } else { $oracleExe }
+$input = $transpileInput
 $gen = "$caseDir/gen_diff_$stamp"
 Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
 $transpilerDll = "$Root/src/il2cppc/bin/Debug/net8.0/il2cppc.dll"

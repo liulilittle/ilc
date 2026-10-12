@@ -9438,9 +9438,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 : $"il2cpp::runtime::il2cpp_pinvoke_call<{dynRet}>({resolveCall}, {args})";
         }
         // Static-direct path: the extern "C" symbol called directly; Ret is the
-        // managed-visible carrier (target override, else derived from ResultKind).
+        // managed-visible carrier (target override, else the native return type
+        // carried on the resolution -- PinvokeRetType mirrors PinvokeReturnTypeCpp,
+        // preserving full widths for int64/double/float/uint64). A null
+        // PinvokeRetType (struct returns; the loop here re-derives them from
+        // ResultKind the old way) falls back to the ResultKind switch below.
         var retCpp = retOverride != ""
             ? retOverride
+            : !string.IsNullOrEmpty(r.PinvokeRetType) ? r.PinvokeRetType!
             : r.ResultKind switch
             {
                 "ptr" => "intptr_t",
