@@ -8979,6 +8979,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // + float element reads -- the M3 fixed-width set was extended
                 // by StackFold (Ldelem_i8/Ldelem_r4/Ldelem_r8...).
                 "u8" or "i8" or "i" => $"(*reinterpret_cast<int64_t*>({ldelemPtr}))",
+                // GN-18 B5 (fnptr array element): a `delegate*[]` read -- the
+                // element is a void* ("p" slot) pointer carrier, NOT int64_t
+                // (the fixed-width "i" arm). Read through void** so the value
+                // compares to nullptr and casts to the calli target directly.
+                "fnptr" => $"(*reinterpret_cast<void**>({ldelemPtr}))",
                 "r4" => $"static_cast<double>(*reinterpret_cast<float*>({ldelemPtr}))",
                 "r8" => $"(*reinterpret_cast<double*>({ldelemPtr}))",
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
@@ -9006,6 +9011,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // and 4-byte float writes -- the M3 fixed-width ldelem/stelem
                 // set was extended by StackFold (Ldelem_i8/Ldelem_r4/...).
                 "u8" or "i8" or "i" => $"(*reinterpret_cast<int64_t*>({stelemPtr}) = static_cast<int64_t>({EmitExpr(c.Args[2], md, types)}))",
+                // GN-18 B5 (fnptr array element): a `delegate*[]` store -- the
+                // element is a void* ("p" slot) pointer carrier, NOT int64_t
+                // (the fixed-width "i" arm). Write through void** so the fnptr
+                // void* value lands verbatim (a static_cast to int64_t would
+                // reject the pointer).
+                "fnptr" => $"(*reinterpret_cast<void**>({stelemPtr}) = {EmitExpr(c.Args[2], md, types)})",
                 "r4" => $"(*reinterpret_cast<float*>({stelemPtr}) = static_cast<float>({EmitExpr(c.Args[2], md, types)}))",
                 "r8" => $"(*reinterpret_cast<double*>({stelemPtr}) = static_cast<double>({EmitExpr(c.Args[2], md, types)}))",
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
@@ -10027,6 +10038,22 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         return sig.ReadByte() is 0x13 or 0x1E;
     }
 
+    // GN-18 B5: whether a TYPE TOKEN is an ELEMENT_TYPE_FNPTR (0x1B) TypeSpec
+    // -- a `delegate*<...>` used as a newarr element (`delegate*[]`). The
+    // TypeSpecTokenName fallback maps it to "System.Object" (a non-nameful
+    // fnptr), so ArrayElementType cannot classify it by name -- it must read
+    // the RAW TypeSpec signature byte here. A fnptr element is a NON-reference
+    // pointer-sized slot (void* carrier, 8 bytes on x64), exactly like
+    // System.IntPtr: GC does NOT scan it (refFieldBitmap is clean), and the
+    // calli through an element rides the void* value directly.
+    private static bool IsFnPtrTypeToken(MetadataReader md, int token)
+    {
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.TypeSpecification) return false;
+        var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+        return sig.ReadByte() == 0x1B;
+    }
+
     // GN-15: the VAR (0x13) generic-parameter index carried by a VAR/MVAR
     // TypeSpec (0x13 -> its compressed index; 0x1E MVAR -> -1, method-level
     // with no class parts per the GN-14 convention). Returns false for any
@@ -10144,6 +10171,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // on the 64-bit target) -- allocate like long[] (non-ref, native-int
         // stride); Ldelem_i/Stelem_i read/write the 8-byte payload.
         if (typeName == "System.IntPtr" || typeName == "System.UIntPtr") return (PointerSize, false);
+        // GN-18 B5 (fnptr ARRAY ELEMENT): a `delegate*[]` SZARRAY -- the
+        // element is a raw function pointer (FNPTR 0x1B, the model's void*
+        // "p" slot), a NON-reference pointer-sized slot on x64. MUST run
+        // BEFORE the "System.Object" arm: the fnptr TypeSpec's
+        // TypeTokenFullName falls back to "System.Object" (a non-nameful
+        // fnptr), so without this ordering the reference arm would allocate
+        // a GC-scanned reference array over pointer payload. The element is
+        // 8 bytes, non-ref, exactly like System.IntPtr.
+        if (IsFnPtrTypeToken(md, typeToken)) return (PointerSize, false);
         if (typeName == "System.String" || typeName == "System.Object") return (PointerSize, true);
         // D-GC-2 (gcstress3): the newarr gate must GENERALIZE reference
         // elements instead of enumerating BCL/user names. A SZARRAY element is

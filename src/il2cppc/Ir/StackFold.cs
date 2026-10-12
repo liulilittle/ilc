@@ -1271,9 +1271,20 @@ public static class StackFold
                         // (arr[0].Message needs the element hint or it dies
                         // at the P26 phantom guard). The temp flows into the
                         // named local through the standard LocExpr store path.
+                        // GN-18 B5 (fnptr ARRAY ELEMENT): a `delegate*[]` newarr
+                        // records the DISTINCT marker "FNPTR[]" so a later
+                        // ldelem/stelem on the array routes the element as a
+                        // void* ("p" slot) instead of the fixed-width "i"
+                        // (int64_t) arm -- the fnptr TypeSpecName fallback
+                        // would mislabel it "TaskAwaiter`1[]".
                         if (md != null && stack.Peek() is LocExpr nalt)
                         {
-                            try { objTypes[nalt.Name] = TypeFullNameFromToken(md, (int)ins.Operand) + "[]"; }
+                            try
+                            {
+                                objTypes[nalt.Name] = IsFnPtrTypeToken(md, (int)ins.Operand)
+                                    ? "FNPTR[]"
+                                    : TypeFullNameFromToken(md, (int)ins.Operand) + "[]";
+                            }
                             catch { }
                         }
                     }
@@ -1312,11 +1323,20 @@ public static class StackFold
                         var ldIdx = stack.Pop();
                         var ldArr = stack.Pop();
                         var ldelemIsRef = ins.OpCode == ILOpCode.Ldelem_ref;
+                        // GN-18 B5 (fnptr array element): a `delegate*[]`
+                        // SZARRAY read -- the element is a void* ("p" slot),
+                        // NOT the fixed-width "i" (int64_t) read of IntPtr/long
+                        // arrays. Dispatch on the newarr marker recorded in
+                        // objTypes ("FNPTR[]") to the dedicated "fnptr" ldelem
+                        // arm. ResultKind "p" types the receiving temp void*
+                        // (the calli/null-check consumers ride the pointer).
+                        var ldelemIsFnPtr = !ldelemIsRef
+                            && ldArr is LocExpr lafd && objTypes.TryGetValue(lafd.Name, out var laft) && laft == "FNPTR[]";
                         var ld = new CallExpr
                         {
-                            Function = $"ldelem_{ins.OpCode}",
+                            Function = ldelemIsFnPtr ? "ldelem_fnptr" : $"ldelem_{ins.OpCode}",
                             ReturnsRef = ldelemIsRef,
-                            ResultKind = ldelemIsRef ? null : LdelemResultKind(ins.OpCode),
+                            ResultKind = ldelemIsFnPtr ? "p" : ldelemIsRef ? null : LdelemResultKind(ins.OpCode),
                         };
                         ld.Args.Add(ldArr);
                         ld.Args.Add(ldIdx);
@@ -1351,7 +1371,15 @@ public static class StackFold
                         var stIdx = stack.Pop();
                         var stArr = stack.Pop();
                         var stelemIsRef = ins.OpCode == ILOpCode.Stelem_ref;
-                        var st = new CallExpr { Function = $"stelem_{ins.OpCode}", ReturnsRef = false };
+                        // GN-18 B5 (fnptr array element): a `delegate*[]`
+                        // SZARRAY store -- the value is a void* ("p" slot),
+                        // NOT the fixed-width "i" (int64_t) write of
+                        // IntPtr/long arrays. Dispatch on the newarr marker
+                        // recorded in objTypes ("FNPTR[]") to the dedicated
+                        // "fnptr" stelem arm (which writes through void**).
+                        var stelemIsFnPtr = !stelemIsRef
+                            && stArr is LocExpr safd && objTypes.TryGetValue(safd.Name, out var saft) && saft == "FNPTR[]";
+                        var st = new CallExpr { Function = stelemIsFnPtr ? "stelem_fnptr" : $"stelem_{ins.OpCode}", ReturnsRef = false };
                         st.Args.Add(stArr);
                         st.Args.Add(stIdx);
                         st.Args.Add(stVal);
@@ -4761,6 +4789,21 @@ public static class StackFold
                 return "System.Int32";
             }
             return "System.Runtime.CompilerServices.TaskAwaiter`1";
+        }
+
+        // GN-18 B5 (fnptr array element): whether a TYPE TOKEN is an
+        // ELEMENT_TYPE_FNPTR (0x1B) TypeSpec -- a `delegate*<...>` used as a
+        // newarr element. The element is a NON-reference pointer-sized slot
+        // (void* "p" carrier, 8 bytes on x64). The TypeSpecName fallback maps
+        // an FNPTR TypeSpec to "TaskAwaiter`1", so classification must read the
+        // RAW TypeSpec signature byte here.
+        static bool IsFnPtrTypeToken(MetadataReader? md, int token)
+        {
+            if (md == null) return false;
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return false;
+            var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            return sig.ReadByte() == 0x1B;
         }
 
         // P-G3/paircase Cmp: resolve a `constrained. !T` marker's concrete
