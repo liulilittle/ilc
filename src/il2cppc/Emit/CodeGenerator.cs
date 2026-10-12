@@ -9639,6 +9639,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // its first member, so the cast is the same exact-address
                 // reinterpret as "s").
                 "a" => NullSafePtrCast("Il2CppArray*", code),
+                // GN-18 B3 ((IntPtr)fnptr): "vp" -- a raw POINTER value (the
+                // model's void* "p" slot -- a delegate* cast to IntPtr arrives
+                // as the raw function address) reaching an intptr_t icall
+                // parameter (il2cpp_intptr_ctor takes intptr_t). The
+                // reinterpret preserves the x64 address bits (a static_cast
+                // from void* to intptr_t would be a C++ error).
+                "vp" => code == "nullptr" ? "0" : $"reinterpret_cast<intptr_t>({code})",
                 // DependentHandle out-object: "addr:o" -- a BYREF
                 // reference-typed out argument (Object&). The ldloca address
                 // of the caller's Il2CppObject* local reinterprets as
