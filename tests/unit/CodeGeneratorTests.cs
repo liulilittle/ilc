@@ -1465,34 +1465,25 @@ public class CodeGeneratorTests
     }
 
     //--------------------------------------------------------------------------
-    // P-D3 P1 (fnptr FIELD -- silent int32 storage downgrade): a `delegate*`
-    // instance field was silently stored in an int32_t slot (MetadataLoader
-    // DecodeFieldSignature 0x1B -> default -> (Int32,""), TypeEmitter
-    // DecodeNestedFieldSignature likewise; static fields the same via
-    // DecodeExtendedStaticType). P-DX P0 pattern: LOUD reject forbids the
-    // silent truncation. Fixture: tests/fixtures/fnptrfield.dll.
+    // P-D3 P1 => GN-18 B1 (fnptr FIELD -- full-width carrier): a `delegate*`
+    // instance field now routes through the three 0x1B field decoders
+    // (MetadataLoader DecodeFieldSignature / DecodeExtendedStaticType /
+    // TypeEmitter DecodeNestedFieldSignature) to FieldTypeKind.NativeInt and
+    // emits a full-width void* member -- the fnptr value IS a pointer and the
+    // old int32_t slot truncated the x64 address. The (EMPTY FieldTypeName,
+    // non-reference value slot) contract keeps the GC bitmap clean. Fixture:
+    // tests/fixtures/fnptrfield.dll.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Generate_FnPtrField_LoudlyRejected()
+    public void Generate_FnPtrField_FullWidthVoidStarCarrier()
     {
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
-            // The decoder fires at LOAD (MetadataLoader) -- the LOUD gate may
-            // trip during LoadAssembly OR Generate; either hard-aborts the
-            // whole transpile, which is the point.
-            NotSupportedException ex;
-            try
-            {
-                var types = MetadataLoader.LoadAssembly(FixturePath("fnptrfield"));
-                ex = Assert.Throws<NotSupportedException>(() =>
-                    CodeGenerator.Generate(types, dir, FixturePath("fnptrfield")));
-            }
-            catch (NotSupportedException e)
-            {
-                ex = e;
-            }
-            Assert.Contains("function pointer", ex.Message, StringComparison.OrdinalIgnoreCase);
+            var types = MetadataLoader.LoadAssembly(FixturePath("fnptrfield"));
+            CodeGenerator.Generate(types, dir, FixturePath("fnptrfield")); // must NOT throw (was a LOUD reject)
+            var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
+            Assert.Contains("void* F;", header);
         }
         finally
         {
