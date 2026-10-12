@@ -105,6 +105,16 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ret == 0x18 && (ps[0] == 0x08 || ps[0] == 0x0A || ps[0] == 0x0B))
                     return I("il2cpp::runtime::il2cpp_intptr_ctor", 1, true, false, false,
                         new[] { "l" }, "ptr");
+                // GN-18 B3 ((IntPtr)fnptr): a `delegate*` value cast to IntPtr
+                // routes through IntPtr::op_Explicit(void*) (the fnptr is the
+                // model's void* "p" slot; the IL memberref declares a void*
+                // param -- PTR 0x0F whose pointed-to element byte follows, or
+                // the raw FNPTR 0x1B). The void* value bridges to the
+                // intptr_t carrier at full x64 width (reinterpret of the raw
+                // address; the "vp" cast code does exactly this).
+                if (ps.Length == 1 && ret == 0x18 && ps[0] is 0x1B or 0x0F or 0x01)
+                    return I("il2cpp::runtime::il2cpp_intptr_ctor", 1, true, false, false,
+                        new[] { "vp" }, "ptr");
                 // IntPtr -> long (static op_Explicit(IntPtr) returning int64).
                 if (ps.Length == 1 && ret == 0x0A && IsIntPtrByte(ps[0]))
                     return I("il2cpp::runtime::il2cpp_intptr_to_int64", 1, true, false, false,
