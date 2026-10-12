@@ -2366,6 +2366,35 @@ public static class CodeGenerator
             var fieldDefP = ownerDefP?.StaticFields.FirstOrDefault(ff => ff.Name == fieldP);
             if (fieldDefP != null && fieldDefP.FieldTypeName is "System.IntPtr" or "System.UIntPtr")
                 locKind[asp.Target] = "ptr";
+            // GN-18 B1 (fnptr fields): a STATIC fnptr field read (`delegate* x
+            // = s_cb;`) carries a void* value (the fnptr "p" slot) -- seed the
+            // target local "p" (declared void*) exactly like the IntPtr statics
+            // above seed "ptr". Without the seed the ExprKind default "val"
+            // would declare the local int32_t and truncate the x64 address
+            // (or fail the void* -> int32_t C++ assignment). Distinguished by
+            // the EMPTY FieldTypeName (IntPtr/UIntPtr statics carry the System
+            // name; a fnptr has no managed full name).
+            else if (fieldDefP != null && fieldDefP.TypeKind == FieldTypeKind.NativeInt && string.IsNullOrEmpty(fieldDefP.FieldTypeName))
+                locKind[asp.Target] = "p";
+        }
+        // GN-18 B1 (fnptr fields): an INSTANCE/NESTED fnptr field read into a
+        // local (`delegate* p = obj.cb;`) carries a void* value -- seed the
+        // target local "p" (declared void*) so the copy keeps the pointer
+        // width. The ExprKind default for a non-reference FieldExpr is "val"
+        // (int32_t), which would fail the void* -> int32_t C++ assignment (or
+        // truncate the x64 address). Same fnptr marker as the static seed
+        // (NativeInt kind + EMPTY FieldTypeName; real IntPtr fields carry
+        // "System.IntPtr"). The owner/field lookup mirrors the static pattern
+        // above (nested types are keyed by SHORT FullName).
+        for (var i = 0; i < stmts.Count; i++)
+        {
+            if (!reachable[i] || stmts[i] is not AssignStmt aif) continue;
+            if (aif.Value is not FieldExpr fe) continue;
+            var ownerNested = fe.OwnerFullName[(fe.OwnerFullName.LastIndexOf('+') + 1)..];
+            var ownerDefI = types.FirstOrDefault(x => x.FullName == ownerNested || TypeEmitter.ReflectionFullName(x) == fe.OwnerFullName);
+            var fieldDefI = ownerDefI?.InstanceFields.FirstOrDefault(ff => TypeEmitter.Sanitize(ff.Name) == fe.FieldCppName);
+            if (fieldDefI != null && fieldDefI.TypeKind == FieldTypeKind.NativeInt && string.IsNullOrEmpty(fieldDefI.FieldTypeName))
+                locKind[aif.Target] = "p";
         }
         for (var i = 0; i < stmts.Count; i++)
         {

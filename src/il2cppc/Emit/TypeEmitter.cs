@@ -333,12 +333,11 @@ public static class TypeEmitter
             0x13 => (FieldTypeKind.Int32, ""),
             0x15 => (FieldTypeKind.Reference, GenericNestedInstantiationName(md, ref sig)),
             0x11 => (FieldTypeKind.Int32, ResolveNestedTypeName(md, sig.ReadTypeHandle())),
-            // P-D3 P1 (fnptr fields): a `delegate*` (0x1B) NESTED-type field
-            // was silently downgraded to an int32_t member slot (this default
-            // arm) -- reading it truncates the x64 address. Same hard gate as
-            // the top-level decoders (P-DX P0 pattern): LOUDLY reject.
-            0x1B => throw new NotSupportedException(
-                "function pointer (delegate*) fields are not supported: the model has no void* field carrier (silent int32 storage forbidden -- P-D3)"),
+            // GN-18 B1 (fnptr fields): a `delegate*` (0x1B) NESTED-type field
+            // rides the same full-width void* pointer carrier as top-level
+            // fields (NativeInt kind + empty TypeName marker -- see
+            // EmitClassStruct; the refFieldBitmap never scans it).
+            0x1B => (FieldTypeKind.NativeInt, ""),
             // Primitive and exotic field types not covered above: treat as Int32.
             var b => (FieldTypeKind.Int32, ""),
         };
@@ -779,6 +778,15 @@ public static class TypeEmitter
                 FieldTypeKind.Int32 => "int32_t",
                 // wfm1 (winforms1): IntPtr/UIntPtr struct fields emit as the
                 // full-width intptr_t carrier -- the native pointer type.
+                // GN-18 B1 (fnptr fields): a `delegate*` (0x1B) field carries a
+                // void* value (FuncPtrExpr -> reinterpret_cast<void*>(&fn), the
+                // "p" slot). An intptr_t member would make the stfld store
+                // (void* value) and the ldfld load (into a void* local) C++
+                // type errors. Reuse the NativeInt KIND (a non-reference value
+                // slot; the refFieldBitmap marks only Reference fields, so the
+                // GC never scans it) but distinguish from a real IntPtr by the
+                // EMPTY FieldTypeName (IntPtr fields carry "System.IntPtr").
+                FieldTypeKind.NativeInt when string.IsNullOrEmpty(f.FieldTypeName) => "void*",
                 FieldTypeKind.NativeInt => "intptr_t",
                 FieldTypeKind.Reference => ReferenceCppType(f.FieldTypeName, allTypes),
                 _ => throw new NotSupportedException($"field kind {f.TypeKind} not supported in M2"),
@@ -1069,6 +1077,15 @@ public static class TypeEmitter
                 case StaticFieldSemantic.UIntPtr:
                     w.Line($"uintptr_t {name} = 0; // native unsigned pointer carrier");
                     break;
+                // GN-18 B1 (fnptr fields): a static fnptr field stores a void*
+                // pointer (the raw fnptr value); int32_t storage would truncate
+                // the x64 address. Zero-init (nullptr) matches the non-literal
+                // static default; the .cctor assigns the real function pointer.
+                // StaticFieldCppType names the same void* so the generated.h
+                // extern and this DEFINITION are type-identical.
+                case StaticFieldSemantic.FnPtr:
+                    w.Line($"void* {name} = nullptr; // fnptr pointer carrier");
+                    break;
                 case StaticFieldSemantic.Int64:
                     w.Line($"int64_t {name} = 0; // 64-bit signed value");
                     break;
@@ -1181,7 +1198,7 @@ public static class TypeEmitter
     // signature keeps the M1 int32_t emission -- the historical behavior, so
     // classification can only improve, never regress.
     //--------------------------------------------------------------------------
-    private enum StaticFieldSemantic { Value, Reference, Decimal, IntPtr, UIntPtr, Int64, UInt64, DateTime, TimeSpan }
+    private enum StaticFieldSemantic { Value, Reference, Decimal, IntPtr, UIntPtr, Int64, UInt64, DateTime, TimeSpan, FnPtr }
 
     // Full-name -> value semantic map shared by the model and the metadata
     // signature paths (decimalcase pairing; wf16 extends it to the wide
@@ -1206,8 +1223,16 @@ public static class TypeEmitter
     {
         if (f.TypeKind == FieldTypeKind.Reference)
             return (StaticFieldSemantic.Reference, string.IsNullOrEmpty(f.FieldTypeName) ? "System.Object" : f.FieldTypeName);
+        // GN-18 B1 (fnptr fields): a STATIC `delegate*` (0x1B) field needs a
+        // void* pointer carrier (the fnptr value is void*; intptr_t storage
+        // makes the stsfld store and the ldsfld load C++ type errors). The
+        // EMPTY FieldTypeName distinguishes it from a real IntPtr (0x18/0x19)
+        // which carries "System.IntPtr"; both reuse the NativeInt KIND so the
+        // model needs no new enum value.
         if (f.TypeKind == FieldTypeKind.NativeInt)
-            return (StaticFieldSemantic.IntPtr, string.IsNullOrEmpty(f.FieldTypeName) ? "System.IntPtr" : f.FieldTypeName);
+            return string.IsNullOrEmpty(f.FieldTypeName)
+                ? (StaticFieldSemantic.FnPtr, "")
+                : (StaticFieldSemantic.IntPtr, f.FieldTypeName);
         // Model-driven wide-value classification (wf16 winforms1 static IntPtr
         // truncation): the metadata loader populates FieldTypeName for static
         // fields (DecodeExtendedStaticType maps 0x18/0x19/0x0A/0x0B to the
@@ -1253,6 +1278,11 @@ public static class TypeEmitter
                     // values on x64. Same classification as the model arm.
                     if (typeByte is 0x18) return (StaticFieldSemantic.IntPtr, "System.IntPtr");
                     if (typeByte is 0x19) return (StaticFieldSemantic.UIntPtr, "System.UIntPtr");
+                    // GN-18 B1 (fnptr fields): a STATIC fnptr field not in the
+                    // model (NESTED types are keyed by short FullName and their
+                    // static fields carry no TypeKind) re-scanned here -- the
+                    // void* FnPtr carrier (same as the model arm).
+                    if (typeByte is 0x1B) return (StaticFieldSemantic.FnPtr, "");
                     if (typeByte is 0x0A) return (StaticFieldSemantic.Int64, "System.Int64");
                     if (typeByte is 0x0B) return (StaticFieldSemantic.UInt64, "System.UInt64");
                     // Value types: a decimal field needs 16-byte storage; the
@@ -1302,6 +1332,13 @@ public static class TypeEmitter
             // DEFINITION type-identical (decimalcase cmake FAIL rule).
             StaticFieldSemantic.IntPtr => "intptr_t",
             StaticFieldSemantic.UIntPtr => "uintptr_t",
+            // GN-18 B1 (fnptr fields): a STATIC `delegate*` field stores a
+            // void* pointer value -- the C++ storage is void* (matches the
+            // instance member emission; a fnptr IS a raw function pointer, not
+            // an intptr_t integer carrier). Generated.h extern and the
+            // EmitStaticStorage DEFINITION must be type-identical (decimalcase
+            // cmake FAIL rule), so both name void*.
+            StaticFieldSemantic.FnPtr => "void*",
             StaticFieldSemantic.Int64 => "int64_t",
             StaticFieldSemantic.UInt64 => "uint64_t",
             StaticFieldSemantic.DateTime => "il2cpp::runtime::Il2CppDateTime",

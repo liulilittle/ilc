@@ -894,15 +894,18 @@ public static class MetadataLoader
                 return extended
                     ? (FieldTypeKind.Int32, "System.Int32")
                     : (FieldTypeKind.Int32, "");
-            // P-D3 P1 (fnptr fields, P-DX P0 pattern): a `delegate*` (0x1B
-            // ELEMENT_TYPE_FNPTR) INSTANCE field was silently downgraded to an
-            // int32_t storage slot -- writing the void* value fails to compile
-            // and reading it truncates the x64 address. The model has no void*
-            // field carrier; LOUDLY reject the shape (hard gate) instead of
-            // the silent int32 storage.
+            // GN-18 B1 (fnptr fields): a `delegate*` (0x1B ELEMENT_TYPE_FNPTR)
+            // INSTANCE field rides the full-width VOID* pointer carrier. The
+            // fnptr value in the model IS void* (FuncPtrExpr -> void*, the "p"
+            // slot); emitting the member intptr_t would make the stfld store
+            // (void* value) and the ldfld load (into a void* local) C++ type
+            // errors. Reuse FieldTypeKind.NativeInt as the KIND (non-reference
+            // value slot: the class refFieldBitmap only marks Reference
+            // fields, so the GC never scans it) but distinguish from a real
+            // IntPtr (0x18/0x19) field by the EMPTY TypeName -- IntPtr fields
+            // carry "System.IntPtr", a fnptr has no managed full name.
             case 0x1B:
-                throw new NotSupportedException(
-                    "function pointer (delegate*) fields are not supported: the model has no void* field carrier (silent int32 storage forbidden -- P-D3)");
+                return (FieldTypeKind.NativeInt, "");
             case 0x11:
                 if (!extended)
                     throw new NotSupportedException("value-type instance fields not supported in M2");
@@ -962,12 +965,14 @@ public static class MetadataLoader
         0x0D => (FieldTypeKind.Int32, "System.Double"),
         0x18 => (FieldTypeKind.Int32, "System.IntPtr"),
         0x19 => (FieldTypeKind.Int32, "System.UIntPtr"),
-        // P-D3 P1 (fnptr fields): a STATIC `delegate*` field was silently
-        // downgraded to an int32_t storage slot by this tolerant default --
-        // reading it truncates the x64 address. Same hard gate as the instance
-        // path (P-DX P0 pattern): LOUDLY reject.
-        0x1B => throw new NotSupportedException(
-            "function pointer (delegate*) fields are not supported: the model has no void* field carrier (silent int32 storage forbidden -- P-D3)"),
+        // GN-18 B1 (fnptr fields): a STATIC `delegate*` (0x1B) field needs the
+        // full-width void* pointer carrier -- the old int32_t storage truncated
+        // the x64 address. FieldTypeKind.NativeInt (reuse, no new kind) plus
+        // the EMPTY TypeName marks a fnptr field: StaticFieldSemantics routes
+        // NativeInt + "" to the FnPtr semantic (StorageCppType void*), the
+        // same classification the 0x18 arm uses for real IntPtr (which keeps
+        // "System.IntPtr").
+        0x1B => (FieldTypeKind.NativeInt, ""),
         // Tolerant fallback (documented in DecodeFieldSignature): exotic static
         // signatures keep the historical untyped int32_t value slot.
         var b => (FieldTypeKind.Int32, ""),
