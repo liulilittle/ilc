@@ -19,12 +19,28 @@
 //                     Type model folds a closed instantiation to the
 //                     definition's full name, so identity IS the definition).
 //
-// GetGenericArguments on arity>0 types is deliberately NOT probed: the
-// runtime LOUDs (NotSupportedException -- the genericArgNames plan B is
-// deferred, no argument fabrication), which would not match the net48 oracle
-// (Length==1). The empty-array non-generic path IS probed and byte-identical.
-// The LOUD arity>0 path is pinned by the MethodMapTests.Type.cs icall mapping
-// assert + the runtime's own arity check (typeinfo.cpp).
+// GN-18 P2/D1 (S3 compile-time fold): the closed instantiation
+// typeof(Box<int>) now folds its GetGenericArguments() call result into a
+// constant NAME-SEQUENCE array at compile time (GENERICINST TypeSpec blob
+// decoding, TypeNameForReflection's 0x15 arm bypassed by a NEW read-only
+// branch -- the existing fold semantics are untouched). Both consumers are
+// compile-time constants: .Length -> 1 and [0].FullName -> "System.Int32"
+// (the net48 oracle values, byte-identical). Element access is NOT a
+// half-state: the same fold decision covers Length and the element read, so
+// there is no "length known, element unread" split (the runtime LOUD path of
+// MethodMap.Type.cs GetGenericArguments remains for the non-foldable forms).
+//
+// GetGenericArguments on arity>0 types was previously NOT probed: the runtime
+// LOUDs (NotSupportedException -- the genericArgNames plan B is deferred, no
+// argument fabrication), which did not match the net48 oracle. The empty-array
+// non-generic path IS probed and byte-identical.
+//
+// GN-18 P2/D1 guard probes (must stay LOUD -- no fabrication, no wrong arity):
+//   * open definition typeof(Box<>): the VAR argument has NO managed full
+//     name (StackFold.IsOpenGenericDefToken) -> LOUD (caught below).
+//   * a stloc'd (temp-passed) result: only the DIRECT chain GetTypeFromHandle
+//     -> GetGenericArguments -> get_Length / ldelem folds; storing the array
+//     in a temp and reading afterwards is NOT wired -> LOUD.
 //------------------------------------------------------------------------------
 using System;
 
@@ -54,6 +70,30 @@ namespace Cases {
             Console.WriteLine("boxint_isgeneric=" + typeof(Box<int>).IsGenericType);
             Console.WriteLine("boxint_isgenericdef=" + typeof(Box<int>).IsGenericTypeDefinition);
             Console.WriteLine("boxint_defname=" + typeof(Box<int>).GetGenericTypeDefinition().FullName);
+
+            // ---- GN-18 P2/D1: the closed instantiation's generic arguments ----
+            // S3 compile-time fold: the GetGenericArguments() result of a
+            // closed GENERICINST typeof chain is a constant name-sequence
+            // array, so BOTH consumers are compile-time constants.
+            Console.WriteLine("boxint_args_len=" + typeof(Box<int>).GetGenericArguments().Length);
+            Console.WriteLine("boxint_arg0=" + typeof(Box<int>).GetGenericArguments()[0].FullName);
+            Console.WriteLine("boxint_arg0_name=" + typeof(Box<int>).GetGenericArguments()[0].Name);
+
+            // ---- GN-18 P2/D1 guard probes (must stay LOUD) ----
+            bool openDefArgsLoud = false;
+            try { typeof(Box<>).GetGenericArguments(); }
+            catch (Exception) { openDefArgsLoud = true; }
+            Console.WriteLine("boxdef_args_loud=" + openDefArgsLoud);
+
+            bool tempPassLoud = false;
+            try
+            {
+                Type[] tmp = typeof(Box<int>).GetGenericArguments();
+                int n = tmp.Length;
+                Console.WriteLine("temp_args_len=" + n);
+            }
+            catch (Exception) { tempPassLoud = true; }
+            Console.WriteLine("temp_args_loud=" + tempPassLoud);
         }
     }
 }
