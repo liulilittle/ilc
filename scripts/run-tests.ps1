@@ -287,7 +287,7 @@ foreach ($caseDir in $caseDirs) {
     } catch { Write-Warning "publish to out failed (non-fatal): $_" }
 
     # 3. Transpile: input is the transpile input (net8 dll / net48 exe, see the earlier decision)
-$gen = "$Root/tests/cases/$dirName/gen"
+    $gen = "$Root/tests/cases/$dirName/gen"
     Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
     # G4-x86: pass the arch parameter through to the transpiler (--arch) so the generated layout + G1 entry interlock match
     # the cmake -A platform (by design the interlock rejects a default host-width transpile + -A Win32 build).
