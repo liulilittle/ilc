@@ -103,6 +103,14 @@ public static class StackFold
         // get_IsGenericTypeDefinition (prevIns == that call) looks it up:
         // definition -> 1, closed instance / non-generic -> 0.
         var typeFromHandleGenericDef = new Dictionary<int, bool>();
+        // GN-18 P2/D1 (S3): the ldtoken TYPE token, keyed by the
+        // GetTypeFromHandle CALL's offset -- the GetGenericArguments
+        // consumption fold decodes the closed GENERICINST TypeSpec blob from
+        // it (arity + managed argument names). Filled at the SAME fold site
+        // and with the SAME key as typeFromHandleGenericDef above, so it is
+        // that mechanism's natural companion, not a side channel. A receiver
+        // that is not a folded typeof (obj.GetType()) is a lookup MISS.
+        var typeFromHandleToken = new Dictionary<int, int>();
         // valdeep L26: temp VALUE width ("l"/"d" = 64-bit slot, else int32).
         // LocKindOf only knows "loc" locals; temps (t*) materialized from
         // calls/joins/snapshots carry their width here so the conv.u8 fold
@@ -2512,6 +2520,13 @@ public static class StackFold
                 // from its clones (TypeEmitter.ReflectionFullName registers
                 // both under the definition's name).
                 typeFromHandleGenericDef[ins.Offset] = IsOpenGenericDefToken(md, (int)ldtMarker.Value);
+                // GN-18 P2/D1 (S3): remember the ldtoken TYPE TOKEN itself,
+                // keyed by this GetTypeFromHandle CALL's offset. The
+                // GetGenericArguments consumption fold below decodes the closed
+                // GENERICINST TypeSpec blob from it (arity + managed argument
+                // names). Same pattern / same key as the
+                // typeFromHandleGenericDef record above.
+                typeFromHandleToken[ins.Offset] = (int)ldtMarker.Value;
                 Push(new StringConstExpr { Value = TypeNameForReflection(md, (int)ldtMarker.Value) }, ins);
                 return;
             }
@@ -2560,6 +2575,56 @@ public static class StackFold
                     stack.Pop();
                     Push(new IntConstExpr { Value = typeFromHandleGenericDef.TryGetValue(prevCall.Offset, out var isDef) && isDef ? 1 : 0 }, ins);
                     return;
+                }
+                // GN-18 P2/D1 (S3 / Plan B): Type::GetGenericArguments on the
+                // FOLDED typeof chain -- INTERCEPTED AT THE CONSUMPTION POINT.
+                // The receiver is the type-name StringConstExpr the
+                // GetTypeFromHandle fold above produced, and the ldtoken token
+                // was recorded beside it (typeFromHandleToken, same key). The
+                // segment folds to the constant its ADJACENT consumer wants:
+                //   next == ldlen                          -> IntConstExpr(arity)
+                //   next == ldc.i4.i (0<=i<arity) &&
+                //     next2 == ldelem_ref                 -> StringConstExpr(names[i])
+                // ONE decision covers both consumers, so there is no
+                // "Length folded / element unread" half-state. EVERY other
+                // shape (a variable / out-of-range index, a result stored in a
+                // temp, any other consumer, an open definition whose token is
+                // not a GENERICINST TypeSpec) is NOT folded and keeps the
+                // existing runtime path, which LOUDs for arity > 0. The names
+                // come from the TypeSpec blob (metadata side), never from the
+                // emit-side clone suffix.
+                if (IsTypeGetGenericArguments(md, (int)ins.Operand)
+                    && typeFromHandleToken.TryGetValue(prevCall.Offset, out var genToken))
+                {
+                    var genArity = GenericInstArity(md, genToken);
+                    var genNames = GenericInstArgNames(md, genToken);
+                    if (genArity > 0 && genNames != null && genNames.Count == genArity)
+                    {
+                        var genIdx = il.FindIndex(x => x.Offset == ins.Offset);
+                        if (genIdx >= 0 && genIdx + 1 < il.Count)
+                        {
+                            var genNext = il[genIdx + 1];
+                            if (genNext.OpCode is ILOpCode.Ldlen)
+                            {
+                                stack.Pop();
+                                Push(new IntConstExpr { Value = genArity }, ins);
+                                return;
+                            }
+                            if (genNext.OpCode is ILOpCode.Ldc_i4 or ILOpCode.Ldc_i4_s
+                                && genIdx + 2 < il.Count
+                                && il[genIdx + 2].OpCode is ILOpCode.Ldelem_ref
+                                && genNext.Operand >= 0 && genNext.Operand < genNames.Count)
+                            {
+                                stack.Pop();
+                                Push(new StringConstExpr { Value = genNames[(int)genNext.Operand] }, ins);
+                                return;
+                            }
+                        }
+                    }
+                    // Not an adjacent ldlen / in-range constant-index ldelem,
+                    // or the blob did not decode: fall through to the existing
+                    // runtime path (arity > 0 -> LOUD). No marker is left on
+                    // the evaluation stack.
                 }
             }
             // RuntimeHelpers.InitializeArray array-initializer fold (e2e G1):
@@ -4645,13 +4710,17 @@ public static class StackFold
                 case 0x0B: return "System.UInt64";
                 case 0x0C: return "System.Single";
                 case 0x0D: return "System.Double";
-                case 0x0E: return "System.IntPtr";
-                case 0x0F: return "System.UIntPtr";
-                case 0x16: return "System.TypedReference";
+                // ELEMENT_TYPE_STRING (0x0E) per ECMA-335 / this repo's own
+                // coding ("string" in MethodRefResolver's signature table).
+                case 0x0E: return "System.String";
                 case 0x18: return "System.IntPtr";
                 case 0x19: return "System.UIntPtr";
                 case 0x1C: return "System.Object";
-                case 0x1D: return "System.String";
+                // PTR (0x0F) / SZARRAY (0x1D) / TypedReference (0x16) and every
+                // other shape have NO managed full name in this decode table
+                // (an array argument is the emit-side suffix channel, which is
+                // forbidden here) -- null keeps the LOUD path instead of a
+                // fabricated name.
                 // CLASS / VALUETYPE: a compressed TypeDefOrRef coded token.
                 case 0x11:
                 case 0x12:
@@ -4665,7 +4734,7 @@ public static class StackFold
                         _ => null,
                     };
                 default:
-                    return null; // VAR/MVAR/ARRAY/SZARRAY/PTR/BYREF/GENERICINST...
+                    return null; // PTR/SZARRAY/TYPEDREF/VAR/MVAR/ARRAY/BYREF/GENERICINST
             }
         }
 
