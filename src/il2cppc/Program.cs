@@ -71,12 +71,12 @@ public static class Program
         {
             Console.Out.WriteLine(args.Length > 1 && args[1] == "audit-internalcalls"
                 ? CliOptions.AuditUsage
-                : CliOptions.Usage);
+                : CliOptions.HelpText);
             return 0;
         }
         if (args.Contains("--help") || args.Contains("-h"))
         {
-            Console.Out.WriteLine(isAudit ? CliOptions.AuditUsage : CliOptions.Usage);
+            Console.Out.WriteLine(isAudit ? CliOptions.AuditUsage : CliOptions.HelpText);
             return 0;
         }
         if (args.Contains("--version"))
@@ -114,6 +114,11 @@ public static class Program
         try
         {
             opts = CliParser.Parse(args);
+            // GN-19 (GL, G12 little-endian contract): a big-endian target is loudly
+            // rejected AFTER parse (s390x parses to PointerSize 8) but BEFORE any
+            // code generation -- never "enumerable but generates wrong bytes". The
+            // explicit -BE variant spellings are already rejected inside ParseArch.
+            CliParser.ValidateEndianness(opts.TargetArch);
         }
         catch (CliParseException ex)
         {

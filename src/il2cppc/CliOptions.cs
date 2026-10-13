@@ -8,6 +8,35 @@ public enum ReflectionGranularity
 
 public sealed class CliOptions
 {
+    // GN-19 (GL): the accepted --arch tokens + the normalized canonical name for
+    // each. 11 canonical arches + 2 width aliases (mips32 -> mips, ppc32 -> ppc).
+    // Bare "riscv" is NOT accepted (ambiguous width); "wasm" is deliberately not
+    // added. The big-endian-capable families (s390x / mips-BE / ppc64-BE) are
+    // listed in the help but REJECTED at transpile time (G12 little-endian
+    // contract, see ValidateEndianness below) -- never a silent wrong-byte layout.
+    private static readonly (string Token, string Canonical)[] ArchTokens =
+    {
+        ("x86", "x86"), ("x64", "x64"),
+        ("arm32", "arm32"), ("arm64", "arm64"),
+        ("riscv32", "riscv32"), ("riscv64", "riscv64"),
+        ("s390x", "s390x"),
+        ("mips", "mips"), ("mips32", "mips"), ("mips64", "mips64"),
+        ("ppc", "ppc"), ("ppc32", "ppc"), ("ppc64", "ppc64"),
+    };
+
+    public static bool IsValidArch(string token) =>
+        ArchTokens.Any(t => string.Equals(t.Token, token, StringComparison.OrdinalIgnoreCase));
+
+    public static string NormalizeArch(string token)
+    {
+        foreach (var (t, canonical) in ArchTokens)
+        {
+            if (string.Equals(t, token, StringComparison.OrdinalIgnoreCase))
+                return canonical;
+        }
+        return token.ToLowerInvariant();
+    }
+
     // S2 (friendly compiler): single shared usage strings. Referenced by the
     // parse-error messages here, the help pre-scan and the audit subcommand in
     // Program.cs. The "usage:" keyword is kept verbatim (existing error text
@@ -15,6 +44,84 @@ public sealed class CliOptions
     public const string Usage =
         "usage: il2cppc [--arch x86|x64|arm32|arm64] [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
     public const string AuditUsage = "usage: il2cppc audit-internalcalls <assembly>";
+
+    // GN-19 (GL): multi-section English help. The first line keeps the
+    // "usage: il2cppc" prefix that CliTests asserts with Contains() (byte-stable);
+    // the single-line Usage/AuditUsage constants above remain the parse-error
+    // echo (CliOptions.cs parse paths + Program.cs audit-missing-arg).
+    public const string HelpText =
+@"usage: il2cppc [--arch <arch>] [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
+usage: il2cppc audit-internalcalls <assembly>
+       il2cppc --version | --help | -h
+
+NAME
+  il2cppc -- transpiles a .NET Framework 4.8 assembly (IL + metadata) into a
+  native C++17 CMake project for a target architecture.
+
+SYNOPSIS
+  il2cppc [OPTIONS] <input-assembly> <output-dir>
+  il2cppc audit-internalcalls <assembly>
+  il2cppc --version | --help | -h
+
+OPTIONS
+  --arch <arch>                  target architecture (default: host width).
+                                 See ARCHITECTURES for the accepted values.
+  --reflection-list <manifest>   mode B reflection manifest (one full type
+                                 name per line; '#' comments and blank lines
+                                 are ignored).
+  --reflection-granularity <g>   all | members (default: members).
+  --log <file>                   tee a copy of stdout + stderr into <file>.
+  --quiet                        suppress the stdout diagnostics (errors and
+                                 warnings on stderr are unaffected).
+  --verbose                      per-type progress to stdout (mutually
+                                 exclusive with --quiet).
+  -h, --help                     print this help and exit 0.
+  --version                      print the transpiler version and exit 0.
+
+SUBCOMMANDS
+  help [audit-internalcalls]     print this help (or the audit help).
+  audit-internalcalls <assembly> audit the InternalCall/icall wiring of an
+                                 assembly (exit 0 on success, 2 on a broken
+                                 assembly, 1 when <assembly> is missing).
+
+ARCHITECTURES
+  32-bit (pointer size 4): x86, arm32, riscv32, mips, mips32, ppc, ppc32
+  64-bit (pointer size 8): x64, arm64, riscv64, mips64, ppc64, s390x
+  Aliases: mips32 == mips, ppc32 == ppc (both 4/32-bit).
+  A bare 'riscv' is NOT accepted (ambiguous width); 'wasm' is not a target.
+  Big-endian targets have NO supported bytes layout yet: s390x (big-endian
+  by design) and the explicit big-endian variants (ppc64-BE, mips-BE) are
+  rejected at transpile time (G12 little-endian contract).
+
+EXIT CODES
+  0  success (also --help/-h/--version, the help subcommand, and a
+     successful audit-internalcalls run).
+  1  command-line usage error (bad option / arch value / granularity, missing
+     manifest, --quiet with --verbose, big-endian target, audit without an
+     assembly, unopenable --log path).
+  2  transpile failure (metadata load / decode / emission) or an audit run
+     whose assembly cannot be read.
+
+EXAMPLES
+  il2cppc app.dll gen
+  il2cppc --arch arm64 --reflection-list types.txt --log build.log app.dll gen
+  il2cppc --arch riscv64 app.dll gen-riscv64
+
+ENVIRONMENT
+  IL2CPP_MINGW_ROOT / IL2CPP_MSVC_GENERATOR / IL2CPP_WSL_DISTRO /
+  IL2CPP_NDK_ROOT / NDK_ROOT: toolchain discovery used by
+  scripts/build-app.ps1 and scripts/run-tests.ps1 (the transpiler itself does
+  not read the environment).
+
+NOTES
+  * The target pointer width is fixed at 4 or 8 bytes (G1). The generated C++
+    carries a static_assert(sizeof(void*) == this width) interlock, so a
+    host-width mismatch fails the native build instead of silently drifting.
+  * Only little-endian targets are supported (G12 contract); big-endian archs
+    are loudly rejected before any code is generated -- never a silent
+    wrong-byte output.
+
+";
 
     public string InputAssembly { get; init; } = "";
     public string OutputDir { get; init; } = "";
@@ -57,7 +164,7 @@ public static class CliParser
             {
                 case "--arch":
                     if (i + 1 >= args.Length)
-                        throw new CliParseException("option --arch requires a value (x86|x64|arm32|arm64)");
+                        throw new CliParseException("option --arch requires a value (x86|x64|arm32|arm64|riscv32|riscv64|s390x|mips|mips64|ppc|ppc64)");
                     arch = ParseArch(args[++i]);
                     break;
                 case "--reflection-list":
@@ -115,25 +222,66 @@ public static class CliParser
             Verbose = verbose,
             // G1: TargetArch == "" when --arch is absent -> null (host width);
             // PointerSize = normalized target width (4|8), host IntPtr.Size default.
+            // GN-19: 11-arch PointerSize table (aliases already normalized by
+            // ParseArch, so mips32/ppc32 arrive as mips/ppc).
             TargetArch = string.IsNullOrEmpty(arch) ? null : arch,
             PointerSize = arch switch
             {
-                "x86" or "arm32" => 4,
-                "x64" or "arm64" => 8,
+                "x86" or "arm32" or "riscv32" or "mips" or "ppc" => 4,
+                "x64" or "arm64" or "riscv64" or "mips64" or "ppc64" or "s390x" => 8,
                 _ => IntPtr.Size,
             },
         };
     }
 
     // G1 (cross-platform arch): validate the --arch value (case-insensitive)
-    // and return its normalized name (x86/x64/arm32/arm64). An unknown target
-    // is user misuse -> parse error (exit 1), never a silent host-width layout.
-    private static string ParseArch(string value) => value.ToLowerInvariant() switch
+    // and return its normalized canonical name (aliases mips32 -> mips, ppc32 ->
+    // ppc). An unknown target is user misuse -> parse error (exit 1), never a
+    // silent host-width layout. GN-19: 11 canonical + 2 aliases; a bare "riscv"
+    // is rejected (ambiguous width); "wasm" is not a target. The explicit
+    // big-endian variant spellings (mips-BE / ppc64-BE) are recognized here and
+    // rejected loudly (they must NOT fall through to the generic invalid-arch
+    // path -- the user should be told the arch is big-endian, not unknown).
+    private static string ParseArch(string value)
     {
-        "x86" or "x64" or "arm32" or "arm64" => value.ToLowerInvariant(),
-        _ => throw new CliParseException(
-            $"invalid --arch '{value}' (expected one of: x86, x64, arm32, arm64)"),
-    };
+        var lower = value.ToLowerInvariant();
+        var canonical = CliOptions.NormalizeArch(lower);
+        if (!CliOptions.IsValidArch(lower))
+        {
+            // Explicit big-endian variant: <base>-BE where <base> is a be-capable
+            // family (mips/ppc64/...). Recognized -> LOUD endianness rejection.
+            if (lower.EndsWith("-be", StringComparison.Ordinal)
+                && CliOptions.IsValidArch(lower[..^3]))
+                throw BigEndianRejection(lower);
+
+            throw new CliParseException(
+                $"invalid --arch '{value}' (expected one of: x86, x64, arm32, arm64, riscv32, riscv64, s390x, mips, mips64, ppc, ppc64; aliases mips32->mips, ppc32->ppc)");
+        }
+        return canonical;
+    }
+
+    private static CliParseException BigEndianRejection(string arch) => new(
+        $"big-endian target not supported ({arch}) (G12 little-endian contract); "
+        + "rebuild for the matching little-endian target (--arch)");
+
+// GN-19 (GL, AOT absolute standard): the arch canonical names that are
+    // big-endian BY DESIGN (no little-endian interpretation) must be loudly
+    // rejected before any code generation -- the pointer-size table above gives
+    // them a width (so the layout machinery stays 4|8 typed), but transpiling
+    // them would silently emit big-endian byte data. This throws CliParseException
+    // (the parse-error channel) -> exit 1, the same path as an invalid --arch.
+    // The runtime keeps its compile-time __BYTE_ORDER__ #error as defense-in-depth
+    // (bitconverter.cpp / encoding.cpp, unchanged).
+    //
+    // Called by Program.RunMain right after CliParser.Parse (s390x parses fine to
+    // PointerSize 8 -- the arch Theory needs that -- but Generate must never see a
+    // big-endian target). That keeps Parse itself pure table+mapping so the
+    // Arch_Value theory stays green while the generate path loudly rejects.
+    public static void ValidateEndianness(string? arch)
+    {
+        if (string.Equals(arch, "s390x", StringComparison.OrdinalIgnoreCase))
+            throw BigEndianRejection(arch!);
+    }
 
     private static ReflectionGranularity ParseGranularity(string value) =>
         value.Equals("all", StringComparison.OrdinalIgnoreCase) ? ReflectionGranularity.All
