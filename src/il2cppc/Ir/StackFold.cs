@@ -111,6 +111,28 @@ public static class StackFold
         // that mechanism's natural companion, not a side channel. A receiver
         // that is not a folded typeof (obj.GetType()) is a lookup MISS.
         var typeFromHandleToken = new Dictionary<int, int>();
+        // GN-18 P2/D1 (S3): the offsets of the instructions the
+        // GetGenericArguments adjacent-chain fold CONSUMED as part of its own
+        // segment (the ldlen / ldc.i4 + Ldelem_ref that read the folded array
+        // result). The main walk removes them from this set and skips them
+        // entirely: the fold already emitted the constant that replaces the
+        // whole segment, so running them again would consume that constant a
+        // second time -- the observed il2cpp_array_get_length(1) -> 0xC0000005
+        // crash. LOCAL to this Fold invocation (per-method IL offsets), so it
+        // can never leak across methods.
+        var gn18SkipOffsets = new HashSet<int>();
+        // GN-18 P2/D1 (S3): the offset of the Ldelem_ref the GetGenericArguments
+        // element fold CONSUMED (the last instruction of the folded
+        // `GetGenericArguments(); ldc.i4.i; ldelem_ref` segment). The element
+        // fold leaves a TYPE value -- a StringConstExpr holding the argument's
+        // managed full name -- on the stack, and its immediate get_Name
+        // consumer must truncate it to the SHORT name. The typeof-chain get_Name
+        // fold recognises its folded Type value by `prevIns == GetTypeFromHandle`,
+        // but here prevIns is this consumed Ldelem_ref (the fold call itself is
+        // three instructions back), so the offset is recorded to let the
+        // get_Name fold recognise the element-fold receiver too. LOCAL to this
+        // Fold invocation (per-method IL offsets).
+        var gn18TypeValueLdelems = new HashSet<int>();
         // valdeep L26: temp VALUE width ("l"/"d" = 64-bit slot, else int32).
         // LocKindOf only knows "loc" locals; temps (t*) materialized from
         // calls/joins/snapshots carry their width here so the conv.u8 fold
@@ -212,6 +234,26 @@ public static class StackFold
 
         foreach (var ins in il)
         {
+            // GN-18 P2/D1 (S3): an instruction already consumed by the
+            // GetGenericArguments adjacent-chain fold (its offset is in
+            // gn18SkipOffsets, filled at the call site). The fold has already
+            // emitted the constant that replaces the whole `GetGenericArguments();
+            // <consumer>` segment, so this instruction MUST be skipped: running it
+            // would read that constant a second time (the observed
+            // il2cpp_array_get_length(1) -> 0xC0000005). It is deliberately
+            // checked BEFORE the label / exception-entry handling: these offsets
+            // are the sequential successors of the folded call (consumed
+            // instructions are never branch targets or catch starts -- a label
+            // between the call and its consumer would break the adjacency the
+            // fold requires), and continuing past the label checks keeps the
+            // join-slot / handler semantics untouched. prevIns is maintained
+            // explicitly here because `continue` would skip the assignment at the
+            // end of the loop body.
+            if (gn18SkipOffsets.Remove(ins.Offset))
+            {
+                prevIns = ins;
+                continue;
+            }
             if (handlerStarts.Contains(ins.Offset) || labels.ContainsKey(ins.Offset))
                 locConst.Clear(); // P0-2: merge points / exception-path entries make local values unknown
 
@@ -2604,19 +2646,35 @@ public static class StackFold
                         if (genIdx >= 0 && genIdx + 1 < il.Count)
                         {
                             var genNext = il[genIdx + 1];
+                            // .Length -> the arity constant. The consumed ldlen
+                            // is recorded in gn18SkipOffsets so the main walk
+                            // does not run it again: the fold already emitted
+                            // the constant, and a second run would consume that
+                            // constant as an array (il2cpp_array_get_length(1) ->
+                            // 0xC0000005, observed in the generated C++).
                             if (genNext.OpCode is ILOpCode.Ldlen)
                             {
                                 stack.Pop();
+                                gn18SkipOffsets.Add(genNext.Offset);
                                 Push(new IntConstExpr { Value = genArity }, ins);
                                 return;
                             }
-                            if (genNext.OpCode is ILOpCode.Ldc_i4 or ILOpCode.Ldc_i4_s
-                                && genIdx + 2 < il.Count
-                                && il[genIdx + 2].OpCode is ILOpCode.Ldelem_ref
-                                && genNext.Operand >= 0 && genNext.Operand < genNames.Count)
+                            // [i] -> the i-th argument's managed name. The index
+                            // is matched BY VALUE across the whole ldc.i4
+                            // immediate family (arr[0] is ldc.i4.0, a distinct
+                            // opcode from ldc.i4), so a constant out-of-range
+                            // index, a variable index or any other shape is NOT
+                            // folded and keeps the runtime LOUD path.
+                            if (genIdx + 2 < il.Count
+                                && LdcI4ConstValue(genNext) is { } genElemIndex
+                                && genElemIndex >= 0 && genElemIndex < genNames.Count
+                                && il[genIdx + 2].OpCode is ILOpCode.Ldelem_ref)
                             {
                                 stack.Pop();
-                                Push(new StringConstExpr { Value = genNames[(int)genNext.Operand] }, ins);
+                                gn18SkipOffsets.Add(genNext.Offset);       // the ldc.i4.i
+                                gn18SkipOffsets.Add(il[genIdx + 2].Offset); // the Ldelem_ref
+                                gn18TypeValueLdelems.Add(il[genIdx + 2].Offset); // element-fold Type-value terminal
+                                Push(new StringConstExpr { Value = genNames[genElemIndex] }, ins);
                                 return;
                             }
                         }
@@ -2626,6 +2684,27 @@ public static class StackFold
                     // runtime path (arity > 0 -> LOUD). No marker is left on
                     // the evaluation stack.
                 }
+            }
+            // GN-18 P2/D1 (S3): the GetGenericArguments element fold leaves a
+            // TYPE value on the stack -- a StringConstExpr holding the
+            // argument's managed FULL name (e.g. "System.Int32"). Its immediate
+            // get_Name consumer must truncate that to the SHORT name, exactly as
+            // the typeof-chain get_Name fold above does (net48: "Int32"). At
+            // this call prevIns is the Ldelem_ref the element fold CONSUMED
+            // (recorded in gn18TypeValueLdelems), NOT a GetTypeFromHandle call,
+            // so the typeof-chain gate above cannot see the receiver. Without
+            // this fold the StringConstExpr would be classified as a plain
+            // System.String receiver (StackFold recvType inference) and
+            // MemberInfo::get_Name would fold to the identity -- emitting the
+            // full name where the short name is required.
+            if (md != null && IsTypeGetName(md, (int)ins.Operand)
+                && prevIns is IlInstruction { OpCode: ILOpCode.Ldelem_ref } elemTerminal
+                && gn18TypeValueLdelems.Contains(elemTerminal.Offset)
+                && stack.Count > 0 && stack.Peek() is StringConstExpr elemTypeName)
+            {
+                stack.Pop();
+                Push(new StringConstExpr { Value = ShortTypeName(elemTypeName.Value) }, ins);
+                return;
             }
             // RuntimeHelpers.InitializeArray array-initializer fold (e2e G1):
             // `new byte[] {...}` / `new int[] {...}` compiles to
@@ -4643,6 +4722,30 @@ public static class StackFold
             sig.ReadSignatureHeader();
             return sig.ReadCompressedInteger() == 0;
         }
+
+        // GN-18 P2/D1 (S3): the compile-time VALUE of an ldc.i4 instruction
+        // across the whole ECMA-335 immediate family (ldc.i4.m1 / ldc.i4.0 ..
+        // ldc.i4.8 / ldc.i4.s / ldc.i4), or null for any other opcode. The
+        // element fold needs the index BY VALUE: csc emits `arr[0]` as
+        // ldc.i4.0, a distinct opcode from ldc.i4 -- an opcode-name match on
+        // Ldc_i4/Ldc_i4_s never sees it (the observed "[i] not folded"
+        // defect). A null result means "not a compile-time constant index" and
+        // the caller keeps the LOUD guard.
+        static int? LdcI4ConstValue(IlInstruction ins) => ins.OpCode switch
+        {
+            ILOpCode.Ldc_i4_m1 => -1,
+            ILOpCode.Ldc_i4_0 => 0,
+            ILOpCode.Ldc_i4_1 => 1,
+            ILOpCode.Ldc_i4_2 => 2,
+            ILOpCode.Ldc_i4_3 => 3,
+            ILOpCode.Ldc_i4_4 => 4,
+            ILOpCode.Ldc_i4_5 => 5,
+            ILOpCode.Ldc_i4_6 => 6,
+            ILOpCode.Ldc_i4_7 => 7,
+            ILOpCode.Ldc_i4_8 => 8,
+            ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4 => ins.Operand is { } v ? (int)v : null,
+            _ => null,
+        };
 
         // GN-18 P2/D1 (S3): decode the ARGUMENT COUNT of a closed GENERICINST
         // TypeSpec (0x15). Returns -1 for any other shape (open definition /
