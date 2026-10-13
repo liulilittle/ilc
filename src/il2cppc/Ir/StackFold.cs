@@ -4562,6 +4562,114 @@ public static class StackFold
             }
         }
 
+        // GN-18 P2/D1 (S3): whether the call token is Type::GetGenericArguments
+        // (the 0-param instance overload -- the (Type[]) overload does not
+        // exist on System.Type; the param count is asserted to catch a
+        // wrongly-shaped signature). Mirrors IsTypeGetIsGenericTypeDefinition.
+        static bool IsTypeGetGenericArguments(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            if (md.GetFullName((TypeReferenceHandle)mr.Parent) != "System.Type") return false;
+            if (md.GetString(mr.Name) != "GetGenericArguments") return false;
+            var sig = md.GetBlobReader(mr.Signature);
+            sig.ReadSignatureHeader();
+            return sig.ReadCompressedInteger() == 0;
+        }
+
+        // GN-18 P2/D1 (S3): decode the ARGUMENT COUNT of a closed GENERICINST
+        // TypeSpec (0x15). Returns -1 for any other shape (open definition /
+        // VAR / non-GENERICINST), which the caller treats as "not foldable" --
+        // the arity is read from the blob itself, never guessed from the
+        // definition name (an arity-N definition can hold an arity-M instance
+        // only for M == N, so the count and the name agree, but the blob is the
+        // authority). ELEMENT_TYPE_CLASS / VALUETYPE precedes the type handle
+        // and does not change the count.
+        static int GenericInstArity(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return -1;
+            var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            if (sig.ReadByte() != 0x15) return -1;
+            _ = sig.ReadByte();                 // ELEMENT_TYPE_CLASS / VALUETYPE
+            _ = sig.ReadTypeHandle();           // the definition token
+            return sig.ReadCompressedInteger(); // the argument count
+        }
+
+        // GN-18 P2/D1 (S3): the MANAGED FULL NAME of each argument of a closed
+        // GENERICINST TypeSpec (0x15), in declaration order. Each argument is
+        // itself an encoded element type; only primitives / well-known
+        // System.* TypeDefs and TypeRefs resolve here (the suffixed mapping of
+        // the emit-side constants is deliberately NOT used). Returns null when
+        // any argument is not resolvable (VAR / MVAR / nested generic /
+        // ARRAY / SZARRAY / PTR / BYREF ...) -- the caller then keeps the
+        // runtime LOUD path instead of fabricating a name.
+        static List<string>? GenericInstArgNames(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return null;
+            var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            if (sig.ReadByte() != 0x15) return null;
+            _ = sig.ReadByte();          // ELEMENT_TYPE_CLASS / VALUETYPE
+            _ = sig.ReadTypeHandle();    // the definition token
+            var argc = sig.ReadCompressedInteger();
+            var names = new List<string>(argc);
+            for (var i = 0; i < argc; i++)
+            {
+                var name = GenericArgName(md, ref sig);
+                if (name == null) return null;
+                names.Add(name);
+            }
+            return names;
+        }
+
+        // One encoded argument type -> its managed full name, or null when the
+        // element type is outside the decode table (the caller LOUDs).
+        static string? GenericArgName(MetadataReader md, ref BlobReader sig)
+        {
+            var et = sig.ReadByte();
+            switch (et)
+            {
+                case 0x01: return "System.Void";
+                case 0x02: return "System.Boolean";
+                case 0x03: return "System.Char";
+                case 0x04: return "System.SByte";
+                case 0x05: return "System.Byte";
+                case 0x06: return "System.Int16";
+                case 0x07: return "System.UInt16";
+                case 0x08: return "System.Int32";
+                case 0x09: return "System.UInt32";
+                case 0x0A: return "System.Int64";
+                case 0x0B: return "System.UInt64";
+                case 0x0C: return "System.Single";
+                case 0x0D: return "System.Double";
+                case 0x0E: return "System.IntPtr";
+                case 0x0F: return "System.UIntPtr";
+                case 0x16: return "System.TypedReference";
+                case 0x18: return "System.IntPtr";
+                case 0x19: return "System.UIntPtr";
+                case 0x1C: return "System.Object";
+                case 0x1D: return "System.String";
+                // CLASS / VALUETYPE: a compressed TypeDefOrRef coded token.
+                case 0x11:
+                case 0x12:
+                    var tok = sig.ReadTypeHandle();
+                    return tok.Kind switch
+                    {
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)tok),
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)tok),
+                        // A nested instance / definition token -- not supported
+                        // (the emit-side suffix would be needed).
+                        _ => null,
+                    };
+                default:
+                    return null; // VAR/MVAR/ARRAY/SZARRAY/PTR/BYREF/GENERICINST...
+            }
+        }
+
+
         // "Cases.Box`1" -> 1, "Cases.Box`2" -> 2, "System.Int32" -> 0.
         static int GenericArityFromName(string name)
         {

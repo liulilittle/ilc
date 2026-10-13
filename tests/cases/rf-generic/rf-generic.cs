@@ -20,27 +20,28 @@
 //                     definition's full name, so identity IS the definition).
 //
 // GN-18 P2/D1 (S3 compile-time fold): the closed instantiation
-// typeof(Box<int>) now folds its GetGenericArguments() call result into a
-// constant NAME-SEQUENCE array at compile time (GENERICINST TypeSpec blob
-// decoding, TypeNameForReflection's 0x15 arm bypassed by a NEW read-only
-// branch -- the existing fold semantics are untouched). Both consumers are
-// compile-time constants: .Length -> 1 and [0].FullName -> "System.Int32"
-// (the net48 oracle values, byte-identical). Element access is NOT a
-// half-state: the same fold decision covers Length and the element read, so
-// there is no "length known, element unread" split (the runtime LOUD path of
-// MethodMap.Type.cs GetGenericArguments remains for the non-foldable forms).
+// typeof(Box<int>) now folds its GetGenericArguments() call result at the
+// CONSUMPTION point -- the immediate next instruction must be the consumer:
+//   ldtoken <封闭GENERICINST TypeSpec> ; call GetTypeFromHandle ; call
+//   GetGenericArguments ; ldlen            -> IntConstExpr(arity)
+// and the same fold decision covers the element read
+//   ... ; ldc.i4.i ; ldelem               -> StringConstExpr(managed full name)
+// so both consumers are compile-time constants from ONE fold decision: there
+// is no "length known, element unread" half-state. .Length -> 1 and
+// [0].FullName -> "System.Int32" (the net48 oracle values, byte-identical).
+// The runtime LOUD path of MethodMap.Type.cs GetGenericArguments remains for
+// the non-foldable forms.
 //
-// GetGenericArguments on arity>0 types was previously NOT probed: the runtime
-// LOUDs (NotSupportedException -- the genericArgNames plan B is deferred, no
-// argument fabrication), which did not match the net48 oracle. The empty-array
-// non-generic path IS probed and byte-identical.
-//
-// GN-18 P2/D1 guard probes (must stay LOUD -- no fabrication, no wrong arity):
-//   * open definition typeof(Box<>): the VAR argument has NO managed full
-//     name (StackFold.IsOpenGenericDefToken) -> LOUD (caught below).
-//   * a stloc'd (temp-passed) result: only the DIRECT chain GetTypeFromHandle
-//     -> GetGenericArguments -> get_Length / ldelem folds; storing the array
-//     in a temp and reading afterwards is NOT wired -> LOUD.
+// GN-18 P2/D1 deliberately NOT probed (net48 does not throw for these, so an
+// oracle probe could never byte-match -- the LOUD paths are pinned by the
+// tests/unit icall-mapping asserts and the runtime's own arity check in
+// typeinfo.cpp, the same convention as this file's original RF-N4 probe):
+//   * the open definition typeof(Box<>): its argument is a VAR with no
+//     managed full name (StackFold.IsOpenGenericDefToken) -> LOUD.
+//   * a result stored in a temp / read afterwards: only the DIRECT chain
+//     (ldlen / Ldelem with a CONSTANT in-range index) folds -> LOUD otherwise.
+//   * a runtime receiver (obj.GetType() / Type.GetType(string)), a generic
+//     interface or struct (no clone, CodeGenerator.cs:577) -> LOUD.
 //------------------------------------------------------------------------------
 using System;
 
@@ -73,27 +74,33 @@ namespace Cases {
 
             // ---- GN-18 P2/D1: the closed instantiation's generic arguments ----
             // S3 compile-time fold: the GetGenericArguments() result of a
-            // closed GENERICINST typeof chain is a constant name-sequence
-            // array, so BOTH consumers are compile-time constants.
+            // closed GENERICINST typeof chain is folded at the CONSUMPTION
+            // point (the immediate next instruction must be the consumer),
+            // so both consumers are compile-time constants:
+            //   .Length  -> IntConstExpr(arity)   = 1
+            //   [0]      -> StringConstExpr(managed full name)
+            // and the existing Type consumer folds then yield
+            //   [0].FullName -> "System.Int32" (identity)
+            //   [0].Name     -> "Int32"        (short name)
+            // The argument names come from the TypeSpec GENERICINST blob
+            // (metadata side) -- never from the emit-side clone suffix.
+            //
+            // GN-18 P2/D1 deliberately NOT probed here (net48 does not throw
+            // for these, so an oracle probe could never byte-match):
+            //   * the OPEN definition typeof(Box<>).GetGenericArguments() --
+            //     its argument is a VAR with no managed full name
+            //     (StackFold.IsOpenGenericDefToken), so it stays LOUD;
+            //   * a result stored in a temp / read afterwards -- only the
+            //     DIRECT chain (ldlen / Ldelem with a constant index) folds;
+            //   * a variable / out-of-range index, a runtime receiver
+            //     (obj.GetType()), a generic interface or struct, and any
+            //     other non-immediate consumer -- all stay LOUD.
+            // Those LOUD paths are pinned by the tests/unit icall-mapping
+            // asserts and the runtime's own arity check (typeinfo.cpp), the
+            // same convention as the original RF-N4 probe (see above).
             Console.WriteLine("boxint_args_len=" + typeof(Box<int>).GetGenericArguments().Length);
             Console.WriteLine("boxint_arg0=" + typeof(Box<int>).GetGenericArguments()[0].FullName);
             Console.WriteLine("boxint_arg0_name=" + typeof(Box<int>).GetGenericArguments()[0].Name);
-
-            // ---- GN-18 P2/D1 guard probes (must stay LOUD) ----
-            bool openDefArgsLoud = false;
-            try { typeof(Box<>).GetGenericArguments(); }
-            catch (Exception) { openDefArgsLoud = true; }
-            Console.WriteLine("boxdef_args_loud=" + openDefArgsLoud);
-
-            bool tempPassLoud = false;
-            try
-            {
-                Type[] tmp = typeof(Box<int>).GetGenericArguments();
-                int n = tmp.Length;
-                Console.WriteLine("temp_args_len=" + n);
-            }
-            catch (Exception) { tempPassLoud = true; }
-            Console.WriteLine("temp_args_loud=" + tempPassLoud);
         }
     }
 }
