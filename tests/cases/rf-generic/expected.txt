@@ -8,3 +8,6 @@ boxdef_defname=Cases.Box`1
 boxint_isgeneric=True
 boxint_isgenericdef=False
 boxint_defname=Cases.Box`1
+boxint_args_len=1
+boxint_arg0=System.Int32
+boxint_arg0_name=Int32
