@@ -471,6 +471,64 @@ public class CliTests
         }
     }
 
+    // GN-19 (GL): the --help output is the multi-section HelpText (not the
+    // single-line Usage). Assert the section markers exist so a future regression
+    // to the one-line usage is caught.
+    [Theory]
+    [InlineData("--help")]
+    [InlineData("-h")]
+    [InlineData("help")]
+    public void Help_Output_HasStructuredSections(string arg)
+    {
+        var originalOut = Console.Out;
+        try
+        {
+            var captured = new StringWriter();
+            Console.SetOut(captured);
+            var code = Program.RunMain(new[] { arg });
+            Assert.Equal(0, code);
+            var output = captured.ToString();
+            Assert.StartsWith("usage: il2cppc", output);
+            Assert.Contains("NAME", output);
+            Assert.Contains("SYNOPSIS", output);
+            Assert.Contains("OPTIONS", output);
+            Assert.Contains("SUBCOMMANDS", output);
+            Assert.Contains("ARCHITECTURES", output);
+            Assert.Contains("EXIT CODES", output);
+            Assert.Contains("EXAMPLES", output);
+            Assert.Contains("ENVIRONMENT", output);
+            Assert.Contains("NOTES", output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    // GN-19 (GL): the ARCHITECTURES section lists all 11 canonical arches, the
+    // aliases and their pointer widths, so the enumeration surface is visible.
+    [Fact]
+    public void Help_Architectures_ListAllArches()
+    {
+        var originalOut = Console.Out;
+        try
+        {
+            var captured = new StringWriter();
+            Console.SetOut(captured);
+            var code = Program.RunMain(new[] { "--help" });
+            Assert.Equal(0, code);
+            var output = captured.ToString();
+            foreach (var arch in new[] { "x86", "x64", "arm32", "arm64", "riscv32", "riscv64", "s390x", "mips", "mips64", "mips32", "ppc", "ppc64", "ppc32" })
+                Assert.Contains(arch, output);
+            Assert.Contains("32-bit", output);
+            Assert.Contains("64-bit", output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
     [Fact]
     public void Audit_MissingArg_ExitsOne()
     {
@@ -641,8 +699,15 @@ public class CliTests
     [Theory]
     [InlineData("x86", 4)]
     [InlineData("arm32", 4)]
+    [InlineData("riscv32", 4)]
+    [InlineData("mips", 4)]
+    [InlineData("ppc", 4)]
     [InlineData("x64", 8)]
     [InlineData("arm64", 8)]
+    [InlineData("riscv64", 8)]
+    [InlineData("mips64", 8)]
+    [InlineData("ppc64", 8)]
+    [InlineData("s390x", 8)]
     [InlineData("X86", 4)]
     public void Arch_Value_NormalizesToPointerSize(string arch, int expected)
     {
@@ -659,7 +724,7 @@ public class CliTests
         try
         {
             Console.SetError(captured);
-            var code = Program.RunMain(new[] { "--arch", "mips", FixturePath(), "out" });
+            var code = Program.RunMain(new[] { "--arch", "ia64", FixturePath(), "out" });
             Assert.Equal(1, code);
             Assert.Contains("--arch", captured.ToString());
         }
@@ -680,6 +745,64 @@ public class CliTests
             var code = Program.RunMain(new[] { "--arch", FixturePath(), "out" });
             Assert.Equal(1, code);
             Assert.Contains("--arch", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
+    // GN-19 (GL): the 32/64 aliases normalize to the canonical family name and
+    // pointer width -- mips32 == mips (4), ppc32 == ppc (4).
+    [Theory]
+    [InlineData("mips32", "mips")]
+    [InlineData("ppc32", "ppc")]
+    [InlineData("MIPS32", "mips")]
+    public void Arch_Alias_NormalizesToCanonical(string input, string canonical)
+    {
+        var opts = CliParser.Parse(new[] { "--arch", input, "in.dll", "out" });
+        Assert.Equal(canonical, opts.TargetArch);
+        Assert.Equal(4, opts.PointerSize);
+    }
+
+    // GN-19 (GL): a bare "riscv" is NOT accepted -- the width must be explicit
+    // (riscv32/riscv64). User misuse -> exit 1.
+    [Fact]
+    public void Arch_BareRiscv_IsUserMisuse()
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            var code = Program.RunMain(new[] { "--arch", "riscv", FixturePath(), "out" });
+            Assert.Equal(1, code);
+            Assert.Contains("--arch", captured.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+        }
+    }
+
+    // GN-19 (GL, AOT absolute standard): s390x is big-endian-only and big-endian
+    // targets must be LOUDLY rejected at transpile time (never "enumerable but
+    // generates wrong byte data"). ppc64-BE / mips-BE are the explicit BE-variant
+    // spellings. All are user misuse -> CliParseException -> exit 1.
+    [Theory]
+    [InlineData("s390x")]
+    [InlineData("mips-BE")]
+    [InlineData("ppc64-BE")]
+    public void Arch_BigEndian_RejectedIsUserMisuse(string arch)
+    {
+        var originalErr = Console.Error;
+        var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            var code = Program.RunMain(new[] { "--arch", arch, FixturePath(), "out" });
+            Assert.Equal(1, code);
+            Assert.Contains("big-endian target not supported", captured.ToString());
         }
         finally
         {
