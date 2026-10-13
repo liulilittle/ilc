@@ -73,31 +73,29 @@ namespace Cases {
             Console.WriteLine("boxint_defname=" + typeof(Box<int>).GetGenericTypeDefinition().FullName);
 
             // ---- GN-18 P2/D1: the closed instantiation's generic arguments ----
-            // S3 compile-time fold: the GetGenericArguments() result of a
-            // closed GENERICINST typeof chain is folded at the CONSUMPTION
-            // point (the immediate next instruction must be the consumer),
-            // so both consumers are compile-time constants:
-            //   .Length  -> IntConstExpr(arity)   = 1
-            //   [0]      -> StringConstExpr(managed full name)
-            // and the existing Type consumer folds then yield
-            //   [0].FullName -> "System.Int32" (identity)
-            //   [0].Name     -> "Int32"        (short name)
-            // The argument names come from the TypeSpec GENERICINST blob
-            // (metadata side) -- never from the emit-side clone suffix.
+            // S3 compile-time fold (Plan B -- consumption-point interception, no
+            // new IR node): ldtoken <closed GENERICINST> -> GetTypeFromHandle ->
+            // GetGenericArguments, consumed DIRECTLY by
+            //   ldlen                        -> IntConstExpr(arity)          = 1
+            //   ldc.i4.<const> + Ldelem_ref  -> StringConstExpr(arg's name)  = "System.Int32"
+            // ONE fold decision covers both consumers, so there is no
+            // "length known, element unread" half-state. The element string
+            // then rides the EXISTING Type-domain consumer folds
+            // (get_FullName -> identity "System.Int32"; get_Name -> "Int32").
+            // The argument names are decoded from the TypeSpec GENERICINST
+            // blob (metadata side) -- never from the emit-side clone suffix.
             //
-            // GN-18 P2/D1 deliberately NOT probed here (net48 does not throw
-            // for these, so an oracle probe could never byte-match):
-            //   * the OPEN definition typeof(Box<>).GetGenericArguments() --
-            //     its argument is a VAR with no managed full name
-            //     (StackFold.IsOpenGenericDefToken), so it stays LOUD;
+            // Deliberately NOT probed (net48 does not throw, so an oracle probe
+            // could never byte-match; the LOUD paths are pinned by the
+            // tests/unit icall-mapping asserts + the runtime arity check in
+            // typeinfo.cpp -- the same convention as the RF-N4 probe above):
+            //   * the OPEN definition typeof(Box<>) -- its argument is a VAR
+            //     with no managed full name (StackFold.IsOpenGenericDefToken);
             //   * a result stored in a temp / read afterwards -- only the
-            //     DIRECT chain (ldlen / Ldelem with a constant index) folds;
-            //   * a variable / out-of-range index, a runtime receiver
-            //     (obj.GetType()), a generic interface or struct, and any
-            //     other non-immediate consumer -- all stay LOUD.
-            // Those LOUD paths are pinned by the tests/unit icall-mapping
-            // asserts and the runtime's own arity check (typeinfo.cpp), the
-            // same convention as the original RF-N4 probe (see above).
+            //     DIRECT chain with a CONSTANT in-range index folds;
+            //   * a variable / out-of-range index;
+            //   * a runtime receiver (obj.GetType() / Type.GetType(string));
+            //   * a generic interface or struct (no clone, CodeGenerator.cs:577).
             Console.WriteLine("boxint_args_len=" + typeof(Box<int>).GetGenericArguments().Length);
             Console.WriteLine("boxint_arg0=" + typeof(Box<int>).GetGenericArguments()[0].FullName);
             Console.WriteLine("boxint_arg0_name=" + typeof(Box<int>).GetGenericArguments()[0].Name);
