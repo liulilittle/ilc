@@ -142,6 +142,15 @@ $archToken = switch ($Arch) {
     "x64"   { "x64" }
     "ARM64" { "arm64" }
     "arm32" { "arm32" }
+    "riscv32" { "riscv32" }
+    "riscv64" { "riscv64" }
+    "s390x"  { "s390x" }
+    "mips"   { "mips" }
+    "mips32" { "mips" }
+    "mips64" { "mips64" }
+    "ppc"    { "ppc" }
+    "ppc32"  { "ppc" }
+    "ppc64"  { "ppc64" }
     default { "" }
 }
 if ($archToken -ne "") { $transpileArgs += @("--arch", $archToken) }

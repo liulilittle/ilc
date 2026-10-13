@@ -287,16 +287,27 @@ foreach ($caseDir in $caseDirs) {
     } catch { Write-Warning "publish to out failed (non-fatal): $_" }
 
     # 3. Transpile: input is the transpile input (net8 dll / net48 exe, see the earlier decision)
-    $gen = "$Root/tests/cases/$dirName/gen"
+$gen = "$Root/tests/cases/$dirName/gen"
     Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
     # G4-x86: pass the arch parameter through to the transpiler (--arch) so the generated layout + G1 entry interlock match
     # the cmake -A platform (by design the interlock rejects a default host-width transpile + -A Win32 build).
+    # GN-19: 11-arch token map (+ mips32->mips, ppc32->ppc aliases) -- cross arches
+    # (riscv/mips/ppc/s390x) have no VS -A platform; the transpiler only needs the passthrough.
     $tArch = switch ($Arch) {
-        "Win32" { "x86" }
-        "x64"   { "x64" }
-        "ARM64" { "arm64" }
-        "arm32" { "arm32" }
-        default { "" }
+        "Win32"   { "x86" }
+        "x64"     { "x64" }
+        "ARM64"   { "arm64" }
+        "arm32"   { "arm32" }
+        "riscv32" { "riscv32" }
+        "riscv64" { "riscv64" }
+        "s390x"   { "s390x" }
+        "mips"    { "mips" }
+        "mips32"  { "mips" }
+        "mips64"  { "mips64" }
+        "ppc"     { "ppc" }
+        "ppc32"   { "ppc" }
+        "ppc64"   { "ppc64" }
+        default   { "" }
     }
     $tArgs = @($transpileInput, $gen)
     if ($tArch -ne "") { $tArgs = @("--arch", $tArch) + $tArgs }

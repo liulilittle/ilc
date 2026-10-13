@@ -175,11 +175,11 @@ The transpiler entry point is `Program.Main` (`src/il2cppc/Program.cs`),
 argument parsing in `src/il2cppc/CliOptions.cs`.
 
 ```
-usage: il2cppc [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
+usage: il2cppc [--arch <arch>] [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
 usage: il2cppc audit-internalcalls <assembly>
 ```
 
-`--help`/`-h` prints the matching usage to stdout and exits 0; `--version`
+`--help`/`-h` prints the multi-section help text and exits 0; `--version`
 prints the transpiler version and exits 0. The `help` subcommand
 (`il2cppc help`, `il2cppc help audit-internalcalls`) and
 `il2cppc audit-internalcalls --help` do the same. Help/version are pre-scanned
@@ -192,12 +192,13 @@ across all arguments before parsing, so `--help` never falls through to a
 |---|---|---|---|
 | `<input-assembly>` | positional (required) | — | Path to the .NET Framework 4.8 assembly (PE file, `.exe` or `.dll`) to transpile. |
 | `<output-dir>` | positional (required) | — | Directory for the generated C++ project. Created by the tool. |
+| `--arch <arch>` | option | host width | Target architecture. Accepted values and their pointer widths: `32-bit`: `x86`, `arm32`, `riscv32`, `mips`, `ppc` (aliases `mips32` == `mips`, `ppc32` == `ppc`); `64-bit`: `x64`, `arm64`, `riscv64`, `mips64`, `ppc64`, `s390x`. A bare `riscv` is rejected (ambiguous width); `wasm` is not a target. **Big-endian targets are not supported yet** (G12 little-endian contract): `s390x` (big-endian by design) and the explicit big-endian variants `mips-BE` / `ppc64-BE` are rejected with exit 1 before any code is generated — the transpiler never silently emits big-endian byte data. `--arch` normalizes to the target pointer width (4 or 8); when absent, PointerSize defaults to the host width (`IntPtr.Size`). |
 | `--reflection-list <manifest>` | option | off | Mode B reflection manifest: a text file, one full type name per line (see section 5.2). When provided, the tool also writes `reflection-manifest.txt` into the output dir. |
 | `--reflection-granularity all\|members` | option | `members` | Reflection detail granularity for the manifest. `members` = types plus their members; `all` = full detail. Values are case-insensitive. |
 | `--log <file>` | option | off | Tee a copy of both stdout and stderr into `<file>` for the whole run. An unopenable path is reported after parse and exits 1. |
 | `--quiet` | option | off | Suppress the stdout diagnostics (symbols / pool reports / final summary); stderr errors and warnings are unaffected. |
 | `--verbose` | option | off | Print per-type progress lines to stdout while generating. Mutually exclusive with `--quiet` (exit 1). |
-| `--help`, `-h` | option | off | Print usage to stdout and exit 0. |
+| `--help`, `-h` | option | off | Print the multi-section help text to stdout and exit 0. |
 | `--version` | option | off | Print the transpiler version to stdout and exit 0. |
 
 Options may appear before, between, or after the positionals; anything not
@@ -208,7 +209,7 @@ matching an option is treated as a positional.
 | Code | Meaning |
 |---|---|
 | 0 | Success. `generated N type(s) -> <dir>` printed to stdout. Also `--help`/`-h`/`--version`, the `help` subcommand, and a successful `audit-internalcalls`. |
-| 1 | Command-line parse error (bad usage, missing manifest file, invalid granularity, `--quiet`+`--verbose` together, `audit-internalcalls` without `<assembly>`, unopenable `--log` path). Message on stderr: `il2cppc error: ...`. |
+| 1 | Command-line parse error (bad usage, missing manifest file, invalid granularity, invalid `--arch` value, big-endian target rejection, `--quiet`+`--verbose` together, `audit-internalcalls` without `<assembly>`, unopenable `--log` path). Message on stderr: `il2cppc error: ...`. |
 | 2 | Transpile failure (metadata load, decode, code generation, loud rejection of unsupported constructs). Message + stack trace on stderr. Also an `audit-internalcalls` run whose assembly cannot be read. |
 
 ### 3.3 Errors

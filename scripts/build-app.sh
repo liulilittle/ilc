@@ -7,7 +7,9 @@
 #   -Toolchain mingw|wsl|ndk   (msvc is Windows-only; see build-app.ps1)
 #   -OutDir <dir>
 #   -Clean
-#   -Log <file>        : forward --log <file> to the il2cppc transpile
+#   -Arch <arch>     : target architecture token forwarded to --arch
+#                      (x86|x64|arm32|arm64|riscv32|riscv64|s390x|mips|mips64|ppc|ppc64)
+#   -Log <file>      : forward --log <file> to the il2cppc transpile
 #
 # Toolchain differences (friendly-compiler S8): msvc is NOT mirrored here --
 # POSIX/WSL hosts have no Visual Studio (architectural exclusion, not an
@@ -33,6 +35,7 @@ TOOLCHAIN="mingw"
 OUTDIR=""
 LIBNAME=""
 LOG=""
+ARCH=""
 CONFIG="Release"
 CLEAN=0
 
@@ -49,6 +52,7 @@ while [[ $# -gt 0 ]]; do
         -OutDir)     OUTDIR="$2"; shift 2 ;;
         -LibName)    LIBNAME="$2"; shift 2 ;;
         -Log)        LOG="$2"; shift 2 ;;
+        -Arch)       ARCH="$2"; shift 2 ;;
         -Config)     CONFIG="$2"; shift 2 ;;
         -Clean)      CLEAN=1; shift ;;
         *) echo "unknown option: $1"; usage ;;
@@ -108,6 +112,11 @@ if [[ ! -f "${IL2CPPC_DLL}" ]]; then
 fi
 TRANSPILE_ARGS=( "exec" "${IL2CPPC_DLL}" )
 if [[ -n "${LOG}" ]]; then TRANSPILE_ARGS+=( "--log" "${LOG}" ); fi
+# GN-19: forward the target architecture to the transpiler (--arch) so the
+# generated layout + G1 entry interlock match the requested target width.
+if [[ -n "${ARCH}" ]]; then
+    TRANSPILE_ARGS+=( "--arch" "${ARCH}" )
+fi
 TRANSPILE_ARGS+=( "${TRANSPILE_INPUT}" "${GEN}" )
 dotnet "${TRANSPILE_ARGS[@]}"
 
