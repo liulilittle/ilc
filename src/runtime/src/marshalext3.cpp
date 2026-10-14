@@ -170,6 +170,27 @@ int32_t LookupExceptionHResult(const char* shortName)
     return static_cast<int32_t>(0x80131500); // COR_E_EXCEPTION
 }
 
+// Is this descriptor a VALUE type (its base chain reaches System.ValueType)?
+// Same criterion as boxingext2.cpp's IsValueTypeClass (that helper is
+// file-local there): the transpiler wires every generated user-struct {T}_class
+// to &System_ValueType_class, while the builtin primitive box classes (Int32
+// etc., base System.Object) and enum boxes (base System.Enum) do not reach it.
+// It matters for the boxed-payload size: a value-type descriptor reports
+// instanceSize WITHOUT the object header (the physical box is
+// kBoxPayloadOffset + sizeof(T), so instanceSize == sizeof(T)), whereas a
+// boxed REFERENCE object counts the header inside instanceSize.
+bool MarshalBoxIsValueType(Il2CppClass* klass)
+{
+    for (Il2CppClass* cur = klass; cur != nullptr; cur = cur->baseClass)
+    {
+        if (cur == &System_ValueType_class)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -626,12 +647,19 @@ void il2cpp_marshal_struct_store(Il2CppObject* structure, void* dst, bool fDelet
     {
         // User blittable struct fallback (ipaudit1): no reference fields ->
         // net48 copies the value layout byte for byte. The boxed payload
-        // starts at &structure[1]; its size is the descriptor's instanceSize
-        // minus the object header.
+        // starts at &structure[1]. A VALUE-type descriptor (base chain reaches
+        // System.ValueType) reports instanceSize as the payload size WITHOUT
+        // the object header -- icall_box_user_struct allocates the box as
+        // kBoxPayloadOffset + sizeof(T) and the descriptor's instanceSize is
+        // sizeof(T) (the GN-20.4 compact value-type layout) -- so the payload
+        // size IS instanceSize; only a boxed REFERENCE object (instanceSize
+        // includes the header) subtracts it.
         if (structure->klass != nullptr && structure->klass->refFieldCount == 0)
         {
-            const int32_t payload = structure->klass->instanceSize
-                - static_cast<int32_t>(sizeof(Il2CppObject));
+            const int32_t payload = MarshalBoxIsValueType(structure->klass)
+                ? structure->klass->instanceSize
+                : structure->klass->instanceSize
+                      - static_cast<int32_t>(sizeof(Il2CppObject));
             if (payload > 0)
             {
                 std::memcpy(dst, reinterpret_cast<const void*>(&structure[1]),
@@ -681,9 +709,9 @@ void il2cpp_marshal_struct_store_value(Il2CppClass* klass, const void* value, vo
         return;
     default:
         // User blittable struct (P25b value form): the caller's payloadSize
-        // IS the struct size -- the P25b descriptor instanceSize is
-        // sizeof(T) WITHOUT the object header (unlike the boxed-object path
-        // above, whose descriptor size excludes the header by subtraction).
+        // IS the struct size -- the value-type descriptor instanceSize is
+        // sizeof(T) WITHOUT the object header (the same payload semantics the
+        // boxed-object path above uses for value types).
         if (klass->refFieldCount == 0 && payloadSize > 0)
         {
             std::memcpy(dst, value, payloadSize);

@@ -8,7 +8,10 @@
 // model need to know about a type:
 //
 //   name            -- full type name ("Calc.Foo"), used by the type registry
-//   instanceSize    -- byte size of one instance, >= sizeof(Il2CppObject)
+//   instanceSize    -- byte size of one instance: for a REFERENCE type this
+//                      includes the object header (>= sizeof(Il2CppObject));
+//                      for a VALUE type (base chain reaches System.ValueType)
+//                      it is the payload size WITHOUT the header (== sizeof(T))
 //   refFieldBitmap  -- bit i set <=> the field at offset i*sizeof(void*) is a
 //                      GC reference; drives exact mark-sweep field scanning
 //   refFieldCount   -- number of reference-typed fields (root iteration help)

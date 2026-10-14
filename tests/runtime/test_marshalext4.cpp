@@ -35,6 +35,17 @@
 //      null pointers -> ArgumentNullException; negative cVars ->
 //      ArgumentOutOfRangeException; is_com_object(null) ->
 //      ArgumentNullException and every non-null object -> false.
+//   5. StructureToPtr OBJECT form for reference-free USER structs (GN-20.4b
+//      D1): a boxed user struct's payload size MUST come from value-type
+//      descriptor semantics -- instanceSize == sizeof(T) WITHOUT the object
+//      header (icall_box_user_struct allocates header + sizeof(T)), so the
+//      copy must not subtract the header. 2-int / 4-int / 15-int structs
+//      round-trip their FULL payload byte for byte (nothing beyond the
+//      payload is written); the generic VALUE form (store_value) does the
+//      same from the caller-supplied sizeof(T); a boxed REFERENCE object
+//      (base chain not reaching System.ValueType) still subtracts the header;
+//      a reference-bearing struct stays NotSupportedException; null
+//      structure / null destination -> ArgumentNullException.
 //
 // Plain executable + minimal assertion harness (see test_marshalext.cpp).
 //------------------------------------------------------------------------------
@@ -445,6 +456,146 @@ int main()
                "is_com_object(boxed Int32) -> false");
         Expect(!icall_marshal_is_com_object(mockStr),
                "is_com_object(String) -> false (a string is not an RCW)");
+    }
+
+    // --- 5. StructureToPtr OBJECT form: FULL payload for reference-free USER
+    //        structs (GN-20.4b D1) ---
+    il2cpp::il2cpp_ensure_builtin_system_classes();
+
+    struct Gn20TwoInt { int32_t a; int32_t b; };
+    struct Gn20FourInt { int32_t a; int32_t b; int32_t c; int32_t d; };
+    struct Gn20FifteenInt { int32_t v[15]; }; // TEXTMETRIC-shaped
+
+    // Value-type descriptors (base chain reaches System.ValueType) carrying the
+    // transpiler's COMPACT instanceSize (sizeof(T), no object header): the box
+    // physically holds kBoxPayloadOffset + sizeof(T) bytes and the payload
+    // starts at &structure[1]. Copying instanceSize - sizeof(Il2CppObject)
+    // bytes truncates the tail (0/8, 8/16, 52/60 under the compact layout).
+    il2cpp::Il2CppClass twoIntClass = {
+        "GN20.TwoInt", 8, 0u, 0, &System_ValueType_class, nullptr, 0, nullptr, 0,
+    };
+    il2cpp::Il2CppClass fourIntClass = {
+        "GN20.FourInt", 16, 0u, 0, &System_ValueType_class, nullptr, 0, nullptr, 0,
+    };
+    il2cpp::Il2CppClass fifteenIntClass = {
+        "GN20.FifteenInt", 60, 0u, 0, &System_ValueType_class, nullptr, 0, nullptr, 0,
+    };
+    il2cpp_class_register(&twoIntClass);
+    il2cpp_class_register(&fourIntClass);
+    il2cpp_class_register(&fifteenIntClass);
+
+    {
+        Gn20TwoInt v{ 0x11110001, 0x11110002 };
+        il2cpp::Il2CppObject* box = icall_box_user_struct(&twoIntClass, &v, sizeof(Gn20TwoInt));
+        unsigned char dst[16];
+        std::memset(dst, 0xAB, sizeof(dst));
+        il2cpp::runtime::il2cpp_marshal_struct_store(box, dst, false);
+        const unsigned char* payload =
+            static_cast<const unsigned char*>(il2cpp_unbox_user_struct(box));
+        Expect(std::memcmp(dst, payload, sizeof(Gn20TwoInt)) == 0,
+               "StructureToPtr(object) copies the FULL 8-byte 2-int struct payload (D1)");
+        Expect(dst[8] == 0xAB && dst[9] == 0xAB && dst[10] == 0xAB && dst[11] == 0xAB &&
+               dst[12] == 0xAB && dst[13] == 0xAB && dst[14] == 0xAB && dst[15] == 0xAB,
+               "StructureToPtr(object) writes nothing past the 2-int payload (D1)");
+    }
+    {
+        Gn20FourInt v{ 0x22220001, 0x22220002, 0x22220003, 0x22220004 };
+        il2cpp::Il2CppObject* box = icall_box_user_struct(&fourIntClass, &v, sizeof(Gn20FourInt));
+        unsigned char dst[24];
+        std::memset(dst, 0xAB, sizeof(dst));
+        il2cpp::runtime::il2cpp_marshal_struct_store(box, dst, false);
+        const unsigned char* payload =
+            static_cast<const unsigned char*>(il2cpp_unbox_user_struct(box));
+        Expect(std::memcmp(dst, payload, sizeof(Gn20FourInt)) == 0,
+               "StructureToPtr(object) copies the FULL 16-byte 4-int struct payload (D1)");
+        for (int i = 16; i < 24; ++i)
+        {
+            Expect(dst[i] == 0xAB, "StructureToPtr(object) writes nothing past the 4-int payload (D1)");
+        }
+    }
+    {
+        Gn20FifteenInt v{};
+        for (int i = 0; i < 15; ++i)
+        {
+            v.v[i] = 0x33000000 + static_cast<int32_t>(i);
+        }
+        il2cpp::Il2CppObject* box = icall_box_user_struct(&fifteenIntClass, &v, sizeof(Gn20FifteenInt));
+        unsigned char dst[68];
+        std::memset(dst, 0xAB, sizeof(dst));
+        il2cpp::runtime::il2cpp_marshal_struct_store(box, dst, false);
+        const unsigned char* payload =
+            static_cast<const unsigned char*>(il2cpp_unbox_user_struct(box));
+        Expect(std::memcmp(dst, payload, sizeof(Gn20FifteenInt)) == 0,
+               "StructureToPtr(object) copies the FULL 60-byte 15-int struct payload (D1)");
+        for (int i = 60; i < 68; ++i)
+        {
+            Expect(dst[i] == 0xAB, "StructureToPtr(object) writes nothing past the 15-int payload (D1)");
+        }
+    }
+
+    // Generic VALUE form (store_value): the transpiler passes &value +
+    // sizeof(T) + the descriptor, no box is materialized. The full payload
+    // must round-trip here too (this arm never subtracted the header).
+    {
+        Gn20FourInt v{ 1, 2, 3, 4 };
+        unsigned char dst[24];
+        std::memset(dst, 0xAB, sizeof(dst));
+        il2cpp::runtime::il2cpp_marshal_struct_store_value(&fourIntClass, &v, dst, false, sizeof(Gn20FourInt));
+        Expect(std::memcmp(dst, &v, sizeof(Gn20FourInt)) == 0,
+               "StructureToPtr<T> value form copies the FULL 16-byte 4-int payload (D1)");
+        for (int i = 16; i < 24; ++i)
+        {
+            Expect(dst[i] == 0xAB, "StructureToPtr<T> value form writes nothing past the payload (D1)");
+        }
+    }
+
+    // Boxed REFERENCE object (base chain does NOT reach System.ValueType): the
+    // descriptor instanceSize INCLUDES the object header, so the header
+    // subtraction stays -- only value types skip it.
+    {
+        const int32_t refPayload = 12; // header(8) + payload(12) = instanceSize 20
+        il2cpp::Il2CppClass refBoxClass = {
+            "GN20.RefBox", 8 + refPayload, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+        };
+        il2cpp_class_register(&refBoxClass);
+        unsigned char v[refPayload];
+        for (int i = 0; i < refPayload; ++i)
+        {
+            v[i] = static_cast<unsigned char>(0x40 + i);
+        }
+        il2cpp::Il2CppObject* box = icall_box_user_struct(&refBoxClass, v, sizeof(v));
+        unsigned char dst[16];
+        std::memset(dst, 0xAB, sizeof(dst));
+        il2cpp::runtime::il2cpp_marshal_struct_store(box, dst, false);
+        Expect(std::memcmp(dst, v, sizeof(v)) == 0,
+               "StructureToPtr(object) reference box copies instanceSize - header bytes (D1)");
+        Expect(dst[12] == 0xAB && dst[13] == 0xAB && dst[14] == 0xAB && dst[15] == 0xAB,
+               "StructureToPtr(object) reference box writes nothing past the payload (D1)");
+    }
+
+    // Reference-bearing struct descriptor: stays NotSupportedException (the
+    // raw object-ref copy is a GC hazard).
+    {
+        il2cpp::Il2CppClass refFieldClass = {
+            "GN20.RefField", 24, 0x3u, 2, &System_ValueType_class, nullptr, 0, nullptr, 0,
+        };
+        il2cpp_class_register(&refFieldClass);
+        unsigned char v[24] = {};
+        il2cpp::Il2CppObject* box = icall_box_user_struct(&refFieldClass, v, sizeof(v));
+        unsigned char dst[24] = {};
+        Expect(ThrowsDotNet([&] { il2cpp::runtime::il2cpp_marshal_struct_store(box, dst, false); }, kNotSupported),
+               "StructureToPtr(object) reference-bearing struct -> NotSupportedException (D1)");
+    }
+
+    // Null semantics (net48 IntPtr.Zero / null structure).
+    {
+        unsigned char dst[8] = {};
+        Gn20TwoInt v{ 5, 6 };
+        il2cpp::Il2CppObject* box = icall_box_user_struct(&twoIntClass, &v, sizeof(Gn20TwoInt));
+        Expect(ThrowsDotNet([&] { il2cpp::runtime::il2cpp_marshal_struct_store(nullptr, dst, false); }, kArgumentNull),
+               "StructureToPtr(object) null structure -> ArgumentNullException");
+        Expect(ThrowsDotNet([&] { il2cpp::runtime::il2cpp_marshal_struct_store(box, nullptr, false); }, kArgumentNull),
+               "StructureToPtr(object) null destination -> ArgumentNullException");
     }
 
     // --- Report ---
