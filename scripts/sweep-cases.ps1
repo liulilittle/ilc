@@ -196,5 +196,12 @@ foreach ($c in $cases) {
     $status = if ($timedOut -or -not $gateOk) { "FAIL" } else { if ($proc.ExitCode -eq 0) { "PASS" } else { "FAIL" } }
     $mins = [math]::Round(((Get-Date) - $start).TotalMinutes, 1)
     Write-ResultRecord -Path $Out -Status $status -Case $c -Mins $mins -At (Get-Date)
+    # Dedup must be updated IN-MEMORY as well: $done was rebuilt from $Out at
+    # startup (:59) but Write-ResultRecord only APPENDS to the file (:56) and
+    # never touches $done. A case name repeated inside the SAME -List file
+    # would therefore be executed and recorded twice in one run (observed:
+    # 811 raw records with 119 duplicates), because the second pass finds
+    # $done.ContainsKey($c) still false until the process restarts.
+    $done[$c] = $true
     Write-Host "$status $c ($mins min)"
 }
