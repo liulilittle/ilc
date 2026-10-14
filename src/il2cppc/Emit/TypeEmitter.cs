@@ -10,16 +10,26 @@ namespace Il2Cpp.Transpiler.Emit;
 // M2 class emission model:
 //
 //   Layout (LayoutInstanceFields)
-//     The instance is a flat grid of 8-byte pointer slots. Slot 0 is the
-//     object header (Il2CppObject._klass, the type descriptor pointer). Each
-//     instance field occupies exactly one slot in metadata declaration order
-//     (slots 1..N). An Int32 field uses only the low 4 bytes of its slot (the
-//     high 4 stay zero from allocation zero-init); a Reference field uses the
-//     whole slot. This is deliberately simpler than the CLR's alignment rules
-//     (M3) and keeps the reference-field bitmap exact: bit i is set exactly
-//     when slot i is a GC reference, so the collector scans slot-wise with no
-//     ambiguity. InstanceSize = (slotCount) * pointerSize, always >= sizeof(Il2CppObject)
-//     (pointerSize = the TARGET pointer width -- 8 on x64/arm64, 4 on x86/arm32; see G1).
+//     REFERENCE type: the instance is a flat grid of 8-byte pointer slots. Slot 0
+//     is the object header (Il2CppObject._klass, the type descriptor pointer).
+//     Each instance field occupies exactly one slot in metadata declaration
+//     order (slots 1..N). An Int32 field uses only the low 4 bytes of its slot
+//     (the high 4 stay zero from allocation zero-init); a Reference field uses
+//     the whole slot. This is deliberately simpler than the CLR's alignment
+//     rules (M3) and keeps the reference-field bitmap exact: bit i is set
+//     exactly when slot i is a GC reference, so the collector scans slot-wise
+//     with no ambiguity. InstanceSize = (slotCount) * pointerSize, always >=
+//     sizeof(Il2CppObject) (pointerSize = the TARGET pointer width -- 8 on
+//     x64/arm64, 4 on x86/arm32; see G1).
+//
+//     VALUE type (LayoutValueTypeFields, GN-20.4): the net48 [StructLayout(
+//     Sequential)] COMPACT layout -- InstanceSize does NOT include the object
+//     header and equals sizeof(T). Each field is placed at its own natural
+//     alignment (Int32/Float 4, Int64/UInt64/Double 8, NativeInt/Reference
+//     pointerSize), and a Reference field necessarily lands on a whole slot so
+//     the collector's slot scan still finds every reference (SlotIndex is
+//     derived as ByteOffset / pointerSize, so reference types keep the exact
+//     slot grid above -- zero behaviour change for them).
 //
 //   Struct emission (EmitClassStruct)
 //     struct {Ns}_{Type} {           // C++ name via TypeCppName
@@ -1519,7 +1529,10 @@ public static class TypeEmitter
     //     &{MethodSymbolName} (which would fail to link). The set is per-type
     //     method short names, so the table stays intact while folded methods
     //     are unreachable (typeinfo.h "null = unreachable").
-    //   * fields: instance -> byte offset (SlotIndex * pointer size) + isRef;
+    //   * fields: instance -> byte offset (FieldDef.ByteOffset: SlotIndex *
+//     pointer size for a REFERENCE type -- the slot grid; the net48 compact
+//     sequential offset for a VALUE type -- see LayoutInstanceFields above)
+//     + isRef;
     //     static -> offset -1 + staticAddr = &{FieldCppName} (non-literal);
     //     flags bit1 static bit2 literal. FieldDef has NO IsPublic (model
     //     gap, mirror of the M1 static-field classification gap) -- the
