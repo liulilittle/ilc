@@ -145,6 +145,14 @@ Ret il2cpp_pinvoke_call(Fn fn, Args... args)
         if constexpr (std::is_void<Ret>::value)
         {
             fn(args...);
+            // GN-20.4 F1: the void arm must RETURN here. Without it control
+            // leaves the try block normally (no exception), skips the catch
+            // arms and reaches the __builtin_unreachable() tail below -- with
+            // GCC the fall-through re-entered the catch(...) handler, so a
+            // statement-position P/Invoke call ("(P/Invoke SEH boundary)")
+            // never came back and the process died (0xC0000005 in gdifont /
+            // gdidraw; the rethrow path in the new test_pinvoke section 4).
+            return;
         }
         else
         {

@@ -77,6 +77,15 @@ public sealed class FieldDef
     // by bit i of the class's refFieldBitmap. Slot 0 is the object header
     // (the klass pointer), so instance fields occupy slots 1..N.
     public int SlotIndex { get; set; } = -1;
+
+    // Byte offset assigned by the layout pass. For a REFERENCE type this is
+    // SlotIndex * PointerSize (the whole-pointer slot grid the collector
+    // scans). For a VALUE type it is the net48 sequential offset the field's
+    // own width/alignment implies (a struct field's real C++ member offset),
+    // which is what a native P/Invoke callee reads and writes through -- the
+    // slot grid alone would report an 8-byte stride for a run of int32 fields
+    // (GN-20.4 F1). -1 before LayoutInstanceFields runs.
+    public int ByteOffset { get; set; } = -1;
 }
 
 // M2 field type classification (see FieldDef.TypeKind for the contract).

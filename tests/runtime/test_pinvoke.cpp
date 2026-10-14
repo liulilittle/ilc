@@ -16,6 +16,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_pinvoke.h"
+#include "il2cpp_pinvoke_bridge.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -44,6 +45,26 @@ void Expect(bool condition, const char* what)
     }
 }
 
+// GN-20.4 F1 probes: statement-position (void) and expression-position
+// (int32_t) native callees, both exercising il2cpp_pinvoke_call.
+void Gn20VoidStore(int32_t* out)
+{
+    if (out != nullptr)
+    {
+        *out = 0x5A5A;
+    }
+}
+
+int32_t Gn20VoidStore2(int32_t* inout)
+{
+    if (inout != nullptr)
+    {
+        *inout += 1;
+        return *inout;
+    }
+    return -1;
+}
+
 } // namespace
 
 int main()
@@ -66,6 +87,24 @@ int main()
     auto fn = reinterpret_cast<TestFn>(sym1);
     Expect(fn() > 0, "resolved kernel32 GetTickCount callable via the pointer");
 #endif
+
+    // --- 4. GN-20.4 F1: the void-return bridge RETURNS to its caller ---
+    // il2cpp_pinvoke_call<void> is the wrapper every STATEMENT-position
+    // P/Invoke call compiles to ("IL call ... (P/Invoke SEH boundary)"). The
+    // void arm of the try block must RETURN: falling out of the try reaches
+    // the function's __builtin_unreachable() tail, which is undefined -- the
+    // gdifont/gdidraw probes crashed 0xC0000005 at exactly such a call.
+    int32_t voidProbe = 0;
+    int32_t voidMarker = 0;
+    il2cpp::runtime::il2cpp_pinvoke_call<void>(Gn20VoidStore, il2cpp::runtime::il2cpp_pinvoke_arg(&voidProbe));
+    voidMarker = 1; // reached ONLY if the call above returned normally
+    Expect(voidMarker == 1, "il2cpp_pinvoke_call<void> returns to the caller (no fall-through)");
+    Expect(voidProbe == 0x5A5A, "il2cpp_pinvoke_call<void> forwarded the out argument");
+
+    // The non-void arm still folds the native result through the bridge.
+    int32_t retProbe = il2cpp::runtime::il2cpp_pinvoke_call<int32_t>(
+        Gn20VoidStore2, il2cpp::runtime::il2cpp_pinvoke_arg(&voidProbe));
+    Expect(retProbe == 0x5A5A + 1, "il2cpp_pinvoke_call<int32_t> still converts the native result");
 
     // --- Report ---
     if (g_failures != 0)

@@ -620,15 +620,30 @@ public static class TypeEmitter
     public static string FieldCppName(TypeDef t, string fieldName) => $"{TypeCppName(t)}_sf_{Sanitize(fieldName)}";
 
     //--------------------------------------------------------------------------
-    // LayoutInstanceFields -- assign slots / instanceSize / refFieldBitmap.
-    // Slot 0 is the object header; each instance field gets the next slot in
-    // declaration order. Bit i of the bitmap marks slot i when the field is a
-    // Reference. InstanceSize = slots * pointerSize (the TARGET pointer width:
-    // 8 on x64/arm64, 4 on x86/arm32 -- G1, see TypeDef.PointerSize).
+    // LayoutInstanceFields -- assign slots / byte offsets / instanceSize /
+    // refFieldBitmap.
+    //
+    // REFERENCE types keep the historical whole-pointer slot grid: slot i is
+    // at byte offset i*PointerSize, refFieldBitmap bit i marks slot i, and
+    // InstanceSize = slots * PointerSize. Slot 0 is the object header; the
+    // collector scans slot-wise with no ambiguity, and a derived class's slots
+    // continue the base chain's grid.
+    //
+    // VALUE types (structs) take the net48 sequential layout instead
+    // (LayoutValueTypeFields): a struct instance has no object header and is
+    // passed to native code by pointer (P/Invoke out/ref parameters, pointer
+    // returns), so the field offsets and InstanceSize MUST be the compact
+    // byte layout the native callee uses -- a run of int32 fields occupies
+    // 4-byte strides, not 8-byte slots. See LayoutValueTypeFields.
     //--------------------------------------------------------------------------
     public static void LayoutInstanceFields(TypeDef t)
     {
         if (t.InstanceSize != 0) return; // idempotent: already laid out
+        if (t.IsValueType)
+        {
+            LayoutValueTypeFields(t);
+            return;
+        }
         uint bitmap = 0;
         int refCount = 0;
         // Slot 0 = object header for reference types; value types have NO
@@ -644,11 +659,7 @@ public static class TypeEmitter
         // System.ValueType/System.Enum BCL roots, zero fields), so they keep
         // slot 0.
         int slot;
-        if (t.IsValueType)
-        {
-            slot = 0;
-        }
-        else if (t.BaseType != null && t.BaseTypeName != "System.Object")
+        if (t.BaseType != null && t.BaseTypeName != "System.Object")
         {
             LayoutInstanceFields(t.BaseType); // base chain laid out first (multi-level)
             slot = t.BaseType.InstanceSize / t.PointerSize;
@@ -662,6 +673,7 @@ public static class TypeEmitter
         foreach (var f in t.InstanceFields)
         {
             f.SlotIndex = slot;
+            f.ByteOffset = slot * t.PointerSize;
             if (f.TypeKind == FieldTypeKind.Reference)
             {
                 // Audit H6: the 32-bit refFieldBitmap can only express slots
@@ -685,6 +697,91 @@ public static class TypeEmitter
         // default = host IntPtr.Size so the historical x64 layout is unchanged).
         t.InstanceSize = slot * t.PointerSize;
     }
+
+    //--------------------------------------------------------------------------
+    // LayoutValueTypeFields -- net48 sequential layout for a translated struct.
+    //
+    // A struct instance is a plain C++ value (no object header, M3 Task 11) and
+    // is handed to native code BY POINTER: a P/Invoke out/ref parameter, a
+    // pointer return, or a marshal buffer. The native side reads and writes the
+    // fields at THEIR OWN byte offsets, so the emitted C++ struct -- whose
+    // members are declared in metadata declaration order, exactly like this
+    // model -- already packs them with C++'s natural alignment. The metadata
+    // that used to describe the same struct (field offsets + InstanceSize) was
+    // instead computed on the whole-pointer slot grid: a struct of fifteen int
+    // fields was advertised as instanceSize 120 with 8-byte strides while the
+    // actual C++ object was the compact 60 bytes the native callee expects
+    // (GN-20.4 F1 -- the gdifont TEXTMETRIC probe). Reflection
+    // (Il2CppFieldInfo.offset), boxing and any size-bearing consumer then
+    // disagree with the real object.
+    //
+    // This pass derives the offsets from the field widths themselves (no
+    // hard-coded sizes): align each field up to its natural alignment, place
+    // it there, and set InstanceSize to the struct's C++ size (end rounded up
+    // to the largest member alignment). SlotIndex is kept as
+    // ByteOffset / PointerSize so the collector's slot-wise scan still works
+    // for the reference fields a struct may carry (a reference is always
+    // PointerSize-aligned, so it always lands on a whole slot).
+    //
+    // Structs have no user inheritance (only the System.ValueType /
+    // System.Enum BCL roots, which carry no layout fields), so there is no
+    // base-chain region to continue.
+    //--------------------------------------------------------------------------
+    private static void LayoutValueTypeFields(TypeDef t)
+    {
+        uint bitmap = 0;
+        int refCount = 0;
+        int offset = 0;
+        int maxAlign = 1;
+        foreach (var f in t.InstanceFields)
+        {
+            var (size, align) = FieldNativeShape(f.TypeKind, t.PointerSize);
+            if (align > maxAlign) maxAlign = align;
+            // align the field up to its own natural alignment (C++ layout)
+            offset = (offset + align - 1) / align * align;
+            f.ByteOffset = offset;
+            f.SlotIndex = offset / t.PointerSize;
+            if (f.TypeKind == FieldTypeKind.Reference)
+            {
+                if (f.SlotIndex >= 32)
+                {
+                    Console.Error.WriteLine($"warning: type {t.FullName}: reference field '{f.Name}' lands on slot {f.SlotIndex} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (audit H6), skipping field from bitmap");
+                }
+                else
+                {
+                    bitmap |= 1u << f.SlotIndex;
+                    ++refCount;
+                }
+            }
+            offset += size;
+        }
+        t.RefFieldBitmap = bitmap;
+        t.RefFieldCount = refCount;
+        // C++ struct size: the extent rounded up to the struct's own alignment
+        // (the largest member alignment). An int-only struct therefore reports
+        // exactly its compact size (15 int32 -> 60), which is what the native
+        // callee writes through.
+        t.InstanceSize = (offset + maxAlign - 1) / maxAlign * maxAlign;
+    }
+
+    // Native (size, alignment) of one field kind on the TARGET pointer width.
+    // Derived from the C++ member the emitter declares for the kind (see
+    // EmitClassStruct): int32/float are 4-byte values, the 64-bit value kinds
+    // and the pointer-width carriers (references, IntPtr/UIntPtr, void* fnptr
+    // fields) are PointerSize. An unrecognized kind keeps the old pointer-wide
+    // stride rather than guessing a narrower one.
+    private static (int Size, int Align) FieldNativeShape(FieldTypeKind kind, int pointerSize)
+        => kind switch
+        {
+            FieldTypeKind.Int32 => (4, 4),
+            FieldTypeKind.Float => (4, 4),
+            FieldTypeKind.Int64 => (8, 8),
+            FieldTypeKind.UInt64 => (8, 8),
+            FieldTypeKind.Double => (8, 8),
+            FieldTypeKind.NativeInt => (pointerSize, pointerSize),
+            FieldTypeKind.Reference => (pointerSize, pointerSize),
+            _ => (pointerSize, pointerSize),
+        };
 
     // O-1 (RF-N4 audit A): the instance fields of a class in INLINE layout
     // order -- the base chain's fields (base-first, recursively) followed by
@@ -717,7 +814,13 @@ public static class TypeEmitter
         w.Line($"// The object header (Il2CppObject, a klass pointer) is the FIRST member so an");
         w.Line($"// Il2CppObject* aliases this struct; reference fields are GC pointers managed by");
         w.Line($"// the mark-sweep collector (zero-initialized at allocation).");
-        w.Line($"// Slot grid: slot i at byte offset i*{t.PointerSize}; refFieldBitmap = 0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(t.InstanceSize / t.PointerSize, '0')}.");
+        // GN-20.4 F1: a value type is laid out sequentially (compact byte
+        // offsets -- what the native side of a P/Invoke out/ref parameter
+        // uses), a reference type keeps the whole-pointer slot grid the
+        // collector scans.
+        w.Line(t.IsValueType
+            ? $"// Sequential value layout (net48): compact byte offsets; refFieldBitmap = 0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(Math.Max(t.InstanceSize, 1) / t.PointerSize, '0')}."
+            : $"// Slot grid: slot i at byte offset i*{t.PointerSize}; refFieldBitmap = 0b{Convert.ToString(t.RefFieldBitmap, 2).PadLeft(t.InstanceSize / t.PointerSize, '0')}.");
         w.Line("//------------------------------------------------------------------------------");
         w.Line($"struct {TypeCppName(t)}");
         w.Line("{");
@@ -795,7 +898,7 @@ public static class TypeEmitter
             // field that sanitizes to _obj (e.g. SerializationMonkey._obj)
             // would collide -- rename the member (access sites use FieldCppName
             // uniformly, see below).
-            w.Line($"{cppType} {memberName}; // slot {f.SlotIndex} at offset {f.SlotIndex * t.PointerSize} ({(f.TypeKind == FieldTypeKind.Reference ? "GC reference" : "value")})");
+            w.Line($"{cppType} {memberName}; // slot {f.SlotIndex} at offset {f.ByteOffset} ({(f.TypeKind == FieldTypeKind.Reference ? "GC reference" : "value")})");
         }
         // enumdeep/enumdeep2/enumops (M7R2 cmake build): an ENUM type is
         // translated as a struct whose only instance field is value__ (the
@@ -1492,7 +1595,7 @@ public static class TypeEmitter
         // (int32 carrier with no name).
         var fieldEntries = t.InstanceFields
             .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference || !string.IsNullOrEmpty(f.FieldTypeName) ? f.FieldTypeName : "System.Int32",
-                Offset: f.SlotIndex * t.PointerSize, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
+                Offset: f.ByteOffset, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
                 Addr: "nullptr", Flags: f.IsPublic ? 1 : 0))
             .Concat(t.StaticFields.Select(f =>
             {

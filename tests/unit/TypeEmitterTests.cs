@@ -221,4 +221,129 @@ public class TypeEmitterTests
         Assert.Equal(0u, t.RefFieldBitmap);
         Assert.Equal(33 * IntPtr.Size, t.InstanceSize);
     }
+
+    //--------------------------------------------------------------------------
+    // GN-20.4 F1 -- VALUE TYPES take the net48 sequential (compact) layout.
+    // A struct is handed to native code BY POINTER (P/Invoke out/ref parameter,
+    // pointer return, marshal buffer), so the field offsets and instanceSize
+    // must be the compact byte layout the native callee writes through -- NOT
+    // the whole-pointer slot grid. The gdifont TEXTMETRIC probe (15 int fields,
+    // [StructLayout(Sequential)]) was advertised as instanceSize 120 with
+    // 8-byte strides while the real C++ object is 60 bytes: the metadata and
+    // the struct disagreed, and reflection read the wrong slots.
+    //--------------------------------------------------------------------------
+
+    // Fixture: the gdifont TEXTMETRIC shape -- 15 sequential int fields.
+    private static TypeDef MakeWideIntStruct()
+    {
+        var t = new TypeDef { Name = "TEXTMETRIC", Namespace = "Cases.Gdifont", IsValueType = true };
+        for (var i = 0; i < 15; i++)
+            t.InstanceFields.Add(new FieldDef { Name = "F" + i, Owner = t, TypeKind = FieldTypeKind.Int32 });
+        return t;
+    }
+
+    [Fact]
+    public void Layout_ValueType_IntFields_PackCompact()
+    {
+        var t = MakeWideIntStruct();
+        TypeEmitter.LayoutInstanceFields(t);
+        // compact 4-byte strides, exactly the net48 sequential layout
+        Assert.Equal(60, t.InstanceSize);
+        for (var i = 0; i < 15; i++)
+        {
+            Assert.Equal(4 * i, t.InstanceFields[i].ByteOffset);
+            Assert.Equal((4 * i) / IntPtr.Size, t.InstanceFields[i].SlotIndex);
+        }
+        Assert.Equal(0u, t.RefFieldBitmap);
+        Assert.Equal(0, t.RefFieldCount);
+    }
+
+    [Fact]
+    public void Layout_ValueType_IsIdempotent()
+    {
+        var t = MakeWideIntStruct();
+        TypeEmitter.LayoutInstanceFields(t);
+        TypeEmitter.LayoutInstanceFields(t); // second call must not shift anything
+        Assert.Equal(60, t.InstanceSize);
+        Assert.Equal(44, t.InstanceFields[11].ByteOffset);
+    }
+
+    [Fact]
+    public void Layout_ValueType_ReferenceField_LandsOnWholeSlot()
+    {
+        // { int a; int b; Node c; } -> C++ packs c at byte 8 (its natural
+        // alignment), NOT at slot 2 / offset 16. The bitmap must follow the
+        // real offset so the collector's slot scan finds the reference.
+        var t = new TypeDef { Name = "Bag", Namespace = "Cases", IsValueType = true };
+        t.InstanceFields.Add(new FieldDef { Name = "a", Owner = t, TypeKind = FieldTypeKind.Int32 });
+        t.InstanceFields.Add(new FieldDef { Name = "b", Owner = t, TypeKind = FieldTypeKind.Int32 });
+        t.InstanceFields.Add(new FieldDef { Name = "c", Owner = t, TypeKind = FieldTypeKind.Reference, FieldTypeName = "Cases.Node" });
+        TypeEmitter.LayoutInstanceFields(t);
+        Assert.Equal(0, t.InstanceFields[0].ByteOffset);
+        Assert.Equal(4, t.InstanceFields[1].ByteOffset);
+        Assert.Equal(IntPtr.Size, t.InstanceFields[2].ByteOffset);
+        Assert.Equal(0b10u, t.RefFieldBitmap); // bit 1 = the reference at byte 8
+        Assert.Equal(1, t.RefFieldCount);
+        Assert.Equal(2 * IntPtr.Size, t.InstanceSize); // 8 + 8 bytes of payload
+    }
+
+    [Fact]
+    public void Layout_ValueType_PointerCarrierField_KeepsFullWidth()
+    {
+        // { IntPtr h; int n; } -> h at 0 (8), n at 8 (4), size 16 (aligned to 8).
+        var t = new TypeDef { Name = "HandleAndCount", Namespace = "Cases", IsValueType = true };
+        t.InstanceFields.Add(new FieldDef { Name = "h", Owner = t, TypeKind = FieldTypeKind.NativeInt, FieldTypeName = "System.IntPtr" });
+        t.InstanceFields.Add(new FieldDef { Name = "n", Owner = t, TypeKind = FieldTypeKind.Int32 });
+        TypeEmitter.LayoutInstanceFields(t);
+        Assert.Equal(0, t.InstanceFields[0].ByteOffset);
+        Assert.Equal(IntPtr.Size, t.InstanceFields[1].ByteOffset);
+        Assert.Equal(2 * IntPtr.Size, t.InstanceSize);
+        Assert.Equal(0u, t.RefFieldBitmap);
+    }
+
+    [Fact]
+    public void Layout_ValueType_AloneUsesSequentialLayout_NotSlotGrid()
+    {
+        // The two int fields of a struct must NOT be reported 8 bytes apart
+        // (that is the class/reference-type slot grid, wrong for a struct).
+        var t = new TypeDef { Name = "Point", Namespace = "Calc", IsValueType = true };
+        t.InstanceFields.Add(new FieldDef { Name = "X", Owner = t, TypeKind = FieldTypeKind.Int32 });
+        t.InstanceFields.Add(new FieldDef { Name = "Y", Owner = t, TypeKind = FieldTypeKind.Int32 });
+        TypeEmitter.LayoutInstanceFields(t);
+        Assert.Equal(8, t.InstanceSize);
+        Assert.Equal(4, t.InstanceFields[1].ByteOffset);
+    }
+
+    [Fact]
+    public void EmitValueTypeStruct_OffsetCommentsMatchRealOffsets()
+    {
+        var t = MakeWideIntStruct();
+        var code = TypeEmitter.EmitClassStruct(t);
+        // no object header for a value type; offsets are the compact ones
+        Assert.Contains("// Sequential value layout (net48): compact byte offsets", code);
+        Assert.Contains("int32_t F0; // slot 0 at offset 0 (value)", code);
+        Assert.Contains("int32_t F1; // slot 0 at offset 4 (value)", code);
+        Assert.Contains("int32_t F14; // slot 7 at offset 56 (value)", code);
+        Assert.DoesNotContain("Il2CppObject _obj;", code);
+    }
+
+    [Fact]
+    public void EmitValueTypeDescriptor_ReportsCompactInstanceSize()
+    {
+        var t = MakeWideIntStruct();
+        var code = TypeEmitter.EmitClassDescriptor(t);
+        Assert.Contains("    60,                                            // instanceSize", code);
+        Assert.DoesNotContain("    120,", code);
+    }
+
+    [Fact]
+    public void EmitValueTypeTypeInfo_FieldOffsetsAreCompact()
+    {
+        var t = MakeWideIntStruct();
+        var code = TypeEmitter.EmitTypeInfo(t, null);
+        Assert.Contains("\"F0\", \"System.Int32\", 0,", code);
+        Assert.Contains("\"F1\", \"System.Int32\", 4,", code);
+        Assert.Contains("\"F14\", \"System.Int32\", 56,", code);
+        Assert.DoesNotContain("\"F1\", \"System.Int32\", 8,", code);
+    }
 }
