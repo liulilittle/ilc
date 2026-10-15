@@ -123,6 +123,19 @@ int32_t icall_assembly_load_context_is_tracing_enabled()
     return 0; // false
 }
 
+// System.Diagnostics.StackTrace ctors (GN-20 P1/D2): the runtime has no
+// StackTrace object model -- frame content is the W7 live-stack enumeration.
+// Construction is a documented no-op over the plain-object allocation
+// (CodeGenerator BclAllocExpr routes `new StackTrace()` to
+// il2cpp_object_new(&System_Object_class)); every ctor arity
+// ((), (bool), (int), (int,bool), (Exception[,bool|int][,bool]),
+// (StackFrame[] [,bool])) lands here and does nothing. Frame READS still
+// fold as not-wired (W7).
+void icall_stacktrace_ctor(Il2CppObject*)
+{
+    // no-op (W7)
+}
+
 // System.Diagnostics.StackTrace.GetStackFramesInternal
 // net48 ABI: static void (StackFrameHelper sfh, int iSkip, bool fNeedFileInfo,
 // Exception e) -- fills sfh with the LIVE managed stack frames. The ILC

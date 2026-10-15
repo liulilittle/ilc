@@ -33,6 +33,9 @@ int32_t icall_assembly_load_context_is_tracing_enabled();
 // the ILC runtime has no CLR-internal stack walker; the stub leaves the
 // helper empty (0 frames). See p-stacktrace GAPS.md.
 void icall_stack_trace_get_stack_frames_internal(Il2CppObject* sfh, int32_t skipFrames, int32_t fNeedFileInfo, Il2CppObject* e);
+// System.Diagnostics.StackTrace ctor (D2): documented no-op -- no object
+// model, frame content is W7. Any ctor arity. See p-stacktrace GAPS.md.
+void icall_stacktrace_ctor(Il2CppObject* self);
 
 // Number formatting stubs
 Il2CppObject* icall_number_format_decimal(Il2CppObject* str, int32_t digits);

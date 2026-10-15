@@ -97,9 +97,8 @@ public static partial class MethodRefResolver
             // (StackFrameHelper sfh, int iSkip, bool fNeedFileInfo, Exception e).
             // Semantics (live-stack frame enumeration yielding method names,
             // absolute PDB paths, line/col) are W7 (p-stacktrace GAPS.md); the
-            // icall is the empty-helper whitelist stub (stubs.cpp) so user
-            // methods calling `new StackTrace()` transpile instead of
-            // LOUD-reject/fold-skip. "b" = the bool cast code.
+            // icall is the empty-helper whitelist stub (stubs.cpp). "b" = the
+            // bool cast code.
             case "GetStackFramesInternal":
                 if (count == 4)
                     return I("il2cpp::runtime::icall_stack_trace_get_stack_frames_internal", 4, false, false, false,
@@ -292,7 +291,25 @@ public static partial class MethodRefResolver
             // (owner routed here): ETW callback payload -- instances are
             // constructed only by the runtime during ETW callbacks, which
             // never fire; ctor no-op + tracing-disabled defaults.
+            // System.Diagnostics.StackTrace ctors (D2 audit regression): with
+            // StackTrace routed to TryMapGC, the bare `new StackTrace()`
+            // previously returned null from the generic arm -> BclAlloc phantom
+            // &System_Diagnostics_StackTrace_class -> cmake FAIL. The runtime
+            // has no StackTrace object model (frame content = the W7 live-stack
+            // enumeration), so construction is a documented no-op over the
+            // plain-object allocation (BclAllocExpr); any frame READ
+            // (get_FrameCount/ToString/GetFrames/...) still folds as not-wired
+            // (W7). net48 ctors: (), (bool), (int), (int,bool),
+            // (Exception[,bool|int][,bool]), (StackFrame[] [,bool]).
             case ".ctor":
+                if (owner == "System.Diagnostics.StackTrace")
+                {
+                    // A generic no-op for every arity: the argument payload
+                    // (exception / skipFrames / needFileInfo / frames source)
+                    // is meaningless without a frame model. Inst=true (the
+                    // receiver is the newobj allocation).
+                    return I("il2cpp::runtime::icall_stacktrace_ctor", count, false, false, true);
+                }
                 if (count == 0 && owner.EndsWith("TracingStatusChangedEventArgs", StringComparison.Ordinal))
                     return I("il2cpp::runtime::icall_tracing_status_changed_ctor", 0, false, false, true);
                 return null;

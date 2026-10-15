@@ -5376,6 +5376,13 @@ public static class CodeGenerator
         // Without the entry the fallback emits an undeclared
         // &System_Exception_class symbol.
         "System.Exception" => "il2cpp_object_new(&System_Object_class)",
+        // GN-20 P1 (p-stacktrace): `new StackTrace()` -- the runtime has no
+        // StackTrace object model (its frame content is the W7 live-stack
+        // enumeration). Allocate as a plain object (the System.Exception
+        // precedent); the ctor icall is a documented no-op (stubs.cpp). The
+        // newobj fallback would emit &System_Diagnostics_StackTrace_class, an
+        // undefined symbol that broke the build (D2 audit regression).
+        "System.Diagnostics.StackTrace" => "il2cpp_object_new(&System_Object_class)",
         // M7 CG-FIX (encodingcase cmake FAIL): `new string(...)` -- the string
         // ctors are CREATE-STYLE (string.cpp discards `this_` and returns the
         // new string, so the newobj placeholder is a DISCARDED allocation; the

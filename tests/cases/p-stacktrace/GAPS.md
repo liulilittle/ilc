@@ -49,13 +49,29 @@ locale resources, all outside the transpiler's native surface.
   The cvall now carries 4 args / void; the stub is the clean whitelist
   placeholder (leaves the helper empty = 0 frames). The MethodMap `I(...)`
   flags/casts were updated to match.
-- Consequence: user methods that call `new StackTrace()` no longer LOUD-reject
-  at the icall site. The rest of the StackTrace *managed surface*
-  (`get_FrameCount`, `ToString`, `GetFrames`, `StackFrame.GetMethod`, ...) is
-  NOT wired in the transpiled runtime -- those calls fold-skip with the
-  documented "not wired in M5" reason (this is the recorded W7 deviation; the
-  whole class is not reconstructible, so a downstream embedder gets empty-frame
-  StackTraces rather than fabricated ones).
+- Consequence (D2): user methods that call `new StackTrace()` with ONLY
+  construction now transpile and build cleanly -- `BclAllocExpr` routes the
+  allocation to a plain object and `TryMapGC`'s `.ctor` arm maps every ctor
+  arity to the documented no-op `icall_stacktrace_ctor` (byte-exact regression
+  case `../p-stacktrace-ctor/`, diff=0). The rest of the StackTrace *managed
+  surface* (`get_FrameCount`, `ToString`, `GetFrames`, `StackFrame.GetMethod`,
+  ...) is NOT wired in the transpiled runtime -- those calls fold-skip with
+  the documented "not wired in M5" reason (this is the recorded W7 deviation;
+  the whole class is not reconstructible, so a downstream embedder gets
+  empty-frame StackTraces rather than fabricated ones).
+
+## D1/D2 audit corrections (commit c3c82682 rework)
+
+- **D2 (build regression)**: the first commit routed StackTrace to TryMapGC but
+  left the bare ctor without a `.ctor` arm -> newobj fell to the BclAlloc fresh
+  fallback -> `&System_Diagnostics_StackTrace_class` + phantom ctor -> cmake
+  FAIL. Fixed here: BclAllocExpr plain-object allocation + `icall_stacktrace_ctor`
+  no-op for every ctor arity. See `../p-stacktrace-ctor/GAPS.md`.
+- **D1 (sweep registration)**: the W7 probe is registered in the gn-20-sweep
+  pool (`lists/list_*.txt` / `shards/shard*.list`, union now 699 = the
+  worktree csproj-count) and in `.opencode/tmp/gn-20-sweep/whitelist.txt`
+  (W7 expected-FAIL, check-final accepts it); `p-stacktrace-ctor` is in the
+  pool and byte-exact GREEN (NOT whitelisted).
 
 ## Recorded, NOT fixed (W7; evidence)
 
