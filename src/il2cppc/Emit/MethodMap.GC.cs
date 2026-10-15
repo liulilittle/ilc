@@ -307,8 +307,20 @@ public static partial class MethodRefResolver
                     // A generic no-op for every arity: the argument payload
                     // (exception / skipFrames / needFileInfo / frames source)
                     // is meaningless without a frame model. Inst=true (the
-                    // receiver is the newobj allocation).
-                    return I("il2cpp::runtime::icall_stacktrace_ctor", count, false, false, true);
+                    // receiver is the newobj allocation). The stub signature
+                    // is icall_stacktrace_ctor(Il2CppObject*) -- ONE param,
+                    // `this`. D2-r: arity>0 previously emitted the extra
+                    // ctor args raw (""-cast slots) -> cmake FAIL "too many
+                    // arguments to function"; the explicit args are now
+                    // "drop"-cast (slot0 = receiver passthrough, the args are
+                    // skipped at emission) so the generated call stays
+                    // `icall_stacktrace_ctor(t0)` for EVERY arity.
+                    if (count == 0)
+                        return I("il2cpp::runtime::icall_stacktrace_ctor", 0, false, false, true);
+                    var dropCasts = new string[count + 1];
+                    dropCasts[0] = "";
+                    for (var di = 1; di <= count; di++) dropCasts[di] = "drop";
+                    return I("il2cpp::runtime::icall_stacktrace_ctor", count, false, false, true, dropCasts);
                 }
                 if (count == 0 && owner.EndsWith("TracingStatusChangedEventArgs", StringComparison.Ordinal))
                     return I("il2cpp::runtime::icall_tracing_status_changed_ctor", 0, false, false, true);
