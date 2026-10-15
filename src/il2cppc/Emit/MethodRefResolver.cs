@@ -1143,6 +1143,19 @@ public static partial class MethodRefResolver
             // directly.
             case "System.Runtime.GCSettings":
                 return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // System.Diagnostics.StackTrace has the SAME ownership trap as
+            // System.Runtime.GCSettings: it is listed in the WeakReference
+            // bucket below, and TryMapWeakReference THROWS on foreign members,
+            // so the `?? TryMapGC` fallback never runs -- GetStackFramesInternal
+            // died as a WeakReference phantom (GN-20 P1 audit realErr). The
+            // StackTrace members all live in the GC map (TryMapGC); dispatch
+            // directly so the `GetStackFramesInternal` arm actually fires.
+            // (net48 semantics -- live-stack frame enumeration -- are recorded
+            // as W7 in the p-stacktrace GAPS.md: not statically reconstructible;
+            // the icall STILL must map so user methods calling `new StackTrace()`
+            // do not LOUD-reject/fold-skip.)
+            case "System.Diagnostics.StackTrace":
+                return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // netcore21/31 audit surfaces routed into the GC map (the
             // GetMemoryInfo out-fills, the Number formatting PNSE entries,
             // RhBulkMoveWithWriteBarrier, the TracingStatusChangedEventArgs
@@ -1153,7 +1166,6 @@ public static partial class MethodRefResolver
             case "System.ComAwareWeakReference":
             case "System.Runtime.JitInfo":
             case "System.Runtime.Loader.AssemblyLoadContext":
-            case "System.Diagnostics.StackTrace":
             case "System.Number":
             case "System.ParseNumbers":
             case "System.CurrentSystemTimeZone":

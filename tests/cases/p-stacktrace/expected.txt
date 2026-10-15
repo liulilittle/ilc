@@ -1,0 +1,30 @@
+[S1.count] 1
+[S1.f0.m] Cases.PStackTrace.Main()
+[S1.tostr]    在 Cases.PStackTrace.Main()
+
+[S2.count] 1
+[S2.f0.m] Cases.PStackTrace.Main()
+[S2.tostr]    在 Cases.PStackTrace.Main()
+
+[S2b.count] 0
+[S2b.tostr] 
+
+[S3.count] 1
+[S3.f0.m] Cases.PStackTrace.Main()
+[S3.f0.file] acktrace\p-stacktrace.cs:36:13
+[S3.tostr]    在 Cases.PStackTrace.Main() 位置 F:\il2cpp\.worktrees\next-stacktrace\tests\cases\p-stacktrace\p-stacktrace.cs:行号 36
+
+[S4.count] 2
+[S4.f0.m] Cases.PStackTrace.ThrowInner()
+[S4.f1.m] Cases.PStackTrace.Main()
+[S4.tostr]    在 Cases.PStackTrace.ThrowInner()
+   在 Cases.PStackTrace.Main()
+
+[S5.ex] System.InvalidOperationException: boom
+   在 Cases.PStackTrace.ThrowInner() 位置 F:\il2cpp\.worktrees\next-stacktrace\tests\cases\p-stacktrace\p-stacktrace.cs:行号 52
+   在 Cases.PStackTrace.Main() 位置 F:\il2cpp\.worktrees\next-stacktrace\tests\cases\p-stacktrace\p-stacktrace.cs:行号 38
+[S6.env]    在 System.Environment.GetStackTrace(Exception e, Boolean needFileInfo)
+   在 System.Environment.get_StackTrace()
+   在 Cases.PStackTrace.Main() 位置 F:\il2cpp\.worktrees\next-stacktrace\tests\cases\p-stacktrace\p-stacktrace.cs:行号 46
+[S7.now] 1
+[S8.onpect] 1

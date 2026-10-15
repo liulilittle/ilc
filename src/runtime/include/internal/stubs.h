@@ -28,7 +28,11 @@ int64_t icall_jit_info_get_compiled_il_bytes();
 int64_t icall_jit_info_get_compiled_method_count();
 Il2CppObject* icall_assembly_load_context_get_loaded_assemblies();
 int32_t icall_assembly_load_context_is_tracing_enabled();
-Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject* self, int32_t skipFrames, int32_t fNeedFileInfo);
+// System.Diagnostics.StackTrace.GetStackFramesInternal (net48 ABI:
+// static void (StackFrameHelper, int, bool, Exception)). W7 whitelist stub --
+// the ILC runtime has no CLR-internal stack walker; the stub leaves the
+// helper empty (0 frames). See p-stacktrace GAPS.md.
+void icall_stack_trace_get_stack_frames_internal(Il2CppObject* sfh, int32_t skipFrames, int32_t fNeedFileInfo, Il2CppObject* e);
 
 // Number formatting stubs
 Il2CppObject* icall_number_format_decimal(Il2CppObject* str, int32_t digits);

@@ -92,7 +92,19 @@ public static partial class MethodRefResolver
             case "GetCompiledMethodCount": return I("il2cpp::runtime::icall_jit_info_get_compiled_method_count", 0, true, false, false, null, "l");
             case "GetLoadedAssemblies": return I("il2cpp::runtime::icall_assembly_load_context_get_loaded_assemblies", 0, true, true, false);
             case "IsTracingEnabled": return I("il2cpp::runtime::icall_assembly_load_context_is_tracing_enabled", 0, true, false, false);
-            case "GetStackFramesInternal": return I("il2cpp::runtime::icall_stack_trace_get_stack_frames_internal", 2, true, true, false, new[] { "", "i", "i" });
+            // GetStackFramesInternal -- net48 real ABI (verified from the
+            // net48 reference-assembly metadata): static void
+            // (StackFrameHelper sfh, int iSkip, bool fNeedFileInfo, Exception e).
+            // Semantics (live-stack frame enumeration yielding method names,
+            // absolute PDB paths, line/col) are W7 (p-stacktrace GAPS.md); the
+            // icall is the empty-helper whitelist stub (stubs.cpp) so user
+            // methods calling `new StackTrace()` transpile instead of
+            // LOUD-reject/fold-skip. "b" = the bool cast code.
+            case "GetStackFramesInternal":
+                if (count == 4)
+                    return I("il2cpp::runtime::icall_stack_trace_get_stack_frames_internal", 4, false, false, false,
+                        new[] { "", "i", "b", "" });
+                return null;
             // Number formatting stubs
             case "FormatDecimal": return I("il2cpp::runtime::icall_number_format_decimal", 2, true, true, false, new[] { "", "i" });
             case "FormatDouble": return I("il2cpp::runtime::icall_number_format_double", 3, true, true, false, new[] { "d", "s", "" });

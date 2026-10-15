@@ -124,9 +124,16 @@ int32_t icall_assembly_load_context_is_tracing_enabled()
 }
 
 // System.Diagnostics.StackTrace.GetStackFramesInternal
-Il2CppObject* icall_stack_trace_get_stack_frames_internal(Il2CppObject*, int32_t, int32_t)
+// net48 ABI: static void (StackFrameHelper sfh, int iSkip, bool fNeedFileInfo,
+// Exception e) -- fills sfh with the LIVE managed stack frames. The ILC
+// runtime has no CLR-internal stack walker; the net48 frame text (method
+// names, absolute PDB source paths, line/col, zh-CN locale markers) depends
+// on the live call stack + PDB, recorded as W7 (p-stacktrace GAPS.md). The
+// stub leaves sfh empty (0 frames) -- a clean, deterministic whitelist
+// placeholder so user methods calling StackTrace do not LOUD-reject.
+void icall_stack_trace_get_stack_frames_internal(Il2CppObject*, int32_t, int32_t, Il2CppObject*)
 {
-    return nullptr; // empty array
+    // no-op: no frame enumeration available (W7)
 }
 
 // Number formatting stubs
