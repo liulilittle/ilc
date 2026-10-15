@@ -31,6 +31,13 @@
 //     false; otherwise true) and is otherwise a NO-OP -- the fixed pool
 //     already runs its min, so a valid set cannot change anything (the
 //     completion-port count is dropped, matching set_max_threads).
+//   * Managed-side ThreadPool.GetMinThreads/GetMaxThreads/GetAvailableThreads
+//     (the PUBLIC API the icalls in stubs.cpp back) report NET48-ALIGNED
+//     values, NOT the fixed pool size: min worker = min IO = ProcessorCount,
+//     max worker = 32767 (64-bit) / 1023 (32-bit), max IO = 1000, available
+//     == max at quiescence. This is a REPRESENTATIONAL alignment (net48
+//     oracle byte-exactness) -- the simplified pool still runs its fixed
+//     min(CPU,4) workers underneath. See stubs.cpp and tpcountcase.
 //   * The pool shuts down at process exit (atexit): all workers are
 //     signalled and joined, so no callback runs after exit() returns.
 //   * The caller keeps `state` alive: the pool does not root it (no GC
@@ -107,5 +114,12 @@ int32_t il2cpp_threadpool_get_min_threads();
 // when the arguments are valid (net48's bool success result).
 bool il2cpp_threadpool_set_min_threads(int32_t workerThreads,
                                        int32_t completionPortThreads);
+
+// ThreadPool.ThreadCount (net5+ surface; net48 has NO such member -- the
+// probe verified the net48 ThreadPool type exposes zero static properties):
+// the number of LIVE pool worker threads. The fixed pool is lazy: 0 threads
+// before the first use, the fixed N (min(CPU,4)) after init. Reading the
+// count NEVER initializes the pool (a count read must not spawn threads).
+int32_t il2cpp_threadpool_get_thread_count();
 
 }} // namespace il2cpp::runtime

@@ -343,6 +343,21 @@ bool il2cpp_threadpool_set_min_threads(int32_t workerThreads,
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_threadpool_get_thread_count -- ThreadPool.ThreadCount (net5+); the
+// number of LIVE pool worker threads. The fixed pool is lazy, so this is 0
+// before the first pool use and the fixed N after init. Never initializes the
+// pool (a count read must not spawn worker threads).
+//------------------------------------------------------------------------------
+int32_t il2cpp_threadpool_get_thread_count()
+{
+    if (g_pool == nullptr)
+    {
+        return 0;
+    }
+    return static_cast<int32_t>(g_pool->workers.size());
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_threadpool_is_current_thread_worker -- the platform-independent
 // pool membership probe (declared in il2cpp_thread.h, see its comment).
 // Returns true only when the CURRENT executing thread is one of the fixed

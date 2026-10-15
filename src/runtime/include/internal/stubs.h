@@ -78,15 +78,20 @@ int32_t icall_domain_compressed_stack_get_domain_compressed_stack_size(Il2CppObj
 int32_t icall_domain_compressed_stack_get_domain_compressed_stack_flags(Il2CppObject* self);
 Il2CppObject* icall_domain_compressed_stack_get_domain_compressed_stack_stack_blobs(Il2CppObject* self);
 
-// ThreadPool stubs
+// ThreadPool counting icalls -- net48-aligned (GN-20). min worker = min IO =
+// ProcessorCount; max worker = 32767 (64-bit) / 1023 (32-bit); max IO = 1000
+// (see stubs.cpp -- the tpcountcase net48 probe pinned these). ThreadCount
+// reports the live fixed-pool worker count (net48 has no such member).
 int32_t icall_thread_pool_get_thread_count();
 int32_t icall_thread_pool_get_min_threads();
 int32_t icall_thread_pool_get_max_threads();
 // net6/net7: CanSetMin/MaxIOCompletionThreads -- constant false (no IOCP model).
 bool icall_thread_pool_can_set_io_threads();
 int32_t icall_thread_pool_get_available_threads();
-// The PUBLIC out-param forms: both slots receive the fixed worker count
-// (single-pool doctrine -- no IOCP model, min == max == available).
+// The PUBLIC out-param forms (net48-aligned):
+//   GetMinThreads    -> (ProcessorCount, ProcessorCount)
+//   GetMaxThreads    -> (maxWorker, 1000)
+//   GetAvailableThreads -> (maxWorker, 1000)  [quiescent == max]
 void icall_thread_pool_get_min_threads_out(int32_t* workerThreads, int32_t* completionPortThreads);
 void icall_thread_pool_get_max_threads_out(int32_t* workerThreads, int32_t* completionPortThreads);
 void icall_thread_pool_get_available_threads_out(int32_t* workerThreads, int32_t* completionPortThreads);

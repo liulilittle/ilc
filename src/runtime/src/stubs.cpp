@@ -9,6 +9,8 @@
 #include "il2cpp_gc.h" // il2cpp_write_barrier (RhBulkMove card marking)
 #include "il2cpp_interlocked.h" // il2cpp_interlocked_compare_exchange (out-bool wrapper)
 #include "il2cpp_time.h" // Il2CppDateTime (Guid_NewGuid stub)
+#include "il2cpp_environment.h" // icall_environment_get_processor_count (ThreadPool alignment)
+#include "threadpool.h" // il2cpp_threadpool_get_thread_count (live worker count)
 
 #include <cstdint>
 #include <cstdlib>
@@ -175,30 +177,73 @@ int32_t icall_domain_compressed_stack_get_domain_compressed_stack_size(Il2CppObj
 int32_t icall_domain_compressed_stack_get_domain_compressed_stack_flags(Il2CppObject*) { return 0; }
 Il2CppObject* icall_domain_compressed_stack_get_domain_compressed_stack_stack_blobs(Il2CppObject*) { return nullptr; }
 
-// ThreadPool stubs
-int32_t icall_thread_pool_get_thread_count() { return 1; }
-int32_t icall_thread_pool_get_min_threads() { return 1; }
-int32_t icall_thread_pool_get_max_threads() { return 1; }
-int32_t icall_thread_pool_get_available_threads() { return 1; }
+// ThreadPool counting -- net48-aligned (GN-20, probe-tpcountcase). The ILC
+// runtime's pool is FIXED (min(CPU,4) workers); net48's ThreadPool sizes are
+// environment-dependent and MUST be reported byte-exact from the same
+// environment so net48-oracle e2e diffing passes. Semantic basis (verified
+// by the tpcountcase net48 probe on the oracle host):
+//   * GetMinThreads -> (worker = ProcessorCount, io = ProcessorCount). .NET
+//     Framework's default minimum is one worker (and one IOCP) per logical
+//     processor; the probe confirmed minW == minIO == ProcessCount (32/32).
+//   * GetMaxThreads -> (worker = 32767 on 64-bit / 1023 on 32-bit, io = 1000).
+//     These are the framework's fixed maxima (probe: 32767/1000 on x64).
+//   * GetAvailableThreads -> (maxWorkers - busy, maxIO - busyIO). At
+//     quiescence (the probe never queues work) available == max on both
+//     engines; busier-than-idle reports are inherently timing-dependent on
+//     net48 and are recorded as a W7 deterministic-deviation (see the report).
+//   * ThreadCount -> the NUMBER OF LIVE POOL WORKER THREADS (0 before the
+//     fixed pool is first used, then the fixed count). net48 has no
+//     ThreadPool.ThreadCount member (probe-verified zero static properties),
+//     so this slot has no net48 oracle; the live count is the honest value.
+// ProcessorCount is taken from icall_environment_get_processor_count() -- the
+// SAME source as Environment.ProcessorCount -- so the values stay internally
+// consistent with the probe's own processorCount line on any host.
+namespace {
+int32_t thread_pool_max_worker()
+{
+    return (sizeof(void*) == 8) ? 32767 : 1023;
+}
+constexpr int32_t kThreadPoolMaxIo = 1000;
+} // namespace
+
+int32_t icall_thread_pool_get_thread_count()
+{
+    return il2cpp_threadpool_get_thread_count();
+}
+int32_t icall_thread_pool_get_min_threads()
+{
+    return icall_environment_get_processor_count();
+}
+int32_t icall_thread_pool_get_max_threads()
+{
+    return thread_pool_max_worker();
+}
+int32_t icall_thread_pool_get_available_threads()
+{
+    // Quiescent model: the ILC fixed pool is never "busier than idle" between
+    // work items by construction (min(CPU,4) workers all idle), and net48
+    // reports max - busy == max under the same read-only probe. See the
+    // W7 note: a busy interval cannot be byte-exact (net48 timing-dependent).
+    return thread_pool_max_worker();
+}
 // The PUBLIC out-param forms (GetMinThreads/GetMaxThreads/
-// GetAvailableThreads(out workerThreads, out completionPortThreads)): the
-// simplified pool has no IOCP model, so both slots receive the same fixed
-// worker count (min == max == available == N -- the documented single-pool
-// doctrine of threadpool.h).
+// GetAvailableThreads(out workerThreads, out completionPortThreads)).
 void icall_thread_pool_get_min_threads_out(int32_t* workerThreads, int32_t* completionPortThreads)
 {
-    if (workerThreads) *workerThreads = 1;
-    if (completionPortThreads) *completionPortThreads = 1;
+    const int32_t minWorker = icall_environment_get_processor_count();
+    if (workerThreads) *workerThreads = minWorker;
+    if (completionPortThreads) *completionPortThreads = minWorker;
 }
 void icall_thread_pool_get_max_threads_out(int32_t* workerThreads, int32_t* completionPortThreads)
 {
-    if (workerThreads) *workerThreads = 1;
-    if (completionPortThreads) *completionPortThreads = 1;
+    if (workerThreads) *workerThreads = thread_pool_max_worker();
+    if (completionPortThreads) *completionPortThreads = kThreadPoolMaxIo;
 }
 void icall_thread_pool_get_available_threads_out(int32_t* workerThreads, int32_t* completionPortThreads)
 {
-    if (workerThreads) *workerThreads = 1;
-    if (completionPortThreads) *completionPortThreads = 1;
+    // Quiescence: available == max (see the single-value form above).
+    if (workerThreads) *workerThreads = thread_pool_max_worker();
+    if (completionPortThreads) *completionPortThreads = kThreadPoolMaxIo;
 }
 // net6/net7: CanSetMin/MaxIOCompletionThreads -- the simplified pool has no
 // IOCP model; the honest constant answer is false on every platform.

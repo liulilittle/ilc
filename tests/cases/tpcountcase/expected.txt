@@ -1,0 +1,7 @@
+minW: 32
+minIO: 32
+maxW: 32767
+maxIO: 1000
+availW: 32767
+availIO: 1000
+processorCount: 32
