@@ -63,6 +63,14 @@ Scope: the net48 instance DateTime surface of the TimeZone domain --
   everywhere; net48's no-rule years use -Bias alone -- the common Windows
   layout has StandardBias == 0, so this is a cosmetic edge, unobserved on the
   probe set (all StandardBias==0).
+- **IsInvalidTime ignores DateTimeKind** (two independent auditor findings):
+  net48 returns false for IsInvalidTime(DateTime) when Kind is Utc or Local
+  (even on a spring-forward gap on a DST machine), while the runtime
+  is_invalid_time evaluates the civil wall clock of the candidate window
+  without a Kind guard. On this UTC+8 no-DST host every query collapses to
+  the constant-zone branch so the probe set cannot expose the divergence;
+  the Kind guard is recorded here pending verification on a DST-participating
+  machine.
 
 ## Evidence
 
