@@ -10037,6 +10037,22 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // offset in SECONDS scaled to TICKS (1 s = 10^7 ticks --
                 // il2cpp_time.h) for icall_timespan_from_ticks.
                 "tzsec" => $"il2cpp::runtime::il2cpp_timezone_get_utc_offset() * 10000000LL",
+                // timezone domain (MethodMap.TimeZone.cs): "tzsec_at" -- the
+                // PER-DATE GetUtcOffset(DateTime) Local branch (net48
+                // semantic, audit GN-20): evaluate the offset at the DATE
+                // argument (the DateTime the caller passed -- args[1], the
+                // folded-null receiver is args[0]) and scale seconds to
+                // ticks, replacing the ignored receiver argument.
+                "tzsec_at" => args.Count > 1
+                    ? $"il2cpp::runtime::il2cpp_timezone_get_utc_offset_at({EmitExpr(args[1], md, types)}) * 10000000LL"
+                    : throw new NotSupportedException("tzsec_at needs the DateTime argument (owner=System.TimeZoneInfo.GetUtcOffset)"),
+                // timezone domain: "tzsec_legacy" -- the obsolete
+                // System.TimeZone.GetUtcOffset (net48 TimeZoneInfoWrapper):
+                // KIND-aware -- a Kind=Utc input returns 0, otherwise the
+                // per-date offset (probe-pinned: legacy.utckind=0 on UTC+8).
+                "tzsec_legacy" => args.Count > 1
+                    ? $"il2cpp::runtime::il2cpp_timezone_get_utc_offset_legacy({EmitExpr(args[1], md, types)}) * 10000000LL"
+                    : throw new NotSupportedException("tzsec_legacy needs the DateTime argument (owner=System.TimeZone.GetUtcOffset)"),
                 // B:r: / B:V: by-ref interface/value: pass address through
                 var br when br.StartsWith("B:r:", StringComparison.Ordinal) || br.StartsWith("B:V:", StringComparison.Ordinal) => $"&({code})",
                 // P-D2 #4: a DELEGATE-typed P/Invoke argument -- wrap the

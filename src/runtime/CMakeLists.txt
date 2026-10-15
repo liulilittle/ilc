@@ -28,6 +28,10 @@ if(WIN32)
     # linking needs ws2_32 (recognized by both MinGW and MSVC); POSIX has no
     # such dependency (the socket API lives in libc)
     target_link_libraries(il2cpp_runtime PUBLIC ws2_32)
+    # timezone.cpp reads the machine zone's DST rules from the registry
+    # (RegOpenKeyExA/RegGetValueA -- the .NET Framework data source) -- the
+    # Advapi32 lib is a default MinGW dependency but must be explicit for MSVC
+    target_link_libraries(il2cpp_runtime PUBLIC advapi32)
 endif()
 if(MSVC)
     # /utf-8: sources are UTF-8 without BOM; MSVC defaults to code page 936,

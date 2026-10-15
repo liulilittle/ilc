@@ -5,10 +5,18 @@ namespace Il2Cpp.Transpiler.Emit;
 // (timezone.h: the TimeZone simplification domain).
 // Owners: System.TimeZoneInfo, System.TimeZone
 //
-// The runtime surface (timezone.h -- FULLY green, translator side only) is a
-// SIMPLIFICATION: ONE current-instant offset lookup -- no per-date DST table,
-// no zone registry, no names:
-//   il2cpp_timezone_get_utc_offset()          int64 SECONDS (local - UTC)
+// The runtime surface (timezone.h -- the TimeZone simplification domain):
+// the per-date family (il2cpp_timezone_get_utc_offset_at / _legacy /
+// _is_daylight_saving_at / _is_invalid_time) evaluates the machine zone's
+// Windows-registry DST rules (net48's data source) at the DateTime argument,
+// so the instance DateTime APIs are per-date byte-exact with net48 -- on a
+// no-DST host (UTC+8) they collapse to a constant offset. The current-
+// instant family (il2cpp_timezone_get_utc_offset() /
+// il2cpp_datetime_to_local / il2cpp_datetime_from_local /
+// il2cpp_timezone_get_is_daylight_saving) backs DateTime.Now/ToLocalTime and
+// is one current-instant offset lookup -- no per-date DST table, no zone
+// registry, no names:
+//   il2cpp_timezone_get_utc_offset()          int64 SECONDS (local - UTC) at now
 //   il2cpp_datetime_to_local(Il2CppDateTime)  utc ticks + offset (clamped)
 //   il2cpp_datetime_from_local(Il2CppDateTime) local ticks - offset (clamped)
 //   il2cpp_timezone_get_is_daylight_saving()  int32 0/1 at the current instant
@@ -23,18 +31,24 @@ namespace Il2Cpp.Transpiler.Emit;
 //     (net48 CurrentTimeZone IS TimeZoneInfo.Local)
 //
 // get_UtcOffset(DateTime) -> TimeSpan:
-//   Local tag -> icall_timespan_from_ticks(il2cpp_timezone_get_utc_offset()
-//                * 10000000LL) -- the SECONDS -> TICKS conversion (1 s =
-//                10^7 ticks, il2cpp_time.h) carried by the "tzsec" receiver
-//                cast (EmitIcallCallArgs, the "enum:l"/"tostring:sb" wrap
-//                precedent): the folded-null receiver expression is IGNORED
-//                and the offset call + scale is emitted as the argument.
+//   Local tag -> icall_timespan_from_ticks(il2cpp_timezone_get_utc_offset_at(
+//                dt) * 10000000LL) -- the PER-DATE offset in SECONDS -> TICKS
+//                conversion (1 s = 10^7 ticks, il2cpp_time.h) carried by the
+//                "tzsec_at" receiver cast (EmitIcallCallArgs, the "enum:l"/
+//                "tostring:sb" wrap precedent): the folded-null receiver
+//                expression is IGNORED and the per-date offset call + scale
+//                is emitted as the (single) argument, evaluated at the
+//                DateTime MEMBER argument (net48 GetUtcOffset semantics --
+//                the zone's per-year DST rule, registry-modeled).
 //   Utc tag   -> icall_timespan_from_ticks(0) (PrependZeroArg -- the
 //                Hashtable ctor precedent) -- TimeZoneInfo.Utc has a ZERO
 //                offset, never the machine offset.
-//   The DateTime argument is DROPPED: the domain evaluates the offset at the
-//   CURRENT instant for every input (the documented timezone.h simplification
-//   -- GetUtcOffset(dt) is not DST-aware per-dt).
+//   owner "System.TimeZone" (the obsolete TimeZone API, folded to the Local
+//                tag) -> icall_timespan_from_ticks(il2cpp_timezone_get_utc_
+//                offset_legacy(dt) * 10^7) via the "tzsec_legacy" cast: the
+//                net48 TimeZoneInfoWrapper is KIND-aware -- a Kind=Utc input
+//                returns TimeSpan.Zero, otherwise the per-date offset
+//                (probe-pinned: legacy.utckind.min net48=0 vs 480).
 //
 // FIRST-RESOLUTION SHAPE (receiver deferral -- the Encoding pattern): the
 // DateTime overloads of TimeZoneInfo ARE VIRTUAL (GetUtcOffset(DateTime) /
@@ -55,18 +69,21 @@ namespace Il2Cpp.Transpiler.Emit;
 //   simplification applies the current offset in both directions;
 //   TimeZoneInfo.Utc.ToUniversalTime (an identity in .NET) diverges by the
 //   offset -- documented simplification, out of the probe surface.
-// IsDaylightSavingTime(DateTime) -> il2cpp_timezone_get_is_daylight_saving
-//   (0/1 at the CURRENT instant; the per-instant simplification of the .NET
-//   per-dt answer -- the DateTimeOffset overload shares the 1-arg shape and
-//   cannot be distinguished by the raw signature bytes; unreachable in the
-//   wired surface because no DateTimeOffset value can be constructed).
+// IsDaylightSavingTime(DateTime) -> il2cpp_timezone_get_is_daylight_saving_at
+//   (per-date 0/1 at the DateTime argument, net48 semantics -- the
+//   DateTimeOffset overload shares the 1-arg shape and cannot be
+//   distinguished by the raw signature bytes; unreachable in the wired
+//   surface because no DateTimeOffset value can be constructed).
+// IsInvalidTime(DateTime) -> il2cpp_timezone_get_is_invalid_time (per-date
+//   1 when the wall clock falls in the spring-forward gap; a no-DST host is
+//   a constant false).
 //
 // LOUD rejections (net48 members with no runtime icall -- the
 // EnvironmentExtra gate precedent): the name/registry/zone-table surface
 // (get_Id/get_DisplayName/get_StandardName/get_DaylightName/get_BaseUtcOffset/
-// get_SupportsDaylightSavingTime/FindSystemTimeZoneById/GetSystemTimeZones/
-// CreateCustomTimeZone/ClearCachedData/ConvertTime/ConvertTimeBySystemTimeZoneId/
-// GetAmbiguousTimeOffsets/IsInvalidTime; TimeZone's GetDaylightChanges).
+// get_SupportsDaylightSavingTime/GetSystemTimeZones/CreateCustomTimeZone/
+// ClearCachedData/ConvertTime/ConvertTimeBySystemTimeZoneId/
+// GetAmbiguousTimeOffsets; TimeZone's GetDaylightChanges).
 // Members NOT listed here return null -> the generated-name fallback
 // (standard unwired behavior).
 //------------------------------------------------------------------------------
@@ -103,7 +120,7 @@ public static partial class MethodRefResolver
                 // no DateTimeOffset value can be constructed in the wired
                 // surface -- see the header).
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"{(name == "get_UtcOffset" ? "TimeZoneInfo" : "TimeZone")}.{name} with {ps.Length} arg(s) not wired: the runtime has only the current-instant offset icall");
+                    throw new NotSupportedException($"{(name == "get_UtcOffset" ? "TimeZoneInfo" : "TimeZone")}.{name} with {ps.Length} arg(s) not wired: the runtime has only the (DateTime) offset overload");
                 // receiverType == null is the fold's FIRST resolution (the
                 // callvirt receiver carries the zone tag -- the members are
                 // VIRTUAL, see the header): DEFER to the receiver-aware
@@ -112,15 +129,27 @@ public static partial class MethodRefResolver
                 // null's tag).
                 if (receiverType == null) return null;
                 // Receiver dispatch: the Utc singleton has a ZERO offset;
-                // Local (and the untracked default) reads the machine offset.
-                // The receiver EXPRESSION is ignored in both shapes (the
-                // folded null has no identity -- "tzsec" ignores it, the
+                // Local (and the untracked default) evaluates PER-DATE at the
+                // DateTime argument (net48 GetUtcOffset semantics -- audit
+                // GN-20). The receiver EXPRESSION is ignored in every shape
+                // (the folded null has no identity -- "tzsec_at"/
+                // "tzsec_legacy" substitute the argument evaluation, the
                 // PrependZeroArg path drops it).
-                return receiverType == utcTag
+                if (receiverType == utcTag)
+                    return I("il2cpp::runtime::icall_timespan_from_ticks", 1, true, false, true,
+                        new[] { "drop", "drop" }, "ts", prependZero: true, returnTypeName: "System.TimeSpan");
+                // The obsolete System.TimeZone.GetUtcOffset (owner
+                // "System.TimeZone") is the net48 TimeZoneInfoWrapper: KIND-
+                // aware -- a Kind==Utc input returns TimeSpan.Zero, otherwise
+                // the per-date offset (the "tzsec_legacy" runtime arm, probe-
+                // pinned legacy.utckind: net48=0 vs the current-instant 480).
+                // The modern System.TimeZoneInfo.GetUtcOffset (owner
+                // "System.TimeZoneInfo") is per-date regardless of Kind.
+                return owner == "System.TimeZone"
                     ? I("il2cpp::runtime::icall_timespan_from_ticks", 1, true, false, true,
-                        new[] { "drop", "drop" }, "ts", prependZero: true, returnTypeName: "System.TimeSpan")
+                        new[] { "tzsec_legacy", "drop" }, "ts", returnTypeName: "System.TimeSpan")
                     : I("il2cpp::runtime::icall_timespan_from_ticks", 1, true, false, true,
-                        new[] { "tzsec", "drop" }, "ts", returnTypeName: "System.TimeSpan");
+                        new[] { "tzsec_at", "drop" }, "ts", returnTypeName: "System.TimeSpan");
 
             // --- the DateTime converters (current-offset application) ---
             case "ToLocalTime":
@@ -137,12 +166,22 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::il2cpp_datetime_from_local", 1, true, false, true,
                     new[] { "drop", "" }, "dt", returnTypeName: "System.DateTime");
             case "IsDaylightSavingTime":
-                // 0/1 at the CURRENT instant (per-instant simplification of
-                // the .NET per-dt answer -- timezone.h contract).
+                // net48 IsDaylightSavingTime(DateTime) per-date 0/1: the DST
+                // model evaluates the transition window at the DateTime's
+                // date (timezone.h per-date family). A no-DST host is a
+                // constant false -- byte-exact with net48.
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"IsDaylightSavingTime with {ps.Length} arg(s) not wired: the runtime has only the current-instant probe");
-                return I("il2cpp::runtime::il2cpp_timezone_get_is_daylight_saving", 1, true, false, true,
-                    new[] { "drop", "drop" });
+                    throw new NotSupportedException($"IsDaylightSavingTime with {ps.Length} arg(s) not wired: the runtime has only the per-date probe");
+                return I("il2cpp::runtime::il2cpp_timezone_get_is_daylight_saving_at", 1, true, false, true,
+                    new[] { "drop", "" });
+            case "IsInvalidTime":
+                // net48 IsInvalidTime(DateTime): 1 when the wall clock falls
+                // in the non-existent spring-forward hour (the per-date DST
+                // model); a no-DST host is a constant false.
+                if (ps.Length != 1)
+                    throw new NotSupportedException($"IsInvalidTime with {ps.Length} arg(s) not wired: the runtime has only the per-date probe");
+                return I("il2cpp::runtime::il2cpp_timezone_get_is_invalid_time", 1, true, false, true,
+                    new[] { "drop", "" });
 
             // --- tzimpl: minimal zone registry + per-date conversion ---
             case "FindSystemTimeZoneById":
@@ -180,7 +219,6 @@ public static partial class MethodRefResolver
             case "ConvertTime":
             case "ConvertTimeBySystemTimeZoneId":
             case "GetAmbiguousTimeOffsets":
-            case "IsInvalidTime":
             case "GetDaylightChanges":
                 throw new NotSupportedException(
                     $"{owner}.{name} not wired: the runtime timezone.h surface has no per-zone registry, names, or zone-table icalls (only the current-instant offset/conversion/daylight probes)");

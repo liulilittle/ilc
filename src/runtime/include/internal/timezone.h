@@ -49,6 +49,50 @@ namespace runtime {
 // gmtime_r field difference. Falls back to 0 (UTC) if the lookup fails.
 int64_t il2cpp_timezone_get_utc_offset();
 
+//------------------------------------------------------------------------------
+// Per-date evaluation (net48 GetUtcOffset/IsDaylightSavingTime/IsInvalidTime
+// semantics -- the current-instant surface above is the simplification that
+// the per-date family replaces for the INSTANCE DateTime APIs).
+//
+// Data source (Windows): the SAME registry the .NET Framework reads --
+// HKLM\...\Time Zones\<id>\TZI (the base rule) plus the optional "Dynamic
+// DST" subkey (FirstEntry/LastEntry + per-year REG_TZI_FORMAT entries).
+// net48 builds AdjustmentRule[]: one rule spanning [1..first] (the
+// FIRST dynamic entry), one per in-range year, one spanning [last..9999]
+// (the LAST dynamic entry); no dynamic subkey -> a single rule over
+// all years from the static TZI. The evaluator replicates that model, so a
+// DST-zone machine reproduces net48 byte-for-byte (verified against the
+// Eastern Standard Time registry data with the net48-measured oracle).
+// POSIX: localtime_r/gmtime_r at the instant (system tzdata, DST-aware).
+//
+// The WALL-vs-UTC semantics encode net48's measured contract:
+//   * Unspecified/Local input (the DateTime's CIVIL face is a local wall
+//     clock): the DST window is [startUtc + dstDelta, endUtc) on the
+//     candidate instant (wall - standardOffset).
+//   * Utc input (the ticks ARE a UTC instant): the DST window is
+//     [startUtc, endUtc) directly.
+//   * IsInvalidTime: true iff the wall clock falls in the non-existent
+//     spring-forward hour [startWall, startWall + dstDelta).
+//   * IsDaylightSavingTime: true iff the per-date offset is the daylight
+//     offset.
+// A no-DST zone (this host: UTC+8 China Standard Time) reduces everything
+// to a constant -- byte-exact with net48 and with the current-instant
+// surface. Falls back to the current offsets on failure.
+//------------------------------------------------------------------------------
+int64_t il2cpp_timezone_get_utc_offset_at(Il2CppDateTime dt);
+
+// The obsolete System.TimeZone.GetUtcOffset(DateTime) wrapper (net48
+// TimeZoneInfoWrapper): a Kind=Utc input returns TimeSpan.Zero, otherwise
+// per-date (Kind-aware -- the legacy API zeros the UTC input).
+int64_t il2cpp_timezone_get_utc_offset_legacy(Il2CppDateTime dt);
+
+// net48 TimeZoneInfo.IsDaylightSavingTime(DateTime): per-date 0/1.
+int32_t il2cpp_timezone_get_is_daylight_saving_at(Il2CppDateTime dt);
+
+// net48 TimeZoneInfo.IsInvalidTime(DateTime): 1 when the wall clock falls in
+// the spring-forward gap (always 0 on a no-DST host).
+int32_t il2cpp_timezone_get_is_invalid_time(Il2CppDateTime dt);
+
 // DateTime (UTC ticks) -> local wall time: utc.ticks + offset. The result
 // is clamped to [DateTime.MinValue, DateTime.MaxValue] so conversions of
 // the extreme values never produce invalid ticks.

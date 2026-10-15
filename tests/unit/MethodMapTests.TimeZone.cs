@@ -7,9 +7,9 @@ using Xunit;
 
 // MethodMap.TimeZone dispatch tests: prove the BCL domain dispatch routes
 // the System.TimeZoneInfo / System.TimeZone surface to TryMapTimeZone
-// (MethodMap.TimeZone.cs) and lock the timezone.h simplification contract
-// (timezone.h -- the current-instant offset in SECONDS, no per-date DST
-// table, no zone registry, no names).
+// (MethodMap.TimeZone.cs) and lock the timezone.h contract
+// (timezone.h -- the per-date evaluation family + the current-instant
+// offset family used by the converters).
 //
 // Coverage contract (timezone.h surface):
 //   * get_Local / get_Utc / get_CurrentTimeZone fold to null (NullMarker)
@@ -17,16 +17,20 @@ using Xunit;
 //     "System.TimeZoneInfo+Utc") -- the folded-null receiver re-resolve
 //     (StackFold NullExpr.TypeName) dispatches the instance members.
 //   * get_UtcOffset(DateTime) -> TimeSpan maps to
-//     icall_timespan_from_ticks with the SECONDS -> TICKS conversion
-//     carried by the "tzsec" receiver cast (the Local branch) or the
-//     injected 0 argument (PrependZeroArg -- the Utc branch: a ZERO
-//     offset, never the machine offset). The DateTime argument is DROPPED
-//     ("drop" -- the offset is evaluated at the current instant).
+//     icall_timespan_from_ticks with the PER-DATE SECONDS -> TICKS
+//     conversion carried by the "tzsec_at" receiver cast (the
+//     System.TimeZoneInfo Local branch -- the offset is evaluated at the
+//     DateTime argument) or the "tzsec_legacy" cast (the obsolete
+//     System.TimeZone branch -- Kind-aware: a Kind=Utc input is Zero); the
+//     Utc branch injects a pre-appended 0 (PrependZeroArg -- never the
+//     machine offset).
 //   * ToLocalTime / ToUniversalTime -> il2cpp_datetime_to_local /
 //     il2cpp_datetime_from_local ("dt" result kind + "System.DateTime"
 //     ReturnTypeName for chained member resolution).
-//   * IsDaylightSavingTime -> il2cpp_timezone_get_is_daylight_saving.
-//   * The name/registry/zone-table surface (get_Id, FindSystemTimeZoneById,
+//   * IsDaylightSavingTime -> il2cpp_timezone_get_is_daylight_saving_at
+//     (per-date; the DateTime argument passes by value).
+//   * IsInvalidTime -> il2cpp_timezone_get_is_invalid_time (per-date).
+//   * The name/registry/zone-table surface (get_Id, FindSystemTimeZoneById
 //     ...) MUST be LOUD (NotSupportedException) -- no silent fallback.
 //   * Members NOT in the domain return null -> the generated-name path.
 //
@@ -90,7 +94,7 @@ public class MethodMapTimeZoneTests
     }
 
     [Fact]
-    public void Resolve_TimeZoneInfo_GetUtcOffset_LocalReceiver_MapsToTicksIcallWithTzsecCast()
+    public void Resolve_TimeZoneInfo_GetUtcOffset_LocalReceiver_MapsToPerDateIcallWithTzsecAtCast()
     {
         var resolved = ResolveMember(Synthesize("System", "TimeZoneInfo", "get_UtcOffset", Sig(0x0A, 1, 0x0A)), "get_UtcOffset",
             LocalTag);
@@ -98,13 +102,15 @@ public class MethodMapTimeZoneTests
         Assert.Equal("il2cpp::runtime::icall_timespan_from_ticks", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(1, resolved.ParamCount);
-        // The Local receiver slot carries the "tzsec" cast: the emitter
-        // replaces the folded-null receiver with the runtime's current
-        // offset in SECONDS scaled to TICKS (10^7/1s).
-        Assert.Equal(new[] { "tzsec", "drop" }, resolved.ParamTypeNames);
+        // The Local receiver slot carries the "tzsec_at" cast: the emitter
+        // replaces the folded-null receiver with the runtime's PER-DATE
+        // offset at the DateTime argument in SECONDS scaled to TICKS
+        // (10^7/1s). The DateTime argument is PASSED (the per-date domain
+        // reads its civil face + Kind).
+        Assert.Equal(new[] { "tzsec_at", "drop" }, resolved.ParamTypeNames);
         Assert.False(resolved.PrependZeroArg);
         Assert.Equal("ts", resolved.ResultKind);
-        Assert.Equal("System.TimeSpan", resolved.ReturnTypeName); // chains (.TotalSeconds) resolve
+        Assert.Equal("System.TimeSpan", resolved.ReturnTypeName); // chains (.TotalMinutes) resolve
     }
 
     [Fact]
@@ -123,15 +129,19 @@ public class MethodMapTimeZoneTests
     }
 
     [Fact]
-    public void Resolve_TimeZone_GetUtcOffset_MapsToTicksIcall()
+    public void Resolve_TimeZone_GetUtcOffset_OwnerTimeZone_MapsToLegacyKindAwareIcall()
     {
-        // The net48 TimeZone.GetUtcOffset(DateTime) old API -- same icall
-        // (virtual: the Local-tagged receiver dispatch).
+        // The net48 TimeZone.GetUtcOffset(DateTime) old API is the
+        // TimeZoneInfoWrapper: KIND-aware -- the "tzsec_legacy" runtime arm
+        // zeros a Kind==Utc input, otherwise the per-date offset (probe-
+        // pinned: TimeZone.CurrentTimeZone.GetUtcOffset(utcKind) = 0 on
+        // net48 while the current-instant shape returned the machine
+        // offset -- the GN-20 per-date fix).
         var resolved = ResolveMember(Synthesize("System", "TimeZone", "GetUtcOffset", Sig(0x0A, 1, 0x0A)), "GetUtcOffset",
             LocalTag);
 
         Assert.Equal("il2cpp::runtime::icall_timespan_from_ticks", resolved.CppName);
-        Assert.Equal(new[] { "tzsec", "drop" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "tzsec_legacy", "drop" }, resolved.ParamTypeNames);
         Assert.Equal("System.TimeSpan", resolved.ReturnTypeName);
     }
 
@@ -174,13 +184,26 @@ public class MethodMapTimeZoneTests
     }
 
     [Fact]
-    public void Resolve_TimeZoneInfo_IsDaylightSavingTime_MapsToDaylightProbe()
+    public void Resolve_TimeZoneInfo_IsDaylightSavingTime_MapsToPerDateProbe()
     {
         var resolved = ResolveMember(Synthesize("System", "TimeZoneInfo", "IsDaylightSavingTime", Sig(0x01, 1, 0x0A)), "IsDaylightSavingTime");
 
-        Assert.Equal("il2cpp::runtime::il2cpp_timezone_get_is_daylight_saving", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_timezone_get_is_daylight_saving_at", resolved.CppName);
         Assert.True(resolved.IsInstance);
-        Assert.Equal(new[] { "drop", "drop" }, resolved.ParamTypeNames); // current-instant probe: both dropped
+        // per-date probe: receiver dropped, the DateTime passes by value
+        Assert.Equal(new[] { "drop", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_TimeZoneInfo_IsInvalidTime_MapsToPerDateInvalidProbe()
+    {
+        var resolved = ResolveMember(Synthesize("System", "TimeZoneInfo", "IsInvalidTime", Sig(0x01, 1, 0x0A)), "IsInvalidTime");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_timezone_get_is_invalid_time", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        // per-date invalid-hour probe: receiver dropped, the DateTime passes
+        // by value (net48 IsInvalidTime(DateTime) -- the spring-forward gap).
+        Assert.Equal(new[] { "drop", "" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -201,7 +224,6 @@ public class MethodMapTimeZoneTests
     [InlineData("ConvertTime")]
     [InlineData("ConvertTimeBySystemTimeZoneId")]
     [InlineData("GetAmbiguousTimeOffsets")]
-    [InlineData("IsInvalidTime")]
     [InlineData("GetDaylightChanges")]
     public void Resolve_TimeZone_RegistrySurface_IsLoud(string member)
     {
