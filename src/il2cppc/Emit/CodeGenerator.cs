@@ -230,6 +230,12 @@ public static class CodeGenerator
         // declarations (charops static-surface cmake failure otherwise).
         generatedHeader.Line("#include \"il2cpp_char.h\"");
         generatedHeader.Line("#include \"il2cpp_environment.h\"");
+        // GN-20 legacy AppContext domain -- System.AppContext / Compatibility-
+        // Switch icalls (icall_appcontext_*, MethodMap.AppContext.cs) live in
+        // appcontext.h (namespace il2cpp::runtime). Without the include the
+        // generated C++ cannot see the declarations (the p-appcontext probe's
+        // probes otherwise fall to the generated-name path / undeclared symbol).
+        generatedHeader.Line("#include \"appcontext.h\"");
         // M5 wiring: the second-wave runtime extension headers (stringext2
         // statics / format_ext custom formatters / time_ext DateTime format /
         // value_semantics hashing / thread / gc_ext weak-ref + finalizer /

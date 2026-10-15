@@ -1796,6 +1796,16 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Resources.ResourceManager": return TryMapResources(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapResourceManager(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Reflection.RuntimeAssembly": return TryMapRuntimeAssembly(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // GN-20 legacy AppContext domain (MethodMap.AppContext.cs):
+            // System.AppContext's net48 managed surface (managed methods
+            // reading the no-config-empty data/switch stores) + the audited
+            // System.Runtime.Versioning.CompatibilitySwitch internal calls
+            // (icall-inventory-net48.md row 780 -- GetAppContextOverrides
+            // InternalCall was a realGap). All no-config defaults are
+            // byte-exact constants on this runtime (probe p-appcontext).
+            case "System.AppContext":
+            case "System.Runtime.Versioning.CompatibilitySwitch":
+                return TryMapAppContext(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // ReflectionExtensions domain (MethodMap.ReflectionExtensions.cs): the
             // Microsoft.Reflection.ReflectionExtensions typecode primitive wrapper.
             case "Microsoft.Reflection.ReflectionExtensions": return TryMapReflectionExtensions(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
