@@ -1254,4 +1254,20 @@ Il2CppObject* il2cpp_number_format_native_digits(Il2CppObject*)
     return reinterpret_cast<Il2CppObject*>(arr);
 }
 
+int32_t il2cpp_number_format_digit_substitution(Il2CppObject*)
+{
+    // net48 (zh-CN host, oracle_digitsub.txt): both the zh-CN current and the
+    // invariant NumberFormatInfo report DigitShapes.None == 1 (the host prints
+    // Western digits "0".."9"; Hebrew etc. would differ -- W7, no ILC surface).
+    return 1;
+}
+
+bool il2cpp_number_format_is_read_only(Il2CppObject*)
+{
+    // net48 (oracle_digitsub.txt): both NumberFormatInfo.CurrentInfo and
+    // NumberFormatInfo.InvariantInfo are the canonical read-only singletons
+    // (IsReadOnly == true on the two-culture surface).
+    return true;
+}
+
 }} // namespace il2cpp::runtime

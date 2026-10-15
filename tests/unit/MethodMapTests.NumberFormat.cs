@@ -140,6 +140,7 @@ public class MethodMapTestsNumberFormat
     [InlineData("get_PercentPositivePattern", "il2cpp::runtime::il2cpp_number_format_percent_positive_pattern")]
     [InlineData("get_PercentNegativePattern", "il2cpp::runtime::il2cpp_number_format_percent_negative_pattern")]
     [InlineData("get_PercentDecimalDigits", "il2cpp::runtime::il2cpp_number_format_percent_decimal_digits")]
+    [InlineData("get_DigitSubstitution", "il2cpp::runtime::il2cpp_number_format_digit_substitution")]
     public void Resolve_NumberFormatInfo_IntGetters_MapsToRuntimeIcall(string member, string expected)
     {
         var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", member, Sig(0x08)), member);
@@ -148,6 +149,21 @@ public class MethodMapTestsNumberFormat
         Assert.Equal(0, resolved.ParamCount);
         Assert.Equal("", resolved.ParamTypeNames![0]);
         Assert.False(resolved.ReturnsRef); // int32 value slot
+    }
+
+    // gn20-numfmt D1 (auditB): get_IsReadOnly returns BOOL (0x02) -- the same
+    // value-slot icall shape as the int getters (bool rides the int32 slot;
+    // the ArrayList get_IsReadOnly precedent uses the identical shape).
+    [Fact]
+    public void Resolve_NumberFormatInfo_IsReadOnly_MapsToRuntimeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", "get_IsReadOnly", Sig(0x02)),
+            "get_IsReadOnly");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_number_format_is_read_only", resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.False(resolved.ReturnsRef); // bool value slot
     }
 
     [Theory]

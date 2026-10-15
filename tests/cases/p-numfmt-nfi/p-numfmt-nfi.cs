@@ -6,7 +6,9 @@
 // Covers the NumberFormatInfo GETTER surface under the invariant / zh-CN
 // two-culture dispatch that P0-4 audited as "hard-coded invariant literals":
 // the separator/sign/symbol STRING getters, the int pattern/digit getters,
-// the int[] group sizes and the string[] native digits. All values are
+// the int[] group sizes and the string[] native digits, plus the D1 follow-up
+// get_DigitSubstitution (DigitShapes.None == 1 on both cultures) and
+// get_IsReadOnly (true on both net48 canonical instances). All values are
 // pinned from the net48 oracle (oracle_net48.txt / oracle_xcult.txt): zh-CN
 // and invariant agree on every string separator/symbol and on group sizes /
 // native digits; the three CULTURE-DIFFERING int patterns (CurrencyNegative
@@ -66,6 +68,8 @@ namespace Cases
             Console.WriteLine("g." + label + ".PercentPositivePattern=" + nfi.PercentPositivePattern);
             Console.WriteLine("g." + label + ".PercentNegativePattern=" + nfi.PercentNegativePattern);
             Console.WriteLine("g." + label + ".PercentDecimalDigits=" + nfi.PercentDecimalDigits);
+            Console.WriteLine("g." + label + ".DigitSubstitution=" + (int)nfi.DigitSubstitution);
+            Console.WriteLine("g." + label + ".IsReadOnly=" + nfi.IsReadOnly);
             string gs = "";
             for (int i = 0; i < nfi.NumberGroupSizes.Length; i++) { if (i > 0) gs += "|"; gs += nfi.NumberGroupSizes[i]; }
             Console.WriteLine("g." + label + ".NumberGroupSizes=" + gs);

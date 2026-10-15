@@ -31,7 +31,9 @@ namespace Il2Cpp.Transpiler.Emit;
 //         Pattern/PercentPositivePattern/PercentNegativePattern/
 //         PercentDecimalDigits ints (the three pattern ints differ between
 //         zh-CN and invariant -- 2/1/1 vs 0/0/0); Number/Currency/Percent
-//         GroupSizes int[] {3}; NativeDigits string[] {"0".."9"}.
+//         GroupSizes int[] {3}; NativeDigits string[] {"0".."9"};
+//         DigitSubstitution int {1} (DigitShapes.None); IsReadOnly int {1}
+//         (both net48 canonical singletons read-only -- oracle measured).
 //   * TextInfo.ToLower/ToUpper drop the TextInfo receiver and reuse the
 //     string case icalls (icall_string_to_lower/upper) -- invariant-culture
 //     TextInfo case mapping equals the string case helpers.
@@ -125,6 +127,17 @@ public static partial class MethodRefResolver
                     case "get_NativeDigits":
                         return I("il2cpp::runtime::il2cpp_number_format_native_digits", 0, true, true, true,
                             new[] { "" }, returnTypeName: "System.String[]");
+                    // gn20-numfmt D1 follow-up: get_DigitSubstitution (the int
+                    // DigitShapes value -- None == 1 on both cultures) and
+                    // get_IsReadOnly (true on both net48 canonical singletons).
+                    // Same culture-name value-slot shape as the int pattern
+                    // getters above.
+                    case "get_DigitSubstitution":
+                        return I("il2cpp::runtime::il2cpp_number_format_digit_substitution", 0, true, false, true,
+                            new[] { "" });
+                    case "get_IsReadOnly":
+                        return I("il2cpp::runtime::il2cpp_number_format_is_read_only", 0, true, false, true,
+                            new[] { "" });
                     case "get_PercentDecimalSeparator": return Literal(".");
                     case "get_PercentGroupSeparator": return Literal(",");
                     case "get_PositiveSign": return Literal("+");

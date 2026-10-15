@@ -1,13 +1,13 @@
 # GAPS.md -- p-numfmt-nfi recorded findings (probe batch 3, GN-20 numfmt)
 
-Case status: **PASS** (mingw, net48 oracle 75-line byte-exact).
+Case status: **PASS** (mingw, net48 oracle 79-line byte-exact).
 
 Scope: the NumberFormatInfo GETTER surface under the invariant / zh-CN
 two-culture dispatch (audit P0-4: "NumberFormatInfo getters hard-coded
 invariant literals") + the current-culture composite `String.Format`
 rows. `expected.txt` is the exact net48 oracle under the zh-CN host
 culture; the transpiled runtime reproduces it byte-for-byte (verified:
-75 lines, 0 diff — difftest bytes identical).
+79 lines, 0 diff — difftest mbh oracle/runtime sha identical).
 
 ## FIXED this batch (byte-exact, runtime icall two-culture dispatch)
 
@@ -22,11 +22,14 @@ existing currency/infinity symbol dispatch):
   (1 / 0), PercentNegativePattern (1 / 0) — culture-name dispatched.
 - int[]: Number/Currency/PercentGroupSizes {3}; string[]: NativeDigits
   {"0".."9"} (zh-CN == invariant).
-`MethodMap.NumberFormat.cs` maps every getter to the icall (get_CurrentInfo ->
-"zh-CN"/invariant culture-name value, so the dispatch is byte-exact).
-`formatext.cpp` composite engine (`icall_format_composite_item`) gained the
-boxed UInt32/UInt64 branches (values <= INT64_MAX route to the signed int64
-engine = byte-exact; UInt32 full range via int64 zero-extend).
+- D1 (auditB re-review): get_DigitSubstitution == DigitShapes.None == 1 and
+  get_IsReadOnly == true on BOTH net48 canonical singletons (measured —
+  oracle_digitsub.txt); wired as constant icalls.
+`MethodMap.NumberFormat.cs` maps every instance getter to the icall
+(get_CurrentInfo -> "zh-CN"/invariant culture-name value, so the dispatch is
+byte-exact). `formatext.cpp` composite engine (`icall_format_composite_item`)
+gained the boxed UInt32/UInt64 branches (values <= INT64_MAX route to the
+signed int64 engine = byte-exact; UInt32 full range via int64 zero-extend).
 
 empirical net48 facts pinned (oracle_net48.txt / oracle_xcult.txt on the
 zh-CN host): en-US/de-DE explicit NumberFormat values differ (CurrencySymbol

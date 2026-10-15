@@ -137,5 +137,7 @@ Il2CppObject* il2cpp_number_format_number_group_sizes(Il2CppObject* cultureName)
 Il2CppObject* il2cpp_number_format_currency_group_sizes(Il2CppObject* cultureName);
 Il2CppObject* il2cpp_number_format_percent_group_sizes(Il2CppObject* cultureName);
 Il2CppObject* il2cpp_number_format_native_digits(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_digit_substitution(Il2CppObject* cultureName);
+bool il2cpp_number_format_is_read_only(Il2CppObject* cultureName);
 
 }} // namespace il2cpp::runtime
