@@ -1720,7 +1720,22 @@ public static class TypeEmitter
         var propertiesTable = propertyEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_properties" : "nullptr";
         var eventsTable = eventEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_events" : "nullptr";
         var interfacesExpr = t.InterfaceTypes.Count > 0 ? ifaceArray : "nullptr";
-        var klassExpr = !HasClassDescriptor(t) ? "nullptr" : $"&{TypeCppName(t)}_class";
+        // O4 (boxed user-struct reflection): for a VALUE type WITH an emitted
+        // descriptor (field-bearing or .ctor-bearing -- the exact
+        // CodeGenerator descriptor-emission condition at CodeGenerator.cs:
+        // 1258-1260, mirrored here so &{T}_class never references an undefined
+        // symbol), the klass back-pointer rides the P25b box descriptor. The
+        // runtime il2cpp_typeinfo_lookup_by_class then joins a BOXED user
+        // struct (whose klass IS &{T}_class) to its own typeinfo table, so
+        // FieldInfo.GetValue/SetValue can resolve the struct-relative field
+        // offset. A fieldless struct has no descriptor and keeps klass
+        // nullptr (unboxable edge -- no change). Enums keep the existing
+        // HasClassDescriptor path (already non-null).
+        var valueHasDescriptor = t.IsValueType
+            && (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"));
+        var klassExpr = valueHasDescriptor
+            ? $"&{TypeCppName(t)}_class"
+            : !HasClassDescriptor(t) ? "nullptr" : $"&{TypeCppName(t)}_class";
         var baseExpr = t.BaseType != null
             ? $"&{TypeCppName(t.BaseType)}_typeinfo,"
             : "nullptr, // baseType (System.Object)";
@@ -1771,6 +1786,14 @@ public static class TypeEmitter
         // RF-N5: nested-type sub-table row (main table).
         var nestedExpr = nestedEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_nested" : "nullptr";
         w.Line($"    {nestedExpr}, {nestedEntries.Count},                  // nested (RF-N5)");
+        // O4 (boxed user-struct reflection): the value-type marker -- 1 for a
+        // translated user STRUCT (TypeDef.IsValueType; its Il2CppFieldInfo.
+        // offset column is struct-relative, so the runtime GetValue/SetValue
+        // adds the box payload offset). 0 for classes AND enums (an enum's
+        // value__ slot-grid offset already coincides with the box payload --
+        // adding the header again would double-shift). Trailing field,
+        // zero-delta default (typeinfo.h).
+        w.Line($"    {(t.IsValueType ? 1 : 0)},                            // isValueType (O4: boxed-struct field offset + header)");
         w.Line("};");
         w.Line();
         return w.ToString();

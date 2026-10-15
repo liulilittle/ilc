@@ -1596,13 +1596,21 @@ public static class StackFold
                     // the emitter (the address read is width-independent --
                     // il2cpp_array_get_elem_ptr), so no type resolution is
                     // needed at fold time. ResultKind "ptr" (intptr_t temp).
+                    // O3 (user-struct arrays): a TRANSLATED user value type's
+                    // element address is a typed STRUCT pointer (the caller
+                    // dereferences `->field` at the address, not an intptr_t
+                    // carrier), so the result carries "sp:{CppName}" -- the
+                    // emitter emits reinterpret_cast<{CppName}*> and the
+                    // loc-kind analysis declares the temp `{CppName}*` (the
+                    // "us:" unbox precedent). Everything else keeps "ptr"
+                    // (intptr_t carrier, unchanged).
                     {
                         var ldelemaIdx = stack.Pop();
                         var ldelemaArr = stack.Pop();
                         Push(new CallExpr
                         {
                             Function = $"ldelema_{ins.Operand}",
-                            ResultKind = "ptr",
+                            ResultKind = LdelemaUserStructKind(md, (int)ins.Operand, types) ?? "ptr",
                             Args = { ldelemaArr, ldelemaIdx },
                         }, ins);
                     }
@@ -4299,6 +4307,22 @@ public static class StackFold
             var t = types.FirstOrDefault(x => x.MatchesFullName(fullName));
             if (t == null || !t.IsValueType) return null;
             return "us:" + TypeEmitter.TypeCppName(t);
+        }
+
+        // O3 (user-struct arrays): the ldelema ResultKind for a TRANSLATED
+        // user VALUE type -- "sp:{CppName}" (CodeGenerator.ExprKind strips the
+        // prefix to the C++ STRUCT POINTER declaration type "{CppName}*" and the
+        // ldelema_ emit site reinterprets the array element pointer to that
+        // type; FieldAccess on the address then dereferences the struct's
+        // fields). Returns null for everything else (primitives/references/Bcl
+        // structs keep the intptr_t "ptr" carrier, unchanged).
+        static string? LdelemaUserStructKind(MetadataReader? md, int token, IReadOnlyList<TypeDef>? types)
+        {
+            if (md == null || types == null) return null;
+            var fullName = TypeFullNameFromToken(md, token);
+            var t = types.FirstOrDefault(x => x.MatchesFullName(fullName));
+            if (t == null || !t.IsValueType) return null;
+            return "sp:" + TypeEmitter.TypeCppName(t);
         }
 
         // M4 Task 5 + M5 wiring: runtime icall methods (resolved by

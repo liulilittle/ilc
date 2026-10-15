@@ -336,6 +336,15 @@ namespace {
 
 constexpr int kNameBufferSize = 256;
 
+// O4 (boxed user-struct reflection): the reflected-field payload shift for a
+// BOXED VALUE TYPE. A boxed user struct's payload lives at byte offset 8 of
+// the box object (the object header is slot 0 -- boxingext2.cpp's
+// kBoxPayloadOffset / il2cpp_unbox_user_struct), so the struct-relative
+// Il2CppFieldInfo.offset must be shifted by this header on the object base.
+// Kept as a local mirror of the runtime-wide constant (must stay in sync with
+// boxingext2.cpp kBoxPayloadOffset -- the same "one 8-byte box slot" law).
+constexpr intptr_t kReflectionBoxPayloadOffset = 8;
+
 bool AsciiFromManagedString(Il2CppObject* name, char (&buf)[kNameBufferSize])
 {
     if (name == nullptr)
@@ -950,8 +959,17 @@ Il2CppObject* il2cpp_typeinfo_field_get_value(Il2CppObject* fieldName, Il2CppObj
     {
         return nullptr;
     }
+    // O4 (boxed user-struct reflection): a value-type table's offsets are
+    // STRUCT-RELATIVE (field 0 at offset 0), but a boxed struct's payload sits
+    // one object header past the base -- shift by the box payload offset when
+    // the declaring type info is a value type. Classes have object-relative
+    // offsets (slot 0 = header) and are unchanged; the enum's value__ offset
+    // already coincides with the box payload, so enums (isValueType 0) are
+    // unchanged too.
     char* slot = field->offset >= 0
-        ? reinterpret_cast<char*>(target) + field->offset
+        ? reinterpret_cast<char*>(target)
+            + (info->isValueType ? kReflectionBoxPayloadOffset : 0)
+            + field->offset
         : static_cast<char*>(field->staticAddr);
     // Narrow set: slot width dispatched by the field's typeName.
     if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int32") == 0)
@@ -991,8 +1009,12 @@ void il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObject* targ
     {
         return;
     }
+    // O4 (boxed user-struct reflection): the same struct-relative offset shift
+    // as the GetValue twin above (see that comment -- classes/enums unchanged).
     char* slot = field->offset >= 0
-        ? reinterpret_cast<char*>(target) + field->offset
+        ? reinterpret_cast<char*>(target)
+            + (info->isValueType ? kReflectionBoxPayloadOffset : 0)
+            + field->offset
         : static_cast<char*>(field->staticAddr);
     if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int32") == 0)
     {

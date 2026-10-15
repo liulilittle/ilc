@@ -2384,6 +2384,30 @@ public static class CodeGenerator
             var kind = ExprKind(a.Value, locKind);
             if (kind != null) locKind[a.Target] = kind;
         }
+        // O3 (user-struct arrays): a compiler temp reused for element ADDRESSES
+        // of DIFFERENT struct types (two loops sharing one temp slot, each
+        // ldelema of a different translated value type) would get conflicting
+        // "sp:{CppName}" kinds -- no single C++ struct pointer can type it.
+        // Downgrade such a temp to "spx" (an opaque void* carrier): the
+        // assignment sites convert implicitly (T* -> void*), and the
+        // FieldAccess sites reinterpret back to the concrete struct pointer.
+        // Run after the generic loop so every sp: seed is visible.
+        var spKinds = new Dictionary<string, HashSet<string>>();
+        for (var i = 0; i < stmts.Count; i++)
+        {
+            if (!reachable[i] || stmts[i] is not AssignStmt asp2) continue;
+            if (asp2.Value is not CallExpr spCall
+                || spCall.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) != true) continue;
+            if (!spKinds.TryGetValue(asp2.Target, out var spSet))
+            {
+                spSet = new HashSet<string>();
+                spKinds[asp2.Target] = spSet;
+            }
+            spSet.Add(spCall.ResultKind);
+        }
+        foreach (var (spTarget, spCppTypes) in spKinds)
+            if (spCppTypes.Count > 1)
+                locKind[spTarget] = "spx";
         // GN-18 B1 (fnptr fields): an INSTANCE/NESTED fnptr field read into a
         // local (`delegate* p = obj.cb;`) carries a void* value -- seed the
         // target local "p" (declared void*) so the copy keeps the pointer
@@ -2782,6 +2806,15 @@ public static class CodeGenerator
             if (kind == "p")
             {
                 w.Line($"void* {d} = nullptr;");
+                continue;
+            }
+            // O3 (user-struct arrays): a temp reused for element addresses of
+            // DIFFERENT struct types (conflicting "sp:{CppName}" kinds) is an
+            // opaque void* carrier -- the assignment converts implicitly and
+            // the FieldAccess sites reinterpret to the concrete struct pointer.
+            if (kind == "spx")
+            {
+                w.Line($"{MuPrefix(d)}void* {d};");
                 continue;
             }
             // M4.5: P/Invoke IntPtr result temps -> full-width pointer (an
@@ -3878,7 +3911,7 @@ public static class CodeGenerator
                     : (faValueCpp == "Il2CppObject*"
                         ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
                         : NullSafePtrCast(faValueCpp, EmitExpr(fa.Value, md, types)));
-                var faTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject);
+                var faTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject, _curLocKinds);
                 if (fa.IsRefField && !fa.IsValueTypeObject)
                 {
                     // Reference field: write barrier first (record old-generation writes -> card table), then assign.
@@ -4916,14 +4949,14 @@ public static class CodeGenerator
                 // Reference field values are cast back to Il2CppObject* uniformly (the IR's uniform reference
                 // representation -- temps/parameters/returns are all Il2CppObject*; cross-type field read/write aligns via casts).
                 // M3 Task 11: value-type receivers are plain values ('.' access, no null check).
-                var fval = $"{FieldAccess(f.Object, f.OwnerFullName, f.FieldCppName, md, types, f.IsValueTypeObject)}";
+                var fval = $"{FieldAccess(f.Object, f.OwnerFullName, f.FieldCppName, md, types, f.IsValueTypeObject, _curLocKinds)}";
                 return f.IsRefField ? $"reinterpret_cast<Il2CppObject*>({fval})" : fval;
             case FieldAddrExpr fa:
                 // Instance field address (ldflda): &obj->field. Null-check the receiver first.
                 // batch 156c (asynccase): VALUE-TYPE receivers (the async state
                 // machine's builder/awaiter fields) skip the null check -- a
                 // struct address cannot be static_cast to Il2CppObject*.
-                return $"(&{FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject)})";
+                return $"(&{FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject, _curLocKinds)})";
             case NewObjExpr n:
                 // newobj allocation expression: zero-initialized object (the ctor call was already split into its own CallStmt by StackFold).
                 // M5 wiring: BCL classes allocate through their RUNTIME class
@@ -5126,6 +5159,11 @@ public static class CodeGenerator
         // the C++ struct type so the result temp is declared `{T} t;` and the
         // unboxed value is copied in as a real struct member-by-member.
         CallExpr c when c.ResultKind?.StartsWith("us:", StringComparison.Ordinal) == true => c.ResultKind["us:".Length..],
+        // O3 (user-struct arrays): ldelema of a translated USER VALUE type
+        // carries "sp:{CppName}" -- strip the prefix to the STRUCT POINTER
+        // type so the temp is declared `{CppName}* t;` (field access on the
+        // element address dereferences it; see the ldelema_ emit site).
+        CallExpr c when c.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true => c.ResultKind["sp:".Length..] + "*",
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
         // P2-HARDEN #3: a delegate Invoke returning long/double/float carries
@@ -8141,7 +8179,7 @@ default: return false;                           // primitives/VAR(handled by ca
     //   Il2CppObject* slot; the struct's first member is that header, so the
     //   cast is layout-correct).
     //--------------------------------------------------------------------------
-    private static string FieldAccess(Expr obj, string owner, string fieldCppName, MetadataReader md, IReadOnlyList<TypeDef> types, bool isValueTypeObject = false)
+    private static string FieldAccess(Expr obj, string owner, string fieldCppName, MetadataReader md, IReadOnlyList<TypeDef> types, bool isValueTypeObject = false, IReadOnlyDictionary<string, string>? locKinds = null)
     {
         var objCode = EmitExpr(obj, md, types);
         if (isValueTypeObject)
@@ -8154,6 +8192,19 @@ default: return false;                           // primitives/VAR(handled by ca
             // caudit2-fix: address args (this pointer / by-ref / raw pointer)
             // dereference directly; a BY-VALUE struct arg falls through to the
             // (&(arg))-> form (arg1 is a plain C++ value -- `arg1->V` did not compile).
+            // O3 (user-struct arrays): a receiver that is an ARRAY-ELEMENT
+            // ADDRESS -- the ldelema CallExpr (ResultKind "sp:{CppName}") used
+            // inline, or a temp/local whose loc-kind IS a struct pointer type
+            // ("{CppName}*", from the same ldelema through the ExprKind
+            // seed) -- is a typed STRUCT POINTER whose fields dereference
+            // directly, NOT a by-value struct that needs (&v)->.
+            var isStructPointer = obj is CallExpr sce
+                    && sce.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true
+                || obj is LocExpr sle && locKinds != null
+                    && locKinds.TryGetValue(sle.Name, out var sk)
+                    && (!string.IsNullOrEmpty(sk) && (sk.EndsWith("*") || sk == "spx"));
+            if (isStructPointer)
+                return $"reinterpret_cast<{TypeCppName(owner)}*>({objCode})->{fieldCppName}";
             if (obj is LocAddrExpr || (obj is LocExpr le && IsAddressArg(le.Name)))
                 return $"{objCode}->{fieldCppName}";
             // GN-N4 stage-2 (Id<Pt> by-value MVAR): a value-type field receiver
@@ -9099,6 +9150,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             var ldelemaPtr = TryEmitLoopProvenArrayPtr(c.Args[0], c.Args[1], md, types)
                 ?? TryEmitFastArrayPtr(c.Args[0], c.Args[1], md, types)
                 ?? $"il2cpp::il2cpp_array_get_elem_ptr({NullSafePtrCast("Il2CppArray*", EmitExpr(c.Args[0], md, types))}, static_cast<int32_t>({EmitExpr(c.Args[1], md, types)}))";
+            // O3 (user-struct arrays): a TRANSLATED user value type's element
+            // address is a typed STRUCT pointer -- the caller dereferences the
+            // struct's fields through it, so reinterpret to the struct pointer
+            // type (ResultKind "sp:{CppName}", folded by StackFold) instead of
+            // the intptr_t carrier. Everything else stays the intptr_t pointer.
+            if (c.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true)
+                return $"reinterpret_cast<{c.ResultKind["sp:".Length..]}*>({ldelemaPtr})";
             return $"reinterpret_cast<intptr_t>({ldelemaPtr})";
         }
         // ILOP-2 P8: il2cpp::il2cpp_localloc -- stack-frame allocation
@@ -10216,8 +10274,34 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             var baseTypeName = TypeBaseFullName(md, (TypeDefinitionHandle)handle);
             if (baseTypeName is "System.ValueType" or "System.Enum")
             {
-                // Tolerant fallback: unknown value type newarr -- assume 8-byte element
-                // (may cause incorrect GC scan stride, but allows generation to continue)
+                // O3 (user-struct arrays): a translated user STRUCT whose base
+                // is System.ValueType gets its REAL element stride from the
+                // model's compact layout (TypeEmitter.LayoutValueTypeFields ->
+                // TypeDef.InstanceSize -- the same natural-alignment size the
+                // emitted C++ struct occupies, GN-20.4 F1/D1 authority). The
+                // old tolerant "8-byte element fallback" allocated every such
+                // array with an 8-byte stride, so a struct larger than a
+                // pointer was addressed at the wrong byte offset per element
+                // (element i landed at data+i*8 instead of data+i*InstanceSize).
+                // The self-consistent element size: InstanceSize bytes, non-ref.
+                // ENABLE_PATH: the translated struct's layout must be laid out
+                // (LayoutInstanceFields is idempotent). If the model cannot
+                // resolve the struct there is no way to know its size -- fail
+                // loudly instead of silently mis-allocating (audit C4 doctrine).
+                var valueDef = types.FirstOrDefault(t => t.MatchesFullName(typeName) && t.IsValueType);
+                if (valueDef != null)
+                {
+                    TypeEmitter.LayoutInstanceFields(valueDef);
+                    // .NET packs a zero-field struct to 1 byte; clamp to keep a
+                    // degenerate empty-struct array stepped (never 0-byte slots).
+                    return (Math.Max(1, valueDef.InstanceSize), false);
+                }
+                // Enums: keep the historical 8-byte fallback + warning (their
+                // element access is not wired via the fixed-width ldelem/stelem
+                // arms, so changing the stride is unverifiable behaviour);
+                // System.Enum base types that are not translated structs stay
+                // here too. Only System.ValueType-based types that the model
+                // failed to translate become loud rejections above.
                 Console.Error.WriteLine($"warning: newarr of value type {typeName} -- using 8-byte element fallback");
                 return (PointerSize, false);
             }

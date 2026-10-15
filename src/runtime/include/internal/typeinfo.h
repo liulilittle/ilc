@@ -155,6 +155,16 @@ struct Il2CppTypeInfo
     // types).
     const char* const*  nestedNames;
     int32_t             nestedCount;
+    // O4 (boxed user-struct reflection): whether this type info describes a
+    // VALUE type (a translated user struct -- `TypeDef.IsValueType`). The
+    // Il2CppFieldInfo.offset column is STRUCT-RELATIVE for a value type
+    // (starts at 0 -- no object header), so GetValue/SetValue must add the
+    // box payload offset (one object header) to reach the field in a boxed
+    // struct. A class's offsets are object-relative already. Enums keep 0
+    // (their value__ slot-grid offset coincides with the box payload).
+    // Trailing field (like genericArity / baseTypeName / nestedNames -- the
+    // zero-delta default; the emitter emits 0 for reference types).
+    int32_t             isValueType;
 };
 
 //------------------------------------------------------------------------------
