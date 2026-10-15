@@ -22,6 +22,16 @@ batch creates test cases only).
 - **Suspected root file**: `src/runtime/src/arraysort.cpp` (CompareOrdinal
   in the string sort path -- a culture-aware comparer would be needed to
   match net48 exactly).
+- **MEASURED 2026-10 (culture batch 2, W7)**: the zh-CN collation is NOT a
+  simple case ASCII rule. `String.Compare` under zh-CN: "a" vs "A" -> -1
+  (case tiebreak, lower before upper), "a-b" vs "ab" -> +1 (hyphen has a
+  sort weight ABOVE the letter), "a_b" vs "ab" -> -1 (underscore BELOW
+  nothing), "a b" vs "ab" -> -1, "ss" vs "\u00DF" -> 0 (expansion-equal),
+  "e" vs "\u00E9" -> -1 (accent secondary), "\u03B1" vs "\u0391" -> -1,
+  "\u6211" vs "\u4F60" -> +1 (CJK). Explicit cultures change the outcome
+  ("i" vs "I" is +1 under tr-TR, -1 under zh-CN) -- os NLS (LCMapStringEx)
+  backed. Evidence: `.opencode/tmp/gn20-legacy/acoll` and the
+  `p-culture-str` probe diff.
 
 ## D-SS-2 -- string.Compare(a,b) default mode is folded to ORDINAL
 

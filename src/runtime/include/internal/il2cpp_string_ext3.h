@@ -70,11 +70,16 @@
 //   The culture modes (0-3) are implemented as their ORDINAL equivalents --
 //   the documented ASCII-domain deviation shared with ToUpper/ToLower
 //   (stringext.cpp): ASCII inputs behave exactly like .NET; non-ASCII units
-//   are compared as-is instead of being case-folded per culture. A value
-//   outside 0..5 throws System.ArgumentException (net48-verified). The
-//   ignore-case folding is the SAME ASCII mapping ToLowerUnit uses
-//   ('A'-'Z' -> 'a'-'z'); non-ASCII units compare case-sensitively.
-//   Null 'value' throws ArgumentNullException before the mode is checked.
+//   are compared as-is instead of being case-folded per culture. MEASURED
+//   2026-10 (.opencode/tmp/gn20-legacy, W7): net48 culture modes on the
+//   zh-CN host are OS-NLS collation and disagree with the ordinal fold
+//   beyond plain ASCII (case tiebreak lower<upper, U+00DF==ss, punctuation
+//   weights, Greek/Cyrillic/CJK ordering; CurrentCultureIgnoreCase Equals
+//   folds those classes -- "StraBe" == "STRASSE"). A value outside 0..5
+//   throws System.ArgumentException (net48-verified). The ignore-case
+//   folding is the SAME ASCII mapping ToLowerUnit uses ('A'-'Z' -> 'a'-'z');
+//   non-ASCII units compare case-sensitively. Null 'value' throws
+//   ArgumentNullException before the mode is checked.
 //
 // GC-ROOTING: every function in this header is READ-ONLY (no managed
 // allocation), so no rooting contract is needed beyond the caller's normal

@@ -15,7 +15,7 @@
 //   StartsWith / EndsWith / Contains             -- ArgumentNullException on null arg
 //   IndexOf(char|string) / LastIndexOf(char)     -- -1 when absent
 //   Replace(char, char)                          -- SAME instance when nothing changes
-//   ToUpper / ToLower                            -- ASCII case mapping (see below)
+//   ToUpper / ToLower                            -- net48 zh-CN culture case map (see below)
 //   Trim / TrimStart / TrimEnd                   -- .NET Char.IsWhiteSpace set
 //   CompareTo(string)                            -- ORDINAL comparison (domain contract)
 //
@@ -25,11 +25,16 @@
 //   bad index/len  -> System.ArgumentOutOfRangeException (via the helper below)
 //
 // Known deviations (documented, BCL-milestone scope):
-//   * ToUpper/ToLower map ASCII only; non-ASCII units pass through unchanged
-//     (full Unicode case mapping arrives with the globalization tasks).
+//   * ToUpper/ToLower use the FULL net48 zh-CN culture simple case map for
+//     the BMP (stringcase.cpp -- oracle-generated from the zh-CN host, see
+//     the ToUpper()/ToLower() notes below). ToUpperInvariant / ToLowerInvariant
+//     route through the SAME culture map (the runtime pins the zh-CN host
+//     culture; invariant differs on 18/13 BMP units, recorded in W7).
 //   * IndexOf(string)/Contains are ORDINAL searches (naive scan, O(n*m));
 //     .NET Framework defaults to a culture-sensitive search -- the results
-//     coincide for ASCII inputs.
+//     coincide for ASCII inputs (the collation weights -- case tiebreak,
+//     punctuation weights, U+00DF==ss expansion, Greek/Cyrillic/CJK ordering
+//     -- are OS-NLS-backed; see W7, measured in .opencode/tmp/gn20-legacy).
 //   * The .NET char type is one UTF-16 code unit; the C++ contract is
 //     char16_t (surrogate pairs occupy two units, exactly like .NET).
 //------------------------------------------------------------------------------
@@ -101,12 +106,18 @@ Il2CppObject* icall_string_replace(Il2CppObject* this_, char16_t oldChar, char16
 // managed allocation, and the result is rooted until the fill completes.
 Il2CppString* icall_string_replace_s_s(Il2CppString* self, Il2CppString* oldValue, Il2CppString* newValue);
 
-// ToUpper(): ASCII upper-casing ('a'-'z' -> 'A'-'Z'; every other unit is
-// copied unchanged). When nothing changes the SAME instance is returned.
+// ToUpper(): culture-aware upper-casing, byte-exact with net48 under the
+// zh-CN HOST culture for the whole BMP (stringcase.cpp -- the generated
+// net48-oracle table: every BMP unit whose string.ToUpper() differs is
+// mapped 1:1; measured: zh-CN ToUpper never expands a unit, U+00DF stays
+// U+00DF, U+0131 (dotless i) -> U+0049, U+00B5 -> U+039C, final sigma
+// U+03C2 -> U+03A3 -- the old range rule emitted the unassigned U+03A2 for
+// it). When nothing changes the SAME instance is returned.
 Il2CppObject* icall_string_to_upper(Il2CppObject* this_);
 
-// ToLower(): ASCII lower-casing ('A'-'Z' -> 'a'-'z'); symmetric contract to
-// ToUpper (unchanged input returns the same instance).
+// ToLower(): culture-aware lower-casing, byte-exact with net48 under zh-CN
+// for the whole BMP (symmetric generated table; U+0130 (I with dot) ->
+// U+0069). Contract to ToUpper: unchanged input returns the same instance.
 Il2CppObject* icall_string_to_lower(Il2CppObject* this_);
 
 // Trim(): a new string with leading AND trailing whitespace removed
@@ -167,12 +178,15 @@ Il2CppObject* icall_string_trim_end_set(Il2CppObject* this_, Il2CppObject* set);
 Il2CppObject* icall_string_trim_end(Il2CppObject* this_);
 
 // CompareTo(string): ORDINAL lexicographic comparison by UTF-16 code unit
-// (domain contract; .NET Framework's CompareTo is culture-sensitive but the
-// domain pins this icall to ordinal). Returns -1 when this < value, 0 when
-// equal, +1 when this > value -- the INSTANCE CompareTo CLAMPS the raw
-// unit/length difference to the sign (net48 behavior; the static
-// string.CompareOrdinal / icall_string_compare_static reports the raw
-// difference). Null 'value' returns 1 (net48: null sorts below any string).
+// (domain contract; .NET Framework's CompareTo is CURRENT-CULTURE sensitive
+// -- zh-CN collation: case tiebreak lower<upper, punctuation weights,
+// U+00DF==ss expansion, Greek/Cyrillic/CJK ordering -- all OS-NLS-backed and
+// NOT reproduced; measured and recorded in W7, .opencode/tmp/gn20-legacy).
+// Returns -1 when this < value, 0 when equal, +1 when this > value -- the
+// INSTANCE CompareTo CLAMPS the raw unit/length difference to the sign
+// (net48 behavior; the static string.CompareOrdinal /
+// icall_string_compare_static reports the raw difference). Null 'value'
+// returns 1 (net48: null sorts below any string).
 int32_t icall_string_compare_to(Il2CppObject* this_, Il2CppObject* value);
 
 // Contains(string): true when 'value' occurs in this string (ordinal

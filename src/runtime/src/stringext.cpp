@@ -30,6 +30,7 @@
 #include "il2cpp_string_ext2.h"
 #include "il2cpp_string_ext3.h"
 #include "il2cpp_concat.h"
+#include "il2cpp_string_case.h"
 
 #include "il2cpp_exception.h"
 #include "il2cpp_gc.h"
@@ -87,46 +88,26 @@ bool IsWhitespace(char16_t c)
     }
 }
 
-// ASCII + the Unicode SIMPLE upper mappings for Latin-1 / Greek / Cyrillic
-// (saudit3: U+00E4 (a-umlaut) -> U+00C4, U+03C2 (final sigma) -> U+03A3,
-// U+0450 (Cyrillic small ie) -> U+0400). Multi-char expansions
-// (U+00DF (sharp s) -> "SS" in some cultures) do NOT apply: net48 ToUpper
-// keeps U+00DF unchanged.
+// ASCII + the full net48 zh-CN CULTURE simple case map (BMP). The mapping
+// table (stringcase.cpp) is GENERATED from the net48 oracle dump
+// (.opencode/tmp/gn20-legacy/casedump): iterate 0x0000-0xFFFF, string
+// .ToUpper()/.ToLower() under the zh-CN host culture, exact per-unit
+// reaches. net48 zh-CN produces NO multi-unit expansions on the BMP
+// (U+00DF stays U+00DF on ToUpper under zh-CN), so a pure 1:1 unit map
+// reproduces culture-correct string casing for the whole BMP; it also
+// replaces the old hand-rolled Latin-1/Greek/Cyrillic ranges (which missed
+// Latin-Extended / Greek-additions / Armenian / Cherokee / IPA / etc. and
+// had a DEAD final-sigma branch: the U+03B1-U+03C9 range rule swallowed
+// U+03C2 and emitted the unassigned U+03A2 instead of net48's U+03A3).
 char16_t ToUpperUnit(char16_t c)
 {
-    if (c >= u'a' && c <= u'z') return static_cast<char16_t>(c - 32);
-    // Latin-1 supplement: U+00E0-U+00F6 and U+00F8-U+00FE are -0x20 from
-    // their capitals; U+00F7 (division sign) stays.
-    if ((c >= 0x00E0 && c <= 0x00F6) || (c >= 0x00F8 && c <= 0x00FE))
-        return static_cast<char16_t>(c - 0x20);
-    if (c == 0x00FF) return 0x0178; // U+00FF -> U+0178
-    // Greek: U+03B1-U+03C9 minus 0x20; final sigma U+03C2 -> U+03A3.
-    if (c >= 0x03B1 && c <= 0x03C9) return static_cast<char16_t>(c - 0x20);
-    if (c == 0x03C2) return 0x03A3;
-    // Cyrillic: U+0430-U+044F and U+0450-U+045F.
-    if (c >= 0x0430 && c <= 0x044F) return static_cast<char16_t>(c - 0x20);
-    if (c >= 0x0450 && c <= 0x045F) return static_cast<char16_t>(c - 0x50);
-    return c;
+    return il2cpp_string_case_to_upper_unit(c);
 }
 
-// Mirror of ToUpperUnit (same script scope): U+00C4 -> U+00E4, U+039E/U+03A3
-// -> U+03BE/U+03C3, U+0400 -> U+0450.
+// Mirror of ToUpperUnit (same script scope, net48 zh-CN lower map).
 char16_t ToLowerUnit(char16_t c)
 {
-    if (c >= u'A' && c <= u'Z') return static_cast<char16_t>(c + 32);
-    // Latin-1 supplement: U+00C0-U+00D6 and U+00D8-U+00DE are +0x20 to
-    // their small forms; U+00D7 (multiplication sign) stays.
-    if ((c >= 0x00C0 && c <= 0x00D6) || (c >= 0x00D8 && c <= 0x00DE))
-        return static_cast<char16_t>(c + 0x20);
-    if (c == 0x0178) return 0x00FF; // U+0178 -> U+00FF
-    // Greek: U+0391-U+03A1 and U+03A3-U+03A9; 0x03A2 is
-    // unassigned and stays.
-    if ((c >= 0x0391 && c <= 0x03A1) || (c >= 0x03A3 && c <= 0x03A9))
-        return static_cast<char16_t>(c + 0x20);
-    // Cyrillic: U+0410-U+042F and U+0400-U+040F.
-    if (c >= 0x0410 && c <= 0x042F) return static_cast<char16_t>(c + 0x20);
-    if (c >= 0x0400 && c <= 0x040F) return static_cast<char16_t>(c + 0x50);
-    return c;
+    return il2cpp_string_case_to_lower_unit(c);
 }
 
 // Allocate a managed string holding 'count' units copied from 'units'
@@ -530,8 +511,8 @@ Il2CppString* icall_string_replace_s_s(Il2CppString* self, Il2CppString* oldValu
 }
 
 //------------------------------------------------------------------------------
-// icall_string_to_upper -- ToUpper() (see header). ASCII-only mapping; the
-// unchanged fast path returns the SAME instance.
+// icall_string_to_upper -- ToUpper() (see header). net48 zh-CN culture case
+// map (stringcase.cpp); the unchanged fast path returns the SAME instance.
 //------------------------------------------------------------------------------
 Il2CppObject* icall_string_to_upper(Il2CppObject* this_)
 {
@@ -559,8 +540,8 @@ Il2CppObject* icall_string_to_upper(Il2CppObject* this_)
 }
 
 //------------------------------------------------------------------------------
-// icall_string_to_lower -- ToLower() (see header). ASCII-only mapping;
-// symmetric identity fast path to ToUpper.
+// icall_string_to_lower -- ToLower() (see header). net48 zh-CN culture case
+// map (stringcase.cpp); symmetric identity fast path to ToUpper.
 //------------------------------------------------------------------------------
 Il2CppObject* icall_string_to_lower(Il2CppObject* this_)
 {

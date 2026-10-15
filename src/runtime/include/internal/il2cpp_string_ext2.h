@@ -102,7 +102,11 @@ int32_t icall_string_compare_static(Il2CppObject* a, Il2CppObject* b);
 
 // MODE-AWARE static Compare (string.Compare(a, b, StringComparison)):
 // Ordinal exact; IgnoreCase folds ASCII; culture forms degrade to the fold
-// (documented ASCII-domain deviation).
+// (documented ASCII-domain deviation; MEASURED 2026-10: net48 culture modes
+// are OS-NLS collation -- case tiebreak lower<upper, U+00DF==ss expansion,
+// punctuation weights, Greek/Cyrillic/CJK ordering -- see W7 and
+// .opencode/tmp/gn20-legacy; the zh-CN host disagrees with the ordinal fold
+// for mixed-case and accented inputs).
 int32_t icall_string_compare_mode(Il2CppObject* a, Il2CppObject* b, int32_t mode);
 
 // Ordinal static Equals (both null -> true; one null -> false; content).
@@ -115,8 +119,10 @@ bool icall_string_equals_static(Il2CppObject* a, Il2CppObject* b);
 // handling; a null 'value' returns FALSE -- the comparison form of Equals is
 // null-aware for 'value' (unlike Compare/StartsWith/EndsWith, which throw
 // ArgumentNullException); the culture modes (0-3) are the ordinal equivalents
-// (documented ASCII-domain deviation); the ignore-case modes (1, 3, 5) fold
-// ASCII ('A'-'Z' <-> 'a'-'z'). A null receiver is a defensive NRE.
+// (documented ASCII-domain deviation -- measured: net48 culture Equals folds
+// case AND U+00DF==ss class expansions (StraBe vs STRASSE CurrentCulture
+// -> true), which the ASCII fold does not; W7); the ignore-case modes (1, 3,
+// 5) fold ASCII ('A'-'Z' <-> 'a'-'z'). A null receiver is a defensive NRE.
 // READ-ONLY: no managed allocation.
 bool icall_string_equals_culture(Il2CppObject* this_, Il2CppObject* value, int32_t comparisonType);
 
