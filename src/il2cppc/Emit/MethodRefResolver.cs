@@ -1809,6 +1809,23 @@ var userRecvLike = receiverType ?? arg0Type;
             // ReflectionExtensions domain (MethodMap.ReflectionExtensions.cs): the
             // Microsoft.Reflection.ReflectionExtensions typecode primitive wrapper.
             case "Microsoft.Reflection.ReflectionExtensions": return TryMapReflectionExtensions(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // GN-20 legacy WindowsIdentity domain (MethodMap.WindowsIdentity.cs): the
+            // public net48 surface of System.Security.Principal.WindowsIdentity,
+            // substituted at the operand boundary by the identity.h icalls (the
+            // token-handle value gap; the audited Win32.OpenThreadToken inner icall
+            // is mapped in MethodMap.Emit.cs). Probe p-identity.
+            case "System.Security.Principal.WindowsIdentity": return TryMapWindowsIdentity(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // IsAuthenticated / Name are VIRTUAL on the ClaimsIdentity BASE --
+            // the C# callvirt tokens declare System.Security.Claims.ClaimsIdentity
+            // as the owner while the tracked receiver stays a WindowsIdentity
+            // (the token-handle value gap). Forward the base-owner member to the
+            // WindowsIdentity map ONLY when the receiver hint identifies one (the
+            // Calendar-base dispatch precedent); any other ClaimsIdentity receiver
+            // keeps the un-mapped generated-name path.
+            case "System.Security.Claims.ClaimsIdentity":
+                return receiverType == "System.Security.Principal.WindowsIdentity"
+                    ? TryMapWindowsIdentity("System.Security.Principal.WindowsIdentity", name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                    : null;
             default: return null;
         }
         // #endregion

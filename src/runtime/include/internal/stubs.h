@@ -234,7 +234,13 @@ int32_t icall_security_context_get_impersonation_flow_mode();
 int32_t icall_security_context_is_default_thread_security_info();
 void icall_security_manager_set_thread_security(int32_t flag);
 Il2CppObject* icall_security_runtime_get_security_object_for_frame();
-Il2CppObject* icall_security_principal_win32_open_thread_token();
+// GN-20 (audit-internalcalls mscorlib final realGap, row 492): the net48 ABI
+// is int32 OpenThreadToken(TokenAccessLevels dwDesiredAccess, WinSecurityContext
+// OpenAs, out SafeAccessTokenHandle& phThreadToken). The out SafeAccessTokenHandle
+// object cannot be constructed in ILC (safehandle.h), so this is a W7 stub that
+// returns 0 (failure) and leaves the out slot untouched -- see identity.h for the
+// PUBLIC WindowsIdentity surface that substitutes the managed chain.
+int32_t icall_security_principal_win32_open_thread_token(int32_t dwDesiredAccess, int32_t openAs, Il2CppObject** phThreadToken);
 int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t calendarId);
 Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t calendarId);
 Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t lcid);

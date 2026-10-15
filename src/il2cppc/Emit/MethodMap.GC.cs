@@ -211,7 +211,6 @@ public static partial class MethodRefResolver
             case "IsDefaultThreadSecurityInfo": return I("il2cpp::runtime::icall_security_context_is_default_thread_security_info", 0, true, false, false);
             case "_SetThreadSecurity": return I("il2cpp::runtime::icall_security_manager_set_thread_security", 1, false, false, false, new[] { "i" });
             case "GetSecurityObjectForFrame": return I("il2cpp::runtime::icall_security_runtime_get_security_object_for_frame", 0, true, true, false);
-            case "OpenThreadToken": return I("il2cpp::runtime::icall_security_principal_win32_open_thread_token", 0, true, true, false);
             // CompressedStack/DomainCompressedStack GAP methods (dispatched to TryMapGC).
             case "IsImmediateCompletionCandidate": return I("il2cpp::runtime::icall_compressed_stack_is_immediate_completion_candidate", 0, true, false, false);
             case "GetDomainCompressedStack": return I("il2cpp::runtime::icall_compressed_stack_get_domain_compressed_stack", 0, true, true, false);

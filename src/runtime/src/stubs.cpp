@@ -411,7 +411,7 @@ int32_t icall_security_context_get_impersonation_flow_mode() { return 0; }
 int32_t icall_security_context_is_default_thread_security_info() { return 1; }
 void icall_security_manager_set_thread_security(int32_t) {}
 Il2CppObject* icall_security_runtime_get_security_object_for_frame() { return nullptr; }
-Il2CppObject* icall_security_principal_win32_open_thread_token() { return nullptr; }
+int32_t icall_security_principal_win32_open_thread_token(int32_t, int32_t, Il2CppObject**) { return 0; }
 int32_t icall_globalization_calendar_data_native_get_two_digit_year_max(int32_t) { return 0; }
 Il2CppObject* icall_globalization_calendar_data_native_get_calendars(int32_t) { return nullptr; }
 Il2CppObject* icall_globalization_culture_info_native_get_locale_info_ex(int32_t) { return nullptr; }

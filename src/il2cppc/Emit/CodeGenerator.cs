@@ -236,6 +236,14 @@ public static class CodeGenerator
         // generated C++ cannot see the declarations (the p-appcontext probe's
         // probes otherwise fall to the generated-name path / undeclared symbol).
         generatedHeader.Line("#include \"appcontext.h\"");
+        // GN-20 legacy WindowsIdentity domain -- WindowsIdentity.GetCurrent /
+        // get_Token / get_IsAuthenticated / get_Name icalls
+        // (il2cpp_security_identity_*, MethodMap.WindowsIdentity.cs) live in
+        // identity.h (namespace il2cpp::runtime). Without the include the
+        // generated C++ cannot see the declarations (the p-identity probe's
+        // GetCurrent/Token/IsAuthenticated/Name calls otherwise fall to the
+        // generated-name path / undeclared symbol).
+        generatedHeader.Line("#include \"identity.h\"");
         // M5 wiring: the second-wave runtime extension headers (stringext2
         // statics / format_ext custom formatters / time_ext DateTime format /
         // value_semantics hashing / thread / gc_ext weak-ref + finalizer /

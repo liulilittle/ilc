@@ -1,0 +1,6 @@
+[tok.nonzero] True
+[auth] True
+[name.nonempty] True
+[name.len.gt] True
+[tok2.nonzero] True
+[auth2] True

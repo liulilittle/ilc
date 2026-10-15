@@ -59,6 +59,20 @@ public static partial class MethodRefResolver
             // Zero-call QCall colliding with the 2-param SDK SetThreadToken:
             // throwing stub; the mapping suppresses the naked decl.
             ("System.Security.Principal.Win32", "SetThreadToken", 1) => "il2cpp::runtime::icall_win32_set_thread_token_unsupported",
+            // GN-20 last net48 icall audit realGap (docs/audit/icall-inventory-
+            // net48.md row 492): Win32.OpenThreadToken(TokenAccessLevels,
+            // WinSecurityContext, out SafeAccessTokenHandle&) is the inner
+            // layer of WindowsIdentity.GetCurrent()'s managed GetCurrentToken
+            // chain. The SafeAccessTokenHandle OUT object cannot be
+            // constructed in the ILC model (safehandle.h: "no SafeHandle
+            // object model") and user code can never reach this internal
+            // method (the AOT runtime substitutes the PUBLIC WindowsIdentity
+            // surface -- see MethodMap.WindowsIdentity.cs/identity.h, which
+            // carries the token as a raw intptr value-slotted handle-gap).
+            // This arm closes the audit realGap with a net48-ABI-shaped stub
+            // (int32 result, the real 3-param signature) that returns 0; the
+            // W7 boundary is recorded in the p-identity GAPS.md.
+            ("System.Security.Principal.Win32", "OpenThreadToken", 3) => "il2cpp::runtime::icall_security_principal_win32_open_thread_token",
             ("System.Security.Policy.PEFileEvidenceFactory", "FireEvidenceGeneratedEvent", 2) => "il2cpp::runtime::il2cpp_qcall_emit_fire_evidence_generated_event",
             ("System.AppDomain", "GetGrantSet", 2) => "il2cpp::runtime::il2cpp_qcall_emit_get_grant_set",
             ("System.IO.IsolatedStorage.IsolatedStorageFile", "GetUsage", 1) => "il2cpp::runtime::il2cpp_qcall_emit_get_usage",
