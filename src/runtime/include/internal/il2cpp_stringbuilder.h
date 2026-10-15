@@ -325,6 +325,16 @@ Il2CppObject* icall_stringbuilder_clear(Il2CppObject* self);
 // copy -- later mutations never change an earlier result).
 Il2CppObject* icall_stringbuilder_to_string(Il2CppObject* self);
 
+// ToString(int startIndex, int length): a FRESH string of the window
+// [startIndex, startIndex + length). net48 AOORE contract: startIndex < 0 or
+// length < 0 or startIndex + length > Length -> ArgumentOutOfRangeException.
+Il2CppObject* icall_stringbuilder_to_string_range(Il2CppObject* self, int32_t startIndex, int32_t length);
+
+// set_Length(int32 value): the net48 Length setter -- value < 0 ->
+// ArgumentOutOfRangeException; value > Length grows the buffer (new units
+// ZERO-FILLED), value < Length truncates (the buffer stays allocated).
+void icall_stringbuilder_set_length(Il2CppObject* self, int32_t value);
+
 // Length (getter): the current UTF-16 unit count.
 int32_t icall_stringbuilder_get_length(Il2CppObject* self);
 int32_t icall_stringbuilder_get_max_capacity(Il2CppObject* self);

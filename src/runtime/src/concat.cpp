@@ -333,11 +333,17 @@ Il2CppString* il2cpp_string_concat_many(int32_t count, ...)
 // il2cpp_string_concat_array -- String.Concat(string[]) semantics.
 //
 // Complexity: 1 managed allocation (+1 non-GC scratch) vs N-1 naive. Null
-// array -> empty string (defensive); null elements -> empty; single non-null
-// element -> identity (zero allocations).
+// array -> ArgumentNullException (net48: Concat(string[ ]) / Concat(object[])
+// both throw ANE on a null array -- the earlier "defensive empty string"
+// behavior is retired, verified by the net48 probe p-excvalidate); null
+// elements -> empty; single non-null element -> identity (zero allocations).
 //------------------------------------------------------------------------------
 Il2CppString* il2cpp_string_concat_array(Il2CppObject* arr)
 {
+    if (arr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("values");
+    }
     return ConcatFromArray(reinterpret_cast<Il2CppArray*>(arr), false, u'\0');
 }
 

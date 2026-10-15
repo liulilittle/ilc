@@ -1357,6 +1357,64 @@ Il2CppObject* icall_stringbuilder_to_string(Il2CppObject* self)
 }
 
 //------------------------------------------------------------------------------
+// icall_stringbuilder_to_string_range -- ToString(int startIndex, int length)
+// (see header). net48 AOORE contract (p-excvalidate oracle): startIndex < 0
+// or length < 0 or startIndex + length > Length -> ArgumentOutOfRangeException;
+// otherwise a FRESH string of that window (never the receiver). The sum is
+// computed in 64-bit so an int32 overflow cannot wrap the bounds check.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_to_string_range(Il2CppObject* self, int32_t startIndex, int32_t length)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    const Il2CppStringBuilder* sb = AsBuilder(self);
+    if (startIndex < 0 || length < 0 ||
+        static_cast<int64_t>(startIndex) + static_cast<int64_t>(length) > sb->length)
+    {
+        ThrowAoore(startIndex < 0 ? "startIndex" : "length");
+    }
+    Il2CppString* result = il2cpp_string_new(
+        reinterpret_cast<const char16_t*>(sb->chars->data) + startIndex, length);
+    return reinterpret_cast<Il2CppObject*>(result);
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_set_length -- Length setter (see header). net48
+// contract (p-excvalidate oracle): value < 0 -> ArgumentOutOfRangeException;
+// value > Length grows the buffer (new units ZERO-FILLED -- net48 pads with
+// '\0'); value < Length truncates (the buffer stays allocated).
+//------------------------------------------------------------------------------
+void icall_stringbuilder_set_length(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    if (value < 0)
+    {
+        ThrowAoore("value");
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (value <= sb->length)
+    {
+        sb->length = value;
+        return;
+    }
+    if (static_cast<int64_t>(value) > sb->capacity)
+    {
+        GrowBuffer(&self, value);
+        sb = AsBuilder(self); // re-derive after the allocation
+    }
+    // Zero-fill the newly exposed units (net48: the Length setter pads).
+    char16_t* data = reinterpret_cast<char16_t*>(sb->chars->data);
+    for (int32_t i = sb->length; i < value; ++i)
+    {
+        data[i] = u'\0';
+    }
+    sb->length = value;
+}
+
+//------------------------------------------------------------------------------
 // icall_stringbuilder_get_length -- Length getter (see header).
 //------------------------------------------------------------------------------
 int32_t icall_stringbuilder_get_length(Il2CppObject* self)

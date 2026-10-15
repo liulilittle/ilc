@@ -84,7 +84,25 @@ public static partial class MethodRefResolver
                 if (ps[0] == 0x03 && ps[1] == 0x03) return I("il2cpp::runtime::icall_stringbuilder_replace_c_c", 2, true, true, true, new[] { "", "c", "c" }, null, false, false, false, "System.Text.StringBuilder");
                 throw new NotSupportedException($"StringBuilder.Replace param type 0x{ps[0]:X2} not wired in M5");
             case "ToString":
-                return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
+                // The 2-arg overload ToString(int startIndex, int length) must
+                // NOT bind to the 0-arg snapshot icall (that would pass the
+                // two ints as the object receiver -- a C0 compile break). The
+                // range form slices the buffer with net48 AOORE validation
+                // (icall_stringbuilder_to_string_range, stringbuilder.cpp).
+                if (count == 0) return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_to_string_range", 2, true, true, true,
+                        new[] { "", "i", "i" }, returnTypeName: "System.String");
+                return null;
+            // set_Length(int32 value): the net48 Length setter -- negative ->
+            // ArgumentOutOfRangeException; larger values grow the buffer
+            // (zero-filled), smaller values truncate (icall_stringbuilder_
+            // set_length, stringbuilder.cpp).
+            case "set_Length":
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_set_length", 1, false, false, true,
+                        new[] { "", "i" });
+                return null;
             // D5 stsdeep: get_MaxCapacity -- constant int.MaxValue (see runtime note).
             case "get_Length":
                 return I("il2cpp::runtime::icall_stringbuilder_get_length", 0, true, false, true);
