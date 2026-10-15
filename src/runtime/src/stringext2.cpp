@@ -529,10 +529,12 @@ bool IsIgnoreCaseMode(int32_t comparisonType)
         || comparisonType == kOrdinalIgnoreCase;
 }
 
-// ASCII case folding, the SAME mapping ToLowerUnit uses (stringext.cpp):
-// 'A'-'Z' -> 'a'-'z'; every other unit is returned unchanged. Non-ASCII
-// units therefore compare case-sensitively (documented ASCII-domain
-// deviation).
+// ASCII case folding for the culture ignore-case comparison modes:
+// 'A'-'Z' -> 'a'-'z'; every other unit is returned unchanged. This is the
+// ordinal/ASCII-fold fallback documented in the header W7 collation record
+// (culture modes degrade to the fold; net48's OS-NLS collation is not
+// replicated). Note ToUpperUnit/ToLowerUnit in stringext.cpp are culture-wide
+// (stringcase.cpp tables) and are NOT the mapping used here.
 char16_t FoldUnit(char16_t c)
 {
     return (c >= u'A' && c <= u'Z') ? static_cast<char16_t>(c + 32) : c;
