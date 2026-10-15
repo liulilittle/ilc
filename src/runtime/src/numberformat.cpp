@@ -31,6 +31,8 @@
 #include "numberformat.h"
 #include "il2cpp_format.h" // icall_double_to_string (G15 path)
 #include "il2cpp_exception_ext.h" // il2cpp_throw_format_exception
+#include "il2cpp_array.h" // il2cpp_array_new (group sizes / native digits)
+#include "il2cpp_gc.h" // il2cpp_gc_add/remove_static_root (native digits GC safety)
 
 #include <cmath>
 #include <cstdint>
@@ -1143,6 +1145,113 @@ Il2CppObject* il2cpp_number_format_negative_infinity_symbol(Il2CppObject* cultur
         IsInvariantCultureName(cultureName)
             ? il2cpp_string_new_from_cs("-Infinity")
             : il2cpp_string_new(u"-\u221E", 2));
+}
+
+//------------------------------------------------------------------------------
+// gn20-numfmt (probe batch 3): the remaining NumberFormatInfo getters.
+// All values are culture-INDEPENDENT on the invariant/zh-CN two-culture
+// surface (zh-CN and invariant agree) EXCEPT the patterns marked below, which
+// dispatch on the culture name. Values pinned from the net48 multi-culture
+// oracle (oracle_net48.txt / oracle_xcult.txt): zh-CN CurrencySymbol
+// U+00A5 (already in get_currency_symbol dispatch), CurrencyNegativePattern
+// 2 vs invariant 0, PercentPositivePattern 1 vs 0, PercentNegativePattern
+// 1 vs 0. Everything else identical. Group sizes = {3}, native digits =
+// "0".."9" (ESP / ASCII) in BOTH.
+//------------------------------------------------------------------------------
+
+Il2CppObject* il2cpp_number_format_currency_decimal_separator(Il2CppObject*)
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("."));
+}
+
+Il2CppObject* il2cpp_number_format_currency_group_separator(Il2CppObject*)
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(","));
+}
+
+Il2CppObject* il2cpp_number_format_per_mille_symbol(Il2CppObject*)
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"\u2030", 1));
+}
+
+int32_t il2cpp_number_format_number_negative_pattern(Il2CppObject*)
+{
+    return 1; // zh-CN && invariant: "-n" (leading minus)
+}
+
+int32_t il2cpp_number_format_number_decimal_digits(Il2CppObject*)
+{
+    return 2;
+}
+
+int32_t il2cpp_number_format_currency_decimal_digits(Il2CppObject*)
+{
+    return 2;
+}
+
+int32_t il2cpp_number_format_currency_positive_pattern(Il2CppObject*)
+{
+    return 0; // zh-CN && invariant: "¥n" (symbol precedes the value)
+}
+
+int32_t il2cpp_number_format_currency_negative_pattern(Il2CppObject* cultureName)
+{
+    // zh-CN = 2 ("-¥n" sign before symbol), invariant = 0 ("(¥n)").
+    return IsInvariantCultureName(cultureName) ? 0 : 2;
+}
+
+int32_t il2cpp_number_format_percent_positive_pattern(Il2CppObject* cultureName)
+{
+    // zh-CN = 1 ("n%"), invariant = 0 ("n %" trailing space).
+    return IsInvariantCultureName(cultureName) ? 0 : 1;
+}
+
+int32_t il2cpp_number_format_percent_negative_pattern(Il2CppObject* cultureName)
+{
+    // zh-CN = 1 ("-n%"), invariant = 0 ("-n %").
+    return IsInvariantCultureName(cultureName) ? 0 : 1;
+}
+
+int32_t il2cpp_number_format_percent_decimal_digits(Il2CppObject*)
+{
+    return 2;
+}
+
+static Il2CppObject* MakeGroupSizes(int32_t size)
+{
+    Il2CppArray* arr = il2cpp_array_new(nullptr, sizeof(int32_t), false, 1);
+    reinterpret_cast<int32_t*>(arr->data)[0] = size;
+    return reinterpret_cast<Il2CppObject*>(arr);
+}
+
+Il2CppObject* il2cpp_number_format_number_group_sizes(Il2CppObject*)
+{
+    return MakeGroupSizes(3);
+}
+
+Il2CppObject* il2cpp_number_format_currency_group_sizes(Il2CppObject*)
+{
+    return MakeGroupSizes(3);
+}
+
+Il2CppObject* il2cpp_number_format_percent_group_sizes(Il2CppObject*)
+{
+    return MakeGroupSizes(3);
+}
+
+Il2CppObject* il2cpp_number_format_native_digits(Il2CppObject*)
+{
+    Il2CppArray* arr = il2cpp_array_new(nullptr, sizeof(void*), true, 10);
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&arr));
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(arr->data);
+    static const char kDigits[10][2] = { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+    for (int32_t i = 0; i < 10; ++i)
+    {
+        slots[i] = reinterpret_cast<Il2CppObject*>(
+            il2cpp_string_new_from_cs(kDigits[i]));
+    }
+    il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&arr));
+    return reinterpret_cast<Il2CppObject*>(arr);
 }
 
 }} // namespace il2cpp::runtime

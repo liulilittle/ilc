@@ -110,6 +110,62 @@ public class MethodMapTestsNumberFormat
     }
 
     //--------------------------------------------------------------------------
+    // gn20-numfmt (probe batch 3): the remaining NumberFormatInfo getter
+    // surface maps to the culture-name runtime icalls (same receiver model as
+    // the currency/infinity symbols). String getters return references;
+    // int32 getters return values (ReturnsRef false); int[]/string[] getters
+    // are tracked by their array return type name for downstream indexing.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("get_CurrencyDecimalSeparator", "il2cpp::runtime::il2cpp_number_format_currency_decimal_separator")]
+    [InlineData("get_CurrencyGroupSeparator", "il2cpp::runtime::il2cpp_number_format_currency_group_separator")]
+    [InlineData("get_PerMilleSymbol", "il2cpp::runtime::il2cpp_number_format_per_mille_symbol")]
+    public void Resolve_NumberFormatInfo_RemainingStringGetters_MapsToRuntimeIcall(string member, string expected)
+    {
+        var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", member, Sig(0x0E)), member);
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.ReturnsRef);
+    }
+
+    [Theory]
+    [InlineData("get_NumberNegativePattern", "il2cpp::runtime::il2cpp_number_format_number_negative_pattern")]
+    [InlineData("get_NumberDecimalDigits", "il2cpp::runtime::il2cpp_number_format_number_decimal_digits")]
+    [InlineData("get_CurrencyDecimalDigits", "il2cpp::runtime::il2cpp_number_format_currency_decimal_digits")]
+    [InlineData("get_CurrencyPositivePattern", "il2cpp::runtime::il2cpp_number_format_currency_positive_pattern")]
+    [InlineData("get_CurrencyNegativePattern", "il2cpp::runtime::il2cpp_number_format_currency_negative_pattern")]
+    [InlineData("get_PercentPositivePattern", "il2cpp::runtime::il2cpp_number_format_percent_positive_pattern")]
+    [InlineData("get_PercentNegativePattern", "il2cpp::runtime::il2cpp_number_format_percent_negative_pattern")]
+    [InlineData("get_PercentDecimalDigits", "il2cpp::runtime::il2cpp_number_format_percent_decimal_digits")]
+    public void Resolve_NumberFormatInfo_IntGetters_MapsToRuntimeIcall(string member, string expected)
+    {
+        var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", member, Sig(0x08)), member);
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.False(resolved.ReturnsRef); // int32 value slot
+    }
+
+    [Theory]
+    [InlineData("get_NumberGroupSizes", "il2cpp::runtime::il2cpp_number_format_number_group_sizes", "System.Int32[]")]
+    [InlineData("get_CurrencyGroupSizes", "il2cpp::runtime::il2cpp_number_format_currency_group_sizes", "System.Int32[]")]
+    [InlineData("get_PercentGroupSizes", "il2cpp::runtime::il2cpp_number_format_percent_group_sizes", "System.Int32[]")]
+    [InlineData("get_NativeDigits", "il2cpp::runtime::il2cpp_number_format_native_digits", "System.String[]")]
+    public void Resolve_NumberFormatInfo_ArrayGetters_MapsToRuntimeIcall(string member, string expected, string returnTypeName)
+    {
+        var resolved = ResolveMember(Synthesize("System.Globalization", "NumberFormatInfo", member, Sig(0x0E)), member);
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.Equal(returnTypeName, resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // TextInfo -- ToLower/ToUpper drop the TextInfo receiver and reuse the
     // string case icalls (invariant-culture case mapping).
     //--------------------------------------------------------------------------

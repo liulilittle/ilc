@@ -1554,6 +1554,38 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
                 reinterpret_cast<const char*>(boxed) + 8);
             text = reinterpret_cast<Il2CppString*>(icall_format_int64_custom(v, format, provider));
         }
+        else if (name != nullptr && std::strcmp(name, "System.UInt32") == 0)
+        {
+            // Board gn20-numfmt: a boxed UInt32 routes through the UNSIGNED
+            // 32-bit value (bit pattern in the int32 slot); the signed int32
+            // engine would render values >= 2^31 as negatives. net48 formats
+            // uint through the unsigned uint32 engine; the shared int64 engine
+            // renders the full 0..2^32-1 range exactly (zero-extended).
+            const uint64_t u = static_cast<uint64_t>(static_cast<uint32_t>(
+                *reinterpret_cast<const int32_t*>(reinterpret_cast<const char*>(boxed) + 8)));
+            text = reinterpret_cast<Il2CppString*>(icall_format_int64_custom(static_cast<int64_t>(u), format, provider));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.UInt64") == 0)
+        {
+            // Board gn20-numfmt: a boxed UInt64 carries the full 8-byte payload.
+            // Values <= INT64_MAX route through the signed int64 engine exactly;
+            // values > INT64_MAX stay at the documented subset boundary (the
+            // signed engine cannot render them -- MethodMap.Format.cs).
+            const uint64_t u = *reinterpret_cast<const uint64_t*>(
+                reinterpret_cast<const char*>(boxed) + 8);
+            if (u <= static_cast<uint64_t>(INT64_MAX))
+            {
+                text = reinterpret_cast<Il2CppString*>(icall_format_int64_custom(static_cast<int64_t>(u), format, provider));
+            }
+            else
+            {
+                // Out of the signed subset: the plain decimal (valuesemantics
+                // UInt64ToString -- the pre-existing default path) -- the
+                // documented boundary (the unsigned full-range format engine is
+                // future work; the large ulong renders as raw "G" text).
+                text = icall_object_to_string(boxed);
+            }
+        }
         else if (name != nullptr && (std::strcmp(name, "System.Double") == 0 ||
                                      std::strcmp(name, "System.Single") == 0))
         {

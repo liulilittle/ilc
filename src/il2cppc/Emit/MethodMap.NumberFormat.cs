@@ -2,51 +2,36 @@ namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.NumberFormat -- System.Globalization.NumberFormatInfo / TextInfo
-// wiring. The runtime pins the INVARIANT culture (numberformat.h documents
-// the invariant baseline: '.' decimal, ',' thousands, "%" percent layout);
-// these members fold to the matching fixed-culture literals so BCL calls
-// never reach the runtime for culture trivia.
+// wiring. The runtime surface is the invariant/zh-CN two-culture model
+// (numberformat.h): the culture-name string VALUE ("zh-CN" / "") is the
+// receiver; string/int getters dispatch on it at run time.
 //
 // Owners: System.Globalization.NumberFormatInfo / TextInfo
 //
-// WIRING STATUS (2026-08-03, verified):
-//   * il2cpp_number_format_* (general/fixed/hex/scientific/percent for
-//     int64/double, numberformat.h) are NOT reachable from this domain: the
-//     dispatch in MethodRefResolver.cs routes System.Int32/Int64/Double to
-//     TryMapFormat ?? TryMapValueType only (MethodRefResolver.cs:312-319).
-//     Unlocking them needs MORE than appending "?? TryMapNumberFormat": the
-//     format domain returns non-null for EVERY ToString(string) overload
-//     (MethodMap.Format.cs:17-24), so a fallback never fires -- making the
-//     invariant icalls reachable requires CHANGING TryMapFormat's ownership
-//     (e.g. moving a format spec over) = switching the existing zh-CN wiring,
-//     which is explicitly out of scope for this task. Also verified: format_ext
-//     ALREADY covers double's "P" (formatext.cpp:716-731, zh-CN "%" layout
-//     without space) and ints' D/X/N/C/E/G (formatext.cpp:595-621) -- the
-//     numberformat.h invariant variants are a SEMANTICS difference (e.g.
-//     "12.3 %" with space), not a coverage gap. Wiring value-formatting here
-//     would be dead code; stays on icall_format_*_custom (NOT switched).
-//   * NumberFormatInfo property getters fold to invariant literal strings
-//     (::lit::) -- NumberDecimalSeparator ".", NumberGroupSeparator ",",
-//     PercentSymbol "%" etc., matching numberformat.h's fixed culture. The
-//     special spellings pinned by numberformat.h (lines 7-8: "NaN"/"Infinity"/
-//     "-Infinity") fold here as get_NaNSymbol/get_PositiveInfinitySymbol/
-//     get_NegativeInfinitySymbol -- reachable, invariant-unique. The zh-CN
-//     currency symbol get_CurrencySymbol (U+00A5, yen sign) is wired directly to the
-//     runtime icall il2cpp_number_format_currency_symbol (D-CUL-1 -- the same
-//     spelling formatext.cpp's C format emits, so the getter and ToString("C")
-//     agree).
-//   * get_CurrentInfo/get_InvariantInfo fold to null (::null::, same as
-//     CultureInfo.get_InvariantCulture): consumers in the wired surface
-//     either drop the culture or fold the getters directly.
-//   * TextInfo.ToLower/ToUpper drop the TextInfo receiver and reuse the
-//     string case icalls (icall_string_to_lower/upper) -- invariant-culture
-//     TextInfo case mapping equals the string case helpers.
-//   * NumberFormatInfo property getters fold to invariant literal strings
-//     (::lit::) -- NumberDecimalSeparator ".", NumberGroupSeparator ",",
-//     PercentSymbol "%" etc., matching numberformat.h's fixed culture.
-//   * get_CurrentInfo/get_InvariantInfo fold to null (::null::, same as
-//     CultureInfo.get_InvariantCulture): consumers in the wired surface
-//     either drop the culture or fold the getters directly.
+// WIRING STATUS (updated probe batch 3, gn20-numfmt -- P0-4):
+//   * Numeric ToString(format) stays on the zh-CN format_ext domain
+//     (MethodMap.Format.cs / formatext.cpp) -- NOT this mapper (see the
+//     unchanged ownership rationale below).
+//   * get_CurrentInfo/get_InvariantInfo map to the runtime culture-name
+//     icalls (il2cpp_culture_get_current/invariant) -- the receiver IS the
+//     culture-name string the instance getters dispatch on.
+//   * NumberFormatInfo instance getters are the invariant/zh-CN two-culture
+//     dispatchers:
+//       - strings via Literal where zh-CN == invariant (NumberDecimalSeparator
+//         ".", NumberGroupSeparator ",", PercentSymbol "%", Percent*Separator
+//         ".",",","+","-","NaN");
+//       - the culture-VARYING ones via runtime icall (CurrencySymbol U+00A5
+//         vs U+00A4, Positive/NegativeInfinitySymbol U+221E/-U+221E vs
+//         "Infinity"/"-Infinity");
+//       - gn20-numfmt P0-4 (the audit finding "getters hard-coded invariant
+//         literals"): the previously-unmapped getters now ALL map to runtime
+//         icalls -- CurrencyDecimalSeparator/CurrencyGroupSeparator/
+//         PerMilleSymbol strings; NumberNegativePattern/NumberDecimalDigits/
+//         CurrencyDecimalDigits/CurrencyPositivePattern/CurrencyNegative
+//         Pattern/PercentPositivePattern/PercentNegativePattern/
+//         PercentDecimalDigits ints (the three pattern ints differ between
+//         zh-CN and invariant -- 2/1/1 vs 0/0/0); Number/Currency/Percent
+//         GroupSizes int[] {3}; NativeDigits string[] {"0".."9"}.
 //   * TextInfo.ToLower/ToUpper drop the TextInfo receiver and reuse the
 //     string case icalls (icall_string_to_lower/upper) -- invariant-culture
 //     TextInfo case mapping equals the string case helpers.
@@ -77,7 +62,7 @@ public static partial class MethodRefResolver
                     case "get_NumberDecimalSeparator": return Literal(".");
                     case "get_NumberGroupSeparator": return Literal(",");
                     case "get_PercentSymbol": return Literal("%");
-                    // saudit4: the culture-name receiver selects the symbol
+                    // saudit1/4: the culture-name receiver selects the symbol
                     // ("" -> U+00A4 invariant, else U+00A5 zh-CN).
                     case "get_CurrencySymbol":
                         // culturefmt fix (2026-09-13): VALUE receivers (a static
@@ -89,6 +74,57 @@ public static partial class MethodRefResolver
                         // value shape as the BigInteger helpers (1,true,false,false).
                         return I("il2cpp::runtime::il2cpp_number_format_currency_symbol", 0, true, true, true,
                             new[] { "" }, returnTypeName: "System.String");
+                    // gn20-numfmt (probe batch 3): the remaining instance getter
+                    // surface -- same culture-name receiver model as the currency/
+                    // infinity symbols above. Most values are culture-INdependent
+                    // on the invariant/zh-CN surface (curl/inv agree); the three
+                    // patterns that differ (currency negative 2/0, percent
+                    // positive 1/0, percent negative 1/0) dispatch at run time.
+                    case "get_CurrencyDecimalSeparator":
+                        return I("il2cpp::runtime::il2cpp_number_format_currency_decimal_separator", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.String");
+                    case "get_CurrencyGroupSeparator":
+                        return I("il2cpp::runtime::il2cpp_number_format_currency_group_separator", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.String");
+                    case "get_PerMilleSymbol":
+                        return I("il2cpp::runtime::il2cpp_number_format_per_mille_symbol", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.String");
+                    case "get_NumberNegativePattern":
+                        return I("il2cpp::runtime::il2cpp_number_format_number_negative_pattern", 0, true, false, true,
+                            new[] { "" });
+                    case "get_NumberDecimalDigits":
+                        return I("il2cpp::runtime::il2cpp_number_format_number_decimal_digits", 0, true, false, true,
+                            new[] { "" });
+                    case "get_CurrencyDecimalDigits":
+                        return I("il2cpp::runtime::il2cpp_number_format_currency_decimal_digits", 0, true, false, true,
+                            new[] { "" });
+                    case "get_CurrencyPositivePattern":
+                        return I("il2cpp::runtime::il2cpp_number_format_currency_positive_pattern", 0, true, false, true,
+                            new[] { "" });
+                    case "get_CurrencyNegativePattern":
+                        return I("il2cpp::runtime::il2cpp_number_format_currency_negative_pattern", 0, true, false, true,
+                            new[] { "" });
+                    case "get_PercentPositivePattern":
+                        return I("il2cpp::runtime::il2cpp_number_format_percent_positive_pattern", 0, true, false, true,
+                            new[] { "" });
+                    case "get_PercentNegativePattern":
+                        return I("il2cpp::runtime::il2cpp_number_format_percent_negative_pattern", 0, true, false, true,
+                            new[] { "" });
+                    case "get_PercentDecimalDigits":
+                        return I("il2cpp::runtime::il2cpp_number_format_percent_decimal_digits", 0, true, false, true,
+                            new[] { "" });
+                    case "get_NumberGroupSizes":
+                        return I("il2cpp::runtime::il2cpp_number_format_number_group_sizes", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.Int32[]");
+                    case "get_CurrencyGroupSizes":
+                        return I("il2cpp::runtime::il2cpp_number_format_currency_group_sizes", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.Int32[]");
+                    case "get_PercentGroupSizes":
+                        return I("il2cpp::runtime::il2cpp_number_format_percent_group_sizes", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.Int32[]");
+                    case "get_NativeDigits":
+                        return I("il2cpp::runtime::il2cpp_number_format_native_digits", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.String[]");
                     case "get_PercentDecimalSeparator": return Literal(".");
                     case "get_PercentGroupSeparator": return Literal(",");
                     case "get_PositiveSign": return Literal("+");

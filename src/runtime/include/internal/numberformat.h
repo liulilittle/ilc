@@ -113,4 +113,29 @@ Il2CppObject* il2cpp_number_format_currency_symbol(Il2CppObject* cultureName);
 Il2CppObject* il2cpp_number_format_positive_infinity_symbol(Il2CppObject* cultureName);
 Il2CppObject* il2cpp_number_format_negative_infinity_symbol(Il2CppObject* cultureName);
 
+// gn20-numfmt (probe batch 3): the remaining NumberFormatInfo getters that
+// the runtime surface must serve (the invariant/zh-CN two-culture dispatch --
+// same culture-name receiver model). "" = invariant values; any other name =
+// the pinned zh-CN current culture.
+//   * separator/layout STRINGS (culture-independent on the two-culture
+//     surface: zh-CN and invariant agree).
+//   * int patterns/digits (currency negative / percent positive+negative
+//     differ between zh-CN and invariant -- 2/1/1 vs 0/0/0).
+//   * int[] group sizes and string[] native digits (both {3} and "0".."9").
+Il2CppObject* il2cpp_number_format_currency_decimal_separator(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_currency_group_separator(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_per_mille_symbol(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_number_negative_pattern(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_number_decimal_digits(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_currency_decimal_digits(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_currency_positive_pattern(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_currency_negative_pattern(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_percent_positive_pattern(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_percent_negative_pattern(Il2CppObject* cultureName);
+int32_t il2cpp_number_format_percent_decimal_digits(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_number_group_sizes(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_currency_group_sizes(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_percent_group_sizes(Il2CppObject* cultureName);
+Il2CppObject* il2cpp_number_format_native_digits(Il2CppObject* cultureName);
+
 }} // namespace il2cpp::runtime
