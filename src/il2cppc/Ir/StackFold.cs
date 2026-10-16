@@ -5229,7 +5229,72 @@ public static class StackFold
                         $"typeof TypeSpec definition kind {def.Kind} not supported"),
                 };
             }
+            // refl2 (predicates): a typeof SZARRAY token (0x1D -- `typeof(int[])`)
+            // folds to the ARRAY DESCRIPTOR name ("[<element full name>", the
+            // array.cpp convention -- the SAME identity the runtime's
+            // il2cpp_class_by_name / GetType() use for an array). The A-class
+            // predicates (get_IsArray / GetElementType / ...) operate on that
+            // name-string shape ('[' prefix = array). The pre-refl2 fallback
+            // produced the bogus "TaskAwaiter`1" (TypeSpecName legacy), which
+            // made every array predicate miss.
+            if (b == 0x1D) // SZARRAY
+            {
+                return "[" + SzArrayElementFullName(md, ref sig);
+            }
             return TypeSpecName(md, hs); // remaining legacy shapes unchanged
+        }
+
+        // refl2 (predicates): the managed FULL NAME of one SZARRAY element type,
+        // matching array.cpp's "[<element full name>" descriptor naming so a
+        // folded typeof(int[]) produces the registry identity "System.Int32" ->
+        // "[System.Int32". The element is an encoded type; primitives resolve
+        // by their System.* full name, CLASS/VALUETYPE by the TypeDefOrRef
+        // handle, and a NESTED SZARRAY (jagged) recurses to the bracket name
+        // (int[][] -> "[[System.Int32" -- the same nesting the runtime strips
+        // one '[' at a time). Throws for a generic VAR/MVAR element (no concrete
+        // name in the metadata -- the fold rejects it LOUD instead of an
+        // invented name).
+        static string SzArrayElementFullName(MetadataReader md, ref BlobReader sig)
+        {
+            var eb = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            switch (eb)
+            {
+                case 0x01: return "System.Void";
+                case 0x02: return "System.Boolean";
+                case 0x03: return "System.Char";
+                case 0x04: return "System.SByte";
+                case 0x05: return "System.Byte";
+                case 0x06: return "System.Int16";
+                case 0x07: return "System.UInt16";
+                case 0x08: return "System.Int32";
+                case 0x09: return "System.UInt32";
+                case 0x0A: return "System.Int64";
+                case 0x0B: return "System.UInt64";
+                case 0x0C: return "System.Single";
+                case 0x0D: return "System.Double";
+                case 0x0E: return "System.String";
+                case 0x18: return "System.IntPtr";
+                case 0x19: return "System.UIntPtr";
+                case 0x1C: return "System.Object";
+                case 0x11:
+                case 0x12:
+                    var tok = sig.ReadTypeHandle();
+                    return tok.Kind switch
+                    {
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)tok),
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)tok),
+                        _ => throw new NotSupportedException(
+                            $"typeof SZARRAY element kind {tok.Kind} not supported in refl2"),
+                    };
+                case 0x1D: return "[" + SzArrayElementFullName(md, ref sig);
+                case 0x14:
+                    // multidim element: decode to the "[elem]" name (the shared
+                    // multidim token) and re-bracket it.
+                    return "[" + ReadM3MultidimArrayArg(md, ref sig);
+                default:
+                    throw new NotSupportedException(
+                        $"typeof SZARRAY element byte 0x{eb:X2} not supported in refl2");
+            }
         }
 
         // R2b P2 (ilistException receiver tracking): whether a call's RETURN

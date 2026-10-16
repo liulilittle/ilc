@@ -987,6 +987,167 @@ Il2CppObject* il2cpp_typeinfo_get_base_type(Il2CppObject* typeName)
 }
 
 //------------------------------------------------------------------------------
+// refl2 -- A-class type predicates on the name-string (Type VALUE) receiver.
+//
+// The transpiler's typeof/X.GetType() folds produce the FULL-NAME string (the
+// simplified Type model); the pre-refl2 mappings passed that STRING to the
+// descriptor-primitives (il2cpp_type_is_array(Il2CppClass*) etc.), which do
+// not compile (name-string -> Il2CppClass*). These name-string wrappers decide
+// each predicate WITHOUT a descriptor:
+//
+//   is_array / has_element_type  -- the array '['-prefix rule (array.cpp names
+//     an array descriptor "[<element full name>"; the refl2 typeof fold for
+//     typeof(int[]) produces exactly that identity). Arrays are the ONLY
+//     element-having types in the model.
+//   is_primitive                -- the name is in the .NET primitive set
+//     (Boolean/Byte/SByte/Int16/UInt16/Int32/UInt32/Int64/UInt64/IntPtr/
+//     UIntPtr/Char/Single/Double -- the typeext.cpp kPrimitives table).
+//   is_enum                     -- the typeinfo's BCL base terminal is
+//     "System.Enum" (TypeEmitter emits baseTypeName for a user enum).
+//   is_value_type               -- a PRIMITIVE name, OR a reflected type whose
+//     typeinfo says value-type (the emitted isValueType flag / the
+//     "System.ValueType" base terminal). net48: an enum IsValueType True.
+//   is_class                    -- NOT a value type and NOT an interface.
+//   is_interface                -- the typeinfo's CLASS descriptor is an
+//     interface (IsInterfaceDescriptor: instanceSize 0 / the emitted
+//     BaseTypeName "System.Object" is the D-conflated root; the IFACE
+//     distinction rides the klass -- user interfaces emit a descriptor).
+//
+// NULL receiver -> NullReferenceException (the null-Type-receiver doctrine);
+// an UNREGISTERED name (BCL / boxed) that is not a builtin primitive ->
+// predicate defaults (false / null) -- the defensive query convention.
+//------------------------------------------------------------------------------
+namespace {
+
+// The .NET primitive full names (the typeext.cpp kPrimitives table + Char).
+// ORDER matters for the long/short prefix checks? -- no, exact strcmp only.
+bool IsPrimitiveFullName(const char* name)
+{
+    static const char* const kPrimitives[] = {
+        "System.Boolean", "System.Byte", "System.SByte", "System.Int16",
+        "System.UInt16", "System.Int32", "System.UInt32", "System.Int64",
+        "System.UInt64", "System.IntPtr", "System.UIntPtr", "System.Char",
+        "System.Double", "System.Single",
+    };
+    if (name == nullptr) return false;
+    for (size_t i = 0; i < sizeof(kPrimitives) / sizeof(kPrimitives[0]); ++i)
+    {
+        if (std::strcmp(name, kPrimitives[i]) == 0) return true;
+    }
+    return false;
+}
+
+bool NameStartsArrayBracket(const char* name)
+{
+    return name != nullptr && name[0] == '[';
+}
+
+// Interface descriptor test (mirror of the typeext.cpp IsInterfaceDescriptor):
+// a non-array class descriptor with instanceSize 0 (TypeEmitter:679 -- only
+// interfaces carry zero instanceSize; arrays are excluded by the '['-prefix).
+bool IsInterfaceDescriptorName(Il2CppClass* klass)
+{
+    if (klass == nullptr) return false;
+    if (klass->name != nullptr && klass->name[0] == '[') return false;
+    return klass->instanceSize == 0;
+}
+
+} // namespace
+
+int32_t il2cpp_typeinfo_is_array(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    return NameStartsArrayBracket(buf) ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_has_element_type(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    // Arrays are the only element-having types in the simplified model.
+    return NameStartsArrayBracket(buf) ? 1 : 0;
+}
+
+Il2CppObject* il2cpp_typeinfo_get_element_type(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return nullptr;
+    if (!NameStartsArrayBracket(buf)) return nullptr;
+    // The element TYPE VALUE is the name with the leading '[' stripped
+    // ("[System.Int32" -> "System.Int32" -- an int[] element is typeof(int),
+    // net48). Jagged arrays recurse naturally: "[["  ->  "[System.Int32"...".
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(buf + 1));
+}
+
+int32_t il2cpp_typeinfo_is_primitive(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    return IsPrimitiveFullName(buf) ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_is_enum(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    if (info == nullptr) return 0;
+    // A user enum's typeinfo carries the BCL base terminal "System.Enum"
+    // (TypeEmitter: an enum's BaseTypeName is System.Enum -- the descriptor
+    // itself is null-based).
+    return (info->baseTypeName != nullptr
+            && std::strcmp(info->baseTypeName, "System.Enum") == 0) ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_is_value_type(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    if (NameStartsArrayBracket(buf)) return 0; // arrays are classes
+    if (IsPrimitiveFullName(buf)) return 1;    // primitives are value types
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    if (info == nullptr) return 0;
+    // net48: an ENUM is a value type (IsValueType True) -- the "System.Enum"
+    // base terminal marks it. A reflected user struct's typeinfo emits the
+    // isValueType flag (O4). Classes/interfaces carry neither.
+    if (info->baseTypeName != nullptr
+        && std::strcmp(info->baseTypeName, "System.Enum") == 0) return 1;
+    return info->isValueType != 0 ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_is_interface(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    if (NameStartsArrayBracket(buf)) return 0; // arrays are classes
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    if (info == nullptr || info->klass == nullptr) return 0;
+    // Interfaces emit a class descriptor with instanceSize 0 (IsInterface-
+    // Descriptor). The klass pointer is non-null for every reflected
+    // interface/class; primitives/BCL types are unregistered here.
+    return IsInterfaceDescriptorName(const_cast<Il2CppClass*>(info->klass)) ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_is_class(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    // A class is NOT a value type and NOT an interface (arrays count as
+    // classes in net48).
+    return (il2cpp_typeinfo_is_value_type(typeName) == 0
+            && il2cpp_typeinfo_is_interface(typeName) == 0) ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
 // C3-2 -- EventInfo.AddEventHandler / EventInfo.RemoveEventHandler.
 //
 // The receiver is the EVENT-NAME string (the simplified member model, as

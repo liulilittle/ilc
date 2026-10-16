@@ -297,6 +297,34 @@ Il2CppObject* il2cpp_typeinfo_get_property_types(Il2CppObject* typeName, Il2CppO
 Il2CppObject* il2cpp_typeinfo_get_base_type(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
+// refl2 -- A-class type predicates on the name-string (Type VALUE) receiver.
+// The transpiler Type VALUE is the full-name string; the pre-refl2 mappings
+// passed that STRING to the descriptor-primitives (il2cpp_type_is_array
+// (Il2CppClass*) etc.), which fail to compile. These name-string wrappers
+// decide each predicate by NAME / typeinfo, no descriptor required:
+//   is_array / has_element_type   -- '['-prefix rule (arrays);
+//   is_primitive                  -- the .NET primitive full-name set;
+//   is_enum                       -- typeinfo baseTypeName == "System.Enum";
+//   is_value_type                 -- primitive name OR reflected isValueType /
+//                                    "System.ValueType" base terminal (an enum
+//                                    is a value type, net48);
+//   is_class                      -- NOT a value type and NOT an interface;
+//   is_interface                  -- the reflected klass is a zero-instanceSize
+//                                    interface descriptor;
+//   get_element_type              -- the name with the leading '[' stripped
+//                                    (array element TYPE VALUE), null non-array.
+// Null receiver -> NullReferenceException. Unregistered non-primitive names ->
+// 0 / null (defensive).
+int32_t il2cpp_typeinfo_is_array(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_has_element_type(Il2CppObject* typeName);
+Il2CppObject* il2cpp_typeinfo_get_element_type(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_primitive(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_enum(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_value_type(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_interface(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_class(Il2CppObject* typeName);
+
+//------------------------------------------------------------------------------
 // RF-N4 -- generic-type identification icalls (NEXT2-DECISION section 2 RF-N4,
 // ruling 1: the three-way split lands on the transpiler side). Each takes the Type VALUE (full-name string, the same
 // carrier the single-member queries use) and reads the typeinfo's genericArity.

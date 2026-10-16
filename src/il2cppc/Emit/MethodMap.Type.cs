@@ -263,9 +263,11 @@ public static partial class MethodRefResolver
             case "op_Inequality": return I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false);
             // Type.GetElementType() -- instance: the element type of an array type
             // (e.g., int[] -> int). The receiver is the Type value (name string);
-            // the runtime resolves the element type through the class descriptor.
+            // the refl2 name-string wrapper strips the array '['-prefix and
+            // returns the element's full name as the Type VALUE (or null for a
+            // non-array -- net48 typeof(int).GetElementType() -> null).
             case "GetElementType":
-                return I("il2cpp::runtime::il2cpp_type_get_element_type", 0, true, true, true, returnTypeName: "System.Type");
+                return I("il2cpp::il2cpp_typeinfo_get_element_type", 0, true, true, true, returnTypeName: "System.Type");
             // Type.FullName -- instance: the full ECMA name of the type (e.g.,
             // "System.Int32"). Contrast with get_Name (short name). The receiver
             // is the Type value (name string); the runtime returns the full name.
@@ -299,21 +301,26 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException($"Type.IsSubclassOf with {(arg0Type == null ? "untracked" : $"non-Type argument {arg0Type}")} not wired -- only a tracked System.Type argument maps to icall_type_is_subclass_of");
             // A-class predicates (bool Type properties backed by existing
             // descriptor fields -- name / baseClass chain / instanceSize).
-            // Each is a 0-arg instance getter returning int32 1/0.
+            // Each is a 0-arg instance getter returning int32 1/0. refl2:
+            // the RECEIVER is the name-string Type VALUE (the simplified Type
+            // model), so each maps to the refl2 NAME-STRING WRAPPER in
+            // typeinfo.cpp (il2cpp_typeinfo_is_* / has_element) -- NOT the
+            // descriptor primitives (il2cpp_type_is_* take Il2CppClass*, which
+            // would not compile with a string receiver).
             case "get_IsArray":
-                return I("il2cpp::runtime::il2cpp_type_is_array", 0, true, false, true);
+                return I("il2cpp::il2cpp_typeinfo_is_array", 0, true, false, true);
             case "get_IsEnum":
-                return I("il2cpp::runtime::il2cpp_type_is_enum", 0, true, false, true);
+                return I("il2cpp::il2cpp_typeinfo_is_enum", 0, true, false, true);
             case "get_IsValueType":
-                return I("il2cpp::runtime::il2cpp_type_is_value_type", 0, true, false, true);
+                return I("il2cpp::il2cpp_typeinfo_is_value_type", 0, true, false, true);
             case "get_IsInterface":
-                return I("il2cpp::runtime::il2cpp_type_is_interface", 0, true, false, true);
+                return I("il2cpp::il2cpp_typeinfo_is_interface", 0, true, false, true);
             case "get_IsClass":
-                return I("il2cpp::runtime::il2cpp_type_is_class", 0, true, false, true);
+                return I("il2cpp::il2cpp_typeinfo_is_class", 0, true, false, true);
             case "get_IsPrimitive":
-                return I("il2cpp::runtime::il2cpp_type_is_primitive", 0, true, false, true);
+                return I("il2cpp::il2cpp_typeinfo_is_primitive", 0, true, false, true);
             case "get_HasElementType":
-                return I("il2cpp::runtime::il2cpp_type_has_element_type", 0, true, false, true);
+                return I("il2cpp::il2cpp_typeinfo_has_element_type", 0, true, false, true);
             case "get_BaseType":
                 return I("il2cpp::il2cpp_typeinfo_get_base_type", 0, true, true, true, returnTypeName: "System.Type");
             // RF-N4 -- generic-type identification (NEXT2-DECISION section 2
