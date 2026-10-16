@@ -95,17 +95,30 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_property", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5 -- only the (string) overload maps to il2cpp_typeinfo_get_property");
+                // GAP-1 (P0): Type.GetProperty(string, BindingFlags) -- the
+                // runtime flags-aware query (Public/NonPublic/Instance/Static
+                // filter). The BindingFlags enum rides the validation-stage
+                // int32 value; the transpiler passes it through ("i").
+                if (ps.Length == 2 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_typeinfo_get_property_flags", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_property(_flags)");
             case "GetMethod":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_method", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5 -- only the (string) overload maps to il2cpp_typeinfo_get_method");
+                if (ps.Length == 2 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_typeinfo_get_method_flags", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_method(_flags)");
             case "GetField":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_field", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetField with {ps.Length} parameter(s) not wired in M5.5 -- only the (string) overload maps to il2cpp_typeinfo_get_field");
+                if (ps.Length == 2 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_typeinfo_get_field_flags", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetField with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_field(_flags)");
             // R2 (B2): member ENUMERATION -- GetMethods()/GetFields()/
             // GetProperties()/GetConstructors()/GetInterfaces(). Each maps to
             // a runtime icall that materialises an Il2CppArray* of member-NAME
@@ -134,6 +147,20 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_constructors", 0, true, true, true,
                         returnTypeName: "System.String[]");
                 throw new NotSupportedException($"Type.GetConstructors with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_constructors");
+            // GAP-5 (P1): Type.GetConstructor(Type[]) -- the single-ctor query
+            // by arity. The receiver is the Type VALUE (full-name string);
+            // the runtime matches a PUBLIC ctor of the types array length and
+            // returns the DISAMBIGUATED ctor member value
+            // "<FullName>::.ctor" (the carrier ConstructorInfo.Invoke
+            // resolves) or null. ReturnTypeName "System.Reflection.
+            // ConstructorInfo" keeps the downstream Invoke receiver tracked.
+            case "GetConstructor":
+                if (ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_constructor", 1, true, true, true,
+                        new[] { "", "a" }, returnTypeName: "System.Reflection.ConstructorInfo");
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    throw new NotSupportedException("Type.GetConstructor(string) does not exist in net48 (the ctor name overload is .NET Core-only)");
+                throw new NotSupportedException($"Type.GetConstructor with {ps.Length} parameter(s) not wired in GAP-5 -- only the (Type[]) overload maps to il2cpp_typeinfo_get_constructor");
             case "GetInterfaces":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_interfaces", 0, true, true, true,

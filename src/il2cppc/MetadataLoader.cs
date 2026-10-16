@@ -932,16 +932,18 @@ public static class MetadataLoader
                     ? DecodeExtendedStaticType(typeByte)
                     : (FieldTypeKind.NativeInt, "System.IntPtr");
             // Primitive value-type fields not covered above: treat as Int32.
-            // Static (extended) fields keep the System name for the
-            // reflection/static-classifier surface.
+            // Instance fields carry the SAME System name as static (extended)
+            // fields (DecodeExtendedStaticType) -- p-refl-fvtype: the
+            // reflection field table dispatches GetValue/SetValue slot width by
+            // the field's SYSTEM TYPE NAME, so a bool field must say
+            // "System.Boolean", a short "System.Int16", a uint "System.UInt32",
+            // a byte "System.Byte" (the pre-change "" collapsed every value
+            // primitive to the "System.Int32" fallback and the runtime rejected
+            // the Boolean/Int16/UInt32 value boxes net48 always uses).
             case 0x02: case 0x03: case 0x04: case 0x05:
             case 0x06: case 0x07: case 0x09: case 0x0A:
             case 0x0B: case 0x0C: case 0x0F:
-                if (extended) return DecodeExtendedStaticType(typeByte);
-                return (FieldTypeKind.Int32, "");
             default:
-                if (!extended)
-                    return (FieldTypeKind.Int32, "");
                 return DecodeExtendedStaticType(typeByte);
         }
     }

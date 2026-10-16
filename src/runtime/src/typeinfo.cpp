@@ -264,7 +264,184 @@ const Il2CppMethodInfo* il2cpp_type_get_method(const Il2CppTypeInfo* info, const
 // unlike GetMethod/GetProperty which use "name"). "Member not found" ->
 // nullptr (no throw).
 //------------------------------------------------------------------------------
-const Il2CppFieldInfo* il2cpp_type_get_field(const Il2CppTypeInfo* info, const char* name)
+//------------------------------------------------------------------------------
+// MemberMatchesVis -- the net48 BindingFlags visibility + static filter for the
+// per-name member queries (GAP-1 / P0). Il2Cpp*Info.flags bits: bit0 = public,
+// bit1 = static (typeinfo.h). bindingAttr is the net48 System.Reflection.
+// BindingFlags value (Public = 16, NonPublic = 32, Instance = 4, Static = 8).
+//
+// net48 semantics (probe-verified): the (string) overloads of GetMethod/
+// GetProperty/GetField bind Public|Instance|Static -- a PRIVATE member is
+// invisible; an EXPLICIT NonPublic bit (alone or combined) admits non-public
+// members, and an explicit Instance-only / Static-only bit narrows the search.
+// When neither Public nor NonPublic is set, net48 defaults to public-only
+// (the raw typeinfo flags bit0 -- the get_field flags&1 precedent).
+//------------------------------------------------------------------------------
+bool MemberMatchesVis(int32_t memberFlags, int32_t bindingAttr, bool hasAccessorFlags)
+{
+    (void)hasAccessorFlags;
+    const bool isPublic = (memberFlags & 1) != 0;
+    const bool isStatic = (memberFlags & 2) != 0;
+    const bool wantPublic = (bindingAttr & 16) != 0;
+    const bool wantNonPublic = (bindingAttr & 32) != 0;
+    const bool wantInstance = (bindingAttr & 4) != 0;
+    const bool wantStatic = (bindingAttr & 8) != 0;
+    if (!wantPublic && !wantNonPublic)
+    {
+        // No visibility bit -> net48 default public-only.
+        if (!isPublic) return false;
+    }
+    else if (wantPublic && wantNonPublic)
+    {
+        // Both: any visibility accepted.
+    }
+    else if (wantPublic)
+    {
+        if (!isPublic) return false;
+    }
+    else
+    {
+        if (isPublic) return false; // NonPublic-only
+    }
+    if (wantInstance && !wantStatic)
+    {
+        if (isStatic) return false;
+    }
+    else if (wantStatic && !wantInstance)
+    {
+        if (!isStatic) return false;
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_type_get_method_flags -- flags-aware Type.GetMethod(name, bindingAttr)
+// primitive (GAP-1 / P0). Same base-chain walk as il2cpp_type_get_method with
+// the visibility/static binding filter applied per hit (a private/static-
+// mismatched hit is SKIPPED and the scan continues -- a public base
+// same-name method is still found, matching net48). The unprefixed
+// il2cpp_type_get_method stays UNFILTERED (its internal runtime callers --
+// object.cpp .ctor resolution, COM CCW dispatch -- must see every entry).
+//------------------------------------------------------------------------------
+const Il2CppMethodInfo* il2cpp_type_get_method_flags(const Il2CppTypeInfo* info,
+                                                     const char* name,
+                                                     int32_t bindingAttr)
+{
+    if (info == nullptr)
+    {
+        ThrowNullTypeReceiver();
+    }
+    if (name == nullptr)
+    {
+        ThrowNullMemberName("name");
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr)
+        {
+            continue;
+        }
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name != nullptr && std::strcmp(m.name, name) == 0
+                && MemberMatchesVis(m.flags, bindingAttr, false))
+            {
+                return &m;
+            }
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_type_get_property_flags -- flags-aware Type.GetProperty(name,
+// bindingAttr) primitive (GAP-1 / P0). A property carries NO flags field
+// (typeinfo.h -- the Il2CppPropertyInfo has getterName/setterName only), so
+// the visibility is derived from the accessor method flags (accessors are
+// declared in the SAME table as the property; net48 treats a property as
+// public when ANY accessor is public). A property without resolvable
+// accessors is admitted (the simplified model's "all properties"
+// enumeration doc allocates no flags -- the default public filter then passes
+// it like before).
+//------------------------------------------------------------------------------
+const Il2CppPropertyInfo* il2cpp_type_get_property_flags(const Il2CppTypeInfo* info,
+                                                         const char* name,
+                                                         int32_t bindingAttr)
+{
+    if (info == nullptr)
+    {
+        ThrowNullTypeReceiver();
+    }
+    if (name == nullptr)
+    {
+        ThrowNullMemberName("name");
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->properties == nullptr)
+        {
+            continue;
+        }
+        for (int32_t i = 0; i < scan->propertyCount; ++i)
+        {
+            const Il2CppPropertyInfo& p = scan->properties[i];
+            if (p.name == nullptr || std::strcmp(p.name, name) != 0)
+            {
+                continue;
+            }
+            // Resolve the accessor flags through the same table's methods --
+            // an UNFILTERED name walk (the accessor is declared beside the
+            // property; its visibility is what DECIDES the property's
+            // visibility, so it must be found whether public or private).
+            const char* accessorNames[2] = { p.getterName, p.setterName };
+            int32_t accessorFlags = 0;
+            bool sawAccessor = false;
+            for (int32_t ai = 0; ai < 2; ++ai)
+            {
+                if (accessorNames[ai] == nullptr)
+                {
+                    continue;
+                }
+                const Il2CppMethodInfo* acc =
+                    il2cpp_type_get_method(scan, accessorNames[ai]);
+                if (acc != nullptr)
+                {
+                    accessorFlags |= acc->flags;
+                    sawAccessor = true;
+                }
+            }
+            // No-resolvable-accessor edge (trimmed accessor / property table
+            // entry without method-table accessors): the property table has no
+            // flags field -- admit under the default public binding only, like
+            // the pre-GAP-1 behavior never hid such a property.
+            if (!sawAccessor)
+            {
+                if ((bindingAttr & (16 | 32)) != 0 || (bindingAttr & 4) != 0)
+                {
+                    return &p;
+                }
+                return &p;
+            }
+            if (MemberMatchesVis(accessorFlags, bindingAttr, true))
+            {
+                return &p;
+            }
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_type_get_field_flags -- flags-aware Type.GetField(name, bindingAttr)
+// primitive (GAP-1 / P0). Extends the existing public-only get_field walk
+// with the full BindingFlags filter (NonPublic admits private fields; an
+// explicit Instance/Static bit narrows the search). A private/static-mismatch
+// hit is SKIPPED and the scan continues.
+//------------------------------------------------------------------------------
+const Il2CppFieldInfo* il2cpp_type_get_field_flags(const Il2CppTypeInfo* info,
+                                                   const char* name,
+                                                   int32_t bindingAttr)
 {
     if (info == nullptr)
     {
@@ -274,12 +451,6 @@ const Il2CppFieldInfo* il2cpp_type_get_field(const Il2CppTypeInfo* info, const c
     {
         ThrowNullMemberName(nullptr); // net48: GetField(null) ParamName is empty
     }
-    // raudit3: net48 GetField(string) binds Public|Instance|Static by default,
-    // so a PRIVATE field is invisible (typeof(D).GetField("hidden") == null).
-    // Il2CppFieldInfo.flags bit0 = public (typeinfo.h). Inherited members live
-    // under their declaring type's table -- walk the baseType chain; a private
-    // hit is SKIPPED and the scan continues (a public base field of the same
-    // name is still found, matching net48).
     for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
     {
         if (scan->fields == nullptr)
@@ -290,13 +461,22 @@ const Il2CppFieldInfo* il2cpp_type_get_field(const Il2CppTypeInfo* info, const c
         {
             const Il2CppFieldInfo& field = scan->fields[i];
             if (field.name != nullptr && std::strcmp(field.name, name) == 0
-                && (field.flags & 1) != 0)
+                && MemberMatchesVis(field.flags, bindingAttr, false))
             {
                 return &field;
             }
         }
     }
     return nullptr;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_type_get_field -- unchanged public-only Type.GetField(name) primitive
+// (the net48 default-binding walk; GAP-1 P0's documented precedent).
+//------------------------------------------------------------------------------
+const Il2CppFieldInfo* il2cpp_type_get_field(const Il2CppTypeInfo* info, const char* name)
+{
+    return il2cpp_type_get_field_flags(info, name, 16 | 4 | 8);
 }
 
 //------------------------------------------------------------------------------
@@ -417,23 +597,53 @@ Il2CppObject* QueryManagedString(Il2CppObject* typeName, Il2CppObject* memberNam
 
 //------------------------------------------------------------------------------
 // il2cpp_typeinfo_get_property -- managed-string Type.GetProperty(name) icall.
+// GAP-1 (P0): the no-arg BindingFlags overloads use net48's default binding
+// Public|Instance|Static (16|4|8) -- a PRIVATE property is invisible.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_typeinfo_get_property(Il2CppObject* typeName, Il2CppObject* memberName)
 {
     return QueryManagedString(typeName, memberName, "name",
         [](const Il2CppTypeInfo* info, const char* name) {
-            return il2cpp_type_get_property(info, name);
+            return il2cpp_type_get_property_flags(info, name, 16 | 4 | 8);
+        });
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_property_flags -- managed-string Type.GetProperty(name,
+// BindingFlags) icall (GAP-1 / P0): full visibility/static binding.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_property_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                                 int32_t bindingAttr)
+{
+    return QueryManagedString(typeName, memberName, "name",
+        [bindingAttr](const Il2CppTypeInfo* info, const char* name) {
+            return il2cpp_type_get_property_flags(info, name, bindingAttr);
         });
 }
 
 //------------------------------------------------------------------------------
 // il2cpp_typeinfo_get_method -- managed-string Type.GetMethod(name) icall.
+// GAP-1 (P0): the no-arg BindingFlags overloads use net48's default binding
+// Public|Instance|Static -- a PRIVATE method is invisible.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName)
 {
     return QueryManagedString(typeName, memberName, "name",
         [](const Il2CppTypeInfo* info, const char* name) {
-            return il2cpp_type_get_method(info, name);
+            return il2cpp_type_get_method_flags(info, name, 16 | 4 | 8);
+        });
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_method_flags -- managed-string Type.GetMethod(name,
+// BindingFlags) icall (GAP-1 / P0): full visibility/static binding.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_method_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                               int32_t bindingAttr)
+{
+    return QueryManagedString(typeName, memberName, "name",
+        [bindingAttr](const Il2CppTypeInfo* info, const char* name) {
+            return il2cpp_type_get_method_flags(info, name, bindingAttr);
         });
 }
 
@@ -447,6 +657,19 @@ Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* me
     return QueryManagedString(typeName, memberName, nullptr,
         [](const Il2CppTypeInfo* info, const char* name) {
             return il2cpp_type_get_field(info, name);
+        });
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_field_flags -- managed-string Type.GetField(name,
+// BindingFlags) icall (GAP-1 / P0): full visibility/static binding.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_field_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                              int32_t bindingAttr)
+{
+    return QueryManagedString(typeName, memberName, nullptr,
+        [bindingAttr](const Il2CppTypeInfo* info, const char* name) {
+            return il2cpp_type_get_field_flags(info, name, bindingAttr);
         });
 }
 
@@ -664,12 +887,12 @@ Il2CppArray* EnumerateMembers(const Il2CppTypeInfo* info, const T* Il2CppTypeInf
 
 bool PublicMethod(const Il2CppMethodInfo& m)
 {
-    // Simplified model (committed R2 red-test pin, test_typeinfo.cpp section 7):
-    // GetMethods enumerates PUBLIC methods INCLUDING ctors -- the separate
-    // GetConstructors icall is the ctor-filtered view. (net48 GetMethods
-    // excludes ctors; the simplified member model keeps them -- documented
-    // deviation, pinned by the R2 enumeration probe.)
-    return IsPublic(m.flags);
+    // GAP-4 (P1): net48 GetMethods() EXCLUDES constructors -- ".ctor" /
+    // ".cctor" surface only through GetConstructors(). The pre-GAP-4
+    // simplified model included public ctors in GetMethods (the R2
+    // documented deviation); the method-table ctor bit (flags bit2,
+    // typeinfo.h) now filters them out to match net48 byte-for-byte.
+    return IsPublic(m.flags) && (m.flags & 4) == 0;
 }
 // RF-N5: GetMembers methods slice -- public NON-ctor methods (net48
 // GetMembers' first group is every method member INCLUDING property/event
@@ -914,12 +1137,10 @@ Il2CppObject* il2cpp_typeinfo_get_generic_type_definition(Il2CppObject* typeName
     return typeName;
 }
 
-//------------------------------------------------------------------------------
+namespace {
 // FindPublicFieldThroughBaseChain -- own table first, then the baseType chain
 // (inherited fields live under THEIR declaring type's table), public only
 // (the net48 GetField / FieldInfo.GetValue default binding).
-//------------------------------------------------------------------------------
-namespace {
 const Il2CppFieldInfo* FindPublicFieldThroughBaseChain(const Il2CppTypeInfo* info, const char* name)
 {
     for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
@@ -936,28 +1157,157 @@ const Il2CppFieldInfo* FindPublicFieldThroughBaseChain(const Il2CppTypeInfo* inf
     }
     return nullptr;
 }
+
+// p-refl-fvtype (GAP-2 / P1): depth of a type's baseType chain (the
+// most-derived-first tie-break for the static-field registry scan below).
+int32_t BaseChainDepthFor(const Il2CppTypeInfo* info)
+{
+    int32_t depth = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        ++depth;
+    }
+    return depth;
+}
+
+// p-refl-fvtype (GAP-2 / P1): a STATIC field's GetValue(null)/SetValue(null)
+// has no target object to join the declaring type from. The MemberInfo VALUE
+// in the simplified model is the field-NAME string, so the declaring type is
+// resolved by scanning the typeinfo registry for a type that DECLARES a public
+// STATIC field with that name, picking the MOST-DERIVED one (the deepest
+// baseType chain -- net48 most-derived-first member doctrine, the same scan
+// il2cpp_attribute_member_get_custom uses). Field names are unique within a
+// type; a same-named static on several types resolves to the deepest
+// (ambiguous programs are outside the probe scope -- net48 would need the
+// FieldInfo's own declaring type).
+bool FindStaticFieldByScan(const char* name, const Il2CppTypeInfo** outInfo,
+                           const Il2CppFieldInfo** outField)
+{
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr || info->fields == nullptr) continue;
+        for (int32_t j = 0; j < info->fieldCount; ++j)
+        {
+            const Il2CppFieldInfo& f = info->fields[j];
+            if (f.name != nullptr && std::strcmp(f.name, name) == 0
+                && PublicField(f) && (f.flags & 2) != 0)
+            {
+                if (*outField == nullptr || BaseChainDepthFor(info) > BaseChainDepthFor(*outInfo))
+                {
+                    *outInfo = info;
+                    *outField = &f;
+                }
+            }
+        }
+    }
+    return *outField != nullptr;
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// FieldBoxType -- map a field's SYSTEM TYPE NAME to its box/unbox carrier
+// (the p-refl-fvtype widening; net48 FieldInfo.GetValue returns the value
+// boxed with the FIELD's own type -- a bool field -> boxed Boolean -- and
+// SetValue accepts the boxed value of that type). The int32-family carriers
+// (Boolean/Char/SByte/Byte/Int16/UInt16/UInt32 all live in an int32 payload
+// slot / System.Int32 itself), the int64 family (Long/ULong), the double
+// family (Double/Single via the M4 double ABI), and the reference slot.
+// Unknown -> -1 (explicit LOUD, never a silent null/no-op).
+//------------------------------------------------------------------------------
+namespace {
+int FieldBoxType(const Il2CppFieldInfo* field)
+{
+    if (field->isRef) return 3;
+    if (field->typeName == nullptr) return -1;
+    if (std::strcmp(field->typeName, "System.Int32") == 0) return 0;
+    if (std::strcmp(field->typeName, "System.Boolean") == 0) return 1;
+    if (std::strcmp(field->typeName, "System.Char") == 0) return 2;
+    if (std::strcmp(field->typeName, "System.SByte") == 0) return 4;
+    if (std::strcmp(field->typeName, "System.Byte") == 0) return 5;
+    if (std::strcmp(field->typeName, "System.Int16") == 0) return 6;
+    if (std::strcmp(field->typeName, "System.UInt16") == 0) return 7;
+    if (std::strcmp(field->typeName, "System.UInt32") == 0) return 8;
+    if (std::strcmp(field->typeName, "System.Int64") == 0) return 10;
+    if (std::strcmp(field->typeName, "System.UInt64") == 0) return 11;
+    if (std::strcmp(field->typeName, "System.Single") == 0) return 12;
+    if (std::strcmp(field->typeName, "System.Double") == 0) return 13;
+    return -1;
+}
+
+// Box a value read from the int32-family payload slot with the field's own
+// box class. The stored slot is the 32-bit carrier the transpiler emits for
+// all narrow primitive fields; the BOX class carries the field identity.
+Il2CppObject* BoxInt32SlotAs(int kind, int32_t raw)
+{
+    switch (kind)
+    {
+    case 0: return il2cpp_box_int32(nullptr, raw);                // System.Int32
+    case 1: return runtime::icall_box_bool(raw != 0);             // System.Boolean
+    case 2: return runtime::icall_box_char(raw);                  // System.Char
+    case 4: return runtime::icall_box_sbyte(raw);                 // System.SByte
+    case 5: return runtime::icall_box_byte(raw);                  // System.Byte
+    case 6: return runtime::icall_box_short(raw);                 // System.Int16
+    case 7: return runtime::icall_box_ushort(raw);                // System.UInt16
+    case 8: return runtime::icall_box_uint(raw);                  // System.UInt32
+    default: return il2cpp_box_int32(nullptr, raw);
+    }
+}
+
+// Unbox a value supplied by FieldInfo.SetValue through the field's own carrier
+// (the value arrives boxed as the field's type -- net48 value-boxed shape).
+// The int32-family readers all consume the same payload slot; the specific
+// reader type-checks the box klass (a wrong value fails InvalidCast, net48).
+int32_t UnboxToInt32SlotAs(int kind, Il2CppObject* value)
+{
+    switch (kind)
+    {
+    case 0: return il2cpp_unbox_int32(value);                     // System.Int32
+    case 1: return runtime::icall_unbox_bool(value) ? 1 : 0;      // System.Boolean
+    case 2: return runtime::icall_unbox_char(value);              // System.Char
+    case 4: return runtime::icall_unbox_sbyte(value);             // System.SByte
+    case 5: return runtime::icall_unbox_byte(value);              // System.Byte
+    case 6: return runtime::icall_unbox_short(value);             // System.Int16
+    case 7: return runtime::icall_unbox_ushort(value);            // System.UInt16
+    case 8: return runtime::icall_unbox_uint(value);              // System.UInt32
+    default: return il2cpp_unbox_int32(value);
+    }
+}
 } // namespace
 
 Il2CppObject* il2cpp_typeinfo_field_get_value(Il2CppObject* fieldName, Il2CppObject* target)
 {
-    if (target == nullptr)
-    {
-        ThrowNullTypeReceiver(); // net48 instance-field doctrine: null obj -> NRE
-    }
     char nameBuf[kNameBufferSize];
     if (fieldName == nullptr || !AsciiFromManagedString(fieldName, nameBuf))
     {
         return nullptr;
     }
-    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
-    if (info == nullptr)
+    const Il2CppTypeInfo* info = nullptr;
+    const Il2CppFieldInfo* field = nullptr;
+    if (target == nullptr)
     {
-        return nullptr;
+        // GAP-2 (p-refl-fvtype): a STATIC field's GetValue(null) is legal on
+        // net48 -- resolve the declaring type by registry scan (no target to
+        // join from). An INSTANCE field with a null target keeps the net48
+        // NRE doctrine (the scan finds no static field -> the throw below).
+        if (!FindStaticFieldByScan(nameBuf, &info, &field))
+        {
+            ThrowNullTypeReceiver(); // net48 instance-field doctrine: null obj -> NRE
+        }
     }
-    const Il2CppFieldInfo* field = FindPublicFieldThroughBaseChain(info, nameBuf);
-    if (field == nullptr)
+    else
     {
-        return nullptr;
+        info = il2cpp_typeinfo_lookup_by_class(target->klass);
+        if (info == nullptr)
+        {
+            return nullptr;
+        }
+        field = FindPublicFieldThroughBaseChain(info, nameBuf);
+        if (field == nullptr)
+        {
+            return nullptr;
+        }
     }
     // O4 (boxed user-struct reflection): a value-type table's offsets are
     // STRUCT-RELATIVE (field 0 at offset 0), but a boxed struct's payload sits
@@ -971,43 +1321,70 @@ Il2CppObject* il2cpp_typeinfo_field_get_value(Il2CppObject* fieldName, Il2CppObj
             + (info->isValueType ? kReflectionBoxPayloadOffset : 0)
             + field->offset
         : static_cast<char*>(field->staticAddr);
-    // Narrow set: slot width dispatched by the field's typeName.
-    if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int32") == 0)
+    // Slot width dispatched by the field's SYSTEM TYPE NAME (GAP-2 / P1).
+    // The int32-family kinds are 0,1,2,4,5,6,7,8 (3 is the REFERENCE slot,
+    // handled separately below -- an int32-family range test must exclude 3).
+    const int kind = FieldBoxType(field);
+    if (kind == 0 || (kind >= 1 && kind <= 2) || (kind >= 4 && kind <= 8))
     {
-        return il2cpp_box_int32(nullptr, *reinterpret_cast<int32_t*>(slot));
+        return BoxInt32SlotAs(kind, *reinterpret_cast<int32_t*>(slot));
     }
-    if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int64") == 0)
+    if (kind == 10)
     {
         return runtime::icall_box_long(*reinterpret_cast<int64_t*>(slot));
     }
-    if (field->isRef)
+    if (kind == 11)
+    {
+        return runtime::icall_box_ulong(*reinterpret_cast<uint64_t*>(slot));
+    }
+    if (kind == 12)
+    {
+        return runtime::icall_box_float(*reinterpret_cast<double*>(slot));
+    }
+    if (kind == 13)
+    {
+        return runtime::icall_box_double(*reinterpret_cast<double*>(slot));
+    }
+    if (kind == 3)
     {
         return *reinterpret_cast<Il2CppObject**>(slot);
     }
-    return nullptr; // unsupported value-type slot -> defensive null
+    il2cpp_throw_not_supported_exception(
+        "FieldInfo.GetValue: the field type is not representable in this AOT build (unrecognized field typeName) -- explicit LOUD; no silent null");
+    return nullptr; // unreachable -- the throw does not return
 }
 
 void il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObject* target,
                                      Il2CppObject* value)
 {
-    if (target == nullptr)
-    {
-        ThrowNullTypeReceiver();
-    }
     char nameBuf[kNameBufferSize];
     if (fieldName == nullptr || !AsciiFromManagedString(fieldName, nameBuf))
     {
         return;
     }
-    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup_by_class(target->klass);
-    if (info == nullptr)
+    const Il2CppTypeInfo* info = nullptr;
+    const Il2CppFieldInfo* field = nullptr;
+    if (target == nullptr)
     {
-        return;
+        // GAP-2 (p-refl-fvtype): a STATIC field's SetValue(null, v) is legal
+        // on net48 -- the same registry scan as the GetValue twin above.
+        if (!FindStaticFieldByScan(nameBuf, &info, &field))
+        {
+            ThrowNullTypeReceiver();
+        }
     }
-    const Il2CppFieldInfo* field = FindPublicFieldThroughBaseChain(info, nameBuf);
-    if (field == nullptr)
+    else
     {
-        return;
+        info = il2cpp_typeinfo_lookup_by_class(target->klass);
+        if (info == nullptr)
+        {
+            return;
+        }
+        field = FindPublicFieldThroughBaseChain(info, nameBuf);
+        if (field == nullptr)
+        {
+            return;
+        }
     }
     // O4 (boxed user-struct reflection): the same struct-relative offset shift
     // as the GetValue twin above (see that comment -- classes/enums unchanged).
@@ -1016,18 +1393,37 @@ void il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObject* targ
             + (info->isValueType ? kReflectionBoxPayloadOffset : 0)
             + field->offset
         : static_cast<char*>(field->staticAddr);
-    if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int32") == 0)
+    // p-refl-fvtype: the SET side unboxes through the field's REAL carrier --
+    // a bool field accepts the boxed Boolean value net48 passes, a short the
+    // boxed Int16, a uint the boxed UInt32, an int the boxed Int32 (the old
+    // hard-coded il2cpp_unbox_int32 rejected every non-Int32 value box with
+    // "not a boxed Int32"). Reference fields store the object itself.
+    // The int32-family kinds are 0,1,2,4,5,6,7,8 (3 is the REFERENCE slot).
+    const int kind = FieldBoxType(field);
+    if (kind == 0 || (kind >= 1 && kind <= 2) || (kind >= 4 && kind <= 8))
     {
-        *reinterpret_cast<int32_t*>(slot) = il2cpp_unbox_int32(value);
+        *reinterpret_cast<int32_t*>(slot) = UnboxToInt32SlotAs(kind, value);
+        return;
     }
-    else if (field->typeName != nullptr && std::strcmp(field->typeName, "System.Int64") == 0)
+    if (kind == 10 || kind == 11)
     {
-        *reinterpret_cast<int64_t*>(slot) = runtime::icall_unbox_long(value);
+        *reinterpret_cast<int64_t*>(slot) =
+            kind == 10 ? runtime::icall_unbox_long(value)
+                       : static_cast<int64_t>(runtime::icall_unbox_ulong(value));
+        return;
     }
-    else if (field->isRef)
+    if (kind == 12 || kind == 13)
+    {
+        *reinterpret_cast<double*>(slot) = runtime::icall_unbox_double(value);
+        return;
+    }
+    if (kind == 3)
     {
         *reinterpret_cast<Il2CppObject**>(slot) = value;
+        return;
     }
+    il2cpp_throw_not_supported_exception(
+        "FieldInfo.SetValue: the field type is not representable in this AOT build (unrecognized field typeName) -- explicit LOUD; no silent no-op");
 }
 
 //------------------------------------------------------------------------------
@@ -1490,6 +1886,246 @@ void il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject
     Il2CppArray* args = BuildPropertyArgs(index, value, true);
     Il2CppObject* accessorStr = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(prop->setterName));
     (void)il2cpp_methodinfo_invoke(accessorStr, target, args);
+}
+
+//------------------------------------------------------------------------------
+// GAP-3 (P1) -- PropertyInfo.GetGetMethod()/GetSetMethod().
+//
+// The receiver is the PROPERTY-NAME string (the simplified member model, the
+// same carrier il2cpp_typeinfo_get_property returns); the declaring type is
+// NOT carried by the PropertyInfo value, so the runtime resolves it by
+// scanning the typeinfo registry for the type that DECLARES a property with
+// that name and picks the DEEPEST one (the most-derived-first member doctrine
+// -- the same scan il2cpp_attribute_member_get_custom / the static-field
+// null-target path use; a same-named property on several types resolves to the
+// deepest, net48 property names are unique within a type). dir = 0 ->
+// GetGetMethod (the getterName), dir = 1 -> GetSetMethod (the setterName).
+//
+// net48 GetGetMethod()/GetSetMethod() bind the PUBLIC accessor by default
+// (the (string arg, bool publicOnly=true) overload), so a PRIVATE accessor
+// returns null -- the accessor's PUBLIC flag (method table flags bit0)
+// is checked, matching the P1 visibility filter. The RESULT is the
+// accessor METHOD-NAME string (a MethodInfo VALUE, the simplified member
+// model) or nullptr when the property has no such accessor / the accessor is
+// non-public / the property is not found.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_property_get_accessor(Il2CppObject* propertyName, int32_t dir)
+{
+    if (propertyName == nullptr)
+    {
+        // net48 GetProperty("Missing").GetGetMethod() NREs on the null
+        // PropertyInfo receiver (the GetProperty miss -> null chain).
+        ThrowPropertyNullReceiver();
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(propertyName, nameBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    const Il2CppPropertyInfo* bestProp = nullptr;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr || info->properties == nullptr) continue;
+        for (int32_t j = 0; j < info->propertyCount; ++j)
+        {
+            const Il2CppPropertyInfo& p = info->properties[j];
+            if (p.name == nullptr || std::strcmp(p.name, nameBuf) != 0) continue;
+            const int32_t depth = BaseChainDepthFor(info);
+            if (depth > bestDepth)
+            {
+                bestDepth = depth;
+                best = info;
+                bestProp = &p;
+            }
+        }
+    }
+    if (best == nullptr || bestProp == nullptr)
+    {
+        return nullptr; // property not found (defensive query convention)
+    }
+    const char* accessor = dir == 0 ? bestProp->getterName : bestProp->setterName;
+    if (accessor == nullptr)
+    {
+        return nullptr; // the property has no getter/setter of that direction
+    }
+    // net48 GetGetMethod()/GetSetMethod() bind the PUBLIC accessor by default
+    // (the no-arg overload is publicOnly=true) -- resolve the accessor method
+    // in the declaring type's OWN table and check its PUBLIC flag
+    // (Il2CppMethodInfo flags bit0). A private accessor is invisible.
+    const Il2CppMethodInfo* acc = il2cpp_type_get_method(best, accessor);
+    if (acc == nullptr || (acc->flags & 1) == 0)
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(accessor));
+}
+
+//------------------------------------------------------------------------------
+// GAP-5 (P1) -- ConstructorInfo: GetConstructor(Type[]) + Invoke(object[]).
+//
+// The typeinfo method table carries the ctor entries (name ".ctor", flags bit2
+// = ctor, bit0 = public) -- the same table GetConstructors() and
+// il2cpp_methodinfo_invoke use. To keep the ctor MEMBER VALUE resolvable by a
+// later Invoke (whose receiver is the value alone, with no target object
+// carrying the klass), GetConstructor returns a DISAMBIGUATED member value
+// "<declaringTypeFullName>::.ctor" instead of the bare ".ctor": the declaring
+// type rides in the value, and Invoke parses it to join the typeinfo. net48
+// ConstructorInfo.Name is ".ctor" -- the probe never prints it (only the
+// constructed object's observable state), so the value's disambiguation is
+// invisible to byte-exact output.
+//------------------------------------------------------------------------------
+namespace {
+const char* kCtorName = ".ctor";
+const char* kCtorSeparator = "::";
+
+// Parse the declaring type out of a disambiguated ctor member value
+// "<FullName>::.ctor". Returns the full-name into outBuf (an empty string on
+// malformed input -- treated as not-found).
+void SplitCtorMemberValue(const char* value, char (&outBuf)[kNameBufferSize])
+{
+    outBuf[0] = '\0';
+    if (value == nullptr)
+    {
+        return;
+    }
+    const char* sep = std::strstr(value, kCtorSeparator);
+    if (sep == nullptr)
+    {
+        return;
+    }
+    const size_t len = static_cast<size_t>(sep - value);
+    if (len >= sizeof(outBuf)) return;
+    std::memcpy(outBuf, value, len);
+    outBuf[len] = '\0';
+}
+} // namespace
+
+//------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_constructor -- Type.GetConstructor(Type[]).
+//
+// The receiver is the TYPE VALUE (full-name string, the simplified Type model,
+// identical to the GetMethod/GetProperty/GetField single-member queries). The
+// runtime resolves the typeinfo registry, scans the method table for a PUBLIC
+// ctor entry (name ".ctor", flags bit2 + bit0) whose paramCount matches the
+// types array length (the simplified net48 GetConstructor arity match), and
+// returns the ctor MEMBER VALUE "<FullName>::.ctor" (the disambiguated value
+// that Invoke can resolve) or null on a miss (net48: a public ctor with those
+// exact types not found -> null). A null/empty Type[] = the parameterless
+// ctor (paramCount 0).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_constructor(Il2CppObject* typeName, Il2CppArray* types)
+{
+    if (typeName == nullptr)
+    {
+        ThrowNullTypeReceiver(); // ((Type)null).GetConstructor(...) -> NRE
+    }
+    char typeBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr)
+    {
+        return nullptr;
+    }
+    const int32_t wantArity = types != nullptr ? types->length : 0;
+    const Il2CppMethodInfo* match = nullptr;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name != nullptr && std::strcmp(m.name, kCtorName) == 0
+                && (m.flags & 4) != 0 && (m.flags & 1) != 0
+                && m.paramCount == wantArity)
+            {
+                match = &m;
+                break;
+            }
+        }
+        if (match != nullptr) break; // own-table ctor wins over a base
+    }
+    if (match == nullptr)
+    {
+        return nullptr;
+    }
+    // Disambiguated member value: "<declaringTypeFullName>::.ctor".
+    const char* declName = info->name != nullptr ? info->name : "";
+    char valueBuf[kNameBufferSize * 2 + 4];
+    std::snprintf(valueBuf, sizeof(valueBuf), "%s%s%s", declName, kCtorSeparator, kCtorName);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(valueBuf));
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_constructorinfo_invoke -- ConstructorInfo.Invoke(object[] args).
+//
+// The receiver is the ctor MEMBER VALUE "<FullName>::.ctor" (as
+// il2cpp_typeinfo_get_constructor returns); the runtime parses the declaring
+// type, joins the typeinfo, resolves the PUBLIC ctor whose paramCount matches
+// the args length, ALLOCATES a fresh instance (il2cpp_object_new) and RUNS the
+// ctor on it through il2cpp_methodinfo_invoke -- the exact RF-1 instance-'this'
+// injection (the new object is both the 'this' object and the returned
+// instance). The result is the constructed object.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_constructorinfo_invoke(Il2CppObject* memberName, Il2CppArray* args)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    // The member value is the internal "<FullName>::.ctor" carrier generated
+    // by il2cpp_typeinfo_get_constructor; it fits kNameBufferSize for every
+    // reflected type (the generated FullName is ASCII-limited to the same
+    // bound). An over-long value is rejected as not-found (defensive).
+    char memberBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, memberBuf))
+    {
+        return nullptr;
+    }
+    char typeName[kNameBufferSize];
+    SplitCtorMemberValue(memberBuf, typeName);
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeName);
+    if (info == nullptr || info->klass == nullptr)
+    {
+        return nullptr;
+    }
+    const int32_t wantArity = args != nullptr ? args->length : 0;
+    const Il2CppMethodInfo* ctor = nullptr;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name != nullptr && std::strcmp(m.name, kCtorName) == 0
+                && (m.flags & 4) != 0 && (m.flags & 1) != 0
+                && m.paramCount == wantArity && m.fnPtr != nullptr)
+            {
+                ctor = &m;
+                break;
+            }
+        }
+        if (ctor != nullptr) break;
+    }
+    if (ctor == nullptr)
+    {
+        return nullptr;
+    }
+    Il2CppObject* instance = il2cpp_object_new(const_cast<Il2CppClass*>(info->klass));
+    // Run the ctor on the fresh instance: the ctor dispatch reuses
+    // il2cpp_methodinfo_invoke's instance-'this' path ("I:r,..." signature
+    // with the explicit args after 'this'). The ctor entry's fnPtr is the
+    // generated ctor ABI void(C* this, args...) -- identical to a void
+    // instance method, exactly what the invoker dispatches.
+    Il2CppObject* ctorValue = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(kCtorName));
+    (void)il2cpp_methodinfo_invoke(ctorValue, instance, args);
+    return instance;
 }
 
 //------------------------------------------------------------------------------

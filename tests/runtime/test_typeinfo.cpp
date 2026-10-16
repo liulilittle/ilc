@@ -72,6 +72,11 @@ bool ThrowsManaged(Fn&& fn, const char* managedType)
 void DummyMethod() {}
 int AddTwoInts(int a, int b) { return a + b; }
 
+// GAP-5 (P1): generated ctor ABIs -- void(C* this, args...) writes the field.
+struct CtorHostStorage { void* hdr; int32_t value; };
+static void CtorWriteInt(void* self, int32_t v) { reinterpret_cast<CtorHostStorage*>(self)->value = v; }
+static void CtorWriteSeven(void* self) { reinterpret_cast<CtorHostStorage*>(self)->value = 7; }
+
 // RF-1 instance-'this' AOT shapes: the transpiler emits INSTANCE methods with
 // arg0 = this (RootSlotPass:40), so the reflected entry's fnPtr reads the
 // instance as its first argument and the field lives after the klass header.
@@ -407,8 +412,8 @@ int main()
         auto names = il2cpp_typeinfo_get_methods(
             reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
         Expect(names != nullptr, "R2 get_methods returns a non-null array");
-        Expect(names != nullptr && names->length == 5,
-               "R2 get_methods own+base public methods count (Derived Foo/Trimmed + Base Ctor/Add/Foo)");
+        Expect(names != nullptr && names->length == 4,
+               "GAP-4 get_methods own+base public NON-ctor methods count (Derived Foo/Trimmed + Base Add/Foo -- net48 GetMethods excludes ctors)");
         bool hasFoo = false, hasAdd = false, hasCtor = false, hasTrimmed = false;
         if (names != nullptr)
         {
@@ -422,8 +427,8 @@ int main()
                 if (ManagedEqualsAscii(e, "Trimmed")) hasTrimmed = true;
             }
         }
-        Expect(hasFoo && hasAdd && hasCtor && hasTrimmed,
-               "R2 get_methods names cover own+base public methods");
+        Expect(hasFoo && hasAdd && hasTrimmed && !hasCtor,
+               "GAP-4 get_methods covers public non-ctor names and EXCLUDES the ctor (net48 GetMethods doctrine)");
 
         auto fields = il2cpp_typeinfo_get_fields(
             reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.Derived")));
@@ -623,6 +628,17 @@ int main()
         auto statRead = il2cpp_typeinfo_field_get_value(nameStat, target);
         Expect(statRead == statVal && ManagedEqualsAscii(statRead, "stat"),
                "R2 field_set/get static reference field through staticAddr");
+
+        // GAP-2 (P1): a STATIC field's GetValue(null)/SetValue(null) is legal
+        // on net48 -- the declaring type is joined by the registry scan (no
+        // target klass). The singleton static "fstat" resolves unambiguously.
+        auto statNullRead = il2cpp_typeinfo_field_get_value(nameStat, nullptr);
+        Expect(statNullRead == statVal && ManagedEqualsAscii(statNullRead, "stat"),
+               "GAP-2 static field GetValue(null) resolves by registry scan (net48)");
+        auto statNullVal = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("nullset"));
+        il2cpp_typeinfo_field_set_value(nameStat, nullptr, statNullVal);
+        Expect(g_hostStaticString == statNullVal && ManagedEqualsAscii(g_hostStaticString, "nullset"),
+               "GAP-2 static field SetValue(null, v) writes through staticAddr (net48)");
     }
 
     // --- R3 (B4): MethodInfo.Invoke -- il2cpp_methodinfo_invoke(memberName,
@@ -635,6 +651,65 @@ int main()
     //    registered with the STATIC flag (bit1 == 1) so the no-this path is
     //    preserved; INSTANCE methods (static bit clear) now get the target
     //    injected as the 'this' slot (verified in the second block below).
+    {
+        // GAP-1 (P0): the BindingFlags-aware member query primitives. A
+        // dedicated fixture with a public/private method, field, property pair
+        // plus a static member -- the flags filter (Public=16, NonPublic=32,
+        // Instance=4, Static=8) matches net48 single-member queries.
+        // GAP-1 flags fixture data is FILE-SCOPE static: it is registered into the
+    // runtime registry and later member scans (GAP-3's property accessor walk)
+    // read it -- block-scoped arrays would dangle after their `{}` exits.
+    static il2cpp::Il2CppClass g_flagsClass = {
+        "T.FlagsHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
+    };
+    static il2cpp::Il2CppMethodInfo g_flagsMethods[5] = {
+        {"Pub", "i()", 0, 1, -1, "T.FlagsHost", reinterpret_cast<void*>(&AddTwoInts)},
+        {"Priv", "i()", 0, 0, -1, "T.FlagsHost", reinterpret_cast<void*>(&AddTwoInts)},
+        {"Stat", "i()", 0, 1 | 2, -1, "T.FlagsHost", reinterpret_cast<void*>(&AddTwoInts)},
+        // the property accessors (public) -- resolved UNFILTERED by the
+        // property-visibility walk, then the public filter applies.
+        {"get_pubP", "i()", 0, 1, -1, "T.FlagsHost", reinterpret_cast<void*>(&AddTwoInts)},
+        {"set_pubP", "v(i)", 1, 1, -1, "T.FlagsHost", reinterpret_cast<void*>(&AddTwoInts)},
+    };
+    static il2cpp::Il2CppFieldInfo g_flagsFields[2] = {
+        {"pubF", "System.Int32", 8, 0, nullptr, 1},
+        {"privF", "System.Int32", 12, 0, nullptr, 0},
+    };
+    static il2cpp::Il2CppPropertyInfo g_flagsProps[1] = {
+        {"pubP", "System.Int32", "get_pubP", "set_pubP", 0},
+    };
+    static il2cpp::Il2CppTypeInfo g_flagsInfo = {
+        "T.FlagsHost", &g_flagsClass, &objectInfoInstance, nullptr, 0,
+        g_flagsFields, 2, g_flagsMethods, 5, g_flagsProps, 1,
+    };
+    il2cpp_typeinfo_register(&g_flagsInfo);
+    const Il2CppTypeInfo* flagsInfoResolved = il2cpp_typeinfo_lookup("T.FlagsHost");
+
+        // GetMethod: default (Public|Instance|Static) binds only public.
+        Expect(il2cpp_type_get_method_flags(flagsInfoResolved, "Pub", 16 | 4 | 8) != nullptr,
+               "GAP-1 get_method_flags public method found under default binding");
+        Expect(il2cpp_type_get_method_flags(flagsInfoResolved, "Priv", 16 | 4 | 8) == nullptr,
+               "GAP-1 get_method_flags private method hidden under default binding");
+        Expect(il2cpp_type_get_method_flags(flagsInfoResolved, "Priv", 32 | 4) != nullptr,
+               "GAP-1 get_method_flags NonPublic|Instance finds the private method");
+        Expect(il2cpp_type_get_method_flags(flagsInfoResolved, "Stat", 16 | 8) != nullptr,
+               "GAP-1 get_method_flags Public|Static finds the static method");
+        Expect(il2cpp_type_get_method_flags(flagsInfoResolved, "Stat", 16 | 4) == nullptr,
+               "GAP-1 get_method_flags Public|Instance hides the static method");
+
+        // GetField: public-only default; NonPublic admits the private field.
+        Expect(il2cpp_type_get_field_flags(flagsInfoResolved, "pubF", 16 | 4 | 8) != nullptr,
+               "GAP-1 get_field_flags public field under default binding");
+        Expect(il2cpp_type_get_field_flags(flagsInfoResolved, "privF", 16 | 4 | 8) == nullptr,
+               "GAP-1 get_field_flags private field hidden under default binding");
+        Expect(il2cpp_type_get_field_flags(flagsInfoResolved, "privF", 32 | 4) != nullptr,
+               "GAP-1 get_field_flags NonPublic|Instance finds the private field");
+
+        // GetProperty: visibility derives from the accessor methods (get_pubP
+        // is public -> the property is visible under the default binding).
+        Expect(il2cpp_type_get_property_flags(flagsInfoResolved, "pubP", 16 | 4 | 8) != nullptr,
+               "GAP-1 get_property_flags public-accessor property visible by default");
+    }
     {
         il2cpp::Il2CppClass invokeClass = {
             "T.InvokeHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
@@ -730,6 +805,90 @@ int main()
         Expect(inst.fld == 26, "RF-1 void instance method writes the real target state");
     }
 
+    // --- GAP-3 (P1): PropertyInfo.GetGetMethod()/GetSetMethod() ---
+    //    il2cpp_typeinfo_property_get_accessor resolves the property by the
+    //    deepest-declaring-type registry scan and returns the PUBLIC accessor
+    //    NAME string (a MethodInfo VALUE) or null (missing accessor). The
+    //    fixture's property table carries getterName/setterName and the OWN
+    //    method table carries the public accessors (the single source of
+    //    truth the visibility walk resolves through).
+    {
+        il2cpp::Il2CppMethodInfo accMethods[2] = {
+            {"get_Acc", "i()", 0, 1, -1, "T.AccHost", reinterpret_cast<void*>(&AddTwoInts)},
+            {"set_Acc", "v(i)", 1, 1, -1, "T.AccHost", reinterpret_cast<void*>(&AddTwoInts)},
+        };
+        il2cpp::Il2CppPropertyInfo accProps[1] = {
+            {"Acc", "System.Int32", "get_Acc", "set_Acc", 0},
+        };
+        il2cpp::Il2CppTypeInfo accInfo = {
+            "T.AccHost", &baseClass, &objectInfoInstance, nullptr, 0,
+            nullptr, 0, accMethods, 2, accProps, 1,
+        };
+        il2cpp_typeinfo_register(&accInfo);
+
+        auto getter = il2cpp_typeinfo_property_get_accessor(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Acc")), 0);
+        Expect(getter != nullptr && ManagedEqualsAscii(getter, "get_Acc"),
+               "GAP-3 property_get_accessor(Acc, 0) -> the public getter name");
+        auto setter = il2cpp_typeinfo_property_get_accessor(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Acc")), 1);
+        Expect(setter != nullptr && ManagedEqualsAscii(setter, "set_Acc"),
+               "GAP-3 property_get_accessor(Acc, 1) -> the public setter name");
+        auto unknown = il2cpp_typeinfo_property_get_accessor(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("Nope")), 0);
+        Expect(unknown == nullptr,
+               "GAP-3 property_get_accessor unknown property -> null (defensive)");
+    }
+
+    // --- GAP-5 (P1): ConstructorInfo -- Type.GetConstructor(Type[]) +
+    //    ConstructorInfo.Invoke(object[]). The ctor member VALUE is the
+    //    disambiguated "<FullName>::.ctor" carrier; get_constructor returns it
+    //    on a PUBLIC-ctor arity match and ctor_invoke allocates + runs the
+    //    ctor on a fresh instance through il2cpp_methodinfo_invoke's 'this'
+    //    injection. The fixture data is FILE-SCOPE static (registered into the
+    //    runtime registry; block-scoped arrays would dangle -- the GAP-1
+    //    lesson).
+    {
+        static il2cpp::Il2CppClass ctorHostClass = {
+            "T.CtorHost", static_cast<int32_t>(sizeof(CtorHostStorage)), 0u, 0,
+            &objectClass, nullptr, 0, nullptr, 0,
+        };
+        static il2cpp::Il2CppMethodInfo ctorMethods[3] = {
+            {".ctor", "V:i", 1, 1 | 4, -1, "T.CtorHost", reinterpret_cast<void*>(&CtorWriteInt)},
+            {".ctor", "V", 0, 1 | 4, -1, "T.CtorHost", reinterpret_cast<void*>(&CtorWriteSeven)},
+            {"Sum", "I", 0, 1, -1, "T.CtorHost", reinterpret_cast<void*>(&AddTwoInts)},
+        };
+        static il2cpp::Il2CppTypeInfo ctorHostInfo = {
+            "T.CtorHost", &ctorHostClass, &objectInfoInstance, nullptr, 0,
+            nullptr, 0, ctorMethods, 3, nullptr, 0,
+        };
+        il2cpp_typeinfo_register(&ctorHostInfo);
+
+        auto empty = il2cpp_array_new(nullptr, sizeof(void*), true, 0);
+        auto one = il2cpp_array_new(nullptr, sizeof(void*), true, 1);
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(one, 0)) =
+            il2cpp_box_int32(nullptr, 55);
+
+        // GetConstructor(Type[]) with an empty Type[] -> the parameterless ctor.
+        auto gc0 = il2cpp_typeinfo_get_constructor(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.CtorHost")), empty);
+        Expect(gc0 != nullptr && ManagedEqualsAscii(gc0, "T.CtorHost::.ctor"),
+               "GAP-5 get_constructor(empty) -> the disambiguated ctor member value");
+        auto gc1 = il2cpp_typeinfo_get_constructor(
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("T.CtorHost")), one);
+        Expect(gc1 != nullptr && ManagedEqualsAscii(gc1, "T.CtorHost::.ctor"),
+               "GAP-5 get_constructor(one int32) -> the arity-matched ctor value");
+
+        // Invoke: allocates + runs the ctor on a fresh instance; the returned
+        // object carries the ctor-written state.
+        auto obj0 = il2cpp_constructorinfo_invoke(gc0, empty);
+        Expect(obj0 != nullptr && reinterpret_cast<CtorHostStorage*>(obj0)->value == 7,
+               "GAP-5 ctor_invoke runs the parameterless ctor on a fresh instance");
+        auto obj1 = il2cpp_constructorinfo_invoke(gc1, one);
+        Expect(obj1 != nullptr && reinterpret_cast<CtorHostStorage*>(obj1)->value == 55,
+               "GAP-5 ctor_invoke runs the (int) ctor with the boxed arg");
+    }
+
     // --- Report ---
     if (g_failures != 0)
     {
@@ -739,3 +898,4 @@ int main()
     std::printf("all runtime typeinfo tests passed\n");
     return 0;
 }
+

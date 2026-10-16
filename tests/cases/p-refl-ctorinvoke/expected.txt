@@ -1,0 +1,7 @@
+﻿[gc.empty]=True
+[gc.one]=True
+[gc.two]=True
+[inv.empty.sum]=True
+[inv.one.sum]=True
+[inv.two.sum]=True
+[inv.empty.is2]=True

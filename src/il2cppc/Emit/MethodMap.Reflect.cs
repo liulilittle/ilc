@@ -111,6 +111,25 @@ public static partial class MethodRefResolver
                         new[] { "", "", "" });
                 throw new NotSupportedException(
                     $"{owner}::SetValue with {ps.Length} parameter(s) not wired in RF-N2 -- FieldInfo.SetValue(object, object) maps to il2cpp_typeinfo_field_set_value; PropertyInfo.SetValue(object, object) / SetValue(object, object, object[]) map to il2cpp_typeinfo_property_set_value");
+            // GAP-3 (P1): PropertyInfo.GetGetMethod()/GetSetMethod() -- the
+            // accessor-surface unfreeze (reflprop2 D-PRP2-1's parked group).
+            // The receiver is the PROPERTY-NAME string (the simplified member
+            // model); the runtime resolves the declaring type by registry scan
+            // (deepest type declaring the property) and returns the PUBLIC
+            // accessor METHOD-NAME string (a MethodInfo VALUE) or null.
+            // dir is a compile-time constant: 0 = GetGetMethod, 1 = GetSetMethod.
+            case "GetGetMethod":
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_property_get_accessor", 0, true, true, true,
+                        new[] { "" }, appendLiterals: new[] { "0" }, returnTypeName: "System.Reflection.MethodInfo");
+                throw new NotSupportedException(
+                    $"{owner}::GetGetMethod with {ps.Length} parameter(s) not wired in P1 -- the () overload maps to il2cpp_typeinfo_property_get_accessor(_, 0)");
+            case "GetSetMethod":
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_property_get_accessor", 0, true, true, true,
+                        new[] { "" }, appendLiterals: new[] { "1" }, returnTypeName: "System.Reflection.MethodInfo");
+                throw new NotSupportedException(
+                    $"{owner}::GetSetMethod with {ps.Length} parameter(s) not wired in P1 -- the () overload maps to il2cpp_typeinfo_property_get_accessor(_, 1)");
             case "Invoke":
                 // MethodBase.Invoke(object obj, object[] parameters) / the
                 // MethodInfo override -- R3. net48 csc emits the BASE
@@ -126,8 +145,21 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_methodinfo_invoke", 2, true, true, true,
                         new[] { "", "", "a" }, returnTypeName: "System.Object",
                         argOrder: new[] { 0, 1, 2 });
+                // GAP-5 (P1): ConstructorInfo.Invoke(object[] parameters) --
+                // the 1-param ctor-invocation overload (no obj target; the
+                // ctor CREATES the instance). The receiver is the ctor MEMBER
+                // VALUE "<FullName>::.ctor" (as il2cpp_typeinfo_get_constructor
+                // returns); the runtime parses the declaring type, allocates a
+                // fresh instance and runs the ctor on it. The result is the
+                // constructed object.
+                if (owner == "System.Reflection.ConstructorInfo" && ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::il2cpp_constructorinfo_invoke", 1, true, true, true,
+                        new[] { "", "a" }, returnTypeName: "System.Object");
+                if (owner == "System.Reflection.ConstructorInfo" && ps.Length == 3)
+                    throw new NotSupportedException(
+                        "ConstructorInfo::Invoke(BindingFlags, Binder, object[], CultureInfo) is not wired in GAP-5 -- binders are not modeled in this AOT build");
                 throw new NotSupportedException(
-                    $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3 -- only MethodBase/MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke");
+                    $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3/GAP-5 -- MethodBase/MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke; ConstructorInfo.Invoke(object[]) maps to il2cpp_constructorinfo_invoke");
             // C3-2 (COM-C3): EventInfo.AddEventHandler(object, Delegate) /
             // EventInfo.RemoveEventHandler(object, Delegate) -- instance. The
             // receiver is the EVENT-NAME string (the simplified member model,

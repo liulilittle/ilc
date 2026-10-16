@@ -1,0 +1,10 @@
+﻿[int.rw]=True
+[bool.rw]=True
+[short.rw]=True
+[uint.rw]=True
+[byte.rw]=True
+[str.rw]=True
+[static.int.wr]=True
+[static.int.verify]=True
+[static.str.wr]=True
+[static.str.verify]=True

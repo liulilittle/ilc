@@ -215,6 +215,23 @@ const Il2CppPropertyInfo* il2cpp_type_get_property(const Il2CppTypeInfo* info, c
 const Il2CppMethodInfo*   il2cpp_type_get_method(const Il2CppTypeInfo* info, const char* name);
 const Il2CppFieldInfo*    il2cpp_type_get_field(const Il2CppTypeInfo* info, const char* name);
 const Il2CppEventInfo*    il2cpp_type_get_event(const Il2CppTypeInfo* info, const char* name);
+// GAP-1 (P0): the BindingFlags-aware member query primitives. `bindingAttr` is
+// the net48 System.Reflection.BindingFlags value (Public=16, NonPublic=32,
+// Instance=4, Static=8); each hit is filtered by visibility + static as net48
+// single-member queries do (the (string) overloads bind Public|Instance|Static
+// -- a private member is invisible; an explicit NonPublic bit admits private
+// entries; an explicit Instance-only/Static-only bit narrows the search). A
+// filtered-out hit is skipped and the base-chain scan continues (a public base
+// same-name member is still found). Properties have no flags field
+// (Il2CppPropertyInfo) -- their visibility derives from the accessor method
+// flags (a property is public when any accessor is public), resolved through
+// the same table's methods.
+const Il2CppPropertyInfo* il2cpp_type_get_property_flags(const Il2CppTypeInfo* info, const char* name,
+                                                         int32_t bindingAttr);
+const Il2CppMethodInfo*   il2cpp_type_get_method_flags(const Il2CppTypeInfo* info, const char* name,
+                                                       int32_t bindingAttr);
+const Il2CppFieldInfo*    il2cpp_type_get_field_flags(const Il2CppTypeInfo* info, const char* name,
+                                                      int32_t bindingAttr);
 
 //------------------------------------------------------------------------------
 // Managed-string ABI queries -- the icall surface the TRANSPILER wires
@@ -246,6 +263,17 @@ Il2CppObject* il2cpp_typeinfo_get_property(Il2CppObject* typeName, Il2CppObject*
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* memberName);
+// GAP-1 (P0): the BindingFlags-carrying managed-string variants (the
+// Type.Get*Method/GetProperty/GetField(string, BindingFlags) overloads). The
+// bindingAttr slot is the raw net48 System.Reflection.BindingFlags int32; the
+// no-arg overloads above are equivalent to passing Public|Instance|Static
+// (16|4|8) -- net48's default binding, so a private member is invisible there.
+Il2CppObject* il2cpp_typeinfo_get_property_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                                 int32_t bindingAttr);
+Il2CppObject* il2cpp_typeinfo_get_method_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                               int32_t bindingAttr);
+Il2CppObject* il2cpp_typeinfo_get_field_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                              int32_t bindingAttr);
 // D (audit A3/observation 3): Type.BaseType on a Type VALUE (full-name
 // string). Resolves the typeinfo registry and returns the BASE type's full
 // name string (the simplified Type model) on a hit -- the resolved user base
@@ -372,6 +400,39 @@ Il2CppObject* il2cpp_typeinfo_property_get_value(Il2CppObject* propertyName, Il2
                                                  Il2CppArray* index);
 void         il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2CppObject* target,
                                                 Il2CppObject* value, Il2CppArray* index);
+// GAP-3 (P1): PropertyInfo.GetGetMethod()/GetSetMethod(). dir = 0 -> the
+// getter accessor name string (a MethodInfo VALUE), 1 -> the setter accessor.
+// The receiver is the PROPERTY-NAME string (the simplified member model); the
+// declaring type is resolved by scanning the registry for the deepest type
+// declaring a property with that name (the same member-name doctrine as RF-N6
+// / the static-field null-target path). The PUBLIC accessor is bound by
+// default (net48 GetGetMethod()/GetSetMethod() bind publicOnly=true) -- a
+// private accessor returns nullptr (the visibility filter), as does a property
+// without the accessor or an unregistered property. Null receiver ->
+// NullReferenceException (the net48 null-PropertyInfo chain).
+Il2CppObject* il2cpp_typeinfo_property_get_accessor(Il2CppObject* propertyName, int32_t dir);
+
+//------------------------------------------------------------------------------
+// GAP-5 (P1) -- ConstructorInfo: Type.GetConstructor(Type[]) + the ctor
+// Invoke used by ConstructorInfo.Invoke(object[]).
+//
+//   il2cpp_typeinfo_get_constructor(typeName, types) -- Type.GetConstructor.
+//     The typeName is the TYPE VALUE (full-name string); types is the Type[]
+//     (its length = the ctor arity, the simplified net48 param-type match).
+//     Returns the ctor MEMBER VALUE "<declaringTypeFullName>::.ctor" (the
+//     disambiguated value Invoke can resolve) or nullptr on no public ctor of
+//     that arity. Null typeName -> NullReferenceException (the null Type
+//     receiver doctrine).
+//   il2cpp_constructorinfo_invoke(memberName, args) -- the Invoke. The
+//     memberName is the ctor member value above; the runtime parses the
+//     declaring type, joins the typeinfo, resolves the PUBLIC ctor of the
+//     args length, ALLOCATES a fresh instance and RUNS the ctor on it through
+//     il2cpp_methodinfo_invoke's instance-'this' dispatch (the ctor entry's
+//     fnPtr is the void(C* this, args...) ABI -- the same shape the invoker
+//     dispatches). The result is the constructed object.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_constructor(Il2CppObject* typeName, Il2CppArray* types);
+Il2CppObject* il2cpp_constructorinfo_invoke(Il2CppObject* memberName, Il2CppArray* args);
 
 //------------------------------------------------------------------------------
 // R3 (B4) -- MethodInfo.Invoke: il2cpp_methodinfo_invoke(memberName, target,

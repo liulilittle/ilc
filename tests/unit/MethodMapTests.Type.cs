@@ -248,13 +248,19 @@ public class MethodMapTestsType
     }
 
     [Fact]
-    public void Resolve_Type_GetPropertyTwoParams_ThrowsLoud()
+    public void Resolve_Type_GetPropertyTwoParams_MapsToFlagsIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Type", "GetProperty",
-                new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x08 }), "GetProperty")); // (string, BindingFlags)
+        // GAP-1 (P0): Type.GetProperty(string, BindingFlags) is now wired --
+        // the BindingFlags int rides the runtime's flags-aware query (Public/
+        // NonPublic/Instance/Static visibility filter).
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetProperty",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x08 }), "GetProperty"); // (string, BindingFlags)
 
-        Assert.Contains("System.Type::GetProperty", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_property_flags", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------

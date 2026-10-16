@@ -1,0 +1,6 @@
+﻿[go.getter]=True
+[go.setter]=True
+[so.getter]=True
+[so.setter]=True
+[bo.getter]=True
+[bo.setter]=True

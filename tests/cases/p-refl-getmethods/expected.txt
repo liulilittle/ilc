@@ -1,0 +1,5 @@
+﻿[has.A]=True
+[has.B]=True
+[no.ctor]=True
+[no.cctor]=True
+[count]=2

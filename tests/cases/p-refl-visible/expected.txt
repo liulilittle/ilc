@@ -1,0 +1,13 @@
+﻿[pub.field]=True
+[priv.field.none]=True
+[priv.field.np]=True
+[pub.prop]=True
+[priv.prop.none]=True
+[priv.prop.np]=True
+[pub.method]=True
+[priv.method.none]=True
+[priv.method.np]=True
+[static.pub.field]=True
+[static.pub.method]=True
+[static.priv.none]=True
+[static.priv.np]=True
