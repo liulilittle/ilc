@@ -1590,7 +1590,12 @@ public static class TypeEmitter
                 var fnPtr = (t.IsInterface || m.IsAbstract || m.IsPInvoke || folded || isDelegate)
                     ? "nullptr"
                     : $"reinterpret_cast<void*>(&{MethodSymbolName(t, m)})";
-                w.Line($"{{ \"{m.Name}\", \"{EncodeReturnType(m.ReturnType, m.ReturnTypeName)}({m.ParamTypes})\", {m.ParamCount}, 0x{flags:x}, {slot}, \"{ReflectionFullName(t)}\", {fnPtr} }},");
+                // REFL3 (item 2): the per-parameter metadata (name|outFlag,
+                // ';'-joined). paramCount must match ParamNames (the Param rows
+                // project onto the signature slots); a mismatch (or no names)
+                // emits nullptr -> GetParameters answers an empty array.
+                var paramMetaCpp = ParamMetaCppString(m);
+                w.Line($"{{ \"{m.Name}\", \"{EncodeReturnType(m.ReturnType, m.ReturnTypeName)}({m.ParamTypes})\", {m.ParamCount}, 0x{flags:x}, {slot}, \"{ReflectionFullName(t)}\", {fnPtr}, {paramMetaCpp} }},");
             }
             w.Close();
             w.Line("};");
@@ -1889,6 +1894,43 @@ public static class TypeEmitter
             _ => throw new NotSupportedException(
                 $"typeinfo: method return type {returnType} not representable in Il2CppMethodInfo.signature -- the MethodDef model carries no full type name for this return (model gap, mirror of the M1 static-field classification gap)"),
         };
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL3 (item 2): the per-parameter metadata string baked into each
+    // Il2CppMethodInfo.paramMeta slot (typeinfo.h contract): one "name|outFlag"
+    // row per parameter, ';'-joined ("a|0;b|0"), nullptr for parameterless or
+    // mismatched metadata. ParamNames/ParamOutFlags come from the Param table
+    // (MetadataLoader) and must align with ParamCount; a count mismatch emits
+    // nullptr (a defensive constant -- GetParameters then answers an empty
+    // array, never memory garbage). Both arrays are in SIGNATURE order.
+    //--------------------------------------------------------------------------
+    private static string ParamMetaCppString(MethodDef m)
+    {
+        if (m.ParamCount <= 0 || m.ParamNames is not { Length: > 0 } names) return "nullptr";
+        if (names.Length != m.ParamCount) return "nullptr";
+        var outFlags = m.ParamOutFlags;
+        var rows = new string[names.Length];
+        for (var i = 0; i < names.Length; i++)
+        {
+            var isOut = outFlags is { Length: > 0 } && i < outFlags.Length && outFlags[i] ? 1 : 0;
+            if (names[i].Contains('|') || names[i].Contains(';'))
+                throw new NotSupportedException(
+                    $"typeinfo method param name '{names[i]}' contains a meta separator ('|' or ';') -- the paramMeta contract cannot encode it (REFL3)");
+            rows[i] = $"{names[i]}|{isOut}";
+        }
+        // C# identifiers are ASCII alphanumeric + '_' (no quote/backslash), but
+        // escape defensively so a hand-written .il param name cannot break the
+        // emitted C string literal.
+        var joined = string.Join(";", rows);
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in joined)
+        {
+            if (ch == '\\') sb.Append("\\\\");
+            else if (ch == '"') sb.Append("\\\"");
+            else sb.Append(ch);
+        }
+        return $"\"{sb}\"";
     }
 
     //--------------------------------------------------------------------------

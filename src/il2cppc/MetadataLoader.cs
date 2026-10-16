@@ -157,6 +157,31 @@ public static class MetadataLoader
                 // encodings above stay untouched (hash contract).
                 var (returnIsVar, paramIsVars, paramIsByrefVars, returnVarIndex, paramVarIndex) = MethodSignatureCoder.DecodeVarFlags(md, mdInfo.Signature);
                 var attrs = mdInfo.Attributes;
+                // REFL3 (item 2): per-parameter names + `out` flags from the
+                // Param table (System.Reflection.Metadata Parameter gives the
+                // face: Name + ParamAttributes). scoped to the Param table in
+                // SIGNATURE ORDER (the 1-based SequenceNumber projects onto the
+                // signature slot -- parameterless methods have no rows). The
+                // `out` bit (ParamAttributes.Out = 0x2) is the net48
+                // ParameterInfo.IsOut pin; `ref` params are NOT out
+                // (probe-verified: refs.p0.out=False, refs.p1.out=True).
+                string[]? paramNames = null;
+                bool[]? paramOutFlags = null;
+                var paramRows = new List<(int Seq, string Name, bool Out)>();
+                foreach (var ph in mdInfo.GetParameters())
+                {
+                    var pi = md.GetParameter(ph);
+                    paramRows.Add((pi.SequenceNumber, md.GetString(pi.Name), ((int)pi.Attributes & 0x2) != 0)); // ParamAttributes.Out = 0x2
+                }
+                if (paramRows.Count > 0)
+                {
+                    paramRows.Sort((x, y) => x.Seq.CompareTo(y.Seq));
+                    if (paramRows.Count >= paramCount)
+                    {
+                        paramNames = paramRows.Take(paramCount).Select(r => r.Name).ToArray();
+                        paramOutFlags = paramRows.Take(paramCount).Select(r => r.Out).ToArray();
+                    }
+                }
                 // P/Invoke (M4 Task 1): the ImplMap entry names the native
                 // library + imported symbol ([DllImport] in source).
                 string? pinvokeModule = null;
@@ -204,6 +229,10 @@ public static class MetadataLoader
                     // GN-14 (c): the VAR (0x13) per-slot class-parameter indices.
                     ReturnVarIndex = returnVarIndex,
                     ParamVarIndex = paramVarIndex,
+                    // REFL3 (item 2): the Param-table metadata (names + out
+                    // flags) for GetParameters' ParameterInfo values.
+                    ParamNames = paramNames,
+                    ParamOutFlags = paramOutFlags,
                 });
             }
 

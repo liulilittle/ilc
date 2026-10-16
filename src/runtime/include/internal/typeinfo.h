@@ -60,6 +60,17 @@ struct Il2CppMethodInfo
                                // are listed under THEIR declaring type's table)
     void*       fnPtr;         // AOT static function address (or invoker wrapper).
                                // null = runtime-unreachable method (trimmed).
+    // REFL3 (item 2): per-parameter metadata for MethodBase.GetParameters()
+    // (the ParameterInfo surface). Trailing field (zero-delta default: existing
+    // emitted method tables leave it nullptr -- GetParameters answers an empty
+    // array with no ParameterInfo objects). A compact pipe encoding of the
+    // per-parameter NAME and `out` flag, one row per param joined by ';':
+    //   "a|0;b|0"      -- parameterless / no-meta -> nullptr
+    //   "x|0;y|1;z|0"  -- param 1 (`y`) is an `out` parameter (IsOut true)
+    // Parameter NAMES cannot contain '|' or ';' (C# identifiers). The
+    // parameter TYPE full name is decoded from the signature at runtime
+    // (ParamEncodingToTypeValueName), so the meta needs only name + flags.
+    const char* paramMeta;     // per-param "name|outFlag" rows, ';'-joined
 };
 
 // One reflected field. Instance fields: offset + isRef (same convention as
@@ -521,6 +532,33 @@ Il2CppObject* il2cpp_typeinfo_property_get_accessor(Il2CppObject* propertyName, 
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_typeinfo_get_constructor(Il2CppObject* typeName, Il2CppArray* types);
 Il2CppObject* il2cpp_constructorinfo_invoke(Il2CppObject* memberName, Il2CppArray* args);
+
+//------------------------------------------------------------------------------
+// REFL3 (item 2) -- MethodBase.GetParameters() + the ParameterInfo property
+// surface. The simplified ParameterInfo VALUE is a pipe-joined managed string
+// "name|typeFullName|position|flags" (built from the transpiler-baked
+// Il2CppMethodInfo.paramMeta + the signature's param encodings).
+//
+//   il2cpp_typeinfo_get_parameters(memberName) -- MethodBase.GetParameters().
+//     The receiver is a METHOD-NAME string (the simplified member VALUE) or a
+//     disambiguated ctor value "<FullName>::.ctor". The runtime scans the
+//     typeinfo registry for the DEEPEST type declaring the member, resolves the
+//     method (own + base chain) or ctor, and returns a reference-element array
+//     of ParameterInfo VALUE strings. Parameterless / unknown / malformed /
+//     unregistered -> an EMPTY array (net48 never returns null). Null receiver
+//     -> NullReferenceException.
+//   il2cpp_parameterinfo_get_name / get_parameter_type / get_position /
+//     is_out -- the four surfaced ParameterInfo properties, decoded from the
+//     VALUE string. get_parameter_type returns a Type VALUE (full-name string
+//     -- the same carrier typeof() folds; BYREF params decode the pointee's
+//     name, the narrow model's documented simplification). Malformed values
+//     yield the defensive defaults ("" / 0).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_parameters(Il2CppObject* memberName);
+Il2CppObject* il2cpp_parameterinfo_get_name(Il2CppObject* value);
+Il2CppObject* il2cpp_parameterinfo_get_parameter_type(Il2CppObject* value);
+int32_t il2cpp_parameterinfo_get_position(Il2CppObject* value);
+int32_t il2cpp_parameterinfo_is_out(Il2CppObject* value);
 
 //------------------------------------------------------------------------------
 // R3 (B4) -- MethodInfo.Invoke: il2cpp_methodinfo_invoke(memberName, target,

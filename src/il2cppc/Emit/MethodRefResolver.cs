@@ -1096,6 +1096,12 @@ public static partial class MethodRefResolver
             case "System.Reflection.ConstructorInfo":
             case "System.Reflection.EventInfo":
                 return TryMapReflectionMember(owner, name, ps);
+            // REFL3 (item 2): the ParameterInfo property surface. The receiver
+            // is the ParameterInfo VALUE string ("name|typeFullName|position|
+            // flags") il2cpp_typeinfo_get_parameters produces; get_Name /
+            // get_ParameterType / get_Position / get_IsOut decode it.
+            case "System.Reflection.ParameterInfo":
+                return TryMapParameterInfo(owner, name, ps, count);
             case "System.Text.StringBuilder": return TryMapStringBuilder(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // P25f (dhprobe): the net6+ interpolation lowering -- an
             // address-taken DefaultInterpolatedStringHandler VALUE local + the

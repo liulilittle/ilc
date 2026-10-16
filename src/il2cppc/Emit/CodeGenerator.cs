@@ -698,6 +698,12 @@ public static class CodeGenerator
                     // so the declaration/call faces resolve the exact argument.
                     ReturnVarIndex = m.ReturnVarIndex,
                     ParamVarIndex = m.ParamVarIndex,
+                    // REFL3 (item 2): clone the per-parameter metadata so the
+                    // typeinfo emission of a generic CLONE keeps its
+                    // GetParameters surface (names + out flags are
+                    // signature-slot-aligned, independent of generic arity).
+                    ParamNames = m.ParamNames,
+                    ParamOutFlags = m.ParamOutFlags,
                 });
             foreach (var p in def.Properties)
                 clone.Properties.Add(new PropertyDef

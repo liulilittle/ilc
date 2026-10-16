@@ -199,6 +199,21 @@ public static partial class MethodRefResolver
                         new[] { "", "a" }, returnTypeName: "System.String");
                 throw new NotSupportedException(
                     $"{owner}::MakeGenericMethod with {ps.Length} parameter(s) not wired in RF-N7 -- only the (Type[]) overload maps to the LOUD stub il2cpp_makegenericmethod_loud");
+            // REFL3 (item 2): MethodBase.GetParameters() (the parameterless
+            // overload the MethodInfo/ConstructorInfo receivers bind). The
+            // receiver is the MEMBER VALUE string (a method-name string or the
+            // disambiguated ctor value "<FullName>::.ctor"); the runtime scans
+            // the typeinfo registry for the declaring type and returns the
+            // parameter array. ReturnTypeName "System.Reflection.ParameterInfo[]"
+            // types the result so a later ldelem + ParameterInfo property call
+            // re-resolves on the "System.Reflection.ParameterInfo" element type.
+            case "GetParameters":
+                if (owner is "System.Reflection.MethodBase" or "System.Reflection.MethodInfo"
+                    or "System.Reflection.ConstructorInfo" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_parameters", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Reflection.ParameterInfo[]");
+                throw new NotSupportedException(
+                    $"{owner}::GetParameters with {ps.Length} parameter(s) not wired in REFL3 -- only the net48 () overload maps to il2cpp_typeinfo_get_parameters");
             default:
                 return null;
         }
@@ -240,6 +255,50 @@ public static partial class MethodRefResolver
                         new[] { "" }, returnTypeName: "System.Type");
                 throw new NotSupportedException($"Type.GetType with {ps.Length} parameter(s) not wired in M5.5 -- only the (string typeName) overload maps to il2cpp_type_get_type");
             default: return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL3 (item 2): ParameterInfo property surface. The receiver is the
+    // ParameterInfo VALUE string ("name|typeFullName|position|flags") that
+    // il2cpp_typeinfo_get_parameters returns; the property arms decode it.
+    //   get_Name          -> the name part (a managed string)
+    //   get_ParameterType -> the typeFullName part -- a TYPE VALUE (full-name
+    //                        string); ReturnTypeName "System.Type" keeps the
+    //                        downstream .Name/.FullName/.IsArray/.GetElementType
+    //                        /equality folds resolving on the Type domain.
+    //   get_Position      -> the position int (int32)
+    //   get_IsOut / IsOut -> the out flag (bool carrier)
+    // All are instance (inst=true), zero explicit args -- the VALUE rides as
+    // the receiver. Any malformed/unknown member stays LOUD.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapParameterInfo(string owner, string name, byte[] ps, int count)
+    {
+        switch (name)
+        {
+            case "get_Name":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_parameterinfo_get_name", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"{owner}::get_Name with {count} parameter(s) not wired in REFL3");
+            case "get_ParameterType":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_parameterinfo_get_parameter_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
+                throw new NotSupportedException($"{owner}::get_ParameterType with {count} parameter(s) not wired in REFL3");
+            case "get_Position":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_parameterinfo_get_position", 0, true, false, true,
+                        new[] { "" });
+                throw new NotSupportedException($"{owner}::get_Position with {count} parameter(s) not wired in REFL3");
+            case "get_IsOut":
+            case "IsOut":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_parameterinfo_is_out", 0, true, false, true,
+                        new[] { "" });
+                throw new NotSupportedException($"{owner}::{name} with {count} parameter(s) not wired in REFL3");
+            default:
+                return null;
         }
     }
 }

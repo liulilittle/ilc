@@ -126,6 +126,18 @@ public sealed class MethodDef
     // instead of collapsing every VAR slot to a reference on the whole suffix.
     public int ReturnVarIndex { get; init; } = -1;
     public int[]? ParamVarIndex { get; init; }
+
+    // REFL3 (item 2): per-parameter metadata for MethodBase.GetParameters()
+    // (the ParameterInfo surface). Decoded from the Param table by
+    // MetadataLoader and baked into the typeinfo method table (TypeEmitter)
+    // so the runtime can build ParameterInfo VALUE strings
+    // ("name|typeFullName|flags") without a metadata walk. Null when the
+    // method has no parameters (the runtime answers an empty array).
+    //   ParamNames    : parameter names in signature order ("a", "b", ...)
+    //   ParamOutFlags : bit i set = parameter i is an `out` parameter (net48
+    //                    ParameterInfo.IsOut; `ref` is NOT out -- probe-pinned)
+    public string[]? ParamNames { get; init; }
+    public bool[]? ParamOutFlags { get; init; }
 }
 
 //------------------------------------------------------------------------------

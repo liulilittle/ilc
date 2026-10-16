@@ -982,6 +982,106 @@ bool ReadTypeElements(Il2CppArray* types, char typeNames[][kNameBufferSize], int
     return true;
 }
 
+//------------------------------------------------------------------------------
+// REFL3 (item 2) -- ParameterInfo value codec. Each PARAMETER of a reflected
+// method is a ParameterInfo VALUE encoded as a pipe-joined managed string:
+//   "name|typeFullName|position|flags"
+// (net48 ParameterInfo.Name/ParameterType/Position/IsOut -- the 4 surfaced
+// properties). The name + flags come from the transpiler-baked
+// Il2CppMethodInfo.paramMeta ("name|outFlag" rows, ';'-joined, typeinfo.h);
+// the typeFullName is decoded from the method's signature param encoding
+// (ParamEncodingToFullName) -- the Type VALUE (full-name string) -- and
+// position is the 0-based signature slot. flags bit0 = IsOut.
+//
+// Why a VALUE string: the simplified member model represents a reflected
+// VALUE as a name string; a ParameterInfo's 4 properties each decode the same
+// compact value instead of 4 separate runtime objects. net48
+// ParameterType.IsByRef and the byref "&" suffix are NOT part of this narrow
+// model (W7 -- the type value decodes the BYREF POINTEE's full name).
+//------------------------------------------------------------------------------
+
+// Split a paramMeta row into its name + outFlag ('|'-separated). Returns false
+// on malformed input (defensive -- the emitter always produces well-formed
+// rows).
+bool SplitParamMetaRow(const char* row, char (&name)[kNameBufferSize], int32_t* outFlag)
+{
+    if (row == nullptr || outFlag == nullptr) return false;
+    const char* sep = std::strchr(row, '|');
+    if (sep == nullptr) return false;
+    const size_t len = static_cast<size_t>(sep - row);
+    if (len >= kNameBufferSize) return false;
+    std::memcpy(name, row, len);
+    name[len] = '\0';
+    char* end = nullptr;
+    *outFlag = std::strtol(sep + 1, &end, 10);
+    return end != sep + 1;
+}
+
+// Step through ';'-joined paramMeta rows; returns the i-th row or nullptr.
+const char* ParamMetaRow(const char* meta, int32_t index)
+{
+    if (meta == nullptr || index < 0) return nullptr;
+    const char* cur = meta;
+    for (int32_t i = 0; i < index; ++i)
+    {
+        const char* sep = std::strchr(cur, ';');
+        if (sep == nullptr) return nullptr;
+        cur = sep + 1;
+    }
+    return cur;
+}
+
+//------------------------------------------------------------------------------
+// ParamTypeValueName -- decode ONE MethodSignatureCoder param encoding into
+// the net48 TYPE VALUE (the full-name string the simplified Type model uses --
+// the same carrier typeof() folds). Unlike ParamEncodingToFullName (the
+// exact-match filter helper), this also decodes SZARRAY and BYREF:
+//   "i"/"l"/"d"/...          -> the primitive full name ("System.Int32", ...)
+//   "r:X" / "V:X" / "T:X"    -> "X" (a plain identifier, no array bracket)
+//   "r:E[]" (SZARRAY)        -> "[EFull" (the array-descriptor name the
+//       is_array/get_element_type predicates expect -- "[System.Int32")
+//   "B:..." (BYREF ref/out)  -> the POINTEE's value name (the narrow model has
+//       no "&"-typed Type VALUE -- W7; net48 reports the byref element type).
+// Returns false for encodings with no name (, fnptr "F:", pointer "P:"), so
+// the caller falls back to the raw encoding (defensive -- never skipped).
+//------------------------------------------------------------------------------
+bool ParamTypeValueName(const char* enc, char (&out)[kNameBufferSize])
+{
+    if (enc == nullptr) return false;
+    // BYREF: strip the "B:" prefix and decode the pointee.
+    if (enc[0] == 'B' && enc[1] == ':') return ParamTypeValueName(enc + 2, out);
+    // SZARRAY "r:E[]": the element is a full name / leaf code followed by '['.
+    if (enc[0] == 'r' && enc[1] == ':')
+    {
+        const char* rest = enc + 2;
+        const size_t restLen = std::strlen(rest);
+        if (restLen >= 2 && rest[restLen - 2] == '[' && rest[restLen - 1] == ']')
+        {
+            char elem[kNameBufferSize];
+            const size_t elemLen = restLen - 2;
+            std::memcpy(elem, rest, elemLen);
+            elem[elemLen] = '\0';
+            // Element is a leaf code ("r:i[]") or a full name ("r:System.X[]").
+            char elemFull[kNameBufferSize];
+            if (!ParamTypeValueName(elem, elemFull))
+            {
+                // Leaf codes don't start with a namespace -- map via the leaf
+                // table through ParamEncodingToFullName (it handles leafs).
+                if (!ParamEncodingToFullName(elem, elemFull)) return false;
+            }
+            std::snprintf(out, kNameBufferSize, "[%s", elemFull);
+            return true;
+        }
+        // Plain class/string/object "r:X": strip "r:" and accept the name.
+        if (std::strchr(rest, '[') != nullptr) return false;
+        std::snprintf(out, kNameBufferSize, "%s", rest);
+        return true;
+    }
+    // Leaf primitive codes + "V:"/"T:" names -- delegate to the exact-match
+    // decoder (the full-name projection is identical for these shapes).
+    return ParamEncodingToFullName(enc, out);
+}
+
 } // namespace
 
 Il2CppObject* il2cpp_typeinfo_get_method_types(Il2CppObject* typeName, Il2CppObject* memberName,
@@ -2908,6 +3008,252 @@ Il2CppObject* il2cpp_constructorinfo_invoke(Il2CppObject* memberName, Il2CppArra
     Il2CppObject* ctorValue = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(kCtorName));
     (void)il2cpp_methodinfo_invoke(ctorValue, instance, args);
     return instance;
+}
+
+//------------------------------------------------------------------------------
+// REFL3 (item 2) -- il2cpp_typeinfo_get_parameters (typeinfo.h contract):
+// MethodBase.GetParameters(). The receiver is the METHOD-NAME string (the
+// simplified member-model VALUE il2cpp_typeinfo_get_method returns) or the
+// disambiguated ctor value "<FullName>::.ctor" (il2cpp_typeinfo_get_constructor
+// returns). The runtime scans the typeinfo registry for the DEEPEST type that
+// DECLARES the member (method-name doctrine, RF-N6 precedent -- a method name
+// is unique across kinds within a type), resolves the method (own + base chain)
+// or ctor, then builds a reference-element Il2CppArray of ParameterInfo VALUE
+// strings -- the pipe-joined codec "name|typeFullName|position|flags" that the
+// ParameterInfo property icalls decode. A method/ctor with no parameters (or
+// an unknown member / unregistered type / malformed name) yields an EMPTY array
+// (net48 GetParameters on a parameterless method returns length 0; never null).
+// Null receiver -> NullReferenceException (the null-MemberInfo doctrine).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_parameters(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char memberBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, memberBuf))
+    {
+        return EmptyStringArray();
+    }
+    // Resolve the declaring type by REGISTRY SCAN (deepest type declaring the
+    // member name -- the same member-name doctrine the RF-N6 member query and
+    // the property accessor query use; the method VALUE carries no declaring
+    // type). A ctor value "<FullName>::.ctor" names its type explicitly.
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    const bool isCtorValue = std::strstr(memberBuf, kCtorSeparator) != nullptr;
+    char ctorTypeBuf[kNameBufferSize];
+    if (isCtorValue)
+    {
+        SplitCtorMemberValue(memberBuf, ctorTypeBuf);
+        best = il2cpp_typeinfo_lookup(ctorTypeBuf[0] != '\0' ? ctorTypeBuf : nullptr);
+    }
+    else
+    {
+        for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+        {
+            const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+            if (info == nullptr || info->methods == nullptr) continue;
+            bool declares = false;
+            for (int32_t mi = 0; mi < info->methodCount; ++mi)
+            {
+                const Il2CppMethodInfo& m = info->methods[mi];
+                if (m.name != nullptr && std::strcmp(m.name, memberBuf) == 0) { declares = true; break; }
+            }
+            if (declares)
+            {
+                int32_t depth = 0;
+                for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType) ++depth;
+                if (depth > bestDepth) { bestDepth = depth; best = info; }
+            }
+        }
+    }
+    if (best == nullptr)
+    {
+        return EmptyStringArray();
+    }
+    // Resolve the METHOD entry (own + base chain). For a ctor value, match the
+    // ctor flag (bit2) -- and when several ctors exist, the FIRST public ctor of
+    // the type (the value does not carry arity; the probe set has one ctor).
+    const Il2CppMethodInfo* method = nullptr;
+    for (const Il2CppTypeInfo* scan = best; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name == nullptr) continue;
+            if (isCtorValue)
+            {
+                if (std::strcmp(m.name, kCtorName) == 0) { method = &m; break; }
+            }
+            else if (std::strcmp(m.name, memberBuf) == 0)
+            {
+                method = &m;
+                break;
+            }
+        }
+        if (method != nullptr) break; // own-table win, .NET shadowing
+    }
+    if (method == nullptr || method->signature == nullptr || method->paramCount <= 0)
+    {
+        return EmptyStringArray();
+    }
+    // Split the signature's param encodings (SplitSignatureParams, the same
+    // helper the AME/get_method_types paths use). Up to 8 params (the probe
+    // surface; the shared 4-slot cap of the exact-match paths doesn't apply --
+    // GetParameters enumerates the FULL signature).
+    const int32_t count = method->paramCount;
+    if (count <= 0 || count > 8)
+    {
+        return EmptyStringArray();
+    }
+    char encs[8][kNameBufferSize];
+    int32_t decoded = SplitSignatureParams(method->signature, encs, 8);
+    if (decoded != count)
+    {
+        return EmptyStringArray();
+    }
+    Il2CppArray* result = il2cpp_array_new(nullptr, sizeof(void*), true, count);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        // typeFullName from the signature encoding (the Type VALUE full name).
+        char typeFull[kNameBufferSize];
+        const bool hasType = ParamTypeValueName(encs[i], typeFull);
+        const char* tf = hasType ? typeFull : encs[i];
+        // name + outFlag from the transpiler-baked paramMeta (missing -> the
+        // "argN" fallback name, flag 0 -- a method without meta still yields a
+        // parameter with a deterministic Name).
+        char pName[kNameBufferSize];
+        int32_t outFlag = 0;
+        const char* metaName = nullptr;
+        if (ParamMetaRow(method->paramMeta, i) != nullptr)
+        {
+            if (SplitParamMetaRow(ParamMetaRow(method->paramMeta, i), pName, &outFlag))
+                metaName = pName;
+        }
+        static const char kArgPrefix[] = "arg";
+        char fallback[kNameBufferSize];
+        if (metaName == nullptr)
+        {
+            std::snprintf(fallback, sizeof(fallback), "%s%d", kArgPrefix, i);
+            metaName = fallback;
+        }
+        char valueBuf[kNameBufferSize * 4];
+        std::snprintf(valueBuf, sizeof(valueBuf), "%s|%s|%d|%d", metaName, tf, i, outFlag);
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(result, i)) =
+            reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(valueBuf));
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// REFL3 (item 2) -- the ParameterInfo PROPERTY decoders. Each takes the
+// ParameterInfo VALUE string ("name|typeFullName|position|flags") that
+// il2cpp_typeinfo_get_parameters produces and returns ONE property:
+//   il2cpp_parameterinfo_get_name        -> the name part (a managed string)
+//   il2cpp_parameterinfo_get_parameter_type -> the typeFullName part (a Type
+//        VALUE -- full-name string, the same carrier typeof() folds; net48
+//        ParameterType is a System.Type. BYREF params decode the POINTEE name
+//        (the narrow model has no "&"-typed Type VALUE -- W7).
+//   il2cpp_parameterinfo_get_position    -> the position integer (int32)
+//   il2cpp_parameterinfo_is_out          -> 1/0 (flags bit0)
+// A malformed/absent value yields the defensive default ("" name, "" type,
+// 0 position, 0 isOut) -- the property surface never crashes on a bad codec.
+//------------------------------------------------------------------------------
+namespace {
+
+bool SplitParamValue(const char* value, char (&name)[kNameBufferSize],
+                     char (&typeFull)[kNameBufferSize], int32_t* position,
+                     int32_t* flags)
+{
+    name[0] = '\0'; typeFull[0] = '\0';
+    if (position != nullptr) *position = 0;
+    if (flags != nullptr) *flags = 0;
+    if (value == nullptr) return false;
+    const char* n1 = std::strchr(value, '|');
+    if (n1 == nullptr) return false;
+    {
+        const size_t len = static_cast<size_t>(n1 - value);
+        if (len >= kNameBufferSize) return false;
+        std::memcpy(name, value, len);
+        name[len] = '\0';
+    }
+    const char* t2 = std::strchr(n1 + 1, '|');
+    if (t2 == nullptr) return false;
+    {
+        const size_t len = static_cast<size_t>(t2 - (n1 + 1));
+        if (len >= kNameBufferSize) return false;
+        std::memcpy(typeFull, n1 + 1, len);
+        typeFull[len] = '\0';
+    }
+    const char* p3 = std::strchr(t2 + 1, '|');
+    if (p3 == nullptr) return false;
+    // Position is the field between t2 and p3 ("...|type|POSITION|flags").
+    if (position != nullptr)
+    {
+        char posBuf[16];
+        const size_t posLen = static_cast<size_t>(p3 - (t2 + 1));
+        if (posLen >= sizeof(posBuf)) return false;
+        std::memcpy(posBuf, t2 + 1, posLen);
+        posBuf[posLen] = '\0';
+        *position = std::atoi(posBuf);
+    }
+    // The flags field is the LAST component (the tail after p3).
+    if (flags != nullptr) *flags = std::atoi(p3 + 1);
+    return true;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_parameterinfo_get_name(Il2CppObject* value)
+{
+    char buf[kNameBufferSize];
+    char name[kNameBufferSize];
+    char typeFull[kNameBufferSize];
+    int32_t pos = 0, flags = 0;
+    if (!AsciiFromManagedString(value, buf) ||
+        !SplitParamValue(buf, name, typeFull, &pos, &flags))
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(""));
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(name));
+}
+
+Il2CppObject* il2cpp_parameterinfo_get_parameter_type(Il2CppObject* value)
+{
+    char buf[kNameBufferSize];
+    char name[kNameBufferSize];
+    char typeFull[kNameBufferSize];
+    int32_t pos = 0, flags = 0;
+    if (!AsciiFromManagedString(value, buf) ||
+        !SplitParamValue(buf, name, typeFull, &pos, &flags))
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(""));
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(typeFull));
+}
+
+int32_t il2cpp_parameterinfo_get_position(Il2CppObject* value)
+{
+    char buf[kNameBufferSize];
+    char name[kNameBufferSize];
+    char typeFull[kNameBufferSize];
+    int32_t pos = 0, flags = 0;
+    if (!AsciiFromManagedString(value, buf) ||
+        !SplitParamValue(buf, name, typeFull, &pos, &flags))
+        return 0;
+    return pos;
+}
+
+int32_t il2cpp_parameterinfo_is_out(Il2CppObject* value)
+{
+    char buf[kNameBufferSize];
+    char name[kNameBufferSize];
+    char typeFull[kNameBufferSize];
+    int32_t pos = 0, flags = 0;
+    if (!AsciiFromManagedString(value, buf) ||
+        !SplitParamValue(buf, name, typeFull, &pos, &flags))
+        return 0;
+    return (flags & 1) != 0 ? 1 : 0;
 }
 
 //------------------------------------------------------------------------------
