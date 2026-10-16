@@ -27,6 +27,8 @@
 #include "il2cpp_boxing_ext2.h"   // runtime::icall_box_long / icall_unbox_long (R2 field values)
 #include "il2cpp_boxing_ext.h"    // runtime::icall_unbox_double / icall_box_double (R3 invoke)
 #include "invoker.h"              // il2cpp_invoker_invoke / slots (R3 MethodInfo.Invoke)
+#include "il2cpp_typecheck.h"     // runtime::icall_type_is_instance (refl2 IsInstanceOfType delegate)
+#include "il2cpp_typeext.h"       // runtime::il2cpp_type_is_assignable_from (refl2 delegate)
 
 // C3-2: Marshal.IsComObject (klass == the RCW descriptor) -- declared in
 // il2cpp_com.h under il2cpp::runtime; forward-declared inside the namespace
@@ -1145,6 +1147,89 @@ int32_t il2cpp_typeinfo_is_class(Il2CppObject* typeName)
     // classes in net48).
     return (il2cpp_typeinfo_is_value_type(typeName) == 0
             && il2cpp_typeinfo_is_interface(typeName) == 0) ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
+// refl2 -- Type.IsAssignableFrom / IsInstanceOfType / IsSubclassOf on the
+// name-string receiver.
+//
+// The pre-refl2 mappings passed the name-STRING (the Type VALUE) straight to
+// the descriptor primitives (il2cpp_type_is_assignable_from(Il2CppClass*...))
+// -- the same fail-to-compile shape as the A-class predicates. These wrappers
+// resolve each Type NAME to a descriptor and delegate:
+//   * typeinfo registry (il2cpp_typeinfo_lookup -> info->klass) -- USER types
+//     (classes/interfaces/structs/enums; a user enum's klass is the emitted
+//     Cases_Shade_class-like descriptor).
+//   * builtin class registry (il2cpp_class_by_name, after
+//     il2cpp_ensure_builtin_system_classes) -- BCL / primitive / array types
+//     (System.Int32, System.String, "[System.Int32" array descriptors).
+// The BCL-resolution must run BEFORE the descriptor primitives so net48
+// typeof(int).IsAssignableFrom(typeof(int)) -> True works.
+//------------------------------------------------------------------------------
+namespace {
+
+const Il2CppClass* KlassFromTypeName(const char* name)
+{
+    if (name == nullptr) return nullptr;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(name);
+    if (info != nullptr && info->klass != nullptr) return info->klass;
+    il2cpp_ensure_builtin_system_classes();
+    return il2cpp_class_by_name(name);
+}
+
+} // namespace
+
+int32_t il2cpp_typeinfo_is_assignable_from(Il2CppObject* targetName, Il2CppObject* sourceName)
+{
+    if (targetName == nullptr) ThrowNullTypeReceiver();
+    // net48: the SOURCE being null returns FALSE (no throw) -- unlike
+    // IsSubclassOf. Short-circuit before the name transcode.
+    if (sourceName == nullptr) return 0;
+    char targetBuf[kNameBufferSize];
+    char sourceBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(targetName, targetBuf) ||
+        !AsciiFromManagedString(sourceName, sourceBuf))
+    {
+        return 0;
+    }
+    const Il2CppClass* target = KlassFromTypeName(targetBuf);
+    const Il2CppClass* source = KlassFromTypeName(sourceBuf);
+    return il2cpp::runtime::il2cpp_type_is_assignable_from(
+        const_cast<Il2CppClass*>(target), const_cast<Il2CppClass*>(source));
+}
+
+int32_t il2cpp_typeinfo_is_instance(Il2CppObject* obj, Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    // net48: IsInstanceOfType(null) is FALSE (no throw).
+    if (obj == nullptr) return 0;
+    char typeBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf)) return 0;
+    const Il2CppClass* klass = KlassFromTypeName(typeBuf);
+    return il2cpp::runtime::icall_type_is_instance(obj, const_cast<Il2CppClass*>(klass));
+}
+
+int32_t il2cpp_typeinfo_is_subclass_of(Il2CppObject* derivedName, Il2CppObject* baseName)
+{
+    if (derivedName == nullptr) ThrowNullTypeReceiver();
+    if (baseName == nullptr)
+    {
+        // net48: IsSubclassOf(null) throws ArgumentNullException (probe-
+        // verified; the same contract the typecheck.cpp primitive enforces on
+        // a null base descriptor). The typeinfo-side param name matches.
+        il2cpp_throw_argument_null_exception("type");
+    }
+    char derivedBuf[kNameBufferSize];
+    char baseBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(derivedName, derivedBuf) ||
+        !AsciiFromManagedString(baseName, baseBuf))
+    {
+        return 0;
+    }
+    const Il2CppClass* derived = KlassFromTypeName(derivedBuf);
+    const Il2CppClass* base = KlassFromTypeName(baseBuf);
+    return il2cpp::runtime::icall_type_is_subclass_of(
+        const_cast<Il2CppClass*>(derived), const_cast<Il2CppClass*>(base));
 }
 
 //------------------------------------------------------------------------------

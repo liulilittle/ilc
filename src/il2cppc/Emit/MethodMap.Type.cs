@@ -65,9 +65,14 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException("Type.GetTypeCode() (instance) not wired in M5 -- the simplified Type model has no name-string to TypeCode path (static Type.GetTypeCode(Type) is wired)");
             // Type.IsAssignableFrom(Type c) -- instance: target = this,
             // source = c (runtime conformance model: identity, array prefix,
-            // baseClass chain, interface scan).
+            // baseClass chain, interface scan). refl2: the receiver AND the
+            // argument are name-string Type VALUES; the runtime wrapper
+            // (il2cpp_typeinfo_is_assignable_from) resolves both names to
+            // descriptors and delegates -- the pre-refl2 mapping passed the
+            // receiver name-string straight to il2cpp_type_is_assignable_from
+            // (Il2CppClass*) and failed to compile.
             case "IsAssignableFrom":
-                return I("il2cpp::runtime::il2cpp_type_is_assignable_from", 1, true, false, true,
+                return I("il2cpp::il2cpp_typeinfo_is_assignable_from", 1, true, false, true,
                     new[] { "", "" });
             // Type.Equals(object o) -- instance type identity (icall_type_equals:
             // descriptor identity fast path, else name equality). Wired only
@@ -283,22 +288,23 @@ public static partial class MethodRefResolver
                 return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true);
             // Type.IsInstanceOfType(object o) -- instance: whether the OBJECT
             // argument o is an instance of this type (the .NET isinst
-            // conformance test). Descriptor channel mirror of IsAssignableFrom
-            // (above): the runtime primitive icall_type_is_instance(obj, klass)
-            // (typecheck.cpp) puts the object FIRST and the class descriptor
-            // SECOND, while IL pushes the receiver (this Type) before the
-            // object -- the per-resolution ArgOrder {1,0} swaps the IL
-            // argument order into the runtime slot order (the CG7 table keys
-            // icalls globally and this shape is per-resolution).
+            // conformance test). refl2: the receiver is the name-string Type
+            // VALUE; the runtime wrapper resolves the name to a descriptor and
+            // delegates to the typecheck conformance test (obj first, klass
+            // second -- same signature as the descriptor primitive).
             case "IsInstanceOfType":
-                return I("il2cpp::runtime::icall_type_is_instance", 1, true, false, true,
+                return I("il2cpp::il2cpp_typeinfo_is_instance", 1, true, false, true,
                     new[] { "", "" }, argOrder: new[] { 1, 0 });
             // Type.IsSubclassOf(Type c) -- instance: whether this type derives
-            // from c. The receiver is this, the argument is c (both Type values).
+            // from c. refl2: BOTH the receiver and the argument are name-string
+            // Type VALUES -- the wrapper resolves the names and delegates to the
+            // subclass primitive (NOT-of-ITSELF semantics). The pre-refl2
+            // mapping required a tracked System.Type IL argument (the typeof-
+            // in-local shapes were untracked -> LOUD) AND passed the string to
+            // the descriptor primitive (fail-to-compile); both are gone.
             case "IsSubclassOf":
-                if (ps.Length == 1 && arg0Type == "System.Type")
-                    return I("il2cpp::runtime::icall_type_is_subclass_of", 1, true, false, true, new[] { "", "" });
-                throw new NotSupportedException($"Type.IsSubclassOf with {(arg0Type == null ? "untracked" : $"non-Type argument {arg0Type}")} not wired -- only a tracked System.Type argument maps to icall_type_is_subclass_of");
+                return I("il2cpp::il2cpp_typeinfo_is_subclass_of", 1, true, false, true,
+                    new[] { "", "" });
             // A-class predicates (bool Type properties backed by existing
             // descriptor fields -- name / baseClass chain / instanceSize).
             // Each is a 0-arg instance getter returning int32 1/0. refl2:

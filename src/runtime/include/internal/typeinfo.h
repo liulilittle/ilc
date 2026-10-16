@@ -325,6 +325,27 @@ int32_t il2cpp_typeinfo_is_interface(Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_is_class(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
+// refl2 -- Type conformance predicates on the name-STRING receiver.
+//   il2cpp_typeinfo_is_assignable_from(targetName, sourceName) -- both Type
+//     VALUE names; delegates to il2cpp_type_is_assignable_from (typeext.cpp)
+//     on the resolved descriptors (identical semantics: identity incl.
+//     arrays-by-prefix, base chain, interface scan).
+//   il2cpp_typeinfo_is_instance(obj, typeName) -- Type.IsInstanceOfType(object):
+//     the receiver name resolved to a descriptor vs obj->klass through
+//     icall_type_is_instance. obj == null -> 0 (net48 IsInstanceOfType(null)
+//     is False, no throw).
+//   il2cpp_typeinfo_is_subclass_of(derivedName, baseName) -- both names;
+//     delegates to icall_type_is_subclass_of (NOT of ITSELF semantics).
+// Names resolve through the typeinfo registry first (user types), then the
+// builtin class registry (il2cpp_class_by_name -- BCL/primitive/array types).
+// Null receiver name -> NullReferenceException (the .NET ((Type)null)
+// doctrine); null argument name -> the per-primitive net48 contract
+// (IsAssignableFrom(null) False; IsSubclassOf(null) ArgumentNullException).
+int32_t il2cpp_typeinfo_is_assignable_from(Il2CppObject* targetName, Il2CppObject* sourceName);
+int32_t il2cpp_typeinfo_is_instance(Il2CppObject* obj, Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_subclass_of(Il2CppObject* derivedName, Il2CppObject* baseName);
+
+//------------------------------------------------------------------------------
 // RF-N4 -- generic-type identification icalls (NEXT2-DECISION section 2 RF-N4,
 // ruling 1: the three-way split lands on the transpiler side). Each takes the Type VALUE (full-name string, the same
 // carrier the single-member queries use) and reads the typeinfo's genericArity.
