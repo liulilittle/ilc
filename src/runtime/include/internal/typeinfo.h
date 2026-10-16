@@ -644,4 +644,82 @@ Il2CppObject* il2cpp_makegenericmethod_loud(Il2CppObject* memberName, Il2CppArra
 Il2CppObject* il2cpp_makegenerictype_loud(Il2CppObject* typeName, Il2CppArray* typeArgs);
 Il2CppObject* il2cpp_createdelegate_loud(Il2CppObject* delegateType, Il2CppObject* methodName);
 
+//------------------------------------------------------------------------------
+// REFL4 (item 2) -- IntrospectionExtensions.GetTypeInfo(Type): the fold-
+// identity. net48 returns a System.Reflection.TypeInfo, a Type SUBCLASS -- a
+// Type VALUE in the simplified model. This icall is the runtime identity
+// (returns the receiver Type VALUE unchanged) whose ReturnTypeName the
+// transpiler records as "System.Type", so every downstream Type member
+// (.Name/.FullName/.IsClass/.BaseType/GetProperty/==) on the GetTypeInfo()
+// result resolves on the Type domain -- including typeof(int).GetTypeInfo()
+// (an unregistered BCL type name, identity must NOT go through the typeinfo
+// registry).
+Il2CppObject* il2cpp_typeinfo_get_type_info(Il2CppObject* typeName);
+
+//------------------------------------------------------------------------------
+// REFL4 (item 1) -- MemberInfo.get_MemberType / get_DeclaringType on the
+// member-VALUE string receiver (the simplified member model: a MemberInfo
+// VALUE is the member-NAME string the GetMethod/GetField/GetProperty/GetEvent/
+// GetConstructor icalls return, and a Type receiver rides as the full-name
+// string -- the simplified Type model). Both classify by scanning the typeinfo
+// registry's member tables -- member names are unique per type, so the tables
+// pin the kind/declarer exactly (a name string has no "&"-typed receiver,
+// W7).
+//
+//   il2cpp_memberinfo_get_member_type(memberName) -- MemberInfo.get_MemberType.
+//     Returns the net48 MemberTypes NUMERIC value (not an enum object -- the
+//     fold prints (int)):
+//       Method=8 Field=4 Property=16 Constructor=1 Event=2 TypeInfo=32
+//       NestedType=128.
+//     Classification is by registry scan:
+//       * the disambiguated ctor value "<FullName>::.ctor" -> Constructor (1);
+//       * a REGISTERED typeinfo name -> TypeInfo (32); a nested typeinfo name
+//         (contains '+', the ReflectionFullName form) -> NestedType (128);
+//       * otherwise scan the methods/fields/properties/events tables of every
+//         registered type by exact name -- the FIRST table that owns the name
+//         pins the kind (methods incl. accessors get_/set_/add_/remove_ --
+//         net48 also reports those as Method, so a property NAME "PropB" (in
+//         the properties table) vs its accessor "get_PropB" (in the methods
+//         table) answers 16 vs 8 exactly like net48);
+//       * not found anywhere -> TypeInfo (32) (defensive -- matches
+//         typeof(int).MemberType for an unregistered BCL type-name value).
+//     Null receiver -> NullReferenceException (the net48 null-MemberInfo chain).
+//   il2cpp_memberinfo_get_declaring_type(memberName) -- get_DeclaringType.
+//     Returns the declaring type's FULL-NAME string (a Type VALUE) or nullptr
+//     for a top-level TYPE receiver (net48 typeof(MTPlain).DeclaringType is
+//     null), the OUTER type name for a NESTED TYPE receiver, the parsed
+//     declaring type of a ctor value, or the DEEPEST type declaring a member
+//     name (registry scan by own-table membership; overrides re-declare the
+//     name in the derived table -> most derived wins, inherited members stay
+//     under THEIR declaring type's table -> the base wins). Null receiver ->
+//     NullReferenceException.
+//------------------------------------------------------------------------------
+int32_t il2cpp_memberinfo_get_member_type(Il2CppObject* memberName);
+Il2CppObject* il2cpp_memberinfo_get_declaring_type(Il2CppObject* memberName);
+
+//------------------------------------------------------------------------------
+// REFL4 (item 4/C1) -- ConstructorInfo.get_Name. The ctor member VALUE is the
+// disambiguated "<FullName>::.ctor" (GAP-5 -- Invoke parses the declaring
+// type out of it), so get_Name CANNOT be the generic member-name identity:
+// net48 ConstructorInfo.Name is ".ctor". This icall decodes the ctor value
+// (the ".ctor" key is ALWAYS the terminal segment, bare or "<FullName>::"
+// qualified) and returns the literal ".ctor" -- the Invoke dependency on the
+// disambiguated VALUE itself is untouched (only the Name property decodes).
+// Null receiver / malformed value -> the ".ctor" literal (defensive; a ctor
+// member value is always the ctor key).
+Il2CppObject* il2cpp_ctorinfo_get_name(Il2CppObject* memberName);
+
+//------------------------------------------------------------------------------
+// REFL4 (item 3) -- Type.AssemblyQualifiedName. The receiver is the Type VALUE
+// (full-name string); the result is the net48 AQN string
+//   "<FullName>, <assemblySimpleName>, Version=1.0.0.0, Culture=neutral,
+//    PublicKeyToken=null"
+// The assembly SIMPLE NAME is a compile-time constant (single-assembly model)
+// passed by the transpiler as the second argument (an interned literal). The
+// icall formats "<receiver>, <asmSimpleName>" -- verifying the receiver is
+// the byte-identical full name already embedded in the version-1 AQN body.
+// Null receiver -> NullReferenceException.
+Il2CppObject* il2cpp_typeinfo_get_assembly_qualified_name(Il2CppObject* typeName,
+                                                          Il2CppObject* asmSimpleName);
+
 } // namespace il2cpp

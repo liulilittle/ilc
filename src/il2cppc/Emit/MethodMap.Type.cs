@@ -1,4 +1,6 @@
-﻿namespace Il2Cpp.Transpiler.Emit;
+﻿using System.Reflection.Metadata;
+
+namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Type -- System.Type icall mappings (il2cpp_typeext.h).
@@ -425,5 +427,61 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException($"Type.InvokeMember with {ps.Length} parameter(s) not wired in C2 -- only the (string, BindingFlags, Binder, object, object[]) overload maps to icall_com_invoke_member");
             default: return null;
         }
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL4 (item 3) -- the System.Type assembly surface (needs the input
+    // assembly's simple name, read from the AssemblyDef header):
+    //   * get_AssemblyQualifiedName -- the net48 AQN string
+    //     "<FullName>, <asm>, Version=1.0.0.0, Culture=neutral,
+    //      PublicKeyToken=null". The receiver is the Type VALUE full-name
+    //     string; the runtime icall formats it + the transpiler-baked
+    //     simple-name literal (appendLiterals -- the CustomAttributeExtensions
+    //     intern-literal precedent). ReturnTypeName "System.String".
+    //   * get_Assembly -- the assembly SIMPLE-NAME string as the Assembly
+    //     VALUE (the simplified Assembly model: like the Type VALUE is the
+    //     full name, an Assembly VALUE is its simple name). Folds to the
+    //     literal marker -- the value depends only on the single input
+    //     assembly (net48: the same assembly object for every type), so the
+    //     property is receiver-independent. This replaces the old NullMarker
+    //     fold (MethodMap.Resource.cs) -- `asm == null` must be False (C7); a
+    //     folded non-null simple-name string answers False.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapTypeAssembly(MetadataReader md, string owner, string name, byte[] ps, int count,
+        byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        if (owner != "System.Type") return null;
+        string asmName;
+        try
+        {
+            asmName = md.GetString(md.GetAssemblyDefinition().Name);
+        }
+        catch
+        {
+            asmName = "";
+        }
+        if (!string.IsNullOrEmpty(asmName))
+        {
+            switch (name)
+            {
+                case "get_AssemblyQualifiedName":
+                    if (count == 0)
+                    {
+                        var asmLit = $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")";
+                        return I("il2cpp::il2cpp_typeinfo_get_assembly_qualified_name", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.String",
+                            appendLiterals: new[] { asmLit });
+                    }
+                    throw new NotSupportedException(
+                        $"Type::get_AssemblyQualifiedName with {count} parameter(s) not wired in REFL4 -- the () property maps to il2cpp_typeinfo_get_assembly_qualified_name with the AssemblyDef simple-name literal");
+                case "get_Assembly":
+                    if (count == 0)
+                        return new ResolvedMethod(ResolvedMethod.LiteralMarker + asmName, 0, false, true, true,
+                            Array.Empty<bool>(), true, ReturnTypeName: "System.Reflection.Assembly");
+                    throw new NotSupportedException(
+                        $"Type::get_Assembly with {count} parameter(s) not wired in REFL4 -- the () property folds to the assembly simple-name literal");
+            }
+        }
+        return null;
     }
 }

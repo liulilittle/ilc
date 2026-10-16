@@ -2608,7 +2608,7 @@ public static class StackFold
                 if (IsTypeGetTypeCode(md, (int)ins.Operand))
                 {
                     stack.Pop();
-                    Push(new IntConstExpr { Value = TypeCodeOfTypeName(foldedType.Value) }, ins);
+                    Push(new IntConstExpr { Value = TypeCodeOfTypeName(foldedType.Value, types) }, ins);
                     return;
                 }
                 // RF-N4: Type.get_IsGenericTypeDefinition on a FOLDED typeof
@@ -4908,7 +4908,18 @@ public static class StackFold
         // (TypeCode.Object). Matches the runtime table entry-for-entry
         // (Single=13 and other net48 values are outside the runtime's M4 scope;
         // both paths fall back to 1 -- keeping consistency).
-        static int TypeCodeOfTypeName(string fullName) => fullName switch
+        //
+        // REFL4 (item 4/B7): a user ENUM type (BaseTypeName == "System.Enum")
+        // folds to its UNDERLYING TypeCode (net48: typeof(enum) -> the value__
+        // field's TypeCode -- Byte=6 Int16=7 Int32=9 Int64=11, etc.), NOT the
+        // pre-refl4 Object(1) fallback. The underlying width comes from the
+        // compiler-generated `value__` instance field's type (the same surface
+        // MethodMap.Enum.TryGetUserEnumRegisterInfo reads). A BCL enum
+        // (TypeRef -- System.DayOfWeek etc.) is NOT a TypeDef, so no value__
+        // field is visible; net48 uses the metadata underlying type, which the
+        // transpiler does not decode for TypeRefs -- those keep the Object(1)
+        // fallback (W7: only user enums are folded; the probes use user enums).
+        static int TypeCodeOfTypeName(string fullName, IReadOnlyList<TypeDef>? types) => fullName switch
         {
             "System.Int32" => 9,
             "System.Boolean" => 3,
@@ -4918,8 +4929,31 @@ public static class StackFold
             // decimal-domain T3: net48 TypeCode.Decimal == 15 (mirrors the
             // typecheck.cpp/typeext.cpp table entries -- keep all three in sync).
             "System.Decimal" => 15,
-            _ => 1,
+            _ => ForecastTypeCodeOfEnum(fullName, types),
         };
+
+        // REFL4 (item 4/B7): the enum-underlying TypeCode for a USER enum
+        // TypeDef (raw metadata value__ width -> the net48 TypeCode; SByte=5
+        // Byte=6 Int16=7 UInt16=8 Int32=9 UInt32=10 Int64=11 UInt64=12).
+        // Non-enum / unregistered / BCL-TypeRef names fall back to 1 (Object).
+        static int ForecastTypeCodeOfEnum(string fullName, IReadOnlyList<TypeDef>? types)
+        {
+            var def = types?.FirstOrDefault(t => t.MatchesFullName(fullName));
+            if (def == null || def.BaseTypeName != "System.Enum") return 1;
+            var valueField = def.InstanceFields.FirstOrDefault(f => f.Name == "value__");
+            return valueField?.FieldTypeName switch
+            {
+                "System.SByte" => 5,
+                "System.Byte" => 6,
+                "System.Int16" => 7,
+                "System.UInt16" => 8,
+                "System.Int32" => 9,
+                "System.UInt32" => 10,
+                "System.Int64" => 11,
+                "System.UInt64" => 12,
+                _ => 9, // the M3 default underlying int32 (like MethodMap.Enum.cs)
+            };
+        }
 
         // Whether the full type name is a delegate: generic BCL delegates by
         // name prefix (Func`N / Action`N, incl. the generic instance name

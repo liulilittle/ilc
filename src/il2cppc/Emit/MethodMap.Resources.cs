@@ -62,6 +62,22 @@ public static partial class MethodRefResolver
                         if (ps.Length != 0) return null;
                         return I("il2cpp::il2cpp_assembly_get_manifest_resource_names", 0, true, true, true,
                             new[] { "drop" });
+                    // REFL4 (item 3) / C7: Assembly op_Equality / op_Inequality.
+                    // The Assembly VALUE is the assembly SIMPLE-NAME string (the
+                    // simplified Assembly model, like the Type VALUE); equality
+                    // is STRING content equality -- the same icall the String
+                    // /Type domains use (icall_string_equals_static, null-safe:
+                    // asm == null -> False on a folded simple-name literal --
+                    // the C7 fix; two same-assembly values -> True). csc emits
+                    // the STATIC operator (`call Assembly::op_Equality`), 2 args.
+                    case "op_Equality":
+                        if (ps.Length == 2)
+                            return I("il2cpp::runtime::icall_string_equals_static", 2, true, false, false);
+                        return null;
+                    case "op_Inequality":
+                        if (ps.Length == 2)
+                            return I("il2cpp::runtime::icall_type_op_inequality", 2, true, false, false);
+                        return null;
                     // Any other System.Reflection.Assembly member has no runtime
                     // primitive on the il2cpp_resources.h surface (GetType/
                     // GetExecutingAssembly/... ) -- fall through to the

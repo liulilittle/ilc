@@ -3421,4 +3421,255 @@ Il2CppObject* il2cpp_createdelegate_loud(Il2CppObject* delegateType, Il2CppObjec
     return nullptr; // unreachable -- the throw does not return
 }
 
+//------------------------------------------------------------------------------
+// REFL4 (item 2) -- IntrospectionExtensions.GetTypeInfo(Type) identity icall.
+// The net48 result is a TypeInfo (a Type subclass); the simplified Type model
+// carries the Type VALUE as the full-name string, so GetTypeInfo is the
+// runtime IDENTITY -- the receiver Type VALUE string is returned unchanged
+// (works for typeof(int).GetTypeInfo() too: an unregistered BCL type name must
+// NOT go through the typeinfo registry). The transpiler records the result as
+// "System.Type" so the downstream Type domain (.Name/.FullName/.IsClass/
+// .BaseType/GetProperty/==) resolves on it.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_type_info(Il2CppObject* typeName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    return typeName;
+}
+
+//------------------------------------------------------------------------------
+// REFL4 (item 1) -- MemberInfo.get_MemberType / get_DeclaringType icalls. See
+// typeinfo.h for the contract. The receiver is the member-VALUE string (the
+// simplified member model) OR a Type VALUE full-name string (the simplified
+// Type model); the runtime classifies by scanning the typeinfo registry.
+//------------------------------------------------------------------------------
+namespace {
+
+// Scan ONE member table for an exact name (the FindMember primitive, using
+// the raw table pointer + count shape common to all four tables).
+template <typename T>
+bool TableDeclaresName(const T* table, int32_t count, const char* name)
+{
+    if (table == nullptr || count <= 0 || name == nullptr) return false;
+    for (int32_t i = 0; i < count; ++i)
+    {
+        if (table[i].name != nullptr && std::strcmp(table[i].name, name) == 0) return true;
+    }
+    return false;
+}
+
+// Whether a fully-qualified type-info name refers to a NESTED type (the
+// Transpiler TypeEmitter ReflectionFullName '+'-chain form -- "Cases.Outer+
+// Inner"). A nested typevalue answers MemberType NestedType=128.
+bool IsNestedTypeNameValue(const char* name)
+{
+    return name != nullptr && std::strchr(name, '+') != nullptr;
+}
+
+// The IMMEDIATE enclosing type's full name of a nested type value
+// ("A+B+C" -> "A+B" -- the owning chain minus the innermost segment). The
+// result is written into outBuf (kNameBufferSize); returns false when there
+// is no '+' (not nested).
+bool OuterTypeNameValue(const char* nestedName, char (&outBuf)[kNameBufferSize])
+{
+    outBuf[0] = '\0';
+    if (nestedName == nullptr) return false;
+    const char* plus = std::strrchr(nestedName, '+');
+    if (plus == nullptr) return false;
+    const size_t len = static_cast<size_t>(plus - nestedName);
+    if (len >= kNameBufferSize) return false;
+    std::memcpy(outBuf, nestedName, len);
+    outBuf[len] = '\0';
+    return true;
+}
+
+} // namespace
+
+int32_t il2cpp_memberinfo_get_member_type(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf))
+    {
+        return 32; // TypeInfo -- defensive (malformed/over-long/non-ASCII)
+    }
+    // 1. The disambiguated ctor value "<FullName>::.ctor" -> Constructor.
+    if (std::strstr(nameBuf, kCtorSeparator) != nullptr)
+    {
+        return 1;
+    }
+    // 2. A registered typeinfo name -> TypeInfo (32); a nested typeinfo name
+    //    (the '+' ReflectionFullName form) -> NestedType (128).
+    if (il2cpp_typeinfo_lookup(nameBuf) != nullptr)
+    {
+        return IsNestedTypeNameValue(nameBuf) ? 128 : 32;
+    }
+    // 3. Member-table scan -- the FIRST table owning the name pins the kind
+    //    (methods first, net48 reports a property accessor name as Method).
+    //    EVENTS before FIELDS: a field-like auto-event's compiler-generated
+    //    BACKING FIELD shares the event's name ("EvtD" lives in BOTH the
+    //    fields table -- the EventHandler slot -- and the events table). The
+    //    net48 event member value must classify Event (2), so the event table
+    //    is checked BEFORE fields (the backing-field entry is invisible to
+    //    GetEvent/GetEvents receivers -- the model answers the event FIRST;
+    //    W7: a GetField("EvtD") on such a backing field cannot be told apart
+    //    from the event name and answers Event too).
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (TableDeclaresName(info->methods, info->methodCount, nameBuf))
+        {
+            // A bare ".ctor" entry in the methods table (the GetConstructors
+            // enumeration element) is a Constructor -- but our ctor member
+            // values are the disambiguated "<FullName>::.ctor" (handled
+            // above); a bare ".ctor" can only arrive from a GetMember-style
+            // union, which the model excludes -- defensive ctor mapping.
+            if (std::strcmp(nameBuf, kCtorName) == 0) return 1;
+            return 8; // Method
+        }
+    }
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (TableDeclaresName(info->properties, info->propertyCount, nameBuf)) return 16; // Property
+    }
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (TableDeclaresName(info->events, info->eventCount, nameBuf)) return 2; // Event
+    }
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (TableDeclaresName(info->fields, info->fieldCount, nameBuf)) return 4; // Field
+    }
+    return 32; // TypeInfo -- defensive default (an unregistered BCL type name)
+}
+
+Il2CppObject* il2cpp_memberinfo_get_declaring_type(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf))
+    {
+        return nullptr; // defensive
+    }
+    // 1. The disambiguated ctor value "<FullName>::.ctor" -> the declaring
+    //    type is the parsed "<FullName>" (the ctor's owning type).
+    if (const char* sep = std::strstr(nameBuf, kCtorSeparator))
+    {
+        const size_t len = static_cast<size_t>(sep - nameBuf);
+        if (len >= kNameBufferSize) return nullptr;
+        char typeName[kNameBufferSize];
+        std::memcpy(typeName, nameBuf, len);
+        typeName[len] = '\0';
+        if (typeName[0] == '\0') return nullptr;
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(typeName));
+    }
+    // 2. A registered typeinfo name -> a TYPE receiver: a NESTED type returns
+    //    its IMMEDIATE outer type's full name (Type VALUE); a top-level type
+    //    has no declaring type (net48 typeof(MTPlain).DeclaringType == null).
+    if (il2cpp_typeinfo_lookup(nameBuf) != nullptr)
+    {
+        char outerBuf[kNameBufferSize];
+        if (OuterTypeNameValue(nameBuf, outerBuf))
+        {
+            return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(outerBuf));
+        }
+        return nullptr;
+    }
+    // 3. A member name -> the DEEPEST type declaring it (own-table scan; an
+    //    override re-declares the name in the derived table so the most
+    //    derived wins; inherited members stay under their declaring type's
+    //    table so the base wins). Same base-chain-depth doctrine as the
+    //    RF-N6 member-attribute scan.
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        const bool declares =
+            TableDeclaresName(info->methods, info->methodCount, nameBuf)
+            || TableDeclaresName(info->fields, info->fieldCount, nameBuf)
+            || TableDeclaresName(info->properties, info->propertyCount, nameBuf)
+            || TableDeclaresName(info->events, info->eventCount, nameBuf);
+        if (!declares) continue;
+        const int32_t depth = BaseChainDepthFor(info);
+        if (depth > bestDepth)
+        {
+            bestDepth = depth;
+            best = info;
+        }
+    }
+    if (best == nullptr || best->name == nullptr)
+    {
+        return nullptr; // member not found (defensive query convention)
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(best->name));
+}
+
+//------------------------------------------------------------------------------
+// REFL4 (item 3) -- Type.AssemblyQualifiedName: "<FullName>, <asm>, Version=
+// 1.0.0.0, Culture=neutral, PublicKeyToken=null". The receiver is the Type
+// VALUE (full-name string); the assembly simple name is the transpiler-baked
+// intern literal. The AQN is the receiver itself + a fixed suffix that never
+// changes for the single-assembly AOT model (one assembly, one version):
+//   "<receiver>, <asmSimpleName>, Version=1.0.0.0, Culture=neutral,
+//    PublicKeyToken=null"
+// Null receiver -> NullReferenceException (the net48 null-Type chain).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_assembly_qualified_name(Il2CppObject* typeName,
+                                                          Il2CppObject* asmSimpleName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char typeBuf[kNameBufferSize];
+    char asmBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(asmSimpleName, asmBuf))
+    {
+        return nullptr; // defensive (malformed/over-long/non-ASCII)
+    }
+    char valueBuf[kNameBufferSize * 2 + 128];
+    std::snprintf(valueBuf, sizeof(valueBuf),
+                  "%s, %s, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+                  typeBuf, asmBuf);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(valueBuf));
+}
+
+//------------------------------------------------------------------------------
+// REFL4 (item 4/C1) -- ConstructorInfo.get_Name decode. The receiver is the
+// disambiguated ctor member VALUE "<FullName>::.ctor" (or a bare ".ctor");
+// net48 ConstructorInfo.Name == ".ctor". The generic get_Name fold (identity)
+// cannot serve the ctor VALUE -- it would print "<FullName>::.ctor" -- so the
+// ctor key is special-cased: the Name returns the literal ".ctor" (the ctor
+// member-value terminal segment), and the Invoke dependency on the full
+// disambiguated VALUE is untouched.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_ctorinfo_get_name(Il2CppObject* memberName)
+{
+    (void)memberName;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(kCtorName));
+}
+
 } // namespace il2cpp

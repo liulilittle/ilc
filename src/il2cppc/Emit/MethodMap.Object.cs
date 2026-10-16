@@ -183,6 +183,19 @@ public static partial class MethodRefResolver
                 // from the get_Method mapping propagates this receiver type.
                 if (name == "get_Name" && receiverType == "System.String")
                     return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true);
+                // REFL4 (item 4, C1): ConstructorInfo::get_Name on the ctor
+                // member VALUE "<FullName>::.ctor". The MemberInfo::get_Name
+                // on a ConstructorInfo receiver (recvType "System.Reflection.
+                // ConstructorInfo" -- the GetConstructor ReturnTypeName) must
+                // decode to net48's ".ctor". The ctor VALUE is the
+                // disambiguated "<FullName>::.ctor" (GAP-5 -- Invoke parses
+                // it), so the fold CANNOT be the "."/identity decode: the
+                // VALUE special-cases the ".ctor" key (decodes to ".ctor")
+                // while the Invoke dependency on the disambiguated VALUE is
+                // untouched (this mapping is only the Name PROPERTY arm).
+                if (name == "get_Name" && receiverType == "System.Reflection.ConstructorInfo")
+                    return I("il2cpp::il2cpp_ctorinfo_get_name", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.String");
                 // M7 delegate2 (2026-08-08): MemberInfo::get_Name on a NON-Type
                 // receiver (the MethodInfo that Delegate.get_Method would
                 // return -- `f.Method.Name`). The runtime has only the Type
@@ -236,6 +249,30 @@ public static partial class MethodRefResolver
                 if (name == "IsDefined")
                     throw new NotSupportedException(
                         $"System.Reflection.MemberInfo::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- only the net48 (Type attributeType, bool inherit) overload maps to il2cpp_attribute_is_defined_named");
+                // REFL4 (item 1): MemberInfo.get_MemberType -- the six-state
+                // kind label. The receiver is the MEMBER-VALUE string (a
+                // member NAME, the simplified member model, OR a Type VALUE
+                // full-name string for the typeof(X).MemberType / nested-type
+                // shapes -- the simplified Type model); the runtime classifies
+                // by scanning the typeinfo member tables. Returns the net48
+                // MemberTypes NUMERIC value (Method=8 Field=4 Property=16
+                // Constructor=1 Event=2 TypeInfo=32 NestedType=128) as an
+                // int32 -- the (int) cast probes print byte-exact. The
+                // result is a value (MemberTypes underlying int32), so no
+                // ReturnTypeName is tracked.
+                if (name == "get_MemberType" && count == 0)
+                    return I("il2cpp::il2cpp_memberinfo_get_member_type", 0, true, false, true,
+                        new[] { "" });
+                // REFL4 (item 1): MemberInfo.get_DeclaringType -- the type
+                // declaring the member (or the original Type receiver).
+                // Same member/Type VALUE string receiver; the runtime returns
+                // the declaring type's FULL-NAME STRING (a Type VALUE --
+                // ReturnTypeName "System.Type" keeps downstream
+                // .Name/.FullName/.IsClass/op_Equality folds resolving on
+                // the Type domain, e.g. `m.DeclaringType == typeof(X)`).
+                if (name == "get_DeclaringType" && count == 0)
+                    return I("il2cpp::il2cpp_memberinfo_get_declaring_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
                 return null;
             default: return null;
         }

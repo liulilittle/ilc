@@ -8576,6 +8576,14 @@ default: return false;                           // primitives/VAR(handled by ca
         {
             "System.DayOfWeek",
             "System.Runtime.GCLatencyMode",
+            // REFL4 (item 4/B7): Type.GetTypeCode's result type
+            // (System.TypeCode). Pre-refl4 a `var tc = Type.GetTypeCode(...)`
+            // local declared the MANGLED `System_TypeCode` (the fold result is
+            // a plain int constant -- BCL enums have no generated body ->
+            // cmake build FAIL, the B7 COMPILE-BROKEN). The enum-carrier int32
+            // declaration (the D5 GCLatencyMode precedent) makes the local
+            // compile; the fold result is used DIRECTLY as an int constant.
+            "System.TypeCode",
         };
     // D5: public accessor for the same whitelist (StackFold's shared-clone
     // return-unbox site needs it to unbox BCL-enum returns).

@@ -1645,6 +1645,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 return null;
             case "System.Type": return TryMapReflect(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                ?? TryMapTypeAssembly(md, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapResourceManager(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Activator": return TryMapReflect(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Buffer": return TryMapBuffer(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
@@ -1822,6 +1823,12 @@ var userRecvLike = receiverType ?? arg0Type;
             // ReflectionExtensions domain (MethodMap.ReflectionExtensions.cs): the
             // Microsoft.Reflection.ReflectionExtensions typecode primitive wrapper.
             case "Microsoft.Reflection.ReflectionExtensions": return TryMapReflectionExtensions(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // REFL4 (item 2): System.Reflection.IntrospectionExtensions.GetTypeInfo
+            // (fold-identity -- a TypeInfo is a Type subclass, its members are the
+            // Type members) + the System.Reflection.TypeInfo-only members
+            // (Declared*/GetDeclared*) which fail LOUD.
+            case "System.Reflection.IntrospectionExtensions": return TryMapIntrospectionExtensions(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Reflection.TypeInfo": return TryMapIntrospectionExtensions(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // GN-20 legacy WindowsIdentity domain (MethodMap.WindowsIdentity.cs): the
             // public net48 surface of System.Security.Principal.WindowsIdentity,
             // substituted at the operand boundary by the identity.h icalls (the
