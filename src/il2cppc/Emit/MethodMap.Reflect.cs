@@ -215,6 +215,46 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     $"{owner}::GetParameters with {ps.Length} parameter(s) not wired in REFL3 -- only the net48 () overload maps to il2cpp_typeinfo_get_parameters");
             default:
+                // refl5 (item 3 / C2): member-TYPE property family + the
+                // flag-derived predicates. The receiver is the member-VALUE
+                // string (the simplified member model -- a member VALUE is
+                // its name string). Type-VALUE results (FieldType etc.) carry
+                // ReturnTypeName "System.Type" so a downstream .FullName /
+                // == typeof(...) / .Name fold resolves on the Type domain;
+                // the bool predicates ride the int32 (0/1) carrier.
+                // (The MemberInfo base owner routes to TryMapObject, where
+                // get_Name/get_MemberType/get_DeclaringType live; the
+                // MemberInfo-derived owners below map the C2 family.)
+                if (owner == "System.Reflection.FieldInfo" && name == "get_FieldType" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_fieldinfo_get_field_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
+                if (owner == "System.Reflection.PropertyInfo" && name == "get_PropertyType" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_propertyinfo_get_property_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
+                if ((owner is "System.Reflection.MethodInfo" or "System.Reflection.MethodBase")
+                    && name == "get_ReturnType" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_methodinfo_get_return_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
+                if (owner == "System.Reflection.EventInfo" && name == "get_EventHandlerType" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_eventinfo_get_event_handler_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
+                // MemberInfo.get_ReflectedType -- declared on the MemberInfo
+                // base; a MemberRef with a FieldInfo/MethodInfo/... parent
+                // routes here (MemberInfo itself routes to TryMapObject).
+                if (owner is "System.Reflection.FieldInfo" or "System.Reflection.PropertyInfo"
+                    or "System.Reflection.MethodInfo" or "System.Reflection.MethodBase"
+                    or "System.Reflection.ConstructorInfo" or "System.Reflection.EventInfo")
+                    if (name == "get_ReflectedType" && ps.Length == 0)
+                        return I("il2cpp::il2cpp_memberinfo_get_reflected_type", 0, true, true, true,
+                            new[] { "" }, returnTypeName: "System.Type");
+                if (owner == "System.Reflection.FieldInfo" && name == "get_IsAssembly" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_fieldinfo_is_assembly", 0, true, false, true, new[] { "" });
+                if (name == "get_IsStatic" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_is_static", 0, true, false, true, new[] { "" });
+                if (name == "get_IsPublic" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_is_public", 0, true, false, true, new[] { "" });
+                if (name == "get_IsConstructor" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_is_constructor", 0, true, false, true, new[] { "" });
                 return null;
         }
     }
@@ -254,46 +294,7 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_type_get_type", 1, true, true, false,
                         new[] { "" }, returnTypeName: "System.Type");
                 throw new NotSupportedException($"Type.GetType with {ps.Length} parameter(s) not wired in M5.5 -- only the (string typeName) overload maps to il2cpp_type_get_type");
-default:
-                // refl5 (item 3 / C2): member-TYPE property family + the
-                // flag-derived predicates. The receiver is the member-VALUE
-                // string (the simplified member model -- a member VALUE is
-                // its name string). Type-VALUE results (FieldType etc.) carry
-                // ReturnTypeName "System.Type" so a downstream .FullName /
-                // == typeof(...) / .Name fold resolves on the Type domain;
-                // the bool predicates ride the int32 (0/1) carrier.
-                if (owner == "System.Reflection.FieldInfo" && name == "get_FieldType" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_fieldinfo_get_field_type", 0, true, true, true,
-                        new[] { "" }, returnTypeName: "System.Type");
-                if (owner == "System.Reflection.PropertyInfo" && name == "get_PropertyType" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_propertyinfo_get_property_type", 0, true, true, true,
-                        new[] { "" }, returnTypeName: "System.Type");
-                if ((owner is "System.Reflection.MethodInfo" or "System.Reflection.MethodBase")
-                    && name == "get_ReturnType" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_methodinfo_get_return_type", 0, true, true, true,
-                        new[] { "" }, returnTypeName: "System.Type");
-                if (owner == "System.Reflection.EventInfo" && name == "get_EventHandlerType" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_eventinfo_get_event_handler_type", 0, true, true, true,
-                        new[] { "" }, returnTypeName: "System.Type");
-                // MemberInfo.get_ReflectedType -- declared on the MemberInfo
-                // base; the MemberRef for a FieldInfo/MethodInfo/... receiver
-                // routes here (the base's owner case also handles a MemberInfo-
-                // typed receiver -- both map to the same icall).
-                if (owner is "System.Reflection.FieldInfo" or "System.Reflection.PropertyInfo"
-                    or "System.Reflection.MethodInfo" or "System.Reflection.MethodBase"
-                    or "System.Reflection.ConstructorInfo" or "System.Reflection.EventInfo"
-                    or "System.Reflection.MemberInfo")
-                    if (name == "get_ReflectedType" && ps.Length == 0)
-                        return I("il2cpp::il2cpp_memberinfo_get_reflected_type", 0, true, true, true,
-                            new[] { "" }, returnTypeName: "System.Type");
-                if (owner == "System.Reflection.FieldInfo" && name == "get_IsAssembly" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_fieldinfo_is_assembly", 0, true, false, true, new[] { "" });
-                if (name == "get_IsStatic" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_memberinfo_is_static", 0, true, false, true, new[] { "" });
-                if (name == "get_IsPublic" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_memberinfo_is_public", 0, true, false, true, new[] { "" });
-                if (name == "get_IsConstructor" && ps.Length == 0)
-                    return I("il2cpp::il2cpp_memberinfo_is_constructor", 0, true, false, true, new[] { "" });
+            default:
                 return null;
         }
     }

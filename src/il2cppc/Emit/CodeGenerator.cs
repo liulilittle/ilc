@@ -4465,6 +4465,23 @@ public static class CodeGenerator
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- construct BCL delegate (il2cpp_delegate_new)");
                     break;
                 }
+                // refl5 (p-refl5-2ovl cmake FAIL): `new ParameterModifier(int)`
+                // -- the opaque BCL value-type ctor would fall to the default
+                // "call transpiled function" emission and produce the undefined
+                // System_Reflection_ParameterModifier__ctor_<hash> symbol (the
+                // type has no generated body). Its instances are never observed
+                // (the GetMethod(name, Type[], ParameterModifier[]) icall DROPS
+                // the modifier array), so the ctor initializer is a no-op on
+                // the placeholder allocation (the il2cpp_object_ctor_nop
+                // exception-base-ctor precedent).
+                if (resolvedStmt?.CppName.StartsWith("System_Reflection_ParameterModifier__ctor_", StringComparison.Ordinal) == true
+                    && c.Args.Count > 0)
+                {
+                    var pmRecv = EmitExpr(c.Args[0], md, types);
+                    w.LineAligned($"il2cpp::runtime::il2cpp_object_ctor_nop({pmRecv});",
+                        $"IL {At(c.SourceOpName, c.SourceOffset)} -- initialize opaque ParameterModifier placeholder (ctor no-op)");
+                    break;
+                }
                 if (resolvedStmt is { ResultIsReceiver: true })
                 {
                     // M5 wiring: BCL value-type ctor via ldloca + call
@@ -5405,6 +5422,12 @@ public static class CodeGenerator
         // newobj fallback would emit &System_Diagnostics_StackTrace_class, an
         // undefined symbol that broke the build (D2 audit regression).
         "System.Diagnostics.StackTrace" => "il2cpp_object_new(&System_Object_class)",
+        // refl5 (p-refl5-2ovl cmake FAIL): `new ParameterModifier(...)` -- the
+        // opaque BCL value type has no generated descriptor and its instances
+        // are never observed (the GetMethod(name, Type[], ParameterModifier[])
+        // icall DROPS the modifier array). Allocate as a plain object (the
+        // System.Exception / StackTrace precedent); the ctor call is a no-op.
+        "System.Reflection.ParameterModifier" => "il2cpp_object_new(&System_Object_class)",
         // M7 CG-FIX (encodingcase cmake FAIL): `new string(...)` -- the string
         // ctors are CREATE-STYLE (string.cpp discards `this_` and returns the
         // new string, so the newobj placeholder is a DISCARDED allocation; the
