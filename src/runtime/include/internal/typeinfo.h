@@ -356,6 +356,22 @@ int32_t il2cpp_typeinfo_is_subclass_of(Il2CppObject* derivedName, Il2CppObject* 
 Il2CppObject* il2cpp_typeinfo_get_namespace(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
+// refl2 -- Type.GetInterface(string[, bool]) on the name-string receiver.
+// Matches the requested name against the interface's FULL name and SIMPLE
+// name across the type's own + base chain (net48: a derived type inherits its
+// bases' interfaces). net48 matching rules (probe-pinned):
+//   * a query name CONTAINING a '.' uses the FULL-name path ONLY -- always
+//     ordinal case-sensitive, it IGNORES the ignoreCase flag
+//     ("cAsEs.IDerived6", ignoreCase=true -> still no match);
+//   * a DOT-FREE query name ("IDerived6") is the SIMPLE-name path, which
+//     follows ignoreCase (ordinal-ignore-case when true).
+// Returns the interface FULL-NAME string (a Type VALUE) on a hit, nullptr on
+// a miss. Null receiver -> NullReferenceException; null name -> the net48
+// ArgumentNullException (param "name").
+Il2CppObject* il2cpp_typeinfo_get_interface(Il2CppObject* typeName, Il2CppObject* ifaceName,
+                                            int32_t ignoreCase);
+
+//------------------------------------------------------------------------------
 // RF-N4 -- generic-type identification icalls (NEXT2-DECISION section 2 RF-N4,
 // ruling 1: the three-way split lands on the transpiler side). Each takes the Type VALUE (full-name string, the same
 // carrier the single-member queries use) and reads the typeinfo's genericArity.

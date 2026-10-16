@@ -1316,6 +1316,72 @@ Il2CppObject* il2cpp_typeinfo_get_namespace(Il2CppObject* typeName)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_interface -- Type.GetInterface(string[, bool]) on the
+// name-string receiver. The interface list lives on the typeinfo
+// (Il2CppTypeInfo.interfaces -- pointer array of the implemented interface
+// typeinfos, own + inherited through baseType). net48 matching (probe-pinned):
+//   * a query name WITH a dot ("Cases.IDerived6") uses the FULL-name path
+//     only -- ALWAYS ordinal case-sensitive, ignores ignoreCase;
+//   * a DOT-FREE query name ("IDerived6") is the SIMPLE-name path, which
+//     follows ignoreCase (ordinal-ignore-case);
+// the FIRST chain hit wins (most-derived first -- net48 checked-interface
+// order). Returns the interface FULL-NAME string (a Type VALUE) on a hit.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_interface(Il2CppObject* typeName, Il2CppObject* ifaceName,
+                                            int32_t ignoreCase)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    if (ifaceName == nullptr) ThrowNullMemberName("name");
+    char typeBuf[kNameBufferSize];
+    char ifaceBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(ifaceName, ifaceBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr) return nullptr;
+    // Compute the simple name of the requested interface: a query name WITH a
+    // dot uses the FULL-name path ONLY (net48: "Cases.IDerived6" never matches
+    // via the simple-name compare -- probe-pinned); a dot-free query uses the
+    // simple-name path.
+    const char* lastDot = std::strrchr(ifaceBuf, '.');
+    const bool hasDot = lastDot != nullptr;
+    const char* simpleName = hasDot ? lastDot + 1 : ifaceBuf;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        for (int32_t i = 0; i < scan->interfaceCount; ++i)
+        {
+            const Il2CppTypeInfo* iface = scan->interfaces[i];
+            if (iface == nullptr || iface->name == nullptr) continue;
+            if (hasDot)
+            {
+                // Full-name comparison: ALWAYS ordinal (net48 ignores ignoreCase).
+                if (std::strcmp(iface->name, ifaceBuf) == 0)
+                {
+                    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(iface->name));
+                }
+            }
+            else
+            {
+                // Simple-name comparison: case-sensitive by default; ordinal-
+                // ignore-case when the caller passed ignoreCase=true.
+                const char* ifaceSimple = iface->name;
+                if (const char* d2 = std::strrchr(iface->name, '.')) ifaceSimple = d2 + 1;
+                bool match = ignoreCase != 0
+                    ? _stricmp(ifaceSimple, simpleName) == 0
+                    : std::strcmp(ifaceSimple, simpleName) == 0;
+                if (match)
+                {
+                    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(iface->name));
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
 // C3-2 -- EventInfo.AddEventHandler / EventInfo.RemoveEventHandler.
 //
 // The receiver is the EVENT-NAME string (the simplified member model, as

@@ -195,6 +195,21 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_interfaces", 0, true, true, true,
                         returnTypeName: "System.Type[]");
                 throw new NotSupportedException($"Type.GetInterfaces with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_interfaces");
+            // refl2 (item 6): Type.GetInterface(string[, bool]) -- the single-
+            // interface query by FULL or SIMPLE name across the type's own +
+            // base chain. The receiver is the Type VALUE (name string); the
+            // runtime wrapper matches the name against the interface full/simple
+            // name (net48 full-name compare is always case-sensitive, the
+            // simple-name compare follows ignoreCase) and returns the interface
+            // FULL-NAME string (a Type VALUE) or null on a miss.
+            case "GetInterface":
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_typeinfo_get_interface", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.Type", appendZero: true);
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x02)
+                    return I("il2cpp::il2cpp_typeinfo_get_interface", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.Type");
+                throw new NotSupportedException($"Type.GetInterface with {ps.Length} parameter(s) not wired in refl2 -- only the (string) / (string, bool) overloads map to il2cpp_typeinfo_get_interface");
             // RF-N5 (NEXT2-DECISION section ② RF-N5): GetNestedTypes() -- the
             // typeinfo's nested sub-table (own nested types only, metadata
             // declaration order; net48 never inherits nested types). Each
