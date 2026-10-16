@@ -112,6 +112,8 @@ public class MethodMapTestsType
 
     //--------------------------------------------------------------------------
     // IsAssignableFrom -- instance: target = this, source = the argument.
+    // refl2: the receiver AND the argument are name-string Type VALUES; the
+    // wrapper resolves both names to descriptors and delegates.
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Type_IsAssignableFrom_MapsToAssignableIcall()
@@ -119,7 +121,7 @@ public class MethodMapTestsType
         var resolved = ResolveMember(Synthesize("System", "Type", "IsAssignableFrom",
             new byte[] { 0x00, 0x01, 0x08, 0x12, 0x05, 0x12, 0x05 }), "IsAssignableFrom"); // (Type)
 
-        Assert.Equal("il2cpp::runtime::il2cpp_type_is_assignable_from", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_is_assignable_from", resolved.CppName);
         Assert.True(resolved.ReturnsValue);
         Assert.False(resolved.ReturnsRef);
         Assert.True(resolved.IsInstance);
@@ -128,12 +130,11 @@ public class MethodMapTestsType
 
     //--------------------------------------------------------------------------
     // IsInstanceOfType -- instance: whether the OBJECT argument is an instance
-    // of this type. Mirror of the IsAssignableFrom descriptor channel: the
-    // runtime primitive icall_type_is_instance(obj, klass) takes the object
-    // FIRST and the class descriptor SECOND (typecheck.cpp), while IL pushes
-    // the receiver (this Type) before the object -- the resolution carries the
-    // ArgOrder {1,0} swap so the emitted call passes (obj, this) in runtime
-    // slot order.
+    // of this type. refl2: the receiver is the name-string Type VALUE; the
+    // wrapper resolves it to a descriptor and delegates to the typecheck
+    // conformance test. The wrapper keeps the (obj, klass) runtime slot order
+    // (object FIRST, type SECOND), so the resolution still swaps the IL push
+    // order (receiver = type, arg = object) with ArgOrder {1,0}.
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Type_IsInstanceOfType_MapsToInstanceIcall()
@@ -141,13 +142,14 @@ public class MethodMapTestsType
         var resolved = ResolveMember(Synthesize("System", "Type", "IsInstanceOfType",
             new byte[] { 0x00, 0x01, 0x02, 0x1C }), "IsInstanceOfType"); // (object)
 
-        Assert.Equal("il2cpp::runtime::icall_type_is_instance", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_is_instance", resolved.CppName);
         Assert.True(resolved.ReturnsValue);
         Assert.False(resolved.ReturnsRef);
         Assert.True(resolved.IsInstance);
         Assert.Equal(1, resolved.ParamCount);
-        // Descriptor channel: the object arg fills the runtime (obj) slot, the
-        // receiver fills the (klass) slot -- the opposite of IL push order.
+        // The wrapper signature is (obj, typeName): the object arg fills the
+        // runtime (obj) slot, the receiver fills the (typeName) slot -- the
+        // opposite of IL push order.
         Assert.Equal(new[] { 1, 0 }, resolved.ArgOrder);
     }
 
@@ -250,13 +252,30 @@ public class MethodMapTestsType
     [Fact]
     public void Resolve_Type_GetPropertyTwoParams_MapsToFlagsIcall()
     {
-        // GAP-1 (P0): Type.GetProperty(string, BindingFlags) is now wired --
-        // the BindingFlags int rides the runtime's flags-aware query (Public/
-        // NonPublic/Instance/Static visibility filter).
+        // GAP-1 (P0) / refl2 (item 1): Type.GetProperty(string, BindingFlags)
+        // maps to the flags-aware query. The BindingFlags ENUM rides as a
+        // VALUETYPE (0x11 + TypeDefOrRef) -- NOT a bare int32 (0x08). The
+        // two-parameter arms split on ps[1]: 0x11 -> flags, 0x1D (Type[]) ->
+        // get_property_types.
         var resolved = ResolveMember(Synthesize("System", "Type", "GetProperty",
-            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x08 }), "GetProperty"); // (string, BindingFlags)
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x11, 0x05 }), "GetProperty"); // (string, BindingFlags)
 
         Assert.Equal("il2cpp::il2cpp_typeinfo_get_property_flags", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetPropertyTypeArray_MapsToPropertyTypesIcall()
+    {
+        // refl2 (item 1): Type.GetProperty(string, Type[]) -- the Type[]
+        // SZARRAY (0x1D) arm routes to the exact-signature indexer query.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetProperty",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x1D, 0x12, 0x05 }), "GetProperty"); // (string, Type[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_property_types", resolved.CppName);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal("System.String", resolved.ReturnTypeName);
         Assert.True(resolved.IsInstance);
