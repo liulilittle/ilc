@@ -550,14 +550,18 @@ int main()
                "R2 get_methods null typeName -> empty array (never null)");
     }
 
-    // --- R2 (B2): FieldInfo.GetValue/SetValue narrow set (int32/int64/
-    //    string/object slots; the field's typeName dispatches the slot
-    //    width). The receiver is the FIELD-NAME string; the declaring type
-    //    is joined from the target object's klass. net48 GetValue boxes
-    //    value-type fields (int32 -> System.Int32 box, int64 -> System.Int64
-    //    box) and returns the reference itself for ref fields; SetValue
-    //    writes through the box payload / reference slot. Unknown / private
-    //    fields -> nullptr (defensive query convention).
+    // --- R2 (B2): FieldInfo.GetValue/SetValue narrow set (int32/string/
+    //    object slots; the field's typeName dispatches the slot width). The
+    //    receiver is the FIELD-NAME string; the declaring type is joined from
+    //    the target object's klass. net48 GetValue boxes value-type fields
+    //    (int32 -> System.Int32 box, int64 -> System.Int64 box) and returns
+    //    the reference itself for ref fields; SetValue writes through the box
+    //    payload / reference slot. Unknown / private fields -> nullptr
+    //    (defensive query convention). DEFECT-F1 (audit 2A): instances of the
+    //    WIDE kinds (Int64/UInt64/Single/Double) are transpiler-COLLAPSED to
+    //    int32_t slots and LOUD-reject (NO silent 8-byte overrun into the
+    //    neighbor field); only STATIC Int64/UInt64 keep the real 8B carrier
+    //    (static Single/Double have no wide slot either -- LOUD too).
     {
         // A dedicated reflected type whose FIELD TABLE offsets match a real
         // instance layout (header slot 0; i32 at 8; i64 at 16; ref slot at
@@ -568,15 +572,21 @@ int main()
             &objectClass, nullptr, 0, nullptr, 0,
         };
         il2cpp::Il2CppObject* g_hostStaticString = nullptr;
-        il2cpp::Il2CppFieldInfo hostFields[4] = {
+        int64_t g_hostStaticI64 = 0;
+        int32_t g_hostStaticSingle = 0; // static Single storage is int32_t (no wide slot)
+        int32_t g_hostStaticDouble = 0; // static Double storage is int32_t (no wide slot)
+        il2cpp::Il2CppFieldInfo hostFields[7] = {
             {"fi32", "System.Int32", 8, 0, nullptr, 1},
             {"fi64", "System.Int64", 16, 0, nullptr, 1},
             {"fref", "System.String", 24, 1, nullptr, 1},
             {"fstat", "System.String", -1, 1, &g_hostStaticString, 3},
+            {"fstat64", "System.Int64", -1, 0, &g_hostStaticI64, 3},
+            {"fstatf", "System.Single", -1, 0, &g_hostStaticSingle, 3},
+            {"fstatd", "System.Double", -1, 0, &g_hostStaticDouble, 3},
         };
         il2cpp::Il2CppTypeInfo hostInfo = {
             "T.FieldHost", &hostClass, &objectInfoInstance, nullptr, 0,
-            hostFields, 4, nullptr, 0, nullptr, 0,
+            hostFields, 7, nullptr, 0, nullptr, 0,
         };
         il2cpp_typeinfo_register(&hostInfo);
 
@@ -602,13 +612,53 @@ int main()
         Expect(inst.i32 == 7, "R2 field_set_value int32 writes through the box");
 
         // int64: box/unbox via the long carriers (slot width by typeName).
+        // DEFECT-F1 (audit 2A): an INSTANCE Int64 field per the transpiler
+        // model is COLLAPSED to an int32_t slot (TypeEmitter layout: value
+        // fields are "int32_t at slot n*pointerSize") -- the a16afce4
+        // MetadataLoader widening made the field table carry the real
+        // "System.Int64" name, so the 8-byte read/write would silently
+        // overrun into the neighbor field. F1: a non-static Int64 field is
+        // LOUD-rejected (explicit NotSupportedException), never a silent
+        // overread/overwrite.
         auto nameI64 = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fi64"));
-        inst.i64 = 0x1122334455667788LL;
-        auto lval = il2cpp_typeinfo_field_get_value(nameI64, target);
-        Expect(lval != nullptr && runtime::icall_unbox_long(lval) == 0x1122334455667788LL,
-               "R2 field_get_value int64 field reads the boxed long slot");
-        il2cpp_typeinfo_field_set_value(nameI64, target, runtime::icall_box_long(99LL));
-        Expect(inst.i64 == 99, "R2 field_set_value int64 writes through the box");
+        Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_field_get_value(nameI64, target); },
+                             "System.NotSupportedException"),
+               "F1 instance Int64 field GetValue LOUD-rejects (int32 slot, no silent overrun)");
+        Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_field_set_value(
+                                       nameI64, target, runtime::icall_box_long(99LL)); },
+                             "System.NotSupportedException"),
+               "F1 instance Int64 field SetValue LOUD-rejects (int32 slot, no silent overrun)");
+
+        // The static Int64 field (flags bit1 static) keeps the 8-byte path:
+        // its staticAddr points at a REAL int64_t static slot (F1 preserves
+        // the working 8B static carrier).
+        auto nameStat64 = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fstat64"));
+        g_hostStaticI64 = 0x1122334455667788LL;
+        auto s64val = il2cpp_typeinfo_field_get_value(nameStat64, nullptr);
+        Expect(s64val != nullptr && runtime::icall_unbox_long(s64val) == 0x1122334455667788LL,
+               "F1 static Int64 field GetValue(null) keeps the 8-byte path");
+        il2cpp_typeinfo_field_set_value(nameStat64, nullptr, runtime::icall_box_long(99LL));
+        Expect(g_hostStaticI64 == 99, "F1 static Int64 field SetValue(null) keeps the 8-byte path");
+
+        // Static Single/Double: StaticFieldSemantics has NO Single/Double arm,
+        // so the static storage is the int32_t default -- the 8-byte carrier
+        // is absent. F1: LOUD-reject like the instance wide fields.
+        auto nameStatF = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fstatf"));
+        auto nameStatD = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fstatd"));
+        Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_field_get_value(nameStatF, nullptr); },
+                             "System.NotSupportedException"),
+               "F1 static Single field GetValue(null) LOUD-rejects (no wide static slot)");
+        Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_field_set_value(
+                                       nameStatF, nullptr, runtime::icall_box_float(1.5)); },
+                             "System.NotSupportedException"),
+               "F1 static Single field SetValue(null) LOUD-rejects (no wide static slot)");
+        Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_field_get_value(nameStatD, nullptr); },
+                             "System.NotSupportedException"),
+               "F1 static Double field GetValue(null) LOUD-rejects (no wide static slot)");
+        Expect(ThrowsManaged([&] { (void)il2cpp_typeinfo_field_set_value(
+                                       nameStatD, nullptr, runtime::icall_box_float(2.5)); },
+                             "System.NotSupportedException"),
+               "F1 static Double field SetValue(null) LOUD-rejects (no wide static slot)");
 
         // Reference field: returned/stored as the reference itself.
         auto nameRef = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs("fref"));

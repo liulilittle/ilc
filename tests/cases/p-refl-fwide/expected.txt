@@ -1,0 +1,9 @@
+[static.i64.read]=True
+[static.i64.rw]=True
+[static.i64.verify]=True
+[static.u64.read]=True
+[static.u64.rw]=True
+[static.u64.verify]=True
+[static.i32.rw]=True
+[static.i32.verify]=True
+[inst.i32.rw]=True

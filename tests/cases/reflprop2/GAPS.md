@@ -65,3 +65,11 @@ no commit made.
 
 - net48 oracle evidence: `out/reflprop2.exe` exit=0, 23 lines captured
   byte-for-byte; harness diff PASS (mingw + msvc), see the C17 report.
+- **Updated by GAP-3 (a16afce4, p-refl-accessor)**: the D-PRP2-1 statement
+  that GetGetMethod/GetSetMethod have "NO runtime invoker" is now PARTIALLY
+  obsolete -- PropertyInfo.GetGetMethod()/GetSetMethod() were unfrozen as
+  `il2cpp_typeinfo_property_get_accessor` (the public accessor NAME, wired in
+  MethodMap.Reflect.cs). The property VALUE round-trip (GetValue/SetValue) was
+  ALREADY wired at runtime (_RF-N2 PropertyInfo.GetValue/SetValue); only the
+  accessor SURFACE was pending. This file's D-PRP2-1 page predates both.
+  GetIndexParameters and the binder-overloads remain unparked.

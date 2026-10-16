@@ -411,19 +411,15 @@ const Il2CppPropertyInfo* il2cpp_type_get_property_flags(const Il2CppTypeInfo* i
                     sawAccessor = true;
                 }
             }
-            // No-resolvable-accessor edge (trimmed accessor / property table
-            // entry without method-table accessors): the property table has no
-            // flags field -- admit under the default public binding only, like
-            // the pre-GAP-1 behavior never hid such a property.
-            if (!sawAccessor)
-            {
-                if ((bindingAttr & (16 | 32)) != 0 || (bindingAttr & 4) != 0)
-                {
-                    return &p;
-                }
-                return &p;
-            }
-            if (MemberMatchesVis(accessorFlags, bindingAttr, true))
+            // A property is admitted when any accessor matches the binding
+            // (MemberMatchesVis). No-resolvable-accessor edge (trimmed
+            // accessor / property table entry without method-table accessors):
+            // the property table has no flags field -- admit (the pre-GAP-1
+            // behavior never hid such a property). NOTE: `sawAccessor` (not
+            // `accessorFlags`) is the no-accessor test -- a PRIVATE accessor
+            // resolves with flags 0 yet must NOT auto-admit (p-refl-visible
+            // priv.prop.none pin: the default binding hides it).
+            if (!sawAccessor || MemberMatchesVis(accessorFlags, bindingAttr, true))
             {
                 return &p;
             }
@@ -1236,6 +1232,29 @@ int FieldBoxType(const Il2CppFieldInfo* field)
     return -1;
 }
 
+// DEFECT-F1 (audit 2A): the WIDE kinds (10-13 = Int64/UInt64/Single/Double)
+// may only be read/written when the underlying slot is REALLY the full 8-byte
+// carrier. In this transpiler model the only 8-byte slots are STATIC Int64/
+// UInt64 fields (StaticFieldSemantic.Int64/UInt64 -> int64_t/uint64_t
+// storage inside the static block). An INSTANCE long/double/float field is
+// ALWAYS collapsed to int32_t (TypeEmitter layout: "int32_t field; // value
+// fields: int32_t at slot n*pointerSize"), so the 8-byte GetValue would read
+// 4 bytes past the field (into its neighbor) and SetValue would OVERWRITE the
+// neighbor -- a silent out-of-bounds the a16afce4 MetadataLoader widening
+// enabled (instance fields now carry the real "System.Int64"/"System.Single"/
+// "System.Double" typeName the width dispatcher keys on). Static Single/Double
+// are equally unsafe: StaticFieldSemantics has no Single/Double arm, so their
+// static storage is the int32_t default too. F1 ruling: kinds 10-13 LOUD-reject
+// unless STATIC Int64/UInt64 (which keep the working 8-byte path).
+static bool WideSlotUnrepresentable(const Il2CppFieldInfo* field, int kind)
+{
+    if (kind != 10 && kind != 11 && kind != 12 && kind != 13) return false;
+    const bool isStatic = (field->flags & 2) != 0;
+    if (!isStatic) return true;                  // instance long/double/float (int32 slot)
+    if (kind == 12 || kind == 13) return true;   // static Single/Double: no wide slot
+    return false;                                // static Int64/UInt64: real 8B slot
+}
+
 // Box a value read from the int32-family payload slot with the field's own
 // box class. The stored slot is the 32-bit carrier the transpiler emits for
 // all narrow primitive fields; the BOX class carries the field identity.
@@ -1325,6 +1344,12 @@ Il2CppObject* il2cpp_typeinfo_field_get_value(Il2CppObject* fieldName, Il2CppObj
     // The int32-family kinds are 0,1,2,4,5,6,7,8 (3 is the REFERENCE slot,
     // handled separately below -- an int32-family range test must exclude 3).
     const int kind = FieldBoxType(field);
+    if (WideSlotUnrepresentable(field, kind))
+    {
+        il2cpp_throw_not_supported_exception(
+            "FieldInfo.GetValue: this long/double/float field has no 8-byte carrier in this AOT build (instance value fields and static Single/Double are stored as int32_t slots -- the transpiler value-slot collapse) -- explicit LOUD; the 8-byte read would silently overrun into the neighbor field. Only static Int64/UInt64 fields keep the 8-byte path.");
+        return nullptr; // unreachable -- the throw does not return
+    }
     if (kind == 0 || (kind >= 1 && kind <= 2) || (kind >= 4 && kind <= 8))
     {
         return BoxInt32SlotAs(kind, *reinterpret_cast<int32_t*>(slot));
@@ -1400,6 +1425,12 @@ void il2cpp_typeinfo_field_set_value(Il2CppObject* fieldName, Il2CppObject* targ
     // "not a boxed Int32"). Reference fields store the object itself.
     // The int32-family kinds are 0,1,2,4,5,6,7,8 (3 is the REFERENCE slot).
     const int kind = FieldBoxType(field);
+    if (WideSlotUnrepresentable(field, kind))
+    {
+        il2cpp_throw_not_supported_exception(
+            "FieldInfo.SetValue: this long/double/float field has no 8-byte carrier in this AOT build (instance value fields and static Single/Double are stored as int32_t slots -- the transpiler value-slot collapse) -- explicit LOUD; the 8-byte write would silently overrun into the neighbor field. Only static Int64/UInt64 fields keep the 8-byte path.");
+        return; // unreachable -- the throw does not return
+    }
     if (kind == 0 || (kind >= 1 && kind <= 2) || (kind >= 4 && kind <= 8))
     {
         *reinterpret_cast<int32_t*>(slot) = UnboxToInt32SlotAs(kind, value);
