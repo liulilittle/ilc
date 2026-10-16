@@ -99,18 +99,34 @@ public static partial class MethodRefResolver
                 // runtime flags-aware query (Public/NonPublic/Instance/Static
                 // filter). The BindingFlags enum rides the validation-stage
                 // int32 value; the transpiler passes it through ("i").
-                if (ps.Length == 2 && ps[0] == 0x0E)
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_property_flags", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_property(_flags)");
+                // refl2 (R2-G-1): Type.GetProperty(string, Type[]) -- the
+                // exact-signature indexer query. The Type[] argument is an
+                // SZARRAY (0x1D) -- a REFERENCE array (rides as Il2CppArray*,
+                // the "a" cast -- the GetConstructor (Type[]) precedent), NOT
+                // the int32-riding BindingFlags enum (ps[1]==0x11 arm above).
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_property_types", 2, true, true, true,
+                        new[] { "", "", "a" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) / (string, Type[]) overloads map to il2cpp_typeinfo_get_property(_flags/_types)");
             case "GetMethod":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_method", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
-                if (ps.Length == 2 && ps[0] == 0x0E)
+                // GAP-1 (P0) / refl2: the two 2-parameter overloads are SPLIT
+                // on ps[1] -- BindingFlags (0x11, the int32-riding enum) vs
+                // Type[] (0x1D, SZARRAY). The pre-refl2 code matched BOTH with
+                // the flags arm, so a Type[] argument was static_cast<int32_t>
+                // (the reflected array -> int C++ error).
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_method_flags", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_method(_flags)");
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_method_types", 2, true, true, true,
+                        new[] { "", "", "a" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) / (string, Type[]) overloads map to il2cpp_typeinfo_get_method(_flags/_types)");
             case "GetField":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_field", 1, true, true, true,

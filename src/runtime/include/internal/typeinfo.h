@@ -274,6 +274,19 @@ Il2CppObject* il2cpp_typeinfo_get_method_flags(Il2CppObject* typeName, Il2CppObj
                                                int32_t bindingAttr);
 Il2CppObject* il2cpp_typeinfo_get_field_flags(Il2CppObject* typeName, Il2CppObject* memberName,
                                               int32_t bindingAttr);
+// refl2 (Type.GetMethod/GetProperty(string, Type[])): the exact-signature
+// variants. `types` is the managed Type[] whose ELEMENTS are Type VALUES
+// (full-name strings -- the simplified Type model); the runtime matches the
+// member by arity + per-param type identity against the reflected method's
+// signature / the property's indexer parameter types (net48 GetMethod(name,
+// Type[]) binds Public|Instance|Static by default). Returns the member-name
+// string on an exact match, nullptr otherwise (not found / type not reflected
+// / malformed). Null typeName/memberName keep the net48 null-receiver /
+// null-name contract (NRE / ArgumentNullException).
+Il2CppObject* il2cpp_typeinfo_get_method_types(Il2CppObject* typeName, Il2CppObject* memberName,
+                                               Il2CppArray* types);
+Il2CppObject* il2cpp_typeinfo_get_property_types(Il2CppObject* typeName, Il2CppObject* memberName,
+                                                 Il2CppArray* types);
 // D (audit A3/observation 3): Type.BaseType on a Type VALUE (full-name
 // string). Resolves the typeinfo registry and returns the BASE type's full
 // name string (the simplified Type model) on a hit -- the resolved user base

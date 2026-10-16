@@ -670,6 +670,261 @@ Il2CppObject* il2cpp_typeinfo_get_field_flags(Il2CppObject* typeName, Il2CppObje
 }
 
 //------------------------------------------------------------------------------
+// refl2 -- Type.GetMethod/GetProperty(string, Type[]) EXACT-signature matching.
+//
+// net48 binds these overloads with Public|Instance|Static by default and
+// matches the member by EXACT arity + EXACT parameter-type list (Type identity
+// -- no coercion, no widening). The Type[] elements are Type VALUES (full-name
+// strings, the simplified Type model); the runtime decodes each reflected
+// method's encoded signature / the property's indexer parameter encodings into
+// canonical full names and compares them by arity + order.
+//------------------------------------------------------------------------------
+namespace {
+
+// EncodeType (MethodSignatureCoder) leaf/full-name code -> managed full name.
+// The reflected method signature stores the TRANSPILER encoding ("i" for
+// int32-family, "l" for Int64, "r:System.String", "r:Cases.Foo", "V:..." value
+// types, ...). Returns false when the encoding has no exact full-name
+// equivalent (fnptr "F:", pointer "P:", byref "B:", array "r:X[]" with a
+// non-name element suffix) -- those params NEVER match a typeof-sized Type[]
+// element in this model, so the member is rejected (defensive; the probe set
+// uses only name-resolvable encodings).
+bool ParamEncodingToFullName(const char* enc, char (&out)[kNameBufferSize])
+{
+    if (enc == nullptr) return false;
+    if (enc[0] == 'r' && enc[1] == ':')
+    {
+        // "r:X" / "r:X[]" -- reference type. A name SUFFIX ("i[]", "l[]") is
+        // not a resolvable full name; strip "r:" and accept the bare name ONLY
+        // when it is a plain identifier (no '['). SZARRAY encodings of the
+        // primitives ("r:i[]") are out of the exact-match model.
+        const char* name = enc + 2;
+        if (name[0] == '\0' || std::strchr(name, '[') != nullptr) return false;
+        std::snprintf(out, kNameBufferSize, "%s", name);
+        return true;
+    }
+    if (enc[0] == 'V' && enc[1] == ':')
+    {
+        const char* name = enc + 2;
+        if (name[0] == '\0' || std::strchr(name, '[') != nullptr) return false;
+        std::snprintf(out, kNameBufferSize, "%s", name);
+        return true;
+    }
+    if (enc[0] == 'T' && enc[1] == ':')
+    {
+        const char* name = enc + 2;
+        if (name[0] == '\0' || std::strchr(name, '[') != nullptr) return false;
+        std::snprintf(out, kNameBufferSize, "%s", name);
+        return true;
+    }
+    // Primitive leaf codes (EncodeType). "i" covers the int32 FILTER family
+    // (Int32/UInt32/native-uint share the slot-encoding "i" -- the W7
+    // documented simplification: an int-vs-uint overload distinction is not
+    // expressible in the typeinfo signature, so the exact match conflates the
+    // int32-family names; the probe uses only encodings whose full names differ).
+    static const struct { const char* code; const char* full; } kLeaf[] = {
+        { "b", "System.Boolean" }, { "c", "System.Char" },
+        { "i1", "System.SByte" }, { "u1", "System.Byte" },
+        { "i2", "System.Int16" }, { "u2", "System.UInt16" },
+        { "i", "System.Int32" }, { "l", "System.Int64" },
+        { "q", "System.UInt64" }, { "f", "System.Single" },
+        { "d", "System.Double" }, { "n", "System.IntPtr" },
+        { "v", "System.Void" },
+    };
+    for (size_t i = 0; i < sizeof(kLeaf) / sizeof(kLeaf[0]); ++i)
+    {
+        if (std::strcmp(enc, kLeaf[i].code) == 0)
+        {
+            std::snprintf(out, kNameBufferSize, "%s", kLeaf[i].full);
+            return true;
+        }
+    }
+    return false;
+}
+
+// Decode a reflected method/accessor signature into its EXPLICIT parameter
+// encodings. Two accepted formats (typeinfo.h / the invoker R3 doc):
+//   * TRANSPILER "RET(PARAMS)" (TypeEmitter.cs -- the typeinfo table stores
+//     "i(i,i)" / "r:System.String(l)");
+//   * INVOKER "RET:PARAMS" ("I:i,i") passed through unchanged.
+// Returns the encoding count (each NUL-terminated in out), -1 when the
+// signature is malformed or too long. The param region is copied into a
+// caller-owning static buffer (the comma walk must stay on stable memory --
+// a stack-local inside this function would dangle once returned).
+int SplitSignatureParams(const char* sig, char out[][kNameBufferSize], int maxOut)
+{
+    static char s_params[kNameBufferSize * 4];
+    if (sig == nullptr) return -1;
+    const char* start = nullptr;
+    if (const char* open = std::strchr(sig, '('))
+    {
+        const char* close = std::strchr(open + 1, ')');
+        if (close == nullptr) return -1;
+        // Copy the param substring into the static buffer.
+        const size_t len = static_cast<size_t>(close - open - 1);
+        if (len >= sizeof(s_params)) return -1;
+        std::memcpy(s_params, open + 1, len);
+        s_params[len] = '\0';
+        start = s_params;
+    }
+    else if (const char* colon = std::strchr(sig, ':'))
+    {
+        start = colon + 1;
+    }
+    else
+    {
+        return 0; // no params (void/empty signature)
+    }
+    int count = 0;
+    const char* cur = start;
+    for (;;)
+    {
+        const char* comma = std::strchr(cur, ',');
+        const size_t len = comma != nullptr ? static_cast<size_t>(comma - cur) : std::strlen(cur);
+        if (len >= kNameBufferSize) return -1;
+        // Skip empty segments (trailing commas / empty param list).
+        if (len > 0)
+        {
+            if (count >= maxOut) return -1;
+            std::memcpy(out[count], cur, len);
+            out[count][len] = '\0';
+            ++count;
+        }
+        if (comma == nullptr) break;
+        cur = comma + 1;
+    }
+    return count;
+}
+
+// Match a reflected method's parameter list against the managed Type[] (its
+// length = the built types array). True when arity AND per-param Type-identity
+// agree (every requested type's full name equals the corresponding encoded
+// param's full name).
+bool MethodTypesMatch(const Il2CppMethodInfo* m, const char typeNames[][kNameBufferSize], int32_t count)
+{
+    if (m == nullptr || m->paramCount != count) return false;
+    if (count == 0) return true;
+    char encs[4][kNameBufferSize];
+    int decoded = SplitSignatureParams(m->signature, encs, 4);
+    if (decoded != count) return false;
+    for (int32_t i = 0; i < count; ++i)
+    {
+        char full[kNameBufferSize];
+        if (!ParamEncodingToFullName(encs[i], full)) return false;
+        if (std::strcmp(full, typeNames[i]) != 0) return false;
+    }
+    return true;
+}
+
+// Extract every Type[] element as a managed full-name string (kNameBufferSize
+// bound). Returns false on a null/malformed element.
+bool ReadTypeElements(Il2CppArray* types, char typeNames[][kNameBufferSize], int32_t count)
+{
+    for (int32_t i = 0; i < count; ++i)
+    {
+        Il2CppObject* elem = *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(types, i));
+        if (!AsciiFromManagedString(elem, typeNames[i])) return false;
+    }
+    return true;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_typeinfo_get_method_types(Il2CppObject* typeName, Il2CppObject* memberName,
+                                               Il2CppArray* types)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    if (memberName == nullptr) ThrowNullMemberName("name");
+    char typeBuf[kNameBufferSize];
+    char memberBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(memberName, memberBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr) return nullptr;
+    const int32_t wantArity = (types != nullptr && types->length > 0) ? types->length : 0;
+    if (wantArity > 4) return nullptr; // the exact-match table binds 4 max
+    char typeNames[4][kNameBufferSize];
+    if (!ReadTypeElements(types, typeNames, wantArity)) return nullptr;
+    // net48 GetMethod(name, Type[]) default binding: Public|Instance|Static.
+    const Il2CppMethodInfo* found = nullptr;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name == nullptr || std::strcmp(m.name, memberBuf) != 0) continue;
+            if (!MemberMatchesVis(m.flags, 16 | 4 | 8, false)) continue;
+            if (MethodTypesMatch(&m, typeNames, wantArity))
+            {
+                found = &m;
+                break;
+            }
+        }
+        if (found != nullptr) break; // own-table win, .NET shadowing
+    }
+    return found != nullptr ? memberName : nullptr;
+}
+
+Il2CppObject* il2cpp_typeinfo_get_property_types(Il2CppObject* typeName, Il2CppObject* memberName,
+                                                 Il2CppArray* types)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    if (memberName == nullptr) ThrowNullMemberName("name");
+    char typeBuf[kNameBufferSize];
+    char memberBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(memberName, memberBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr) return nullptr;
+    const int32_t wantArity = (types != nullptr && types->length > 0) ? types->length : 0;
+    if (wantArity > 4) return nullptr;
+    char typeNames[4][kNameBufferSize];
+    if (!ReadTypeElements(types, typeNames, wantArity)) return nullptr;
+    // net48 GetProperty(name, Type[]) default binding: Public|Instance|Static.
+    // A NON-INDEXED property matches an EMPTY Type[]; an INDEXED property is
+    // matched by its indexer parameter types (resolved through the getter's
+    // encoded signature -- the IL property-parameter authority).
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->properties == nullptr) continue;
+        for (int32_t i = 0; i < scan->propertyCount; ++i)
+        {
+            const Il2CppPropertyInfo& p = scan->properties[i];
+            if (p.name == nullptr || std::strcmp(p.name, memberBuf) != 0) continue;
+            // Visibility from the accessor flags (GAP-1 doctrine).
+            const char* accessorNames[2] = { p.getterName, p.setterName };
+            int32_t accessorFlags = 0;
+            bool sawAccessor = false;
+            for (int32_t ai = 0; ai < 2; ++ai)
+            {
+                if (accessorNames[ai] == nullptr) continue;
+                const Il2CppMethodInfo* acc = il2cpp_type_get_method(scan, accessorNames[ai]);
+                if (acc != nullptr) { accessorFlags |= acc->flags; sawAccessor = true; }
+            }
+            if (!sawAccessor || !MemberMatchesVis(accessorFlags, 16 | 4 | 8, true)) continue;
+            if (p.indexParams != wantArity) continue;
+            if (p.getterName != nullptr && wantArity > 0 && wantArity <= 4)
+            {
+                const Il2CppMethodInfo* getter = il2cpp_type_get_method(scan, p.getterName);
+                if (getter != nullptr && !MethodTypesMatch(getter, typeNames, wantArity))
+                {
+                    continue;
+                }
+            }
+            return memberName;
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_typeinfo_get_event -- managed-string Type.GetEvent(name) icall
 // (C3-1 / RF-N1 -- the C3-2 AttachEventHandler receiver join).
 //------------------------------------------------------------------------------
