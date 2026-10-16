@@ -1284,6 +1284,38 @@ int32_t il2cpp_typeinfo_is_subclass_of(Il2CppObject* derivedName, Il2CppObject* 
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_typeinfo_get_namespace -- Type.get_Namespace on the name-string
+// (Type VALUE) receiver. net48 Namespace = the full name truncated at the LAST
+// '.': the trailing segment is the type's short name (a nested type's
+// '+'-chain rides INSIDE that segment), so the truncation keeps the namespace
+// of the OUTERMOST declaring type:
+//   "Cases.Sub.Deep" -> "Cases.Sub"; "Cases.Outer+Inner" -> "Cases".
+// A GLOBAL-namespace type (no '.') returns nullptr -- net48 returns NULL (not
+// the empty string) for a global-namespace type, probe-pinned (a nested type
+// of a global outer has no '.' either -> null). Null receiver -> NRE.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_namespace(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return nullptr;
+    const char* lastDot = std::strrchr(buf, '.');
+    if (lastDot == nullptr)
+    {
+        return nullptr; // global namespace (net48 null)
+    }
+    const size_t nsLen = static_cast<size_t>(lastDot - buf);
+    if (nsLen == 0)
+    {
+        return nullptr; // ".Short" impossible for a valid type name; defensive
+    }
+    char ns[kNameBufferSize];
+    std::memcpy(ns, buf, nsLen);
+    ns[nsLen] = '\0';
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(ns));
+}
+
+//------------------------------------------------------------------------------
 // C3-2 -- EventInfo.AddEventHandler / EventInfo.RemoveEventHandler.
 //
 // The receiver is the EVENT-NAME string (the simplified member model, as

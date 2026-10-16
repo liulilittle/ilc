@@ -45,6 +45,14 @@ public static partial class MethodRefResolver
             //     (net48: typeof(int).Name == "Int32").
             case "get_Name":
                 return I("il2cpp::runtime::il2cpp_type_get_short_name", 0, true, true, true, returnTypeName: "System.String");
+            // refl2 (item 5): Type.get_Namespace -- the FULL-name string
+            // truncated at the LAST '.' (net48 Namespace of the outermost
+            // declaring type; a global-namespace type -> null). The runtime
+            // name-string wrapper (il2cpp_typeinfo_get_namespace) does the
+            // truncation -- the pre-refl2 surface had no get_Namespace arm
+            // (the receiver fell to the generated-member phantom).
+            case "get_Namespace":
+                return I("il2cpp::il2cpp_typeinfo_get_namespace", 0, true, true, true, returnTypeName: "System.String");
             // Type.GetTypeCode(Type) -- STATIC overload: int32 TypeCode from
             // the descriptor's name (net48 values, identical table to
             // icall_object_get_type_code). TWO paths:

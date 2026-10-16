@@ -346,6 +346,16 @@ int32_t il2cpp_typeinfo_is_instance(Il2CppObject* obj, Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_is_subclass_of(Il2CppObject* derivedName, Il2CppObject* baseName);
 
 //------------------------------------------------------------------------------
+// refl2 -- Type.get_Namespace on the name-string receiver. net48 Namespace is
+// the FULL NAME truncated at the LAST '.' (the final segment is the type's
+// short name; a nested type's '+'-chain rides inside that final segment, so
+// the truncation keeps the namespace of the outermost declaring type --
+// "Cases.Outer+Inner" -> "Cases"). A GLOBAL-namespace type (no '.') returns
+// null (probe-pinned: net48 does NOT return the empty string). Null receiver
+// -> NullReferenceException.
+Il2CppObject* il2cpp_typeinfo_get_namespace(Il2CppObject* typeName);
+
+//------------------------------------------------------------------------------
 // RF-N4 -- generic-type identification icalls (NEXT2-DECISION section 2 RF-N4,
 // ruling 1: the three-way split lands on the transpiler side). Each takes the Type VALUE (full-name string, the same
 // carrier the single-member queries use) and reads the typeinfo's genericArity.
