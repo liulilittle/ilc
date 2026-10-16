@@ -620,29 +620,80 @@ Il2CppObject* il2cpp_typeinfo_get_property_flags(Il2CppObject* typeName, Il2CppO
 }
 
 //------------------------------------------------------------------------------
+// QueryManagedMethod -- the memory-safe GetMethod(name[, flags]) body with the
+// refl2 (item 4) AMBIGUITY rule: count the PUBLIC-instance-static same-name
+// methods across the own + base chain; net48 throws AmbiguousMatchException
+// when more than one matches (probe-pinned: typeof(AmbMid).GetMethod("Multi")
+// with public Multi() + base Multi(int) -> Threw:AmbiguousMatchException) and
+// returns the single match otherwise. A same-name PRIVATE method stays
+// invisible under the default/explcit public binding (it does NOT count toward
+// ambiguity -- net48 binding hides it first). Null contract is the shared
+// QueryManagedString one (null receiver -> NRE, null name -> ABN "name").
+//------------------------------------------------------------------------------
+namespace {
+
+template <typename Binding>
+Il2CppObject* QueryManagedMethod(Il2CppObject* typeName, Il2CppObject* memberName,
+                                 const char* paramName, Binding binding)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    if (memberName == nullptr) ThrowNullMemberName(paramName);
+    char typeBuf[kNameBufferSize];
+    char memberBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(memberName, memberBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr) return nullptr;
+    const int32_t bindingAttr = binding();
+    const Il2CppMethodInfo* found = nullptr;
+    int32_t matches = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name == nullptr || std::strcmp(m.name, memberBuf) != 0) continue;
+            if (!MemberMatchesVis(m.flags, bindingAttr, false)) continue;
+            found = &m;
+            ++matches;
+        }
+    }
+    if (matches > 1)
+    {
+        il2cpp_throw_new("System.Reflection.AmbiguousMatchException,System.Reflection.AmbiguousMatchException,System.SystemException,System.Exception",
+                         "Type.GetMethod: multiple methods match the name and binding flags -- ambiguous.");
+    }
+    return found != nullptr ? memberName : nullptr;
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
 // il2cpp_typeinfo_get_method -- managed-string Type.GetMethod(name) icall.
 // GAP-1 (P0): the no-arg BindingFlags overloads use net48's default binding
-// Public|Instance|Static -- a PRIVATE method is invisible.
+// Public|Instance|Static -- a PRIVATE method is invisible. refl2 (item 4):
+// public same-name overloads make the query ambiguous (AmbiguousMatchException).
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName)
 {
-    return QueryManagedString(typeName, memberName, "name",
-        [](const Il2CppTypeInfo* info, const char* name) {
-            return il2cpp_type_get_method_flags(info, name, 16 | 4 | 8);
-        });
+    return QueryManagedMethod(typeName, memberName, "name",
+        []() { return 16 | 4 | 8; });
 }
 
 //------------------------------------------------------------------------------
 // il2cpp_typeinfo_get_method_flags -- managed-string Type.GetMethod(name,
-// BindingFlags) icall (GAP-1 / P0): full visibility/static binding.
+// BindingFlags) icall (GAP-1 / P0): full visibility/static binding; refl2
+// (item 4): public same-name overloads -> AmbiguousMatchException.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_typeinfo_get_method_flags(Il2CppObject* typeName, Il2CppObject* memberName,
                                                int32_t bindingAttr)
 {
-    return QueryManagedString(typeName, memberName, "name",
-        [bindingAttr](const Il2CppTypeInfo* info, const char* name) {
-            return il2cpp_type_get_method_flags(info, name, bindingAttr);
-        });
+    return QueryManagedMethod(typeName, memberName, "name",
+        [bindingAttr]() { return bindingAttr; });
 }
 
 //------------------------------------------------------------------------------
