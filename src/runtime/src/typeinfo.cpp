@@ -626,11 +626,57 @@ Il2CppObject* il2cpp_typeinfo_get_property_flags(Il2CppObject* typeName, Il2CppO
 // when more than one matches (probe-pinned: typeof(AmbMid).GetMethod("Multi")
 // with public Multi() + base Multi(int) -> Threw:AmbiguousMatchException) and
 // returns the single match otherwise. A same-name PRIVATE method stays
-// invisible under the default/explcit public binding (it does NOT count toward
+// invisible under the default/explicit public binding (it does NOT count toward
 // ambiguity -- net48 binding hides it first). Null contract is the shared
 // QueryManagedString one (null receiver -> NRE, null name -> ABN "name").
+//
+// refl2 (item 4 audit, DEFECT-R2-AME): SIGNATURE-AWARE counting. The runtime
+// groups the same-name candidates by PARAMETER signature and lets the
+// most-derived entry of each signature SHADOW its base-class same-signature
+// entries -- a derived `override` or `new` F() hides the base F() (same
+// signature), so the no-types GetMethod returns that unique most-derived hit
+// instead of throwing. Only DISTINCT surviving signatures (real overloads)
+// roll up to AmbiguousMatchException. Signature identity = arity + per-param
+// type (the ParamEncodingToFullName projection). A same-signature pair at the
+// SAME chain level (not an inheritance shadow) is NOT merged -- it stays two
+// matches and is ambiguous (defensive; cannot be expressed in C#, documented
+// in GAPS.md).
 //------------------------------------------------------------------------------
 namespace {
+
+// Forward-declared shared signature decoders (defined below, in the
+// exact-signature block): the ambiguity/shadow grouping uses the SAME param
+// encodings the Type[] matcher does, so both stay consistent.
+bool ParamEncodingToFullName(const char* enc, char (&out)[kNameBufferSize]);
+int SplitSignatureParams(const char* sig, char out[][kNameBufferSize], int maxOut);
+
+// Build a parameter-only signature key (arity + per-param full name, one
+// "|"-joined canonical string) used to compare candidates for the shadow
+// rule. Returns false on a malformed signature (paramCount/encoding mismatch
+// or >4 params) so the caller can treat the entry non-mergable.
+bool MethodParamKey(const Il2CppMethodInfo* m, char (&key)[kNameBufferSize])
+{
+    if (m == nullptr || m->signature == nullptr ||
+        m->paramCount < 0 || m->paramCount > 4)
+    {
+        return false;
+    }
+    char encs[4][kNameBufferSize];
+    int decoded = SplitSignatureParams(m->signature, encs, 4);
+    if (decoded != m->paramCount) return false;
+    int used = std::snprintf(key, kNameBufferSize, "%d", m->paramCount);
+    if (used < 0 || used >= kNameBufferSize) return false;
+    for (int i = 0; i < decoded; ++i)
+    {
+        char full[kNameBufferSize];
+        const char* token = encs[i];
+        if (ParamEncodingToFullName(encs[i], full)) token = full;
+        const int n = std::snprintf(key + used, kNameBufferSize - used, "|%s", token);
+        if (n < 0 || n >= kNameBufferSize - used) return false;
+        used += n;
+    }
+    return true;
+}
 
 template <typename Binding>
 Il2CppObject* QueryManagedMethod(Il2CppObject* typeName, Il2CppObject* memberName,
@@ -648,9 +694,16 @@ Il2CppObject* QueryManagedMethod(Il2CppObject* typeName, Il2CppObject* memberNam
     const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
     if (info == nullptr) return nullptr;
     const int32_t bindingAttr = binding();
-    const Il2CppMethodInfo* found = nullptr;
-    int32_t matches = 0;
-    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    // Collect the visible same-name candidates most-derived first (the chain
+    // walk already visits info=level0 then each base at +1), storing each
+    // candidate with its chain level and a parameter-signature key.
+    const Il2CppMethodInfo* cand[16];
+    int32_t candLevel[16];
+    char    candKey[16][kNameBufferSize];
+    bool    candMergable[16];
+    int32_t candCount = 0;
+    int32_t level = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType, ++level)
     {
         if (scan->methods == nullptr) continue;
         for (int32_t i = 0; i < scan->methodCount; ++i)
@@ -658,11 +711,59 @@ Il2CppObject* QueryManagedMethod(Il2CppObject* typeName, Il2CppObject* memberNam
             const Il2CppMethodInfo& m = scan->methods[i];
             if (m.name == nullptr || std::strcmp(m.name, memberBuf) != 0) continue;
             if (!MemberMatchesVis(m.flags, bindingAttr, false)) continue;
-            found = &m;
-            ++matches;
+            if (candCount >= 16) break;
+            cand[candCount] = &m;
+            candLevel[candCount] = level;
+            candMergable[candCount] = MethodParamKey(&m, candKey[candCount]);
+            if (!candMergable[candCount]) candKey[candCount][0] = '\0';
+            ++candCount;
         }
     }
-    if (matches > 1)
+    // Surviving signature count: for each distinct signature key only its
+    // most-derived (lowest chain level) occurrences count -- a base
+    // same-signature entry is shadowed by the derived override/new and
+    // dropped. Two same-signature candidates at the SAME level are not an
+    // inheritance shadow (defensive; not expressible in C# so unpinnable) --
+    // both count -> ambiguous. A non-mergeable candidate (malformed/multi-dim
+    // signature) never shares a key with anyone: it groups alone.
+    const Il2CppMethodInfo* found = nullptr;
+    int32_t surviving = 0;
+    bool counted[16] = { false, false, false, false, false, false, false, false,
+                         false, false, false, false, false, false, false, false };
+    for (int32_t c = 0; c < candCount; ++c)
+    {
+        if (counted[c]) continue;
+        const char* key = candKey[c];
+        const bool mergeable = candMergable[c];
+        // Lowest chain level owning this signature key.
+        int32_t minLevel = candLevel[c];
+        for (int32_t other = 0; other < candCount; ++other)
+        {
+            if (other == c || !candMergable[other]) continue;
+            if (!mergeable || std::strcmp(candKey[other], key) != 0) continue;
+            if (candLevel[other] < minLevel) minLevel = candLevel[other];
+        }
+        // Count every candidate of this key AT that level (same-level pairs
+        // both count; base same-signature entries are OUTSIDE minLevel and
+        // shadowed).
+        for (int32_t other = c; other < candCount; ++other)
+        {
+            if (counted[other]) continue;
+            if (!candMergable[other])
+            {
+                if (mergeable || other != c) continue; // non-mergeable group alone
+            }
+            else
+            {
+                if (!mergeable || std::strcmp(candKey[other], key) != 0) continue;
+            }
+            if (candLevel[other] != minLevel) continue;
+            counted[other] = true;
+            if (found == nullptr) found = cand[other];
+            ++surviving;
+        }
+    }
+    if (surviving > 1)
     {
         il2cpp_throw_new("System.Reflection.AmbiguousMatchException,System.Reflection.AmbiguousMatchException,System.SystemException,System.Exception",
                          "Type.GetMethod: multiple methods match the name and binding flags -- ambiguous.");
