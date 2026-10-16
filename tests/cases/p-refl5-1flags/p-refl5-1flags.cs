@@ -74,6 +74,17 @@ namespace Cases
         private static void MPrivS() { }
     }
 
+    public class FOuterNest
+    {
+        public class Inner
+        {
+            public void MPublic() { }
+            internal void MInternal() { }
+            protected void MProtected() { }
+            private static void MPrivS() { }
+        }
+    }
+
     public static class PRefl5Flags
     {
         // The typeinfo chain never models the inherited System.Object virtuals
@@ -226,6 +237,26 @@ namespace Cases
             cnt = 0; first = true; sb = new StringBuilder();
             foreach (var m in t2.GetMembers((BindingFlags)pubonly2)) { if (SkipObj(m.Name)) continue; if (!first) sb.Append(','); sb.Append(m.Name); first = false; cnt++; }
             Console.WriteLine("[e.mbr.pub]=" + sb.ToString() + "|" + cnt);
+
+            // ---- nested-type visibility (REFL5 DEFECT-5 fix) ----
+            // A nested type's INTERNAL (0x3) / PROTECTED (0x4) methods must NOT
+            // decode as public: the old `(attrs & MethodAttributes.Public) != 0`
+            // bit-test (Public==0x6, so 0x3&0x6==2, 0x4&0x6==4 both non-zero)
+            // wrongly listed them under Public (net48 oracle: Public lists only
+            // MPublic; NonPublic lists MInternal,MProtected).
+            var tn = typeof(FOuterNest.Inner);
+            cnt = 0; first = true; sb = new StringBuilder();
+            foreach (var m in tn.GetMethods((BindingFlags)pi)) { if (SkipObj(m.Name)) continue; if (!first) sb.Append(','); sb.Append(m.Name); first = false; cnt++; }
+            Console.WriteLine("[n.pi]=" + sb.ToString() + "|" + cnt);
+            cnt = 0; first = true; sb = new StringBuilder();
+            foreach (var m in tn.GetMethods((BindingFlags)npi)) { if (SkipObj(m.Name)) continue; if (!first) sb.Append(','); sb.Append(m.Name); first = false; cnt++; }
+            Console.WriteLine("[n.npi]=" + sb.ToString() + "|" + cnt);
+            cnt = 0; first = true; sb = new StringBuilder();
+            foreach (var m in tn.GetMethods((BindingFlags)ps)) { if (SkipObj(m.Name)) continue; if (!first) sb.Append(','); sb.Append(m.Name); first = false; cnt++; }
+            Console.WriteLine("[n.ps]=" + sb.ToString() + "|" + cnt);
+            cnt = 0; first = true; sb = new StringBuilder();
+            foreach (var m in tn.GetMethods((BindingFlags)nps)) { if (SkipObj(m.Name)) continue; if (!first) sb.Append(','); sb.Append(m.Name); first = false; cnt++; }
+            Console.WriteLine("[n.nps]=" + sb.ToString() + "|" + cnt);
         }
     }
 }

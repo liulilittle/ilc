@@ -221,7 +221,7 @@ public static class TypeEmitter
                     Name = mName,
                     Owner = nested,
                     IsStatic = (attrs & MethodAttributes.Static) != 0,
-                    IsPublic = (attrs & MethodAttributes.Public) != 0,
+                    IsPublic = ((int)attrs & 0x7) == 0x6,
                     IsPrivate = ((int)attrs & 0x7) is 0x0 or 0x1,
                     ParamCount = paramCount,
                     ParamTypes = paramTypes,
