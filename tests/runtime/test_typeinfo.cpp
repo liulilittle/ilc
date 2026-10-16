@@ -217,6 +217,82 @@ il2cpp::Il2CppTypeInfo ifaceInfo = {
     nullptr, 0, nullptr, 0, nullptr, 0,
 };
 
+// DEFECT-F2 (audit dual-review): every fixture REGISTERED into the runtime
+// registry must be FILE-SCOPE static -- block-scoped objects dangle after
+// their `{}` exits and the registry holds THEIR ADDRESS, so a later lookup/
+// scan reads freed/reused stack memory (Release -O3 -DNDEBUG optimization-
+// sensitive: three of three runs hit 0xC0000005 in the Finder/FieldInfo
+// walks; Debug -O0 and printf-interposed builds masked the UB). This region
+// hoists the four block-registered fixtures (R2 FieldHost, R3 InvokeHost,
+// RF-1 InstHost, GAP-3 AccHost) exactly as the GAP-1 g_flagsInfo / GAP-5
+// ctorHostInfo fixture convention already does. Only live stack objects
+// (target instances the tests construct from these descriptors) stay
+// block-local -- they are never registered.
+namespace {
+
+struct FieldHost { void* hdr; int32_t i32; int64_t i64; void* refSlot; };
+
+il2cpp::Il2CppClass hostClass = {
+    "T.FieldHost", static_cast<int32_t>(sizeof(FieldHost)), 0u, 0,
+    &objectClass, nullptr, 0, nullptr, 0,
+};
+il2cpp::Il2CppObject* g_hostStaticString = nullptr;
+int64_t g_hostStaticI64 = 0;
+int32_t g_hostStaticSingle = 0; // static Single storage is int32_t (no wide slot)
+int32_t g_hostStaticDouble = 0; // static Double storage is int32_t (no wide slot)
+il2cpp::Il2CppFieldInfo hostFields[7] = {
+    {"fi32", "System.Int32", 8, 0, nullptr, 1},
+    {"fi64", "System.Int64", 16, 0, nullptr, 1},
+    {"fref", "System.String", 24, 1, nullptr, 1},
+    {"fstat", "System.String", -1, 1, &g_hostStaticString, 3},
+    {"fstat64", "System.Int64", -1, 0, &g_hostStaticI64, 3},
+    {"fstatf", "System.Single", -1, 0, &g_hostStaticSingle, 3},
+    {"fstatd", "System.Double", -1, 0, &g_hostStaticDouble, 3},
+};
+il2cpp::Il2CppTypeInfo hostInfo = {
+    "T.FieldHost", &hostClass, &objectInfoInstance, nullptr, 0,
+    hostFields, 7, nullptr, 0, nullptr, 0,
+};
+
+il2cpp::Il2CppClass invokeClass = {
+    "T.InvokeHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
+};
+il2cpp::Il2CppMethodInfo invokeMethods[2] = {
+    {"AddTwo", "I:i,i", 2, 1 | 2, -1, "T.InvokeHost", reinterpret_cast<void*>(&AddTwoInts)},
+    {"Nope",   "I:i",   1, 1, -1, "T.InvokeHost", nullptr},
+};
+il2cpp::Il2CppTypeInfo invokeInfo = {
+    "T.InvokeHost", &invokeClass, &objectInfoInstance, nullptr, 0,
+    nullptr, 0, invokeMethods, 2, nullptr, 0,
+};
+
+il2cpp::Il2CppClass instClass = {
+    "T.InstHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
+};
+il2cpp::Il2CppMethodInfo instMethods[3] = {
+    {"AddTo", "I:i,i", 2, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstAddTo)},
+    {"Read",  "I",     0, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstRead)},
+    {"Bump",  "V",     0, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstBump)},
+};
+il2cpp::Il2CppTypeInfo instInfo = {
+    "T.InstHost", &instClass, &objectInfoInstance, nullptr, 0,
+    nullptr, 0, instMethods, 3, nullptr, 0,
+};
+
+il2cpp::Il2CppMethodInfo accMethods[2] = {
+    {"get_Acc", "i()", 0, 1, -1, "T.AccHost", reinterpret_cast<void*>(&AddTwoInts)},
+    {"set_Acc", "v(i)", 1, 1, -1, "T.AccHost", reinterpret_cast<void*>(&AddTwoInts)},
+};
+il2cpp::Il2CppPropertyInfo accProps[1] = {
+    {"Acc", "System.Int32", "get_Acc", "set_Acc", 0},
+};
+il2cpp::Il2CppTypeInfo accInfo = {
+    "T.AccHost", &baseClass, &objectInfoInstance, nullptr, 0,
+    nullptr, 0, accMethods, 2, accProps, 1,
+};
+
+} // namespace
+
 int main()
 {
     using namespace il2cpp;
@@ -565,29 +641,11 @@ int main()
     {
         // A dedicated reflected type whose FIELD TABLE offsets match a real
         // instance layout (header slot 0; i32 at 8; i64 at 16; ref slot at
-        // 24; the static string slot is separate storage).
-        struct FieldHost { void* hdr; int32_t i32; int64_t i64; void* refSlot; };
-        il2cpp::Il2CppClass hostClass = {
-            "T.FieldHost", static_cast<int32_t>(sizeof(FieldHost)), 0u, 0,
-            &objectClass, nullptr, 0, nullptr, 0,
-        };
-        il2cpp::Il2CppObject* g_hostStaticString = nullptr;
-        int64_t g_hostStaticI64 = 0;
-        int32_t g_hostStaticSingle = 0; // static Single storage is int32_t (no wide slot)
-        int32_t g_hostStaticDouble = 0; // static Double storage is int32_t (no wide slot)
-        il2cpp::Il2CppFieldInfo hostFields[7] = {
-            {"fi32", "System.Int32", 8, 0, nullptr, 1},
-            {"fi64", "System.Int64", 16, 0, nullptr, 1},
-            {"fref", "System.String", 24, 1, nullptr, 1},
-            {"fstat", "System.String", -1, 1, &g_hostStaticString, 3},
-            {"fstat64", "System.Int64", -1, 0, &g_hostStaticI64, 3},
-            {"fstatf", "System.Single", -1, 0, &g_hostStaticSingle, 3},
-            {"fstatd", "System.Double", -1, 0, &g_hostStaticDouble, 3},
-        };
-        il2cpp::Il2CppTypeInfo hostInfo = {
-            "T.FieldHost", &hostClass, &objectInfoInstance, nullptr, 0,
-            hostFields, 7, nullptr, 0, nullptr, 0,
-        };
+        // 24; the static string slot is separate storage). The fixture data
+        // (FieldHost / hostClass / hostFields / hostInfo / the static slots)
+        // is FILE-SCOPE static (DEFECT-F2): hostInfo is registered into the
+        // runtime registry and later GAP-2/F1 scans read it -- block-scoped
+        // arrays would dangle after this `{}` exits (Release -O3 AV).
         il2cpp_typeinfo_register(&hostInfo);
 
         FieldHost inst = { &hostClass, 0, 0, nullptr };
@@ -761,17 +819,9 @@ int main()
                "GAP-1 get_property_flags public-accessor property visible by default");
     }
     {
-        il2cpp::Il2CppClass invokeClass = {
-            "T.InvokeHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
-        };
-        il2cpp::Il2CppMethodInfo invokeMethods[2] = {
-            {"AddTwo", "I:i,i", 2, 1 | 2, -1, "T.InvokeHost", reinterpret_cast<void*>(&AddTwoInts)},
-            {"Nope",   "I:i",   1, 1, -1, "T.InvokeHost", nullptr},
-        };
-        il2cpp::Il2CppTypeInfo invokeInfo = {
-            "T.InvokeHost", &invokeClass, &objectInfoInstance, nullptr, 0,
-            nullptr, 0, invokeMethods, 2, nullptr, 0,
-        };
+        // Fixture data (invokeClass / invokeMethods / invokeInfo) is FILE-SCOPE
+        // static -- DEFECT-F2: invokeInfo is registered into the runtime
+        // registry, block-scoped tables would dangle after this `{}`.
         il2cpp_typeinfo_register(&invokeInfo);
 
         // object[] { box(2), box(3) }
@@ -811,18 +861,9 @@ int main()
     //    instance methods exercise the pure-'this' dispatch shapes ("I"/"V"
     //    -> "I:r"/"V:r").
     {
-        il2cpp::Il2CppClass instClass = {
-            "T.InstHost", 16, 0u, 0, &objectClass, nullptr, 0, nullptr, 0,
-        };
-        il2cpp::Il2CppMethodInfo instMethods[3] = {
-            {"AddTo", "I:i,i", 2, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstAddTo)},
-            {"Read",  "I",     0, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstRead)},
-            {"Bump",  "V",     0, 1, -1, "T.InstHost", reinterpret_cast<void*>(&InstBump)},
-        };
-        il2cpp::Il2CppTypeInfo instInfo = {
-            "T.InstHost", &instClass, &objectInfoInstance, nullptr, 0,
-            nullptr, 0, instMethods, 3, nullptr, 0,
-        };
+        // Fixture data (instClass / instMethods / instInfo) is FILE-SCOPE
+        // static -- DEFECT-F2: instInfo is registered into the runtime
+        // registry, block-scoped tables would dangle after this `{}`.
         il2cpp_typeinfo_register(&instInfo);
 
         // A fake IL2CPP instance: klass header + an int32 field at offset 0.
@@ -863,17 +904,10 @@ int main()
     //    method table carries the public accessors (the single source of
     //    truth the visibility walk resolves through).
     {
-        il2cpp::Il2CppMethodInfo accMethods[2] = {
-            {"get_Acc", "i()", 0, 1, -1, "T.AccHost", reinterpret_cast<void*>(&AddTwoInts)},
-            {"set_Acc", "v(i)", 1, 1, -1, "T.AccHost", reinterpret_cast<void*>(&AddTwoInts)},
-        };
-        il2cpp::Il2CppPropertyInfo accProps[1] = {
-            {"Acc", "System.Int32", "get_Acc", "set_Acc", 0},
-        };
-        il2cpp::Il2CppTypeInfo accInfo = {
-            "T.AccHost", &baseClass, &objectInfoInstance, nullptr, 0,
-            nullptr, 0, accMethods, 2, accProps, 1,
-        };
+        // Fixture data (accMethods / accProps / accInfo) is FILE-SCOPE static
+        // -- DEFECT-F2: accInfo is registered into the runtime registry and
+        // later property-accessor scans read it; block-scoped tables would
+        // dangle after this `{}`.
         il2cpp_typeinfo_register(&accInfo);
 
         auto getter = il2cpp_typeinfo_property_get_accessor(
