@@ -143,6 +143,36 @@ public static partial class MethodRefResolver
                 returnTypeName: name == "GetCustomAttributes" ? "System.Attribute[]" : "System.Attribute",
                 argOrder: argOrder, appendLiterals: appendLiterals);
         }
+        // REFL3 (item 1): Attribute.IsDefined(...) -- the static existence
+        // query. net48 member-element overloads:
+        //   IsDefined(MemberInfo element, Type attributeType)        -- 2 args
+        //   IsDefined(MemberInfo element, Type attributeType, bool)  -- 3 args
+        // net48 default inherit for the 2-arg statform is TRUE (oracle-pinned:
+        // the base-chain [Tag3A] on Attr3Derived answers True); the 3-arg form
+        // carries the explicit bool. Both map to the managed-string existence
+        // primitive il2cpp_attribute_is_defined_named(element, attributeType,
+        // inherit) -- the exact _ex_named resolution + CollectAttributes walk.
+        // In the simplified model the MemberInfo/Type element rides as its name
+        // string (a Type VALUE full name for typeof(X) receivers), the same
+        // carrier the get_custom_ex_named element slot consumes.
+        if (name == "IsDefined" && ps.Length is 2 or 3 && ps[0] == 0x12)
+        {
+            if (ps.Length == 2 && ps[1] == 0x12)
+            {
+                // (element, attributeType) -> (element, attributeType, 1)
+                return I("il2cpp::runtime::il2cpp_attribute_is_defined_named", 2, true, false, false,
+                    new[] { "", "" }, appendLiterals: new[] { "1" });
+            }
+            if (ps.Length == 3 && ps[1] == 0x12 && ps[2] == 0x02)
+            {
+                // (element, attributeType, inherit) -> identity
+                return I("il2cpp::runtime::il2cpp_attribute_is_defined_named", 3, true, false, false,
+                    new[] { "", "", "i" });
+            }
+        }
+        if (name == "IsDefined")
+            throw new NotSupportedException(
+                $"System.Attribute::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- the net48 member-element overloads IsDefined(MemberInfo, Type[, bool]) map to il2cpp_attribute_is_defined_named");
         // Known instance surface: there is no managed Attribute object model
         // in the runtime (instances are registry objects owned by the
         // generated code) -- LOUD, per the BCL wiring convention.

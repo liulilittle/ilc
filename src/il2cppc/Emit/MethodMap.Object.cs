@@ -213,6 +213,21 @@ public static partial class MethodRefResolver
                 if (name == "GetCustomAttributes")
                     throw new NotSupportedException(
                         $"System.Reflection.MemberInfo::GetCustomAttributes with {ps.Length} parameter(s) not wired in RF-N6 -- only the net48 (bool inherit) overload maps to il2cpp_attribute_member_get_custom (the (Type, bool) attributeType-filter form is not wired)");
+                // REFL3 (item 1): MemberInfo.IsDefined(Type attributeType, bool
+                // inherit) -- net48 bool. The receiver rides the simplified
+                // member VALUE (for a Type receiver -- the probe shape -- the
+                // full type-name string, the same carrier the _ex_named element
+                // slot consumes). Maps to the managed-string existence query
+                // il2cpp_attribute_is_defined_named(element, attributeType,
+                // inherit) (attribute.cpp) -- the same CollectAttributes walk
+                // the _ex_named queries run (base chain under inherit,
+                // attributeType assignability, AttributeUsage rules).
+                if (name == "IsDefined" && ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x02)
+                    return I("il2cpp::runtime::il2cpp_attribute_is_defined_named", 2, true, false, true,
+                        new[] { "", "", "i" });
+                if (name == "IsDefined")
+                    throw new NotSupportedException(
+                        $"System.Reflection.MemberInfo::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- only the net48 (Type attributeType, bool inherit) overload maps to il2cpp_attribute_is_defined_named");
                 return null;
             default: return null;
         }

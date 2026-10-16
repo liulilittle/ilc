@@ -172,6 +172,21 @@ Il2CppObject* il2cpp_attribute_get_single_ex_named(Il2CppObject* typeName,
 Il2CppObject* il2cpp_attribute_get_single_named(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
+// il2cpp_attribute_is_defined_named -- managed-string IsDefined existence
+// query (refl3 item 1). Takes the element + attributeType as name strings on
+// the managed-string ABI (same resolution as the _ex_named queries) and
+// returns 1 when the equivalent GetCustomAttributes query would return at
+// least one match (CollectAttributes: the element's base chain under inherit,
+// the attributeType assignability filter, and the AttributeUsage rules), 0
+// otherwise. A null ELEMENT throws ArgumentNullException (net48 IsDefined
+// doctrine); a malformed / unresolvable element or attributeType yields 0
+// (no matches -- defensive).
+//------------------------------------------------------------------------------
+int32_t il2cpp_attribute_is_defined_named(Il2CppObject* typeName,
+                                          Il2CppObject* attributeTypeName,
+                                          int32_t inherit);
+
+//------------------------------------------------------------------------------
 // il2cpp_attribute_register_usage -- AttributeUsage (net48 AttributeUsage-
 // Attribute) for an attribute class, registered by the transpiler next to the
 // type descriptor (mirrors the [AttributeUsage] declaration on the class).

@@ -1623,6 +1623,13 @@ var userRecvLike = receiverType ?? arg0Type;
                 // collections (get_Count declares there).
                 return TryMapData(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Attribute": return TryMapAttribute(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // REFL3 (item 1): the generic CustomAttributeExtensions extension
+            // surface (GetCustomAttribute<T>/GetCustomAttributes<T>). The
+            // generic instantiation is a MethodSpec; BclResolveCore receives
+            // the owner + genArgNames. The arms route the receiver element and
+            // the T full name to the existing _single/_custom_ex_named
+            // attribute registry (attribute.cpp).
+            case "System.Reflection.CustomAttributeExtensions": return TryMapCustomAttributeExtensions(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames);
             // batch 162 (eventcase): System.EventArgs -- get_Empty folds to
             // null (the event-handler `e` argument; every wired handler
             // ignores it).

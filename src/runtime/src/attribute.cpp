@@ -598,6 +598,40 @@ Il2CppObject* il2cpp_attribute_get_single_ex_named(Il2CppObject* typeName,
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_attribute_is_defined_named -- net48 IsDefined existence query on the
+// managed-string ABI (refl3 item 1). Mirrors il2cpp_attribute_get_custom_ex_
+// named's element/attributeType resolution exactly (ResolveElements ->
+// il2cpp_class_by_name) and answers "would the equivalent GetCustomAttributes
+// query return at least one match" via CollectAttributes -- the same semantics
+// as il2cpp_attribute_is_defined (the raw-primitive form) on the name strings.
+//   1 when at least one attribute matches (element chain + attributeType
+//   assignability + inherit walk + AttributeUsage rules), 0 otherwise.
+//   A null element throws ArgumentNullException (net48 IsDefined element
+//   doctrine, same as the _ex_named queries); a malformed / unresolvable
+//   element or attributeType yields 0 (no matches -- defensive).
+//------------------------------------------------------------------------------
+int32_t il2cpp_attribute_is_defined_named(Il2CppObject* typeName,
+                                          Il2CppObject* attributeTypeName,
+                                          int32_t inherit)
+{
+    char typeBuf[kNameBufferSize];
+    char attrBuf[kNameBufferSize];
+    Il2CppClass* klass = nullptr;
+    Il2CppClass* attrType = nullptr;
+    bool attrTypeGiven = false;
+    if (!ResolveElements(typeName, attributeTypeName, typeBuf, attrBuf,
+                         &klass, &attrType, &attrTypeGiven))
+    {
+        return 0; // null element threw ArgumentNullException already
+    }
+    if (klass == nullptr || (attrTypeGiven && attrType == nullptr))
+    {
+        return 0;
+    }
+    return CollectAttributes(klass, attrType, inherit, nullptr, 0) > 0 ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
 // RF-N6 -- MEMBER-level attribute registry (method / field / property). A
 // separate flat fixed-capacity registry keyed by "ownerReflectionFullName::
 // memberName" (a member name is unique within its declaring type). Same

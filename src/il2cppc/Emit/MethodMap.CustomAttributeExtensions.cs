@@ -1,0 +1,52 @@
+namespace Il2Cpp.Transpiler.Emit;
+
+//------------------------------------------------------------------------------
+// MethodMap.CustomAttributeExtensions -- System.Reflection.CustomAttributeExtensions
+// (refl3 item 1). Owner: System.Reflection.CustomAttributeExtensions.
+//
+// net48 semantics the arms reproduce (oracle-pinned by p-refl3-1attrs):
+//   * GetCustomAttribute<T>(MemberInfo) -- the generic SINGULAR extension. The
+//     receiver rides as arg0 (the element MemberInfo VALUE: for a Type receiver
+//     the full type-name string -- the simplified member/type model). It routes
+//     to il2cpp_attribute_get_single_ex_named(element, TFullName, inherit=1):
+//     net48 default inherit for the generic singular is TRUE (the base-chain
+//     attribute on Attr3Derived is found), and the attributeType filter is the
+//     generic argument's FULL NAME (genArgNames[0]).
+//   * GetCustomAttributes<T>(MemberInfo) -- the generic PLURAL extension. Same
+//     element + attributeType routing to il2cpp_attribute_get_custom_ex_named
+//     (inherit=1 -- net48 plural default), returning the attribute array.
+//
+// The emitted literal for the attributeType (T full name -- a compile-time
+// constant, not an IL argument) is il2cpp::il2cpp_string_intern_literal
+// (intern-pool: safe at startup and read-only after, no GC root needed -- the
+// same literal the compile-time typeof(T) fold would produce).
+//------------------------------------------------------------------------------
+public static partial class MethodRefResolver
+{
+    private static ResolvedMethod? TryMapCustomAttributeExtensions(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string[]? genArgNames)
+    {
+        if (name is "GetCustomAttribute" or "GetCustomAttributes")
+        {
+            // The generic form (GetCustomAttribute<T>(MemberInfo)): the IL
+            // pushes ONLY the element (arg0). The attributeType (the generic
+            // argument T) is a COMPILE-TIME full name carried by genArgNames[0]
+            // -- no IL slot. inherit is net48's default for the generic
+            // singular/plural = 1 (probe-pinned). The appendLiterals inject the
+            // T-name string (intern) + the inherit literal after arg0.
+            if (ps.Length == 1 && genArgNames is { Length: >= 1 } && genArgNames[0] is { } tName)
+            {
+                var cpp = name == "GetCustomAttributes"
+                    ? "il2cpp::runtime::il2cpp_attribute_get_custom_ex_named"
+                    : "il2cpp::runtime::il2cpp_attribute_get_single_ex_named";
+                var tLit = $"il2cpp::il2cpp_string_intern_literal(\"{tName}\")";
+                return I(cpp, 1, true, true, false, new[] { "" },
+                    returnTypeName: name == "GetCustomAttributes" ? "System.Object[]" : "System.Attribute",
+                    appendLiterals: new[] { tLit, "1" });
+            }
+            throw new NotSupportedException(
+                $"{owner}::{name} with {ps.Length} parameter(s) not wired in REFL3 -- only the generic (MemberInfo element) forms map to the _single/_custom_ex_named registry via genArgNames[0]");
+        }
+        return null;
+    }
+}
