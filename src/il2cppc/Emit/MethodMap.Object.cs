@@ -225,6 +225,14 @@ public static partial class MethodRefResolver
                 if (name == "IsDefined" && ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x02)
                     return I("il2cpp::runtime::il2cpp_attribute_is_defined_named", 2, true, false, true,
                         new[] { "", "", "i" });
+                // REFL3 (item 3): MemberInfo.IsDefined(Type) -- the 1-arg
+                // instance overload (net48 default inherit = TRUE, oracle-
+                // pinned by p-refl3-3gaps). Same existence primitive with an
+                // appended inherit literal (the probe's 1-arg vs 2-arg(true)
+                // cross-check is identical).
+                if (name == "IsDefined" && ps.Length == 1 && ps[0] == 0x12)
+                    return I("il2cpp::runtime::il2cpp_attribute_is_defined_named", 1, true, false, true,
+                        new[] { "" }, appendLiterals: new[] { "1" });
                 if (name == "IsDefined")
                     throw new NotSupportedException(
                         $"System.Reflection.MemberInfo::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- only the net48 (Type attributeType, bool inherit) overload maps to il2cpp_attribute_is_defined_named");

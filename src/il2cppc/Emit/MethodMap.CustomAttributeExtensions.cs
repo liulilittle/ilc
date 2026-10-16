@@ -47,6 +47,20 @@ public static partial class MethodRefResolver
             throw new NotSupportedException(
                 $"{owner}::{name} with {ps.Length} parameter(s) not wired in REFL3 -- only the generic (MemberInfo element) forms map to the _single/_custom_ex_named registry via genArgNames[0]");
         }
+        // REFL3 (item 3): CustomAttributeExtensions.IsDefined(MemberInfo
+        // element, Type attributeType) -- the 1-arg STATIC extension (net48
+        // IL-owner; csc binds it for `typeof(X).IsDefined(typeof(T))`, shadowing
+        // the instance MemberInfo.IsDefined(Type)). net48 default inherit =
+        // TRUE (oracle-pinned by p-refl3-3gaps: the base-chain [Tag3G] on
+        // Attr3GDerived answers True). Maps to the managed-string existence
+        // primitive with an appended inherit literal -- the same resolution as
+        // the 2-arg Attribute.IsDefined (element + attributeType name strings).
+        if (name == "IsDefined" && ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+            return I("il2cpp::runtime::il2cpp_attribute_is_defined_named", 2, true, false, false,
+                new[] { "", "" }, appendLiterals: new[] { "1" });
+        if (name == "IsDefined")
+            throw new NotSupportedException(
+                $"{owner}::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- the net48 (MemberInfo element, Type attributeType) extension maps to il2cpp_attribute_is_defined_named");
         return null;
     }
 }
