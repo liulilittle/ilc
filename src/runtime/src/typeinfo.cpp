@@ -1912,7 +1912,311 @@ Il2CppArray* il2cpp_typeinfo_get_members(Il2CppObject* typeName)
 }
 
 //------------------------------------------------------------------------------
-// RF-N4 -- generic-type identification icalls (typeinfo.h managed-string ABI).
+// REFL5 (item 1) -- the (BindingFlags) arity-1 member ENUMERATION overloads.
+//
+// net48 semantics (probe-pinned on p-refl5-1flags -- no FlattenHierarchy):
+//   * a member is listed iff its VISIBILITY accepts the binding AND its
+//     static/instance-ness accepts the binding. Visibility: a PUBLIC member
+//     matches only the Public(16) bit, a NONPUBLIC member only the
+//     NonPublic(32) bit ("NonPublic excludes public"); staticness: STATIC
+//     matches only Static(8), INSTANCE only Instance(4) -- with NEITHER
+//     staticness bit set NOTHING matches (GetMethods(Public) is empty).
+//   * the BASE chain contributes only INHERITABLE members: inherited STATIC
+//     members are never listed (own statics only) and inherited PRIVATE
+//     members (bit 0x10) are never listed; public/protected/internal base
+//     members are inherited (protected/internal answer NonPublic).
+//   * ordering = metadata table order (own, then base chain).
+//------------------------------------------------------------------------------
+namespace {
+
+// Strict per-member enumeration match (differs from MemberMatchesVis -- the
+// single-name-query filter -- by requiring an EXPLICIT staticness bit;
+// net48 GetMethods(Public) with no Instance/Static returns EMPTY).
+bool EnumMemberMatches(int32_t memberFlags, int32_t bindingAttr)
+{
+    const bool isPublic = (memberFlags & 1) != 0;
+    const bool isStatic = (memberFlags & 2) != 0;
+    const bool visOk = (isPublic && (bindingAttr & 16) != 0)
+        || (!isPublic && (bindingAttr & 32) != 0);
+    const bool statOk = (isStatic && (bindingAttr & 8) != 0)
+        || (!isStatic && (bindingAttr & 4) != 0);
+    return visOk && statOk;
+}
+
+// The BY-REF (out) property/event aggregate flags: a property/event has no
+// flags column -- its visibility/static/private derive from the accessor
+// methods (declared in the SAME table). bit0 = any accessor public, bit1 =
+// every accessor static (>=1 accessor), bit0x10 = every accessor private.
+// Returns false when no resolvable accessor exists (defensive -- the model
+// documents the "all properties/events" property-table simplification).
+bool AggregateAccessorFlags(const Il2CppTypeInfo* scan, const char* a, const char* b,
+                            int32_t& outFlags)
+{
+    int32_t any = 0;
+    bool saw = false;
+    const char* names[2] = { a, b };
+    for (int32_t i = 0; i < 2; ++i)
+    {
+        const Il2CppMethodInfo* acc = names[i] != nullptr
+            ? il2cpp_type_get_method(scan, names[i]) : nullptr;
+        if (acc == nullptr) continue;
+        saw = true;
+        // bit0 public, bit1 static, bit0x10 private (typeinfo.h).
+        any |= (acc->flags & 1) != 0 ? 1 : 0;
+        any |= (acc->flags & 2) != 0 ? 2 : 0;
+        any |= (acc->flags & 0x10) != 0 ? 0x10 : 0;
+    }
+    if (!saw) return false;
+    // "static": EVERY accessor static; "private": EVERY accessor private.
+    const bool allStatic = (any & 2) != 0;
+    const bool allPrivate = (any & 0x10) != 0;
+    outFlags = ((any & 1) != 0 ? 1 : 0) | (allStatic ? 2 : 0) | (allPrivate ? 0x10 : 0);
+    return true;
+}
+
+// Bind a property/event: aggregate the accessor flags then run the strict
+// enumeration match against the typeinfo property/event entry. The scan's
+// OWN accessor names the members under (accessors live beside the table).
+bool PropertyOrEventListMatch(const Il2CppTypeInfo* scan, const char* accA,
+                              const char* accB, int32_t bindingAttr)
+{
+    int32_t flags = 0;
+    if (!AggregateAccessorFlags(scan, accA, accB, flags))
+    {
+        // No resolvable accessor: the model admits the entry (the ()-overload
+        // "all properties" simplification) -- match on the binding anyway by
+        // the entry's implied visibility (none) => public-only pass-through.
+        return (bindingAttr & 16) != 0 && (bindingAttr & 4) != 0;
+    }
+    return EnumMemberMatches(flags, bindingAttr);
+}
+
+// Enumerate own + base-chain tables into a name array with the refl5
+// binding filter. isBase (scan != info) applies the two inheritance
+// exclusions: no inherited static members, no inherited private members.
+template <typename T>
+Il2CppArray* EnumerateMembersBinding(const Il2CppTypeInfo* info,
+                                     const T* Il2CppTypeInfo::*table,
+                                     int32_t Il2CppTypeInfo::*count,
+                                     bool (*filter)(const Il2CppTypeInfo*, const T&, int32_t, bool),
+                                     int32_t bindingAttr)
+{
+    int32_t total = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        const T* entries = scan->*table;
+        if (entries == nullptr) continue;
+        for (int32_t i = 0; i < scan->*count; ++i)
+        {
+            if (filter(scan, entries[i], bindingAttr, scan != info)) ++total;
+        }
+    }
+    Il2CppArray* result = BuildNameArray(total);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        const T* entries = scan->*table;
+        if (entries == nullptr) continue;
+        for (int32_t i = 0; i < scan->*count; ++i)
+        {
+            if (filter(scan, entries[i], bindingAttr, scan != info))
+            {
+                StoreName(result, dst++, entries[i].name);
+            }
+        }
+    }
+    return result;
+}
+
+bool BindingMethod(const Il2CppTypeInfo*, const Il2CppMethodInfo& m, int32_t ba, bool isBase)
+{
+    // GetMethods NEVER lists ctors (GAP-4), whatever the flags.
+    if ((m.flags & 4) != 0) return false;
+    if (isBase && ((m.flags & 2) != 0 || (m.flags & 0x10) != 0)) return false;
+    return EnumMemberMatches(m.flags, ba);
+}
+
+bool BindingCtor(const Il2CppTypeInfo*, const Il2CppMethodInfo& m, int32_t ba, bool isBase)
+{
+    return !isBase && (m.flags & 4) != 0 && EnumMemberMatches(m.flags, ba);
+}
+
+bool BindingField(const Il2CppTypeInfo*, const Il2CppFieldInfo& f, int32_t ba, bool isBase)
+{
+    if (isBase && ((f.flags & 2) != 0 || (f.flags & 0x10) != 0)) return false;
+    return EnumMemberMatches(f.flags, ba);
+}
+
+bool BindingProperty(const Il2CppTypeInfo* scan, const Il2CppPropertyInfo& p, int32_t ba, bool isBase)
+{
+    if (isBase)
+    {
+        int32_t flags = 0;
+        // A base STATIC property (all accessors static) or PRIVATE property
+        // (all accessors private) is not inherited (net48).
+        if (AggregateAccessorFlags(scan, p.getterName, p.setterName, flags))
+        {
+            if ((flags & 2) != 0 || (flags & 0x10) != 0) return false;
+        }
+    }
+    return PropertyOrEventListMatch(scan, p.getterName, p.setterName, ba);
+}
+
+bool BindingEvent(const Il2CppTypeInfo* scan, const Il2CppEventInfo& e, int32_t ba, bool isBase)
+{
+    if (isBase)
+    {
+        int32_t flags = 0;
+        if (AggregateAccessorFlags(scan, e.addName, e.removeName, flags))
+        {
+            if ((flags & 2) != 0 || (flags & 0x10) != 0) return false;
+        }
+    }
+    return PropertyOrEventListMatch(scan, e.addName, e.removeName, ba);
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_typeinfo_get_methods_flags(Il2CppObject* typeName, int32_t bindingAttr)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembersBinding(info, &Il2CppTypeInfo::methods, &Il2CppTypeInfo::methodCount,
+                                   BindingMethod, bindingAttr);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_fields_flags(Il2CppObject* typeName, int32_t bindingAttr)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembersBinding(info, &Il2CppTypeInfo::fields, &Il2CppTypeInfo::fieldCount,
+                                   BindingField, bindingAttr);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_properties_flags(Il2CppObject* typeName, int32_t bindingAttr)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembersBinding(info, &Il2CppTypeInfo::properties, &Il2CppTypeInfo::propertyCount,
+                                   BindingProperty, bindingAttr);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_events_flags(Il2CppObject* typeName, int32_t bindingAttr)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    return EnumerateMembersBinding(info, &Il2CppTypeInfo::events, &Il2CppTypeInfo::eventCount,
+                                   BindingEvent, bindingAttr);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_constructors_flags(Il2CppObject* typeName, int32_t bindingAttr)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    // GetConstructors lists the QUERIED TYPE's OWN ctors only (no inherited
+    // ctor -- net48), so the walk is own-table only (BindingCtor's isBase=0).
+    int32_t total = 0;
+    if (info->methods != nullptr)
+    {
+        for (int32_t i = 0; i < info->methodCount; ++i)
+        {
+            if (BindingCtor(info, info->methods[i], bindingAttr, false)) ++total;
+        }
+    }
+    Il2CppArray* result = BuildNameArray(total);
+    int32_t dst = 0;
+    if (info->methods != nullptr)
+    {
+        for (int32_t i = 0; i < info->methodCount; ++i)
+        {
+            if (BindingCtor(info, info->methods[i], bindingAttr, false))
+            {
+                StoreName(result, dst++, info->methods[i].name);
+            }
+        }
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// REFL5 (item 1) -- GetMembers(BindingFlags): the five-slice union (methods +
+// ctors + properties + events + fields, own + base chain) with each slice
+// filtered by the binding (the rf-members ()-overload slice order; the ctor
+// slice stays OWN-only -- net48 never lists an inherited ctor). The methods
+// slice carries the property/event ACCESSORS (net48 returns get_/set_/add_/
+// remove_ as method members); property/event/field slices follow.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_members_flags(Il2CppObject* typeName, int32_t bindingAttr)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    int32_t methodN = 0, ctorN = 0, propN = 0, evtN = 0, fieldN = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (BindingMethod(scan, scan->methods[i], bindingAttr, scan != info)) ++methodN;
+        if (scan->properties != nullptr)
+            for (int32_t i = 0; i < scan->propertyCount; ++i)
+                if (BindingProperty(scan, scan->properties[i], bindingAttr, scan != info)) ++propN;
+        if (scan->events != nullptr)
+            for (int32_t i = 0; i < scan->eventCount; ++i)
+                if (BindingEvent(scan, scan->events[i], bindingAttr, scan != info)) ++evtN;
+        if (scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (BindingField(scan, scan->fields[i], bindingAttr, scan != info)) ++fieldN;
+    }
+    if (info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (BindingCtor(info, info->methods[i], bindingAttr, false)) ++ctorN;
+    Il2CppArray* result = BuildNameArray(methodN + ctorN + propN + evtN + fieldN);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (BindingMethod(scan, scan->methods[i], bindingAttr, scan != info))
+                    StoreName(result, dst++, scan->methods[i].name);
+    }
+    if (info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (BindingCtor(info, info->methods[i], bindingAttr, false))
+                StoreName(result, dst++, info->methods[i].name);
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->properties != nullptr)
+            for (int32_t i = 0; i < scan->propertyCount; ++i)
+                if (BindingProperty(scan, scan->properties[i], bindingAttr, scan != info))
+                    StoreName(result, dst++, scan->properties[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->events != nullptr)
+            for (int32_t i = 0; i < scan->eventCount; ++i)
+                if (BindingEvent(scan, scan->events[i], bindingAttr, scan != info))
+                    StoreName(result, dst++, scan->events[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (BindingField(scan, scan->fields[i], bindingAttr, scan != info))
+                    StoreName(result, dst++, scan->fields[i].name);
+    }
+    return result;
+}
 // The receiver is the Type VALUE (full-name string); each reads the typeinfo's
 // genericArity. A generic DEFINITION and its closed CLONES both register under
 // the definition's name key (TypeEmitter.ReflectionFullName) with the SAME
@@ -3670,6 +3974,384 @@ Il2CppObject* il2cpp_ctorinfo_get_name(Il2CppObject* memberName)
 {
     (void)memberName;
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(kCtorName));
+}
+
+//------------------------------------------------------------------------------
+// REFL5 (item 2) -- GetProperty(string, Type) / GetProperty(string, Type,
+// Type[]) exact overloads. get_method_types already serves the
+// GetMethod(string, Type[], ParameterModifier[]) form (the modifier array is
+// ignored by net48's match -- it only carries by-ref modifiers, W7).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_property_return_type(Il2CppObject* typeName,
+                                                       Il2CppObject* memberName,
+                                                       Il2CppObject* returnTypeName)
+{
+    return il2cpp_typeinfo_get_property_types_ret(typeName, memberName, returnTypeName, nullptr);
+}
+
+Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
+                                                     Il2CppObject* memberName,
+                                                     Il2CppObject* returnTypeName,
+                                                     Il2CppArray* types)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    if (memberName == nullptr) ThrowNullMemberName("name");
+    char typeBuf[kNameBufferSize];
+    char memberBuf[kNameBufferSize];
+    char retBuf[kNameBufferSize];
+    if (returnTypeName == nullptr) return nullptr; // defensive (net48 binds Type non-null)
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(memberName, memberBuf) ||
+        !AsciiFromManagedString(returnTypeName, retBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr) return nullptr;
+    const int32_t wantArity = (types != nullptr && types->length > 0) ? types->length : 0;
+    if (wantArity > 4) return nullptr;
+    char typeNames[4][kNameBufferSize];
+    if (types != nullptr && !ReadTypeElements(types, typeNames, wantArity)) return nullptr;
+    // Default Public|Instance|Static binding; the property-type match is on
+    // the IL property-type full name (Il2CppPropertyInfo.typeName). A name +
+    // type duplicate would be net48 AmbiguousMatch -- the first match wins
+    // (W7 narrow model).
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->properties == nullptr) continue;
+        for (int32_t i = 0; i < scan->propertyCount; ++i)
+        {
+            const Il2CppPropertyInfo& p = scan->properties[i];
+            if (p.name == nullptr || std::strcmp(p.name, memberBuf) != 0) continue;
+            if (p.typeName == nullptr || std::strcmp(p.typeName, retBuf) != 0) continue;
+            const char* accessorNames[2] = { p.getterName, p.setterName };
+            int32_t accessorFlags = 0;
+            bool sawAccessor = false;
+            for (int32_t ai = 0; ai < 2; ++ai)
+            {
+                if (accessorNames[ai] == nullptr) continue;
+                const Il2CppMethodInfo* acc = il2cpp_type_get_method(scan, accessorNames[ai]);
+                if (acc != nullptr) { accessorFlags |= acc->flags; sawAccessor = true; }
+            }
+            if (!sawAccessor || !MemberMatchesVis(accessorFlags, 16 | 4 | 8, true)) continue;
+            if (p.indexParams != wantArity) continue;
+            if (p.getterName != nullptr && wantArity > 0 && wantArity <= 4)
+            {
+                const Il2CppMethodInfo* getter = il2cpp_type_get_method(scan, p.getterName);
+                if (getter != nullptr && !MethodTypesMatch(getter, typeNames, wantArity))
+                {
+                    continue;
+                }
+            }
+            return memberName;
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
+// REFL5 (item 3 / C2) -- the member-TYPE property family + the flag-derived
+// predicates on the MEMBER-VALUE string receiver. All scan the typeinfo
+// registry for the DEEPEST type declaring the member name (own-table scan --
+// the same BaseChainDepthFor doctrine as get_DeclaringType / GetParameters /
+// RF-N6).
+//------------------------------------------------------------------------------
+namespace {
+
+// The declaring type whose OWN table declares the given member name (deepest
+// wins), or nullptr. Searches a SPECIFIC kind's table when table/slot-selector
+// is provided; otherwise every table (the shared member-name scan).
+const Il2CppTypeInfo* DeepestDeclarerFor(const char* name)
+{
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        const bool declares =
+            TableDeclaresName(info->methods, info->methodCount, name)
+            || TableDeclaresName(info->fields, info->fieldCount, name)
+            || TableDeclaresName(info->properties, info->propertyCount, name)
+            || TableDeclaresName(info->events, info->eventCount, name);
+        if (!declares) continue;
+        const int32_t depth = BaseChainDepthFor(info);
+        if (depth > bestDepth)
+        {
+            bestDepth = depth;
+            best = info;
+        }
+    }
+    return best;
+}
+
+// Find the FIRST exact-name METHOD entry in the deepest declaring type's OWN
+// method table (overload-first match -- the narrow model resolves the
+// simplified member value to ONE entry by name).
+const Il2CppMethodInfo* DeepestMethodForName(const char* name)
+{
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (!TableDeclaresName(info->methods, info->methodCount, name)) continue;
+        const int32_t depth = BaseChainDepthFor(info);
+        if (depth > bestDepth)
+        {
+            bestDepth = depth;
+            best = info;
+        }
+    }
+    if (best == nullptr) return nullptr;
+    return FindMember(best->methods, best->methodCount, name);
+}
+
+const Il2CppFieldInfo* DeepestFieldForName(const char* name)
+{
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (!TableDeclaresName(info->fields, info->fieldCount, name)) continue;
+        const int32_t depth = BaseChainDepthFor(info);
+        if (depth > bestDepth)
+        {
+            bestDepth = depth;
+            best = info;
+        }
+    }
+    if (best == nullptr) return nullptr;
+    return FindMember(best->fields, best->fieldCount, name);
+}
+
+const Il2CppPropertyInfo* DeepestPropertyForName(const char* name)
+{
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (!TableDeclaresName(info->properties, info->propertyCount, name)) continue;
+        const int32_t depth = BaseChainDepthFor(info);
+        if (depth > bestDepth)
+        {
+            bestDepth = depth;
+            best = info;
+        }
+    }
+    if (best == nullptr) return nullptr;
+    return FindMember(best->properties, best->propertyCount, name);
+}
+
+const Il2CppEventInfo* DeepestEventForName(const char* name)
+{
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr) continue;
+        if (!TableDeclaresName(info->events, info->eventCount, name)) continue;
+        const int32_t depth = BaseChainDepthFor(info);
+        if (depth > bestDepth)
+        {
+            bestDepth = depth;
+            best = info;
+        }
+    }
+    if (best == nullptr) return nullptr;
+    return FindMember(best->events, best->eventCount, name);
+}
+
+// The method RETURN-type FULL name from the encoded signature ("RET(PARAMS)"
+// / "RET:PARAMS" -- the return is everything before the first '(' or ':').
+// Returns false when the encoding has no full-name equivalent.
+bool SignatureReturnFullName(const Il2CppMethodInfo* m, char (&out)[kNameBufferSize])
+{
+    if (m == nullptr || m->signature == nullptr) return false;
+    const char* sep = std::strchr(m->signature, '(');
+    if (sep == nullptr) sep = std::strchr(m->signature, ':');
+    const char* retStart = m->signature;
+    const size_t len = sep != nullptr
+        ? static_cast<size_t>(sep - retStart) : std::strlen(retStart);
+    if (len >= kNameBufferSize) return false;
+    char enc[kNameBufferSize];
+    std::memcpy(enc, retStart, len);
+    enc[len] = '\0';
+    if (len == 0) return false;
+    return ParamEncodingToFullName(enc, out);
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_fieldinfo_get_field_type(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return nullptr;
+    const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf);
+    if (f == nullptr || f->typeName == nullptr) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(f->typeName));
+}
+
+Il2CppObject* il2cpp_propertyinfo_get_property_type(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return nullptr;
+    const Il2CppPropertyInfo* p = DeepestPropertyForName(nameBuf);
+    if (p == nullptr || p->typeName == nullptr) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(p->typeName));
+}
+
+Il2CppObject* il2cpp_methodinfo_get_return_type(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return nullptr;
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    char full[kNameBufferSize];
+    if (m == nullptr || !SignatureReturnFullName(m, full)) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(full));
+}
+
+Il2CppObject* il2cpp_eventinfo_get_event_handler_type(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return nullptr;
+    const Il2CppEventInfo* e = DeepestEventForName(nameBuf);
+    if (e == nullptr || e->addName == nullptr) return nullptr;
+    // The events table has no type column -- the handler delegate type is the
+    // add accessor's FIRST parameter (net48: the EventHandlerType of
+    // `event EventHandler Ev` is "System.EventHandler").
+    const Il2CppMethodInfo* add = DeepestMethodForName(e->addName);
+    if (add == nullptr || add->paramCount < 1) return nullptr;
+    char encs[1][kNameBufferSize];
+    if (SplitSignatureParams(add->signature, encs, 1) != 1) return nullptr;
+    char full[kNameBufferSize];
+    if (!ParamEncodingToFullName(encs[0], full)) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(full));
+}
+
+Il2CppObject* il2cpp_memberinfo_get_reflected_type(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return nullptr;
+    // A TYPE receiver (registered typeinfo name): ReflectedType == the type
+    // itself (net48 typeof(X).ReflectedType == typeof(X)). A member name:
+    // the DEEPEST declaring type (own members -> the query type, W7).
+    if (const Il2CppTypeInfo* self = il2cpp_typeinfo_lookup(nameBuf))
+    {
+        return self->name != nullptr
+            ? reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(self->name))
+            : nullptr;
+    }
+    const Il2CppTypeInfo* best = DeepestDeclarerFor(nameBuf);
+    if (best == nullptr || best->name == nullptr) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(best->name));
+}
+
+int32_t il2cpp_fieldinfo_is_assembly(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf);
+    if (f == nullptr) return 0;
+    // net48 IsAssembly: INTERNAL only. The narrow model distinguishes
+    // public (bit0) / private (bit0x10) / nonprivate-nonpublic (internal --
+    // the model conflates protected with internal, W7): internal ==
+    // non-public AND non-private.
+    return ((f->flags & 1) == 0 && (f->flags & 0x10) == 0) ? 1 : 0;
+}
+
+int32_t il2cpp_memberinfo_is_static(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    // A FIELD receiver (FieldInfo.IsStatic) joins through the field table;
+    // a METHOD receiver (MethodBase.IsStatic) through the method table.
+    if (const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf))
+    {
+        return (f->flags & 2) != 0 ? 1 : 0;
+    }
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return (m != nullptr && (m->flags & 2) != 0) ? 1 : 0;
+}
+
+int32_t il2cpp_memberinfo_is_public(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    if (const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf))
+    {
+        return (f->flags & 1) != 0 ? 1 : 0;
+    }
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return (m != nullptr && (m->flags & 1) != 0) ? 1 : 0;
+}
+
+int32_t il2cpp_memberinfo_is_constructor(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    // The disambiguated ctor VALUE "<FullName>::.ctor" and the bare ".ctor"/
+    // ".cctor" member values (GetConstructor / GetConstructors elements) are
+    // all constructor members.
+    if (std::strstr(nameBuf, kCtorSeparator) != nullptr
+        || std::strcmp(nameBuf, kCtorName) == 0
+        || std::strcmp(nameBuf, ".cctor") == 0)
+    {
+        return 1;
+    }
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return (m != nullptr && (m->flags & 4) != 0) ? 1 : 0;
 }
 
 } // namespace il2cpp

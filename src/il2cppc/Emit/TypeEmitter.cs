@@ -180,7 +180,8 @@ public static class TypeEmitter
                         Owner = nested,
                         IsStatic = true,
                         IsLiteral = (fd.Attributes & FieldAttributes.Literal) != 0,
-                        IsPublic = (fd.Attributes & FieldAttributes.Public) != 0,
+                        IsPublic = ((int)fd.Attributes & 0x7) == 0x6,
+                        IsPrivate = ((int)fd.Attributes & 0x7) is 0x0 or 0x1,
                         ConstantValue = TryReadNestedConstant(md, fd),
                     });
                 }
@@ -192,7 +193,8 @@ public static class TypeEmitter
                         Name = fName,
                         Owner = nested,
                         IsStatic = false,
-                        IsPublic = (fd.Attributes & FieldAttributes.Public) != 0,
+                        IsPublic = ((int)fd.Attributes & 0x7) == 0x6,
+                        IsPrivate = ((int)fd.Attributes & 0x7) is 0x0 or 0x1,
                         TypeKind = kind,
                         FieldTypeName = typeName,
                     });
@@ -220,6 +222,7 @@ public static class TypeEmitter
                     Owner = nested,
                     IsStatic = (attrs & MethodAttributes.Static) != 0,
                     IsPublic = (attrs & MethodAttributes.Public) != 0,
+                    IsPrivate = ((int)attrs & 0x7) is 0x0 or 0x1,
                     ParamCount = paramCount,
                     ParamTypes = paramTypes,
                     ReturnType = returnType,
@@ -1570,7 +1573,11 @@ public static class TypeEmitter
             foreach (var m in t.Methods)
             {
                 var flags = (m.IsPublic ? 1 : 0) | (m.IsStatic ? 2 : 0)
-                    | (m.Name is ".ctor" or ".cctor" ? 4 : 0) | (m.IsVirtual ? 8 : 0);
+                    | (m.Name is ".ctor" or ".cctor" ? 4 : 0) | (m.IsVirtual ? 8 : 0)
+                    // refl5 (item 1): the PRIVATE visibility bit (net48 never
+                    // enumerates a private base-chain member; the flags-aware
+                    // enumerators skip bit0x10 entries on the base walk).
+                    | (m.IsPrivate ? 0x10 : 0);
                 var slot = m.IsVirtual ? m.VTableSlot : -1;
                 // refl2 S2/G1: folded-accessor methods have NO emitted function
                 // symbol (AccessorAnalyzer rewrote every call site to a field
@@ -1614,14 +1621,14 @@ public static class TypeEmitter
         var fieldEntries = t.InstanceFields
             .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference || !string.IsNullOrEmpty(f.FieldTypeName) ? f.FieldTypeName : "System.Int32",
                 Offset: f.ByteOffset, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
-                Addr: "nullptr", Flags: f.IsPublic ? 1 : 0))
+                Addr: "nullptr", Flags: (f.IsPublic ? 1 : 0) | (f.IsPrivate ? 0x10 : 0)))
             .Concat(t.StaticFields.Select(f =>
             {
                 var (semantic, typeName) = StaticFieldSemantics(f, md);
                 return (f.Name, TypeName: typeName,
                     Offset: -1, IsRef: semantic == StaticFieldSemantic.Reference ? 1 : 0,
                     Addr: f.IsLiteral ? "nullptr" : $"&{FieldCppName(t, f.Name)}",
-                    Flags: (f.IsPublic ? 1 : 0) | (f.IsStatic ? 2 : 0) | (f.IsLiteral ? 4 : 0));
+                    Flags: (f.IsPublic ? 1 : 0) | (f.IsStatic ? 2 : 0) | (f.IsLiteral ? 4 : 0) | (f.IsPrivate ? 0x10 : 0));
             }))
             .ToList();
         if (fieldEntries.Count > 0)

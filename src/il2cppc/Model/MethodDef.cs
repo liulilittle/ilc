@@ -22,6 +22,10 @@ public sealed class MethodDef
     public required TypeDef Owner { get; init; }
     public bool IsStatic { get; init; }
     public bool IsPublic { get; init; }
+    // refl5 (item 1): PRIVATE visibility distinction -- see FieldDef.IsPrivate
+    // (net48 enumeration never lists a private BASE-chain method/property;
+    // the runtime typeinfo flags encode it as bit 0x10).
+    public bool IsPrivate { get; init; }
     // Signature info (decoded and filled by MetadataLoader via MethodSignatureCoder):
     // the param count is used for overloaded method-body signature matching; the
     // encoded param-type string ("i,i") is part of the method-name hash input

@@ -273,6 +273,16 @@ public static partial class MethodRefResolver
                 if (name == "get_DeclaringType" && count == 0)
                     return I("il2cpp::il2cpp_memberinfo_get_declaring_type", 0, true, true, true,
                         new[] { "" }, returnTypeName: "System.Type");
+                // refl5 (item 3 / C2): MemberInfo.get_ReflectedType on a
+                // MEMBERINFO-TYPED receiver (the MemberRef parent resolves to
+                // the base owner here; the derived-owner MemberRefs route via
+                // TryMapReflectionMember -- same icall). The type the member
+                // was obtained from == the DEEPEST declaring type (W7: the
+                // name-string member VALUE carries no query-type); a TYPE
+                // receiver answers itself (net48 typeof(X).ReflectedType).
+                if (name == "get_ReflectedType" && count == 0)
+                    return I("il2cpp::il2cpp_memberinfo_get_reflected_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
                 return null;
             default: return null;
         }

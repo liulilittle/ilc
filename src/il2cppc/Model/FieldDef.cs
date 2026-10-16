@@ -25,6 +25,14 @@ public sealed class FieldDef
     // the runtime typeinfo table encodes this as il2cpp field flags bit0
     // (raudit3/proprefl).
     public bool IsPublic { get; init; }
+    // refl5 (item 1): PRIVATE visibility distinction. net48 member ENUMERATION
+    // inherits public + protected + internal base members but NEVER private
+    // base members (probe-pinned on p-refl5-1flags: a base private field/
+    // method/property is absent from every (BindingFlags) combination, even
+    // NonPublic|Instance). The runtime typeinfo flags encode this as bit 0x10
+    // so the flags-aware enumerators can skip private base-chain entries while
+    // still listing the queried type's OWN private members.
+    public bool IsPrivate { get; init; }
     public string? ConstantValue { get; init; }
 
     // M2 field type classification (see TypeKind above):

@@ -135,7 +135,15 @@ public static class MetadataLoader
                     Owner = typeDef,
                     IsStatic = isStatic,
                     IsLiteral = (fd.Attributes & FieldAttributes.Literal) != 0,
-                    IsPublic = (fd.Attributes & FieldAttributes.Public) != 0,
+                    // refl5 (item 1): the 3-bit field-visibility mask -- Private
+                    // (0x0 PrivateScope / 0x1 Private) is what the flags-aware
+                    // enumerators must EXCLUDE from the base-chain walk (net48
+                    // never lists an inherited private member); protected/
+                    // internal/public are all inherited. IsPublic must be the
+                    // EXACT Public visibility (0x6) -- the `& Public != 0` bit
+                    // test wrongly admits internal(0x3)/protected(0x4).
+                    IsPublic = ((int)fd.Attributes & 0x7) == 0x6,
+                    IsPrivate = ((int)fd.Attributes & 0x7) is 0x0 or 0x1,
                     ConstantValue = TryReadConstant(md, fd),
                     TypeKind = kind,
                     FieldTypeName = typeName,
@@ -199,7 +207,11 @@ public static class MetadataLoader
                     Name = mName,
                     Owner = typeDef,
                     IsStatic = (attrs & MethodAttributes.Static) != 0,
-                    IsPublic = (attrs & MethodAttributes.Public) != 0,
+                    // refl5 (item 1): 3-bit visibility -- the EXACT Public
+                    // value is 0x6 (the `& Public != 0` test wrongly admits
+                    // internal 0x3 / protected 0x4); Private is 0x0/0x1.
+                    IsPublic = ((int)attrs & 0x7) == 0x6,
+                    IsPrivate = ((int)attrs & 0x7) is 0x0 or 0x1,
                     ParamCount = paramCount,
                     ParamTypes = paramTypes,
                     ReturnType = returnType,

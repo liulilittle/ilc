@@ -665,6 +665,7 @@ public static class CodeGenerator
                 {
                     Name = f.Name, Owner = clone, IsStatic = true,
                     IsLiteral = f.IsLiteral, ConstantValue = f.ConstantValue,
+                    IsPublic = f.IsPublic, IsPrivate = f.IsPrivate,
                     TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
                     FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
                     IsGenericVar = f.IsGenericVar,
@@ -675,6 +676,7 @@ public static class CodeGenerator
                 {
                     Name = f.Name, Owner = clone, IsStatic = false,
                     IsLiteral = f.IsLiteral, ConstantValue = f.ConstantValue,
+                    IsPublic = f.IsPublic, IsPrivate = f.IsPrivate,
                     TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
                     FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
                     IsGenericVar = f.IsGenericVar,
@@ -684,7 +686,7 @@ public static class CodeGenerator
                 clone.Methods.Add(new MethodDef
                 {
                     Name = m.Name, Owner = clone, IsStatic = m.IsStatic,
-                    IsPublic = m.IsPublic, ParamCount = m.ParamCount,
+                    IsPublic = m.IsPublic, IsPrivate = m.IsPrivate, ParamCount = m.ParamCount,
                     ParamTypes = m.ParamTypes, ReturnType = m.ReturnType,
                     ReturnTypeName = m.ReturnTypeName, IsVirtual = m.IsVirtual,
                     IsOverride = m.IsOverride, IsAbstract = m.IsAbstract,

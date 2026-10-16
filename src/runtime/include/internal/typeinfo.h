@@ -722,4 +722,92 @@ Il2CppObject* il2cpp_ctorinfo_get_name(Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_assembly_qualified_name(Il2CppObject* typeName,
                                                           Il2CppObject* asmSimpleName);
 
+//------------------------------------------------------------------------------
+// REFL5 (item 1) -- the (BindingFlags) arity-1 member ENUMERATION overloads.
+// net48 semantics (probe-pinned on p-refl5-1flags, no FlattenHierarchy):
+//   * a member matches iff its visibility ACCEPTS the binding AND its
+//     static/instance-ness accepts the binding:
+//       visibility: public member <-> Public(16) bit, nonpublic <-> NonPublic(32);
+//       staticness: static member <-> Static(8), instance <-> Instance(4).
+//     With NEITHER staticness bit set nothing matches (GetMethods(Public) is
+//     EMPTY -- net48, no "both" default in the arity-1 enumeration path).
+//   * the BASE chain contributes only INHERITABLE members: INHERITED STATIC
+//     members are never listed (own statics only) and INHERITED PRIVATE
+//     members (flags bit 0x10) are never listed -- public/protected/internal
+//     base members are inherited (protected/internal count as nonpublic).
+//   * GetMethods NEVER lists ctors (GAP-4); GetConstructors lists the queried
+//     type's OWN ctors only (no inherited ctor), matching the flags bits as
+//     above (a private static .cctor answers NonPublic|Static -- net48).
+//   * ordering = metadata table order (own, then base chain), the same chain
+//     order the () overloads enumerate.
+// Each returns the member-NAME string array (the simplified member model).
+// A null / malformed / unregistered typeName -> an EMPTY array.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_methods_flags(Il2CppObject* typeName, int32_t bindingAttr);
+Il2CppArray* il2cpp_typeinfo_get_fields_flags(Il2CppObject* typeName, int32_t bindingAttr);
+Il2CppArray* il2cpp_typeinfo_get_properties_flags(Il2CppObject* typeName, int32_t bindingAttr);
+Il2CppArray* il2cpp_typeinfo_get_events_flags(Il2CppObject* typeName, int32_t bindingAttr);
+Il2CppArray* il2cpp_typeinfo_get_constructors_flags(Il2CppObject* typeName, int32_t bindingAttr);
+Il2CppArray* il2cpp_typeinfo_get_members_flags(Il2CppObject* typeName, int32_t bindingAttr);
+
+//------------------------------------------------------------------------------
+// REFL5 (item 2) -- the remaining reachable exact-signature overloads.
+//   il2cpp_typeinfo_get_property_return_type(typeName, memberName,
+//       returnTypeName) -- Type.GetProperty(string, Type returnType). The
+//     plain (string, Type) 2-param overload net48 HAS (there is NO
+//     (string, Type[], Type[]) form -- refl4 note); matches the property by
+//     name + property-type equality, ANY arity (a name+type duplicate would
+//     be net48 AmbiguousMatch -- the first match wins in this narrow model,
+//     W7), default Public|Instance|Static binding.
+//   il2cpp_typeinfo_get_property_types_ret(typeName, memberName,
+//       returnTypeName, types) -- Type.GetProperty(string, Type returnType,
+//     Type[] types): name + return type + indexer-param exact match.
+//   GetMethod(string, Type[], ParameterModifier[]) reuses
+//     il2cpp_typeinfo_get_method_types (the ParameterModifier[] is ignored by
+//     net48's match -- it only encodes by-ref modifiers, W7).
+// Result: the member-NAME string (member VALUE) or nullptr on a miss; null
+// typeName/memberName keep the NRE/ArgumentNullException doctrine.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_property_return_type(Il2CppObject* typeName,
+                                                       Il2CppObject* memberName,
+                                                       Il2CppObject* returnTypeName);
+Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
+                                                     Il2CppObject* memberName,
+                                                     Il2CppObject* returnTypeName,
+                                                     Il2CppArray* types);
+
+//------------------------------------------------------------------------------
+// REFL5 (item 3 / C2) -- the member-TYPE property family + the flag-derived
+// predicates. The receiver is the MEMBER-VALUE string (the simplified member
+// model). Result TYPE VALUEs are FULL-NAME strings (the simplified Type
+// model -- e.g. "System.Int32" / "System.Void" / "System.EventHandler").
+//   il2cpp_fieldinfo_get_field_type          -- FieldInfo.get_FieldType
+//   il2cpp_propertyinfo_get_property_type    -- PropertyInfo.get_PropertyType
+//   il2cpp_methodinfo_get_return_type        -- MethodInfo.get_ReturnType
+//   il2cpp_eventinfo_get_event_handler_type  -- EventInfo.get_EventHandlerType
+//     (decoded from the event's add accessor first parameter -- the events
+//     table carries no type column).
+//   il2cpp_memberinfo_get_reflected_type     -- MemberInfo.get_ReflectedType:
+//     the DEEPEST type declaring the member (own members: == the query type;
+//     W7: the name-string member VALUE carries no query-type, so an inherited
+//     member answers its declaring base).
+//   il2cpp_fieldinfo_is_assembly             -- FieldInfo.get_IsAssembly
+//     (bit0x10-free nonpublic = internal; public/private both False -- net48
+//     probe-pinned on public fields).
+//   il2cpp_memberinfo_is_static / _is_public / _is_constructor -- the
+//     MethodBase/FieldInfo flag predicates (bit1 / bit0 / bit2), including
+//     the disambiguated ctor VALUE "<FullName>::.ctor" / bare ".ctor"
+//     (IsConstructor True) and the field-table receivers for FieldInfo.
+// Null receiver -> NullReferenceException (the null-MemberInfo chain).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_fieldinfo_get_field_type(Il2CppObject* memberName);
+Il2CppObject* il2cpp_propertyinfo_get_property_type(Il2CppObject* memberName);
+Il2CppObject* il2cpp_methodinfo_get_return_type(Il2CppObject* memberName);
+Il2CppObject* il2cpp_eventinfo_get_event_handler_type(Il2CppObject* memberName);
+Il2CppObject* il2cpp_memberinfo_get_reflected_type(Il2CppObject* memberName);
+int32_t il2cpp_fieldinfo_is_assembly(Il2CppObject* memberName);
+int32_t il2cpp_memberinfo_is_static(Il2CppObject* memberName);
+int32_t il2cpp_memberinfo_is_public(Il2CppObject* memberName);
+int32_t il2cpp_memberinfo_is_constructor(Il2CppObject* memberName);
+
 } // namespace il2cpp

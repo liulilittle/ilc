@@ -125,7 +125,21 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x1D)
                     return I("il2cpp::il2cpp_typeinfo_get_property_types", 2, true, true, true,
                         new[] { "", "", "a" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) / (string, Type[]) overloads map to il2cpp_typeinfo_get_property(_flags/_types)");
+                // refl5 (item 2): Type.GetProperty(string, Type returnType) --
+                // the net48 arity-2 return-type disambiguator (there is NO
+                // (string, Type[], Type[]) 3-param form -- refl4 note; the
+                // 3-param overload is (string, Type, Type[])). The Type
+                // argument is a CLASS (0x12) already folded to a Type VALUE
+                // string; the runtime matches by property-type equality.
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
+                    return I("il2cpp::il2cpp_typeinfo_get_property_return_type", 2, true, true, true,
+                        new[] { "", "", "" }, returnTypeName: "System.String");
+                // refl5 (item 2): Type.GetProperty(string, Type returnType,
+                // Type[] types) -- name + return type + indexer params.
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x12 && ps[2] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_property_types_ret", 3, true, true, true,
+                        new[] { "", "", "", "a" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5/refl5 -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type) / (string, Type, Type[]) overloads map to il2cpp_typeinfo_get_property(_flags/_types/_return_type/_types_ret)");
             case "GetMethod":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_method", 1, true, true, true,
@@ -141,7 +155,14 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x1D)
                     return I("il2cpp::il2cpp_typeinfo_get_method_types", 2, true, true, true,
                         new[] { "", "", "a" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) / (string, Type[]) overloads map to il2cpp_typeinfo_get_method(_flags/_types)");
+                // refl5 (item 2): Type.GetMethod(string, Type[],
+                // ParameterModifier[]) -- reuse the exact-signature matcher
+                // (parameter modifiers are ignored by net48's match, W7; the
+                // modifier ARGUMENT is dropped from the emitted icall call).
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x1D && ps[2] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_method_types", 3, true, true, true,
+                        new[] { "", "", "a", "drop" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5/refl5 -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_method(_flags/_types)");
             case "GetField":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_field", 1, true, true, true,
@@ -162,22 +183,38 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_methods", 0, true, true, true,
                         returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetMethods with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_methods");
+                // refl5 (item 1): GetMethods(BindingFlags) -- the arity-1
+                // filtered enumeration (net48 no-FlattenHierarchy semantics:
+                // inherited static/private base members excluded, own table +
+                // base chain public/protected/internal instance members).
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_methods_flags", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetMethods with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_methods; the (BindingFlags) overload to il2cpp_typeinfo_get_methods_flags");
             case "GetFields":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_fields", 0, true, true, true,
                         returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetFields with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_fields");
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_fields_flags", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetFields with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_fields; the (BindingFlags) overload to il2cpp_typeinfo_get_fields_flags");
             case "GetProperties":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_properties", 0, true, true, true,
                         returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetProperties with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_properties");
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_properties_flags", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetProperties with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_properties; the (BindingFlags) overload to il2cpp_typeinfo_get_properties_flags");
             case "GetConstructors":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_constructors", 0, true, true, true,
                         returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetConstructors with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_constructors");
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_constructors_flags", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetConstructors with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_constructors; the (BindingFlags) overload to il2cpp_typeinfo_get_constructors_flags");
             // GAP-5 (P1): Type.GetConstructor(Type[]) -- the single-ctor query
             // by arity. The receiver is the Type VALUE (full-name string);
             // the runtime matches a PUBLIC ctor of the types array length and
@@ -237,7 +274,12 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_members", 0, true, true, true,
                         returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5 -- only the () overload maps to il2cpp_typeinfo_get_members");
+                // refl5 (item 1): GetMembers(BindingFlags) -- the five-slice
+                // union under the binding filter.
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_members_flags", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5/refl5 -- the () overload maps to il2cpp_typeinfo_get_members; the (BindingFlags) overload to il2cpp_typeinfo_get_members_flags");
             // RF-N7 (NEXT2-DECISION section 2 RF-N7): Type.MakeGenericType
             // -- explicit LOUD. The runtime has no generic-argument fabrication
             // (no fabrication, the genericArgNames Plan B stays deferred) and no SRE-like
@@ -261,7 +303,10 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_events", 0, true, true, true,
                         returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetEvents with {ps.Length} parameter(s) not wired in C3-1 -- only the () overload maps to il2cpp_typeinfo_get_events");
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_events_flags", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetEvents with {ps.Length} parameter(s) not wired in C3-1/refl5 -- the () overload maps to il2cpp_typeinfo_get_events; the (BindingFlags) overload to il2cpp_typeinfo_get_events_flags");
             // C3-1 (COM-C3): Type.GetEvent(string) -- the single-event member
             // query (own + base chain), the M5.5 get_property/get_method/get_field
             // shape: the receiver is the Type VALUE (full-name string), the
