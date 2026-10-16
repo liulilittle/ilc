@@ -254,7 +254,7 @@ public class TypeEmitterTypeInfoTests
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
         var hash = SigHash.Hash("Calc.Node.Add(i,i)");
-        Assert.Contains("{ \"Add\", \"i(i,i)\", 2, 0x3, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_Add_" + hash + ") },", code);
+        Assert.Contains("{ \"Add\", \"i(i,i)\", 2, 0x3, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_Add_" + hash + "), nullptr },", code);
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public class TypeEmitterTypeInfoTests
         var code = TypeEmitter.EmitTypeInfo(t);
         var hash = SigHash.Hash("Calc.Node.VirtualAdd(i)");
         // flags 0x9 = public(1) | virtual(8); virtualSlot 1
-        Assert.Contains("{ \"VirtualAdd\", \"i(i)\", 1, 0x9, 1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_VirtualAdd_" + hash + ") },", code);
+        Assert.Contains("{ \"VirtualAdd\", \"i(i)\", 1, 0x9, 1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_VirtualAdd_" + hash + "), nullptr },", code);
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class TypeEmitterTypeInfoTests
     {
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
-        Assert.Contains("{ \"AbsAdd\", \"i(i)\", 1, 0x1, -1, \"Calc.Node\", nullptr },", code);
+        Assert.Contains("{ \"AbsAdd\", \"i(i)\", 1, 0x1, -1, \"Calc.Node\", nullptr, nullptr },", code);
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public class TypeEmitterTypeInfoTests
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
         var hash = SigHash.Hash("Calc.Node..ctor()");
-        Assert.Contains("{ \".ctor\", \"v()\", 0, 0x5, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node__ctor_" + hash + ") },", code);
+        Assert.Contains("{ \".ctor\", \"v()\", 0, 0x5, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node__ctor_" + hash + "), nullptr },", code);
     }
 
     [Fact]
@@ -365,7 +365,7 @@ public class TypeEmitterTypeInfoTests
             ParamCount = 0, ParamTypes = "", ReturnType = SignatureTypeCode.Int32,
         });
         var code = TypeEmitter.EmitTypeInfo(t, foldedAccessorNames: new HashSet<string> { "get_Value" });
-        Assert.Contains("{ \"get_Value\", \"i()\", 0, 0x1, -1, \"Calc.Node\", nullptr },", code);
+        Assert.Contains("{ \"get_Value\", \"i()\", 0, 0x1, -1, \"Calc.Node\", nullptr, nullptr },", code);
         Assert.DoesNotContain("Calc_Node_get_Value_", code);
     }
 
@@ -423,10 +423,10 @@ public class TypeEmitterTypeInfoTests
         // typeinfo method entry must carry nullptr (not a dangling &Cb_*_ref).
         var t = MakeDelegate();
         var code = TypeEmitter.EmitTypeInfo(t);
-        Assert.Contains("{ \".ctor\", \"v(r:System.Object,n)\", 2, 0x5, -1, \"Cases.Cb\", nullptr },", code);
-        Assert.Contains("{ \"Invoke\", \"i(i)\", 1, 0x9, 2, \"Cases.Cb\", nullptr },", code);
-        Assert.Contains("{ \"BeginInvoke\", \"r:System.IAsyncResult(i,r:System.AsyncCallback,r:System.Object)\", 3, 0x9, 0, \"Cases.Cb\", nullptr },", code);
-        Assert.Contains("{ \"EndInvoke\", \"i(r:System.IAsyncResult)\", 1, 0x9, 1, \"Cases.Cb\", nullptr },", code);
+        Assert.Contains("{ \".ctor\", \"v(r:System.Object,n)\", 2, 0x5, -1, \"Cases.Cb\", nullptr, nullptr },", code);
+        Assert.Contains("{ \"Invoke\", \"i(i)\", 1, 0x9, 2, \"Cases.Cb\", nullptr, nullptr },", code);
+        Assert.Contains("{ \"BeginInvoke\", \"r:System.IAsyncResult(i,r:System.AsyncCallback,r:System.Object)\", 3, 0x9, 0, \"Cases.Cb\", nullptr, nullptr },", code);
+        Assert.Contains("{ \"EndInvoke\", \"i(r:System.IAsyncResult)\", 1, 0x9, 1, \"Cases.Cb\", nullptr, nullptr },", code);
         Assert.DoesNotContain("Cases_Cb_Invoke_", code);
         Assert.DoesNotContain("Cases_Cb__ctor_", code);
     }
