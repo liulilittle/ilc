@@ -91,7 +91,6 @@ public static partial class MethodRefResolver
                             new[] { "", "ts_ticks", "ts_ticks" });
                 }
                 return null;
-                return null;
             case "Dispose":
                 // void Dispose() -- stop + join the timer thread. Both
                 // Timer::Dispose() and IDisposable::Dispose() route here
