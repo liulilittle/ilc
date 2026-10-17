@@ -107,6 +107,26 @@ namespace Cases
             rwB.ExitUpgradeableReadLock();
             Console.WriteLine("[rwB.after]=" + B(rwB.IsWriteLockHeld) + "|" + B(rwB.IsUpgradeableReadLockHeld));
 
+            // D2: holding the WRITE lock then requesting the upgradeable read
+            // lock is a recursion error on both the blocking Enter and the
+            // non-blocking TryEnter(0) paths; the failed request leaves the
+            // states unchanged.
+            var rwC = new ReaderWriterLockSlim();
+            rwC.EnterWriteLock();
+            string ec1 = "none";
+            try { rwC.EnterUpgradeableReadLock(); }
+            catch (LockRecursionException) { ec1 = "LockRecursionException"; }
+            catch (SynchronizationLockException) { ec1 = "SynchronizationLockException"; }
+            Console.WriteLine("[rwC.write.upg.enter]=" + ec1);
+            string ec2 = "none";
+            try { rwC.TryEnterUpgradeableReadLock(0); }
+            catch (LockRecursionException) { ec2 = "LockRecursionException"; }
+            catch (SynchronizationLockException) { ec2 = "SynchronizationLockException"; }
+            Console.WriteLine("[rwC.write.upg.try]=" + ec2);
+            Console.WriteLine("[rwC.write.upg.after]=" + B(rwC.IsWriteLockHeld) + "|" + B(rwC.IsUpgradeableReadLockHeld) + "|" + rwC.CurrentReadCount);
+            rwC.ExitWriteLock();
+            Console.WriteLine("[rwC.after]=" + B(rwC.IsWriteLockHeld) + "|" + B(rwC.IsUpgradeableReadLockHeld));
+
             Console.WriteLine("[done]=1");
         }
     }

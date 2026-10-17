@@ -83,12 +83,19 @@ struct Il2CppRegexGroupCollection
     int32_t count;       // element count (groupCount + 1)
 };
 
+// Register the Match/Group/GroupCollection descriptors once (idempotent;
+// il2cpp_class_register dedupes by pointer). Called defensively by the builder
+// and by the out-of-range empty-group accessor.
+void il2cpp_regex_obj_register_classes();
+
 // Build the Match object graph for a match result. 'input' is the FULL input
 // text (inputLength UTF-16 units); 'result' is the T2 engine result (success
 // false = no match); 'groupCount' is RegexAst::groupCount (capture groups
-// excluding the whole match). Always returns a non-null Match (Groups.Count ==
-// groupCount + 1). Registers the descriptors on first use. Allocates through
-// the GC; the result is safe once returned (the caller keeps it reachable).
+// excluding the whole match). Always returns a non-null Match: on success
+// Groups.Count == groupCount + 1; on no match it is net48 Match.Empty with
+// Groups.Count == 1 (a single non-participating group 0). Registers the
+// descriptors on first use. Allocates through the GC; the result is safe once
+// returned (the caller keeps it reachable).
 Il2CppObject* il2cpp_regex_build_match(const char16_t* input, int32_t inputLength,
                                        const MatchResult& result, int32_t groupCount);
 
@@ -117,7 +124,9 @@ Il2CppString* icall_regex_group_get_name(Il2CppObject* self);
 
 // int Count.
 int32_t icall_regex_gc_get_count(Il2CppObject* self);
-// Group this[int index]: item 0 = whole match, item i = capture group i.
+// Group this[int index]: item 0 = whole match, item i = capture group i. An
+// out-of-range (or negative) index returns the shared empty Group
+// (Success false / 0 / 0 / "" / "") -- net48 Match.Groups[oob], never a throw.
 Il2CppObject* icall_regex_gc_get_item_int(Il2CppObject* self, int32_t index);
 
 }} // namespace il2cpp::runtime

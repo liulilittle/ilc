@@ -227,11 +227,15 @@ int main()
         Expect(StrEq(il2cpp::runtime::icall_regex_match_get_value(m), ""),
                "match: no match -> empty Value");
         il2cpp::Il2CppObject* g = il2cpp::runtime::icall_regex_match_get_groups(m);
-        Expect(il2cpp::runtime::icall_regex_gc_get_count(g) == 2,
-               "match: no match still has Groups.Count == groupCount + 1");
+        Expect(il2cpp::runtime::icall_regex_gc_get_count(g) == 1,
+               "match: no match (Match.Empty) has Groups.Count == 1");
         Expect(!il2cpp::runtime::icall_regex_group_get_success(
                    il2cpp::runtime::icall_regex_gc_get_item_int(g, 0)),
                "match: no-match group 0 did not participate");
+        // D1: out-of-range index returns the shared empty group, no throw.
+        Expect(!il2cpp::runtime::icall_regex_group_get_success(
+                   il2cpp::runtime::icall_regex_gc_get_item_int(g, 99)),
+               "match: out-of-range Groups[int] returns the empty group");
     }
     {
         // Non-participating group: (a(b)?) against "a" -- group 2 never ran.

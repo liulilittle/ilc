@@ -116,7 +116,11 @@ void AcquireWrite(RwlsState* s)
 
 void AcquireUpgradeable(RwlsState* s)
 {
-    if (s->upgradeHeld != 0 || s->readDepth > 0)
+    // D2: holding the WRITE lock then requesting the upgradeable read lock is
+    // a recursion error in NoRecursion (the failed request must leave the
+    // state untouched). Same path for EnterUpgradeableReadLock and
+    // TryEnterUpgradeableReadLock(0).
+    if (s->writeHeld != 0 || s->upgradeHeld != 0 || s->readDepth > 0)
     {
         ThrowLockRecursionException();
     }

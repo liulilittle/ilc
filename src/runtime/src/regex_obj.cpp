@@ -13,7 +13,6 @@
 
 #include "regex_obj.h"
 
-#include "il2cpp_exception_ext.h" // il2cpp_throw_argument_out_of_range_exception
 #include "il2cpp_gc.h"            // il2cpp_gc_add_static_root / remove
 #include "il2cpp_runtime.h"       // il2cpp_class_register, il2cpp_object_new
 
@@ -115,6 +114,37 @@ int32_t FormatGroupName(int32_t value, char16_t* out)
     return n;
 }
 
+// D1: the shared EMPTY Group that GroupCollection[int] returns for an
+// out-of-range index (net48 Match.Groups[oob] == Group.Empty: Success false,
+// Index 0, Length 0, Value "", Name ""). Lazily allocated and kept alive by a
+// permanent static GC root (its address is stable, so the slot is never
+// freed); the empty text pointer is a valid zero-length literal.
+const char16_t kEmptyText[1] = { 0 };
+Il2CppRegexGroup* g_emptyGroup = nullptr;
+bool g_emptyGroupRooted = false;
+
+Il2CppRegexGroup* GetEmptyGroup()
+{
+    if (g_emptyGroup == nullptr)
+    {
+        il2cpp_regex_obj_register_classes();
+        Il2CppRegexGroup* g = reinterpret_cast<Il2CppRegexGroup*>(
+            il2cpp_object_new(&System_Text_RegularExpressions_Group_class));
+        if (!g_emptyGroupRooted)
+        {
+            il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_emptyGroup));
+            g_emptyGroupRooted = true;
+        }
+        g_emptyGroup = g;
+        g_emptyGroup->index = 0;
+        g_emptyGroup->length = 0;
+        g_emptyGroup->success = 0;
+        g_emptyGroup->value = il2cpp_string_new(kEmptyText, 0);
+        g_emptyGroup->name = il2cpp_string_new(kEmptyText, 0);
+    }
+    return g_emptyGroup;
+}
+
 } // namespace
 
 void il2cpp_regex_obj_register_classes()
@@ -137,7 +167,10 @@ Il2CppObject* il2cpp_regex_build_match(const char16_t* input, int32_t inputLengt
 {
     il2cpp_regex_obj_register_classes();
 
-    const int32_t total = groupCount + 1; // item 0 = whole match
+    // D3: an unmatched Match is net48 Match.Empty -- a SINGLE empty group
+    // (Groups.Count == 1) regardless of the pattern's capture-group count; a
+    // successful match exposes the whole match + every capture group.
+    const int32_t total = result.success ? (groupCount + 1) : 1;
     RootScope roots;
 
     Il2CppString* inputStr = il2cpp_string_new(input, inputLength);
@@ -284,9 +317,10 @@ Il2CppObject* icall_regex_gc_get_item_int(Il2CppObject* self, int32_t index)
     Il2CppRegexGroupCollection* gc = reinterpret_cast<Il2CppRegexGroupCollection*>(self);
     if (index < 0 || index >= gc->count)
     {
-        // net48 GroupCollection[int] out-of-range -> ArgumentOutOfRangeException.
-        il2cpp_throw_argument_out_of_range_exception(
-            "groupnum", "Index was out of range. Must be non-negative and less than the size of the collection.");
+        // D1: net48 GroupCollection[int] with an out-of-range (or negative)
+        // index does NOT throw -- it returns the shared empty Group
+        // (Success false / Index 0 / Length 0 / Value "" / Name "").
+        return reinterpret_cast<Il2CppObject*>(GetEmptyGroup());
     }
     Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(gc->items, index));
     return *slot;

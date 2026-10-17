@@ -35,11 +35,22 @@ namespace Cases
                 + m.Groups[1].Length + "|" + B(m.Groups[1].Success) + "|" + m.Groups[1].Name);
             Console.WriteLine("[m.g2]=" + m.Groups[2].Value + "|" + m.Groups[2].Index + "|"
                 + m.Groups[2].Length + "|" + B(m.Groups[2].Success) + "|" + m.Groups[2].Name);
+            // D1: out-of-range GroupCollection[int] -> net48 empty group
+            // (Success=False|0|0|Value.len=0|Name=""), never a throw.
+            Console.WriteLine("[match.g99]=" + B(m.Groups[99].Success) + "|" + m.Groups[99].Index + "|"
+                + m.Groups[99].Length + "|" + m.Groups[99].Value.Length + "|" + m.Groups[99].Name);
 
             Match n = Regex.Match("abc", @"\d");
             Console.WriteLine("[n.success]=" + B(n.Success) + "|" + n.Index + "|" + n.Length
                 + "|len" + n.Value.Length + "|gc" + n.Groups.Count + "|g0" + B(n.Groups[0].Success)
                 + "|g0n" + n.Groups[0].Name + "|g0vlen" + n.Groups[0].Value.Length);
+
+            // D3: a no-match Match (Match.Empty) has Groups.Count == 1 even when
+            // the pattern declares groups; D1 applies to its out-of-range index too.
+            Match nmg = Regex.Match("abc", @"(\d)(\d)(\d)");
+            Console.WriteLine("[nomatch.gc]=" + nmg.Groups.Count);
+            Console.WriteLine("[nomatch.g99]=" + B(nmg.Groups[99].Success) + "|" + nmg.Groups[99].Index + "|"
+                + nmg.Groups[99].Length + "|" + nmg.Groups[99].Value.Length + "|" + nmg.Groups[99].Name);
 
             Match p = Regex.Match("ab", @"(a)(b)");
             Console.WriteLine("[p.g1]=" + B(p.Groups[1].Success) + "|vlen" + p.Groups[1].Value.Length
