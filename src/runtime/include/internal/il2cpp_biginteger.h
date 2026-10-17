@@ -40,6 +40,8 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h" // Il2CppObject (for the managed-object ABI)
+#include "il2cpp_array.h"  // Il2CppArray (ToByteArray)
+#include "il2cpp_string.h" // Il2CppString (Parse/TryParse input)
 
 #include <cstdint>
 
@@ -61,6 +63,46 @@ struct Il2CppBigInteger
 // value. Result-slot-first shape.
 void icall_biginteger_from_int32(Il2CppBigInteger* out, int32_t value);
 void icall_biginteger_from_int64(Il2CppBigInteger* out, int64_t value);
+
+// --- parsing (nb4 NUM-BI) ---------------------------------------------------
+
+// BigInteger.Parse(string): decimal string (optional leading '+'/'-',
+// surrounding whitespace trimmed); FormatException on malformed input. The
+// result slot is written first (result-slot-first shape). On ArgumentNull
+// (null input) throws ArgumentNullException.
+void icall_biginteger_parse(Il2CppBigInteger* out, Il2CppString* text);
+
+// bool BigInteger.TryParse(string, out BigInteger): returns true and writes
+// the result when 'text' is a valid decimal string (whitespace trimmed,
+// optional sign); otherwise writes BigInteger.Zero and returns false.
+bool icall_biginteger_try_parse(Il2CppString* text, Il2CppBigInteger* out);
+
+// --- static math (nb4 NUM-BI) ------------------------------------------------
+
+// BigInteger.Pow(value, exponent): value raised to the non-negative int power
+// (binary exponentiation). throws ArgumentOutOfRangeException for exponent < 0.
+void icall_biginteger_pow(Il2CppBigInteger* out, Il2CppBigInteger value,
+                          int32_t exponent);
+
+// BigInteger.GreatestCommonDivisor(a, b): the greatest common divisor of the
+// two magnitudes (always non-negative; gcd(0, 0) == 0, gcd(0, x) == |x|).
+void icall_biginteger_gcd(Il2CppBigInteger* out, Il2CppBigInteger a,
+                          Il2CppBigInteger b);
+
+// --- conversion (nb4 NUM-BI) -------------------------------------------------
+
+// byte[] ToByteArray(): the net48 little-endian two's-complement minimal
+// byte[] (a positive value whose high bit would be set is sign-extended with
+// a leading 0x00; a negative value keeps the sign byte).
+Il2CppArray* icall_biginteger_to_byte_array(Il2CppBigInteger a);
+
+// (long)BigInteger: truncate toward zero; out of int64 range throws
+// OverflowException.
+int64_t icall_biginteger_to_int64(Il2CppBigInteger a);
+
+// (uint)BigInteger: truncate toward zero; negative or out of uint32 range
+// throws OverflowException.
+uint32_t icall_biginteger_to_uint32(Il2CppBigInteger a);
 
 // --- arithmetic (result-slot-first; inputs never mutated) -------------------
 

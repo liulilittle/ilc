@@ -32,6 +32,9 @@ if(WIN32)
     # (RegOpenKeyExA/RegGetValueA -- the .NET Framework data source) -- the
     # Advapi32 lib is a default MinGW dependency but must be explicit for MSVC
     target_link_libraries(il2cpp_runtime PUBLIC advapi32)
+    # pathproc.cpp uses GetProcessMemoryInfo (Process.WorkingSet64 -- nb4
+    # PROC-DIAG) -- the Psapi lib is explicit so both MinGW and MSVC resolve it
+    target_link_libraries(il2cpp_runtime PUBLIC psapi)
 endif()
 if(MSVC)
     # /utf-8: sources are UTF-8 without BOM; MSVC defaults to code page 936,

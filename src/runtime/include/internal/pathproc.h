@@ -61,6 +61,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"
+#include "il2cpp_time.h" // Il2CppDateTime (Process.StartTime / ExitTime)
 
 #include <cstdint>
 
@@ -168,5 +169,33 @@ int32_t il2cpp_process_kill(int32_t pid);
 // Process.Exit(code): terminates this process with the given exit code.
 // Never returns.
 [[noreturn]] void il2cpp_process_exit(int32_t code);
+
+//------------------------------------------------------------------------------
+// nb4 PROC-DIAG: the diagnostic Process properties -- pure Win32 queries over
+// the tracked-child table / a direct PID open, exact/boolean gates only.
+//------------------------------------------------------------------------------
+
+// Process.StartTime(pid): the process CREATION time (GetProcessTimesW -> the
+// FILETIME converted to a DateTime ticks value, 1601->0001 epoch shift).
+// Returns a zero DateTime for an unopenable PID / query failure (net48: the
+// same lookups throw -- null/zero is the simplified-domain convention).
+// net48 semantics caveat: reading StartTime on an EXITED process throws
+// InvalidOperationException; the runtime documents the tracked-slot shape
+// (waited) as the same guard where the observation is deterministic.
+il2cpp::runtime::Il2CppDateTime il2cpp_process_get_start_time(int32_t pid);
+
+// Process.ExitTime(pid): the process EXIT time (GetProcessTimesW exit
+// FILETIME -> DateTime ticks). net48: only readable after the process exited
+// (reading it while alive throws InvalidOperationException); a zero DateTime
+// signals an unqueryable PID.
+il2cpp::runtime::Il2CppDateTime il2cpp_process_get_exit_time(int32_t pid);
+
+// Process.WorkingSet64(pid): the process working-set size in bytes
+// (GetProcessMemoryInfo -> PROCESS_MEMORY_COUNTERS.WorkingSetSize).
+// net48: accessing it on an EXITED process throws InvalidOperationException
+// ("Cannot process request because the process has exited") -- the runtime
+// throws the same managed exception for a waited (exited) tracked child and
+// for an unopenable PID. Returns the byte count on success.
+int64_t il2cpp_process_get_working_set64(int32_t pid);
 
 }} // namespace il2cpp::runtime

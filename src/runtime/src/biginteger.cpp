@@ -16,13 +16,18 @@
 
 #include "il2cpp_biginteger.h"
 
-#include "il2cpp_exception.h"     // il2cpp_throw_new
+#include "il2cpp_array.h"        // il2cpp_array_new (ToByteArray)
+#include "il2cpp_exception.h"    // il2cpp_throw_new
 #include "il2cpp_exception_ext.h" // il2cpp_throw_divide_by_zero_exception /
-                                  // il2cpp_throw_overflow_exception
+                                  // il2cpp_throw_overflow_exception /
+                                  // il2cpp_throw_format_exception /
+                                  // il2cpp_throw_argument_out_of_range_exception
 #include "il2cpp_string.h"        // il2cpp_string_new_from_utf8
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring> // std::memcpy (ToByteArray)
+#include <cwctype>
 #include <string>
 #include <vector>
 
@@ -272,7 +277,10 @@ void icall_biginteger_from_int64(Il2CppBigInteger* out, int64_t value)
         if (mag != 0)
         {
             state->limbs.push_back(static_cast<uint32_t>(mag));
-            state->limbs.push_back(static_cast<uint32_t>(mag >> 32));
+            if ((mag >> 32) != 0)
+            {
+                state->limbs.push_back(static_cast<uint32_t>(mag >> 32));
+            }
         }
     }
     else
@@ -282,7 +290,10 @@ void icall_biginteger_from_int64(Il2CppBigInteger* out, int64_t value)
         if (mag != 0)
         {
             state->limbs.push_back(static_cast<uint32_t>(mag));
-            state->limbs.push_back(static_cast<uint32_t>(mag >> 32));
+            if ((mag >> 32) != 0)
+            {
+                state->limbs.push_back(static_cast<uint32_t>(mag >> 32));
+            }
         }
     }
     out->state = state;
@@ -450,6 +461,307 @@ Il2CppObject* icall_biginteger_to_string(Il2CppBigInteger a)
 {
     const std::string text = ToDecimal(*a.state);
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(text.c_str()));
+}
+
+//------------------------------------------------------------------------------
+// nb4 NUM-BI: parsing / Pow / GCD / ToByteArray / wide conversions.
+//------------------------------------------------------------------------------
+
+namespace {
+
+// The net48 char.IsWhiteSpace subset that decimal parsing trims (the common
+// whitespace codepoints -- the probe surface is ASCII; the full Unicode table
+// is deliberately not replicated).
+bool IsDecimalWhitespace(char16_t c)
+{
+    return c == u' ' || c == u'\t' || c == u'\n' || c == u'\v' || c == u'\f'
+        || c == u'\r' || c == 0x0085 || c == 0x00A0 || c == 0x1680
+        || (c >= 0x2000 && c <= 0x200A) || c == 0x2028 || c == 0x2029
+        || c == 0x202F || c == 0x205F || c == 0x3000;
+}
+
+// Accumulate the decimal digits (most significant first) into an unsigned
+// state: acc = acc * 10 + digit per digit. Returns false on a non-digit.
+bool AccumulateDecimal(const char16_t* chars, int32_t length,
+                       const std::vector<uint32_t>& ten,
+                       std::vector<uint32_t>& acc)
+{
+    for (int32_t i = 0; i < length; ++i)
+    {
+        const char16_t c = chars[i];
+        if (c < u'0' || c > u'9')
+        {
+            return false;
+        }
+        const std::vector<uint32_t> digit = { static_cast<uint32_t>(c - u'0') };
+        acc = AddMagnitude(MulMagnitude(acc, ten), digit);
+    }
+    return true;
+}
+
+// Build a one-limb state for the small positive value.
+BigIntegerState* StateFromUint32(uint32_t value)
+{
+    auto* state = new BigIntegerState();
+    state->negative = false;
+    if (value != 0)
+    {
+        state->limbs.push_back(value);
+    }
+    return state;
+}
+
+// The little-endian magnitude bytes (per limb, low byte first) BEFORE the
+// net48 sign rules: for negative values an extra 0x00 is appended when the
+// top byte's high bit is set (so the two's complement sign stays clear), then
+// the whole array is two's-complemented. Positive values get a 0x00 sign byte
+// when their top byte's high bit would be set.
+std::vector<uint8_t> ToByteArrayMagnitude(const BigIntegerState& s)
+{
+    std::vector<uint8_t> bytes;
+    bytes.reserve(s.limbs.size() * 4);
+    for (uint32_t limb : s.limbs)
+    {
+        bytes.push_back(static_cast<uint8_t>(limb));
+        bytes.push_back(static_cast<uint8_t>(limb >> 8));
+        bytes.push_back(static_cast<uint8_t>(limb >> 16));
+        bytes.push_back(static_cast<uint8_t>(limb >> 24));
+    }
+    while (bytes.size() > 1 && bytes.back() == 0)
+    {
+        bytes.pop_back();
+    }
+    return bytes;
+}
+
+void ApplyTwosComplement(std::vector<uint8_t>& bytes)
+{
+    int carry = 1;
+    for (auto& b : bytes)
+    {
+        const int v = static_cast<int>(static_cast<uint8_t>(~b)) + carry;
+        b = static_cast<uint8_t>(v);
+        carry = v >> 8;
+    }
+}
+
+} // namespace
+
+void icall_biginteger_parse(Il2CppBigInteger* out, Il2CppString* text)
+{
+    if (text == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("value");
+    }
+    const Il2CppString* s = text;
+    int32_t i = 0;
+    int32_t n = s->length;
+    while (i < n && IsDecimalWhitespace(s->chars[i])) ++i;
+    while (n > i && IsDecimalWhitespace(s->chars[n - 1])) --n;
+    if (i == n)
+    {
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+    }
+    bool negative = false;
+    if (s->chars[i] == u'-')
+    {
+        negative = true;
+        ++i;
+    }
+    else if (s->chars[i] == u'+')
+    {
+        ++i;
+    }
+    if (i == n)
+    {
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+    }
+    auto* state = new BigIntegerState();
+    const std::vector<uint32_t> ten = { 10 };
+    if (!AccumulateDecimal(s->chars + i, n - i, ten, state->limbs))
+    {
+        delete state;
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+    }
+    Normalize(*state);
+    state->negative = negative && !state->limbs.empty();
+    out->state = state;
+}
+
+bool icall_biginteger_try_parse(Il2CppString* text, Il2CppBigInteger* out)
+{
+    auto* state = new BigIntegerState();
+    if (text != nullptr)
+    {
+        const Il2CppString* s = text;
+        int32_t i = 0;
+        int32_t n = s->length;
+        while (i < n && IsDecimalWhitespace(s->chars[i])) ++i;
+        while (n > i && IsDecimalWhitespace(s->chars[n - 1])) --n;
+        if (i < n)
+        {
+            bool negative = false;
+            if (s->chars[i] == u'-')
+            {
+                negative = true;
+                ++i;
+            }
+            else if (s->chars[i] == u'+')
+            {
+                ++i;
+            }
+            bool ok = false;
+            if (i < n)
+            {
+                const std::vector<uint32_t> ten = { 10 };
+                ok = AccumulateDecimal(s->chars + i, n - i, ten, state->limbs);
+            }
+            if (ok)
+            {
+                Normalize(*state);
+                state->negative = negative && !state->limbs.empty();
+                out->state = state;
+                return true;
+            }
+        }
+    }
+    out->state = state; // failure: BigInteger.Zero
+    return false;
+}
+
+void icall_biginteger_pow(Il2CppBigInteger* out, Il2CppBigInteger value,
+                          int32_t exponent)
+{
+    if (exponent < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "exponent", "The exponent must be a non-negative value.");
+    }
+    BigIntegerState resultState;
+    resultState.negative = false;
+    resultState.limbs = { 1 };
+    BigIntegerState* baseState = StateFromUint32(0);
+    baseState->negative = value.state->negative;
+    baseState->limbs = value.state->limbs;
+    int32_t e = exponent;
+    while (e > 0)
+    {
+        if (e & 1)
+        {
+            resultState.limbs = MulMagnitude(resultState.limbs, baseState->limbs);
+        }
+        e >>= 1;
+        if (e > 0)
+        {
+            baseState->limbs = MulMagnitude(baseState->limbs, baseState->limbs);
+        }
+    }
+    delete baseState;
+    if ((exponent & 1) != 0 && value.state->negative)
+    {
+        resultState.negative = true;
+    }
+    Normalize(resultState);
+    auto* state = new BigIntegerState();
+    state->negative = resultState.negative;
+    state->limbs = std::move(resultState.limbs);
+    out->state = state;
+}
+
+void icall_biginteger_gcd(Il2CppBigInteger* out, Il2CppBigInteger a,
+                          Il2CppBigInteger b)
+{
+    // Euclidean algorithm over the magnitudes; the result is always
+    // non-negative (gcd(0, 0) == 0, gcd(0, x) == |x|).
+    std::vector<uint32_t> x = a.state->limbs;
+    std::vector<uint32_t> y = b.state->limbs;
+    while (!y.empty())
+    {
+        std::vector<uint32_t> q, r;
+        DivModMagnitude(x, y, q, r);
+        x = std::move(y);
+        y = std::move(r);
+    }
+    auto* state = new BigIntegerState();
+    state->negative = false;
+    state->limbs = std::move(x);
+    Normalize(*state);
+    out->state = state;
+}
+
+Il2CppArray* icall_biginteger_to_byte_array(Il2CppBigInteger a)
+{
+    if (a.state->limbs.empty())
+    {
+        return il2cpp_array_new(nullptr, 1, false, 1); // { 0x00 }, zero-initialized
+    }
+    std::vector<uint8_t> bytes = ToByteArrayMagnitude(*a.state);
+    if (!a.state->negative)
+    {
+        if (bytes.back() & 0x80)
+        {
+            bytes.push_back(0); // positive values keep a clear sign byte
+        }
+    }
+    else
+    {
+        if (bytes.back() & 0x80)
+        {
+            bytes.push_back(0); // room for the two's-complement sign
+        }
+        ApplyTwosComplement(bytes);
+    }
+    Il2CppArray* arr = il2cpp_array_new(nullptr, 1, false,
+                                        static_cast<int32_t>(bytes.size()));
+    std::memcpy(arr->data, bytes.data(), bytes.size());
+    return arr;
+}
+
+int64_t icall_biginteger_to_int64(Il2CppBigInteger a)
+{
+    if (a.state->limbs.size() > 2)
+    {
+        il2cpp_throw_overflow_exception(
+            "Value was either too large or too small for an Int64.");
+    }
+    uint64_t mag = 0;
+    for (size_t i = a.state->limbs.size(); i-- > 0;)
+    {
+        mag = (mag << 32) | a.state->limbs[i];
+    }
+    if (a.state->negative)
+    {
+        if (mag > 0x8000000000000000ull)
+        {
+            il2cpp_throw_overflow_exception(
+                "Value was either too large or too small for an Int64.");
+        }
+        // mag == 2^63 exactly maps to Int64.MinValue.
+        return mag == 0x8000000000000000ull
+            ? INT64_MIN
+            : -static_cast<int64_t>(mag);
+    }
+    if (mag > 0x7FFFFFFFFFFFFFFFull)
+    {
+        il2cpp_throw_overflow_exception(
+            "Value was either too large or too small for an Int64.");
+    }
+    return static_cast<int64_t>(mag);
+}
+
+uint32_t icall_biginteger_to_uint32(Il2CppBigInteger a)
+{
+    if (a.state->negative)
+    {
+        il2cpp_throw_overflow_exception(
+            "Value was either too large or too small for a UInt32.");
+    }
+    if (a.state->limbs.size() > 1)
+    {
+        il2cpp_throw_overflow_exception(
+            "Value was either too large or too small for a UInt32.");
+    }
+    return a.state->limbs.empty() ? 0 : a.state->limbs[0];
 }
 
 }} // namespace il2cpp::runtime

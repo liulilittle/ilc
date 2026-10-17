@@ -91,6 +91,20 @@ public static partial class MethodRefResolver
             // GC.CollectionCount(int generation): the per-generation counter
             // (il2cpp_gc.h GC API layer -- the il2cpp:: prefix, NOT runtime::).
             case "CollectionCount": return I("il2cpp::il2cpp_gc_get_collection_count", 1, true, false, false, new[] { "i" }, "l");
+            // nb4 GC-SPOT: RegisterForFullGCNotification(int, int) /
+            // CancelFullGCNotification() -- the runtime entries already exist
+            // (gc.cpp icall surface; il2cpp_gc.h:292) and are BLOCKING-
+            // collector no-op registrations (always succeed). net48 return:
+            // bool, discarded by the callers.
+            case "RegisterForFullGCNotification":
+                if (count == 2)
+                    return I("il2cpp::il2cpp_gc_register_for_full_gc_notification", 2, true, false, false,
+                        new[] { "i", "i" });
+                return null;
+            case "CancelFullGCNotification":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_gc_cancel_full_gc_notification", 0, true, false, false);
+                return null;
             // net9/10 E2E icallcase namespace fix: these two live in
             // il2cpp_gc.h = namespace il2cpp (the GC API layer), NOT
             // il2cpp::runtime -- the wrong prefix failed to compile.

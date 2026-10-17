@@ -42,7 +42,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapBigInteger(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, byte ret = 0x01)
     {
         switch (name)
         {
@@ -64,10 +64,51 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_biginteger_from_int64", 1, true, false, false, null, "bi");
                 return null;
             // static int32 op_Explicit(BigInteger): truncate toward zero,
-            // OverflowException out of range.
+            // OverflowException out of range. nb4 NUM-BI: the int64 / uint32 /
+            // uint64 conversion arms discriminate on the RETURN byte (the
+            // argument list is a lone [0x11] for every width, so `ret` selects
+            // the carrier -- int32 0x08 / uint32 0x09 / int64 0x0A /
+            // uint64 0x0B).
             case "op_Explicit":
                 if (ps.Length == 1 && ps[0] == 0x11)
+                {
+                    if (ret == 0x09)
+                        return I("il2cpp::runtime::icall_biginteger_to_uint32", 1, true, false, false, new[] { "" });
+                    if (ret == 0x0A)
+                        return I("il2cpp::runtime::icall_biginteger_to_int64", 1, true, false, false, new[] { "" }, "l");
+                    if (ret == 0x0B)
+                        return I("il2cpp::runtime::icall_biginteger_to_int64", 1, true, false, false, new[] { "" }, "l");
                     return I("il2cpp::runtime::icall_biginteger_to_int32", 1, true, false, false, new[] { "" });
+                }
+                return null;
+            // nb4 NUM-BI: BigInteger.Parse(string) / TryParse(string, out
+            // BigInteger) -- result-slot-first parse (the newobj/pow precedent);
+            // TryParse's out-slot address passes through the "" cast.
+            case "Parse":
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_biginteger_parse", 1, true, false, false, new[] { "s" }, "bi");
+                return null;
+            case "TryParse":
+                if (count == 2 && ps[0] == 0x0E && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_biginteger_try_parse", 2, true, false, false, new[] { "s", "" });
+                return null;
+            // static BigInteger Pow(BigInteger, int) / GreatestCommonDivisor(
+            // BigInteger, BigInteger): the result slot is prepended by the
+            // AssignStmt "bi" special case; the value operands ride the ""
+            // cast, the int exponent the "i" cast.
+            case "Pow":
+                if (count == 2 && ps[0] == 0x11 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_biginteger_pow", 2, true, false, false, new[] { "", "i" }, "bi");
+                return null;
+            case "GreatestCommonDivisor":
+                if (count == 2 && ps[0] == 0x11 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_biginteger_gcd", 2, true, false, false, new[] { "", "" }, "bi");
+                return null;
+            // byte[] ToByteArray(): instance -- the receiver is an ldloca
+            // ADDRESS ("deref:bi"); the result is a managed byte[] ref.
+            case "ToByteArray":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_biginteger_to_byte_array", 0, true, true, true, new[] { "deref:bi" });
                 return null;
             // static BigInteger operators: both operands are values ("" cast);
             // the result slot is prepended by the AssignStmt "bi" special case.

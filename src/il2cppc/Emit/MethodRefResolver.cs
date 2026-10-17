@@ -1233,11 +1233,23 @@ public static partial class MethodRefResolver
             case "Internal.Runtime.Augments.RuntimeThread":
             case "System.Threading.SynchronizationContext":
             case "System.Threading.HostExecutionContextManager": return TryMapThread(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // nb4 GC-SPOT: System.Threading.Volatile -- the static fence
+            // read/write class (Read/Write arms live in TryMapThread,
+            // MethodMap.Thread.cs). Dispatching the owner here keeps the
+            // Volatile surface in the same file as Thread.VolatileRead/Write.
+            case "System.Threading.Volatile": return TryMapThread(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.Semaphore":
             case "System.Threading.Mutex":
             case "System.Threading.EventWaitHandle":
             case "System.Threading.AutoResetEvent":
             case "System.Threading.ManualResetEvent": return TryMapWaitHandle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // nb4 SYNC-LITE: the lightweight sync objects (SemaphoreSlim /
+            // CountdownEvent / SpinLock / Barrier) -- the il2cpp_synclite.h
+            // domain (MethodMap.SyncLite.cs).
+            case "System.Threading.SemaphoreSlim":
+            case "System.Threading.CountdownEvent":
+            case "System.Threading.Barrier":
+            case "System.Threading.SpinLock": return TryMapSyncLite(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.WaitHandle":
                 // The MemberRef declares the inherited members (WaitOne) on
                 // the WaitHandle BASE. WaitOne is the SAME icall for all three
@@ -1618,7 +1630,7 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Guid": return TryMapGuid(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Decimal": return TryMapFormat(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapDecimal(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, ret);
-            case "System.Numerics.BigInteger": return TryMapBigInteger(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Numerics.BigInteger": return TryMapBigInteger(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, ret);
             case "System.Version": return TryMapVersion(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Uri": return TryMapUri(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Enum": return TryMapEnum(owner, name, ps, count, genArgs, genArgNames, receiverType, receiverIsAddress, arg0Type, arg1Type);

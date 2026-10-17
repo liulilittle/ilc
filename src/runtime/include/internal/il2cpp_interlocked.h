@@ -104,4 +104,14 @@ double il2cpp_interlocked_compare_exchange_double(double* location, double value
 float il2cpp_interlocked_add_float(float* location, float value);
 double il2cpp_interlocked_add_double(double* location, double value);
 
+// nb4 GC-SPOT: the Volatile.Read/Volatile.Write family -- SEQ_CST atomic
+// loads/stores (the .NET "volatile" semantics: full fence on the operation,
+// no reordering across it). Serves BOTH Thread.VolatileRead/VolatileWrite
+// and System.Threading.Volatile.Read/Write (net48: both are the same
+// fence-atomics). i4 = int32 slot; i8 = int64 slot.
+int32_t il2cpp_volatile_read_i4(int32_t* location);
+void il2cpp_volatile_write_i4(int32_t* location, int32_t value);
+int64_t il2cpp_volatile_read_i8(int64_t* location);
+void il2cpp_volatile_write_i8(int64_t* location, int64_t value);
+
 }} // namespace il2cpp::runtime

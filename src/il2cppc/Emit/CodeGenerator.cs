@@ -277,6 +277,12 @@ public static class CodeGenerator
         // il2cpp_waithandle.h (namespace il2cpp::runtime). Without the include
         // the generated C++ cannot see the declarations (waithandlecase e2e).
         generatedHeader.Line("#include \"il2cpp_waithandle.h\"");
+        // nb4 SYNC-LITE: the lightweight sync domain -- SemaphoreSlim /
+        // CountdownEvent / SpinLock / Barrier icalls (icall_synclite_*,
+        // MethodMap.SyncLite.cs) live in il2cpp_synclite.h (namespace
+        // il2cpp::runtime). Without the include the generated C++ cannot see
+        // the declarations nor the class descriptors.
+        generatedHeader.Line("#include \"il2cpp_synclite.h\"");
         // P17 wiring: BigInteger domain -- the biginteger icalls
         // (icall_biginteger_*, MethodMap.BigInteger.cs) live in
         // il2cpp_biginteger.h (namespace il2cpp::runtime). Without the include
@@ -2727,6 +2733,21 @@ public static class CodeGenerator
                     locKind[d] = "ref";
                     continue;
                 }
+                // nb4 SYNC-LITE: System.Threading.SpinLock -- a VALUETYPE
+                // local the compiler address-takes (Enter(ref bool)/Exit/
+                // IsHeld). The runtime models it as an opaque OBJECT carrier
+                // (the builder precedent): the .ctor icall (il2cpp_synclite.h)
+                // writes the allocated SpinLock object INTO the slot, so the
+                // local is a plain Il2CppObject* ref carrier + frame root.
+                // Without this the local would declare the mangled undefined
+                // `System_Threading_SpinLock` struct -> cmake build FAIL.
+                if (ilKind == "v:System.Threading.SpinLock")
+                {
+                    refLocals.Add(d);
+                    w.Line($"Il2CppObject* {d} = nullptr;");
+                    locKind[d] = "ref";
+                    continue;
+                }
                 // guidcase (M7R2): a System.Guid IL-declared local is the
                 // 16-byte VALUE SLOT (uint8_t[16]) -- the guid.h icalls write
                 // through raw byte pointers (the "g" cast; there is NO
@@ -4336,6 +4357,18 @@ public static class CodeGenerator
                         }
                         w.LineAligned($"(*reinterpret_cast<Il2CppObject**>({initobjAddr})) = nullptr;",
                             $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize reference slot (generic value type)");
+                        break;
+                    }
+                    // nb4 SYNC-LITE: initobj of System.Threading.SpinLock (the
+                    // default `new SpinLock()` / default(S) lowering) -- the
+                    // value-type local is a REF CARRIER (see the v:
+                    // declaration special case), so the faithful zero-init is a
+                    // null store, NOT a memset of the mangled struct (which has
+                    // no sizeof -- cmake build FAIL).
+                    if (TypeTokenFullName(md, initobjTok) == "System.Threading.SpinLock")
+                    {
+                        w.LineAligned($"(*reinterpret_cast<Il2CppObject**>({initobjAddr})) = nullptr;",
+                            $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize SpinLock ref carrier");
                         break;
                     }
                     w.LineAligned($"std::memset({initobjAddr}, 0, sizeof({TypeCppName(TypeTokenFullName(md, initobjTok))}));",

@@ -33,6 +33,7 @@
 #include "pathproc.h"
 
 #include "il2cpp_exception.h" // il2cpp_throw_new (GetDirectoryName ArgumentException)
+#include "il2cpp_exception_ext.h" // il2cpp_throw_invalid_operation_exception (POSTEXIT IOE)
 #include "il2cpp_string.h"
 #include "platform.h" // plat_path_tmpdir / plat_path_full / plat_process_id / plat_thread_current_id
 
@@ -47,6 +48,7 @@
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
+    #include <psapi.h> // GetProcessMemoryInfo (Process.WorkingSet64, nb4 PROC-DIAG)
 #else
     #include <limits.h>   // PATH_MAX (fallback guard in the anonymous namespace)
     #include <unistd.h>   // getcwd
@@ -1068,6 +1070,139 @@ void il2cpp_process_exit(int32_t code)
     ::ExitProcess(static_cast<UINT>(code));
 #else
     ::exit(code);
+#endif
+}
+
+//------------------------------------------------------------------------------
+// nb4 PROC-DIAG: StartTime / ExitTime / WorkingSet64 -- the Win32 diagnostic
+// queries over the tracked-child table (preferred handle) or a direct PID
+// open (the current process and untracked children). Post-exit semantics:
+// net48 throws InvalidOperationException for a process that already exited;
+// the runtime mirrors it for the deterministic shapes (a waited tracked slot
+// or an unopenable PID).
+//------------------------------------------------------------------------------
+
+namespace {
+
+// The FILETIME <-> DateTime ticks epoch shift: a FILETIME counts 100 ns
+// intervals since 1601-01-01 UTC; DateTime ticks count since 0001-01-01.
+constexpr int64_t kFileTimeToTicks = 116444736000000000LL;
+
+// The child slot's process handle (alive) or a fresh direct PID open. The
+// caller closes 'owned' when non-null.
+HANDLE ResolveProcessHandle(int32_t pid, HANDLE* owned)
+{
+    *owned = nullptr;
+    const auto it = g_processes().find(pid);
+    if (it != g_processes().end() && it->second.process != nullptr)
+    {
+        return it->second.process;
+    }
+    HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                             FALSE, static_cast<DWORD>(pid));
+    *owned = h;
+    return h;
+}
+
+// FILETIME (1601 epoch, 100 ns) -> DateTime ticks (0001 epoch, 100 ns).
+int64_t FileTimeToDateTimeTicks(const FILETIME& ft)
+{
+    const uint64_t raw = (static_cast<uint64_t>(ft.dwHighDateTime) << 32)
+                       | static_cast<uint64_t>(ft.dwLowDateTime);
+    return static_cast<int64_t>(raw) + kFileTimeToTicks;
+}
+
+} // namespace
+
+#if defined(_WIN32)
+
+Il2CppDateTime il2cpp_process_get_start_time(int32_t pid)
+{
+    HANDLE owned = nullptr;
+    const HANDLE h = ResolveProcessHandle(pid, &owned);
+    if (h == nullptr)
+    {
+        return Il2CppDateTime(0);
+    }
+    FILETIME ct, et, kt, ut;
+    const BOOL ok = ::GetProcessTimes(h, &ct, &et, &kt, &ut);
+    if (owned != nullptr)
+    {
+        ::CloseHandle(owned);
+    }
+    if (!ok)
+    {
+        return Il2CppDateTime(0);
+    }
+    return Il2CppDateTime(FileTimeToDateTimeTicks(ct));
+}
+
+Il2CppDateTime il2cpp_process_get_exit_time(int32_t pid)
+{
+    HANDLE owned = nullptr;
+    const HANDLE h = ResolveProcessHandle(pid, &owned);
+    if (h == nullptr)
+    {
+        return Il2CppDateTime(0);
+    }
+    FILETIME ct, et, kt, ut;
+    const BOOL ok = ::GetProcessTimes(h, &ct, &et, &kt, &ut);
+    if (owned != nullptr)
+    {
+        ::CloseHandle(owned);
+    }
+    if (!ok)
+    {
+        return Il2CppDateTime(0);
+    }
+    return Il2CppDateTime(FileTimeToDateTimeTicks(et));
+}
+
+#endif // _WIN32
+
+#if !defined(_WIN32)
+Il2CppDateTime il2cpp_process_get_start_time(int32_t)
+{
+    return Il2CppDateTime(0);
+}
+Il2CppDateTime il2cpp_process_get_exit_time(int32_t)
+{
+    return Il2CppDateTime(0);
+}
+#endif // !_WIN32
+
+int64_t il2cpp_process_get_working_set64(int32_t pid)
+{
+#if defined(_WIN32)
+    const auto it = g_processes().find(pid);
+    if (it != g_processes().end() && it->second.waited)
+    {
+        // net48: the process has exited -> InvalidOperationException.
+        il2cpp_throw_invalid_operation_exception(
+            "Cannot process request because the process has exited.");
+    }
+    HANDLE owned = nullptr;
+    const HANDLE h = ResolveProcessHandle(pid, &owned);
+    if (h == nullptr)
+    {
+        il2cpp_throw_invalid_operation_exception(
+            "Cannot process request because the process has exited.");
+    }
+    PROCESS_MEMORY_COUNTERS pmc;
+    std::memset(&pmc, 0, sizeof(pmc));
+    const BOOL ok = ::GetProcessMemoryInfo(h, &pmc, sizeof(pmc));
+    if (owned != nullptr)
+    {
+        ::CloseHandle(owned);
+    }
+    if (!ok)
+    {
+        return 0;
+    }
+    return static_cast<int64_t>(pmc.WorkingSetSize);
+#else
+    (void)pid;
+    return 0; // unsupported on POSIX
 #endif
 }
 

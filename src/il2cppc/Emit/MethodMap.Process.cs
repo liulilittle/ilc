@@ -138,6 +138,27 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::il2cpp_process_kill", 0, false, false, true,
                             new[] { "i" });
                     return null;
+                // nb4 PROC-DIAG: the diagnostic properties -- StartTime /
+                // ExitTime return DateTime ("dt" result kind -- the receiver
+                // PID slot is cast "i"); WorkingSet64 returns int64 ("l"). The
+                // net48 post-exit InvalidOperationException on WorkingSet64 is
+                // raised INSIDE the runtime icall (a waited tracked slot / an
+                // unopenable PID); StartTime/ExitTime read the Win32 times.
+                case "get_StartTime":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_get_start_time", 0, true, false, true,
+                            new[] { "i" }, "dt");
+                    return null;
+                case "get_ExitTime":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_get_exit_time", 0, true, false, true,
+                            new[] { "i" }, "dt");
+                    return null;
+                case "get_WorkingSet64":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_get_working_set64", 0, true, false, true,
+                            new[] { "i" }, "l");
+                    return null;
                 case "get_StandardInput":
                     throw new NotSupportedException("Process.StandardInput not wired: pathproc redirects stdout/stderr to a capture file only (pathproc.cpp STARTF_USESTDHANDLES) -- stdin is inherited or NUL, never redirected (construction order)");
                 case ".ctor":

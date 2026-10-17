@@ -64,6 +64,42 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return I("il2cpp::runtime::icall_thread_memory_barrier", 0, false, false, false);
                 return null;
+            // nb4 GC-SPOT: Thread.VolatileRead/VolatileWrite + the
+            // System.Threading.Volatile static class (Read/Write) -- the same
+            // SEQ_CST fence atomics (il2cpp_interlocked.h). The byref param
+            // arrives as its ELEMENT byte (ps[0] == 0x08 int32 / 0x0A int64 /
+            // 0x0D double / 0x1C object -- the BYREF 0x10 marker is stripped by
+            // ReadParamByte), and the address passes through the "" cast (the
+            // Interlocked.Exchange ref precedent).
+            case "VolatileRead":
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_volatile_read_i4", 1, true, false, false, new[] { "" });
+                if (count == 1 && ps[0] == 0x0A)
+                    return I("il2cpp::runtime::il2cpp_volatile_read_i8", 1, true, false, false, new[] { "" }, "l");
+                return null;
+            case "VolatileWrite":
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_volatile_write_i4", 2, false, false, false, new[] { "", "i" });
+                if (count == 2 && ps[0] == 0x0A && ps[1] == 0x0A)
+                    return I("il2cpp::runtime::il2cpp_volatile_write_i8", 2, false, false, false, new[] { "", "l" });
+                return null;
+            // System.Threading.Volatile.Read(ref int/long) /
+            // Write(ref int/long, value) -- the static class of fence reads
+            // and writes (net48 mscorlib); the same runtime entries as the
+            // Thread family. Owner-gated so the bare "Read"/"Write" names
+            // never collide with a Thread member.
+            case "Read":
+                if (owner == "System.Threading.Volatile" && count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_volatile_read_i4", 1, true, false, false, new[] { "" });
+                if (owner == "System.Threading.Volatile" && count == 1 && ps[0] == 0x0A)
+                    return I("il2cpp::runtime::il2cpp_volatile_read_i8", 1, true, false, false, new[] { "" }, "l");
+                return null;
+            case "Write":
+                if (owner == "System.Threading.Volatile" && count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_volatile_write_i4", 2, false, false, false, new[] { "", "i" });
+                if (owner == "System.Threading.Volatile" && count == 2 && ps[0] == 0x0A && ps[1] == 0x0A)
+                    return I("il2cpp::runtime::il2cpp_volatile_write_i8", 2, false, false, false, new[] { "", "l" });
+                return null;
             // Thread.IsThreadPoolThread: whether the CURRENT thread is a pool
             // worker (thread-local registry, threadpool.cpp). self-ignored.
             case "get_IsThreadPoolThread":

@@ -253,4 +253,48 @@ double il2cpp_interlocked_add_double(double* location, double value)
     }
 }
 
+//------------------------------------------------------------------------------
+// Volatile.Read/Volatile.Write family (nb4 GC-SPOT) -- SEQ_CST fence
+// atomics. Read = an atomic load through a compare-exchange-with-0 trick on
+// Windows (InterlockedCompareExchange on a volatile LONG reads the slot
+// atomically and is freely reorderable); Write = InterlockedExchange (a full
+// fence store). The POSIX branch uses the __atomic load/store builtins with
+// __ATOMIC_SEQ_CST.
+//------------------------------------------------------------------------------
+int32_t il2cpp_volatile_read_i4(int32_t* location)
+{
+#if defined(_WIN32)
+    return static_cast<int32_t>(::InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(location), 0, 0));
+#else
+    return __atomic_load_n(location, __ATOMIC_SEQ_CST);
+#endif
+}
+
+void il2cpp_volatile_write_i4(int32_t* location, int32_t value)
+{
+#if defined(_WIN32)
+    ::InterlockedExchange(reinterpret_cast<volatile LONG*>(location), static_cast<LONG>(value));
+#else
+    __atomic_store_n(location, value, __ATOMIC_SEQ_CST);
+#endif
+}
+
+int64_t il2cpp_volatile_read_i8(int64_t* location)
+{
+#if defined(_WIN32)
+    return static_cast<int64_t>(::InterlockedCompareExchange64(reinterpret_cast<volatile LONG64*>(location), 0, 0));
+#else
+    return __atomic_load_n(location, __ATOMIC_SEQ_CST);
+#endif
+}
+
+void il2cpp_volatile_write_i8(int64_t* location, int64_t value)
+{
+#if defined(_WIN32)
+    ::InterlockedExchange64(reinterpret_cast<volatile LONG64*>(location), static_cast<LONG64>(value));
+#else
+    __atomic_store_n(location, value, __ATOMIC_SEQ_CST);
+#endif
+}
+
 }} // namespace il2cpp::runtime
