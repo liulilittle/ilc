@@ -42,6 +42,7 @@
 #include "regex.h"
 #include "regex_ast.h"
 #include "regex_match.h"
+#include "regex_obj.h"
 
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
@@ -311,9 +312,8 @@ int32_t il2cpp_regex_is_match(Il2CppString* input, Il2CppString* pattern,
 //------------------------------------------------------------------------------
 // Match
 //------------------------------------------------------------------------------
-Il2CppArray* il2cpp_regex_match(Il2CppString* input, Il2CppString* pattern,
-                                int32_t options,
-                                int32_t* outStart, int32_t* outLength)
+Il2CppObject* il2cpp_regex_match(Il2CppString* input, Il2CppString* pattern,
+                                 int32_t options)
 {
     RequireString(pattern, "pattern");
     RequireString(input, "input");
@@ -322,42 +322,16 @@ Il2CppArray* il2cpp_regex_match(Il2CppString* input, Il2CppString* pattern,
     const std::u16string t = ToText(input);
     AstScope ast(ParsePattern(p, options));
 
-    const int32_t groupSlots = ast.Get()->groupCount + 1; // group 0 = whole
     MatchResult m;
     const bool ok = il2cpp_regex_match(ast.Get(), t.data(),
                                        static_cast<int32_t>(t.size()), &m);
     if (!ok || !m.success)
     {
-        if (outStart != nullptr) *outStart = -1;
-        if (outLength != nullptr) *outLength = -1;
-        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)),
-                                true, 0);
+        m.success = false; // budget exhaustion / no match -> the no-match Match
     }
-    if (outStart != nullptr) *outStart = m.start;
-    if (outLength != nullptr) *outLength = m.matchedLength;
-
-    Il2CppArray* arr = il2cpp_array_new(nullptr,
-                                        static_cast<int32_t>(sizeof(void*)),
-                                        true, groupSlots);
-    RootScope roots;
-    roots.Add(reinterpret_cast<void**>(&arr));
-    for (int32_t i = 0; i < groupSlots; ++i)
-    {
-        Il2CppString* element = nullptr; // non-participating group -> null
-        if (i == 0)
-        {
-            element = il2cpp_string_new(t.data() + m.start, m.matchedLength);
-        }
-        else if (m.groups[i - 1].start >= 0)
-        {
-            const RegexGroupCapture& g = m.groups[i - 1];
-            element = il2cpp_string_new(t.data() + g.start, g.length);
-        }
-        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
-            il2cpp_array_get_elem_ptr(arr, i));
-        *slot = reinterpret_cast<Il2CppObject*>(element);
-    }
-    return arr;
+    // OBJ-1: build the Match/Group/GroupCollection object graph (regex_obj.h).
+    return il2cpp_regex_build_match(t.data(), static_cast<int32_t>(t.size()), m,
+                                    ast.Get()->groupCount);
 }
 
 //------------------------------------------------------------------------------

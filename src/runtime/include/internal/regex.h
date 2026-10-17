@@ -8,18 +8,19 @@
 // input first, pattern second (net48: IsMatch(string input, string pattern))
 // -- because the transpiler emits arguments positionally in IL order (the M5
 // emitter has no arg-reordering facility; see MethodMap.Buffer.cs's MemoryCopy
-// note). Runtime-only trailing parameters (options, Match's outStart/
-// outLength) default, so a 2-arg .NET call maps to a plain 2-arg C call.
+// note). The runtime-only trailing 'options' parameter defaults, so a 2-arg
+// .NET call maps to a plain 2-arg C call.
 // Strings cross the boundary as managed references (Il2CppString*, layout
-// il2cpp_string.h:39-44); the match result is a string[] of managed
-// references (Il2CppArray* of Il2CppString*, element 0 = whole match).
+// il2cpp_string.h:39-44); the match result is a Match object graph
+// (Il2CppObject* -- regex_obj.h).
 //
 // SEMANTIC BASELINE: .NET Framework 4.8 (net48) -- the project's reference
 // baseline -- with documented simplifications (regex-domain.md section 1.4):
 //
-//   * Match result shape: string[] [0]=whole match, [1..n]=capture groups;
-//     a group that did not participate is a NULL element (net48
-//     Match.Groups[i].Success == false); no Match/Group object graph.
+//   * Match result shape: a System.Text.RegularExpressions.Match object graph
+//     (Match / Group / GroupCollection, regex_obj.h -- OBJ-1); a group that
+//     did not participate has Success == false / Index 0 / Length 0 / Value ""
+//     (net48 semantics). Named groups / MatchCollection are not in this batch.
 //   * Split ignores capture groups (net48 inserts them; v1 does not).
 //   * IgnoreCase folds ASCII only; \d \w \s are ASCII sets; no timeout
 //     (internal step budget yields no-match instead of hanging).
@@ -55,14 +56,14 @@ namespace il2cpp { namespace runtime {
 int32_t il2cpp_regex_is_match(Il2CppString* input, Il2CppString* pattern,
                               int32_t options = 0);
 
-// Returns string[]: [0] = whole match, [1..n] = capture-group strings
-// (null element when the group did not participate). No match -> EMPTY
-// array (length 0) and *outStart = *outLength = -1. outStart / outLength
-// may be null (caller does not need the position).
-Il2CppArray* il2cpp_regex_match(Il2CppString* input, Il2CppString* pattern,
-                                int32_t options = 0,
-                                int32_t* outStart = nullptr,
-                                int32_t* outLength = nullptr);
+// Returns a System.Text.RegularExpressions.Match object (regex_obj.h --
+// OBJ-1): Success / Index / Length / Value / ToString + Groups.Count +
+// Groups[int] -> Group{Value,Index,Length,Success,Name}. No match -> a Match
+// with Success false, Index 0, Length 0, Value "" and Groups.Count ==
+// groupCount + 1 (a non-participating group 0). The full object graph is
+// defined in regex_obj.h.
+Il2CppObject* il2cpp_regex_match(Il2CppString* input, Il2CppString* pattern,
+                                 int32_t options = 0);
 
 // Returns the input with every match replaced by the (token-expanded)
 // replacement text (net48 static Replace semantics, all matches).

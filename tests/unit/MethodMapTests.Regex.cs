@@ -114,7 +114,72 @@ public class MethodMapRegexTests
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(2, resolved.ParamCount);
         Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
-        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.Equal("System.Text.RegularExpressions.Match", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // Match object model (nb5 OBJ-1) -- property + indexer arms
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_RegexObj_GroupSuccess_MapsToGroupIcall()
+    {
+        // bool Group.Success (declared on Group).
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "Group", "get_Success",
+            new byte[] { 0x00, 0x00, 0x02 }), "get_Success");
+
+        Assert.Equal("il2cpp::runtime::icall_regex_group_get_success", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_MatchGroups_MapsToGroupsIcall()
+    {
+        // GroupCollection Match.Groups (declared on Match).
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "Match", "get_Groups",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_Groups");
+
+        Assert.Equal("il2cpp::runtime::icall_regex_match_get_groups", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Text.RegularExpressions.GroupCollection", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_GroupCollectionCount_MapsToCountIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "GroupCollection", "get_Count",
+            new byte[] { 0x00, 0x00, 0x08 }), "get_Count");
+
+        Assert.Equal("il2cpp::runtime::icall_regex_gc_get_count", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_GroupCollectionIndexer_MapsToItemIcall()
+    {
+        // Group GroupCollection[int index] (get_Item, i4).
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "GroupCollection", "get_Item",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x08 }), "get_Item");
+
+        Assert.Equal("il2cpp::runtime::icall_regex_gc_get_item_int", resolved.CppName);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Text.RegularExpressions.Group", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_CaptureIndex_RoutesByReceiverType()
+    {
+        // Index is declared on Capture; the tracked receiver (Match vs Group)
+        // selects the object arm (regex_obj.h ABI differs per type).
+        var asMatch = ResolveMemberWithReceiver(Synthesize("System.Text.RegularExpressions", "Capture", "get_Index",
+            new byte[] { 0x00, 0x00, 0x08 }), "get_Index", "System.Text.RegularExpressions.Match");
+        Assert.Equal("il2cpp::runtime::icall_regex_match_get_index", asMatch.CppName);
+
+        var asGroup = ResolveMemberWithReceiver(Synthesize("System.Text.RegularExpressions", "Capture", "get_Index",
+            new byte[] { 0x00, 0x00, 0x08 }), "get_Index", "System.Text.RegularExpressions.Group");
+        Assert.Equal("il2cpp::runtime::icall_regex_group_get_index", asGroup.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -231,6 +296,15 @@ public class MethodMapRegexTests
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
         return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>());
+    }
+
+    private static ResolvedMethod ResolveMemberWithReceiver(MemoryStream pe, string memberName, string receiverType)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            receiverType, false, null, null);
     }
 
     // Signature blob: header 0x00 (DEFAULT, non-generic), param count, return

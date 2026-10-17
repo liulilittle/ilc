@@ -112,6 +112,13 @@ public static partial class MethodRefResolver
                 // of the growable buffer (see MethodMap.StringIO.cs).
                 if (name == "ToString" && receiverType == "System.IO.StringWriter")
                     return I("il2cpp::runtime::icall_stringwriter_to_string", 0, true, true, true);
+                // nb5 OBJ-1: Object::ToString on a tracked Match receiver
+                // (Roslyn emits callvirt Object::ToString for the Match.ToString
+                // override) -- route to the Match object icall (regex_obj.cpp)
+                // which returns the matched substring (net48 Match.ToString()).
+                if (name == "ToString" && ps.Length == 0 && receiverType == "System.Text.RegularExpressions.Match")
+                    return I("il2cpp::runtime::icall_regex_match_to_string", 0, true, true, true,
+                        returnTypeName: "System.String");
                 // M5 wiring: Object.ToString on a TRACKED boxed value -- the
                 // value_semantics dispatch prints boxed ints decimally, boxed bools
                 // "True"/"False", strings as identity, a plain new object() as its

@@ -283,6 +283,11 @@ public static class CodeGenerator
         // il2cpp::runtime). Without the include the generated C++ cannot see
         // the declarations nor the class descriptors.
         generatedHeader.Line("#include \"il2cpp_synclite.h\"");
+        // nb5 RWLS-LOCK: ReaderWriterLockSlim -- the
+        // System_Threading_ReaderWriterLockSlim_class descriptor and the
+        // icall_rwls_* declarations live in il2cpp_rwls.h; without the include
+        // the generated C++ cannot see them (p-nb5-rwls e2e).
+        generatedHeader.Line("#include \"il2cpp_rwls.h\"");
         // P17 wiring: BigInteger domain -- the biginteger icalls
         // (icall_biginteger_*, MethodMap.BigInteger.cs) live in
         // il2cpp_biginteger.h (namespace il2cpp::runtime). Without the include
@@ -326,6 +331,12 @@ public static class CodeGenerator
         // M5 wiring: regex domain (il2cpp_regex_is_match/match/replace/split
         // -- static Regex overloads, MethodMap.Regex.cs).
         generatedHeader.Line("#include \"regex.h\"");
+        // nb5 OBJ-1: the Regex.Match object model -- the Match/Group/
+        // GroupCollection descriptors (System_Text_RegularExpressions_*_class)
+        // and the property icalls (icall_regex_match_* / group_* / gc_*,
+        // MethodMap.RegexObj.cs) live in regex_obj.h. Without the include the
+        // generated C++ cannot see the declarations (p-nb5-match e2e).
+        generatedHeader.Line("#include \"regex_obj.h\"");
         // M5 wiring: List<int> domain -- the int32 AOT expansion allocates
         // through il2cpp_list_i4_class (BclAllocExpr, MethodMap.List.cs).
         generatedHeader.Line("#include \"listi4.h\"");

@@ -1250,6 +1250,9 @@ public static partial class MethodRefResolver
             case "System.Threading.CountdownEvent":
             case "System.Threading.Barrier":
             case "System.Threading.SpinLock": return TryMapSyncLite(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // nb5 RWLS-LOCK: ReaderWriterLockSlim (il2cpp_rwls.h /
+            // MethodMap.Rwls.cs) -- the NoRecursion minimum state machine.
+            case "System.Threading.ReaderWriterLockSlim": return TryMapRwls(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.WaitHandle":
                 // The MemberRef declares the inherited members (WaitOne) on
                 // the WaitHandle BASE. WaitOne is the SAME icall for all three
@@ -1281,6 +1284,15 @@ public static partial class MethodRefResolver
             // One case line per MethodMap.<Domain>.cs skeleton file. Agents fill
             // only their own file's TryMap body -- DO NOT edit this region.
             case "System.Text.RegularExpressions.Regex": return TryMapRegex(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // nb5 OBJ-1: the Regex.Match object model -- Match / Group /
+            // GroupCollection property + indexer icalls (MethodMap.RegexObj.cs,
+            // regex_obj.h). The receiver-typed fold routes here once a
+            // Regex.Match result is tracked as System.Text.RegularExpressions.Match.
+            case "System.Text.RegularExpressions.Match":
+            case "System.Text.RegularExpressions.Group":
+            case "System.Text.RegularExpressions.Capture":
+            case "System.Text.RegularExpressions.GroupCollection":
+                return TryMapRegexObj(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.Tasks.Task`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Threading.Tasks.Task": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             // batch 156c (asynccase): the async state-machine surface --

@@ -16,7 +16,7 @@ namespace Il2Cpp.Transpiler.Emit;
 //   IsMatch(string, string[, RegexOptions[, TimeSpan]])
 //       -> il2cpp::runtime::il2cpp_regex_is_match    (int32 result)
 //   Match(string, string[, RegexOptions[, TimeSpan]])
-//       -> il2cpp::runtime::il2cpp_regex_match       (string[] result)
+//       -> il2cpp::runtime::il2cpp_regex_match       (Match object result)
 //   Replace(string, string, string[, RegexOptions[, TimeSpan]])
 //       -> il2cpp::runtime::il2cpp_regex_replace     (string result)
 //   Split(string, string[, RegexOptions[, TimeSpan]])
@@ -42,16 +42,21 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
-            case "IsMatch": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_is_match", false);
-            case "Match": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_match", true);
-            case "Split": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_split", true);
+            case "IsMatch": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_is_match", false, null);
+            // nb5 OBJ-1: Match now returns a System.Text.RegularExpressions.Match
+            // object graph (regex_obj.h) instead of the legacy string[] shape.
+            case "Match": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_match", true,
+                "System.Text.RegularExpressions.Match");
+            case "Split": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_split", true, "System.String[]");
             case "Replace": return RegexReplace(ps);
             default: return null;
         }
     }
 
     // IsMatch / Match / Split: (string input, string pattern[, RegexOptions
-    // [, TimeSpan]]). Returns a bool (IsMatch) or a string[] reference.
+    // [, TimeSpan]]). Returns a bool (IsMatch), a Match object (Match,
+    // regex_obj.h) or a string[] (Split) -- returnTypeName carries the
+    // managed result type so property/indexer chains on the result resolve.
     //
     // RegexOptions slot: the net48 reference is an ENUM, so the real Roslyn
     // (csc) signature encodes it as a VALUETYPE (0x11 + coded index), NOT a
@@ -61,7 +66,7 @@ public static partial class MethodRefResolver
     // fall-through -> undefined identifier at compile time; nb2 red probe).
     // Both shapes now resolve; the cast stays "i" (the enum value travels as
     // an int32 carrier).
-    private static ResolvedMethod? RegexStatic(byte[] ps, string cpp, bool returnsRef)
+    private static ResolvedMethod? RegexStatic(byte[] ps, string cpp, bool returnsRef, string? returnTypeName)
     {
         if (ps.Length < 2)
             throw new NotSupportedException(
@@ -71,13 +76,13 @@ public static partial class MethodRefResolver
         return ps.Length switch
         {
             2 => I(cpp, 2, true, returnsRef, false, new[] { "s", "s" },
-                returnTypeName: returnsRef ? "System.String[]" : null),
+                returnTypeName: returnTypeName),
             3 when ps[2] is 0x08 or 0x11 => I(cpp, 3, true, returnsRef, false, new[] { "s", "s", "i" },
-                returnTypeName: returnsRef ? "System.String[]" : null),
+                returnTypeName: returnTypeName),
             // RegexOptions + TimeSpan matchTimeout: the timeout is dropped
             // (step budget replaces it).
             >= 4 when ps[2] is 0x08 or 0x11 => I(cpp, 4, true, returnsRef, false, new[] { "s", "s", "i", "drop" },
-                returnTypeName: returnsRef ? "System.String[]" : null),
+                returnTypeName: returnTypeName),
             _ => null,
         };
     }

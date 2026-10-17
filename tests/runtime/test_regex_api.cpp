@@ -10,10 +10,11 @@
 //      pattern & null input -> ArgumentNullException; invalid pattern ->
 //      ArgumentException; whitelist-external option bit ->
 //      NotSupportedException.
-//   2. il2cpp_regex_match: [0] = whole match, [1..n] = group strings,
-//      outStart/outLength exact; no match -> EMPTY array + -1/-1; a
-//      non-participating group -> NULL element; outStart/outLength may be
-//      null.
+//   2. il2cpp_regex_match (nb5 OBJ-1): a Match object graph -- Success /
+//      Index / Length / Value, Groups.Count == groupCount + 1, Groups[int]
+//      Group{Value,Index,Length,Success,Name}; no match -> Success false,
+//      0/0/"" and Groups.Count == 1; a non-participating group -> Success
+//      false with an empty Value.
 //   3. il2cpp_regex_replace: literal replacement, $1 group reference,
 //      $10 boundary (group 10 exists -> group 10; absent -> group 1 +
 //      literal '0'), $$ literal dollar, $0 whole match, every-match
@@ -34,6 +35,7 @@
 //------------------------------------------------------------------------------
 
 #include "regex.h"
+#include "regex_obj.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_string.h"
 #include "il2cpp_array.h"
@@ -186,54 +188,68 @@ int main()
     }
 
     //--------------------------------------------------------------------------
-    // 2. il2cpp_regex_match
+    // 2. il2cpp_regex_match (nb5 OBJ-1: Match / Group / GroupCollection)
     //--------------------------------------------------------------------------
     {
-        int32_t start = -99;
-        int32_t length = -99;
-        il2cpp::Il2CppArray* m = il2cpp_regex_match(S("abc 12-34 def"),
-                                                    S("(\\d+)-(\\d+)"), 0,
-                                                    &start, &length);
-        Expect(m != nullptr && m->length == 3,
-               "match: result array holds whole + 2 groups");
-        Expect(start == 4 && length == 5,
-               "match: outStart/outLength point at the whole match");
-        if (m != nullptr)
-        {
-            Expect(StrEq(ArrStr(m, 0), "12-34"),
-                   "match: [0] is the whole match text");
-            Expect(StrEq(ArrStr(m, 1), "12"),
-                   "match: [1] is group 1");
-            Expect(StrEq(ArrStr(m, 2), "34"),
-                   "match: [2] is group 2");
-        }
+        il2cpp::Il2CppObject* m = il2cpp_regex_match(S("abc 12-34 def"),
+                                                     S("(\\d+)-(\\d+)"), 0);
+        Expect(il2cpp::runtime::icall_regex_match_get_success(m),
+               "match: Success is true");
+        Expect(il2cpp::runtime::icall_regex_match_get_index(m) == 4 &&
+                   il2cpp::runtime::icall_regex_match_get_length(m) == 5,
+               "match: Index/Length point at the whole match");
+        Expect(StrEq(il2cpp::runtime::icall_regex_match_get_value(m), "12-34"),
+               "match: Value is the whole match text");
+        il2cpp::Il2CppObject* g = il2cpp::runtime::icall_regex_match_get_groups(m);
+        Expect(il2cpp::runtime::icall_regex_gc_get_count(g) == 3,
+               "match: Groups.Count is whole + 2 groups");
+        Expect(StrEq(il2cpp::runtime::icall_regex_group_get_value(
+                         il2cpp::runtime::icall_regex_gc_get_item_int(g, 0)),
+                     "12-34"),
+               "match: Groups[0].Value is the whole match");
+        Expect(StrEq(il2cpp::runtime::icall_regex_group_get_value(
+                         il2cpp::runtime::icall_regex_gc_get_item_int(g, 1)),
+                     "12"),
+               "match: Groups[1].Value is group 1");
+        Expect(StrEq(il2cpp::runtime::icall_regex_group_get_value(
+                         il2cpp::runtime::icall_regex_gc_get_item_int(g, 2)),
+                     "34"),
+               "match: Groups[2].Value is group 2");
     }
     {
-        int32_t start = -99;
-        int32_t length = -99;
-        il2cpp::Il2CppArray* m = il2cpp_regex_match(S("no digits here"),
-                                                    S("(\\d+)"), 0,
-                                                    &start, &length);
-        Expect(m != nullptr && m->length == 0,
-               "match: no match yields an EMPTY array");
-        Expect(start == -1 && length == -1,
-               "match: no match reports -1/-1 positions");
+        il2cpp::Il2CppObject* m = il2cpp_regex_match(S("no digits here"),
+                                                     S("(\\d+)"), 0);
+        Expect(!il2cpp::runtime::icall_regex_match_get_success(m),
+               "match: no match -> Success false");
+        Expect(il2cpp::runtime::icall_regex_match_get_index(m) == 0 &&
+                   il2cpp::runtime::icall_regex_match_get_length(m) == 0,
+               "match: no match reports 0/0 positions");
+        Expect(StrEq(il2cpp::runtime::icall_regex_match_get_value(m), ""),
+               "match: no match -> empty Value");
+        il2cpp::Il2CppObject* g = il2cpp::runtime::icall_regex_match_get_groups(m);
+        Expect(il2cpp::runtime::icall_regex_gc_get_count(g) == 2,
+               "match: no match still has Groups.Count == groupCount + 1");
+        Expect(!il2cpp::runtime::icall_regex_group_get_success(
+                   il2cpp::runtime::icall_regex_gc_get_item_int(g, 0)),
+               "match: no-match group 0 did not participate");
     }
     {
         // Non-participating group: (a(b)?) against "a" -- group 2 never ran.
-        il2cpp::Il2CppArray* m = il2cpp_regex_match(S("a"), S("(a(b)?)"), 0,
-                                                    nullptr, nullptr);
-        Expect(m != nullptr && m->length == 3,
+        il2cpp::Il2CppObject* m = il2cpp_regex_match(S("a"), S("(a(b)?)"), 0);
+        il2cpp::Il2CppObject* g = il2cpp::runtime::icall_regex_match_get_groups(m);
+        Expect(il2cpp::runtime::icall_regex_gc_get_count(g) == 3,
                "match: optional-group pattern yields 3 slots");
-        if (m != nullptr)
-        {
-            Expect(StrEq(ArrStr(m, 0), "a"),
-                   "match: whole match is \"a\"");
-            Expect(StrEq(ArrStr(m, 1), "a"),
-                   "match: group 1 participated");
-            Expect(ArrStr(m, 2) == nullptr,
-                   "match: non-participating group is a NULL element");
-        }
+        Expect(StrEq(il2cpp::runtime::icall_regex_group_get_value(
+                         il2cpp::runtime::icall_regex_gc_get_item_int(g, 0)),
+                     "a"),
+               "match: whole match is \"a\"");
+        Expect(StrEq(il2cpp::runtime::icall_regex_group_get_value(
+                         il2cpp::runtime::icall_regex_gc_get_item_int(g, 1)),
+                     "a"),
+               "match: group 1 participated");
+        Expect(!il2cpp::runtime::icall_regex_group_get_success(
+                   il2cpp::runtime::icall_regex_gc_get_item_int(g, 2)),
+               "match: non-participating group 2 has Success false");
     }
 
     //--------------------------------------------------------------------------
