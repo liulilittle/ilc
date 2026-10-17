@@ -396,6 +396,15 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"monitor.h\"");
         generatedHeader.Line("#include \"regex_match.h\"");
         generatedHeader.Line("#include \"stopwatch.h\"");
+        // adm1 (AppDomain closure): the System_AppDomain_class /
+        // System_AppDomainSetup_class / System_Runtime_Remoting_ObjectHandle_class
+        // GLOBAL descriptors + the icall_appdomain_* / icall_appdomain_setup_* /
+        // icall_objecthandle_* declarations (appdomain.h, namespace
+        // il2cpp::runtime) -- generated isinst/castclass on the AppDomain /
+        // SetupInformation / ObjectHandle receivers reference the descriptors
+        // and the mapped members call the icalls; without the include both fail
+        // (undeclared symbol, the stopwatch.h precedent).
+        generatedHeader.Line("#include \"appdomain.h\"");
         generatedHeader.Line("#include \"streamio.h\"");
         // M6 wiring: StreamIO OBJECT domain -- the object-state stream icalls
         // (icall_stream_file_ctor / icall_stream_read_bytes / ...) and the 4
@@ -4446,6 +4455,12 @@ public static class CodeGenerator
                         // ctor used by Array.Sort<T>(T[], Comparison<T>) --
                         // same single-cast static delegate ABI as Predicate.
                         || (resolvedStmt.CppName.StartsWith("System_Comparison_", StringComparison.Ordinal)
+                            && resolvedStmt.CppName.Contains("__ctor_", StringComparison.Ordinal))
+                        // adm1 (p-adb): System.UnhandledExceptionEventHandler
+                        // -- the AppDomain.UnhandledException handler delegate
+                        // (the same (object target, native int method) single-
+                        // cast ctor ABI as the Action/Predicate family).
+                        || (resolvedStmt.CppName.StartsWith("System_UnhandledExceptionEventHandler_", StringComparison.Ordinal)
                             && resolvedStmt.CppName.Contains("__ctor_", StringComparison.Ordinal)));
                 if (isBclDelegateCtor && c.Args.Count >= 3)
                 {
@@ -5606,6 +5621,13 @@ public static class CodeGenerator
         // is a DISCARDED allocation (the delegate is created by the ctor), so
         // nullptr is the correct zero-cost placeholder.
         "System.Action" => "nullptr",
+        // adm1 (p-adb): AppDomain.UnhandledException's handler delegate
+        // (System.UnhandledExceptionEventHandler -- the eventcase EventHandler
+        // shape). Its ctor CallStmt is intercepted in EmitCallStmt (the
+        // System_UnhandledExceptionEventHandler_ match below) and rewritten to
+        // il2cpp::il2cpp_delegate_new; the newobj placeholder is a DISCARDED
+        // allocation -- nullptr is the correct zero-cost placeholder.
+        "System.UnhandledExceptionEventHandler" => "nullptr",
         // CG8 (findidx D-findidx-2): generic BCL delegates NOT matched by
         // StackFold.IsDelegateType (read-only Ir/StackFold.cs lists Func`/
         // Action`/ThreadStart/WaitCallback but NOT `System.Predicate\``), so

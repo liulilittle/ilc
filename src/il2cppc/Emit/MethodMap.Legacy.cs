@@ -40,12 +40,116 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     $"{name} is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject'): the runtime has no remoting infrastructure (no transparent proxies / ObjRef / channels / context-bound objects), so the member cannot be wired");
             case "System.AppDomain":
-                // netcore21 audit closure: the six public InternalCall members
-                // wire to the existing single-domain stubs (stubs.cpp -- the
-                // AOT process IS the default domain, so the answers are the
-                // documented constants). Everything else stays LOUD.
+                // adm1 (AppDomain minimal object closure): the public default-
+                // domain surface wires to the appdomain.cpp object model (the
+                // singleton, the process-exe-derived getters, the process-level
+                // data table, the registered-type CreateInstance arms, the
+                // constants and the UnhandledException event chain). The
+                // private InternalCall arms below stay wired to the existing
+                // single-domain stubs (stubs.cpp -- the AOT process IS the
+                // default domain, so the answers are the documented constants).
+                // Everything else (CAS objects / loader / culture-ToString)
+                // stays LOUD.
                 switch (name)
                 {
+                    case "get_CurrentDomain":
+                        return I("il2cpp::runtime::icall_appdomain_get_current_domain", 0, true, true, false);
+                    // GetType on an AppDomain-typed receiver: Roslyn emits
+                    // callvirt against the STATIC type (the base-chain walk
+                    // never reaches System.Object because this family THROWS
+                    // for unknown names), so route the Object-domain icall
+                    // explicitly (the p-adb gettype leg).
+                    case "GetType":
+                        return I("il2cpp::runtime::icall_object_get_type", 0, true, true, true);
+                    case "get_Id":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_id_public", 0, true, false, true);
+                        return null;
+                    case "get_FriendlyName":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_friendly_name", 0, true, true, true);
+                        return null;
+                    case "get_BaseDirectory":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_base_directory", 0, true, true, true);
+                        return null;
+                    case "get_RelativeSearchPath":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_relative_search_path", 0, true, true, true);
+                        return null;
+                    case "get_DomainManager":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_domain_manager", 0, true, true, true);
+                        return null;
+                    case "get_SetupInformation":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_setup_information", 0, true, true, true);
+                        return null;
+                    case "GetData":
+                        if (count == 1 && ps.Length == 1 && ps[0] == 0x0E)
+                            return I("il2cpp::runtime::icall_appdomain_get_data", 1, true, true, true);
+                        return null;
+                    case "SetData":
+                        if (count == 2 && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x1C)
+                            return I("il2cpp::runtime::icall_appdomain_set_data", 2, false, false, true);
+                        return null;
+                    case "CreateInstance":
+                        if (count == 2 && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x0E)
+                            return I("il2cpp::runtime::icall_appdomain_create_instance", 2, true, true, true);
+                        return null;
+                    case "CreateInstanceAndUnwrap":
+                        if (count == 2 && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x0E)
+                            return I("il2cpp::runtime::icall_appdomain_create_instance_and_unwrap", 2, true, true, true);
+                        return null;
+                    case "get_IsFullyTrusted":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_is_fully_trusted", 0, true, false, true);
+                        return null;
+                    case "get_IsHomogenous":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_is_homogenous", 0, true, false, true);
+                        return null;
+                    case "IsDefaultAppDomain":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_is_default_app_domain", 0, true, false, true);
+                        return null;
+                    case "add_UnhandledException":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_appdomain_add_unhandled_exception", 1, false, false, true);
+                        return null;
+                    case "remove_UnhandledException":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_appdomain_remove_unhandled_exception", 1, false, false, true);
+                        return null;
+                    // adm1 LOUD runtime strains (single-source difftest mapping,
+                    // appdomain.cpp): no assembly loader / CAS object model, so
+                    // the runtime THROWS NotSupportedException (the probe pins
+                    // the loud throw). ExecuteAssembly is byte-exact on the
+                    // throws-any catch (net48 also throws for a missing file).
+                    case "ExecuteAssembly":
+                        if (count == 1 && ps.Length == 1 && ps[0] == 0x0E)
+                            return I("il2cpp::runtime::icall_appdomain_execute_assembly", 1, true, false, true);
+                        return null;
+                    case "get_PermissionSet":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_permission_set", 0, true, true, true);
+                        return null;
+                    case "get_Evidence":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_evidence", 0, true, true, true);
+                        return null;
+                    case "get_ApplicationTrust":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_application_trust", 0, true, true, true);
+                        return null;
+                    case "GetAssemblies":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_get_assemblies", 0, true, true, true);
+                        return null;
+                    case "ToString":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_to_string", 0, true, true, true);
+                        return null;
                     case "IsFinalizingForUnload":
                         return I("il2cpp::runtime::icall_appdomain_is_finalizing_for_unload", 0, true, false, false);
                     case "PublishAnonymouslyHostedDynamicMethodsAssembly":
@@ -78,7 +182,35 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::icall_appdomain_n_unload", 1, false, false, false, new[] { "i" });
                 }
                 throw new NotSupportedException(
-                    $"{name} is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3) with no runtime AppDomain object: the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here");
+                    $"{name} is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here; the CAS/loader members (PermissionSet/Evidence/ApplicationTrust/GetAssemblies/ExecuteAssembly/ToString) are mapped to a runtime NotSupportedException in the adm1 closure");
+            case "System.AppDomainSetup":
+                // adm1: the SetupInformation carrier's probed getters derive
+                // from the process exe path (ApplicationBase == AppDomain.
+                // BaseDirectory, ConfigurationFile == exeDir+exeName+".Config").
+                switch (name)
+                {
+                    case "get_ApplicationBase":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_setup_get_application_base", 0, true, true, true);
+                        return null;
+                    case "get_ConfigurationFile":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_appdomain_setup_get_configuration_file", 0, true, true, true);
+                        return null;
+                    case "GetType":
+                        return I("il2cpp::runtime::icall_object_get_type", 0, true, true, true);
+                }
+                throw new NotSupportedException(
+                    $"{name} is part of System.AppDomainSetup -- only the probed ApplicationBase/ConfigurationFile rack-arms are wired in the adm1 closure; the remaining setup properties are LOUD");
+            case "System.Runtime.Remoting.ObjectHandle":
+                // adm1: the CreateInstance wrapper carrier -- Unwrap returns the
+                // wrapped object (the only probed member of the handle).
+                if (name == "Unwrap" && count == 0)
+                    return I("il2cpp::runtime::icall_objecthandle_unwrap", 0, true, true, true);
+                if (name == "GetType")
+                    return I("il2cpp::runtime::icall_object_get_type", 0, true, true, true);
+                throw new NotSupportedException(
+                    $"{name} is part of System.Runtime.Remoting.ObjectHandle -- only the CreateInstance wrapper carrier (Unwrap) is wired in the adm1 closure; the rest of the remoting surface is rejected per the net48 audit section 3");
             case "System.ArgIterator":
                 throw new NotSupportedException(
                     $"{name} is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3) with no runtime support: __arglist is not in the M3 model");

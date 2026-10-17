@@ -11,6 +11,7 @@
 #include "il2cpp_time.h" // Il2CppDateTime (Guid_NewGuid stub)
 #include "il2cpp_environment.h" // icall_environment_get_processor_count (ThreadPool alignment)
 #include "threadpool.h" // il2cpp_threadpool_get_thread_count (live worker count)
+#include "appdomain.h" // il2cpp_appdomain_singleton (get_default_domain adm1 fix)
 
 #include <cstdint>
 #include <cstdlib>
@@ -506,12 +507,14 @@ void icall_thread_pool_notify_work_item_progress_native() {}
 int32_t icall_thread_pool_is_thread_pool_hosted() { return 0; }
 void icall_thread_pool_clear_notify() {}
 
-// AppDomain stubs
+// AppDomain stubs (adm1: get_default_domain now returns the process-wide
+// singleton -- appdomain.cpp -- and get_id answers 1, the net48 default-domain
+// id; both were previously the wrong constants: nullptr / 0).
 Il2CppObject* icall_appdomain_is_unloading_forced_finalize() { return nullptr; }
 int32_t icall_appdomain_is_finalizing_for_unload() { return 0; }
 Il2CppObject* icall_appdomain_publish_anonymously_hosted_dynamic_methods_assembly() { return nullptr; }
 int32_t icall_appdomain_is_domain_id_valid(int32_t) { return 0; }
-Il2CppObject* icall_appdomain_get_default_domain() { return nullptr; }
+Il2CppObject* icall_appdomain_get_default_domain() { return il2cpp::il2cpp_appdomain_singleton(); }
 Il2CppObject* icall_appdomain_get_fusion_context() { return nullptr; }
 Il2CppObject* icall_appdomain_get_security_descriptor() { return nullptr; }
 int32_t icall_appdomain_n_create_domain(Il2CppString*, Il2CppObject*, Il2CppObject*) { return 0; }
@@ -520,7 +523,7 @@ void icall_appdomain_update_loader_optimization(int32_t) {}
 Il2CppObject* icall_appdomain_is_string_interned(Il2CppString*) { return nullptr; }
 Il2CppObject* icall_appdomain_get_or_intern_string(Il2CppString*) { return nullptr; }
 void icall_appdomain_n_unload(int32_t) {}
-int32_t icall_appdomain_get_id() { return 0; }
+int32_t icall_appdomain_get_id() { return 1; }
 
 // AppDomain manager / fusion PNSE stubs (net48 QCalls; declared in stubs.h)
 void icall_appdomain_disable_fusion_updates_from_ad_manager(int32_t /*domainId*/)

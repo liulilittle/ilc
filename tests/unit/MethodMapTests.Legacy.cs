@@ -36,16 +36,107 @@ public class MethodMapTestsLegacy
     }
 
     //--------------------------------------------------------------------------
-    // AppDomain -- legacy/low-frequency (net48 audit §3): no AppDomain object
-    // in the runtime; the AOT process IS the default domain.
+    // AppDomain -- adm1 (AppDomain minimal object closure): the public default-
+    // domain surface now MAPS to the appdomain.cpp icalls (it was a family LOUD
+    // rejection before). Every listed member resolves to its runtime icall --
+    // including the six LOUD strains (ExecuteAssembly / PermissionSet / Evidence
+    // / ApplicationTrust / GetAssemblies / ToString), which are mapped to icalls
+    // that THROW NotSupportedException at RUNTIME (single-source difftest
+    // mapping, appdomain.h). Members still outside the closure (e.g.
+    // ShadowCopyFiles/CreateDomain) stay LOUD at the resolver.
     //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("get_CurrentDomain", 0x1C, "il2cpp::runtime::icall_appdomain_get_current_domain")]
+    [InlineData("get_Id", 0x08, "il2cpp::runtime::icall_appdomain_get_id_public")]
+    [InlineData("get_FriendlyName", 0x0E, "il2cpp::runtime::icall_appdomain_get_friendly_name")]
+    [InlineData("get_BaseDirectory", 0x0E, "il2cpp::runtime::icall_appdomain_get_base_directory")]
+    [InlineData("get_RelativeSearchPath", 0x0E, "il2cpp::runtime::icall_appdomain_get_relative_search_path")]
+    [InlineData("get_DomainManager", 0x1C, "il2cpp::runtime::icall_appdomain_get_domain_manager")]
+    [InlineData("get_SetupInformation", 0x1C, "il2cpp::runtime::icall_appdomain_get_setup_information")]
+    [InlineData("get_IsFullyTrusted", 0x02, "il2cpp::runtime::icall_appdomain_is_fully_trusted")]
+    [InlineData("get_IsHomogenous", 0x02, "il2cpp::runtime::icall_appdomain_is_homogenous")]
+    [InlineData("IsDefaultAppDomain", 0x02, "il2cpp::runtime::icall_appdomain_is_default_app_domain")]
+    [InlineData("GetType", 0x1C, "il2cpp::runtime::icall_object_get_type")]
+    public void Resolve_AppDomain_Getter_MapsToIcall(string member, int ret, string cpp)
+    {
+        var resolved = ResolveMember(Synthesize("System", "AppDomain", member, Sig((byte)ret)), member);
+        Assert.Equal(cpp, resolved.CppName);
+    }
+
+    [Theory]
+    [InlineData("GetData", 0x1C, 0x0E)]
+    [InlineData("SetData", 0x00, 0x0E)]
+    [InlineData("CreateInstance", 0x1C, 0x0E)]
+    [InlineData("CreateInstanceAndUnwrap", 0x1C, 0x0E)]
+    public void Resolve_AppDomain_Method_MapsToIcall(string member, int ret, int ps)
+    {
+        // GetData(string) / SetData(string, object) / CreateInstance[string,
+        // string] -- the 2-parameter forms carry [0x0E, 0x1C]/[0x0E, 0x0E].
+        var sig = member == "GetData"
+            ? Sig((byte)ret, (byte)ps)
+            : Sig((byte)ret, 0x0E, member == "SetData" ? (byte)0x1C : (byte)0x0E);
+        var resolved = ResolveMember(Synthesize("System", "AppDomain", member, sig), member);
+        Assert.StartsWith("il2cpp::runtime::icall_appdomain_", resolved.CppName);
+    }
+
+    [Theory]
+    [InlineData("add_UnhandledException", 0x1C)]
+    [InlineData("remove_UnhandledException", 0x1C)]
+    public void Resolve_AppDomain_EventAccessor_MapsToIcall(string member, int paramType)
+    {
+        // The accessor mapping gates on count==1 only, so the synthetic PE uses
+        // a simple 0x1C-object param (the real UnhandledExceptionEventHandler
+        // 0x12-class element needs a type handle the synthetic builder lacks).
+        var resolved = ResolveMember(Synthesize("System", "AppDomain", member, Sig(0x00, (byte)paramType)), member);
+        Assert.StartsWith("il2cpp::runtime::icall_appdomain_", resolved.CppName);
+    }
+
+    // The six LOUD strains map to runtime-throwing icalls (not a resolver LOUD):
+    // the single-source difftest PROBE must compile+link (the runtime then
+    // throws NotSupportedException for each).
+    [Theory]
+    [InlineData("ExecuteAssembly", 0x08, 0x0E, "il2cpp::runtime::icall_appdomain_execute_assembly")]
+    [InlineData("get_PermissionSet", 0x1C, -1, "il2cpp::runtime::icall_appdomain_get_permission_set")]
+    [InlineData("get_Evidence", 0x1C, -1, "il2cpp::runtime::icall_appdomain_get_evidence")]
+    [InlineData("get_ApplicationTrust", 0x1C, -1, "il2cpp::runtime::icall_appdomain_get_application_trust")]
+    [InlineData("GetAssemblies", 0x1C, -1, "il2cpp::runtime::icall_appdomain_get_assemblies")]
+    [InlineData("ToString", 0x0E, -1, "il2cpp::runtime::icall_appdomain_to_string")]
+    public void Resolve_AppDomain_LoudStrain_MapsToRuntimeThrow(string member, int ret, int param, string cpp)
+    {
+        // The mapping gates on count (and for ExecuteAssembly the string
+        // param), never on the return element: GetAssemblies' real Assembly[]
+        // (0x1D) return cannot be encoded by the synthetic PE, so it uses a
+        // plain object (0x1C) return here.
+        var resolved = param < 0
+            ? ResolveMember(Synthesize("System", "AppDomain", member, Sig((byte)ret)), member)
+            : ResolveMember(Synthesize("System", "AppDomain", member, Sig((byte)ret, (byte)param)), member);
+        Assert.Equal(cpp, resolved.CppName);
+    }
+
+    // Members still outside the adm1 closure stay a resolver LOUD rejection.
     [Fact]
-    public void Resolve_AppDomain_ThrowsLoud()
+    public void Resolve_AppDomain_UnclosedMember_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "AppDomain", "get_FriendlyName", Sig(0x0E)), "get_FriendlyName"));
+            ResolveMember(Synthesize("System", "AppDomain", "get_ShadowCopyFiles", Sig(0x02)), "get_ShadowCopyFiles"));
 
         Assert.Contains("System.AppDomain", ex.Message);
+    }
+
+    // The SetupInformation carrier (AppDomainSetup) and the CreateInstance
+    // wrapper (ObjectHandle) map to their adm1 icalls.
+    [Fact]
+    public void Resolve_AppDomainSetup_MapsGetApplicationBase()
+    {
+        var resolved = ResolveMember(Synthesize("System", "AppDomainSetup", "get_ApplicationBase", Sig(0x0E)), "get_ApplicationBase");
+        Assert.Equal("il2cpp::runtime::icall_appdomain_setup_get_application_base", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_ObjectHandle_MapsUnwrap()
+    {
+        var resolved = ResolveMember(Synthesize("System.Runtime.Remoting", "ObjectHandle", "Unwrap", Sig(0x1C)), "Unwrap");
+        Assert.Equal("il2cpp::runtime::icall_objecthandle_unwrap", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------

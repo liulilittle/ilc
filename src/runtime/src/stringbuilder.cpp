@@ -69,15 +69,17 @@
 
 namespace il2cpp {
 
-namespace {
-
-// The System.Text.StringBuilder runtime descriptor. Registered lazily
+// The System.Text.StringBuilder runtime descriptor (registered lazily
 // (constraint #12: no global-constructor allocation). Layout on 8-byte
 // pointers: slot 0 = klass header, slot 1 = capacity+length (value data),
 // slot 2 = chars (GC reference) -> refFieldBitmap bit 2.
-Il2CppClass g_stringBuilderClass = {
+//
+// GLOBAL scope (the adm1 contract): generated isinst/castclass on a
+// StringBuilder-typed receiver references &System_Text_StringBuilder_class
+// directly (p-adb); il2cpp_stringbuilder_class() returns this same symbol.
+il2cpp::Il2CppClass System_Text_StringBuilder_class = {
     "System.Text.StringBuilder",     // name
-    static_cast<int32_t>(sizeof(Il2CppStringBuilder)), // instanceSize (24 on 64-bit)
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppStringBuilder)), // instanceSize (24 on 64-bit)
     0b00000100u,                     // refFieldBitmap: bit 2 = the chars field
     1,                               // refFieldCount: one reference field
     nullptr,                         // baseClass
@@ -87,12 +89,14 @@ Il2CppClass g_stringBuilderClass = {
     0,                               // interfaceCount
 };
 
+namespace {
+
 bool g_stringBuilderRegistered = false;
 
 void EnsureStringBuilderRegistered()
 {
     if (g_stringBuilderRegistered) return;
-    il2cpp_class_register(&g_stringBuilderClass);
+    il2cpp_class_register(&System_Text_StringBuilder_class);
     g_stringBuilderRegistered = true;
 }
 
@@ -577,7 +581,7 @@ bool UnitsMatchAt(const Il2CppStringBuilder* sb, int32_t pos,
 Il2CppClass* il2cpp_stringbuilder_class()
 {
     EnsureStringBuilderRegistered();
-    return &g_stringBuilderClass;
+    return &System_Text_StringBuilder_class;
 }
 
 namespace runtime {

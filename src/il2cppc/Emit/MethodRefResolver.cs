@@ -1193,7 +1193,6 @@ public static partial class MethodRefResolver
             case "System.Security.Cryptography.Utils":
             case "System.Security.Cryptography.X509Certificates.X509Utils":
             case "System.DefaultBinder":
-            case "System.AppDomainSetup":
             case "System.MarshalByRefObject":
             case "System.MissingMemberException":
             case "System.WeakReference`1":
@@ -1790,7 +1789,9 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Runtime.Remoting.Messaging.Message":
             case "System.Runtime.Remoting.Messaging.StackBuilderSink":
             case "System.Runtime.Remoting.Channels.ChannelServices":
+            case "System.Runtime.Remoting.ObjectHandle":
             case "System.AppDomain":
+            case "System.AppDomainSetup":
             case "System.ArgIterator":
             case "System.Threading.ReaderWriterLock": return TryMapLegacy(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapEmit(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);

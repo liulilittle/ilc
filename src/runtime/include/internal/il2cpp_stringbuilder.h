@@ -173,6 +173,12 @@ struct Il2CppStringBuilder
 // The System.Text.StringBuilder runtime descriptor (registered lazily on
 // first use). instanceSize = header + capacity + length + buffer pointer;
 // refFieldBitmap has bit 2 set (the chars field is a GC reference).
+//
+// GLOBAL scope (the adm1 p-adb contract, same as System_AppDomain_class):
+// generated isinst/castclass on a StringBuilder-typed receiver emits
+// &System_Text_StringBuilder_class, so the descriptor is a global symbol
+// defined in stringbuilder.cpp (il2cpp_stringbuilder_class() returns it).
+extern il2cpp::Il2CppClass System_Text_StringBuilder_class;
 Il2CppClass* il2cpp_stringbuilder_class();
 
 namespace runtime {
