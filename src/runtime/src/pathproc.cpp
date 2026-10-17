@@ -101,6 +101,12 @@ struct ProcessSlot
     int64_t readOffset;        // capture bytes consumed so far
     uint32_t exitCode;
     bool waited;
+    // nb4 PROC-DIAG (双审 defect 4): the net48 first-read WorkingSet64 cache.
+    // The first successful reading during the process lifetime is cached; a
+    // post-exit read on the SAME process object returns the cached value
+    // instead of throwing (net48 semantics, probe-pinned).
+    bool wsCached;
+    int64_t wsCache;
 };
 
 std::unordered_map<int32_t, ProcessSlot>& g_processes()
@@ -804,6 +810,8 @@ int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args)
     slot.readOffset = 0;
     slot.exitCode = 0;
     slot.waited = false;
+    slot.wsCached = false;
+    slot.wsCache = 0;
     g_processes()[pid] = std::move(slot);
     return pid;
 #else
@@ -1077,10 +1085,16 @@ void il2cpp_process_exit(int32_t code)
 // nb4 PROC-DIAG: StartTime / ExitTime / WorkingSet64 -- the Win32 diagnostic
 // queries over the tracked-child table (preferred handle) or a direct PID
 // open (the current process and untracked children). Post-exit semantics:
-// net48 throws InvalidOperationException for a process that already exited;
-// the runtime mirrors it for the deterministic shapes (a waited tracked slot
-// or an unopenable PID).
+// net48 throws InvalidOperationException for a process that already exited
+// (unless the working set was previously read -- then the first-read cache
+// below returns the cached value); the runtime mirrors it for the
+// deterministic shapes.
 //------------------------------------------------------------------------------
+
+// The helpers below are Win32-only (HANDLE / OpenProcess / FILETIME /
+// g_processes) -- they must not compile on POSIX (the consuming icalls are
+// each #if _WIN32-gated; the POSIX branch provides its own zero stubs).
+#if defined(_WIN32)
 
 namespace {
 
@@ -1113,6 +1127,8 @@ int64_t FileTimeToDateTimeTicks(const FILETIME& ft)
 }
 
 } // namespace
+
+#endif // _WIN32
 
 #if defined(_WIN32)
 
@@ -1175,11 +1191,35 @@ int64_t il2cpp_process_get_working_set64(int32_t pid)
 {
 #if defined(_WIN32)
     const auto it = g_processes().find(pid);
-    if (it != g_processes().end() && it->second.waited)
+    if (it != g_processes().end())
     {
-        // net48: the process has exited -> InvalidOperationException.
-        il2cpp_throw_invalid_operation_exception(
-            "Cannot process request because the process has exited.");
+        ProcessSlot& slot = it->second;
+        if (slot.wsCached)
+        {
+            // net48 first-read cache: the working set was read during the
+            // process lifetime, so a post-exit read on the SAME object returns
+            // the cached value (it never touches the handle -> no IOE).
+            return slot.wsCache;
+        }
+        if (slot.waited)
+        {
+            // net48: the process has exited and the working set was never read
+            // while alive -> a first-ever post-exit read raises
+            // InvalidOperationException.
+            il2cpp_throw_invalid_operation_exception(
+                "Cannot process request because the process has exited.");
+        }
+        // Alive tracked child: query through the slot handle and cache.
+        PROCESS_MEMORY_COUNTERS pmc;
+        std::memset(&pmc, 0, sizeof(pmc));
+        const BOOL ok = ::GetProcessMemoryInfo(slot.process, &pmc, sizeof(pmc));
+        if (!ok)
+        {
+            return 0;
+        }
+        slot.wsCache = static_cast<int64_t>(pmc.WorkingSetSize);
+        slot.wsCached = true;
+        return slot.wsCache;
     }
     HANDLE owned = nullptr;
     const HANDLE h = ResolveProcessHandle(pid, &owned);

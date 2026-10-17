@@ -104,6 +104,11 @@ int64_t icall_biginteger_to_int64(Il2CppBigInteger a);
 // throws OverflowException.
 uint32_t icall_biginteger_to_uint32(Il2CppBigInteger a);
 
+// (ulong)BigInteger: truncate toward zero; negative or out of uint64 range
+// throws OverflowException. The uint64 bits return in the int64 carrier slot
+// (the _un bit-pattern convention -- ulong values ride int64_t slots).
+uint64_t icall_biginteger_to_uint64(Il2CppBigInteger a);
+
 // --- arithmetic (result-slot-first; inputs never mutated) -------------------
 
 // out = a + b / a - b / a * b / a / b / a % b. Division/Remainder by zero

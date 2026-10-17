@@ -37,6 +37,10 @@ namespace Cases
             Console.WriteLine("[pr.exitcode]=" + pc.ExitCode);
             Console.WriteLine("[pr.exitTime>min]=" + (pc.ExitTime.Ticks > 0));
 
+            // nb4 双审缺陷 4 (net48 首读缓存): WorkingSet64 在进程存续期内读过
+            // 后即被 net48 缓存, 进程退出后对同一对象再读返回缓存值(不抛 IOE)。
+            Console.WriteLine("[pc.ws2.aftercache]=" + (pc.WorkingSet64 > 0));
+
             // net48 caches WorkingSet64 after the first (pre-exit) read, so a
             // post-exit read on pc would NOT throw. Use a SECOND short-lived
             // child whose WorkingSet64 is NEVER read while alive: the first

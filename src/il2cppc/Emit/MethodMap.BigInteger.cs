@@ -77,7 +77,7 @@ public static partial class MethodRefResolver
                     if (ret == 0x0A)
                         return I("il2cpp::runtime::icall_biginteger_to_int64", 1, true, false, false, new[] { "" }, "l");
                     if (ret == 0x0B)
-                        return I("il2cpp::runtime::icall_biginteger_to_int64", 1, true, false, false, new[] { "" }, "l");
+                        return I("il2cpp::runtime::icall_biginteger_to_uint64", 1, true, false, false, new[] { "" }, "l");
                     return I("il2cpp::runtime::icall_biginteger_to_int32", 1, true, false, false, new[] { "" });
                 }
                 return null;

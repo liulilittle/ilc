@@ -511,11 +511,12 @@ BigIntegerState* StateFromUint32(uint32_t value)
     return state;
 }
 
-// The little-endian magnitude bytes (per limb, low byte first) BEFORE the
-// net48 sign rules: for negative values an extra 0x00 is appended when the
-// top byte's high bit is set (so the two's complement sign stays clear), then
-// the whole array is two's-complemented. Positive values get a 0x00 sign byte
-// when their top byte's high bit would be set.
+// The little-endian magnitude bytes (per limb, low byte first, trailing zero
+// bytes stripped -- the MINIMAL magnitude). The SIGN rules live in
+// icall_biginteger_to_byte_array: positive values get a 0x00 sign byte only
+// when the top byte's high bit is set; negative values are two's-complemented
+// over the minimal bytes and only then get a 0xFF sign byte when the resulting
+// top byte's high bit is clear.
 std::vector<uint8_t> ToByteArrayMagnitude(const BigIntegerState& s)
 {
     std::vector<uint8_t> bytes;
@@ -705,11 +706,17 @@ Il2CppArray* icall_biginteger_to_byte_array(Il2CppBigInteger a)
     }
     else
     {
-        if (bytes.back() & 0x80)
-        {
-            bytes.push_back(0); // room for the two's-complement sign
-        }
+        // net48 (双审 defect 3): the two's complement is taken over the
+        // MINIMAL magnitude bytes FIRST; only when the resulting top byte's
+        // high bit is CLEAR (the magnitude would read as positive) is a 0xFF
+        // sign byte appended. NEVER pre-push a byte from the magnitude's high
+        // bit -- that over-pads boundary magnitudes like -128 (0x80, already
+        // a negative-signed byte) into 0x80-0xFF.
         ApplyTwosComplement(bytes);
+        if ((bytes.back() & 0x80) == 0)
+        {
+            bytes.push_back(0xFF);
+        }
     }
     Il2CppArray* arr = il2cpp_array_new(nullptr, 1, false,
                                         static_cast<int32_t>(bytes.size()));
@@ -762,6 +769,29 @@ uint32_t icall_biginteger_to_uint32(Il2CppBigInteger a)
             "Value was either too large or too small for a UInt32.");
     }
     return a.state->limbs.empty() ? 0 : a.state->limbs[0];
+}
+
+uint64_t icall_biginteger_to_uint64(Il2CppBigInteger a)
+{
+    // net48 (ulong)BigInteger: truncate toward zero; the range is
+    // [0, ulong.MaxValue]. A negative magnitude always overflows; any
+    // magnitude past 2^64-1 overflows (2 limbs max for the valid range).
+    if (a.state->negative)
+    {
+        il2cpp_throw_overflow_exception(
+            "Value was either too large or too small for a UInt64.");
+    }
+    if (a.state->limbs.size() > 2)
+    {
+        il2cpp_throw_overflow_exception(
+            "Value was either too large or too small for a UInt64.");
+    }
+    uint64_t mag = 0;
+    for (size_t i = a.state->limbs.size(); i-- > 0;)
+    {
+        mag = (mag << 32) | a.state->limbs[i];
+    }
+    return mag;
 }
 
 }} // namespace il2cpp::runtime
