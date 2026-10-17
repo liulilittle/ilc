@@ -27,6 +27,7 @@
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_format.h"
 #include "il2cpp_metadata.h"
+#include "appdomain.h" // adm1 D2: System_AppDomain_class (Object.ToString LOUD throw)
 #include "il2cpp_object.h"
 #include "versionuri.h" // icall_uri_to_string (untracked-Uri ToString branch below)
 
@@ -509,6 +510,18 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
     if (HasKlassName(obj, "System.Uri"))
     {
         return reinterpret_cast<Il2CppString*>(icall_uri_to_string(obj));
+    }
+    if (obj->klass == &System_AppDomain_class)
+    {
+        // adm1 D2 fix: Object.ToString on the AppDomain singleton GENUINELY
+        // throws NotSupportedException (the adm1 LOUD contract). A real
+        // `ad.ToString()` call site resolves to this fallback (Roslyn emits
+        // callvirt Object::ToString and the resolver path carries no tracked
+        // receiver), and printing the klass name ("System.AppDomain") was the
+        // false-LOUD the D2 review flagged -- the runtime has no localized
+        // name implementation, so the honest surface is the throw.
+        il2cpp_throw_not_supported_exception(
+            "AppDomain.ToString requires a culture-localized name (W7: the net48 zh-CN text is not implemented).");
     }
     return il2cpp_string_new_from_utf8(obj->klass->name);
 }

@@ -26,6 +26,7 @@
 #include "il2cpp_delegate_ext.h"  // icall_delegate_combine / icall_delegate_remove
 #include "il2cpp_stringbuilder.h" // icall_stringbuilder_ctor_default (CreateInstance default ctor)
 #include "string_compare.h"       // il2cpp_string_equals_ordinal (GetData key compare)
+#include "il2cpp_gcroot.h"        // il2cpp::GcRoot (RAII root across intra-icall allocations)
 
 #include <cstdint>
 #include <cstring>
@@ -349,18 +350,41 @@ bool AsciiEqualsIgnoreCase(const std::string& a, const char* b)
 // Process-level GetData/SetData key -> object table (single-domain model: no
 // second domain can exist, so the net48 per-domain isolation is
 // unobservable and a Do/process-local table is byte-equivalent -- the p-adb
-// "Do/process-local" criterion). Every stored key AND value is a permanent
-// static GC root.
+// "Do/process-local" criterion).
+//
+// NB1 (adm1 review): the table is rooted as ONE root RANGE over the whole
+// fixed slot array (il2cpp_gc_add_root_range -- 2 contiguous reference slots
+// per entry), NOT one il2cpp_gc_add_static_root per key/value. Per-slot
+// static roots are counted against kMaxStaticRoots=128 (gc.cpp): 63 entries
+// already exceeded it (129 roots incl. the 3 domain roots) and aborted
+// FailLoud; the range registration is a separate fixed table (kMaxRootRanges
+// = 64) and always uses exactly 1 slot regardless of how many keys are
+// stored. Capacity is 256 (covers the NB1 probe's 70+ keys and any realistic
+// net48 surface) and overflow FAILS LOUD (never silently drops, unlike
+// net48's effectively unbounded map -- a documented AOT bound).
 //------------------------------------------------------------------------------
 struct DataEntry
 {
-    Il2CppString* key;   // rooted
-    Il2CppObject* value; // rooted
+    Il2CppString* key;   // GC reference (scanned through the table root range)
+    Il2CppObject* value; // GC reference (scanned through the table root range)
 };
 
-constexpr int32_t kMaxDataEntries = 64;
+constexpr int32_t kMaxDataEntries = 256;
 DataEntry g_dataEntries[kMaxDataEntries] = {};
 int32_t g_dataCount = 0;
+
+void EnsureDataTableRooted()
+{
+    static bool s_rooted = false;
+    if (s_rooted)
+    {
+        return;
+    }
+    il2cpp_gc_add_root_range(
+        reinterpret_cast<void**>(&g_dataEntries[0].key),
+        kMaxDataEntries * 2); // key + value per entry, contiguous
+    s_rooted = true;
+}
 
 int32_t FindDataEntry(Il2CppString* key)
 {
@@ -438,6 +462,15 @@ Il2CppObject* CreateInstanceCore(Il2CppObject* assemblyName, Il2CppObject* typeN
     }
     const std::string typeUtf8 = StrToUtf8(typeName);
     il2cpp::Il2CppClass* klass = il2cpp_class_by_name(typeUtf8.c_str());
+    if (klass == nullptr && typeUtf8 == "System.Text.StringBuilder")
+    {
+        // StringBuilder's descriptor registers lazily on FIRST allocation
+        // (constraint #12); CreateInstance is itself a first allocation, so
+        // register it here (p-adb / p-adb-gc reach it with no prior
+        // StringBuilder). All other registered types stay reachability-gated
+        // (the documented W7 boundary).
+        klass = il2cpp_stringbuilder_class();
+    }
     if (klass == nullptr)
     {
         // Unregistered type: no runtime type loader exists (W7 boundary).
@@ -445,12 +478,20 @@ Il2CppObject* CreateInstanceCore(Il2CppObject* assemblyName, Il2CppObject* typeN
             "AppDomain.CreateInstance: the requested type is not registered in this runtime.");
     }
     il2cpp::Il2CppObject* obj = il2cpp_object_new(klass);
+    // D1 (adm1 review): root the local BEFORE the ctor's internal allocation.
+    // icall_stringbuilder_ctor_default allocates the char buffer
+    // (NewCharBuffer) and the compacting collector (256KB collection
+    // threshold) can MOVE the just-created builder mid-call; the ctor roots
+    // ITS OWN copy of self, but this stack local would keep the stale address.
+    // GcRoot re-reads the (possibly rewritten) slot after the allocation.
+    il2cpp::GcRoot<il2cpp::Il2CppObject*> objRoot(obj, "appdomain_create_core");
     // Run the type's default ctor where the zero-state differs from the
     // ctor state. StringBuilder needs its buffer (capacity 16) before any
     // Append; other registered types' ctors are out of scope (W7 boundary).
     if (klass == il2cpp_stringbuilder_class())
     {
-        icall_stringbuilder_ctor_default(obj);
+        icall_stringbuilder_ctor_default(objRoot.Get());
+        obj = objRoot.Get();
     }
     return obj;
 }
@@ -537,15 +578,18 @@ void icall_appdomain_set_data(Il2CppObject* self, Il2CppObject* name, Il2CppObje
         g_dataEntries[idx].value = value; // overwrite (net48)
         return;
     }
+    EnsureDataTableRooted(); // the whole table is ONE root range (NB1)
     if (g_dataCount >= kMaxDataEntries)
     {
-        return; // bounded table overflow: drop silently
+        // NB1: an overflow FAILS LOUD -- a silent drop would diverge from
+        // net48's effectively unbounded data map. (AOT fixed-table bound:
+        // 256 keys, far above any probed/realistic surface.)
+        il2cpp_throw_invalid_operation_exception(
+            "AppDomain.SetData exceeded the process data-table capacity (256 keys).");
     }
     const int32_t slot = g_dataCount++;
     g_dataEntries[slot].key = key;
     g_dataEntries[slot].value = value;
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_dataEntries[slot].key));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_dataEntries[slot].value));
 }
 
 Il2CppObject* icall_appdomain_create_instance(Il2CppObject* self, Il2CppObject* assemblyName,
@@ -553,9 +597,15 @@ Il2CppObject* icall_appdomain_create_instance(Il2CppObject* self, Il2CppObject* 
 {
     ThrowIfNullReceiver(self);
     Il2CppObject* inner = CreateInstanceCore(assemblyName, typeName);
+    // D1 (adm1 review): root the inner object across the ObjectHandle
+    // allocation below -- il2cpp_object_new can trigger a compacting
+    // collection that MOVES inner while this local still holds the old
+    // address. Re-read after the allocation.
+    il2cpp::GcRoot<il2cpp::Il2CppObject*> innerRoot(inner, "appdomain_create_instance");
     // Wrap in a System.Runtime.Remoting.ObjectHandle carrier (slot 1).
     Il2CppObjectHandleObject* handle = reinterpret_cast<Il2CppObjectHandleObject*>(
         il2cpp_object_new(&System_Runtime_Remoting_ObjectHandle_class));
+    inner = innerRoot.Get();
     handle->value = inner;
     il2cpp_write_barrier(reinterpret_cast<void**>(&handle->value), inner);
     return reinterpret_cast<Il2CppObject*>(handle);

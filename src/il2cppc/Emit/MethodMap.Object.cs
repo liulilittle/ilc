@@ -95,6 +95,17 @@ public static partial class MethodRefResolver
                 // the stored slots (see MethodMap.Uri.cs).
                 if (name == "ToString" && receiverType == "System.Uri")
                     return I("il2cpp::runtime::icall_uri_to_string", 0, true, true, true);
+                // adm1 D2 (review fix): Object::ToString on an AppDomain
+                // receiver -- Roslyn emits callvirt Object::ToString for the
+                // net48 AppDomain.ToString override, so the AppDomain-owner
+                // LOUD arm (MethodMap.Legacy.cs ToString) is DEAD at real call
+                // sites: the resolver here fell to the System_Object_ToString_
+                // mangled fallback and the runtime printed the klass NAME
+                // ("System.AppDomain") instead of the adm1 NotSupported LOUD
+                // contract. Route the tracked AppDomain receiver to the
+                // throwing icall so ad.ToString() genuinely throws.
+                if (name == "ToString" && receiverType == "System.AppDomain")
+                    return I("il2cpp::runtime::icall_appdomain_to_string", 0, true, true, true);
                 // M6 G6 wiring: Object::ToString on a StringWriter receiver (Roslyn
                 // emits callvirt Object::ToString for StringWriter.ToString) --
                 // route to the StringWriter object icall (stringrw.cpp): a COPY
