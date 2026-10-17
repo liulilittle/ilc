@@ -43,48 +43,106 @@ void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)
     // no-op
 }
 
-// System.Exception message carrier (ilistException): {exception object ->
-// message} side table. Both slots live in fixed static storage rooted once
-// at insert (the M2 collector never moves objects, so raw-pointer keys stay
-// valid). Fixed capacity following the kMaxElementArrayClasses /
-// kMaxAttributeTypes precedents; overflow keeps the first entries (exceptions
-// carrying explicit messages are rare -- the e2e surface uses three).
+// System.Exception message carrier (ilistException / nb1 EXC-CHAIN):
+// {exception object -> message, inner exception object} side table. Both
+// slots live in fixed static storage rooted once at insert (the M2 collector
+// never moves objects, so raw-pointer keys stay valid). Fixed capacity
+// following the kMaxElementArrayClasses / kMaxAttributeTypes precedents;
+// overflow keeps the first entries (exceptions carrying explicit messages
+// are rare -- the e2e surface uses a handful).
 //------------------------------------------------------------------------------
 namespace {
-struct ExceptionMessageEntry { Il2CppObject* obj; Il2CppString* msg; };
+struct ExceptionMessageEntry { Il2CppObject* obj; Il2CppString* msg; Il2CppObject* inner; };
 constexpr int32_t kMaxExceptionMessages = 64;
 ExceptionMessageEntry g_exceptionMessages[kMaxExceptionMessages];
 int32_t g_exceptionMessageCount = 0;
-} // namespace
-void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message)
+
+// Find the side-table entry for 'obj' (nullptr when absent).
+ExceptionMessageEntry* FindExceptionEntry(Il2CppObject* obj)
 {
-    if (self == nullptr) return;
+    if (obj == nullptr)
+    {
+        return nullptr;
+    }
     for (int32_t i = 0; i < g_exceptionMessageCount; ++i)
     {
-        if (g_exceptionMessages[i].obj == self)
+        if (g_exceptionMessages[i].obj == obj)
         {
-            g_exceptionMessages[i].msg = message;
-            return;
+            return &g_exceptionMessages[i];
         }
+    }
+    return nullptr;
+}
+} // namespace
+void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* message, Il2CppObject* inner)
+{
+    ExceptionMessageEntry* e = FindExceptionEntry(self);
+    if (e != nullptr)
+    {
+        // Update path: the addresses (&e->msg, &e->inner) are already rooted
+        // from the original insert; overwriting the values is enough.
+        e->msg = message;
+        e->inner = inner;
+        return;
     }
     if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
     const int32_t i = g_exceptionMessageCount++;
-    g_exceptionMessages[i].obj = self;
-    g_exceptionMessages[i].msg = message;
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_exceptionMessages[i].obj));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_exceptionMessages[i].msg));
+    ExceptionMessageEntry& slot = g_exceptionMessages[i];
+    slot.obj = self;
+    slot.msg = message;
+    slot.inner = inner;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.obj));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.msg));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.inner));
+}
+void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message)
+{
+    icall_exception_ctor_message_inner(self, message, nullptr);
 }
 Il2CppString* icall_exception_get_message(Il2CppObject* obj)
 {
-    if (obj != nullptr)
+    ExceptionMessageEntry* e = FindExceptionEntry(obj);
+    if (e != nullptr && e->msg != nullptr)
     {
-        for (int32_t i = 0; i < g_exceptionMessageCount; ++i)
-        {
-            if (g_exceptionMessages[i].obj == obj && g_exceptionMessages[i].msg != nullptr)
-                return g_exceptionMessages[i].msg;
-        }
+        return e->msg;
     }
     return il2cpp_string_new(nullptr, 0); // no captured message -> empty string
+}
+
+// get_InnerException: the stored inner object (null when the chain has no
+// inner). The catch-variable carrier has no inner model -- that receiver
+// routes to the constant-null arm in MethodMap.Exception.
+Il2CppObject* icall_exception_get_inner_exception(Il2CppObject* obj)
+{
+    ExceptionMessageEntry* e = FindExceptionEntry(obj);
+    return (e != nullptr) ? e->inner : nullptr;
+}
+
+// GetBaseException: walk the inner chain to its ROOT (net48 semantics: the
+// ultimate-cause exception). A chain-less receiver returns ITSELF (the
+// p-nb-exc [exc.base.solo]=True oracle -- GetBaseException on a solo
+// exception is the receiver, reference-equal).
+Il2CppObject* icall_exception_get_base_exception(Il2CppObject* obj)
+{
+    Il2CppObject* cur = obj;
+    while (cur != nullptr)
+    {
+        Il2CppObject* next = icall_exception_get_inner_exception(cur);
+        if (next == nullptr)
+        {
+            return cur;
+        }
+        cur = next;
+    }
+    return nullptr;
+}
+
+// Constant-null property arms (Source / HelpLink / TargetSite / StackTrace):
+// net48 returns null for a constructed, never-thrown exception and the
+// carrier has no constructed state for these -- the honest null answer.
+Il2CppObject* icall_exception_get_null_ref(Il2CppObject*)
+{
+    return nullptr;
 }
 
 // System.Exception.GetExceptionCount

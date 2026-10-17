@@ -36,16 +36,61 @@ public static partial class MethodRefResolver
                 // IDisposable::Dispose callvirt (using block) re-resolves
                 // with the receiver hint (the IDisposable arm dispatches on
                 // receiverType/arg0Type).
-                if (count == 4)
-                    return I("il2cpp::runtime::icall_timer_ctor", 4, false, false, true,
-                        new[] { "", "", "", "", "" }, returnTypeName: "System.Threading.Timer");
+                //
+                // nb1 TIM-OVL ps guard: the net48 ctor overloads are
+                // distinguished by the LAST TWO parameter bytes (ps[2] /
+                // ps[3] -- ps[0]=TimerCallback CLASS 0x12, ps[1]=object
+                // 0x1C; ECMA element bytes: I4=0x08, I8=0x0A, U4=0x09,
+                // VALUETYPE=0x11):
+                //   int,int      (0x08,0x08)   -> icall_timer_ctor (int32 ms)
+                //   long,long    (0x0A,0x0A)   -> icall_timer_ctor_64
+                //   uint,uint    (0x09,0x09)   -> icall_timer_ctor_64 (the
+                //                                uint bit pattern rides the
+                //                                int64 slot; MaxValue=-1)
+                //   TimeSpan,..  (0x11,0x11)   -> icall_timer_ctor_ts (raw
+                //                                ticks; runtime /10000 -> ms)
+                // Previously the count==4 shape blindly bound EVERY overload
+                // to the int32 icall (long/uint silent narrowing, TimeSpan a
+                // C0 compile break: cannot convert Il2CppTimeSpan to int32_t).
+                if (count == 4 && ps.Length >= 4)
+                {
+                    if (ps[2] == 0x08 && ps[3] == 0x08)
+                        return I("il2cpp::runtime::icall_timer_ctor", 4, false, false, true,
+                            new[] { "", "", "", "", "" }, returnTypeName: "System.Threading.Timer");
+                    if (ps[2] == 0x0A && ps[3] == 0x0A)
+                        return I("il2cpp::runtime::icall_timer_ctor_64", 4, false, false, true,
+                            new[] { "", "", "", "l", "l" }, returnTypeName: "System.Threading.Timer");
+                    if (ps[2] == 0x09 && ps[3] == 0x09)
+                        return I("il2cpp::runtime::icall_timer_ctor_64", 4, false, false, true,
+                            new[] { "", "", "", "l", "l" }, returnTypeName: "System.Threading.Timer");
+                    if (ps[2] == 0x11 && ps[3] == 0x11)
+                        return I("il2cpp::runtime::icall_timer_ctor_ts", 4, false, false, true,
+                            new[] { "", "", "", "ts_ticks", "ts_ticks" }, returnTypeName: "System.Threading.Timer");
+                }
                 return null;
             case "Change":
                 // bool Change(int dueTimeMs, int periodMs): re-arms the
                 // timer from now; returns true (invalid args throw).
-                if (count == 2)
-                    return I("il2cpp::runtime::icall_timer_change", 2, true, false, true,
-                        new[] { "", "", "" });
+                // nb1 TIM-OVL ps guard: the Change overloads (2 explicit
+                // params; ps[0]/ps[1] carry the time-arg types):
+                //   (int,int) / (long,long) / (uint,uint) / (TimeSpan,..)
+                // map to their icall family exactly like the ctor above.
+                if (count == 2 && ps.Length >= 2)
+                {
+                    if (ps[0] == 0x08 && ps[1] == 0x08)
+                        return I("il2cpp::runtime::icall_timer_change", 2, true, false, true,
+                            new[] { "", "", "" });
+                    if (ps[0] == 0x0A && ps[1] == 0x0A)
+                        return I("il2cpp::runtime::icall_timer_change_64", 2, true, false, true,
+                            new[] { "", "l", "l" });
+                    if (ps[0] == 0x09 && ps[1] == 0x09)
+                        return I("il2cpp::runtime::icall_timer_change_64", 2, true, false, true,
+                            new[] { "", "l", "l" });
+                    if (ps[0] == 0x11 && ps[1] == 0x11)
+                        return I("il2cpp::runtime::icall_timer_change_ts", 2, true, false, true,
+                            new[] { "", "ts_ticks", "ts_ticks" });
+                }
+                return null;
                 return null;
             case "Dispose":
                 // void Dispose() -- stop + join the timer thread. Both

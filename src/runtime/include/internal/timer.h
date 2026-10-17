@@ -109,6 +109,29 @@ bool icall_timer_change(Il2CppObject* self, int32_t dueTimeMs, int32_t periodMs)
 void icall_timer_dispose(Il2CppObject* self);
 
 //------------------------------------------------------------------------------
+// nb1 TIM-OVL: the long/uint/TimeSpan overloads.
+//   * icall_timer_ctor_64 / icall_timer_change_64 -- the (long,long) and
+//     (uint,uint) overloads. net48 semantics: the values ARE MILLISECONDS
+//     (the uint values ride the int64 slot as bit patterns -- the
+//     transpiler's uint carrier; uint.MaxValue = -1 = Timeout.Infinite).
+//     The int64 ms values are range-validated (valid [-1, INT32_MAX];
+//     otherwise ArgumentOutOfRangeException -- net48's long/uint overload
+//     contract) and truncated to int32 ms before arming (the previous
+//     count-blind binding narrowed to int32 silently at the C++ call site).
+//   * icall_timer_ctor_ts / icall_timer_change_ts -- the (TimeSpan,
+//     TimeSpan) overloads. The Il2CppTimeSpan values ride RAW TICKS (the
+//     "ts_ticks" emitter cast); the runtime divides by TimeSpan.
+//     TicksPerMillisecond (10000) -- net48's TimeSpan.TotalMilliseconds
+//     truncation -- then validates/arms. This eliminates the C0 build break
+//     (cannot convert Il2CppTimeSpan to int32_t).
+void icall_timer_ctor_64(Il2CppObject* self, Il2CppObject* callback, Il2CppObject* state,
+                         int64_t dueTimeMs, int64_t periodMs);
+bool icall_timer_change_64(Il2CppObject* self, int64_t dueTimeMs, int64_t periodMs);
+void icall_timer_ctor_ts(Il2CppObject* self, Il2CppObject* callback, Il2CppObject* state,
+                         int64_t dueTicks, int64_t periodTicks);
+bool icall_timer_change_ts(Il2CppObject* self, int64_t dueTicks, int64_t periodTicks);
+
+//------------------------------------------------------------------------------
 // System.Timers.Timer icalls (batch 161, timerscase).
 //------------------------------------------------------------------------------
 // System.Timers.Timer(double interval) -- create DISARMED + store interval.

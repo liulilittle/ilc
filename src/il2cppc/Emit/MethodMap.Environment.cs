@@ -69,6 +69,46 @@ public static partial class MethodRefResolver
                 if (count == 1)
                     return I("il2cpp::runtime::icall_environment_get_command_line", 1, true, true, false, new[] { "drop" });
                 return null;
+            // nb1 ENV-SPOT: GetCommandLineArgs() -- a process command-line
+            // string[] (element 0 = exe path, then the OS args, empty args
+            // preserved). New icall (environment.cpp); ReturnTypeName tracks
+            // the array so .Length / element reads fold on the receiver hint.
+            case "GetCommandLineArgs":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_environment_get_command_line_args", 0, true, true, false,
+                        returnTypeName: "System.String[]");
+                return null;
+            // nb1 ENV-SPOT: GetLogicalDrives() -- the present drive roots
+            // ("C:\", ...). New icall (environment.cpp).
+            case "GetLogicalDrives":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_environment_get_logical_drives", 0, true, true, false,
+                        returnTypeName: "System.String[]");
+                return null;
+            // nb1 ENV-SPOT: ExpandEnvironmentVariables(string) -- %NAME%
+            // expansion with the .NET preserve-missing/empty semantics (new
+            // icall, environment.cpp). The single string arg rides the "s" cast.
+            case "ExpandEnvironmentVariables":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_environment_expand_environment_variables", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.String");
+                return null;
+            // nb1 ENV-SPOT: Environment.SystemDirectory / UserDomainName /
+            // UserInteractive (new icalls, environment.cpp).
+            case "get_SystemDirectory":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_environment_get_system_directory", 0, true, true, false,
+                        returnTypeName: "System.String");
+                return null;
+            case "get_UserDomainName":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_environment_get_user_domain_name", 0, true, true, false,
+                        returnTypeName: "System.String");
+                return null;
+            case "get_UserInteractive":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_environment_get_user_interactive", 0, true, false, false);
+                return null;
             // M7 env (2026-08-08): ExitCode get/set -- the env audit added
             // icall_environment_get_exit_code / icall_environment_set_exit_code
             // (il2cpp_environment.h:77-78, process-lifetime int32 storage,

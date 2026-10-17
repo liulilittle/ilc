@@ -167,6 +167,23 @@ int32_t icall_gc_is_server_gc()
     return 0; // workstation collector model
 }
 
+//------------------------------------------------------------------------------
+// nb1 GC-LEAK: GC.AddMemoryPressure / GC.RemoveMemoryPressure -- no-ops.
+// net48 calls these to inform the CLR of native memory allocations so the
+// GC can trigger collections under memory pressure. The simplified collector
+// (gc.cpp) has no pressure-based trigger; the count is accepted and dropped
+// (the managed surface never observes these -- both return void).
+//------------------------------------------------------------------------------
+void icall_gc_add_memory_pressure(int64_t bytesAllocated)
+{
+    (void)bytesAllocated;
+}
+
+void icall_gc_remove_memory_pressure(int64_t bytesAllocated)
+{
+    (void)bytesAllocated;
+}
+
 // P6: GCFrameRegistration internal helpers (stubs).
 
 void icall_gc_register_for_gc_reporting()

@@ -2,8 +2,13 @@
     [Parameter(Mandatory)][string]$Case,
     [ValidateSet("mingw","msvc","clang")][string]$Compiler = "mingw",
     [string]$ReportDir = "",
-    [int]$TimeoutMs = 120000
+    [int]$TimeoutMs = 120000,
+    [string]$AppArgs = ""
 )
+# AppArgs: optional process command-line arguments passed IDENTICALLY to the
+# net48 oracle exe and the il2cpp_gen_exe runtime exe (e.g. a
+# GetCommandLineArgs probe - p-nb-env -ArgA argB -x=42). Default empty keeps
+# the existing no-args behavior for every prior caller.
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 if (-not $ReportDir) { $ReportDir = "$Root/.opencode/tmp/diffharness" }
@@ -25,9 +30,10 @@ $origOutputEncoding = [Console]::OutputEncoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Invoke-RawRun {
-    param([string]$ExePath, [int]$TimeoutMs = 120000)
+    param([string]$ExePath, [int]$TimeoutMs = 120000, [string]$AppArgs = "")
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $ExePath
+    if ($AppArgs) { $psi.Arguments = $AppArgs }
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.RedirectStandardInput = $true
@@ -122,7 +128,7 @@ if (-not (Test-Path $oracleExe)) { throw "oracle exe missing: $oracleExe" }
 # for the managed assembly (run-tests L255-259); net48 produces only an exe here.
 $transpileInput = if (Test-Path "$oracleDir/$Case.dll") { "$oracleDir/$Case.dll" } else { $oracleExe }
 
-$exp = Invoke-RawRun $oracleExe $TimeoutMs
+$exp = Invoke-RawRun $oracleExe $TimeoutMs $AppArgs
 
 $transpileLog = "$logDir/${Case}_diff.$stamp.transpile.log"
 $input = $transpileInput
@@ -154,7 +160,7 @@ if ($cfgRc -ne 0) { throw "cmake configure failed (see $buildLog)" }
 if ($bldRc -ne 0) { throw "cmake build failed (see $buildLog)" }
 $rtExe = "$buildDir/il2cpp_gen_exe.exe"
 if (-not (Test-Path $rtExe)) { throw "runtime exe missing: $rtExe" }
-$act = Invoke-RawRun $rtExe $TimeoutMs
+$act = Invoke-RawRun $rtExe $TimeoutMs $AppArgs
 
 # Keep raw output as evidence: abort/crash conclusions must be traceable to the original stdout/stderr (byte-level).
 [System.IO.File]::WriteAllBytes("$ReportDir/$Case.$Compiler.oracle.out.bin", $exp.Out)

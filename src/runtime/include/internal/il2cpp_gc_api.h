@@ -113,6 +113,13 @@ void icall_gc_set_loh_compaction_mode(int32_t mode);
 // (a single shared heap, no per-CPU heaps).
 int32_t icall_gc_is_server_gc();
 
+// nb1 GC-LEAK: GC.AddMemoryPressure(long) / GC.RemoveMemoryPressure(long) --
+// net48 CLR memory-pressure counters. The simplified collector has no
+// pressure-based collection trigger, so both are no-op (the count is
+// accepted and ignored); the managed surface never observes them.
+void icall_gc_add_memory_pressure(int64_t bytesAllocated);
+void icall_gc_remove_memory_pressure(int64_t bytesAllocated);
+
 // P6: GCFrameRegistration internal helpers (stubs).
 void icall_gc_register_for_gc_reporting();
 void icall_gc_unregister_for_gc_reporting();

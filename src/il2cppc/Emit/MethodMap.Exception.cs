@@ -63,7 +63,55 @@ public static partial class MethodRefResolver
                 // the runtime icall that does both (nop + capture).
                 if (count == 1 && ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::icall_exception_ctor_message", 1, false, false, true, new[] { "", "s" });
+                // nb1 EXC-CHAIN (p-nb-exc RED fix): System.Exception::.ctor
+                // (string, Exception) -- capture BOTH the message and the
+                // INNER OBJECT into the runtime side table (previously the
+                // 2-arg ctor folded to nothing and the message was silently
+                // lost -- the exploration p-nextbatch diff [exc.list.msg]
+                // expected=outer actual=). The 2-arg ps: string (0x0E) +
+                // Exception CLASS (0x12). The inner arg passes through "".
+                if (count == 2 && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_exception_ctor_message_inner", 2, false, false, true, new[] { "", "s", "" });
                 return null;
+            // nb1 EXC-CHAIN: get_InnerException on a CONSTRUCTED-exception
+            // receiver (tracked as "System.Exception") -- read the inner
+            // object from the side table (null when the chain has none).
+            // ReturnTypeName "System.Exception" keeps downstream
+            // get_Message/GetBaseException folds resolving on the returned
+            // object. The catch-variable carrier ("System.Type") has no
+            // inner model -- best-effort null (the honest answer).
+            case "get_InnerException":
+                if (receiverType == "System.Exception")
+                    return I("il2cpp::runtime::icall_exception_get_inner_exception", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Exception");
+                if (receiverType == "System.Type")
+                    return I("il2cpp::runtime::icall_exception_get_null_ref", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Exception");
+                return null;
+            // nb1 EXC-CHAIN: GetBaseException() -- the root of the inner
+            // chain (the receiver itself when it has no inner; net48
+            // semantics). Same receiver-shape handling as get_InnerException.
+            case "GetBaseException":
+                if (receiverType == "System.Exception")
+                    return I("il2cpp::runtime::icall_exception_get_base_exception", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Exception");
+                if (receiverType == "System.Type")
+                    return I("il2cpp::runtime::icall_exception_get_null_ref", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Exception");
+                return null;
+            // nb1 EXC-CHAIN: constant-null property surface (net48 returns
+            // null for a constructed, never-thrown exception). Source /
+            // HelpLink / StackTrace are strings; TargetSite is a MethodBase
+            // (still null). The receiver passes through "" (dropped by the
+            // runtime icall -- icall_exception_get_null_ref).
+            case "get_Source":
+            case "get_HelpLink":
+            case "get_StackTrace":
+                return I("il2cpp::runtime::icall_exception_get_null_ref", 0, true, true, true,
+                    new[] { "" }, returnTypeName: "System.String");
+            case "get_TargetSite":
+                return I("il2cpp::runtime::icall_exception_get_null_ref", 0, true, true, true,
+                    new[] { "" }, returnTypeName: "System.Reflection.MethodBase");
             case "ToString":
                 // Exception.ToString() on the carrier cannot render; fall
                 // through to the vtable path (loud downstream failure).

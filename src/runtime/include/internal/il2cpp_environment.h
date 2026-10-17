@@ -141,11 +141,16 @@ Il2CppObject* icall_environment_get_os_version();
 // System.Version runtime surface.
 Il2CppObject* icall_environment_get_version();
 
-// Environment.GetFolderPath(int32 folderId) -> string, simplified. Only
-// Desktop (0), MyDocuments (5) and LocalApplicationData (28) resolve (via
-// the shell known-folder API on Windows -- SHGetFolderPathW, OneDrive-redirected
-// paths matching net48 byte-for-byte -- and environment variables on POSIX);
-// every other id yields an empty string (never null).
+// Environment.GetFolderPath(int32 folderId) -> string. EXTENDED (nb1
+// ENV-SPOT): EVERY net48 SpecialFolder id resolves through the shell
+// known-folder API on Windows (SHGetFolderPathW -- the CSIDL value IS the
+// enum id for every SpecialFolder member, so the raw id passes straight
+// through: Desktop=0, MyDocuments=5, LocalApplicationData=28, Windows=36,
+// ApplicationData=26, CommonApplicationData=35, ... byte-exact vs net48,
+// OneDrive-redirected paths included). A failed lookup falls back to the
+// simplified env-var mapping below (Desktop/MyDocuments/Windows/
+// LocalApplicationData); POSIX keeps the env-var mapping; an unroutable id
+// yields an empty string (never null).
 Il2CppObject* icall_environment_get_special_folder(int32_t folder_id);
 
 // Environment.CommandLine -> string. Windows: the full process command
@@ -157,5 +162,53 @@ Il2CppObject* icall_environment_get_special_folder(int32_t folder_id);
 // (macOS/OpenBSD): STUB -- the runtime has no argv injection point, so the
 // command line is unknown and an empty string is returned.
 Il2CppObject* icall_environment_get_command_line();
+
+// Environment.GetCommandLineArgs() -> a managed System.String[] with the
+// process command-line ARGUMENTS. net48 semantics (nb1 ENV-SPOT,
+// probe-pinned oracle [env.cla.count]=4 with the harness passing
+// "argA argB -x=42"): element 0 is the EXECUTABLE PATH and each following
+// element one argument exactly as the OS supplied it; an EMPTY argument is
+// PRESERVED as an empty string. Windows: CommandLineToArgvW(GetCommandLineW)
+// is the .NET-same tokenizer (the net48 engine); Linux/Android: the
+// /proc/self/cmdline NUL-split argv. macOS/OpenBSD: STUB -- an empty array
+// (no argv injection point).
+Il2CppObject* icall_environment_get_command_line_args();
+
+// Environment.GetLogicalDrives() -> a managed System.String[] of the root
+// directory names ("C:\", "D:\", ...) -- one per present logical drive,
+// in ascending drive-letter order (net48 semantics; oracle pinned
+// C:..G: = 5 on this host). Windows: GetLogicalDrives() bitmask.
+// POSIX: an empty array (the concept does not exist).
+Il2CppObject* icall_environment_get_logical_drives();
+
+// Environment.ExpandEnvironmentVariables(string) -> string. .NET semantics
+// (nb1 ENV-SPOT, oracle pinned): a NAME that is MISSING -- or whose value
+// is EMPTY (the empty-set/deleted state reads as null) -- is preserved
+// VERBATIM as %NAME%; a name with a non-empty value expands to that value.
+// This is NOT plain ExpandEnvironmentStringsW (which would leave a
+// set-but-empty variable expanded to ""); the .NET tokenizer checks each
+// %NAME% pair, resolves it, and only substitutes when the value is
+// non-empty. A null input throws ArgumentNullException (net48).
+Il2CppObject* icall_environment_expand_environment_variables(Il2CppObject* name);
+
+// Environment.SystemDirectory -> string (Windows). The Windows system
+// directory (GetSystemDirectoryA: "C:\Windows\system32"), non-empty on a
+// Windows host (net48 oracle shape probe). POSIX: empty string (the
+// concept does not exist).
+Il2CppObject* icall_environment_get_system_directory();
+
+// Environment.UserDomainName -> string. The user's domain / workstation
+// name (Windows: the USERDOMAIN environment variable -- the domain the
+// current user belongs to, non-empty on a domain/machine account; POSIX:
+// the hostname). net48 oracle shape probe (non-empty only).
+Il2CppObject* icall_environment_get_user_domain_name();
+
+// Environment.UserInteractive -> bool (int32 0/1). net48 semantics: true
+// when the process runs in an INTERACTIVE window station/session. The
+// simplified runtime answers true on every supported platform -- the
+// transpiled console program always runs attached to an interactive
+// console session on the supported hosts (the net48 oracle on the same
+// host answers true; oracle probe pins [env.ui]=True).
+int32_t icall_environment_get_user_interactive();
 
 }} // namespace il2cpp::runtime

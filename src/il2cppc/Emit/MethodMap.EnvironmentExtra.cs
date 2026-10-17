@@ -55,6 +55,12 @@ public static partial class MethodRefResolver
             //   * get_Version is now REACHABLE: the base file no longer wires
             //     it to the int32_t stubs.h symbol (Version-object shape
             //     mismatch -- needs-new-icall).
+            // nb1 ENV-SPOT (2026-10-17): GetCommandLineArgs / GetLogicalDrives
+            // / ExpandEnvironmentVariables / get_SystemDirectory /
+            // get_UserDomainName / get_UserInteractive are now WIRED in the
+            // base file (new environment.cpp icalls); their LOUD-gate cases
+            // were REMOVED from the set below. get_StackTrace (Environment.
+            // StackTrace) stays gated here.
             // net9/10 E2E campaign: the 64-bit probes now have runtime
             // icalls (stubs.cpp) -- wired BEFORE the LOUD gate. NOTE: these
             // two arms MUST precede the fall-through chain -- a return
@@ -77,19 +83,13 @@ public static partial class MethodRefResolver
             // base-file overloads land here; BclResolve prefixes
             // "{owner}::{name}").
             case "FailFast":
-            case "ExpandEnvironmentVariables":
             case "GetEnvironmentVariable":
             case "GetEnvironmentVariables":
             case "GetFolderPath":
-            case "GetLogicalDrives":
-            case "GetCommandLineArgs":
             case "SetEnvironmentVariable":
-            case "get_UserDomainName":
             case "get_Version":
             case "get_HasShutdownStarted":
             case "get_StackTrace":
-            case "get_SystemDirectory":
-            case "get_UserInteractive":
                 throw new NotSupportedException(
                     $"System.Environment.{name} not wired: the runtime has no matching icall in il2cpp_environment.h");
             default: return null;

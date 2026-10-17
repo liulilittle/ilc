@@ -26,7 +26,26 @@ public static partial class MethodRefResolver
                 // ignored -- documented deviation). The fold still pops all
                 // ParamCount slots.
                 if (count == 2) return I("il2cpp::runtime::icall_gc_collect", 2, false, false, false, new[] { "drop", "drop" });
-                throw new NotSupportedException("GC.Collect(int) not wired: the runtime has only the parameterless icall");
+                // nb1 GC-LEAK: Collect(int generation, GCCollectionMode mode,
+                // bool blocking) -- net48 3-arg form. Same drop-arm (the
+                // runtime still has only the parameterless full-collection
+                // icall; the bool blocking flag is ignored -- the runtime's
+                // collection is always synchronous/blocking, so dropping it
+                // is observable-exact). netcore's 4-arg (..., bool,
+                // bool compacting) rides the same drop shape.
+                if (count == 3) return I("il2cpp::runtime::icall_gc_collect", 3, false, false, false, new[] { "drop", "drop", "drop" });
+                if (count == 4) return I("il2cpp::runtime::icall_gc_collect", 4, false, false, false, new[] { "drop", "drop", "drop", "drop" });
+                throw new NotSupportedException($"GC.Collect with {count} argument(s) not wired: the runtime has only the parameterless icall");
+            // nb1 GC-LEAK: AddMemoryPressure(long) / RemoveMemoryPressure(long)
+            // -- net48 CLR memory-pressure counters. The simplified collector
+            // has no pressure-based collection trigger, so the icalls are
+            // no-ops that still validate the argument shape (a long count,
+            // accepted and dropped). The net48 oracle surface: both return
+            // void and never throw for a valid positive count.
+            case "AddMemoryPressure":
+                return I("il2cpp::runtime::icall_gc_add_memory_pressure", 1, false, false, false, new[] { "l" });
+            case "RemoveMemoryPressure":
+                return I("il2cpp::runtime::icall_gc_remove_memory_pressure", 1, false, false, false, new[] { "l" });
             case "GetTotalMemory":
                 return I("il2cpp::runtime::icall_gc_get_total_memory", 1, true, false, false, new[] { "drop" }, "l");
             case "GetGeneration": return I("il2cpp::runtime::icall_gc_get_generation", 1, true, false, false);

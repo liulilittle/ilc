@@ -38,6 +38,7 @@
 #include "il2cpp_environment.h"
 
 #include "il2cpp_string.h"
+#include "il2cpp_array.h" // il2cpp_array_new / il2cpp_array_get_elem_ptr (GetCommandLineArgs/GetLogicalDrives)
 
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception (D-ENV-4)
 #include "il2cpp_pinvoke_ext.h"   // il2cpp_pinvoke_string_to_utf8_alloc (P6 FailFast)
@@ -216,13 +217,36 @@ Il2CppObject* Utf8ToCs(const char* data, size_t length)
 // Environment-variable helpers.
 //------------------------------------------------------------------------------
 
-// The process environment value of 'name' ("" when unset) -- std::getenv is
-// available on every supported platform, including Windows (it reads the
-// process environment block).
+// The process environment value of 'name' ("" when unset or set-but-empty).
+// Windows: the OS GetEnvironmentVariableA path -- the SAME source the
+// icall_environment_set_environment_variable writes through (std::getenv
+// reads the CRT's own copy, NOT the OS process block, so a variable set via
+// icall_environment_set_environment_variable would be invisible to it).
+// This mirrors the net48 read contract: an EMPTY value reads as null (the
+// expand decision preserves %NAME% for both missing and empty).
 std::string GetEnvValue(const char* name)
 {
+#if defined(_WIN32)
+    const DWORD required = ::GetEnvironmentVariableA(name, nullptr, 0);
+    if (required == 0)
+    {
+        return std::string(); // not found (net48: null read)
+    }
+    std::vector<char> buffer(required);
+    const DWORD got = ::GetEnvironmentVariableA(name, buffer.data(), required);
+    if (got == 0 || got >= required)
+    {
+        return std::string(); // empty / race -> null read
+    }
+    return std::string(buffer.data(), std::strlen(buffer.data()));
+#else
     const char* value = std::getenv(name);
-    return (value != nullptr) ? std::string(value) : std::string();
+    if (value == nullptr || value[0] == '\0')
+    {
+        return std::string(); // net48 empty-reads-null semantics
+    }
+    return std::string(value);
+#endif
 }
 
 // Set or delete a process environment variable (UTF-8 bytes). 'deleteVar'
@@ -269,6 +293,66 @@ const char* DirSep()
 // thereafter). The process-exit integration (Environment.Exit) belongs to
 // the runtime main, not this property icall.
 int32_t g_exit_code = 0;
+
+//------------------------------------------------------------------------------
+// Managed System.String[] construction (nb1 ENV-SPOT, the io.cpp
+// ReadAllLines precedent -- il2cpp_array_new with the string element class,
+// sizeof(void*) stride, isRefElement=true; each slot is written as an
+// Il2CppObject*).
+//------------------------------------------------------------------------------
+Il2CppObject* NewStringArray(const std::vector<std::string>& values)
+{
+    Il2CppArray* arr = il2cpp::il2cpp_array_new(
+        il2cpp::il2cpp_string_class(),
+        static_cast<int32_t>(sizeof(void*)),
+        true,
+        static_cast<int32_t>(values.size()));
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+        Il2CppObject* s = Utf8ToCs(values[i].data(), values[i].size());
+        *reinterpret_cast<Il2CppObject**>(
+            il2cpp::il2cpp_array_get_elem_ptr(arr, static_cast<int32_t>(i)))
+            = s;
+    }
+    return reinterpret_cast<Il2CppObject*>(arr);
+}
+
+#if defined(_WIN32)
+// CommandLineToArgvW (shell32) -- the .NET-same command-line tokenizer for
+// GetCommandLineArgs. Loaded dynamically (no import-library dependency, the
+// SHGetFolderPathW precedent); returns a null-terminated array of UTF-16
+// argument strings with the count in argvCount. Caller frees with
+// LocalFree. The exe path is argv[0] -- net48 keeps it as element 0.
+std::vector<std::wstring> CommandLineToArgv()
+{
+    const wchar_t* raw = ::GetCommandLineW();
+    typedef LPWSTR* (WINAPI* CommandLineToArgvWFn)(LPCWSTR, int*);
+    const HMODULE shell32 = ::LoadLibraryA("shell32.dll");
+    if (shell32 != nullptr)
+    {
+        const CommandLineToArgvWFn toArgv =
+            reinterpret_cast<CommandLineToArgvWFn>(reinterpret_cast<void*>(
+                ::GetProcAddress(shell32, "CommandLineToArgvW")));
+        int argc = 0;
+        LPWSTR* argv = (toArgv != nullptr) ? toArgv(raw, &argc) : nullptr;
+        if (argv != nullptr)
+        {
+            std::vector<std::wstring> result;
+            result.reserve(static_cast<size_t>(argc));
+            for (int i = 0; i < argc; ++i)
+            {
+                result.push_back(std::wstring(argv[i]));
+            }
+            ::LocalFree(argv);
+            ::FreeLibrary(shell32);
+            return result;
+        }
+        ::FreeLibrary(shell32);
+    }
+    // Fallback: the raw command line as a single argv[0] (no args).
+    return { std::wstring(raw != nullptr ? raw : L"") };
+}
+#endif
 
 } // namespace
 
@@ -693,15 +777,17 @@ Il2CppObject* icall_environment_get_special_folder(int32_t folder_id)
     // resolves the REAL known-folder path via the shell known-folder API
     // (SHGetFolderPath) -- OneDrive-redirected Desktop/MyDocuments, the
     // actual LocalApplicationData -- NOT a home-directory guess. The
-    // SpecialFolder enum values ARE the CSIDL values for the four supported
-    // ids (Desktop=0, MyDocuments=5, Windows=36, LocalApplicationData=28),
-    // so the id is passed directly as the CSIDL. SHGetFolderPathW is loaded dynamically
+    // SpecialFolder enum values ARE the CSIDL values, so the id is passed
+    // directly as the CSIDL. nb1 ENV-SPOT extension: EVERY net48
+    // SpecialFolder id resolves (the CSIDL equals the enum id for the
+    // whole net48 SpecialFolder set -- Desktop=0, MyDocuments=5,
+    // ApplicationData=26, LocalApplicationData=28, CommonApplicationData=35,
+    // Windows=36, ...). SHGetFolderPathW is loaded dynamically
     // from shell32 (no import-library dependency, the same pattern as the
     // ntdll RtlGetVersion loading the earlier code used); the wide result
     // bridges directly into the managed string (same UTF-16 code units net48
     // holds -- no encoding round trip). A failure falls back to the
     // simplified env-var mapping below.
-    if (folder_id == 0 || folder_id == 5 || folder_id == 36 || folder_id == 28)
     {
         typedef HRESULT(WINAPI* SHGetFolderPathFn)(HWND, int, HANDLE, DWORD, LPWSTR);
         // shell32.dll may not be loaded in a console process -- LoadLibrary
@@ -718,9 +804,11 @@ Il2CppObject* icall_environment_get_special_folder(int32_t folder_id)
                 const HRESULT hr = shGetFolderPath(nullptr, folder_id, nullptr, 0, buffer);
                 if (hr == 0 && buffer[0] != L'\0') // S_OK with a non-empty path
                 {
-                    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
+                    Il2CppObject* result = reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
                         reinterpret_cast<const char16_t*>(buffer),
                         static_cast<int32_t>(std::wcslen(buffer))));
+                    ::FreeLibrary(shell32);
+                    return result;
                 }
             }
             ::FreeLibrary(shell32);
@@ -862,6 +950,196 @@ Il2CppObject* icall_environment_get_command_line()
     // unknown; return "" (see il2cpp_environment.h).
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0));
 #endif
+}
+
+//------------------------------------------------------------------------------
+// nb1 ENV-SPOT: Environment.GetCommandLineArgs().
+// net48 semantics (oracle pinned): element 0 = the executable path, then one
+// element per OS-supplied argument, with EMPTY arguments preserved as empty
+// strings. Windows uses CommandLineToArgvW(GetCommandLineW) -- the exact
+// .NET engine -- so byte-exactness holds for quoting/empty-arg edge cases.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_environment_get_command_line_args()
+{
+#if defined(_WIN32)
+    const std::vector<std::wstring> args = CommandLineToArgv();
+    std::vector<std::string> utf8;
+    utf8.reserve(args.size());
+    for (const auto& a : args)
+    {
+        // Bridge UTF-16 -> UTF-8 with a BOM-free lossless conversion. The
+        // ASCII probe arguments are exact; non-ASCII is best-effort (the
+        // CsToUtf8/Utf8ToCs convention -- see the file header).
+        Il2CppObject* s = reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
+            reinterpret_cast<const char16_t*>(a.data()),
+            static_cast<int32_t>(a.size())));
+        utf8.push_back(CsToUtf8(s));
+    }
+    return NewStringArray(utf8);
+#elif defined(__linux__) || defined(__ANDROID__)
+    // /proc/self/cmdline: argv[0] (= exe path) + arguments, NUL-separated.
+    std::vector<std::string> args;
+    std::string raw;
+    {
+        FILE* f = std::fopen("/proc/self/cmdline", "rb");
+        if (f != nullptr)
+        {
+            char buf[512];
+            for (size_t n = std::fread(buf, 1, sizeof(buf), f); n > 0;
+                 n = std::fread(buf, 1, sizeof(buf), f))
+            {
+                raw.append(buf, n);
+            }
+            std::fclose(f);
+        }
+    }
+    size_t start = 0;
+    for (size_t i = 0; i <= raw.size(); ++i)
+    {
+        if (i == raw.size() || raw[i] == '\0')
+        {
+            if (i > start)
+            {
+                args.push_back(raw.substr(start, i - start));
+            }
+            start = i + 1;
+        }
+    }
+    return NewStringArray(args);
+#else
+    // STUB (macOS/OpenBSD): no argv injection point -> empty array.
+    return NewStringArray(std::vector<std::string>());
+#endif
+}
+
+//------------------------------------------------------------------------------
+// nb1 ENV-SPOT: Environment.GetLogicalDrives().
+// net48 semantics (oracle pinned C:..G: = 5): a System.String[] of the root
+// directory names ("C:\", "D:\", ...) for every PRESENT drive, ascending
+// letter order. Windows: the GetLogicalDrives() DWORD bitmask (bit 0 = "A:\").
+//------------------------------------------------------------------------------
+Il2CppObject* icall_environment_get_logical_drives()
+{
+#if defined(_WIN32)
+    std::vector<std::string> drives;
+    const DWORD mask = ::GetLogicalDrives();
+    for (DWORD i = 0; i < 26; ++i)
+    {
+        if ((mask & (1u << i)) != 0)
+        {
+            std::string root;
+            root.push_back(static_cast<char>('A' + i));
+            root += ":\\";
+            drives.push_back(root);
+        }
+    }
+    return NewStringArray(drives);
+#else
+    // POSIX has no drive letters; net48 returns an empty array.
+    return NewStringArray(std::vector<std::string>());
+#endif
+}
+
+//------------------------------------------------------------------------------
+// nb1 ENV-SPOT: Environment.ExpandEnvironmentVariables(string).
+// .NET semantics (oracle pinned): scan for %NAME% pairs and substitute the
+// variable's value ONLY when it is non-empty; a MISSING or EMPTY-valued
+// variable keeps its %NAME% token VERBATIM. Note this is NOT
+// ExpandEnvironmentStringsW: the empty-value case (a variable set to
+// nothing, which net48 reads as null) must remain %NAME%. A null name
+// throws ArgumentNullException (net48) -- the D-ENV-4 precedent.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_environment_expand_environment_variables(Il2CppObject* name)
+{
+    if (name == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+        return nullptr; // unreachable
+    }
+    const std::string n = CsToUtf8(name);
+    std::string out;
+    out.reserve(n.size());
+    const size_t len = n.size();
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (n[i] == '%')
+        {
+            // Find the closing '%'.
+            size_t close = n.find('%', i + 1);
+            if (close != std::string::npos)
+            {
+                const std::string varName = n.substr(i + 1, close - i - 1);
+                // .NET semantics: expand ONLY when the value is non-empty.
+                // The net48 GetEnvironmentVariable contract (il2cpp_environment.h)
+                // reads a set-but-empty variable as null -- mirror it here so
+                // the preserved-vs-expanded decision is exactly net48's.
+                const std::string value = GetEnvValue(varName.c_str());
+                if (!value.empty() && !varName.empty())
+                {
+                    out += value;
+                    i = close; // consume through '%'; the ++i advances past it
+                    continue;
+                }
+            }
+        }
+        out.push_back(n[i]);
+    }
+    return Utf8ToCs(out.data(), out.size());
+}
+
+//------------------------------------------------------------------------------
+// nb1 ENV-SPOT: Environment.SystemDirectory / UserDomainName / UserInteractive.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_environment_get_system_directory()
+{
+#if defined(_WIN32)
+    char buffer[512];
+    const UINT n = ::GetSystemDirectoryA(buffer, sizeof(buffer));
+    if (n == 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0));
+    }
+    return Utf8ToCs(buffer, std::strlen(buffer));
+#else
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0));
+#endif
+}
+
+Il2CppObject* icall_environment_get_user_domain_name()
+{
+#if defined(_WIN32)
+    // The USERDOMAIN environment variable is the machine/domain the current
+    // user account belongs to (net48 reads the same source in the common
+    // local-account case; the oracle probe is a shape probe: non-empty).
+    const std::string value = GetEnvValue("USERDOMAIN");
+    if (!value.empty())
+    {
+        return Utf8ToCs(value.data(), value.size());
+    }
+    const std::string computer = GetEnvValue("COMPUTERNAME");
+    if (!computer.empty())
+    {
+        return Utf8ToCs(computer.data(), computer.size());
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0));
+#else
+    // POSIX: the hostname is the closest analog (non-empty shape probe).
+    char buffer[256];
+    if (::gethostname(buffer, sizeof(buffer)) != 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(nullptr, 0));
+    }
+    buffer[sizeof(buffer) - 1] = '\0';
+    return Utf8ToCs(buffer, std::strlen(buffer));
+#endif
+}
+
+int32_t icall_environment_get_user_interactive()
+{
+    // The transpiled console program always runs attached to an interactive
+    // console/session on the supported hosts (see the header contract); the
+    // net48 oracle on the same host answers true ([env.ui]=True).
+    return 1;
 }
 
 }} // namespace il2cpp::runtime

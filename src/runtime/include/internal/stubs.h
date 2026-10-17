@@ -23,6 +23,21 @@ int32_t icall_exception_get_exception_count();
 // the catch-variable carrier path is untouched).
 void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message);
 Il2CppString* icall_exception_get_message(Il2CppObject* obj);
+// nb1 EXC-CHAIN: the 2-arg System.Exception::.ctor(string, Exception)
+// captures BOTH the message and the INNER EXCEPTION OBJECT into the side
+// table (the 1-arg ctor above routes here with a null inner). get_Inner
+// Exception reads the inner back (null when the entry has none);
+// get_base_exception walks the inner chain to its ROOT and returns the
+// receiver ITSELF when there is no inner (net48 GetBaseException
+// semantics).
+void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* message, Il2CppObject* inner);
+Il2CppObject* icall_exception_get_inner_exception(Il2CppObject* obj);
+Il2CppObject* icall_exception_get_base_exception(Il2CppObject* obj);
+// nb1 EXC-CHAIN: the constant-null arms for the property surface that has
+// no constructed state in the carrier (get_Source / get_HelpLink /
+// get_TargetSite / get_StackTrace on a never-thrown constructed exception
+// -- net48 returns null; oracle pins all null).
+Il2CppObject* icall_exception_get_null_ref(Il2CppObject* self);
 Il2CppObject* icall_type_get_type_from_handle_unsafe(intptr_t handle);
 int64_t icall_jit_info_get_compiled_il_bytes();
 int64_t icall_jit_info_get_compiled_method_count();

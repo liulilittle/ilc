@@ -342,6 +342,95 @@ bool icall_timer_change(Il2CppObject* self, int32_t dueTimeMs, int32_t periodMs)
     return true;
 }
 
+//------------------------------------------------------------------------------
+// nb1 TIM-OVL: the long/uint/TimeSpan overloads.
+//
+// The int32 icalls above validate dueTimeMs/periodMs in the [-1, +inf)
+// int32 range; the 64-bit overloads below extend the range-validation to the
+// net48 long/uint contract (valid [-1, INT32_MAX] -- the .NET argument is
+// milliseconds) BEFORE truncating to the int32 arming path. The TimeSpan
+// overloads divide raw ticks by TicksPerMillisecond (10000) -- net48's
+// TimeSpan.TotalMilliseconds truncation -- then ride the same validation.
+//------------------------------------------------------------------------------
+namespace {
+
+// net48 long/uint validation: dueTimeMs must be Timeout.Infinite (-1) or a
+// NON-NEGATIVE value <= INT32_MAX (ms). The uint overload's UInt32.MaxValue
+// travels as the int64 -1 bit pattern (the transpiler's uint carrier) and
+// hits the -1 arm.  Throws ArgumentOutOfRangeException otherwise (net48).
+int32_t ClampToMs(int64_t valueMs, const char* paramName)
+{
+    if (valueMs < -1 || valueMs > INT32_MAX)
+    {
+        il2cpp_throw_argument_out_of_range_exception(paramName, nullptr);
+    }
+    return static_cast<int32_t>(valueMs);
+}
+
+// TimeSpan -> ms: raw ticks / TicksPerMillisecond (net48
+// TimeSpan.TotalMilliseconds truncation toward zero for the positive
+// arming values; the -1ms Timeout.Forfeit tick value -10000 divides to -1).
+int64_t TsTicksToMs(int64_t ticks)
+{
+    return ticks / 10000;
+}
+
+} // namespace
+
+void icall_timer_ctor_64(Il2CppObject* self, Il2CppObject* callback, Il2CppObject* state,
+                         int64_t dueTimeMs, int64_t periodMs)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    void* fn = icall_delegate_get_fn_ptr(callback);
+    auto* handle = il2cpp_timer_create(reinterpret_cast<il2cpp_timer_callback>(fn), state,
+                                       ClampToMs(dueTimeMs, "dueTime"),
+                                       ClampToMs(periodMs, "period"));
+    if (handle == nullptr)
+    {
+        il2cpp::il2cpp_throw_invalid_operation_exception("Timer thread creation failed.");
+    }
+    void** slot = reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(self) + sizeof(Il2CppObject));
+    *slot = handle;
+}
+
+bool icall_timer_change_64(Il2CppObject* self, int64_t dueTimeMs, int64_t periodMs)
+{
+    il2cpp_timer_change(TimerHandle(self),
+                        ClampToMs(dueTimeMs, "dueTime"),
+                        ClampToMs(periodMs, "period"));
+    return true;
+}
+
+void icall_timer_ctor_ts(Il2CppObject* self, Il2CppObject* callback, Il2CppObject* state,
+                         int64_t dueTicks, int64_t periodTicks)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    void* fn = icall_delegate_get_fn_ptr(callback);
+    auto* handle = il2cpp_timer_create(reinterpret_cast<il2cpp_timer_callback>(fn), state,
+                                       ClampToMs(TsTicksToMs(dueTicks), "dueTime"),
+                                       ClampToMs(TsTicksToMs(periodTicks), "period"));
+    if (handle == nullptr)
+    {
+        il2cpp::il2cpp_throw_invalid_operation_exception("Timer thread creation failed.");
+    }
+    void** slot = reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(self) + sizeof(Il2CppObject));
+    *slot = handle;
+}
+
+bool icall_timer_change_ts(Il2CppObject* self, int64_t dueTicks, int64_t periodTicks)
+{
+    il2cpp_timer_change(TimerHandle(self),
+                        ClampToMs(TsTicksToMs(dueTicks), "dueTime"),
+                        ClampToMs(TsTicksToMs(periodTicks), "period"));
+    return true;
+}
+
 // Timer.Dispose() -- stops the timer and joins its thread.
 void icall_timer_dispose(Il2CppObject* self)
 {
