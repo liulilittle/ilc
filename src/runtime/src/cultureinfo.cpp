@@ -177,6 +177,7 @@ const char* const kCanonicalCultures[][2] = {
     {"el-GR", "el-GR"}, {"hu", "hu"},       {"hu-HU", "hu-HU"}, {"da", "da"},
     {"da-DK", "da-DK"}, {"fi", "fi"},       {"fi-FI", "fi-FI"}, {"sv", "sv"},
     {"sv-SE", "sv-SE"}, {"he", "he"},       {"he-IL", "he-IL"}, {"id", "id"},
+    {"iw", "iw"},       {"iw-IL", "iw-IL"}, // D3 (nb3): the legacy Hebrew culture
     {"id-ID", "id-ID"}, {"nb", "nb"},       {"nb-NO", "nb-NO"}, {"nn", "nn"},
     {"nn-NO", "nn-NO"}, {"no", "nb"},
 };
@@ -185,8 +186,11 @@ const char* const kCanonicalCultures[][2] = {
 // language, with the legacy registry pins (.NET maps the alias/legacy
 // primary codes to their ISO code; probe-pinned:
 // GetCultureInfo("no-Such-XX-yy").TwoLetterISOLanguageName == "nb").
+// NOTE (D3 fix, nb3): "iw" -> "he" is NOT a pin -- net48 keeps the iw-*
+// cultures' two-letter code as "iw" (probe-pinned [d3.iw.2l]); the old pin
+// diverged from net48.
 const char* const kLegacyTwoLetterPins[][2] = {
-    {"no", "nb"}, {"iw", "he"}, {"in", "id"}, {"ji", "yi"},
+    {"no", "nb"}, {"in", "id"}, {"ji", "yi"},
 };
 
 char AsciiLower(char c)

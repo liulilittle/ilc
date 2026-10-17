@@ -30,6 +30,12 @@ namespace Il2Cpp.Transpiler.Emit;
 //                                  (static, PID result, tracked type Process)
 //   get_Id                      -> "::identity::" (the receiver IS the pid:
 //                                  .Id of a process value is the pid itself)
+//   get_ProcessName             -> il2cpp_process_get_name (instance; the
+//                                  receiver PID slot is cast "i"; the file
+//                                  stem without ".exe" -- nb3 PROC-GAP)
+//   HasExited                   -> il2cpp_process_has_exited (instance;
+//                                  non-blocking PID state probe -- nb3)
+//   Kill                        -> il2cpp_process_kill (instance; nb3)
 //   ReadToEnd on a Process receiver (owner System.IO.StreamReader --
 //   ReadToEnd is inherited from TextReader, so the callvirt OWNER is not
 //   Process; the receiver-type hint "System.Diagnostics.Process" recorded
@@ -111,6 +117,26 @@ public static partial class MethodRefResolver
                         // StackFold) -- the runtime has no StreamReader
                         // object; stdout is read back by PID.
                         return I(ResolvedMethod.IdentityMarker, 0, true, false, true);
+                    return null;
+                // nb3 PROC-GAP: ProcessName / HasExited / Kill -- all three
+                // were unwired (get_ProcessName / HasExited / Kill folded to
+                // phantom generated-name calls). They take the receiver PID
+                // slot (cast "i"); get_ProcessName returns the managed stem
+                // string, HasExited a bool, Kill is void.
+                case "get_ProcessName":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_get_name", 0, true, true, true,
+                            new[] { "i" }, returnTypeName: "System.String");
+                    return null;
+                case "get_HasExited":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_has_exited", 0, true, false, true,
+                            new[] { "i" });
+                    return null;
+                case "Kill":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_kill", 0, false, false, true,
+                            new[] { "i" });
                     return null;
                 case "get_StandardInput":
                     throw new NotSupportedException("Process.StandardInput not wired: pathproc redirects stdout/stderr to a capture file only (pathproc.cpp STARTF_USESTDHANDLES) -- stdin is inherited or NUL, never redirected (construction order)");

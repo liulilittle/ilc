@@ -297,13 +297,53 @@ public class MethodMapProcessTests
     [Fact]
     public void Resolve_Process_Kill_FallsThroughToGeneratedName()
     {
-        // Unlisted member -> generated-name path; header 0x20 (HAS_THIS)
-        // models the real instance MemberRef (work order #44 classification).
+        // nb3 PROC-GAP: Kill is now WIRED to il2cpp_process_kill (previously
+        // unlisted -> the generated-name path; this test now pins the wired
+        // arm -- the old fall-through behavior is retired).
         var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "Kill",
             new byte[] { 0x20, 0x00, 0x01 }), "Kill");
 
-        Assert.StartsWith("System_Diagnostics_Process_Kill_", m.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_process_kill", m.CppName);
         Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(new[] { "i" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // nb3 PROC-GAP: ProcessName / HasExited -- the PID-domain closures on the
+    // instance value (receiver cast "i"; get_ProcessName returns the managed
+    // file stem, HasExited a bool).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Process_ProcessName_MapsToNameIcall()
+    {
+        // string get_ProcessName(): instance, zero params, STRING return.
+        var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "get_ProcessName",
+            Sig(0x0E)), "get_ProcessName");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_process_get_name", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef); // the file stem is a managed string
+        Assert.Equal("System.String", m.ReturnTypeName);
+        Assert.Equal(new[] { "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Process_HasExited_MapsToExitedIcall()
+    {
+        // bool get_HasExited(): instance, zero params, BOOLEAN return.
+        var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "get_HasExited",
+            Sig(0x02)), "get_HasExited");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_process_has_exited", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.ReturnsRef);
+        Assert.Equal(new[] { "i" }, m.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

@@ -143,6 +143,28 @@ Il2CppObject* il2cpp_process_read_stdout_line(int32_t pid);
 int32_t il2cpp_process_get_current_process_id();
 int32_t il2cpp_process_get_current_thread_id();
 
+// Process.ProcessName(pid) (nb3 PROC-GAP): the FILE STEM of the process
+// image -- no directory, no ".exe" (net48 ProcessName semantics:
+// "cmd.exe" -> "cmd"). Non-null for a process that can be queried
+// (the tracked table handle is preferred, otherwise the PID is opened
+// directly -- the current process included); null when the PID cannot be
+// opened or on POSIX (unsupported).
+Il2CppObject* il2cpp_process_get_name(int32_t pid);
+
+// Process.HasExited(pid) (nb3 PROC-GAP): 1 when the process has terminated,
+// 0 while it is still running -- a NON-BLOCKING state probe
+// (WaitForSingleObject(handle, 0)); a tracked child whose wait_for_exit
+// completed is already known exited. 1 for an unopenable PID (M3: net48
+// would throw) and on POSIX (unsupported).
+int32_t il2cpp_process_has_exited(int32_t pid);
+
+// Process.Kill(pid) (nb3 PROC-GAP): terminates the process (TerminateProcess,
+// exit code 1). A tracked child's handle is folded into the waited state so
+// a later wait_for_exit / get_exit_code / has_exited stay consistent without
+// an explicit wait. 0 on success, non-zero for an unopenable PID (and on
+// POSIX, unsupported).
+int32_t il2cpp_process_kill(int32_t pid);
+
 // Process.Exit(code): terminates this process with the given exit code.
 // Never returns.
 [[noreturn]] void il2cpp_process_exit(int32_t code);

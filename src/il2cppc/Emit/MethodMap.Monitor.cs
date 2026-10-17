@@ -25,10 +25,11 @@ namespace Il2Cpp.Transpiler.Emit;
 //   block forever). Verified 2026-08-04 on a transpiled lock statement.
 //
 // Known-unwireable overloads throw NotSupportedException (LOUD):
-//   * Wait(obj) -- no way to inject Timeout.Infinite (-1) into the timeout
-//     parameter; use Wait(object, int).
+//   * (none in the Monitor domain since nb3 -- Wait(object) now maps to the
+//     1-arg infinite overload; see the Wait arm below).
 // (parity-T8: TryEnter(obj, timeout[, lockTaken]) and Wait(obj, TimeSpan) /
-// Wait(obj, timeout, exitContext) ride the landed monitor.h overloads.)
+// Wait(obj, timeout, exitContext) ride the landed monitor.h overloads;
+// nb3 SYNC-GAP: Wait(obj) rides il2cpp_monitor_wait(Il2CppObject*).)
 //
 // PulseAll maps to the same pulse icall: monitor.h documents the
 // SIMPLIFIED runtime semantics as "one Pulse wakes ALL waiters" -- i.e.
@@ -95,10 +96,17 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::runtime::il2cpp_monitor_pulse", 1, false, false, false, new[] { "" })
                     : null;
             case "Wait":
+                // nb3 SYNC-GAP: Wait(object) -- the single-arg form IS
+                // Timeout.Infinite (-1); the runtime overload
+                // il2cpp_monitor_wait(Il2CppObject*) (monitor.h) already
+                // delegates to wait(obj, -1), so the arm is a plain 1-param
+                // mapping (previously a LOUD NotSupportedException -- the
+                // "no way to inject -1" argument died when the 1-arg overload
+                // landed). probe-pinned: p-nb3-sync [sync.mw.single].
                 return ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x08
                     ? I("il2cpp::runtime::il2cpp_monitor_wait", 2, true, false, false, new[] { "", "i" })
                     : ps.Length == 1 && ps[0] == 0x1C
-                    ? throw new NotSupportedException("Wait(object) -- no way to inject Timeout.Infinite (-1) into the timeout parameter; use Wait(object, int)")
+                    ? I("il2cpp::runtime::il2cpp_monitor_wait", 1, true, false, false, new[] { "" })
                     : ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x11
                     // parity-T8: Wait(object, TimeSpan) -- the landed
                     // wait_timespan overload (monitor.h:143; A2). The TimeSpan

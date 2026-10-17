@@ -1235,7 +1235,9 @@ public static partial class MethodRefResolver
             case "System.Threading.HostExecutionContextManager": return TryMapThread(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.Semaphore":
             case "System.Threading.Mutex":
-            case "System.Threading.EventWaitHandle": return TryMapWaitHandle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Threading.EventWaitHandle":
+            case "System.Threading.AutoResetEvent":
+            case "System.Threading.ManualResetEvent": return TryMapWaitHandle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.WaitHandle":
                 // The MemberRef declares the inherited members (WaitOne) on
                 // the WaitHandle BASE. WaitOne is the SAME icall for all three

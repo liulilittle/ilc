@@ -587,6 +587,18 @@ Il2CppObject* il2cpp_path_get_directory_name(Il2CppObject* path)
     {
         return nullptr; // the root ("\\" / "\\\\") -> null
     }
+    // D2 (nb3): a DRIVE ROOT ("C:\" -- the trailing separator stripped so
+    // the remainder is the bare volume) and a BARE DRIVE ("C:") are both
+    // ROOTS: net48 returns null for them (probe-pinned [d2.root]/[d2.bare] --
+    // a root has no directory portion). The old code returned "C:" for the
+    // drive root and "" for the bare drive. "C:a" (a drive-relative path
+    // with content) is NOT a root and keeps the normal splitting below.
+    if (end == 2 && s->chars[1] == u':'
+        && ((s->chars[0] >= u'A' && s->chars[0] <= u'Z')
+            || (s->chars[0] >= u'a' && s->chars[0] <= u'z')))
+    {
+        return nullptr;
+    }
     if (skipped > 0)
     {
         return reinterpret_cast<Il2CppObject*>(
@@ -915,6 +927,129 @@ int32_t il2cpp_process_get_current_process_id()
     // OS process id -- delegated to the platform layer (GetCurrentProcessId
     // on Windows, getpid on POSIX).
     return plat_process_id();
+}
+
+//------------------------------------------------------------------------------
+// PROC-GAP (nb3): ProcessName / HasExited / Kill -- the PID-domain closures
+// over the tracked-child table + direct Win32 queries (the current process
+// pid is NOT in the table, so the PID is opened directly).
+//------------------------------------------------------------------------------
+
+Il2CppObject* il2cpp_process_get_name(int32_t pid)
+{
+#if defined(_WIN32)
+    // Prefer the tracked handle when the child is still alive (no extra
+    // open); the direct PID open covers the current process and every other
+    // queryable process. An opened handle is always closed by the caller.
+    HANDLE owned = nullptr;
+    const auto it = g_processes().find(pid);
+    HANDLE h = (it != g_processes().end() && it->second.process != nullptr)
+        ? it->second.process
+        : nullptr;
+    if (h == nullptr)
+    {
+        h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                          FALSE, static_cast<DWORD>(pid));
+        owned = h;
+    }
+    if (h == nullptr)
+    {
+        return nullptr; // unopenable PID (already exited, access denied)
+    }
+    wchar_t image[MAX_PATH];
+    DWORD size = MAX_PATH;
+    const BOOL ok = ::QueryFullProcessImageNameW(h, 0, image, &size);
+    if (owned != nullptr)
+    {
+        ::CloseHandle(owned);
+    }
+    if (!ok)
+    {
+        return nullptr;
+    }
+    const std::wstring path(image, image + static_cast<size_t>(size));
+    const size_t sep = path.find_last_of(L"\\/");
+    std::wstring name = (sep == std::wstring::npos) ? path : path.substr(sep + 1);
+    // net48 ProcessName has no extension: strip a case-insensitive ".exe".
+    if (name.size() >= 4)
+    {
+        const wchar_t* tail = name.data() + name.size() - 4;
+        if (tail[0] == L'.' && (tail[1] == L'e' || tail[1] == L'E')
+            && (tail[2] == L'x' || tail[2] == L'X')
+            && (tail[3] == L'e' || tail[3] == L'E'))
+        {
+            name.resize(name.size() - 4);
+        }
+    }
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp_string_new(reinterpret_cast<const char16_t*>(name.data()),
+                          static_cast<int32_t>(name.size())));
+#else
+    (void)pid;
+    return nullptr; // unsupported on POSIX
+#endif
+}
+
+int32_t il2cpp_process_has_exited(int32_t pid)
+{
+#if defined(_WIN32)
+    const auto it = g_processes().find(pid);
+    if (it != g_processes().end() && it->second.waited)
+    {
+        return 1; // wait_for_exit already observed the termination
+    }
+    HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+                             FALSE, static_cast<DWORD>(pid));
+    if (h == nullptr)
+    {
+        return 1; // unopenable PID: treat as terminated (M3)
+    }
+    const DWORD rc = ::WaitForSingleObject(h, 0);
+    const bool exited = (rc == WAIT_OBJECT_0);
+    ::CloseHandle(h);
+    return exited ? 1 : 0;
+#else
+    (void)pid;
+    return 1; // unsupported on POSIX
+#endif
+}
+
+int32_t il2cpp_process_kill(int32_t pid)
+{
+#if defined(_WIN32)
+    HANDLE h = ::OpenProcess(PROCESS_TERMINATE, FALSE, static_cast<DWORD>(pid));
+    if (h == nullptr)
+    {
+        return 1;
+    }
+    const BOOL ok = ::TerminateProcess(h, 1);
+    ::CloseHandle(h);
+    if (ok)
+    {
+        // A tracked child's process handle now signals the termination: fold
+        // the wait so a later wait_for_exit / get_exit_code / has_exited stay
+        // consistent even without an explicit WaitForExit (net48 Kill leaves
+        // the process a terminated handle).
+        auto it = g_processes().find(pid);
+        if (it != g_processes().end() && !it->second.waited)
+        {
+            ::WaitForSingleObject(it->second.process, INFINITE);
+            DWORD code = 0;
+            if (::GetExitCodeProcess(it->second.process, &code) == 0)
+            {
+                code = static_cast<DWORD>(-1);
+            }
+            it->second.exitCode = code;
+            ::CloseHandle(it->second.process);
+            it->second.process = nullptr;
+            it->second.waited = true;
+        }
+    }
+    return ok ? 0 : 1;
+#else
+    (void)pid;
+    return 1; // unsupported on POSIX
+#endif
 }
 
 int32_t il2cpp_process_get_current_thread_id()

@@ -43,10 +43,14 @@
 
 // System.Threading wait-handle runtime descriptors (GLOBAL scope -- the
 // transpiler emits &System_Threading_*_class for newobj/isinst/castclass;
-// defined in waithandle.cpp).
+// defined in waithandle.cpp). nb3 adds the two sealed EventWaitHandle
+// subclasses (AutoResetEvent / ManualResetEvent -- same object layout, the
+// reset mode fixed by the ctor).
 extern il2cpp::Il2CppClass System_Threading_Semaphore_class;
 extern il2cpp::Il2CppClass System_Threading_Mutex_class;
 extern il2cpp::Il2CppClass System_Threading_EventWaitHandle_class;
+extern il2cpp::Il2CppClass System_Threading_AutoResetEvent_class;
+extern il2cpp::Il2CppClass System_Threading_ManualResetEvent_class;
 
 namespace il2cpp { namespace runtime {
 
@@ -62,9 +66,10 @@ struct Il2CppWaitHandleObject
     WaitHandleState* state;  // native state (offset 8) -- not a GC reference
 };
 
-// Register the three wait-handle descriptors once (idempotent --
-// il2cpp_class_register dedupes by pointer). Called defensively by the ctor
-// icalls before the first allocation.
+// Register the wait-handle descriptors once (idempotent --
+// il2cpp_class_register dedupes by pointer): Semaphore / Mutex /
+// EventWaitHandle + AutoResetEvent / ManualResetEvent. Called defensively by
+// the ctor icalls before the first allocation.
 void il2cpp_waithandle_register_classes();
 
 // --- construction -----------------------------------------------------------
@@ -84,6 +89,13 @@ void icall_waithandle_mutex_ctor(Il2CppObject* self);
 void icall_waithandle_event_ctor(Il2CppObject* self, bool initialState,
                                  int32_t mode);
 
+// AutoResetEvent(bool initialState) / ManualResetEvent(bool initialState) --
+// the sealed EventWaitHandle subclasses fix the reset mode (0 / 1). Same
+// native state and event icall family; the allocation happens through the
+// System_Threading_AutoResetEvent_class / ManualResetEvent_class descriptors.
+void icall_waithandle_autoresetevent_ctor(Il2CppObject* self, bool initialState);
+void icall_waithandle_manualresetevent_ctor(Il2CppObject* self, bool initialState);
+
 // --- wait / signal ----------------------------------------------------------
 
 // WaitOne(): blocks until the handle is signaled, then returns true (net48
@@ -96,6 +108,13 @@ bool icall_waithandle_wait_one(Il2CppObject* self);
 // < -1 throws ArgumentOutOfRangeException("millisecondsTimeout"); returns
 // false when the timeout expires before the handle is signaled.
 bool icall_waithandle_wait_one_timeout(Il2CppObject* self, int32_t millisecondsTimeout);
+
+// WaitOne(TimeSpan timeout): the net48 TimeSpan overload (nb3 SYNC-GAP) --
+// TotalMilliseconds truncation toward zero (ticks / 10000), Timeout.
+// InfiniteTimeSpan (-10000 ticks) = -1 infinite; outside [-1, INT32_MAX] ->
+// ArgumentOutOfRangeException("timeout"). Mirrors the monitor
+// wait_timespan conversion and delegates to the int-milliseconds icall.
+bool icall_waithandle_wait_one_timespan(Il2CppObject* self, int64_t ticks);
 
 // Semaphore.Release(): increments the count (bounded by maximumCount;
 // exceeding throws SemaphoreFullException) and returns the PREVIOUS count.

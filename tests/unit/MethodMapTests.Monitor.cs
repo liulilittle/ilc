@@ -22,9 +22,10 @@ using Xunit;
 //   Monitor.Pulse(object) / PulseAll(object) -> il2cpp_monitor_pulse (the
 //     simplified runtime pulse wakes ALL waiters -- PulseAll is exact)
 //   Monitor.Wait(object, int)                -> il2cpp_monitor_wait (bool)
+//   Monitor.Wait(object)  (nb3 SYNC-GAP)     -> il2cpp_monitor_wait 1-arg =
+//     Timeout.Infinite (-1); the runtime overload il2cpp_monitor_wait(obj)
+//     (monitor.h:104) delegates to wait(obj, -1) -- previously LOUD.
 //
-// Known-unwireable overloads must be LOUD (NotSupportedException):
-//   Wait(object)              -- cannot inject Timeout.Infinite (-1)
 // (parity-T8: TryEnter(object, timeout[, lockTaken]) and Wait(object,
 // TimeSpan) / Wait(object, timeout, exitContext) map to monitor.h.)
 //
@@ -144,14 +145,19 @@ public class MethodMapTestsMonitor
     }
 
     [Fact]
-    public void Resolve_Wait_Object_ThrowsLoud()
+    public void Resolve_Wait_Object_MapsToWaitIcall()
     {
-        // static bool Wait(object): the wait icall needs an explicit timeout
-        // and there is no emitter mechanism to inject Timeout.Infinite (-1).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("Wait", Sig(0x02, B(0x1C))), "Wait"));
+        // nb3 SYNC-GAP: static bool Wait(object) IS Timeout.Infinite (-1) --
+        // the runtime overload il2cpp_monitor_wait(Il2CppObject*) delegates
+        // to wait(obj, -1), so the single-arg form is a plain 1-param
+        // mapping (previously a LOUD NotSupportedException).
+        var resolved = ResolveMember(Synthesize("Wait", Sig(0x02, B(0x1C))), "Wait");
 
-        Assert.Contains("System.Threading.Monitor::Wait", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_monitor_wait", resolved.CppName);
+        Assert.False(resolved.IsInstance); // static
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
     }
 
     //--------------------------------------------------------------------------

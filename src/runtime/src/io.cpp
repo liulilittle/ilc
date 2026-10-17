@@ -1491,20 +1491,61 @@ namespace {
 
 #if defined(_WIN32)
 
+// Wide-char wildcard match ('*' any run, '?' exactly one) -- the UTF-16
+// equivalent of the POSIX WildcardMatch used by the U branch. The wildcard
+// bytes are ASCII, so any non-ASCII unit is compared exactly (a byte-level
+// match would be incorrect here -- the UTF-16 units are 16-bit).
+bool WideWildcardMatch(const wchar_t* pat, const wchar_t* name)
+{
+    for (;;)
+    {
+        if (*pat == L'\0')
+        {
+            return *name == L'\0';
+        }
+        if (*pat == L'*')
+        {
+            ++pat;
+            if (*pat == L'\0')
+            {
+                return true;
+            }
+            while (*name != L'\0')
+            {
+                if (WideWildcardMatch(pat, name))
+                {
+                    return true;
+                }
+                ++name;
+            }
+            return false;
+        }
+        if (*name == L'\0' || (*pat != L'?' && *pat != *name))
+        {
+            return false;
+        }
+        ++pat;
+        ++name;
+    }
+}
+
 // Enumerate 'dir' (recursively when 'recursive') into 'out'. 'wantDirs'
 // selects the subdirectory set (GetDirectories) vs the file set
 // (GetFiles). 'pattern' carries the wildcard filter applied to the FILE /
 // DIRECTORY NAMES at every level (FindFirstFileW semantics -- '*' / '?').
 // All matched entries are pushed as FULL PATHS (dir + '\\' + name). The
-// recursive descent discovers subdirectories with the UNFILTERED "*" search
-// (net48 descends into every subdirectory; the pattern only filters the
+// FindFirstFileW query itself is the UNFILTERED "*" search at every level:
+// net48 descends into EVERY subdirectory (the pattern only filters the
 // returned names), so a "*.txt" pattern still reaches files inside a
-// "sub" directory.
+// "sub" directory whose name does not match. (D1 fix, nb3: the query used
+// to weave the pattern in, so a non-matching subdirectory name never
+// entered the recursion -- GetFiles(dir, "*.txt", AllDirectories) lost
+// d.txt/e.txt. The POSIX branch always had the correct descent.)
 void CollectDirectoryEntriesW(const std::wstring& dir, const std::wstring& pattern,
                               bool recursive, bool wantDirs,
                               std::vector<std::wstring>& out)
 {
-    const std::wstring query = dir + L"\\" + pattern;
+    const std::wstring query = dir + L"\\*";
     WIN32_FIND_DATAW fd;
     const HANDLE hFind = ::FindFirstFileW(query.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE)
@@ -1520,19 +1561,22 @@ void CollectDirectoryEntriesW(const std::wstring& dir, const std::wstring& patte
             continue;
         }
         const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        const bool matched = WideWildcardMatch(pattern.c_str(), name.c_str());
         if (wantDirs)
         {
-            if (isDir)
+            if (isDir && matched)
             {
                 out.push_back(dir + L"\\" + name);
             }
         }
-        else if (!isDir)
+        else if (!isDir && matched)
         {
             out.push_back(dir + L"\\" + name);
         }
         if (isDir && recursive)
         {
+            // Every subdirectory is descended into, matched or not -- the
+            // pattern gates only the names that enter the result set.
             subdirs.push_back(dir + L"\\" + name);
         }
     } while (::FindNextFileW(hFind, &fd));

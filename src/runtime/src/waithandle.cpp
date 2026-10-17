@@ -45,6 +45,11 @@
 WAITHANDLE_CLASS(System_Threading_Semaphore_class, "System.Threading.Semaphore");
 WAITHANDLE_CLASS(System_Threading_Mutex_class, "System.Threading.Mutex");
 WAITHANDLE_CLASS(System_Threading_EventWaitHandle_class, "System.Threading.EventWaitHandle");
+// nb3 SYNC-GAP: the two concrete DERIVED events the BCL commonly constructs
+// (sealed subclasses of EventWaitHandle). Identical object layout (header +
+// native state pointer); only the ctor differs (the reset mode is fixed).
+WAITHANDLE_CLASS(System_Threading_AutoResetEvent_class, "System.Threading.AutoResetEvent");
+WAITHANDLE_CLASS(System_Threading_ManualResetEvent_class, "System.Threading.ManualResetEvent");
 
 #undef WAITHANDLE_CLASS
 
@@ -90,6 +95,8 @@ void il2cpp_waithandle_register_classes()
     il2cpp_class_register(&System_Threading_Semaphore_class);
     il2cpp_class_register(&System_Threading_Mutex_class);
     il2cpp_class_register(&System_Threading_EventWaitHandle_class);
+    il2cpp_class_register(&System_Threading_AutoResetEvent_class);
+    il2cpp_class_register(&System_Threading_ManualResetEvent_class);
     g_waithandleClassesRegistered = true;
 }
 
@@ -136,6 +143,31 @@ void icall_waithandle_event_ctor(Il2CppObject* self, bool initialState,
     state->count = initialState ? 1 : 0;
     state->kind = kKindEvent;
     state->mode = mode;
+    AsWaitHandle(self)->state = state;
+}
+
+// nb3 SYNC-GAP: AutoResetEvent(bool) / ManualResetEvent(bool) -- the sealed
+// EventWaitHandle subclasses fix the reset mode at construction (0 =
+// AutoReset, 1 = ManualReset; net48 EventResetMode enum). Same shared native
+// state and event icall family; only the mode differs from the public
+// EventWaitHandle(bool, EventResetMode) ctor.
+void icall_waithandle_autoresetevent_ctor(Il2CppObject* self, bool initialState)
+{
+    il2cpp_waithandle_register_classes();
+    auto* state = new WaitHandleState();
+    state->count = initialState ? 1 : 0;
+    state->kind = kKindEvent;
+    state->mode = 0;
+    AsWaitHandle(self)->state = state;
+}
+
+void icall_waithandle_manualresetevent_ctor(Il2CppObject* self, bool initialState)
+{
+    il2cpp_waithandle_register_classes();
+    auto* state = new WaitHandleState();
+    state->count = initialState ? 1 : 0;
+    state->kind = kKindEvent;
+    state->mode = 1;
     AsWaitHandle(self)->state = state;
 }
 
@@ -239,6 +271,23 @@ bool icall_waithandle_wait_one_timeout(Il2CppObject* self, int32_t millisecondsT
         state->count = 0;
     }
     return signalled;
+}
+
+// nb3 SYNC-GAP: WaitOne(TimeSpan) -- the net48 TimeSpan timeout overload
+// (previously a transpiler fold-fail: only the int-milliseconds form
+// existed, so TimeSpan waits never resolved). Mirrors the monitor
+// wait_timespan conversion (il2cpp_monitor_wait_timespan): TotalMilliseconds
+// truncates toward zero ((long)(ticks / 10000.0)); Timeout.InfiniteTimeSpan
+// (-10000 ticks) converts to exactly -1. Outside [-1, INT32_MAX] ->
+// ArgumentOutOfRangeException ("timeout", net48 parameter name).
+bool icall_waithandle_wait_one_timespan(Il2CppObject* self, int64_t ticks)
+{
+    const int64_t ms = ticks / 10000LL;
+    if (ms < -1LL || ms > 2147483647LL)
+    {
+        il2cpp_throw_argument_out_of_range_exception("timeout", nullptr);
+    }
+    return icall_waithandle_wait_one_timeout(self, static_cast<int32_t>(ms));
 }
 
 //------------------------------------------------------------------------------
