@@ -165,6 +165,16 @@ void il2cpp_enum_register(const char* typeName, const Il2CppEnumInfo* info);
 bool il2cpp_enum_is_registered(const Il2CppClass* enumClass);
 
 //------------------------------------------------------------------------------
+// il2cpp_enum_is_registered_name -- NAME-variant of il2cpp_enum_is_registered
+//   (the name-string ABI, same registry). refl6a Type.GetEnum* wrappers use it
+//   to enforce the net48 non-enum-receiver contract (ArgumentException) before
+//   delegating to the shared by_type_name query icalls -- the shared functions
+//   keep their documented unknown-name fallback, only the Type-arm wrappers
+//   throw.
+//------------------------------------------------------------------------------
+bool il2cpp_enum_is_registered_name(const char* typeName);
+
+//------------------------------------------------------------------------------
 // il2cpp_enum_get_name -- System.Enum.GetName(Type, value).
 //
 //   Returns the member NAME of 'value' as a managed string, or nullptr

@@ -751,6 +751,55 @@ Il2CppArray* il2cpp_typeinfo_get_constructors_flags(Il2CppObject* typeName, int3
 Il2CppArray* il2cpp_typeinfo_get_members_flags(Il2CppObject* typeName, int32_t bindingAttr);
 
 //------------------------------------------------------------------------------
+// REFL6A (item B) -- Type.GetMember(string[, BindingFlags]). ONE runtime
+// filter icall over the refl5 members_flags enumeration: the same five-slice
+// union (methods incl. accessors / ctors own-only / properties / events /
+// fields) with the refl5 binding filter AND an exact SIMPLE-name strcmp
+// (net48 GetMember matches by simple member name). net48 default binding for
+// the 1-arg overload is Public|Instance|Static (the transpiler appends the
+// constant). Exception contract (net48 probe-pinned on p-refl6-gmember):
+//   * null memberName  -> ArgumentNullException
+//   * empty memberName -> EMPTY array, no throw
+// Matching results keep the members_flags union ORDER (same-name members in
+// the five-slice order). Returned elements are member-NAME strings (same
+// carrier as GetMembers). A null / malformed / unregistered typeName -> an
+// EMPTY array (the typeinfo defensive convention; a null Type receiver is
+// not valid IL).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_members_flags_name(Il2CppObject* typeName,
+                                                    Il2CppObject* memberName,
+                                                    int32_t bindingAttr);
+
+//------------------------------------------------------------------------------
+// REFL6A (item A) -- the System.Type enum surface. The four Type.GetEnum*
+// instance methods reuse the EXISTING enumext name-string query icalls
+// (enumext.h) but ADD net48's non-enum-receiver contract: when the receiver
+// type (the Type VALUE full-name string) is NOT a registered enum (the enum
+// metadata registry, by name), the wrapper throws ArgumentException (net48
+// "Type provided must be an Enum"). Registered enums delegate to the shared
+// by_type_name icall unchanged (names / values / name / underlying search).
+// The package enumext functions keep their documented unknown-name fallback
+// (empty array / Int32) -- only the Type-arm wrappers throw, so the static
+// System.Enum API surface is untouched.
+//   il2cpp_typeinfo_get_enum_names   -> il2cpp_enum_get_names_by_type_name
+//                                       (declaration-order name array)
+//   il2cpp_typeinfo_get_enum_values  -> il2cpp_enum_get_values_by_type_name
+//                                       (value array, declaration order)
+//   il2cpp_typeinfo_get_enum_name    -> il2cpp_enum_get_name_by_type_name
+//                                       (value-match name / unnamed->null)
+//   il2cpp_typeinfo_get_enum_underlying_type -> il2cpp_enum_get_underlying_
+//                                       type_by_type_name ("System.Int32"...)
+// A null/malformed receiver typeName -> ArgumentException (defensive; a null
+// Type receiver is not valid IL) -- net48 also throws ArgumentException for a
+// non-enum receiver, and a null receiver is folded never-null.
+//------------------------------------------------------------------------------
+Il2CppArray*   il2cpp_typeinfo_get_enum_names(Il2CppObject* typeName);
+Il2CppArray*   il2cpp_typeinfo_get_enum_values(Il2CppObject* typeName);
+Il2CppObject*  il2cpp_typeinfo_get_enum_name(Il2CppObject* typeName,
+                                             Il2CppObject* valueBox);
+Il2CppObject*  il2cpp_typeinfo_get_enum_underlying_type(Il2CppObject* typeName);
+
+//------------------------------------------------------------------------------
 // REFL5 (item 2) -- the remaining reachable exact-signature overloads.
 //   il2cpp_typeinfo_get_property_return_type(typeName, memberName,
 //       returnTypeName) -- Type.GetProperty(string, Type returnType). The

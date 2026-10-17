@@ -280,6 +280,28 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_members_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String[]");
                 throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5/refl5 -- the () overload maps to il2cpp_typeinfo_get_members; the (BindingFlags) overload to il2cpp_typeinfo_get_members_flags");
+            // refl6a (item B, probe p-refl6-gmember): Type.GetMember(string) /
+            // GetMember(string, BindingFlags). ONE runtime filter icall
+            // (il2cpp_typeinfo_get_members_flags_name) over the refl5
+            // members_flags union + an exact SIMPLE-name strcmp (net48
+            // GetMember matches by simple member name). net48 DEFAULT binding
+            // for the 1-arg overload is Public|Instance|Static (28 = 16+4+8)
+            // -- the transpiler appends the binding constant; the 2-arg
+            // overload rides the BindingFlags int32 slot ("i"). Exception
+            // contract lives in the runtime (null memberName ->
+            // ArgumentNullException; empty memberName -> EMPTY array, no
+            // throw). Elements are member-NAME strings (the same carrier as
+            // GetMembers), so the probe's element .Name/.MemberType/
+            // .DeclaringType resolve via the refl4/5 member arms.
+            case "GetMember":
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_typeinfo_get_members_flags_name", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.String[]",
+                        appendLiterals: new[] { "28" });
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_members_flags_name", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetMember with {ps.Length} parameter(s) not wired in refl6a -- only the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_members_flags_name");
             // RF-N7 (NEXT2-DECISION section 2 RF-N7): Type.MakeGenericType
             // -- explicit LOUD. The runtime has no generic-argument fabrication
             // (no fabrication, the genericArgNames Plan B stays deferred) and no SRE-like
@@ -387,6 +409,49 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_typeinfo_is_array", 0, true, false, true);
             case "get_IsEnum":
                 return I("il2cpp::il2cpp_typeinfo_is_enum", 0, true, false, true);
+            // refl6a (item A, probe p-refl6-enum): the System.Type enum surface
+            // -- GetEnumNames / GetEnumValues / GetEnumName / GetEnumUnderlying-
+            // Type. All four are INSTANCE methods on the Type VALUE (the
+            // full-name string -- the receiver flows to the icall's typeName
+            // slot). Each reuses an EXISTING enumext name-string query icall
+            // (documented enumext.h contract) through a zero-new-ABI typeinfo
+            // wrapper that enforces net48's non-enum-receiver ArgumentException
+            // BEFORE delegating (probe-pinned: typeof(int).GetEnum* throws
+            // ArgumentException; the shared enum API keeps its unknown-name
+            // fallback). GetEnumName(object value) additionally passes the
+            // boxed value slot through unchanged.
+            case "GetEnumNames":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_enum_names", 0, true, true, true,
+                        returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetEnumNames with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_names");
+            case "GetEnumValues":
+                // ReturnTypeName "System.Array" keeps the returned value
+                // array in the Array domain (.Length / GetValue(int) -- the
+                // probe's `(int)(object)GetValue(i)` unbox shape). The
+                // runtime array is int32[] (int-backed) / boxed-enum object[]
+                // (wide), both Il2CppArray*.
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_enum_values", 0, true, true, true,
+                        returnTypeName: "System.Array");
+                throw new NotSupportedException($"Type.GetEnumValues with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_values");
+            case "GetEnumName":
+                // string GetEnumName(object value) -- the boxed value rides
+                // as the second managed-ref slot (the enumext name-string
+                // ABI).
+                if (ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::il2cpp_typeinfo_get_enum_name", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetEnumName with {ps.Length} parameter(s) not wired in refl6a -- only the (object value) overload maps to il2cpp_typeinfo_get_enum_name");
+            case "GetEnumUnderlyingType":
+                // Type GetEnumUnderlyingType() -- returns a Type VALUE
+                // (full-name string, e.g. "System.Int32" / "System.Int64").
+                // ReturnTypeName "System.Type" keeps the Type domain (the
+                // probe prints .FullName -- the identity fold).
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_enum_underlying_type", 0, true, true, true,
+                        returnTypeName: "System.Type");
+                throw new NotSupportedException($"Type.GetEnumUnderlyingType with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_underlying_type");
             case "get_IsValueType":
                 return I("il2cpp::il2cpp_typeinfo_is_value_type", 0, true, false, true);
             case "get_IsInterface":

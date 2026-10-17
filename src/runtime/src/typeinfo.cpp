@@ -29,6 +29,7 @@
 #include "invoker.h"              // il2cpp_invoker_invoke / slots (R3 MethodInfo.Invoke)
 #include "il2cpp_typecheck.h"     // runtime::icall_type_is_instance (refl2 IsInstanceOfType delegate)
 #include "il2cpp_typeext.h"       // runtime::il2cpp_type_is_assignable_from (refl2 delegate)
+#include "enumext.h"              // runtime::il2cpp_enum_get_*_by_type_name / is_registered_name (refl6a)
 
 // C3-2: Marshal.IsComObject (klass == the RCW descriptor) -- declared in
 // il2cpp_com.h under il2cpp::runtime; forward-declared inside the namespace
@@ -2216,6 +2217,175 @@ Il2CppArray* il2cpp_typeinfo_get_members_flags(Il2CppObject* typeName, int32_t b
                     StoreName(result, dst++, scan->fields[i].name);
     }
     return result;
+}
+
+//------------------------------------------------------------------------------
+// REFL6A (item B) -- Type.GetMember(string[, BindingFlags]): the refl5
+// members_flags five-slice union PLUS an exact SIMPLE-name strcmp filter
+// (net48 GetMember matches by simple member name). Exception contract
+// (probe-pinned on p-refl6-gmember): null memberName -> ArgumentNullException;
+// EMPTY memberName -> EMPTY array (no throw). Matching members keep the
+// members_flags union order (methods incl. accessors / ctors own-only /
+// properties / events / fields).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_members_flags_name(Il2CppObject* typeName,
+                                                    Il2CppObject* memberName,
+                                                    int32_t bindingAttr)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    char want[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, want)) return EmptyStringArray();
+    // net48 GetMember("") -> an EMPTY array, no throw (probe-pinned).
+    if (want[0] == '\0') return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    // Count pass (five global slices, the members_flags order).
+    int32_t methodN = 0, ctorN = 0, propN = 0, evtN = 0, fieldN = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (BindingMethod(scan, scan->methods[i], bindingAttr, scan != info)
+                    && scan->methods[i].name != nullptr
+                    && std::strcmp(scan->methods[i].name, want) == 0) ++methodN;
+        if (scan->properties != nullptr)
+            for (int32_t i = 0; i < scan->propertyCount; ++i)
+                if (BindingProperty(scan, scan->properties[i], bindingAttr, scan != info)
+                    && scan->properties[i].name != nullptr
+                    && std::strcmp(scan->properties[i].name, want) == 0) ++propN;
+        if (scan->events != nullptr)
+            for (int32_t i = 0; i < scan->eventCount; ++i)
+                if (BindingEvent(scan, scan->events[i], bindingAttr, scan != info)
+                    && scan->events[i].name != nullptr
+                    && std::strcmp(scan->events[i].name, want) == 0) ++evtN;
+        if (scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (BindingField(scan, scan->fields[i], bindingAttr, scan != info)
+                    && scan->fields[i].name != nullptr
+                    && std::strcmp(scan->fields[i].name, want) == 0) ++fieldN;
+    }
+    if (info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (BindingCtor(info, info->methods[i], bindingAttr, false)
+                && info->methods[i].name != nullptr
+                && std::strcmp(info->methods[i].name, want) == 0) ++ctorN;
+    Il2CppArray* result = BuildNameArray(methodN + ctorN + propN + evtN + fieldN);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (BindingMethod(scan, scan->methods[i], bindingAttr, scan != info)
+                    && scan->methods[i].name != nullptr
+                    && std::strcmp(scan->methods[i].name, want) == 0)
+                    StoreName(result, dst++, scan->methods[i].name);
+    }
+    if (info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (BindingCtor(info, info->methods[i], bindingAttr, false)
+                && info->methods[i].name != nullptr
+                && std::strcmp(info->methods[i].name, want) == 0)
+                StoreName(result, dst++, info->methods[i].name);
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->properties != nullptr)
+            for (int32_t i = 0; i < scan->propertyCount; ++i)
+                if (BindingProperty(scan, scan->properties[i], bindingAttr, scan != info)
+                    && scan->properties[i].name != nullptr
+                    && std::strcmp(scan->properties[i].name, want) == 0)
+                    StoreName(result, dst++, scan->properties[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->events != nullptr)
+            for (int32_t i = 0; i < scan->eventCount; ++i)
+                if (BindingEvent(scan, scan->events[i], bindingAttr, scan != info)
+                    && scan->events[i].name != nullptr
+                    && std::strcmp(scan->events[i].name, want) == 0)
+                    StoreName(result, dst++, scan->events[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (BindingField(scan, scan->fields[i], bindingAttr, scan != info)
+                    && scan->fields[i].name != nullptr
+                    && std::strcmp(scan->fields[i].name, want) == 0)
+                    StoreName(result, dst++, scan->fields[i].name);
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// REFL6A (item A) -- the System.Type enum surface. Each Type.GetEnum* instance
+// method resolves the receiver (the Type VALUE full-name string) to a
+// REGISTERED ENUM (the enumext name-keyed metadata registry) and then
+// delegates to the corresponding shared by_type_name query icall. A receiver
+// that is NOT a registered enum throws ArgumentException (net48 "Type must be
+// an Enum") -- the non-enum-receiver contract probe-pinned on p-refl6-enum.
+// The shared enumext icalls keep their documented unknown-name fallback; only
+// this Type arm enforces the throw.
+//------------------------------------------------------------------------------
+namespace {
+
+// The net48 ArgumentException message for a non-enum Type receiver.
+// (probe-verified message text; the probe itself prints only the exception
+// type NAME, so the exact string is informational.)
+const char kEnumReceiverArgMsg[] = "Type provided must be an Enum.";
+
+// Resolve the Type VALUE receiver to a registered-enum name (UTF-8 buffer);
+// returns false and throws ArgumentException when not resolvable.
+bool CheckRegisteredEnumName(Il2CppObject* typeName, char (&nameBuf)[kNameBufferSize])
+{
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf))
+    {
+        il2cpp_throw_argument_exception(kEnumReceiverArgMsg);
+        return false; // unreachable -- the throw does not return
+    }
+    if (!il2cpp::runtime::il2cpp_enum_is_registered_name(nameBuf))
+    {
+        il2cpp_throw_argument_exception(kEnumReceiverArgMsg);
+        return false; // unreachable -- the throw does not return
+    }
+    return true;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_typeinfo_get_enum_names(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (!CheckRegisteredEnumName(typeName, nameBuf)) return EmptyStringArray();
+    return il2cpp::runtime::il2cpp_enum_get_names_by_type_name(typeName);
+}
+
+Il2CppArray* il2cpp_typeinfo_get_enum_values(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (!CheckRegisteredEnumName(typeName, nameBuf)) return EmptyStringArray();
+    return il2cpp::runtime::il2cpp_enum_get_values_by_type_name(typeName);
+}
+
+Il2CppObject* il2cpp_typeinfo_get_enum_name(Il2CppObject* typeName,
+                                            Il2CppObject* valueBox)
+{
+    char nameBuf[kNameBufferSize];
+    if (!CheckRegisteredEnumName(typeName, nameBuf)) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp::runtime::il2cpp_enum_get_name_by_type_name(typeName, valueBox));
+}
+
+Il2CppObject* il2cpp_typeinfo_get_enum_underlying_type(Il2CppObject* typeName)
+{
+    char nameBuf[kNameBufferSize];
+    if (!CheckRegisteredEnumName(typeName, nameBuf)) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp::runtime::il2cpp_enum_get_underlying_type_by_type_name(typeName));
 }
 // The receiver is the Type VALUE (full-name string); each reads the typeinfo's
 // genericArity. A generic DEFINITION and its closed CLONES both register under

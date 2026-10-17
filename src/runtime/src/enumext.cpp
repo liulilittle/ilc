@@ -697,6 +697,17 @@ bool il2cpp_enum_is_registered(const Il2CppClass* enumClass)
     return FindInfo(const_cast<Il2CppClass*>(enumClass)) != nullptr;
 }
 
+//------------------------------------------------------------------------------
+// il2cpp_enum_is_registered_name -- NAME-variant registry membership probe
+// (see header). The refl6a Type.GetEnum* wrappers (typeinfo.cpp) use it to
+// enforce net48's non-enum-receiver ArgumentException contract before
+// delegating to the shared by_type_name query icalls.
+//------------------------------------------------------------------------------
+bool il2cpp_enum_is_registered_name(const char* typeName)
+{
+    return typeName != nullptr && FindInfoByName(typeName) != nullptr;
+}
+
 // The shared box payload slot (offset 8 -- the il2cpp_box_int32 / long box
 // layout; MUST stay in sync with boxingext2.cpp's kBoxPayloadOffset).
 constexpr int32_t kBoxPayloadOffset = 8;
