@@ -1491,66 +1491,69 @@ namespace {
 
 #if defined(_WIN32)
 
-// Wide-char wildcard match ('*' any run, '?' exactly one) -- the UTF-16
-// equivalent of the POSIX WildcardMatch used by the U branch. The wildcard
-// bytes are ASCII, so any non-ASCII unit is compared exactly (a byte-level
-// match would be incorrect here -- the UTF-16 units are 16-bit).
-bool WideWildcardMatch(const wchar_t* pat, const wchar_t* name)
-{
-    for (;;)
-    {
-        if (*pat == L'\0')
-        {
-            return *name == L'\0';
-        }
-        if (*pat == L'*')
-        {
-            ++pat;
-            if (*pat == L'\0')
-            {
-                return true;
-            }
-            while (*name != L'\0')
-            {
-                if (WideWildcardMatch(pat, name))
-                {
-                    return true;
-                }
-                ++name;
-            }
-            return false;
-        }
-        if (*name == L'\0' || (*pat != L'?' && *pat != *name))
-        {
-            return false;
-        }
-        ++pat;
-        ++name;
-    }
-}
-
 // Enumerate 'dir' (recursively when 'recursive') into 'out'. 'wantDirs'
 // selects the subdirectory set (GetDirectories) vs the file set
-// (GetFiles). 'pattern' carries the wildcard filter applied to the FILE /
-// DIRECTORY NAMES at every level (FindFirstFileW semantics -- '*' / '?').
-// All matched entries are pushed as FULL PATHS (dir + '\\' + name). The
-// FindFirstFileW query itself is the UNFILTERED "*" search at every level:
-// net48 descends into EVERY subdirectory (the pattern only filters the
-// returned names), so a "*.txt" pattern still reaches files inside a
-// "sub" directory whose name does not match. (D1 fix, nb3: the query used
-// to weave the pattern in, so a non-matching subdirectory name never
-// entered the recursion -- GetFiles(dir, "*.txt", AllDirectories) lost
-// d.txt/e.txt. The POSIX branch always had the correct descent.)
+// (GetFiles). 'pattern' is passed to FindFirstFileW UNTOUCHED for the
+// OUTPUT query -- the OS performs the pattern matching natively (NTFS
+// semantics: ASCII case-INSENSITIVE, '?' matches ZERO or ONE character,
+// the trailing-dot quirks -- probe-pinned by p-nb3-d1 mc.patUp/mc.patLo/
+// mc.que0/mc.que4). Matched entries are pushed as FULL PATHS (dir + '\\' +
+// name). The RECURSIVE DESCENT uses a SEPARATE UNFILTERED FindFirstFileW
+// (dir + "\\*") query: net48 descends into EVERY subdirectory and the
+// pattern gates only the RETURNED names, so a "*.txt" pattern still
+// reaches files inside a "sub" directory whose name does not match.
+// (D1 fix, nb3 -- the FIRST revision filtered with a self-written
+// WideWildcardMatch that was case-sensitive with a strict-one '?'; it
+// diverged from FindFirstFileW and was removed. Reproducing the OS
+// matcher by hand is rejected: a 234-case grid comparison against
+// FindFirstFileW showed further divergences ('*.*' matching dot-less
+// names, trailing-dot patterns), so the OS does all matching here.)
 void CollectDirectoryEntriesW(const std::wstring& dir, const std::wstring& pattern,
                               bool recursive, bool wantDirs,
                               std::vector<std::wstring>& out)
 {
-    const std::wstring query = dir + L"\\*";
+    // Output query: FindFirstFileW applies the pattern natively (net48 file/
+    // directory match set in the same order). A missing/unopenable dir
+    // matches nothing (M3 empty array).
+    const std::wstring query = dir + L"\\" + pattern;
     WIN32_FIND_DATAW fd;
-    const HANDLE hFind = ::FindFirstFileW(query.c_str(), &fd);
+    HANDLE hFind = ::FindFirstFileW(query.c_str(), &fd);
+    if (hFind != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            const std::wstring name = fd.cFileName;
+            if (name == L"." || name == L"..")
+            {
+                continue;
+            }
+            const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            if (wantDirs)
+            {
+                if (isDir)
+                {
+                    out.push_back(dir + L"\\" + name);
+                }
+            }
+            else if (!isDir)
+            {
+                out.push_back(dir + L"\\" + name);
+            }
+        } while (::FindNextFileW(hFind, &fd));
+        ::FindClose(hFind);
+    }
+    if (!recursive)
+    {
+        return;
+    }
+    // Descent query: the UNFILTERED "*" listing of subdirectories (net48
+    // descends into every subdirectory regardless of the pattern, so a
+    // non-matching intermediate dir still reaches nested matches).
+    const std::wstring subQuery = dir + L"\\*";
+    hFind = ::FindFirstFileW(subQuery.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE)
     {
-        return; // missing/unopenable dir -> nothing collected (M3 empty array)
+        return;
     }
     std::vector<std::wstring> subdirs;
     do
@@ -1560,33 +1563,15 @@ void CollectDirectoryEntriesW(const std::wstring& dir, const std::wstring& patte
         {
             continue;
         }
-        const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        const bool matched = WideWildcardMatch(pattern.c_str(), name.c_str());
-        if (wantDirs)
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
         {
-            if (isDir && matched)
-            {
-                out.push_back(dir + L"\\" + name);
-            }
-        }
-        else if (!isDir && matched)
-        {
-            out.push_back(dir + L"\\" + name);
-        }
-        if (isDir && recursive)
-        {
-            // Every subdirectory is descended into, matched or not -- the
-            // pattern gates only the names that enter the result set.
             subdirs.push_back(dir + L"\\" + name);
         }
     } while (::FindNextFileW(hFind, &fd));
     ::FindClose(hFind);
-    if (recursive)
+    for (const std::wstring& sub : subdirs)
     {
-        for (const std::wstring& sub : subdirs)
-        {
-            CollectDirectoryEntriesW(sub, pattern, true, wantDirs, out);
-        }
+        CollectDirectoryEntriesW(sub, pattern, true, wantDirs, out);
     }
 }
 

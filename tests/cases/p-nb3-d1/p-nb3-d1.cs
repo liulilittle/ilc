@@ -51,6 +51,8 @@ namespace Cases
 
         static string Root;
 
+        static string RootMix; // case-mix tree for the D1 filter-anchor records
+
         static void Reset()
         {
             Root = Path.Combine(Path.GetTempPath(), "nb3d1probe");
@@ -63,6 +65,23 @@ namespace Cases
             File.WriteAllText(Path.Combine(Root, "sub", "d.txt"), "d");
             Directory.CreateDirectory(Path.Combine(Root, "zzz"));
             File.WriteAllText(Path.Combine(Root, "zzz", "e.txt"), "e");
+
+            // D1 filter-anchor tree (audit red cases): the FILE PATTERN must
+            // follow FindFirstFileW semantics -- ASCII case-INSENSITIVE and a
+            // '?' that can match ZERO characters. Tree: root a.txt / f.txt
+            // (lowercase .txt), a1/d.TXT, a2/e.TXT (uppercase). net48 anchors:
+            // *.TXT matches all four (case-insensitive); a?.txt -> a.txt
+            // ('?' swallows zero chars); ???? .txt -> all four.
+            RootMix = Path.Combine(Path.GetTempPath(), "nb3d1mixprobe");
+            if (Directory.Exists(RootMix))
+                Directory.Delete(RootMix, true);
+            Directory.CreateDirectory(RootMix);
+            File.WriteAllText(Path.Combine(RootMix, "a.txt"), "a");
+            File.WriteAllText(Path.Combine(RootMix, "f.txt"), "f");
+            Directory.CreateDirectory(Path.Combine(RootMix, "a1"));
+            File.WriteAllText(Path.Combine(RootMix, "a1", "d.TXT"), "d");
+            Directory.CreateDirectory(Path.Combine(RootMix, "a2"));
+            File.WriteAllText(Path.Combine(RootMix, "a2", "e.TXT"), "e");
         }
 
         static string CultureName(string name)
@@ -106,8 +125,20 @@ namespace Cases
             Console.WriteLine("[d3.no.2l]=" + CultureTwoLetter("no"));
             Console.WriteLine("[d3.en.2l]=" + CultureTwoLetter("en-US"));
 
+            // D1 filter-anchor records: FindFirstFileW semantics on the
+            // case-mix tree -- ASCII case-insensitive patterns and a '?'
+            // that matches ZERO or ONE character (audit red cases, expanded).
+            // NOTE: record IDs must NOT differ only by ASCII case -- the diff
+            // harness record map is a case-insensitive hashtable (mc.patUp vs
+            // mc.patLo, not mc.TXT vs mc.txt).
+            Console.WriteLine("[mc.patUp.all]=" + Join(Directory.GetFiles(RootMix, "*.TXT", SearchOption.AllDirectories)));
+            Console.WriteLine("[mc.patLo.all]=" + Join(Directory.GetFiles(RootMix, "*.txt", SearchOption.AllDirectories)));
+            Console.WriteLine("[mc.que0.all]=" + Join(Directory.GetFiles(RootMix, "a?.txt", SearchOption.AllDirectories)));
+            Console.WriteLine("[mc.que4.cnt]=" + Directory.GetFiles(RootMix, "????.txt", SearchOption.AllDirectories).Length);
+
             // Best-effort cleanup so a stale dir never perturbs a later run.
             try { Directory.Delete(Root, true); } catch { }
+            try { Directory.Delete(RootMix, true); } catch { }
         }
     }
 }
