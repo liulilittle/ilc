@@ -1842,12 +1842,78 @@ Il2CppArray* il2cpp_typeinfo_get_nested_types(Il2CppObject* typeName)
     if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
     const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
     if (info == nullptr) return EmptyStringArray();
-    Il2CppArray* result = BuildNameArray(info->nestedCount);
+    // REFL6B (item A): net48 GetNestedTypes() default binding is PUBLIC-only
+    // (probe-pinned [n.all]=1 for a type with four nested classes where only
+    // one is public). Filter the nested sub-table by the visibility byte
+    // (NestedPublic == 0x2). A null nestedVis (defensive / nested-free) admits
+    // every entry (pass-through -- the pre-refl6b behaviour).
+    int32_t total = 0;
     for (int32_t i = 0; i < info->nestedCount; ++i)
     {
-        StoreName(result, i, info->nestedNames != nullptr ? info->nestedNames[i] : nullptr);
+        if (info->nestedVis == nullptr || (info->nestedVis[i] & 0x7) == 0x2) ++total;
+    }
+    Il2CppArray* result = BuildNameArray(total);
+    int32_t dst = 0;
+    for (int32_t i = 0; i < info->nestedCount; ++i)
+    {
+        if (info->nestedVis == nullptr || (info->nestedVis[i] & 0x7) == 0x2)
+        {
+            StoreName(result, dst++, info->nestedNames != nullptr ? info->nestedNames[i] : nullptr);
+        }
     }
     return result;
+}
+
+//------------------------------------------------------------------------------
+// REFL6B (item A) -- Type.GetNestedType(string[, BindingFlags]). Matches the
+// nested sub-table by SIMPLE name (the segment after the LAST '+'), applies
+// the binding visibility filter, and returns the nested type's FULL '+'
+// reflection name (a Type VALUE) or null (name/visibility miss or empty name
+// -- no throw). Null nestedName -> ArgumentNullException; null typeName ->
+// NullReferenceException. net48 probe-pinned (p-refl6-nested).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_nested_type(Il2CppObject* typeName,
+                                              Il2CppObject* nestedSimpleName,
+                                              int32_t bindingAttr)
+{
+    if (nestedSimpleName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+    if (typeName == nullptr)
+    {
+        ThrowNullTypeReceiver();
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, nameBuf)) return nullptr;
+    char want[kNameBufferSize];
+    if (!AsciiFromManagedString(nestedSimpleName, want)) return nullptr;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return nullptr;
+    for (int32_t i = 0; i < info->nestedCount; ++i)
+    {
+        const char* full = info->nestedNames != nullptr ? info->nestedNames[i] : nullptr;
+        if (full == nullptr) continue;
+        // Simple name = after the last '+'.
+        const char* simple = std::strrchr(full, '+');
+        simple = simple != nullptr ? simple + 1 : full;
+        if (std::strcmp(simple, want) != 0) continue;
+        // Visibility filter: Public(16) admits NestedPublic(0x2); NonPublic(32)
+        // admits every non-public nested entry; neither -> Public-only.
+        const bool isPublic = info->nestedVis != nullptr
+            ? (info->nestedVis[i] & 0x7) == 0x2
+            : true; // defensive pass-through (no vis column)
+        const bool wantPublic = (bindingAttr & 16) != 0;
+        const bool wantNonPublic = (bindingAttr & 32) != 0;
+        bool visOk;
+        if (wantPublic && wantNonPublic) visOk = true;
+        else if (wantPublic) visOk = isPublic;
+        else if (wantNonPublic) visOk = !isPublic;
+        else visOk = isPublic; // net48 default public-only
+        if (!visOk) continue;
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(full));
+    }
+    return nullptr;
 }
 
 Il2CppArray* il2cpp_typeinfo_get_members(Il2CppObject* typeName)
@@ -2402,6 +2468,17 @@ int32_t il2cpp_typeinfo_is_generic_type(Il2CppObject* typeName)
     // An unregistered type (BCL / boxed / snapshot) is treated as NON-generic
     // (net48 typeof(int).IsGenericType == False).
     return (info != nullptr && info->genericArity > 0) ? 1 : 0;
+}
+
+// REFL6B (item B5): Type.get_ContainsGenericParameters on a RUNTIME receiver.
+// The transpiler folds every typeof chain (open def -> 1) BEFORE this arm;
+// a runtime Type VALUE (GetType() result) never denotes an open generic in
+// the simplified model (MakeGenericType is LOUD -- no fabricated arguments),
+// so the net48 False / True answer for every runtime-reachable type is 0.
+int32_t il2cpp_typeinfo_is_contains_generic_params(Il2CppObject* typeName)
+{
+    (void)typeName;
+    return 0;
 }
 
 int32_t il2cpp_typeinfo_get_generic_arity(Il2CppObject* typeName)
@@ -4459,11 +4536,35 @@ int32_t il2cpp_fieldinfo_is_assembly(Il2CppObject* memberName)
     if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
     const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf);
     if (f == nullptr) return 0;
-    // net48 IsAssembly: INTERNAL only. The narrow model distinguishes
-    // public (bit0) / private (bit0x10) / nonprivate-nonpublic (internal --
-    // the model conflates protected with internal, W7): internal ==
-    // non-public AND non-private.
-    return ((f->flags & 1) == 0 && (f->flags & 0x10) == 0) ? 1 : 0;
+    // REFL6B (item C): net48 IsAssembly is EXACT -- vis mask == Assembly (0x3,
+    // internal). The refl5 impl "non-public AND non-private = internal"
+    // misreported protected (0x4) / FamORAssem (0x5) / FamANDAssem (0x2) as
+    // True; oracle6d pins internal=True, protected/protected-internal=False.
+    // The emitter bakes the Internal vis as the dedicated flag bit 0x20;
+    // pre-refl6b tables (no bit) fall to 0 (defensive).
+    return (f->flags & 0x20) != 0 ? 1 : 0;
+}
+
+int32_t il2cpp_memberinfo_is_family_or_assembly(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    // A FIELD receiver (FieldInfo.IsFamilyOrAssembly) or a METHOD receiver
+    // (MethodBase.IsFamilyOrAssembly) -- net48 FamORAssem(0x5) EXACTLY
+    // (oracle6d: protected-internal True; plain protected(0x4) /
+    // internal(0x3) / public(0x6) False). The emitter bakes FamORAssem as the
+    // dedicated flag bit 0x40.
+    if (const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf))
+    {
+        return (f->flags & 0x40) != 0 ? 1 : 0;
+    }
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return (m != nullptr && (m->flags & 0x40) != 0) ? 1 : 0;
 }
 
 int32_t il2cpp_memberinfo_is_static(Il2CppObject* memberName)

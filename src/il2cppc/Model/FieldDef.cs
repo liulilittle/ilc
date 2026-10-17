@@ -33,6 +33,14 @@ public sealed class FieldDef
     // so the flags-aware enumerators can skip private base-chain entries while
     // still listing the queried type's OWN private members.
     public bool IsPrivate { get; init; }
+    // refl6b (item C): the raw ECMA 3-bit MEMBER ACCESS mask
+    // (FieldAttributes & 0x7: Public=0x6, Private=0x1, Family=0x4,
+    // Assembly=0x3, FamORAssem=0x5, FamANDAssem=0x2). The runtime typeinfo
+    // flags bake the two exact-info states as dedicated bits (Internal -> 0x20,
+    // FamORAssem -> 0x40) for the precise member predicates (IsAssembly=
+    // Internal-only, IsFamilyOrAssembly=FamORAssem-only -- net48 oracle6d).
+    // Zero-delta for the existing low-bit decoders (public/static/private/literal).
+    public int AccessMask { get; init; }
     public string? ConstantValue { get; init; }
 
     // M2 field type classification (see TypeKind above):

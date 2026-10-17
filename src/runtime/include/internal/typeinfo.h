@@ -54,7 +54,8 @@ struct Il2CppMethodInfo
     const char* name;          // method name, e.g. "Add"
     const char* signature;     // signature encoding (return + params)
     int32_t     paramCount;    // number of parameters (from signature)
-    int32_t     flags;         // bit0 public, bit1 static, bit2 ctor, bit3 virtual
+    int32_t     flags;         // bit0 public, bit1 static, bit2 ctor, bit3 virtual,
+                               // bit4 private, bit5 Internal(0x3), bit6 FamORAssem(0x5)
     int32_t     virtualSlot;   // vtable slot if virtual, else -1
     const char* declaringType; // declaring type full name (inherited methods
                                // are listed under THEIR declaring type's table)
@@ -84,7 +85,8 @@ struct Il2CppFieldInfo
                                // static: -1
     int32_t     isRef;         // 1 = GC reference field
     void*       staticAddr;    // static: &StaticStorage slot; instance: null
-    int32_t     flags;         // bit0 public, bit1 static, bit2 literal
+    int32_t     flags;         // bit0 public, bit1 static, bit2 literal, bit4 private,
+                               // bit5 Internal(0x3), bit6 FamORAssem(0x5)
 };
 
 // One reflected property. Accessors are resolved by name through the SAME
@@ -166,6 +168,16 @@ struct Il2CppTypeInfo
     // types).
     const char* const*  nestedNames;
     int32_t             nestedCount;
+    // REFL6B (item A): the parallel VISIBILITY byte column -- one
+    // TypeAttributes&0x7 value per nestedNames row (the expanded nested
+    // TypeDef's VisibilityMask: NestedPublic=0x2, NestedPrivate=0x3,
+    // NestedFamily=0x4, NestedAssembly=0x5, NestedFamANDAssem=0x6,
+    // NestedFamORAssem=0x7). The GetNestedType(string[,BindingFlags]) and
+    // GetNestedTypes visibility filters read it (net48: default GetNestedTypes()
+    // is Public-only, GetNestedType(name) binds Public-only; the NonPublic bit
+    // admits every non-public nested entry). null = absent (nested-free types;
+    // the enumerators admit all entries -- defensive pass-through).
+    const uint8_t*      nestedVis;
     // O4 (boxed user-struct reflection): whether this type info describes a
     // VALUE type (a translated user struct -- `TypeDef.IsValueType`). The
     // Il2CppFieldInfo.offset column is STRUCT-RELATIVE for a value type
@@ -414,6 +426,16 @@ int32_t il2cpp_typeinfo_is_generic_type(Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_get_generic_arity(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_generic_arguments(Il2CppObject* typeName);
 Il2CppObject* il2cpp_typeinfo_get_generic_type_definition(Il2CppObject* typeName);
+//------------------------------------------------------------------------------
+// REFL6B (item B5) -- Type.get_ContainsGenericParameters on a RUNTIME
+// receiver. The FOLDED typeof chains are decided (and folded to 1/0) at
+// transpile time in StackFold; a runtime Type VALUE (a GetType() result)
+// can NEVER denote an open generic (MakeGenericType is LOUD -- no fabricated
+// generic arguments, no open instances), so the runtime answers CONSTANT 0
+// (net48 ContainsGenericParameters False for every runtime-reachable type).
+// Null/malformed typeName -> 0 (defensive).
+//------------------------------------------------------------------------------
+int32_t il2cpp_typeinfo_is_contains_generic_params(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
 // R2 (B2) -- member ENUMERATION icalls. Each returns an Il2CppArray* of
@@ -450,6 +472,33 @@ Il2CppArray* il2cpp_typeinfo_get_events(Il2CppObject* typeName);
 // returns an empty array, never null).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_typeinfo_get_nested_types(Il2CppObject* typeName);
+//------------------------------------------------------------------------------
+// REFL6B (item A) -- Type.GetNestedType(string) / (string, BindingFlags) +
+// the GetNestedTypes() public-only default.
+//   il2cpp_typeinfo_get_nested_type(typeName, nestedSimpleName, bindingAttr):
+//     the SINGLE-nested-type query. net48 semantics (probe-pinned on
+//     p-refl6-nested):
+//       * name match is by the nested type's SIMPLE name (the "" segment after
+//         the last '+' of the '+'-reflection-name rows in nestedNames);
+//       * visibility filter follows the bindingAttr: Public(16) admits a
+//         NestedPublic entry (nestedVis & 0x7 == 0x2), NonPublic(32) admits
+//         every non-public nested entry; NEITHER bit -> Public-only (net48
+//         default). Instance/Static bits are irrelevant (types are neither).
+//       * an EMPTY simple name returns nullptr without throwing (net48
+//         GetNestedType("") -> null); a null nestedName throws
+//         ArgumentNullException; a null typeName -> NullReferenceException
+//         (the null-Type receiver doctrine).
+//     Returns the nested type's FULL-NAME string (the '+'-reflection name -- a
+//     Type VALUE, the same carrier GetNestedTypes returns) or nullptr on a
+//     name/visibility miss.
+//   il2cpp_typeinfo_get_nested_types: FIXED to Public-only by default (net48
+//     GetNestedTypes() binds Public -- oracle [n.all]=1 for a type with four
+//     nested classes only one public). A null nestedVis (nested-free or
+//     defensive) admits all entries (pass-through).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_typeinfo_get_nested_type(Il2CppObject* typeName,
+                                              Il2CppObject* nestedSimpleName,
+                                              int32_t bindingAttr);
 Il2CppArray* il2cpp_typeinfo_get_members(Il2CppObject* typeName);
 // C3-2: EventInfo.AddEventHandler / RemoveEventHandler (the managed events-
 // table accessor delivery; an RCW receiver doors the deferred shape A).
@@ -855,6 +904,11 @@ Il2CppObject* il2cpp_methodinfo_get_return_type(Il2CppObject* memberName);
 Il2CppObject* il2cpp_eventinfo_get_event_handler_type(Il2CppObject* memberName);
 Il2CppObject* il2cpp_memberinfo_get_reflected_type(Il2CppObject* memberName);
 int32_t il2cpp_fieldinfo_is_assembly(Il2CppObject* memberName);
+// REFL6B (item C): FieldInfo/MethodBase.get_IsFamilyOrAssembly -- vis mask ==
+// FamORAssem (0x5) EXACTLY (net48 oracle6d: protected-internal True; plain
+// protected(0x4) / internal(0x3) / public(0x6) False). The emitter bakes the
+// state as the dedicated member-flag bit 0x40; pre-refl6b tables fall to 0.
+int32_t il2cpp_memberinfo_is_family_or_assembly(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_static(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_public(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_constructor(Il2CppObject* memberName);

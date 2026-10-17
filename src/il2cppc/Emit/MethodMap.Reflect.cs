@@ -249,6 +249,14 @@ public static partial class MethodRefResolver
                             new[] { "" }, returnTypeName: "System.Type");
                 if (owner == "System.Reflection.FieldInfo" && name == "get_IsAssembly" && ps.Length == 0)
                     return I("il2cpp::il2cpp_fieldinfo_is_assembly", 0, true, false, true, new[] { "" });
+                // refl6b (item A): IsFamilyOrAssembly on a FIELD receiver
+                // (FieldInfo.IsFamilyOrAssembly) or a METHOD receiver
+                // (MethodBase.IsFamilyOrAssembly) -- net48 decodes the
+                // FamORAssem(0x5) state EXACTLY (not an "non-public && non-private"
+                // catch-all); the runtime checks the dedicated flag bit 0x40.
+                if ((owner == "System.Reflection.FieldInfo" || owner is "System.Reflection.MethodInfo" or "System.Reflection.MethodBase")
+                    && name == "get_IsFamilyOrAssembly" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_is_family_or_assembly", 0, true, false, true, new[] { "" });
                 if (name == "get_IsStatic" && ps.Length == 0)
                     return I("il2cpp::il2cpp_memberinfo_is_static", 0, true, false, true, new[] { "" });
                 if (name == "get_IsPublic" && ps.Length == 0)

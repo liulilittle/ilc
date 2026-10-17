@@ -103,6 +103,16 @@ public static class StackFold
         // get_IsGenericTypeDefinition (prevIns == that call) looks it up:
         // definition -> 1, closed instance / non-generic -> 0.
         var typeFromHandleGenericDef = new Dictionary<int, bool>();
+        // REFL6B (item B5): Type.get_ContainsGenericParameters on the FOLDED
+        // typeof chain -- net48 (p-refl6-mprops oracle): open generic
+        // definition -> 1, closed instantiation / non-generic / array -> 0,
+        // NESTED-in-open (typeof(Outer<>.Inner)) -> 1, nested-in-closed
+        // (typeof(Outer<int>.Inner)) -> 0. This is a SUPERSET of the
+        // IsGenericTypeDefinition record above: a nested type whose DECLARING
+        // chain holds an open generic definition also "contains generic
+        // parameters" (net48 walks the outer type's params). Recorded at the
+        // SAME GetTypeFromHandle-fold site, keyed the same way.
+        var typeFromHandleContainsGenParams = new Dictionary<int, bool>();
         // GN-18 P2/D1 (S3): the ldtoken TYPE token, keyed by the
         // GetTypeFromHandle CALL's offset -- the GetGenericArguments
         // consumption fold decodes the closed GENERICINST TypeSpec blob from
@@ -2570,6 +2580,10 @@ public static class StackFold
                 // from its clones (TypeEmitter.ReflectionFullName registers
                 // both under the definition's name).
                 typeFromHandleGenericDef[ins.Offset] = IsOpenGenericDefToken(md, (int)ldtMarker.Value);
+                // REFL6B (item B5): the ContainsGenericParameters classification
+                // -- the type OR any DECLARING-chain type is an open generic
+                // definition (net48 nested-in-open True).
+                typeFromHandleContainsGenParams[ins.Offset] = ContainsGenericParamsToken(md, (int)ldtMarker.Value);
                 // GN-18 P2/D1 (S3): remember the ldtoken TYPE TOKEN itself,
                 // keyed by this GetTypeFromHandle CALL's offset. The
                 // GetGenericArguments consumption fold below decodes the closed
@@ -2624,6 +2638,19 @@ public static class StackFold
                 {
                     stack.Pop();
                     Push(new IntConstExpr { Value = typeFromHandleGenericDef.TryGetValue(prevCall.Offset, out var isDef) && isDef ? 1 : 0 }, ins);
+                    return;
+                }
+                // REFL6B (item B5): Type.get_ContainsGenericParameters on the
+                // FOLDED typeof chain -- same fold site, same key, wider
+                // predicate (the type OR any enclosing/declaring type holds an
+                // open generic parameter; typeof(Outer<>.Inner) -> 1, closed
+                // instantiations and arrays -> 0). A RUNTIME receiver never
+                // reaches this fold -- it maps to the constant-0 runtime icall
+                // in MethodMap.Type.cs.
+                if (IsTypeGetContainsGenericParameters(md, (int)ins.Operand))
+                {
+                    stack.Pop();
+                    Push(new IntConstExpr { Value = typeFromHandleContainsGenParams.TryGetValue(prevCall.Offset, out var cgp) && cgp ? 1 : 0 }, ins);
                     return;
                 }
                 // GN-18 P2/D1 (S3 / Plan B): Type::GetGenericArguments on the
@@ -4728,6 +4755,80 @@ public static class StackFold
                 default:
                     return false; // TypeSpec (GENERICINST instance / VAR), other kinds
             }
+        }
+
+        // REFL6B (item B5): Type.get_ContainsGenericParameters on the FOLDED
+        // typeof chain -- whether the ldtoken TYPE token "contains generic
+        // parameters" (net48 semantics, p-refl6-mprops oracle):
+        //   * a TypeDef/TypeRef that is an open generic definition -- arity > 0
+        //     (own or any DECLARING-chain type -- typeof(Outer<>.Inner) where
+        //     Outer<> is open -> net48 True because the outer's parameter is
+        //     unassigned);
+        //   * a closed GENERICINST TypeSpec (typeof(Box<int>)) -> False;
+        //   * a nested-in-closed (typeof(Outer<int>.Inner)) -> False;
+        //   * a non-generic type / SZARRAY (typeof(int[])) -> False.
+        // Mirrors IsOpenGenericDefToken's token-shape split but walks the
+        // declaring chain for the nested-in-open case.
+        static bool ContainsGenericParamsToken(MetadataReader md, int token)
+        {
+            var t = MetadataTokens.Handle(token);
+            switch (t.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                    for (var cur = (TypeDefinitionHandle)t; !cur.IsNil; )
+                    {
+                        if (md.GetTypeDefinition(cur).GetGenericParameters().Count > 0) return true;
+                        cur = md.GetTypeDefinition(cur).GetDeclaringType();
+                    }
+                    return false;
+                case HandleKind.TypeReference:
+                    return GenericArityFromName(md.GetFullName((TypeReferenceHandle)t)) > 0;
+                case HandleKind.TypeSpecification:
+                    // typeof(Box<int>) -> closed GENERICINST -> False;
+                    // typeof(Outer<>.Inner) (a GENERICINST whose argument is the
+                    // open type parameter VAR !0) -> True (net48 nested-in-open).
+                    var sig = md.GetBlobReader(
+                        md.GetTypeSpecification((TypeSpecificationHandle)t).Signature);
+                    var hdr = sig.ReadByte();
+                    if (hdr != 0x15) return false; // SZARRAY/ARRAY/PTR/other -> closed
+                    _ = sig.ReadByte();            // ELEMENT_TYPE_CLASS / VALUETYPE
+                    _ = sig.ReadTypeHandle();      // the generic type (def or nested)
+                    var argc = sig.ReadCompressedInteger();
+                    for (var i = 0; i < argc; i++)
+                    {
+                        var et = sig.ReadByte();
+                        // VAR (0x13) / MVAR (0x1E) = an UNASSIGNED type parameter
+                        // -> the instantiation still contains generic parameters.
+                        if (et is 0x13 or 0x1E) return true;
+                        // Closed CLASS/VALUETYPE args carry a TypeDefOrRef token.
+                        if (et is 0x11 or 0x12)
+                        {
+                            _ = sig.ReadTypeHandle();
+                            continue;
+                        }
+                        // Any other (non-nameful) arg shape: conservatively NOT
+                        // open (primitives/string = closed). A nested open
+                        // GENERICINST serving as an argument would need a deeper
+                        // walk, but the probe shapes never nest there.
+                        return false;
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
+        // REFL6B (item B5): whether the call token is Type::
+        // get_ContainsGenericParameters -- the fold-time open-generic-parameter
+        // predicate. Mirrors IsTypeGetIsGenericTypeDefinition.
+        static bool IsTypeGetContainsGenericParameters(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            return md.GetFullName((TypeReferenceHandle)mr.Parent) == "System.Type"
+                && md.GetString(mr.Name) == "get_ContainsGenericParameters";
         }
 
         // GN-18 P2/D1 (S3): whether the call token is Type::GetGenericArguments

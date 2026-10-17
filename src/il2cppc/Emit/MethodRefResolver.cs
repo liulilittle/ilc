@@ -1082,7 +1082,9 @@ public static partial class MethodRefResolver
             case "System.Nullable`1": return TryMapNullable(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Object":
             case "System.IConvertible":
-            case "System.Reflection.MemberInfo": return TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Reflection.MemberInfo": return name == "get_Module"
+                ? TryMapModule(md, owner, name, count)
+                : TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // raudit3 (2026-09-13): the MemberInfo-derived reflection objects
             // emit the BASE ==/!= operator (csc never calls the derived
             // overload); the runtime models a member value as its name string
@@ -1095,7 +1097,13 @@ public static partial class MethodRefResolver
             case "System.Reflection.MethodBase":
             case "System.Reflection.ConstructorInfo":
             case "System.Reflection.EventInfo":
-                return TryMapReflectionMember(owner, name, ps);
+                return name == "get_Module"
+                    ? TryMapModule(md, owner, name, count)
+                    : TryMapReflectionMember(owner, name, ps);
+            // REFL6B (item B3): the Module VALUE (the module-name string the
+            // get_Module fold produces) dispatches its own get_Name identity.
+            case "System.Reflection.Module":
+                return TryMapModule(md, owner, name, count);
             // REFL3 (item 2): the ParameterInfo property surface. The receiver
             // is the ParameterInfo VALUE string ("name|typeFullName|position|
             // flags") il2cpp_typeinfo_get_parameters produces; get_Name /
@@ -1646,6 +1654,7 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Type": return TryMapReflect(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapTypeAssembly(md, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                ?? TryMapModule(md, owner, name, count)
                 ?? TryMapResourceManager(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Activator": return TryMapReflect(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Buffer": return TryMapBuffer(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);

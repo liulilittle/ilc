@@ -144,6 +144,9 @@ public static class MetadataLoader
                     // test wrongly admits internal(0x3)/protected(0x4).
                     IsPublic = ((int)fd.Attributes & 0x7) == 0x6,
                     IsPrivate = ((int)fd.Attributes & 0x7) is 0x0 or 0x1,
+                    // refl6b (item C): bake the raw ECMA 3-bit member-access
+                    // mask for the precise IsAssembly/IsFamilyOrAssembly decode.
+                    AccessMask = (int)fd.Attributes & 0x7,
                     ConstantValue = TryReadConstant(md, fd),
                     TypeKind = kind,
                     FieldTypeName = typeName,
@@ -212,6 +215,8 @@ public static class MetadataLoader
                     // internal 0x3 / protected 0x4); Private is 0x0/0x1.
                     IsPublic = ((int)attrs & 0x7) == 0x6,
                     IsPrivate = ((int)attrs & 0x7) is 0x0 or 0x1,
+                    // refl6b (item C): raw ECMA member-access mask.
+                    AccessMask = (int)attrs & 0x7,
                     ParamCount = paramCount,
                     ParamTypes = paramTypes,
                     ReturnType = returnType,

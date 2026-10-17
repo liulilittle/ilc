@@ -144,6 +144,11 @@ public static class TypeEmitter
                 DeclaringTypeName = td.GetDeclaringType().IsNil
                     ? ""
                     : DeclaringChainFullName(md, td.GetDeclaringType()),
+                // refl6b (item A): carry the nested type's ECMA visibility mask
+                // (TypeAttributes & 0x7) into the enclosing typeinfo's
+                // nestedVis column (GetNestedType / GetNestedTypes public-only
+                // default filter).
+                VisibilityMask = (int)td.Attributes & 0x7,
                 BaseTypeName = DecodeNestedBaseType(md, td.BaseType),
                 IsInterface = (td.Attributes & TypeAttributes.Interface) != 0,
                 // Devirt S1: nested sealed/abstract types parse the same
@@ -182,6 +187,7 @@ public static class TypeEmitter
                         IsLiteral = (fd.Attributes & FieldAttributes.Literal) != 0,
                         IsPublic = ((int)fd.Attributes & 0x7) == 0x6,
                         IsPrivate = ((int)fd.Attributes & 0x7) is 0x0 or 0x1,
+                        AccessMask = (int)fd.Attributes & 0x7,
                         ConstantValue = TryReadNestedConstant(md, fd),
                     });
                 }
@@ -195,6 +201,7 @@ public static class TypeEmitter
                         IsStatic = false,
                         IsPublic = ((int)fd.Attributes & 0x7) == 0x6,
                         IsPrivate = ((int)fd.Attributes & 0x7) is 0x0 or 0x1,
+                        AccessMask = (int)fd.Attributes & 0x7,
                         TypeKind = kind,
                         FieldTypeName = typeName,
                     });
@@ -223,6 +230,7 @@ public static class TypeEmitter
                     IsStatic = (attrs & MethodAttributes.Static) != 0,
                     IsPublic = ((int)attrs & 0x7) == 0x6,
                     IsPrivate = ((int)attrs & 0x7) is 0x0 or 0x1,
+                    AccessMask = (int)attrs & 0x7,
                     ParamCount = paramCount,
                     ParamTypes = paramTypes,
                     ReturnType = returnType,
@@ -1577,7 +1585,15 @@ public static class TypeEmitter
                     // refl5 (item 1): the PRIVATE visibility bit (net48 never
                     // enumerates a private base-chain member; the flags-aware
                     // enumerators skip bit0x10 entries on the base walk).
-                    | (m.IsPrivate ? 0x10 : 0);
+                    | (m.IsPrivate ? 0x10 : 0)
+                    // refl6b (item C): the precise visibility states as TWO
+                    // dedicated flag bits -- bit0x20 Internal(0x3), bit0x40
+                    // FamORAssem(0x5). Encoded ONLY for those exact vis values
+                    // (public/private/protected stay bit-identical to the
+                    // pre-refl6b tables -- zero-delta bytes); the precise
+                    // IsAssembly / IsFamilyOrAssembly predicates decode them.
+                    | (m.AccessMask == 0x3 ? 0x20 : 0)
+                    | (m.AccessMask == 0x5 ? 0x40 : 0);
                 var slot = m.IsVirtual ? m.VTableSlot : -1;
                 // refl2 S2/G1: folded-accessor methods have NO emitted function
                 // symbol (AccessorAnalyzer rewrote every call site to a field
@@ -1621,14 +1637,16 @@ public static class TypeEmitter
         var fieldEntries = t.InstanceFields
             .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference || !string.IsNullOrEmpty(f.FieldTypeName) ? f.FieldTypeName : "System.Int32",
                 Offset: f.ByteOffset, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
-                Addr: "nullptr", Flags: (f.IsPublic ? 1 : 0) | (f.IsPrivate ? 0x10 : 0)))
+                Addr: "nullptr", Flags: (f.IsPublic ? 1 : 0) | (f.IsPrivate ? 0x10 : 0)
+                    | (f.AccessMask == 0x3 ? 0x20 : 0) | (f.AccessMask == 0x5 ? 0x40 : 0)))
             .Concat(t.StaticFields.Select(f =>
             {
                 var (semantic, typeName) = StaticFieldSemantics(f, md);
                 return (f.Name, TypeName: typeName,
                     Offset: -1, IsRef: semantic == StaticFieldSemantic.Reference ? 1 : 0,
                     Addr: f.IsLiteral ? "nullptr" : $"&{FieldCppName(t, f.Name)}",
-                    Flags: (f.IsPublic ? 1 : 0) | (f.IsStatic ? 2 : 0) | (f.IsLiteral ? 4 : 0) | (f.IsPrivate ? 0x10 : 0));
+                    Flags: (f.IsPublic ? 1 : 0) | (f.IsStatic ? 2 : 0) | (f.IsLiteral ? 4 : 0) | (f.IsPrivate ? 0x10 : 0)
+                        | (f.AccessMask == 0x3 ? 0x20 : 0) | (f.AccessMask == 0x5 ? 0x40 : 0));
             }))
             .ToList();
         if (fieldEntries.Count > 0)
@@ -1711,16 +1729,29 @@ public static class TypeEmitter
         // order (ExpandNestedTypes appends in md.TypeDefinitions order). 0
         // nested types emit NO table (nullptr/0 -- zero delta for
         // nested-free types).
-        var nestedEntries = (allTypes ?? Enumerable.Empty<TypeDef>())
+        var nestedDefs = (allTypes ?? Enumerable.Empty<TypeDef>())
             .Where(x => x.IsNested && x.DeclaringTypeName == ReflectionFullName(t))
-            .Select(ReflectionFullName)
             .ToList();
+        var nestedEntries = nestedDefs.Select(ReflectionFullName).ToList();
         if (nestedEntries.Count > 0)
         {
             w.Line($"static const char* {TypeCppName(t)}_typeinfo_nested[] = {{");
             w.Open();
             foreach (var n in nestedEntries)
                 w.Line($"    \"{n}\",");
+            w.Close();
+            w.Line("};");
+            w.Line();
+            // refl6b (item A): the parallel VISIBILITY byte column -- one
+            // TypeAttributes&0x7 value per nested entry (the expanded nested
+            // TypeDef's VisibilityMask). The runtime GetNestedType /
+            // GetNestedTypes visibility filter consumes it (net48 default
+            // GetNestedTypes() is Public-only; GetNestedType(name) binds
+            // Public-only). Emitted whenever the names table is emitted.
+            w.Line($"static const uint8_t {TypeCppName(t)}_typeinfo_nestedvis[] = {{");
+            w.Open();
+            foreach (var nd in nestedDefs)
+                w.Line($"    {(byte)(nd.VisibilityMask & 0x7)}, // {ReflectionFullName(nd)}");
             w.Close();
             w.Line("};");
             w.Line();
@@ -1798,6 +1829,7 @@ public static class TypeEmitter
         // RF-N5: nested-type sub-table row (main table).
         var nestedExpr = nestedEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_nested" : "nullptr";
         w.Line($"    {nestedExpr}, {nestedEntries.Count},                  // nested (RF-N5)");
+        w.Line($"    {(nestedEntries.Count > 0 ? $"{TypeCppName(t)}_typeinfo_nestedvis" : "nullptr")},  // nestedVis (refl6b: TypeAttributes&0x7 per entry)");
         // O4 (boxed user-struct reflection): the value-type marker -- 1 for a
         // translated user STRUCT (TypeDef.IsValueType; its Il2CppFieldInfo.
         // offset column is struct-relative, so the runtime GetValue/SetValue

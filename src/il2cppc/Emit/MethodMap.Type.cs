@@ -262,6 +262,26 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_nested_types", 0, true, true, true,
                         returnTypeName: "System.Type[]");
                 throw new NotSupportedException($"Type.GetNestedTypes with {ps.Length} parameter(s) not wired in RF-N5 -- only the () overload maps to il2cpp_typeinfo_get_nested_types");
+            // REFL6B (item A): Type.GetNestedType(string) / (string,
+            // BindingFlags) -- ONE runtime filter icall over the nested
+            // sub-table (il2cpp_typeinfo_get_nested_type: simple-name match on
+            // the segment after the LAST '+', visibility filter, returns the
+            // nested type's FULL '+' reflection name -- a Type VALUE -- or
+            // null). net48 DEFAULT binding for the 1-arg overload is Public
+            // (16) -- the transpiler appends the binding constant; the 2-arg
+            // overload rides the BindingFlags int32 slot ("i"). Exception /
+            // miss contract lives in the runtime (null name ->
+            // ArgumentNullException; null receiver -> NullReferenceException;
+            // empty/absent/visibility-miss -> null, no throw -- probe-pinned).
+            case "GetNestedType":
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_typeinfo_get_nested_type", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.Type",
+                        appendLiterals: new[] { "16" });
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_nested_type", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.Type");
+                throw new NotSupportedException($"Type.GetNestedType with {ps.Length} parameter(s) not wired in refl6b -- only the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_nested_type");
             // RF-N5 (NEXT2-DECISION section ② RF-N5): GetMembers() -- the
             // five-enumeration union (the runtime concats the public methods
             // WITH their property/event accessors -- net48 returns accessors
@@ -484,6 +504,14 @@ public static partial class MethodRefResolver
             case "get_IsGenericTypeDefinition":
                 throw new NotSupportedException(
                     "Type.get_IsGenericTypeDefinition on a runtime (GetType-derived) Type is not decidable: the typeinfo registry cannot distinguish a generic definition from its closed clones (both register the definition's name -- RF-N4), so StackFold must fold this on a typeof chain and this runtime path cannot be wired");
+            // refl6b (item B5): Type.get_ContainsGenericParameters -- the
+            // FOLDED typeof chains are decided at transpile time (StackFold:
+            // open def / nested-in-open -> 1, closed -> 0). A RUNTIME receiver
+            // (a GetType() result) can never denote an open generic in the
+            // simplified model (MakeGenericType is LOUD), so the runtime path
+            // is the constant-0 icall (net48 False for every runtime type).
+            case "get_ContainsGenericParameters":
+                return I("il2cpp::il2cpp_typeinfo_is_contains_generic_params", 0, true, false, true);
             //   * GetGenericArguments() -- the THREE-WAY runtime split
             //     (il2cpp_typeinfo_get_generic_arguments): non-generic ->
             //     EMPTY array; genericArity > 0 -> LOUD (no fabrication -- the

@@ -26,6 +26,15 @@ public sealed class MethodDef
     // (net48 enumeration never lists a private BASE-chain method/property;
     // the runtime typeinfo flags encode it as bit 0x10).
     public bool IsPrivate { get; init; }
+    // refl6b (item C): the raw ECMA 3-bit MEMBER ACCESS mask
+    // (MethodAttributes & 0x7: Public=0x6, Private=0x1, Family=0x4,
+    // Assembly=0x3, FamORAssem=0x5, FamANDAssem=0x2). The runtime typeinfo
+    // flags bake the two exact-info states as dedicated bits (Internal -> 0x20,
+    // FamORAssem -> 0x40) so the exact member-info predicates (IsAssembly =
+    // Internal-only, IsFamilyOrAssembly = FamORAssem-only) decode precisely --
+    // net48 oracle6d. Zero-delta for the existing low-bit decoders
+    // (bit0-3 / 0x10).
+    public int AccessMask { get; init; }
     // Signature info (decoded and filled by MetadataLoader via MethodSignatureCoder):
     // the param count is used for overloaded method-body signature matching; the
     // encoded param-type string ("i,i") is part of the method-name hash input

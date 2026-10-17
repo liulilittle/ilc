@@ -105,6 +105,16 @@ public sealed class TypeDef
     // enclosing type is not translated in this assembly).
     public bool IsNested { get; init; }
     public string DeclaringTypeName { get; init; } = "";
+    // refl6b (item A): the raw ECMA 3-bit TYPE visibility mask
+    // (TypeAttributes & 0x7). For a NESTED type: NestedPublic=0x2,
+    // NestedPrivate=0x3, NestedFamily=0x4, NestedAssembly=0x5,
+    // NestedFamANDAssem=0x6, NestedFamORAssem=0x7 -- the byte the enclosing
+    // typeinfo's nestedVis column carries for the runtime GetNestedType /
+    // GetNestedTypes visibility filter (net48: default GetNestedTypes() is
+    // Public-only). For a top-level type: NotPublic=0x0 / Public=0x1 (unused
+    // by the nested table). Set in ExpandNestedTypes (the metadata TypeDef's
+    // raw Attributes).
+    public int VisibilityMask { get; init; }
     public TypeDef? DeclaringType { get; set; }
     public List<TypeDef> NestedTypes { get; } = new();
 
