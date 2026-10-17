@@ -59,11 +59,27 @@ public class MethodMapRegexTests
     public void Resolve_Regex_IsMatchOptions_MapsWithOptionsCast()
     {
         // static bool IsMatch(string, string, RegexOptions): RegexOptions is
-        // an i4 enum slot (0x08).
+        // an ENUM -- the real Roslyn (csc) signature encodes it as a
+        // VALUETYPE (0x11 + the coded index of RegexOptions, 0x05), NOT a
+        // bare i4. The resolver accepts both shapes (unit-synthesized 0x08
+        // kept for back-compat); the cast stays "i" (the enum value travels
+        // as an int32 carrier).
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "Regex", "IsMatch",
+            new byte[] { 0x00, 0x03, 0x02, 0x0E, 0x0E, 0x11, 0x05 }), "IsMatch");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_regex_is_match", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "s", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Regex_IsMatchOptions_SynthI4FormStillResolves()
+    {
+        // The unit-synthesized i4 (0x08) blob remains accepted (back-compat
+        // with older synthetic-PE tests).
         var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "Regex", "IsMatch",
             new byte[] { 0x00, 0x03, 0x02, 0x0E, 0x0E, 0x08 }), "IsMatch");
 
-        Assert.Equal("il2cpp::runtime::il2cpp_regex_is_match", resolved.CppName);
         Assert.Equal(3, resolved.ParamCount);
         Assert.Equal(new[] { "s", "s", "i" }, resolved.ParamTypeNames);
     }
@@ -72,10 +88,11 @@ public class MethodMapRegexTests
     public void Resolve_Regex_IsMatchTimeout_DropsTheTimeoutArg()
     {
         // static bool IsMatch(string, string, RegexOptions, TimeSpan):
-        // TimeSpan is a valuetype (0x11 + coded index) -- dropped (the step
-        // budget replaces the timeout).
+        // RegexOptions is a VALUETYPE (0x11 + coded index), the trailing
+        // TimeSpan is also a valuetype (dropped -- the step budget replaces
+        // the timeout).
         var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "Regex", "IsMatch",
-            new byte[] { 0x00, 0x04, 0x02, 0x0E, 0x0E, 0x08, 0x11, 0x05 }), "IsMatch");
+            new byte[] { 0x00, 0x04, 0x02, 0x0E, 0x0E, 0x11, 0x05, 0x11, 0x05 }), "IsMatch");
 
         Assert.Equal(4, resolved.ParamCount);
         Assert.Equal(new[] { "s", "s", "i", "drop" }, resolved.ParamTypeNames);
@@ -123,9 +140,10 @@ public class MethodMapRegexTests
     public void Resolve_Regex_ReplaceOptionsTimeout_MapsWithDrop()
     {
         // static string Replace(string, string, string, RegexOptions,
-        // TimeSpan): the trailing TimeSpan (0x11 + coded index) is dropped.
+        // TimeSpan): RegexOptions (0x11 + coded index) carries the "i" cast;
+        // the trailing TimeSpan (0x11 + coded index) is dropped.
         var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "Regex", "Replace",
-            new byte[] { 0x00, 0x05, 0x0E, 0x0E, 0x0E, 0x0E, 0x08, 0x11, 0x05 }), "Replace");
+            new byte[] { 0x00, 0x05, 0x0E, 0x0E, 0x0E, 0x0E, 0x11, 0x05, 0x11, 0x05 }), "Replace");
 
         Assert.Equal(5, resolved.ParamCount);
         Assert.Equal(new[] { "s", "s", "s", "i", "drop" }, resolved.ParamTypeNames);

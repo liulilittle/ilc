@@ -45,6 +45,35 @@ public static partial class MethodRefResolver
                 return receiverType is "System.String" or "System.Globalization.CultureInfo"
                     ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true)
                     : null;
+            // nb2 CULT-GET: CultureInfo.GetCultureInfo(string) -- handle-gap:
+            // a CultureInfo IS its culture-name string (the get_Name identity
+            // above operates on it). The runtime icall normalizes the name
+            // (canonical case for a known culture, verbatim echo for a
+            // well-formed unknown whose primary is a known language; null for
+            // an unknown primary, M3 -- net48 throws CultureNotFoundException).
+            // ReturnTypeName stamps the receiver so the chained get_Name /
+            // get_TwoLetterISOLanguageName resolve on the tracked type.
+            case "GetCultureInfo":
+                if (count == 1)
+                    return I("il2cpp::runtime::il2cpp_culture_get_culture_info", 1, true, true, false,
+                        returnTypeName: "System.Globalization.CultureInfo");
+                throw new NotSupportedException($"CultureInfo.GetCultureInfo with {count} param(s) not wired (expected (string))");
+            case "get_TwoLetterISOLanguageName":
+                // nb2 CULT-GET: the culture-name carrier's primary segment,
+                // mapped through the ISO 639-1 code table ("en-US" -> "en";
+                // net48 pin: "no" -> "nb", "iw" -> "he", ...). Applies to any
+                // CultureInfo/current-culture carrier (the receiver is the
+                // name string; the icall is receiver-first).
+                return receiverType is "System.Globalization.CultureInfo" or "System.String"
+                    ? I("il2cpp::runtime::il2cpp_culture_get_two_letter_from_name", 0, true, true, true,
+                        returnTypeName: "System.String")
+                    : null;
+            case "get_DisplayName":
+                // nb2 CULT-GET: no culture display-name table on the runtime
+                // surface (net48 returns the localized display name, e.g.
+                // "英语(美国)" on zh-CN). Explicit LOUD instead of a silent
+                // phantom / fold mis-resolution.
+                throw new NotSupportedException("CultureInfo.DisplayName is not wired: the runtime has no culture display-name table");
             // P6: CultureInfo internal methods (stubs).
             case "nativeGetLocaleInfoEx": return I("il2cpp::runtime::icall_culture_info_native_get_locale_info_ex_int", 1, true, true, false, new[] { "i" });
             case "nativeGetLocaleInfoExInt": return I("il2cpp::runtime::icall_culture_info_native_get_locale_info_ex_int", 1, true, false, false, new[] { "i" });

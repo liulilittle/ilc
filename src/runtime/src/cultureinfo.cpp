@@ -35,6 +35,8 @@
 
 #include <clocale>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -144,6 +146,196 @@ int32_t il2cpp_culture_get_invariant_lcid()
 Il2CppString* il2cpp_culture_get_two_letter_iso_language_name()
 {
     return Intern("iv");
+}
+
+//------------------------------------------------------------------------------
+// nb2 CULT-GET: CultureInfo.GetCultureInfo(string) + the culture-carrier
+// TwoLetterISOLanguageName. Handle-gap: a CultureInfo IS its name string.
+//------------------------------------------------------------------------------
+namespace {
+
+// net48 GetCultureInfo case-canonicalizes a KNOWN culture name: the culture
+// table lookup is case-insensitive and returns the registered spelling
+// ("en-us" / "EN-us" -> "en-US"; nb2 oracle). The fixed canonical table
+// below covers the cultures the verification host and probe set exercise;
+// every known-language primary carries an identity entry for neutral names
+// ("fr" -> "fr"). A well-formed UNKNOWN whose primary IS a known language is
+// echoed verbatim (nb2 oracle: "no-Such-XX-yy" -> "no-Such-XX-yy").
+const char* const kCanonicalCultures[][2] = {
+    {"en", "en"},       {"en-US", "en-US"}, {"en-GB", "en-GB"}, {"en-AU", "en-AU"},
+    {"en-CA", "en-CA"}, {"en-IN", "en-IN"}, {"en-NZ", "en-NZ"}, {"en-ZA", "en-ZA"},
+    {"en-IE", "en-IE"}, {"en-SG", "en-SG"},
+    {"zh", "zh"},       {"zh-CN", "zh-CN"}, {"zh-TW", "zh-TW"}, {"zh-HK", "zh-HK"},
+    {"zh-SG", "zh-SG"}, {"zh-MO", "zh-MO"},
+    {"de", "de"},       {"de-DE", "de-DE"}, {"fr", "fr"},       {"fr-FR", "fr-FR"},
+    {"it", "it"},       {"it-IT", "it-IT"}, {"es", "es"},       {"es-ES", "es-ES"},
+    {"ja", "ja"},       {"ja-JP", "ja-JP"}, {"ko", "ko"},       {"ko-KR", "ko-KR"},
+    {"pt", "pt"},       {"pt-BR", "pt-BR"}, {"pt-PT", "pt-PT"}, {"ru", "ru"},
+    {"ru-RU", "ru-RU"}, {"nl", "nl"},       {"nl-NL", "nl-NL"}, {"pl", "pl"},
+    {"pl-PL", "pl-PL"}, {"tr", "tr"},       {"tr-TR", "tr-TR"}, {"ar", "ar"},
+    {"ar-SA", "ar-SA"}, {"cs", "cs"},       {"cs-CZ", "cs-CZ"}, {"el", "el"},
+    {"el-GR", "el-GR"}, {"hu", "hu"},       {"hu-HU", "hu-HU"}, {"da", "da"},
+    {"da-DK", "da-DK"}, {"fi", "fi"},       {"fi-FI", "fi-FI"}, {"sv", "sv"},
+    {"sv-SE", "sv-SE"}, {"he", "he"},       {"he-IL", "he-IL"}, {"id", "id"},
+    {"id-ID", "id-ID"}, {"nb", "nb"},       {"nb-NO", "nb-NO"}, {"nn", "nn"},
+    {"nn-NO", "nn-NO"}, {"no", "nb"},
+};
+
+// net48 TwoLetterISOLanguageName -- the ISO 639-1 CODE of the primary
+// language, with the legacy registry pins (.NET maps the alias/legacy
+// primary codes to their ISO code; probe-pinned:
+// GetCultureInfo("no-Such-XX-yy").TwoLetterISOLanguageName == "nb").
+const char* const kLegacyTwoLetterPins[][2] = {
+    {"no", "nb"}, {"iw", "he"}, {"in", "id"}, {"ji", "yi"},
+};
+
+char AsciiLower(char c)
+{
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+}
+
+// ASCII case-insensitive equality (culture names are ASCII).
+bool AsciiCiEquals(const char* a, const char* b)
+{
+    while (*a != '\0' && *b != '\0')
+    {
+        if (AsciiLower(*a) != AsciiLower(*b))
+        {
+            return false;
+        }
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
+// The managed UTF-16 payload -> an ASCII byte buffer (NUL-terminated).
+// Returns false when any unit is non-ASCII (such a name cannot be a culture
+// name -- net48 would fail it; the caller signals M3 null).
+bool CsToAscii(const Il2CppString* s, std::vector<char>& out)
+{
+    out.reserve(static_cast<size_t>(s->length) + 1);
+    for (int32_t i = 0; i < s->length; ++i)
+    {
+        const char16_t c = s->chars[i];
+        if (c > 0x7F)
+        {
+            return false;
+        }
+        out.push_back(static_cast<char>(c));
+    }
+    out.push_back('\0');
+    return true;
+}
+
+// The 'known primary language' set -- the first segment of every canonical
+// culture entry (the set net48 treats as a resolvable primary: an unknown
+// well-formed name whose primary is NOT here throws CultureNotFoundException).
+bool IsKnownPrimary(const char* primary)
+{
+    const size_t plen = std::strlen(primary);
+    for (const auto& e : kCanonicalCultures)
+    {
+        const char* dash = std::strchr(e[0], '-');
+        const size_t elen = dash ? static_cast<size_t>(dash - e[0])
+                                 : std::strlen(e[0]);
+        if (plen != elen)
+        {
+            continue;
+        }
+        bool eq = true;
+        for (size_t i = 0; i < plen; ++i)
+        {
+            if (AsciiLower(primary[i]) != AsciiLower(e[0][i]))
+            {
+                eq = false;
+                break;
+            }
+        }
+        if (eq)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+Il2CppString* il2cpp_culture_get_culture_info(Il2CppObject* name)
+{
+    if (name == nullptr)
+    {
+        return nullptr;
+    }
+    const Il2CppString* s = reinterpret_cast<Il2CppString*>(name);
+    std::vector<char> ascii;
+    if (!CsToAscii(s, ascii))
+    {
+        return nullptr;
+    }
+    // 1. Canonical-cased lookup (case-insensitive table scan): a known
+    //    culture returns its registered spelling.
+    for (const auto& e : kCanonicalCultures)
+    {
+        if (AsciiCiEquals(ascii.data(), e[0]))
+        {
+            return Intern(e[1]);
+        }
+    }
+    // 2. Primary-segment existence gate: a well-formed name whose primary is
+    //    a known language is echoed VERBATIM (net48 builds a synthetic
+    //    culture -- no re-case); an unknown primary would throw on net48
+    //    (CultureNotFoundException) and signals M3 null here.
+    std::vector<char> primary(ascii);
+    char* dash = std::strchr(primary.data(), '-');
+    if (dash != nullptr)
+    {
+        *dash = '\0';
+    }
+    if (!IsKnownPrimary(primary.data()))
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<Il2CppString*>(
+        il2cpp_string_new(s->chars, s->length));
+}
+
+Il2CppString* il2cpp_culture_get_two_letter_from_name(Il2CppObject* name)
+{
+    if (name == nullptr)
+    {
+        return nullptr;
+    }
+    const Il2CppString* s = reinterpret_cast<Il2CppString*>(name);
+    if (s->length == 0)
+    {
+        return Intern("iv"); // the invariant culture's ISO 639-1 pin (net48)
+    }
+    std::vector<char> ascii;
+    if (!CsToAscii(s, ascii))
+    {
+        return Intern("");
+    }
+    char* dash = std::strchr(ascii.data(), '-');
+    if (dash != nullptr)
+    {
+        *dash = '\0';
+    }
+    // Lowercase the primary (the ISO code's canonical case -- "EN-us" -> "en")
+    // then apply the legacy registry pins ("no" -> "nb").
+    for (char* c = ascii.data(); *c != '\0'; ++c)
+    {
+        *c = AsciiLower(*c);
+    }
+    for (const auto& pin : kLegacyTwoLetterPins)
+    {
+        if (AsciiCiEquals(ascii.data(), pin[0]))
+        {
+            return Intern(pin[1]);
+        }
+    }
+    return Intern(ascii.data());
 }
 
 Il2CppString* il2cpp_culture_get_three_letter_iso_language_name()

@@ -27,8 +27,10 @@
 //     (literal '$'), two-digit $nn (group nn when it exists, else first
 //     digit group + literal second digit); any other '$' sequence is kept
 //     literally.
-//   * RegexOptions subset: IgnoreCase=1 | Multiline=2 | Singleline=4. Any
-//     other bit throws NotSupportedException (loud, section 1.2).
+//   * RegexOptions subset: IgnoreCase=1 | Multiline=2 | Singleline=0x10
+//     (the REAL net48 enum numbering -- .NET Singleline is 16, not 4; see
+//     regex_ast.h). Any other bit throws NotSupportedException (loud,
+//     section 1.2).
 //
 // ERROR SEMANTICS (net48-aligned, regex-domain.md section 4.3): null pattern /
 // input / replacement -> ArgumentNullException; syntactically invalid

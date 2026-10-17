@@ -96,28 +96,84 @@ public static partial class MethodRefResolver
                             return I("il2cpp::runtime::icall_directory_delete_recursive", 2, false, false, false,
                                 new[] { "s", "" });
                         throw new NotSupportedException($"Directory.Delete with {count} param(s) not wired (expected (string) or (string, bool))");
+                    // nb2 DIR-FILES: Directory.GetFiles / GetDirectories /
+                    // GetCurrentDirectory -- all four arms were missing
+                    // (phantom symbols, nb2 red probe). GetFiles/GetDirectories
+                    // share one runtime entry per name with defaulted trailing
+                    // params (path / path+pattern / path+pattern+SearchOption);
+                    // the SearchOption enum slot is an int32 carrier ("i").
+                    // GetCurrentDirectory reuses the Environment icall.
+                    case "GetCurrentDirectory":
+                        return I("il2cpp::runtime::icall_environment_get_current_directory", 0, true, true, false,
+                            returnTypeName: "System.String");
+                    case "GetFiles":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_directory_get_files", 1, true, true, false,
+                                returnTypeName: "System.String[]");
+                        if (count == 2)
+                            return I("il2cpp::runtime::icall_directory_get_files", 2, true, true, false,
+                                returnTypeName: "System.String[]");
+                        if (count == 3)
+                            return I("il2cpp::runtime::icall_directory_get_files", 3, true, true, false,
+                                new[] { "", "", "i" }, returnTypeName: "System.String[]");
+                        throw new NotSupportedException($"Directory.GetFiles with {count} param(s) not wired (expected (string), (string, string) or (string, string, SearchOption))");
+                    case "GetDirectories":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_directory_get_directories", 1, true, true, false,
+                                returnTypeName: "System.String[]");
+                        if (count == 2)
+                            return I("il2cpp::runtime::icall_directory_get_directories", 2, true, true, false,
+                                returnTypeName: "System.String[]");
+                        if (count == 3)
+                            return I("il2cpp::runtime::icall_directory_get_directories", 3, true, true, false,
+                                new[] { "", "", "i" }, returnTypeName: "System.String[]");
+                        throw new NotSupportedException($"Directory.GetDirectories with {count} param(s) not wired (expected (string), (string, string) or (string, string, SearchOption))");
                     default: return null;
                 }
             case "System.IO.Path":
                 switch (name)
                 {
                     case "Combine":
+                        // Combine(string[]) -- the params-array overload (a
+                        // single SZARRAY param): the runtime icall folds every
+                        // element left-to-right through the 2-arg semantics.
+                        if (ps.Length == 1 && ps[0] == 0x1D)
+                            return I("il2cpp::runtime::icall_path_combine_many", 1, true, true, false,
+                                returnTypeName: "System.String");
                         if (ps.Length == 2) return I("il2cpp::runtime::icall_path_combine", 2, true, true, false);
-                        // Work order #24: Path.Combine(string, string, string)
-                        // is the params-array form of Combine -- the IL pushes
-                        // all args in one call, but the runtime icall takes
-                        // exactly (string, string) (il2cpp_io.h has no
-                        // multi-arg combine). The resolver emits the
-                        // NestedCombineMarker and StackFold expands the 3-arg
-                        // call into nested icall_path_combine(combine(a,b),c)
-                        // calls (StackFold.cs NestedCombineMarker handling).
-                        if (ps.Length == 3)
-                            return new ResolvedMethod(ResolvedMethod.NestedCombineMarker, 3, false, true, true,
-                                new[] { false, false, false }, false, ReturnTypeName: "System.String");
-                        throw new NotSupportedException($"Path.Combine with {ps.Length} arg(s) not wired: the runtime icall takes exactly (string, string); only the 2-arg form and the 3-arg nested fold are wired");
+                        // Work order #24 + nb2: Combine(string,string,string[,string])
+                        // is the params-array form -- the IL pushes all args in
+                        // one call, but the runtime icall takes exactly
+                        // (string, string) (il2cpp_io.h has no multi-arg
+                        // combine). The resolver emits the NestedCombineMarker
+                        // and StackFold expands the N-ary call into nested
+                        // icall_path_combine(combine(a,b),c) calls (StackFold.cs
+                        // NestedCombineMarker handling -- 3-arg folded since
+                        // Work order #24, extended to 4-arg in nb2).
+                        if (ps.Length >= 3)
+                            return new ResolvedMethod(ResolvedMethod.NestedCombineMarker, ps.Length, false, true, true,
+                                new bool[ps.Length], false, ReturnTypeName: "System.String");
+                        throw new NotSupportedException($"Path.Combine with {ps.Length} arg(s) not wired: the runtime icall takes exactly (string, string); the 2-arg form, the 3/4-arg fold and the params-array form are wired");
                     case "GetFileName": return I("il2cpp::runtime::icall_path_get_file_name", 1, true, true, false);
                     case "GetExtension": return I("il2cpp::runtime::icall_path_get_extension", 1, true, true, false);
                     case "ChangeExtension": return I("il2cpp::runtime::icall_path_change_extension", 2, true, true, false);
+                    // nb2 IO-PATH2: the pathproc.h extension icalls had
+                    // runtime implementations but NO mapping arms -- real calls
+                    // resolved to phantom generated-name symbols (silent fold
+                    // fall-through -> C++ compile error, nb2 red probe). All
+                    // return the managed path string.
+                    case "GetTempPath": return I("il2cpp::runtime::il2cpp_path_get_temp_path", 0, true, true, false,
+                        returnTypeName: "System.String");
+                    case "GetFullPath": return I("il2cpp::runtime::il2cpp_path_get_full_path", 1, true, true, false,
+                        returnTypeName: "System.String");
+                    case "HasExtension": return I("il2cpp::runtime::il2cpp_path_has_extension", 1, true, false, false);
+                    // nb2 IO-PATH2: NET-NEW runtime extensions (pathproc.h /
+                    // pathproc.cpp) -- pure string splitting, net48
+                    // edge cases pinned in p-nb2-iopath.
+                    case "GetDirectoryName": return I("il2cpp::runtime::il2cpp_path_get_directory_name", 1, true, true, false,
+                        returnTypeName: "System.String");
+                    case "GetFileNameWithoutExtension": return I("il2cpp::runtime::il2cpp_path_get_file_name_without_extension", 1, true, true, false,
+                        returnTypeName: "System.String");
                     default: return null;
                 }
             case "System.IO.FileInfo":

@@ -52,6 +52,15 @@ public static partial class MethodRefResolver
 
     // IsMatch / Match / Split: (string input, string pattern[, RegexOptions
     // [, TimeSpan]]). Returns a bool (IsMatch) or a string[] reference.
+    //
+    // RegexOptions slot: the net48 reference is an ENUM, so the real Roslyn
+    // (csc) signature encodes it as a VALUETYPE (0x11 + coded index), NOT a
+    // bare i4. Before this fix the arms accepted ONLY the unit-synthesized
+    // i4 (0x08) form, so real 3/4-param calls fell through to the
+    // generated-name path and emitted phantom C++ symbols (silent fold
+    // fall-through -> undefined identifier at compile time; nb2 red probe).
+    // Both shapes now resolve; the cast stays "i" (the enum value travels as
+    // an int32 carrier).
     private static ResolvedMethod? RegexStatic(byte[] ps, string cpp, bool returnsRef)
     {
         if (ps.Length < 2)
@@ -63,11 +72,11 @@ public static partial class MethodRefResolver
         {
             2 => I(cpp, 2, true, returnsRef, false, new[] { "s", "s" },
                 returnTypeName: returnsRef ? "System.String[]" : null),
-            3 when ps[2] == 0x08 => I(cpp, 3, true, returnsRef, false, new[] { "s", "s", "i" },
+            3 when ps[2] is 0x08 or 0x11 => I(cpp, 3, true, returnsRef, false, new[] { "s", "s", "i" },
                 returnTypeName: returnsRef ? "System.String[]" : null),
             // RegexOptions + TimeSpan matchTimeout: the timeout is dropped
             // (step budget replaces it).
-            >= 4 when ps[2] == 0x08 => I(cpp, 4, true, returnsRef, false, new[] { "s", "s", "i", "drop" },
+            >= 4 when ps[2] is 0x08 or 0x11 => I(cpp, 4, true, returnsRef, false, new[] { "s", "s", "i", "drop" },
                 returnTypeName: returnsRef ? "System.String[]" : null),
             _ => null,
         };
@@ -90,10 +99,13 @@ public static partial class MethodRefResolver
         {
             3 => I("il2cpp::runtime::il2cpp_regex_replace", 3, true, true, false, new[] { "s", "s", "s" },
                 returnTypeName: "System.String"),
-            4 when ps[3] == 0x08 => I("il2cpp::runtime::il2cpp_regex_replace", 4, true, true, false,
+            // RegexOptions slot: accepts the real Roslyn VALUETYPE (0x11)
+            // enum form AND the unit-synthesized i4 (0x08) form -- see
+            // RegexStatic's note.
+            4 when ps[3] is 0x08 or 0x11 => I("il2cpp::runtime::il2cpp_regex_replace", 4, true, true, false,
                 new[] { "s", "s", "s", "i" }, returnTypeName: "System.String"),
             // RegexOptions + TimeSpan matchTimeout: the timeout is dropped.
-            >= 5 when ps[3] == 0x08 => I("il2cpp::runtime::il2cpp_regex_replace", 5, true, true, false,
+            >= 5 when ps[3] is 0x08 or 0x11 => I("il2cpp::runtime::il2cpp_regex_replace", 5, true, true, false,
                 new[] { "s", "s", "s", "i", "drop" }, returnTypeName: "System.String"),
             _ => null,
         };

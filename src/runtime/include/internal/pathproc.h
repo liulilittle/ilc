@@ -91,6 +91,23 @@ Il2CppObject* il2cpp_path_change_extension(Il2CppObject* path, Il2CppObject* ext
 // path, extension-less names, trailing dots and separator-led names.
 int32_t il2cpp_path_has_extension(Il2CppObject* path);
 
+// Path.GetDirectoryName(path): the directory portion of 'path' -- the text
+// before the last segment separator, trailing separators stripped
+// ("a\\b\\c.txt" -> "a\\b", "a\\b\\" -> "a\\b", "a\\b" -> "a", "plain" ->
+// "", "\\a" -> "\\" -- net48, probe-pinned). Boundary cases (net48 oracle):
+// a null path -> null; "" -> net48 ArgumentException (M3: null); a path
+// that is all separators ("\\", the root) -> null. A drive colon keeps its
+// separator ("C:\\a" -> "C:\\"). Both separators are recognized.
+Il2CppObject* il2cpp_path_get_directory_name(Il2CppObject* path);
+
+// Path.GetFileNameWithoutExtension(path): the last path segment with the
+// extension the GetExtension rule identifies stripped ("a\\b\\c.txt" -> "c",
+// "name" -> "name"). A LEADING dot is part of the extension (".git" -> "" --
+// net48, probe-pinned), a trailing dot is NOT (net48: "file." -> "file.").
+// Returns "" for a trailing-separator path ("a\\" -> "") and null for a null
+// path (net48 "" -> ArgumentException -- M3 null).
+Il2CppObject* il2cpp_path_get_file_name_without_extension(Il2CppObject* path);
+
 //------------------------------------------------------------------------------
 // System.Diagnostics.Process (simplified).
 //------------------------------------------------------------------------------

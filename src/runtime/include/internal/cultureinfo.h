@@ -90,6 +90,23 @@ int32_t il2cpp_culture_get_invariant_lcid();
 // CultureInfo.TwoLetterISOLanguageName of the invariant culture -- "iv".
 Il2CppString* il2cpp_culture_get_two_letter_iso_language_name();
 
+// CultureInfo.GetCultureInfo(string) -- handle-gap: a CultureInfo IS its
+// culture-name string, so this returns the NAME (canonical-cased for a known
+// culture, "en-us"/"EN-us" -> "en-US"; the verbatim input for a well-formed
+// unknown whose PRIMARY segment is a known language, "no-Such-XX-yy" ->
+// "no-Such-XX-yy"). A null input / an entirely unknown primary returns null
+// (M3: net48 throws ArgumentNullException/CultureNotFoundException). The
+// transpiler stamps the result as a CultureInfo so chained get_Name/
+// get_TwoLetterISOLanguageName fold on the tracked type.
+Il2CppString* il2cpp_culture_get_culture_info(Il2CppObject* name);
+
+// CultureInfo.TwoLetterISOLanguageName on the culture-name carrier: the
+// primary (first '-' segment) mapped through the ISO 639-1 code table
+// (identity for most; net48 legacy pins: "no" -> "nb", "iw" -> "he",
+// "in" -> "id", "ji" -> "yi"). The invariant culture's EMPTY name maps to
+// "iv" (the net48 invariant pin); any other primary falls back to itself.
+Il2CppString* il2cpp_culture_get_two_letter_from_name(Il2CppObject* name);
+
 // CultureInfo.ThreeLetterISOLanguageName of the invariant culture -- "ivl".
 Il2CppString* il2cpp_culture_get_three_letter_iso_language_name();
 

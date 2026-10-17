@@ -27,10 +27,20 @@
 
 namespace il2cpp { namespace runtime {
 
-// RegexOptions bit subset accepted at parse time (docs section 1.2).
+// RegexOptions bit subset accepted at parse time (docs section 1.2). The
+// values are the REAL net48 enum numbering (RegexOptions: IgnoreCase=1,
+// Multiline=2, Singleline=0x10 -- .NET's Singleline is 16, NOT 4). Before
+// nb2 Singleline was pinned to 0x04 (the .NET ExplicitCapture bit), so a
+// real Roslyn `RegexOptions.Singleline` (=16) argument was rejected as
+// outside the whitelist (subordinate: the p-nb2-regex red/oracle probe pins
+// the net48 enum value). The subset remains {IgnoreCase, Multiline,
+// Singleline}; every other net48 bit (ExplicitCapture=4, Compiled=8,
+// IgnorePatternWhitespace=0x20, RightToLeft=0x40, ...) is rejected loudly
+// at parse time with InvalidOptions (net48 would throw
+// NotSupported/Argument at construction; loud failure either way).
 constexpr int32_t kRegexOptionsIgnoreCase  = 0x01;
 constexpr int32_t kRegexOptionsMultiline   = 0x02;
-constexpr int32_t kRegexOptionsSingleline  = 0x04;
+constexpr int32_t kRegexOptionsSingleline  = 0x10;
 constexpr int32_t kRegexOptionsAllowedMask =
     kRegexOptionsIgnoreCase | kRegexOptionsMultiline | kRegexOptionsSingleline;
 

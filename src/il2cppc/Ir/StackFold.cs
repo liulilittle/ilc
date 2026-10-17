@@ -3650,38 +3650,43 @@ public static class StackFold
                 Push(comCall, ins);
                 return;
             }
-            // Work order #24: Path.Combine(string,string,string) -- the
-            // params-array form. The resolver emits the NestedCombineMarker
-            // (the runtime icall takes exactly (string,string)); expand the
-            // 3-arg call into a nested CallExpr tree
-            // icall_path_combine(icall_path_combine(a,b), c). The emitter
+            // Work order #24 (3-arg) + nb2 IO-PATH2 (4-arg): Path.Combine(
+            // string, string, string[, string]) -- the params-array form.
+            // The resolver emits the NestedCombineMarker (the runtime icall
+            // takes exactly (string,string)); expand the N-ary call into a
+            // nested CallExpr tree icall_path_combine(icall_path_combine(a,b),c)
+            // (left fold, matching the 2-arg semantics order). The emitter
             // handles a CallExpr as an argument (EmitIcallCallArgs recurses
             // through EmitExpr), so the nested tree emits as nested C++
             // calls. (iocase line 69: Directory.CreateDirectory(
             // Path.Combine(dir, "nested", "deep")).)
             if (resolved != null && resolved.CppName == ResolvedMethod.NestedCombineMarker)
             {
-                if (args.Count != 3)
-                    throw new NotSupportedException($"nested-combine marker with {args.Count} arg(s) (expected exactly 3)");
+                if (args.Count < 2)
+                    throw new NotSupportedException($"nested-combine marker with {args.Count} arg(s) (expected >= 2)");
                 var combine2 = new ResolvedMethod("il2cpp::runtime::icall_path_combine", 2, false, true, true,
                     new[] { false, false }, false);
-                var inner = new CallExpr
+                CallExpr acc = new CallExpr
                 {
                     Function = $"call_{ins.Operand}",
                     ReturnsRef = true,
                     Resolved = combine2,
                 };
-                inner.Args.Add(args[0]);
-                inner.Args.Add(args[1]);
-                var outer = new CallExpr
+                acc.Args.Add(args[0]);
+                acc.Args.Add(args[1]);
+                for (int ai = 2; ai < args.Count; ++ai)
                 {
-                    Function = $"call_{ins.Operand}",
-                    ReturnsRef = true,
-                    Resolved = combine2,
-                };
-                outer.Args.Add(inner);
-                outer.Args.Add(args[2]);
-                Push(outer, ins);
+                    var outer = new CallExpr
+                    {
+                        Function = $"call_{ins.Operand}",
+                        ReturnsRef = true,
+                        Resolved = combine2,
+                    };
+                    outer.Args.Add(acc);
+                    outer.Args.Add(args[ai]);
+                    acc = outer;
+                }
+                Push(acc, ins);
                 if (stack.Peek() is LocExpr ncTemp)
                     objTypes[ncTemp.Name] = "System.String";
                 return;

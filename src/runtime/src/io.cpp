@@ -1145,6 +1145,27 @@ Il2CppObject* icall_path_combine(Il2CppObject* first, Il2CppObject* second)
     return Utf8ToCs(result.data(), result.size());
 }
 
+Il2CppObject* icall_path_combine_many(Il2CppObject* paths)
+{
+    // Path.Combine(params string[]) -- the params-array overload. Every
+    // element is combined left-to-right through the 2-arg icall semantics
+    // (a null element / null array / net48 empty-array ArgumentException all
+    // yield null -- the M3 signal; see il2cpp_io.h).
+    if (paths == nullptr)
+    {
+        return nullptr;
+    }
+    Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(paths);
+    Il2CppObject* acc = nullptr;
+    for (int32_t i = 0; i < arr->length; ++i)
+    {
+        Il2CppObject* const elem = *reinterpret_cast<Il2CppObject* const*>(
+            il2cpp_array_get_elem_ptr(arr, i));
+        acc = (acc == nullptr) ? elem : icall_path_combine(acc, elem);
+    }
+    return acc;
+}
+
 Il2CppObject* icall_path_change_extension(Il2CppObject* path, Il2CppObject* extension)
 {
     // Thin io-domain alias: the pathproc.cpp implementation owns the net48
@@ -1179,14 +1200,19 @@ int32_t icall_directory_create_directory(Il2CppObject* path)
         return p.empty() ? -1 : 0; // empty path fails; existing dir succeeds
     }
     // Create every missing level in order. A drive-letter prefix ("C:") and
-    // already-existing levels probe as directories and are skipped.
+    // already-existing levels probe as directories and are skipped. A drive
+    // root prefix is skipped WITHOUT a stat: MSVCRT stat("C:") means "the
+    // current directory of drive C" (cwd-relative), so it fails when the
+    // process cwd is on another drive and would abort the whole create
+    // (the p-nb2-dir temp-dir setup on C:).
     std::string prefix;
     size_t i = 0;
     for (;;)
     {
         const size_t j = p.find_first_of("/\\", i);
         prefix = (j == std::string::npos) ? p : p.substr(0, j);
-        if (!prefix.empty() && !PathIsDir(prefix))
+        const bool driveRoot = prefix.size() == 2 && prefix[1] == ':';
+        if (!prefix.empty() && !driveRoot && !PathIsDir(prefix))
         {
             if (!plat_dir_mkdir(prefix.c_str()) && !PathIsDir(prefix))
             {
@@ -1452,6 +1478,240 @@ int32_t icall_directory_delete_recursive(Il2CppString* path, int32_t recursive)
 #else
     return RemoveDirTreeUtf8(p);
 #endif
+}
+
+//------------------------------------------------------------------------------
+// Directory.GetFiles / GetDirectories -- FindFirstFileW/opendir enumeration
+// (net48: the OS enumeration order, byte-exact when both sides enumerate the
+// same directory contents on the same host -- p-nb2-dir). The result is a
+// managed string[] of FULL PATHS (net48 returns path + name) named by the
+// directory icalls in il2cpp_io.h.
+//------------------------------------------------------------------------------
+namespace {
+
+#if defined(_WIN32)
+
+// Enumerate 'dir' (recursively when 'recursive') into 'out'. 'wantDirs'
+// selects the subdirectory set (GetDirectories) vs the file set
+// (GetFiles). 'pattern' carries the wildcard filter applied to the FILE /
+// DIRECTORY NAMES at every level (FindFirstFileW semantics -- '*' / '?').
+// All matched entries are pushed as FULL PATHS (dir + '\\' + name). The
+// recursive descent discovers subdirectories with the UNFILTERED "*" search
+// (net48 descends into every subdirectory; the pattern only filters the
+// returned names), so a "*.txt" pattern still reaches files inside a
+// "sub" directory.
+void CollectDirectoryEntriesW(const std::wstring& dir, const std::wstring& pattern,
+                              bool recursive, bool wantDirs,
+                              std::vector<std::wstring>& out)
+{
+    const std::wstring query = dir + L"\\" + pattern;
+    WIN32_FIND_DATAW fd;
+    const HANDLE hFind = ::FindFirstFileW(query.c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE)
+    {
+        return; // missing/unopenable dir -> nothing collected (M3 empty array)
+    }
+    std::vector<std::wstring> subdirs;
+    do
+    {
+        const std::wstring name = fd.cFileName;
+        if (name == L"." || name == L"..")
+        {
+            continue;
+        }
+        const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        if (wantDirs)
+        {
+            if (isDir)
+            {
+                out.push_back(dir + L"\\" + name);
+            }
+        }
+        else if (!isDir)
+        {
+            out.push_back(dir + L"\\" + name);
+        }
+        if (isDir && recursive)
+        {
+            subdirs.push_back(dir + L"\\" + name);
+        }
+    } while (::FindNextFileW(hFind, &fd));
+    ::FindClose(hFind);
+    if (recursive)
+    {
+        for (const std::wstring& sub : subdirs)
+        {
+            CollectDirectoryEntriesW(sub, pattern, true, wantDirs, out);
+        }
+    }
+}
+
+#else  // !_WIN32
+
+// UTF-8 wildcard match ('*' any run, '?' exactly one) -- the byte-level
+// POSIX equivalent of the FindFirstFileW pattern semantics (UTF-8 payloads
+// never contain the ASCII wildcard bytes).
+bool WildcardMatch(const char* pat, const char* name)
+{
+    for (;;)
+    {
+        if (*pat == '\0')
+        {
+            return *name == '\0';
+        }
+        if (*pat == '*')
+        {
+            ++pat;
+            if (*pat == '\0')
+            {
+                return true;
+            }
+            while (*name != '\0')
+            {
+                if (WildcardMatch(pat, name))
+                {
+                    return true;
+                }
+                ++name;
+            }
+            return false;
+        }
+        if (*name == '\0' || (*pat != '?' && *pat != *name))
+        {
+            return false;
+        }
+        ++pat;
+        ++name;
+    }
+}
+
+void CollectDirectoryEntriesU(const std::string& dir, const std::string& pattern,
+                              bool recursive, bool wantDirs,
+                              std::vector<std::string>& out)
+{
+    DIR* d = ::opendir(NativePosixPath(dir).c_str());
+    if (d == nullptr)
+    {
+        return;
+    }
+    std::vector<std::string> subdirs;
+    struct dirent* ent;
+    while ((ent = ::readdir(d)) != nullptr)
+    {
+        const std::string name = ent->d_name;
+        if (name == "." || name == "..")
+        {
+            continue;
+        }
+        const std::string child = NativePosixPath(dir + "/" + name);
+        struct stat st;
+        const bool isDir = (::lstat(child.c_str(), &st) == 0) && S_ISDIR(st.st_mode);
+        const bool matched = WildcardMatch(pattern.c_str(), name.c_str());
+        if (wantDirs)
+        {
+            if (isDir && matched)
+            {
+                out.push_back(NativePosixPath(dir + "/" + name));
+            }
+        }
+        else if (!isDir && matched)
+        {
+            out.push_back(NativePosixPath(dir + "/" + name));
+        }
+        if (isDir && recursive)
+        {
+            subdirs.push_back(NativePosixPath(dir + "/" + name));
+        }
+    }
+    ::closedir(d);
+    if (recursive)
+    {
+        for (const std::string& sub : subdirs)
+        {
+            CollectDirectoryEntriesU(sub, pattern, true, wantDirs, out);
+        }
+    }
+}
+
+#endif
+
+// Shared entry: decode the managed args, enumerate, build the managed
+// string[] result (empty for a null/missing path -- M3, net48 throws
+// DirectoryNotFoundException).
+Il2CppObject* CollectDirectoryEntries(Il2CppObject* path, Il2CppObject* patternObj,
+                                      int32_t searchOption, bool wantDirs)
+{
+    if (path == nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(
+            il2cpp_string_class(), static_cast<int32_t>(sizeof(void*)), true, 0));
+    }
+    const bool recursive = searchOption == 1; // SearchOption.AllDirectories
+#if defined(_WIN32)
+    const std::vector<wchar_t> wide = CsToWide(path);
+    if (wide.empty())
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(
+            il2cpp_string_class(), static_cast<int32_t>(sizeof(void*)), true, 0));
+    }
+    std::vector<std::wstring> names;
+    std::wstring pattern = L"*";
+    if (patternObj != nullptr)
+    {
+        const Il2CppString* ps = reinterpret_cast<Il2CppString*>(patternObj);
+        pattern.assign(ps->chars, ps->chars + ps->length);
+    }
+    CollectDirectoryEntriesW(std::wstring(wide.data()), pattern, recursive, wantDirs, names);
+    Il2CppArray* arr = il2cpp_array_new(il2cpp_string_class(),
+        static_cast<int32_t>(sizeof(void*)), true, static_cast<int32_t>(names.size()));
+    for (size_t i = 0; i < names.size(); ++i)
+    {
+        Il2CppString* s = reinterpret_cast<Il2CppString*>(
+            il2cpp_string_new(reinterpret_cast<const char16_t*>(names[i].data()),
+                              static_cast<int32_t>(names[i].size())));
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(arr, static_cast<int32_t>(i)))
+            = reinterpret_cast<Il2CppObject*>(s);
+    }
+    return reinterpret_cast<Il2CppObject*>(arr);
+#else
+    const std::string dir = CsToUtf8Z(path);
+    if (dir.empty())
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(
+            il2cpp_string_class(), static_cast<int32_t>(sizeof(void*)), true, 0));
+    }
+    std::string pattern = "*";
+    if (patternObj != nullptr)
+    {
+        pattern = CsToUtf8Z(patternObj);
+    }
+    std::vector<std::string> names;
+    CollectDirectoryEntriesU(dir, pattern, recursive, wantDirs, names);
+    Il2CppArray* arr = il2cpp_array_new(il2cpp_string_class(),
+        static_cast<int32_t>(sizeof(void*)), true, static_cast<int32_t>(names.size()));
+    for (size_t i = 0; i < names.size(); ++i)
+    {
+        Il2CppString* s = reinterpret_cast<Il2CppString*>(
+            Utf8ToCs(names[i].data(), names[i].size()));
+        *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(arr, static_cast<int32_t>(i)))
+            = reinterpret_cast<Il2CppObject*>(s);
+    }
+    return reinterpret_cast<Il2CppObject*>(arr);
+#endif
+}
+
+} // namespace
+
+Il2CppObject* icall_directory_get_files(Il2CppObject* path, Il2CppObject* pattern,
+                                        int32_t searchOption)
+{
+    return CollectDirectoryEntries(path, pattern, searchOption, false);
+}
+
+Il2CppObject* icall_directory_get_directories(Il2CppObject* path, Il2CppObject* pattern,
+                                              int32_t searchOption)
+{
+    return CollectDirectoryEntries(path, pattern, searchOption, true);
 }
 
 //------------------------------------------------------------------------------

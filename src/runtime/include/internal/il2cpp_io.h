@@ -179,6 +179,15 @@ Il2CppObject* icall_path_get_extension(Il2CppObject* path);
 // part (net48 semantics). Null for null input.
 Il2CppObject* icall_path_combine(Il2CppObject* first, Il2CppObject* second);
 
+// Path.Combine(params string[] paths): combines every element left-to-right
+// through the 2-arg icall semantics above, returning the joined path, or
+// null for a null path array / net48's empty-array ArgumentException (M3:
+// null). A single element is returned unchanged. This is the params-array
+// overload the C# compiler reaches for Combine(new[]{...}); the fixed-arity
+// 3/4-arg overloads fold to nested 2-arg combines on the transpiler side
+// (NestedCombineMarker, StackFold.cs).
+Il2CppObject* icall_path_combine_many(Il2CppObject* paths);
+
 // Path.ChangeExtension(path, extension): replaces (or strips, when
 // 'extension' is null) the extension of the last path segment per the .NET
 // semantics (see io.cpp). Null for a null 'path'. A thin io-domain alias of
@@ -219,6 +228,28 @@ int32_t icall_directory_delete(Il2CppObject* path);
 // UnauthorizedAccessException -- not transportable in M3) still signals
 // non-zero instead of throwing. 0 on success.
 int32_t icall_directory_delete_recursive(Il2CppString* path, int32_t recursive);
+
+// Directory.GetFiles(path[, pattern[, searchOption]]) -- the ONE runtime
+// entry maps all three .NET overloads via the defaulted trailing parameters
+// (1-arg path / 2-arg path+pattern / 3-arg path+pattern+SearchOption). The
+// result is a managed string[] of FULL PATHS -- net48 returns the path +
+// file name -- in the OS enumeration order (FindFirstFileW; byte-exact
+// against the net48 baseline when both enumerate the same directory contents
+// on the same host). 'pattern' follows the FindFirstFileW wildcards ('*'
+// and '?'); searchOption 0 = TopDirectoryOnly, 1 = AllDirectories (recursive).
+// A null/missing/unopenable path yields an EMPTY array (M3 misfire: net48
+// throws DirectoryNotFoundException -- not byte-exact-transportable).
+Il2CppObject* icall_directory_get_files(Il2CppObject* path,
+                                        Il2CppObject* pattern = nullptr,
+                                        int32_t searchOption = 0);
+
+// Directory.GetDirectories(path[, pattern[, searchOption]]) -- the same
+// shape and ordering as GetFiles, keeping only subdirectory entries. Full
+// paths in the result (net48: path + directory name); empty array for a
+// null/missing path.
+Il2CppObject* icall_directory_get_directories(Il2CppObject* path,
+                                              Il2CppObject* pattern = nullptr,
+                                              int32_t searchOption = 0);
 
 //------------------------------------------------------------------------------
 // System.IO.FileInfo (object closure -- see Il2CppFileInfoObject above).

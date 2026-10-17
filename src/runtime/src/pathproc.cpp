@@ -32,6 +32,7 @@
 
 #include "pathproc.h"
 
+#include "il2cpp_exception.h" // il2cpp_throw_new (GetDirectoryName ArgumentException)
 #include "il2cpp_string.h"
 #include "platform.h" // plat_path_tmpdir / plat_path_full / plat_process_id / plat_thread_current_id
 
@@ -553,6 +554,118 @@ int32_t il2cpp_path_has_extension(Il2CppObject* path)
         }
     }
     return 0;
+}
+
+Il2CppObject* il2cpp_path_get_directory_name(Il2CppObject* path)
+{
+    if (path == nullptr)
+    {
+        return nullptr;
+    }
+    const Il2CppString* s = reinterpret_cast<Il2CppString*>(path);
+    // net48 boundary (probe-pinned): a null path -> null; "" ->
+    // ArgumentException -- THROWN through the managed exception transport.
+    if (s->length == 0)
+    {
+        il2cpp_throw_new(
+            "System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+            "Path cannot be the empty string or all whitespace.");
+    }
+    // net48 GetDirectoryName (probe-pinned matrix):
+    //   * a TRAILING separator run means the path names a directory: the
+    //     result is the path minus the trailing run ("a\\b\\" -> "a\\b",
+    //     "plain\\" -> "plain"). A path that is ALL separators ("\\") is the
+    //     root: GetDirectoryName -> null.
+    int32_t end = s->length;
+    int32_t skipped = 0;
+    while (end > 0 && (s->chars[end - 1] == u'\\' || s->chars[end - 1] == u'/'))
+    {
+        --end;
+        ++skipped;
+    }
+    if (end == 0)
+    {
+        return nullptr; // the root ("\\" / "\\\\") -> null
+    }
+    if (skipped > 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(
+            il2cpp_string_new(s->chars, end));
+    }
+    //   * no trailing separator: the result is the path before the LAST
+    //     separator; no separator -> "" ("plain"); a separator-led path's
+    //     parent is the root separator ("\\a" -> "\\"); a drive volume keeps
+    //     its separator ("C:\\a" -> "C:\\").
+    int32_t lastSep = -1;
+    for (int32_t i = end - 1; i >= 0; --i)
+    {
+        const char16_t c = s->chars[i];
+        if (c == u'\\' || c == u'/')
+        {
+            lastSep = i;
+            break;
+        }
+    }
+    if (lastSep < 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(
+            il2cpp_string_new(nullptr, 0));
+    }
+    if (lastSep == 0)
+    {
+        std::vector<char16_t> root(1, u'\\');
+        return reinterpret_cast<Il2CppObject*>(
+            il2cpp_string_new(root.data(), 1));
+    }
+    std::vector<char16_t> out;
+    const size_t take = (lastSep >= 2 && s->chars[lastSep - 1] == u':')
+        ? static_cast<size_t>(lastSep) + 1
+        : static_cast<size_t>(lastSep);
+    out.assign(s->chars, s->chars + take);
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp_string_new(out.data(), static_cast<int32_t>(out.size())));
+}
+
+Il2CppObject* il2cpp_path_get_file_name_without_extension(Il2CppObject* path)
+{
+    if (path == nullptr)
+    {
+        return nullptr;
+    }
+    const Il2CppString* s = reinterpret_cast<Il2CppString*>(path);
+    // Locate the last segment (after the final separator). A TRAILING
+    // separator leaves an empty name (net48: "a\\" -> ""); otherwise the
+    // segment runs to the end of the path.
+    int32_t segStart = 0;
+    bool trailingSep = false;
+    for (int32_t i = s->length - 1; i >= 0; --i)
+    {
+        const char16_t c = s->chars[i];
+        if (c == u'\\' || c == u'/')
+        {
+            segStart = i + 1;
+            trailingSep = (i == s->length - 1);
+            break;
+        }
+    }
+    if (trailingSep)
+    {
+        return reinterpret_cast<Il2CppObject*>(
+            il2cpp_string_new(nullptr, 0));
+    }
+    // Extension cut mirrors GetExtension (io.cpp): the LAST '.' in the
+    // segment is the extension start unless it is the final character (a
+    // trailing dot is NOT an extension; a LEADING dot IS -- ".git" -> "").
+    int32_t cut = s->length - segStart; // default: no extension
+    for (int32_t i = segStart; i < s->length; ++i)
+    {
+        if (s->chars[i] == u'.' && i != s->length - 1)
+        {
+            cut = i - segStart;
+        }
+    }
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp_string_new(s->chars + segStart, cut));
 }
 
 //------------------------------------------------------------------------------
