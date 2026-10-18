@@ -508,22 +508,4 @@ Il2CppObject* il2cpp_regex_mc_get_enumerator(Il2CppObject* self)
     return reinterpret_cast<Il2CppObject*>(en);
 }
 
-int32_t icall_regex_mc_enumerator_move_next(Il2CppObject* self)
-{
-    Il2CppRegexArrayEnumerator* en = reinterpret_cast<Il2CppRegexArrayEnumerator*>(self);
-    ++en->index;
-    return en->index < en->array->length ? 1 : 0;
-}
-
-Il2CppObject* icall_regex_mc_enumerator_get_current(Il2CppObject* self)
-{
-    Il2CppRegexArrayEnumerator* en = reinterpret_cast<Il2CppRegexArrayEnumerator*>(self);
-    return reinterpret_cast<Il2CppObject* const*>(en->array->data)[en->index];
-}
-
-void icall_regex_mc_enumerator_reset(Il2CppObject* self)
-{
-    reinterpret_cast<Il2CppRegexArrayEnumerator*>(self)->index = -1;
-}
-
 }} // namespace il2cpp::runtime

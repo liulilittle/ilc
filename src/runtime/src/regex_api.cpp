@@ -325,10 +325,27 @@ void AppendReplacement(std::u16string& out, const char16_t* input,
                 }
                 if (allDigits)
                 {
+                    // net48 parses the token as an int32: a value that
+                    // OVERFLOWS int32 throws ArgumentException ("${9999999999}");
+                    // a valid int32 that is out of group range stays literal
+                    // ("${2147483647}"). The accumulator is int64 with an
+                    // explicit int32 ceiling so an over-long digit run can never
+                    // trigger signed-overflow UB.
                     int64_t n = 0;
+                    bool overflow = false;
                     for (int32_t k = 0; k < nameLen; ++k)
                     {
                         n = n * 10 + (name[k] - u'0');
+                        if (n > 2147483647LL)
+                        {
+                            overflow = true;
+                            break;
+                        }
+                    }
+                    if (overflow)
+                    {
+                        il2cpp_throw_argument_exception(
+                            "Replacement pattern is invalid (group number overflows Int32).");
                     }
                     if (n >= 0 && n <= groupCount)
                     {
@@ -379,6 +396,67 @@ void AppendReplacement(std::u16string& out, const char16_t* input,
             continue;
         }
         out.push_back(u'$'); // '$x': '$' literal, 'x' handled next iteration
+    }
+}
+
+// net48 parses the replacement EAGERLY, so a "${<digits>}" token whose value
+// overflows int32 throws ArgumentException even when the pattern has NO match.
+// AppendReplacement only runs per match, so validate the token scan up front
+// (mirroring the tokenizer: "$$" is a literal '$' and must not be re-scanned).
+void ValidateReplacementTokens(const char16_t* rep, int32_t repLen)
+{
+    for (int32_t i = 0; i + 1 < repLen;)
+    {
+        if (rep[i] != u'$')
+        {
+            ++i;
+            continue;
+        }
+        if (rep[i + 1] == u'$')
+        {
+            i += 2; // "$$" -> literal '$' (the second '$' is consumed)
+            continue;
+        }
+        if (rep[i + 1] != u'{')
+        {
+            ++i; // '$x' / '$d': the '$' is literal, 'x' handled next iteration
+            continue;
+        }
+        int32_t j = i + 2;
+        while (j < repLen && rep[j] != u'}')
+        {
+            ++j;
+        }
+        if (j >= repLen)
+        {
+            ++i; // unterminated "${" -> literal
+            continue;
+        }
+        const int32_t nameLen = j - (i + 2);
+        bool allDigits = nameLen > 0;
+        for (int32_t k = 0; k < nameLen; ++k)
+        {
+            const char16_t c = rep[i + 2 + k];
+            if (c < u'0' || c > u'9')
+            {
+                allDigits = false;
+                break;
+            }
+        }
+        if (allDigits)
+        {
+            int64_t n = 0;
+            for (int32_t k = 0; k < nameLen; ++k)
+            {
+                n = n * 10 + (rep[i + 2 + k] - u'0');
+                if (n > 2147483647LL)
+                {
+                    il2cpp_throw_argument_exception(
+                        "Replacement pattern is invalid (group number overflows Int32).");
+                }
+            }
+        }
+        i = j + 1;
     }
 }
 
@@ -476,6 +554,9 @@ Il2CppString* il2cpp_regex_replace(Il2CppString* input, Il2CppString* pattern,
     const std::u16string t = ToText(input);
     const std::u16string r = ToText(replacement);
     AstScope ast(ParsePattern(p, options));
+    // net48 parses the replacement eagerly: an overflowing "${<digits>}" throws
+    // even when the pattern matches nothing.
+    ValidateReplacementTokens(r.data(), static_cast<int32_t>(r.size()));
 
     std::vector<MatchSpan> spans;
     CollectMatches(ast.Get(), t.data(), static_cast<int32_t>(t.size()), spans);

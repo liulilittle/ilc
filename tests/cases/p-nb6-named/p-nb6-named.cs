@@ -9,8 +9,12 @@
 // parse error for an empty group name.
 //
 // OUT OF SCOPE (documented GAP, see report): net48 accepts all-digit names
-// ((?<1>...) = explicit group number) and duplicate names ((?<x>a)(?<x>b));
-// this runtime rejects both as ArgumentException.
+// ((?<1>...) = explicit group number) and duplicate names ((?<x>a)(?<x>b), which
+// net48 MERGES onto one group number); this runtime rejects both as
+// ArgumentException (a duplicate name is a parse-time error -- verified by the
+// runtime test_regex_match, not here, because net48 accepts it and would not be
+// byte-exact). A "${<digits>}" group number that overflows int32 throws
+// ArgumentException in both net48 and this runtime (D4, pinned below).
 //------------------------------------------------------------------------------
 using System;
 using System.Text.RegularExpressions;
@@ -63,6 +67,11 @@ namespace Cases
             // Empty group name -> net48 ArgumentException at parse time.
             try { Regex.Match("a", @"(?<>a)"); Console.WriteLine("[bad2]=ok"); }
             catch (Exception e) { Console.WriteLine("[bad2]=" + e.GetType().Name); }
+
+            // D4: a "${<digits>}" group number that overflows int32 throws
+            // ArgumentException (net48 parses the replacement eagerly).
+            try { Console.WriteLine("[bad3]=" + Regex.Replace("ab", @"(a)(b)", "${99999999999999999999}")); }
+            catch (Exception e) { Console.WriteLine("[bad3]=" + e.GetType().Name); }
         }
     }
 }

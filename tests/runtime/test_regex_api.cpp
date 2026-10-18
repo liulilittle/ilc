@@ -312,6 +312,28 @@ int main()
                    IsType(nullRep.type, "System.ArgumentNullException"),
                "replace: null replacement throws ArgumentNullException");
     }
+    {
+        // nb6 D4: "${<digits>}" whose value overflows int32 throws
+        // ArgumentException (net48), even though a valid-but-out-of-range int32
+        // stays literal ("${2147483647}" -> literal).
+        const CaughtInfo over = CatchIt([&] {
+            il2cpp_regex_replace(S("ab"), S("(a)(b)"),
+                                 S("${99999999999999999999}"), 0);
+        });
+        Expect(over.caught && IsType(over.type, "System.ArgumentException"),
+               "replace: ${overflow} throws ArgumentException (net48)");
+        // Eager parse: no match still throws (net48 parses the replacement up
+        // front).
+        const CaughtInfo overNoMatch = CatchIt([&] {
+            il2cpp_regex_replace(S("x"), S("q"), S("${9999999999}"), 0);
+        });
+        Expect(overNoMatch.caught && IsType(overNoMatch.type, "System.ArgumentException"),
+               "replace: ${overflow} throws even with no match (eager)");
+        // Valid int32 but out of group range -> literal (unchanged).
+        Expect(StrEq(il2cpp_regex_replace(S("ab"), S("(a)(b)"), S("${2147483647}"), 0),
+                     "${2147483647}"),
+               "replace: ${int32max} out of range stays literal");
+    }
 
     //--------------------------------------------------------------------------
     // 5. regex2.cs gap fill (2026-08-08): backreferences and lazy quantifiers

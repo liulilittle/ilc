@@ -629,6 +629,10 @@ int main()
             {"(?<1>a)", RegexParseError::UnsupportedConstruct},
             {"(?<a b>c)", RegexParseError::UnsupportedConstruct},
             {"(?<name", RegexParseError::UnclosedGroup},
+            // Duplicate group names: net48 merges them onto one number (last
+            // capture wins); this runtime rejects the pattern loudly instead of
+            // silently producing a different Groups.Count / capture.
+            {"(?<x>a)(?<x>b)", RegexParseError::UnsupportedConstruct},
             {"\\b", RegexParseError::UnsupportedConstruct},
             {"\\x41", RegexParseError::UnsupportedConstruct},
             {"\\2", RegexParseError::UnsupportedConstruct}, // undefined group (only 0)

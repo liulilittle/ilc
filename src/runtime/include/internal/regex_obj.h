@@ -180,10 +180,14 @@ Il2CppObject* icall_regex_mc_get_item_int(Il2CppObject* self, int32_t index);
 
 // --- MatchCollection enumerator (foreach) -----------------------------------
 
-// IEnumerable.GetEnumerator: wrap the items array in a fresh enumerator.
+// IEnumerable.GetEnumerator: wrap the items array in a fresh enumerator whose
+// layout is byte-identical to the sortedlist snapshot enumerator
+// (Il2CppArrayEnumerator). The transpiler tracks the result under the
+// "System.Collections.SortedList.Enumerator" pseudo-type, so the foreach
+// MoveNext / get_Current / Reset / Dispose members route to the EXISTING
+// il2cpp_sortedlist_enumerator_* icalls (sortedlist.cpp) -- this domain only
+// owns the GetEnumerator factory; there are no regex-specific enumerator
+// member icalls.
 Il2CppObject* il2cpp_regex_mc_get_enumerator(Il2CppObject* self);
-int32_t icall_regex_mc_enumerator_move_next(Il2CppObject* self);
-Il2CppObject* icall_regex_mc_enumerator_get_current(Il2CppObject* self);
-void icall_regex_mc_enumerator_reset(Il2CppObject* self);
 
 }} // namespace il2cpp::runtime

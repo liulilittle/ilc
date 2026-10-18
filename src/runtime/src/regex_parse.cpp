@@ -507,6 +507,40 @@ bool ScanGroups(const char16_t* p, int32_t len, std::vector<GroupPlanEntry>* out
             (*out)[k].number = nextUnnamed++;
         }
     }
+
+    // OBJ-3: duplicate group names are REJECTED loudly at parse time. net48
+    // instead merges two same-named groups onto one number (last capture wins);
+    // that merge semantics is a deeper follow-up (documented GAP), so this
+    // runtime refuses the pattern with ArgumentException rather than silently
+    // producing a different Groups.Count / capture than net48.
+    for (size_t k = 0; k < out->size(); ++k)
+    {
+        if (!(*out)[k].named)
+        {
+            continue;
+        }
+        for (size_t m = k + 1; m < out->size(); ++m)
+        {
+            if (!(*out)[m].named || (*out)[m].nameLen != (*out)[k].nameLen)
+            {
+                continue;
+            }
+            bool same = true;
+            for (int32_t c = 0; c < (*out)[k].nameLen; ++c)
+            {
+                if (p[(*out)[k].nameStart + c] != p[(*out)[m].nameStart + c])
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same)
+            {
+                *err = RegexParseError::UnsupportedConstruct; // duplicate name
+                return false;
+            }
+        }
+    }
     return true;
 }
 
