@@ -20,14 +20,21 @@
 //   * Match result shape: a System.Text.RegularExpressions.Match object graph
 //     (Match / Group / GroupCollection, regex_obj.h -- OBJ-1); a group that
 //     did not participate has Success == false / Index 0 / Length 0 / Value ""
-//     (net48 semantics). Named groups / MatchCollection are not in this batch.
+//     (net48 semantics). Regex.Matches returns a MatchCollection (OBJ-2).
+//   * Named groups (OBJ-3): (?<name>...) is supported; the .NET numbering rule
+//     applies (unnamed groups numbered first, named groups after them) and
+//     GroupCollection[string] follows net48 (named pattern consults the name
+//     table, unnamed pattern parses an integer). Documented GAPs: all-digit
+//     names ((?<1>...) = explicit group number) and duplicate names are
+//     rejected as ArgumentException.
 //   * Split ignores capture groups (net48 inserts them; v1 does not).
 //   * IgnoreCase folds ASCII only; \d \w \s are ASCII sets; no timeout
 //     (internal step budget yields no-match instead of hanging).
 //   * Replacement tokens: $0-$9 (group refs; group 0 = whole match), $$
 //     (literal '$'), two-digit $nn (group nn when it exists, else first
-//     digit group + literal second digit); any other '$' sequence is kept
-//     literally.
+//     digit group + literal second digit), ${name} / ${n} (named / numbered
+//     group refs; an unknown name is kept literally); any other '$' sequence
+//     is kept literally.
 //   * RegexOptions subset: IgnoreCase=1 | Multiline=2 | Singleline=0x10
 //     (the REAL net48 enum numbering -- .NET Singleline is 16, not 4; see
 //     regex_ast.h). Any other bit throws NotSupportedException (loud,
@@ -64,6 +71,14 @@ int32_t il2cpp_regex_is_match(Il2CppString* input, Il2CppString* pattern,
 // defined in regex_obj.h.
 Il2CppObject* il2cpp_regex_match(Il2CppString* input, Il2CppString* pattern,
                                  int32_t options = 0);
+
+// Returns a System.Text.RegularExpressions.MatchCollection object (regex_obj.h
+// -- OBJ-2): Count / this[int] -> Match (reusing the OBJ-1 Match graph) /
+// IEnumerable enumeration (foreach). No match -> an empty (non-null)
+// collection with Count 0. The int indexer throws ArgumentOutOfRangeException
+// for an out-of-range index (net48 semantics).
+Il2CppObject* il2cpp_regex_matches(Il2CppString* input, Il2CppString* pattern,
+                                   int32_t options = 0);
 
 // Returns the input with every match replaced by the (token-expanded)
 // replacement text (net48 static Replace semantics, all matches).

@@ -110,6 +110,35 @@ public static partial class MethodRefResolver
                         if (count == 1 && ps[0] is 0x08 or 0x09)
                             return I("il2cpp::runtime::icall_regex_gc_get_item_int", 1, true, true, true,
                                 new[] { "", "i" }, returnTypeName: "System.Text.RegularExpressions.Group");
+                        // GroupCollection[string name] -> Group (OBJ-3): the
+                        // string slot carries the "s" cast.
+                        if (count == 1 && ps[0] == 0x0E)
+                            return I("il2cpp::runtime::icall_regex_gc_get_item_str", 1, true, true, true,
+                                new[] { "", "s" }, returnTypeName: "System.Text.RegularExpressions.Group");
+                        return null;
+                    default:
+                        return null;
+                }
+            case "System.Text.RegularExpressions.MatchCollection":
+                // nb6 OBJ-2: Regex.Matches result -- Count / this[int] -> Match
+                // / GetEnumerator (foreach; the enumerator is tracked under the
+                // shared snapshot-enumerator pseudo-type so the IEnumerator
+                // member arms route it).
+                switch (name)
+                {
+                    case "get_Count":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_regex_mc_get_count", 0, true, false, true);
+                        return null;
+                    case "get_Item":
+                        if (count == 1 && ps[0] is 0x08 or 0x09)
+                            return I("il2cpp::runtime::icall_regex_mc_get_item_int", 1, true, true, true,
+                                new[] { "", "i" }, returnTypeName: "System.Text.RegularExpressions.Match");
+                        return null;
+                    case "GetEnumerator":
+                        if (count == 0)
+                            return I("il2cpp::runtime::il2cpp_regex_mc_get_enumerator", 0, true, true, true,
+                                new[] { "" }, returnTypeName: "System.Collections.SortedList.Enumerator");
                         return null;
                     default:
                         return null;

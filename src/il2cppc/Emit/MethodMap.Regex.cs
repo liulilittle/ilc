@@ -47,6 +47,10 @@ public static partial class MethodRefResolver
             // object graph (regex_obj.h) instead of the legacy string[] shape.
             case "Match": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_match", true,
                 "System.Text.RegularExpressions.Match");
+            // nb6 OBJ-2: Matches returns a System.Text.RegularExpressions.
+            // MatchCollection object (regex_obj.h) -- Count / indexer / foreach.
+            case "Matches": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_matches", true,
+                "System.Text.RegularExpressions.MatchCollection");
             case "Split": return RegexStatic(ps, "il2cpp::runtime::il2cpp_regex_split", true, "System.String[]");
             case "Replace": return RegexReplace(ps);
             default: return null;

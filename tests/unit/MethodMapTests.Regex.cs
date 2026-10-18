@@ -183,6 +183,71 @@ public class MethodMapRegexTests
     }
 
     //--------------------------------------------------------------------------
+    // MatchCollection (nb6 OBJ-2) -- Regex.Matches result
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Regex_Matches_MapsToMatchesIcall()
+    {
+        // static MatchCollection Matches(string, string): ret CLASS (0x12).
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "Regex", "Matches",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x0E }), "Matches");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_regex_matches", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Text.RegularExpressions.MatchCollection", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_MatchCollectionCount_MapsToCountIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "MatchCollection", "get_Count",
+            new byte[] { 0x00, 0x00, 0x08 }), "get_Count");
+
+        Assert.Equal("il2cpp::runtime::icall_regex_mc_get_count", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_MatchCollectionIndexer_MapsToItemIcall()
+    {
+        // Match MatchCollection[int index] (get_Item, i4) -> Match.
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "MatchCollection", "get_Item",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x08 }), "get_Item");
+
+        Assert.Equal("il2cpp::runtime::icall_regex_mc_get_item_int", resolved.CppName);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Text.RegularExpressions.Match", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_MatchCollectionGetEnumerator_MapsToEnumeratorIcall()
+    {
+        // IEnumerator MatchCollection.GetEnumerator() -> the snapshot
+        // enumerator pseudo-type (foreach routing).
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "MatchCollection", "GetEnumerator",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "GetEnumerator");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_regex_mc_get_enumerator", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Collections.SortedList.Enumerator", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_RegexObj_GroupCollectionStringIndexer_MapsToItemStrIcall()
+    {
+        // Group GroupCollection[string name] (get_Item, string) -> Group.
+        var resolved = ResolveMember(Synthesize("System.Text.RegularExpressions", "GroupCollection", "get_Item",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x0E }), "get_Item");
+
+        Assert.Equal("il2cpp::runtime::icall_regex_gc_get_item_str", resolved.CppName);
+        Assert.Equal(new[] { "", "s" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Text.RegularExpressions.Group", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Replace -- static, string reference result
     //--------------------------------------------------------------------------
     [Fact]

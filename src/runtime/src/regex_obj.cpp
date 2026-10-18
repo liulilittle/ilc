@@ -13,6 +13,7 @@
 
 #include "regex_obj.h"
 
+#include "il2cpp_exception_ext.h" // il2cpp_throw_argument_out_of_range_exception
 #include "il2cpp_gc.h"            // il2cpp_gc_add_static_root / remove
 #include "il2cpp_runtime.h"       // il2cpp_class_register, il2cpp_object_new
 
@@ -48,6 +49,12 @@ REGEX_OBJ_CLASS(System_Text_RegularExpressions_Group_class,
 REGEX_OBJ_CLASS(System_Text_RegularExpressions_GroupCollection_class,
                 "System.Text.RegularExpressions.GroupCollection",
                 Il2CppRegexGroupCollection, 0x02u, 1);
+REGEX_OBJ_CLASS(System_Text_RegularExpressions_MatchCollection_class,
+                "System.Text.RegularExpressions.MatchCollection",
+                Il2CppRegexMatchCollection, 0x02u, 1);
+REGEX_OBJ_CLASS(System_Text_RegularExpressions_MatchCollection_Enumerator_class,
+                "System.Text.RegularExpressions.MatchCollection.Enumerator",
+                Il2CppRegexArrayEnumerator, 0x02u, 1);
 
 #undef REGEX_OBJ_CLASS
 
@@ -90,6 +97,40 @@ public:
 private:
     std::vector<void**> m_slots;
 };
+
+// Find the name registered for a .NET group number (nullptr = unnamed).
+const RegexGroupName* FindGroupNameByIndex(const RegexAst* ast, int32_t index)
+{
+    if (ast == nullptr)
+    {
+        return nullptr;
+    }
+    for (int32_t i = 0; i < ast->nameCount; ++i)
+    {
+        if (ast->names[i].index == index)
+        {
+            return &ast->names[i];
+        }
+    }
+    return nullptr;
+}
+
+// Compare a managed string with a char16_t range (length + code units).
+bool StringEqualsRange(Il2CppString* s, const char16_t* text, int32_t length)
+{
+    if (s == nullptr || s->length != length)
+    {
+        return false;
+    }
+    for (int32_t i = 0; i < length; ++i)
+    {
+        if (s->chars[i] != text[i])
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 // Non-negative integer -> decimal char16_t text (group names are "0".."N").
 int32_t FormatGroupName(int32_t value, char16_t* out)
@@ -156,6 +197,8 @@ void il2cpp_regex_obj_register_classes()
     il2cpp_class_register(&System_Text_RegularExpressions_Match_class);
     il2cpp_class_register(&System_Text_RegularExpressions_Group_class);
     il2cpp_class_register(&System_Text_RegularExpressions_GroupCollection_class);
+    il2cpp_class_register(&System_Text_RegularExpressions_MatchCollection_class);
+    il2cpp_class_register(&System_Text_RegularExpressions_MatchCollection_Enumerator_class);
     g_regexObjClassesRegistered = true;
 }
 
@@ -163,10 +206,11 @@ void il2cpp_regex_obj_register_classes()
 // Match construction (il2cpp_regex_match result).
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_regex_build_match(const char16_t* input, int32_t inputLength,
-                                       const MatchResult& result, int32_t groupCount)
+                                       const MatchResult& result, const RegexAst* ast)
 {
     il2cpp_regex_obj_register_classes();
 
+    const int32_t groupCount = (ast != nullptr) ? ast->groupCount : 0;
     // D3: an unmatched Match is net48 Match.Empty -- a SINGLE empty group
     // (Groups.Count == 1) regardless of the pattern's capture-group count; a
     // successful match exposes the whole match + every capture group.
@@ -217,9 +261,19 @@ Il2CppObject* il2cpp_regex_build_match(const char16_t* input, int32_t inputLengt
         grp->success = gSuccess;
         // Non-participating groups carry an empty value (net48 Group.Value == "").
         grp->value = il2cpp_string_new(input + gIndex, gLength);
-        char16_t nameBuf[12];
-        const int32_t nameLen = FormatGroupName(i, nameBuf);
-        grp->name = il2cpp_string_new(nameBuf, nameLen);
+        // OBJ-3: a named group's Name is its declared name; group 0 and every
+        // unnamed group carry their decimal number as the name.
+        const RegexGroupName* gn = (i >= 1) ? FindGroupNameByIndex(ast, i) : nullptr;
+        if (gn != nullptr)
+        {
+            grp->name = il2cpp_string_new(gn->text, gn->length);
+        }
+        else
+        {
+            char16_t nameBuf[12];
+            const int32_t nameLen = FormatGroupName(i, nameBuf);
+            grp->name = il2cpp_string_new(nameBuf, nameLen);
+        }
 
         Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(items, i));
         *slot = reinterpret_cast<Il2CppObject*>(grp);
@@ -231,6 +285,7 @@ Il2CppObject* il2cpp_regex_build_match(const char16_t* input, int32_t inputLengt
     roots.Add(reinterpret_cast<void**>(&gc));
     gc->count = total;
     gc->items = items;
+    gc->hasNames = (ast != nullptr && ast->hasNamedGroups) ? 1 : 0;
 
     Il2CppRegexMatch* match =
         reinterpret_cast<Il2CppRegexMatch*>(il2cpp_object_new(&System_Text_RegularExpressions_Match_class));
@@ -240,6 +295,41 @@ Il2CppObject* il2cpp_regex_build_match(const char16_t* input, int32_t inputLengt
     match->success = result.success ? 1 : 0;
     match->groups = reinterpret_cast<Il2CppObject*>(gc);
     return reinterpret_cast<Il2CppObject*>(match);
+}
+
+//------------------------------------------------------------------------------
+// MatchCollection construction (il2cpp_regex_matches result, OBJ-2).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_regex_build_match_collection(const char16_t* input, int32_t inputLength,
+                                                  const MatchResult* results, int32_t resultCount,
+                                                  const RegexAst* ast)
+{
+    il2cpp_regex_obj_register_classes();
+
+    if (resultCount < 0)
+    {
+        resultCount = 0;
+    }
+    RootScope roots;
+    Il2CppArray* items = il2cpp_array_new(&System_Text_RegularExpressions_Match_class,
+                                          static_cast<int32_t>(sizeof(void*)), true, resultCount);
+    roots.Add(reinterpret_cast<void**>(&items));
+
+    for (int32_t i = 0; i < resultCount; ++i)
+    {
+        // Build the Match object graph; the returned reference is stored into
+        // the rooted array immediately (no allocation in between), so it stays
+        // reachable.
+        Il2CppObject* m = il2cpp_regex_build_match(input, inputLength, results[i], ast);
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(items, i));
+        *slot = m;
+    }
+
+    Il2CppRegexMatchCollection* mc = reinterpret_cast<Il2CppRegexMatchCollection*>(
+        il2cpp_object_new(&System_Text_RegularExpressions_MatchCollection_class));
+    mc->items = items;
+    mc->count = resultCount;
+    return reinterpret_cast<Il2CppObject*>(mc);
 }
 
 //------------------------------------------------------------------------------
@@ -324,6 +414,116 @@ Il2CppObject* icall_regex_gc_get_item_int(Il2CppObject* self, int32_t index)
     }
     Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(gc->items, index));
     return *slot;
+}
+
+Il2CppObject* icall_regex_gc_get_item_str(Il2CppObject* self, Il2CppString* name)
+{
+    Il2CppRegexGroupCollection* gc = reinterpret_cast<Il2CppRegexGroupCollection*>(self);
+    if (name == nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(GetEmptyGroup());
+    }
+    if (gc->hasNames != 0)
+    {
+        // Named pattern: consult the name table only (each Group's Name is its
+        // declared name, or the decimal number for an unnamed group / group 0).
+        for (int32_t i = 0; i < gc->count; ++i)
+        {
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(gc->items, i));
+            Il2CppRegexGroup* g = reinterpret_cast<Il2CppRegexGroup*>(*slot);
+            if (StringEqualsRange(g->name, name->chars, name->length))
+            {
+                return reinterpret_cast<Il2CppObject*>(g);
+            }
+        }
+        return reinterpret_cast<Il2CppObject*>(GetEmptyGroup());
+    }
+    // Unnamed pattern: parse the string as a decimal group number (leading
+    // zeros allowed), net48 GroupNumberFromName numeric path.
+    if (name->length == 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(GetEmptyGroup());
+    }
+    int64_t n = 0;
+    for (int32_t i = 0; i < name->length; ++i)
+    {
+        const char16_t c = name->chars[i];
+        if (c < u'0' || c > u'9')
+        {
+            return reinterpret_cast<Il2CppObject*>(GetEmptyGroup());
+        }
+        n = n * 10 + (c - u'0');
+        if (n > gc->count)
+        {
+            return reinterpret_cast<Il2CppObject*>(GetEmptyGroup()); // out of range
+        }
+    }
+    if (n < 0 || n >= gc->count)
+    {
+        return reinterpret_cast<Il2CppObject*>(GetEmptyGroup());
+    }
+    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(gc->items, static_cast<int32_t>(n)));
+    return *slot;
+}
+
+//------------------------------------------------------------------------------
+// MatchCollection property icalls (OBJ-2).
+//------------------------------------------------------------------------------
+int32_t icall_regex_mc_get_count(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppRegexMatchCollection*>(self)->count;
+}
+
+Il2CppObject* icall_regex_mc_get_item_int(Il2CppObject* self, int32_t index)
+{
+    Il2CppRegexMatchCollection* mc = reinterpret_cast<Il2CppRegexMatchCollection*>(self);
+    if (index < 0 || index >= mc->count)
+    {
+        // net48 MatchCollection[int] throws ArgumentOutOfRangeException.
+        il2cpp_throw_argument_out_of_range_exception("i", "Index was out of range.");
+        return nullptr; // unreachable (the throw unwinds)
+    }
+    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(mc->items, index));
+    return *slot;
+}
+
+//------------------------------------------------------------------------------
+// MatchCollection enumerator (foreach, OBJ-2).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_regex_mc_get_enumerator(Il2CppObject* self)
+{
+    Il2CppRegexMatchCollection* mc = reinterpret_cast<Il2CppRegexMatchCollection*>(self);
+    // il2cpp_object_new may compact and MOVE 'self' (the items array): root the
+    // array and re-read the (possibly moved) address before storing it.
+    Il2CppArray* items = mc->items;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&items));
+    Il2CppRegexArrayEnumerator* en = reinterpret_cast<Il2CppRegexArrayEnumerator*>(
+        il2cpp_object_new(&System_Text_RegularExpressions_MatchCollection_Enumerator_class));
+    en->array = items;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->array),
+                         reinterpret_cast<Il2CppObject*>(en->array));
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
+}
+
+int32_t icall_regex_mc_enumerator_move_next(Il2CppObject* self)
+{
+    Il2CppRegexArrayEnumerator* en = reinterpret_cast<Il2CppRegexArrayEnumerator*>(self);
+    ++en->index;
+    return en->index < en->array->length ? 1 : 0;
+}
+
+Il2CppObject* icall_regex_mc_enumerator_get_current(Il2CppObject* self)
+{
+    Il2CppRegexArrayEnumerator* en = reinterpret_cast<Il2CppRegexArrayEnumerator*>(self);
+    return reinterpret_cast<Il2CppObject* const*>(en->array->data)[en->index];
+}
+
+void icall_regex_mc_enumerator_reset(Il2CppObject* self)
+{
+    reinterpret_cast<Il2CppRegexArrayEnumerator*>(self)->index = -1;
 }
 
 }} // namespace il2cpp::runtime

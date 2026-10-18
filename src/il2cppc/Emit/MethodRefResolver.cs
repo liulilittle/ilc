@@ -1292,6 +1292,9 @@ public static partial class MethodRefResolver
             case "System.Text.RegularExpressions.Group":
             case "System.Text.RegularExpressions.Capture":
             case "System.Text.RegularExpressions.GroupCollection":
+            // nb6 OBJ-2: the Regex.Matches result -- MatchCollection Count /
+            // this[int] / GetEnumerator (MethodMap.RegexObj.cs).
+            case "System.Text.RegularExpressions.MatchCollection":
                 return TryMapRegexObj(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Threading.Tasks.Task`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Threading.Tasks.Task": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);

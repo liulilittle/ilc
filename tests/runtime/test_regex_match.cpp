@@ -28,6 +28,8 @@
 
 using il2cpp::runtime::MatchResult;
 using il2cpp::runtime::RegexAst;
+using il2cpp::runtime::RegexNode;
+using il2cpp::runtime::RegexNodeKind;
 using il2cpp::runtime::RegexAstFree;
 using il2cpp::runtime::RegexParse;
 using il2cpp::runtime::RegexParseError;
@@ -572,6 +574,43 @@ int main()
     }
 
     //--------------------------------------------------------------------------
+    // OBJ-3 named groups: the .NET numbering rule (unnamed groups first,
+    // named groups after them) and the name table.
+    //--------------------------------------------------------------------------
+    {
+        // "(a)(?<mid>b)(c)" -> 3 capture groups: (a)=1, (c)=2 (unnamed), the
+        // named "mid"=3.
+        const char16_t pat[] = {u'(', u'a', u')', u'(', u'?', u'<', u'm', u'i', u'd', u'>',
+                                u'b', u')', u'(', u'c', u')'};
+        RegexParseError err = RegexParseError::None;
+        RegexAst* ast = RegexParse(pat, 15, 0, &err);
+        Expect(ast != nullptr, "named-group pattern parses");
+        if (ast != nullptr)
+        {
+            Expect(ast->groupCount == 3, "named group: groupCount == 3");
+            Expect(ast->hasNamedGroups, "named group: hasNamedGroups true");
+            Expect(ast->nameCount == 1, "named group: one name entry");
+            Expect(ast->names != nullptr && ast->names[0].index == 3,
+                   "named group: mid maps to group 3");
+            Expect(ast->names != nullptr && ast->names[0].length == 3 &&
+                       ast->names[0].text[0] == u'm' && ast->names[0].text[1] == u'i' &&
+                       ast->names[0].text[2] == u'd',
+                   "named group: name text is \"mid\"");
+            const RegexNode* root = ast->root;
+            Expect(root != nullptr && root->kind == RegexNodeKind::Sequence &&
+                       root->childCount == 3,
+                   "named group: root is a 3-element sequence");
+            if (root != nullptr && root->kind == RegexNodeKind::Sequence && root->childCount == 3)
+            {
+                Expect(root->children[0]->groupIndex == 1, "named group: (a) -> 1");
+                Expect(root->children[1]->groupIndex == 3, "named group: mid -> 3");
+                Expect(root->children[2]->groupIndex == 2, "named group: (c) -> 2");
+            }
+        }
+        RegexAstFree(ast);
+    }
+
+    //--------------------------------------------------------------------------
     // Parser error paths (contract: nullptr + error code, never throws)
     //--------------------------------------------------------------------------
     {
@@ -583,7 +622,13 @@ int main()
             {"a{999999999999}", RegexParseError::InvalidRepeat},
             {"(?=a)", RegexParseError::UnsupportedConstruct},
             {"(?:a)", RegexParseError::UnsupportedConstruct},
-            {"(?<name>a)", RegexParseError::UnsupportedConstruct},
+            // OBJ-3 named-group headers: empty name, all-digit name (net48
+            // treats it as an explicit group number -- out of subset), and a
+            // non-word name char are all rejected; a missing '>' is unclosed.
+            {"(?<>a)", RegexParseError::UnsupportedConstruct},
+            {"(?<1>a)", RegexParseError::UnsupportedConstruct},
+            {"(?<a b>c)", RegexParseError::UnsupportedConstruct},
+            {"(?<name", RegexParseError::UnclosedGroup},
             {"\\b", RegexParseError::UnsupportedConstruct},
             {"\\x41", RegexParseError::UnsupportedConstruct},
             {"\\2", RegexParseError::UnsupportedConstruct}, // undefined group (only 0)

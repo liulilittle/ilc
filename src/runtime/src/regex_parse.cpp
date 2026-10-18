@@ -42,14 +42,26 @@ namespace il2cpp { namespace runtime {
 
 namespace {
 
+// One capture group from the pre-pass, in left-paren order. number is the
+// .NET group number (unnamed groups first, then named groups); nameStart/Len
+// locate the (?<name>...) name inside the pattern (named == true only).
+struct GroupPlanEntry {
+    bool    named;
+    int32_t nameStart;
+    int32_t nameLen;
+    int32_t number;
+};
+
 struct ParseState {
     const char16_t* pattern;
     int32_t length;
     int32_t pos;
     int32_t options;
     RegexParseError error;
-    int32_t nextGroup; // next group index (1-based), left-paren order
-    int32_t groupCount; // total capture groups in the WHOLE pattern (pre-pass)
+    const GroupPlanEntry* plan; // pre-pass group plan (left-paren order)
+    int32_t planCount;
+    int32_t planIndex;          // next capture group to consume
+    int32_t groupCount;         // total capture groups in the WHOLE pattern (pre-pass)
 };
 
 // Defined at the bottom of this namespace; used by error paths below.
@@ -354,21 +366,39 @@ bool IsMetaChar(char16_t c)
     }
 }
 
-// Counts the TOTAL number of capture groups in the pattern (left-paren order).
-// Runs as a cheap pre-pass so backreferences can be validated against groups
-// defined ANYWHERE in the pattern, including forward references (net48:
-// "\1(a)" is legal -- a forward backref merely fails at match time). A '(' is
-// a group opener unless it is escaped or inside a [...] class.
-int32_t CountCaptureGroups(const char16_t* p, int32_t len)
+// Group-name character (net48 named-group names: word chars incl. '_').
+bool IsGroupNameChar(char16_t c)
 {
-    int32_t count = 0;
+    return (c >= u'a' && c <= u'z') || (c >= u'A' && c <= u'Z') ||
+           (c >= u'0' && c <= u'9') || c == u'_';
+}
+
+bool IsDigitChar(char16_t c)
+{
+    return c >= u'0' && c <= u'9';
+}
+
+// OBJ-3 pre-pass: collect every CAPTURE group in left-paren order and assign
+// the .NET group numbers. Runs before parsing so (a) backreferences can be
+// validated against groups defined anywhere (forward refs included) and (b)
+// the .NET numbering rule is applied: unnamed groups are numbered first
+// (left-to-right), named groups AFTER them (left-to-right). A '(' is a capture
+// group opener unless escaped or inside a [...] class; "(?<name>" is a NAMED
+// capture group, any other "(?" construct is non-capturing (the parser reports
+// the unsupported construct). Returns false + *err for a malformed named-group
+// header ((?< without '>', empty name, non-word name chars) or an all-digit
+// name (net48 treats "(?<1>" as an explicit group NUMBER -- out of this
+// batch's subset, documented GAP).
+bool ScanGroups(const char16_t* p, int32_t len, std::vector<GroupPlanEntry>* out,
+                RegexParseError* err)
+{
     bool inClass = false;
-    for (int32_t i = 0; i < len; ++i)
+    for (int32_t i = 0; i < len;)
     {
         const char16_t c = p[i];
         if (c == u'\\')
         {
-            ++i; // skip the escaped char
+            i += 2; // skip the escaped char
             continue;
         }
         if (inClass)
@@ -377,19 +407,107 @@ int32_t CountCaptureGroups(const char16_t* p, int32_t len)
             {
                 inClass = false;
             }
+            ++i;
             continue;
         }
         if (c == u'[')
         {
             inClass = true;
+            ++i;
             continue;
         }
         if (c == u'(')
         {
-            ++count;
+            if (i + 1 < len && p[i + 1] == u'?')
+            {
+                // A named group is "(?<name>" -- but "(?<=" / "(?<!" are
+                // lookbehind constructs (out of subset, non-capturing).
+                if (i + 2 < len && p[i + 2] == u'<' && i + 3 < len &&
+                    p[i + 3] != u'=' && p[i + 3] != u'!')
+                {
+                    int32_t j = i + 3;
+                    while (j < len && p[j] != u'>')
+                    {
+                        ++j;
+                    }
+                    if (j >= len)
+                    {
+                        *err = RegexParseError::UnclosedGroup; // "(?<name" no '>'
+                        return false;
+                    }
+                    const int32_t nameStart = i + 3;
+                    const int32_t nameLen = j - nameStart;
+                    if (nameLen <= 0)
+                    {
+                        *err = RegexParseError::UnsupportedConstruct; // "(?<>"
+                        return false;
+                    }
+                    bool allDigits = true;
+                    for (int32_t k = 0; k < nameLen; ++k)
+                    {
+                        const char16_t nc = p[nameStart + k];
+                        if (!IsGroupNameChar(nc))
+                        {
+                            *err = RegexParseError::UnsupportedConstruct;
+                            return false;
+                        }
+                        if (!IsDigitChar(nc))
+                        {
+                            allDigits = false;
+                        }
+                    }
+                    if (allDigits)
+                    {
+                        *err = RegexParseError::UnsupportedConstruct; // explicit number (GAP)
+                        return false;
+                    }
+                    GroupPlanEntry e;
+                    e.named = true;
+                    e.nameStart = nameStart;
+                    e.nameLen = nameLen;
+                    e.number = 0;
+                    out->push_back(e);
+                    i = j + 1; // consume through '>'
+                    continue;
+                }
+                i += 2; // "(?" non-capturing / unsupported: parser reports it
+                continue;
+            }
+            GroupPlanEntry e;
+            e.named = false;
+            e.nameStart = 0;
+            e.nameLen = 0;
+            e.number = 0;
+            out->push_back(e);
+            ++i; // consume '('
+            continue;
+        }
+        ++i;
+    }
+
+    // Assign .NET numbers: unnamed first, then named.
+    int32_t unnamed = 0;
+    for (size_t k = 0; k < out->size(); ++k)
+    {
+        if (!(*out)[k].named)
+        {
+            ++unnamed;
         }
     }
-    return count;
+    int32_t nextUnnamed = 1;
+    int32_t nextNamed = unnamed + 1;
+    for (size_t k = 0; k < out->size(); ++k)
+    {
+        if ((*out)[k].named)
+        {
+            (*out)[k].number = nextNamed++;
+        }
+        else
+        {
+            (*out)[k].number = nextUnnamed++;
+        }
+    }
+    return true;
 }
 
 //------------------------------------------------------------------------------
@@ -684,17 +802,49 @@ RegexNode* ParseAtom(ParseState* st)
     {
         if (st->pos + 1 < st->length && st->pattern[st->pos + 1] == u'?')
         {
-            // (?: (?= (?! (?<= (?<! (?> (?<name> (?i) -- all out of subset
-            st->error = RegexParseError::UnsupportedConstruct;
-            return nullptr;
+            // OBJ-3: "(?<name>" is a NAMED capture group (the pre-pass already
+            // validated the name and assigned its .NET number). Every other
+            // "(?" construct ((?: (?= (?! (?<= (?<! (?> (?i) is out of subset.
+            if (st->pos + 2 < st->length && st->pattern[st->pos + 2] == u'<' &&
+                st->pos + 3 < st->length && st->pattern[st->pos + 3] != u'=' &&
+                st->pattern[st->pos + 3] != u'!')
+            {
+                int32_t at = st->pos + 3;
+                while (at < st->length && st->pattern[at] != u'>')
+                {
+                    ++at;
+                }
+                if (at >= st->length)
+                {
+                    st->error = RegexParseError::UnclosedGroup;
+                    return nullptr;
+                }
+                st->pos = at + 1; // consume "(?<name>"
+            }
+            else
+            {
+                st->error = RegexParseError::UnsupportedConstruct;
+                return nullptr;
+            }
         }
-        ++st->pos; // consume '('
+        else
+        {
+            ++st->pos; // consume '('
+        }
         RegexNode* group = NewNode(RegexNodeKind::Group);
         if (group == nullptr)
         {
             return nullptr;
         }
-        group->groupIndex = st->nextGroup++;
+        // The pre-pass group plan is consumed in left-paren order.
+        if (st->planIndex >= st->planCount)
+        {
+            st->error = RegexParseError::UnsupportedConstruct; // defensive
+            delete group;
+            return nullptr;
+        }
+        group->groupIndex = st->plan[st->planIndex].number;
+        ++st->planIndex;
         if (st->pos < st->length && st->pattern[st->pos] == u')')
         {
             ++st->pos; // empty group "()"
@@ -1216,14 +1366,28 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
         return nullptr;
     }
 
+    // OBJ-3 pre-pass: capture-group plan (left-paren order + .NET numbers).
+    std::vector<GroupPlanEntry> plan;
+    RegexParseError scanError = RegexParseError::None;
+    if (!ScanGroups(pattern, length, &plan, &scanError))
+    {
+        if (outError != nullptr)
+        {
+            *outError = scanError;
+        }
+        return nullptr;
+    }
+
     ParseState st;
     st.pattern = pattern;
     st.length = length;
     st.pos = 0;
     st.options = options;
     st.error = RegexParseError::None;
-    st.nextGroup = 1;
-    st.groupCount = CountCaptureGroups(pattern, length);
+    st.plan = plan.empty() ? nullptr : plan.data();
+    st.planCount = static_cast<int32_t>(plan.size());
+    st.planIndex = 0;
+    st.groupCount = static_cast<int32_t>(plan.size());
 
     RegexNode* root = ParseAlternation(&st);
     if (root == nullptr || st.error != RegexParseError::None)
@@ -1256,9 +1420,60 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
         FreeNode(root);
         return nullptr;
     }
+    int32_t namedCount = 0;
+    for (size_t k = 0; k < plan.size(); ++k)
+    {
+        if (plan[k].named)
+        {
+            ++namedCount;
+        }
+    }
+
     ast->root = root;
-    ast->groupCount = st.nextGroup - 1;
+    ast->groupCount = static_cast<int32_t>(plan.size());
     ast->options = options;
+    ast->nameCount = 0;
+    ast->names = nullptr;
+    ast->hasNamedGroups = namedCount > 0;
+    if (namedCount > 0)
+    {
+        ast->names = static_cast<RegexGroupName*>(
+            std::malloc(sizeof(RegexGroupName) * static_cast<size_t>(namedCount)));
+        if (ast->names == nullptr)
+        {
+            FreeNode(root);
+            delete ast;
+            return nullptr; // OOM -> parse failure
+        }
+        for (size_t k = 0; k < plan.size(); ++k)
+        {
+            if (!plan[k].named)
+            {
+                continue;
+            }
+            char16_t* text = static_cast<char16_t*>(
+                std::malloc(sizeof(char16_t) * static_cast<size_t>(plan[k].nameLen + 1)));
+            if (text == nullptr)
+            {
+                for (int32_t m = 0; m < ast->nameCount; ++m)
+                {
+                    std::free(ast->names[m].text);
+                }
+                std::free(ast->names);
+                ast->names = nullptr;
+                FreeNode(root);
+                delete ast;
+                return nullptr; // OOM -> parse failure
+            }
+            std::memcpy(text, pattern + plan[k].nameStart,
+                        sizeof(char16_t) * static_cast<size_t>(plan[k].nameLen));
+            text[plan[k].nameLen] = 0;
+            ast->names[ast->nameCount].text = text;
+            ast->names[ast->nameCount].length = plan[k].nameLen;
+            ast->names[ast->nameCount].index = plan[k].number;
+            ++ast->nameCount;
+        }
+    }
     return ast;
 }
 
@@ -1269,6 +1484,14 @@ void RegexAstFree(RegexAst* ast)
         return;
     }
     FreeNode(ast->root);
+    if (ast->names != nullptr)
+    {
+        for (int32_t i = 0; i < ast->nameCount; ++i)
+        {
+            std::free(ast->names[i].text);
+        }
+        std::free(ast->names);
+    }
     delete ast;
 }
 

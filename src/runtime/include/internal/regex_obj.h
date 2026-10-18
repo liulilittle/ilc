@@ -33,6 +33,7 @@
 #include "il2cpp_metadata.h" // Il2CppClass (descriptor type; System_Object_class)
 #include "il2cpp_string.h"   // Il2CppString
 #include "il2cpp_array.h"    // Il2CppArray (Group[] items)
+#include "regex_ast.h"       // RegexAst (group names, groupCount)
 #include "regex_match.h"     // MatchResult (builder input)
 
 #include <cstdint>
@@ -43,6 +44,8 @@
 extern il2cpp::Il2CppClass System_Text_RegularExpressions_Match_class;
 extern il2cpp::Il2CppClass System_Text_RegularExpressions_Group_class;
 extern il2cpp::Il2CppClass System_Text_RegularExpressions_GroupCollection_class;
+extern il2cpp::Il2CppClass System_Text_RegularExpressions_MatchCollection_class;
+extern il2cpp::Il2CppClass System_Text_RegularExpressions_MatchCollection_Enumerator_class;
 
 namespace il2cpp { namespace runtime {
 
@@ -75,12 +78,36 @@ struct Il2CppRegexGroup
 };
 
 // Managed System.Text.RegularExpressions.GroupCollection layout. items is a
-// Group[] GC reference array (slot 1).
+// Group[] GC reference array (slot 1). hasNames is 1 when the pattern declared
+// named groups -- it selects the GroupCollection[string] lookup algorithm
+// (net48: a named pattern consults ONLY the name table, an unnamed pattern
+// parses the string as an integer group number).
 struct Il2CppRegexGroupCollection
 {
     Il2CppObject obj;    // object header
     Il2CppArray* items;  // Group[] (GC reference -- slot 1)
     int32_t count;       // element count (groupCount + 1)
+    int32_t hasNames;    // 1 = the pattern has named groups
+};
+
+// Managed System.Text.RegularExpressions.MatchCollection layout (OBJ-2). items
+// is a Match[] GC reference array (slot 1); count is its length.
+struct Il2CppRegexMatchCollection
+{
+    Il2CppObject obj;    // object header
+    Il2CppArray* items;  // Match[] (GC reference -- slot 1)
+    int32_t count;       // element count (0 for an empty collection)
+};
+
+// MatchCollection's IEnumerator object: header + the wrapped Match[] array
+// (GC reference -- slot 1) + the next-index cursor (NOT a reference). Same
+// shape as the sortedlist snapshot enumerator (sortedlist.h Il2CppArrayEnumerator)
+// -- foreach over a MatchCollection walks the frozen items array.
+struct Il2CppRegexArrayEnumerator
+{
+    Il2CppObject obj;    // object header
+    Il2CppArray* array;  // the wrapped array (GC reference -- slot 1)
+    int32_t index;       // next index (-1 = before the first element)
 };
 
 // Register the Match/Group/GroupCollection descriptors once (idempotent;
@@ -90,14 +117,21 @@ void il2cpp_regex_obj_register_classes();
 
 // Build the Match object graph for a match result. 'input' is the FULL input
 // text (inputLength UTF-16 units); 'result' is the T2 engine result (success
-// false = no match); 'groupCount' is RegexAst::groupCount (capture groups
-// excluding the whole match). Always returns a non-null Match: on success
-// Groups.Count == groupCount + 1; on no match it is net48 Match.Empty with
-// Groups.Count == 1 (a single non-participating group 0). Registers the
-// descriptors on first use. Allocates through the GC; the result is safe once
-// returned (the caller keeps it reachable).
+// false = no match); 'ast' supplies groupCount and the named-group table
+// (regex_ast.h). Always returns a non-null Match: on success Groups.Count ==
+// groupCount + 1; on no match it is net48 Match.Empty with Groups.Count == 1
+// (a single non-participating group 0). Registers the descriptors on first
+// use. Allocates through the GC; the result is safe once returned (the caller
+// keeps it reachable).
 Il2CppObject* il2cpp_regex_build_match(const char16_t* input, int32_t inputLength,
-                                       const MatchResult& result, int32_t groupCount);
+                                       const MatchResult& result, const RegexAst* ast);
+
+// Build a MatchCollection (OBJ-2) from 'resultCount' match results (absolute
+// input coordinates; groups[i] = capture group i+1). A count of 0 yields an
+// empty (non-null) collection. Registers the descriptors on first use.
+Il2CppObject* il2cpp_regex_build_match_collection(const char16_t* input, int32_t inputLength,
+                                                  const MatchResult* results, int32_t resultCount,
+                                                  const RegexAst* ast);
 
 // --- Match property icalls (receiver = Il2CppObject* self) -------------------
 
@@ -128,5 +162,28 @@ int32_t icall_regex_gc_get_count(Il2CppObject* self);
 // out-of-range (or negative) index returns the shared empty Group
 // (Success false / 0 / 0 / "" / "") -- net48 Match.Groups[oob], never a throw.
 Il2CppObject* icall_regex_gc_get_item_int(Il2CppObject* self, int32_t index);
+
+// Group this[string name] (OBJ-3): net48 semantics -- a pattern WITH named
+// groups consults the name table only (a group's Name is its real name or, for
+// an unnamed group, its decimal number); a pattern WITHOUT named groups parses
+// the string as a decimal group number (leading zeros allowed). A missing name
+// (or out-of-range number) returns the shared empty Group, never a throw.
+Il2CppObject* icall_regex_gc_get_item_str(Il2CppObject* self, Il2CppString* name);
+
+// --- MatchCollection property icalls (OBJ-2) --------------------------------
+
+// int Count.
+int32_t icall_regex_mc_get_count(Il2CppObject* self);
+// Match this[int index]: an out-of-range (or negative) index throws
+// ArgumentOutOfRangeException (net48 MatchCollection indexer semantics).
+Il2CppObject* icall_regex_mc_get_item_int(Il2CppObject* self, int32_t index);
+
+// --- MatchCollection enumerator (foreach) -----------------------------------
+
+// IEnumerable.GetEnumerator: wrap the items array in a fresh enumerator.
+Il2CppObject* il2cpp_regex_mc_get_enumerator(Il2CppObject* self);
+int32_t icall_regex_mc_enumerator_move_next(Il2CppObject* self);
+Il2CppObject* icall_regex_mc_enumerator_get_current(Il2CppObject* self);
+void icall_regex_mc_enumerator_reset(Il2CppObject* self);
 
 }} // namespace il2cpp::runtime

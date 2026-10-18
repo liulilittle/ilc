@@ -234,13 +234,46 @@ void AppendGroup(std::u16string& out, const char16_t* input,
     out.append(input + gstart, static_cast<size_t>(glength));
 }
 
+// Resolve a named group to its .NET group number (>= 1), or -1 when no such
+// name is declared (regex_ast.h OBJ-3 name table).
+int32_t FindGroupByName(const RegexAst* ast, const char16_t* name, int32_t len)
+{
+    if (ast == nullptr || len <= 0)
+    {
+        return -1;
+    }
+    for (int32_t i = 0; i < ast->nameCount; ++i)
+    {
+        if (ast->names[i].length != len)
+        {
+            continue;
+        }
+        bool eq = true;
+        for (int32_t k = 0; k < len; ++k)
+        {
+            if (ast->names[i].text[k] != name[k])
+            {
+                eq = false;
+                break;
+            }
+        }
+        if (eq)
+        {
+            return ast->names[i].index;
+        }
+    }
+    return -1;
+}
+
 // Expand rep[0..repLen) per net48 ParseReplacement ($0-$9 group refs, $$
 // literal '$', two-digit $nn = group nn when it exists else first digit
-// group + literal second digit, any other '$' sequence kept literally).
+// group + literal second digit, ${name} / ${n} group refs (unknown name kept
+// literally), any other '$' sequence kept literally).
 void AppendReplacement(std::u16string& out, const char16_t* input,
                        const char16_t* rep, int32_t repLen,
-                       const MatchSpan& span, int32_t groupCount)
+                       const MatchSpan& span, const RegexAst* ast)
 {
+    const int32_t groupCount = (ast != nullptr) ? ast->groupCount : 0;
     for (int32_t i = 0; i < repLen; ++i)
     {
         const char16_t c = rep[i];
@@ -259,6 +292,66 @@ void AppendReplacement(std::u16string& out, const char16_t* input,
         {
             out.push_back(u'$');
             ++i;
+            continue;
+        }
+        if (next == u'{')
+        {
+            // ${name} / ${n}: resolve the group; an unknown name (or an
+            // out-of-range number) is kept literally ("${nope}"). An
+            // unterminated "${" is kept literally ('$' + '{' + rest).
+            int32_t j = i + 2;
+            while (j < repLen && rep[j] != u'}')
+            {
+                ++j;
+            }
+            if (j >= repLen)
+            {
+                out.push_back(u'$');
+                continue;
+            }
+            const char16_t* name = rep + i + 2;
+            const int32_t nameLen = j - (i + 2);
+            int32_t group = -1;
+            if (nameLen > 0)
+            {
+                bool allDigits = true;
+                for (int32_t k = 0; k < nameLen; ++k)
+                {
+                    if (name[k] < u'0' || name[k] > u'9')
+                    {
+                        allDigits = false;
+                        break;
+                    }
+                }
+                if (allDigits)
+                {
+                    int64_t n = 0;
+                    for (int32_t k = 0; k < nameLen; ++k)
+                    {
+                        n = n * 10 + (name[k] - u'0');
+                    }
+                    if (n >= 0 && n <= groupCount)
+                    {
+                        group = static_cast<int32_t>(n);
+                    }
+                }
+                else
+                {
+                    group = FindGroupByName(ast, name, nameLen);
+                }
+            }
+            if (group >= 0)
+            {
+                AppendGroup(out, input, span, group);
+            }
+            else
+            {
+                out.push_back(u'$');
+                out.push_back(u'{');
+                out.append(name, static_cast<size_t>(nameLen));
+                out.push_back(u'}');
+            }
+            i = j; // consume through '}'
             continue;
         }
         if (next >= u'0' && next <= u'9')
@@ -330,8 +423,43 @@ Il2CppObject* il2cpp_regex_match(Il2CppString* input, Il2CppString* pattern,
         m.success = false; // budget exhaustion / no match -> the no-match Match
     }
     // OBJ-1: build the Match/Group/GroupCollection object graph (regex_obj.h).
-    return il2cpp_regex_build_match(t.data(), static_cast<int32_t>(t.size()), m,
-                                    ast.Get()->groupCount);
+    return il2cpp_regex_build_match(t.data(), static_cast<int32_t>(t.size()), m, ast.Get());
+}
+
+//------------------------------------------------------------------------------
+// Matches (OBJ-2)
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_regex_matches(Il2CppString* input, Il2CppString* pattern,
+                                   int32_t options)
+{
+    RequireString(pattern, "pattern");
+    RequireString(input, "input");
+    RequireOptions(options);
+    const std::u16string p = ToText(pattern);
+    const std::u16string t = ToText(input);
+    AstScope ast(ParsePattern(p, options));
+
+    std::vector<MatchSpan> spans;
+    CollectMatches(ast.Get(), t.data(), static_cast<int32_t>(t.size()), spans);
+
+    // Convert each MatchSpan to a MatchResult (absolute coordinates) so the
+    // shared builder can construct the Match object graph per element.
+    std::vector<MatchResult> results;
+    results.reserve(spans.size());
+    for (size_t i = 0; i < spans.size(); ++i)
+    {
+        MatchResult mr;
+        mr.success = true;
+        mr.start = spans[i].start;
+        mr.matchedLength = spans[i].length;
+        mr.groups = spans[i].groups;
+        results.push_back(std::move(mr));
+    }
+
+    return il2cpp_regex_build_match_collection(
+        t.data(), static_cast<int32_t>(t.size()),
+        results.empty() ? nullptr : results.data(), static_cast<int32_t>(results.size()),
+        ast.Get());
 }
 
 //------------------------------------------------------------------------------
@@ -360,7 +488,7 @@ Il2CppString* il2cpp_regex_replace(Il2CppString* input, Il2CppString* pattern,
         const MatchSpan& span = spans[i];
         out.append(text + prev, static_cast<size_t>(span.start - prev));
         AppendReplacement(out, text, r.data(), static_cast<int32_t>(r.size()),
-                          span, ast.Get()->groupCount);
+                          span, ast.Get());
         prev = span.start + span.length;
     }
     out.append(text + prev, static_cast<size_t>(t.size() - prev));

@@ -1312,8 +1312,24 @@ public static class StackFold
                     {
                         var ccArg = stack.Pop();
                         Push(new CallExpr { Function = $"castclass_{ins.Operand}", ReturnsRef = true, Args = { ccArg } }, ins);
-                        if (ccArg is LocExpr ccl && objTypes.TryGetValue(ccl.Name, out var cct) && stack.Peek() is LocExpr ccres)
-                            objTypes[ccres.Name] = cct;
+                        if (stack.Peek() is LocExpr ccres)
+                        {
+                            string? ccType = (ccArg is LocExpr ccl && objTypes.TryGetValue(ccl.Name, out var cct)) ? cct : null;
+                            // nb6 OBJ-2: a cast from an UNTRACKED (or merely
+                            // object-typed) receiver -- the foreach element
+                            // conversion `object IEnumerator::get_Current();
+                            // castclass Match` -- carries no hint, so the
+                            // cast TARGET type is the only static type the
+                            // result has. Fall back to the token type so a
+                            // receiver-typed member on the cast result
+                            // (Match.Value) resolves.
+                            if (ccType == null || ccType == "System.Object")
+                            {
+                                var target = TypeFullNameFromToken(md, (int)ins.Operand);
+                                if (target != null) ccType = target;
+                            }
+                            if (ccType != null) objTypes[ccres.Name] = ccType;
+                        }
                     }
                     break;
                 case ILOpCode.Newarr:

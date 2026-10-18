@@ -90,10 +90,27 @@ struct RegexNode {
     bool         lazy;        // Repeat: lazy quantifier (a*? a+? a?? a{n,m}?)
 };
 
+// OBJ-3 named-group entry: maps a group NAME to its .NET group number.
+// text is a heap copy (owned by the AST, freed by RegexAstFree) so it outlives
+// the caller's pattern buffer; length is in UTF-16 units.
+struct RegexGroupName {
+    char16_t* text;
+    int32_t   length;
+    int32_t   index;   // .NET group number (1-based)
+};
+
 struct RegexAst {
     RegexNode* root;
     int32_t    groupCount;    // number of capture groups (max groupIndex; 0 = none)
     int32_t    options;       // validated option bits (kRegexOptions*)
+    // OBJ-3 named groups: names[i] maps a name to its .NET group number. The
+    // .NET numbering rule is preserved -- unnamed groups are numbered first
+    // (left-to-right), named groups AFTER them (left-to-right) -- so a Group
+    // node's groupIndex is its .NET number. nameCount == 0 for a pattern with
+    // no named groups (the numeric GroupCollection[string] path applies then).
+    int32_t         nameCount;
+    RegexGroupName* names;
+    bool            hasNamedGroups;
 };
 
 //------------------------------------------------------------------------------
