@@ -456,6 +456,8 @@ public class MethodMapProcessTests
         var get = ResolveMember(Synthesize("System.IO", "StreamWriter", "get_AutoFlush", Sig(0x02)),
             "get_AutoFlush", receiverType: "System.Diagnostics.Process.Stdin");
         Assert.Equal("il2cpp::runtime::il2cpp_process_get_stdin_autofush", get.CppName);
+        Assert.True(get.ReturnsValue);
+        Assert.False(get.ReturnsRef); // D1: a bool (int32) getter, not a managed ref
 
         var set = ResolveMember(Synthesize("System.IO", "StreamWriter", "set_AutoFlush", Sig(0x01, 0x02)),
             "set_AutoFlush", receiverType: "System.Diagnostics.Process.Stdin");

@@ -254,9 +254,12 @@ public static partial class MethodRefResolver
                 // AutoFlush: every write goes straight to the pipe, so the
                 // getter reports true (AutoFlush-equivalent) and the setter is
                 // accepted as a no-op (net48 lets the caller enable it).
+                // ReturnsRef=false -- a bool (int32) getter, like
+                // get_HasExited / get_ExitCode (the rr=true form would emit a
+                // reinterpret_cast<Il2CppObject*> for a value return).
                 case "get_AutoFlush":
                     if (count == 0)
-                        return I("il2cpp::runtime::il2cpp_process_get_stdin_autofush", 0, true, true, true,
+                        return I("il2cpp::runtime::il2cpp_process_get_stdin_autofush", 0, true, false, true,
                             new[] { "i" });
                     return null;
                 case "set_AutoFlush":

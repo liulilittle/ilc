@@ -102,6 +102,16 @@ namespace Cases
             r7.ExitWriteLock();
             Console.WriteLine("[sup.write.read.after]=" + B(r7.IsWriteLockHeld) + "|" + B(r7.IsReadLockHeld));
 
+            // --- write -> upgradeable read (allowed under SupportsRecursion) --
+            var r9 = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
+            r9.EnterWriteLock();
+            string e9 = Try(() => r9.EnterUpgradeableReadLock());
+            Console.WriteLine("[sup.write.upg]=" + e9 + "|" + B(r9.IsWriteLockHeld) + "|" + B(r9.IsUpgradeableReadLockHeld) + "|" + r9.CurrentReadCount);
+            if (e9 == "ok") r9.ExitUpgradeableReadLock();
+            Console.WriteLine("[sup.write.upg.after1]=" + B(r9.IsWriteLockHeld) + "|" + B(r9.IsUpgradeableReadLockHeld));
+            r9.ExitWriteLock();
+            Console.WriteLine("[sup.write.upg.after2]=" + B(r9.IsWriteLockHeld) + "|" + B(r9.IsUpgradeableReadLockHeld));
+
             // --- TryEnter success paths under SupportsRecursion ---------------
             var r8 = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
             bool t1 = r8.TryEnterReadLock(0);

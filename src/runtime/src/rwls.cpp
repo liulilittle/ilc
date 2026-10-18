@@ -161,7 +161,12 @@ void AcquireUpgradeable(RwlsState* s)
             ++s->upgradeDepth; // recursive upgradeable read
             return;
         }
-        if (s->readDepth > 0 || s->writeDepth > 0)
+        // Holding the WRITE lock then entering the upgradeable read lock is
+        // ALLOWED under SupportsRecursion (net48 _writeLockOwnerId branch;
+        // oracle [write.upg]=ok -- the write owner may take the upgradeable
+        // read lock). Only a PLAIN read lock (readDepth>0 with no write) is a
+        // cross-type recursion error.
+        if (s->readDepth > 0 && s->writeDepth == 0)
         {
             ThrowLockRecursionException();
         }

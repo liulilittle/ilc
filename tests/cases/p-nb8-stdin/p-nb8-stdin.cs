@@ -36,6 +36,7 @@ namespace Cases
             Process p = Process.Start(psi);
             Console.WriteLine("[stdin.pid>0]=" + (p.Id > 0));
             p.StandardInput.AutoFlush = true;
+            Console.WriteLine("[stdin.autoflushtrue]=" + B(p.StandardInput.AutoFlush));
             p.StandardInput.WriteLine("hello");
             p.StandardInput.WriteLine("world");
             p.StandardInput.Write("abc");
