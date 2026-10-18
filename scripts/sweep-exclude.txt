@@ -1,0 +1,9 @@
+# Sweep exclusion list (non byte-exact cases)
+# Format: one case name per line; '#' comments allowed (put a space before '#'
+# when adding a trailing note, otherwise the note becomes part of the name).
+# These cases live under tests/cases/ but are NOT byte-exact difftest cases,
+# so the full-pool sweep must not count them as FAIL.
+#
+# Reasons (each documented in the case's own GAPS.md / source header):
+p-stacktrace      # W7 whitelist: net48 CLR internal frames cannot be statically reproduced (see GAPS.md)
+p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns localized name); assertion is runtime-only [loud.tostring]=True

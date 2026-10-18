@@ -34,7 +34,18 @@ $logDir = Join-Path $Root ".opencode\logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $outDir = Split-Path -Parent $Out
 if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
-$cases = Get-Content -LiteralPath $List | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+# Non byte-exact cases (W7 whitelist / runtime-contract probes / nondeterministic cases)
+# are listed in sweep-exclude.txt next to this script and filtered out of every shard.
+$excludeFile = Join-Path $PSScriptRoot "sweep-exclude.txt"
+$excludedCases = @()
+if (Test-Path -LiteralPath $excludeFile) {
+    $excludedCases = Get-Content -LiteralPath $excludeFile |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and $_ -notmatch '^#' } |
+        ForEach-Object { ($_ -split '\s+')[0] }
+}
+$cases = Get-Content -LiteralPath $List | ForEach-Object { $_.Trim() } | Where-Object { $_ } |
+    Where-Object { $excludedCases -notcontains $_ }
 function Write-ResultRecord {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
