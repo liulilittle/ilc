@@ -65,6 +65,12 @@ namespace il2cpp {
 Il2CppArray* il2cpp_linq_where_i4(Il2CppArray* src, Il2CppObject* pred);
 Il2CppArray* il2cpp_linq_where_ref(Il2CppArray* src, Il2CppObject* pred);
 
+// Where(source, (element, index) => bool) -- the index-aware overload
+// (net48 Func<TSource,int,bool>). The predicate runs EXACTLY ONCE per element
+// with the element's 0-based position in the source sequence; the result is a
+// fresh exact-size int32[] preserving first-appearance order.
+Il2CppArray* il2cpp_linq_where_idx_i4(Il2CppArray* src, Il2CppObject* pred);
+
 // Select -- map every element through the selector. Result length equals the
 // source length. The selector returns Il2CppObject* for the ref-result
 // entries (a string IS an Il2CppObject* -- int32 -> string[] uses the
@@ -73,6 +79,12 @@ Il2CppArray* il2cpp_linq_where_ref(Il2CppArray* src, Il2CppObject* pred);
 Il2CppArray* il2cpp_linq_select_i4_i4(Il2CppArray* src, Il2CppObject* sel);   // int32 -> int32
 Il2CppArray* il2cpp_linq_select_i4_ref(Il2CppArray* src, Il2CppObject* sel);  // int32 -> string/object
 Il2CppArray* il2cpp_linq_select_ref_ref(Il2CppArray* src, Il2CppObject* sel); // ref -> ref
+
+// Select(source, (element, index) => int) -- the index-aware overload (net48
+// Func<TSource,int,TResult>). The selector runs EXACTLY ONCE per element with
+// the element's 0-based position; the result is a fresh int32[] of the same
+// length as the source.
+Il2CppArray* il2cpp_linq_select_idx_i4_i4(Il2CppArray* src, Il2CppObject* sel);
 
 // First -- the first element. Empty array -> InvalidOperationException.
 int32_t       il2cpp_linq_first_i4(Il2CppArray* src);
@@ -251,6 +263,18 @@ Il2CppClass* il2cpp_linq_grouping_result_class();
 //             callback contract: null -> ArgumentNullException)
 Il2CppObject* il2cpp_linq_group_by_i4(Il2CppArray* src, Il2CppObject* keySel);
 
+// GroupBy(source, keySelector, elementSelector) -- the 2-delegate overload
+// (net48 Func<TSource,TKey> + Func<TSource,TElement>). Each element is
+// projected through elementSelector BEFORE it is appended to its bucket, so
+// the bucket's element array holds the projected values; the key selector
+// runs once per source element and the element selector runs once per source
+// element (net48 GroupBy semantics: both run exactly once per element).
+//   src     : source array (null -> ArgumentNullException; ref elements ->
+//             NotSupportedException)
+//   keySel  : delegate wrapping int32(*)(int32_t)
+//   elemSel : delegate wrapping int32(*)(int32_t) (projected element)
+Il2CppObject* il2cpp_linq_group_by_elem_i4(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel);
+
 // Sum on a grouping (the per-bucket aggregate): CHECKED int32 addition over
 // the bucket's elements (net48 Enumerable.Sum is checked -- D-LINQ-3); an
 // empty bucket -> 0. A null grouping raises NullReferenceException (the
@@ -271,6 +295,15 @@ Il2CppObject* il2cpp_linq_grouping_result_get_grouping(Il2CppObject* result, int
 int32_t       il2cpp_linq_grouping_get_key(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_get_count(Il2CppObject* grouping);
 Il2CppArray*  il2cpp_linq_grouping_get_elements(Il2CppObject* grouping);
+
+// IEnumerable.GetEnumerator over the two grouping surfaces (nb9): the
+// result yields its buckets in first-appearance order (reference elements),
+// one bucket yields its elements (boxed int32, so both the i4 and the ref
+// get_Current carriers observe the net48 value). Both materialize an
+// EXACT-SIZE snapshot and wrap it in the shared managed array enumerator
+// (arraysort.cpp dispatches these two klasses to them).
+Il2CppObject* il2cpp_linq_grouping_result_get_enumerator(Il2CppObject* result);
+Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping);
 
 //------------------------------------------------------------------------------
 // SEQUENCE-COMBINATION / SET-FAMILY OPERATORS (D-LINQZ-1) -- int32 element

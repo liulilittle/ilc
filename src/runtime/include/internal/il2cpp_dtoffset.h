@@ -73,7 +73,21 @@ void icall_dtoffset_ctor_ymd(Il2CppDateTimeOffset* out, int32_t year,
 // DateTimeOffset.UtcNow (offset zero; the UTC instant).
 Il2CppDateTimeOffset icall_dtoffset_utc_now();
 
+// DateTimeOffset.Now: the LOCAL clock instant plus the host timezone's
+// CURRENT offset (net48; the offset is a whole number of minutes).
+Il2CppDateTimeOffset icall_dtoffset_now();
+
 // --- accessors --------------------------------------------------------------
+
+// Ticks: the LOCAL clock ticks (utcTicks + offset). UtcTicks: the UTC
+// instant ticks.
+int64_t icall_dtoffset_get_ticks(Il2CppDateTimeOffset dto);
+int64_t icall_dtoffset_get_utc_ticks(Il2CppDateTimeOffset dto);
+
+// DayOfWeek (Sunday = 0 .. Saturday = 6) / DayOfYear (1..366) of the LOCAL
+// clock.
+int32_t icall_dtoffset_get_dayofweek(Il2CppDateTimeOffset dto);
+int32_t icall_dtoffset_get_dayofyear(Il2CppDateTimeOffset dto);
 
 // DateTimeOffset.DateTime: the LOCAL time (UTC + offset) as a DateTime value.
 Il2CppDateTime icall_dtoffset_get_datetime(Il2CppDateTimeOffset dto);
@@ -100,6 +114,47 @@ int32_t icall_dtoffset_compare(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
 // Equals(DateTimeOffset): true iff the UTC instants are equal (offsets may
 // differ).
 bool icall_dtoffset_equals(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+
+// --- arithmetic -------------------------------------------------------------
+
+// AddDays/AddHours/AddMinutes/AddSeconds/AddMilliseconds: add the value to the
+// CLOCK time and keep the offset (net48). The DateTime.Add* semantics (double
+// millisecond scaling + range validation) are reused on the local clock; the
+// result is re-based to UTC ticks. Out-of-range -> ArgumentOutOfRangeException.
+Il2CppDateTimeOffset icall_dtoffset_add_days(Il2CppDateTimeOffset dto, double days);
+Il2CppDateTimeOffset icall_dtoffset_add_hours(Il2CppDateTimeOffset dto, double hours);
+Il2CppDateTimeOffset icall_dtoffset_add_minutes(Il2CppDateTimeOffset dto, double minutes);
+Il2CppDateTimeOffset icall_dtoffset_add_seconds(Il2CppDateTimeOffset dto, double seconds);
+Il2CppDateTimeOffset icall_dtoffset_add_milliseconds(Il2CppDateTimeOffset dto, double milliseconds);
+
+// AddTicks(ticks): add raw 100 ns ticks (offset preserved); out-of-range ->
+// ArgumentOutOfRangeException.
+Il2CppDateTimeOffset icall_dtoffset_add_ticks(Il2CppDateTimeOffset dto, int64_t ticks);
+
+// Add(TimeSpan) / Subtract(TimeSpan): add/subtract the interval (offset
+// preserved); out-of-range -> ArgumentOutOfRangeException.
+Il2CppDateTimeOffset icall_dtoffset_add(Il2CppDateTimeOffset dto, Il2CppTimeSpan span);
+Il2CppDateTimeOffset icall_dtoffset_subtract_ts(Il2CppDateTimeOffset dto, Il2CppTimeSpan span);
+
+// Subtract(DateTimeOffset): the signed TimeSpan between the UTC instants.
+Il2CppTimeSpan icall_dtoffset_subtract_dto(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+
+// ToUnixTimeSeconds / ToUnixTimeMilliseconds: the UTC instant relative to
+// 1970-01-01T00:00:00Z (integer division, net48).
+int64_t icall_dtoffset_to_unix_seconds(Il2CppDateTimeOffset dto);
+int64_t icall_dtoffset_to_unix_milliseconds(Il2CppDateTimeOffset dto);
+
+// ToOffset(TimeSpan): the same UTC instant with the requested offset (the
+// offset is validated like the ctor: whole minutes in [-14:00, +14:00]).
+Il2CppDateTimeOffset icall_dtoffset_to_offset(Il2CppDateTimeOffset dto, Il2CppTimeSpan offset);
+
+// The relational operators (UTC-instant comparison).
+bool icall_dtoffset_op_equality(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+bool icall_dtoffset_op_inequality(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+bool icall_dtoffset_op_less_than(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+bool icall_dtoffset_op_greater_than(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+bool icall_dtoffset_op_less_or_equal(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+bool icall_dtoffset_op_greater_or_equal(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
 
 // --- formatting -------------------------------------------------------------
 

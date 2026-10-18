@@ -161,26 +161,33 @@ public class MethodMapEncodingTests
     public void Resolve_Encoding_GetBytes_FiveArgs_ThrowsLoud()
     {
         // instance int GetBytes(string, int, int, byte[], int): ret i4,
-        // params string + 2x i4 + SZARRAY byte + i4.
+        // params string + 2x i4 + SZARRAY byte + i4. This shape (write into a
+        // caller destination) has no runtime entry: the RECEIVER-hinted
+        // resolution must reject it LOUDLY.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
-                SigEx(0x08, Array.Empty<byte>(), 5, 0x0E, 0x08, 0x08, 0x1D, 0x05, 0x08)), "GetBytes"));
+                SigEx(0x08, Array.Empty<byte>(), 5, 0x0E, 0x08, 0x08, 0x1D, 0x05, 0x08)),
+                "GetBytes", "System.Text.UTF8Encoding"));
 
         Assert.Contains("System.Text.Encoding::GetBytes", ex.Message);
         Assert.Contains("overload", ex.Message);
     }
 
     [Fact]
-    public void Resolve_Encoding_GetString_ThreeArgs_ThrowsLoud()
+    public void Resolve_Encoding_GetString_ThreeArgs_MapsToRangeIcall()
     {
         // instance string GetString(byte[], int, int): ret string,
-        // params SZARRAY byte + 2x i4.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Text", "Encoding", "GetString",
-                SigEx(0x0E, Array.Empty<byte>(), 3, 0x1D, 0x05, 0x08, 0x08)), "GetString"));
+        // params SZARRAY byte + 2x i4. nb9 wires the ranged form for real
+        // (icall_encoding_get_string_range); the explicit ParamCount is 3 and
+        // the receiver is prepended by the emitter.
+        var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetString",
+            SigEx(0x0E, Array.Empty<byte>(), 3, 0x1D, 0x05, 0x08, 0x08)),
+            "GetString", "System.Text.UTF8Encoding");
 
-        Assert.Contains("System.Text.Encoding::GetString", ex.Message);
-        Assert.Contains("overload", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_string_range", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
     }
 
     //--------------------------------------------------------------------------

@@ -12,6 +12,7 @@
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_out_of_range_exception
 #include "il2cpp_string.h"        // il2cpp_string_new
 #include "il2cpp_time_fmt.h"      // shared date/time formatting engine
+#include "timezone.h"             // il2cpp_timezone_get_utc_offset (Now)
 
 #include <cstdint>
 #include <string>
@@ -21,6 +22,9 @@ namespace il2cpp { namespace runtime {
 namespace {
 
 constexpr int64_t kTicksPerMinute = 600000000LL; // 60 s * 10^7 ticks/s
+constexpr int64_t kTicksPerSecond = 10000000LL;
+constexpr int64_t kTicksPerMillisecond = 10000LL;
+constexpr int64_t kMaxTicks = 3155378975999999999LL; // 9999-12-31T23:59:59.9999999
 constexpr int32_t kMinOffsetMinutes = -840;      // -14:00
 constexpr int32_t kMaxOffsetMinutes = 840;       // +14:00
 
@@ -42,6 +46,32 @@ int32_t ValidateOffset(Il2CppTimeSpan offset)
     return static_cast<int32_t>(minutes);
 }
 
+// Validate the UTC instant (net48 DateTimeOffset range [0001-01-01,
+// 9999-12-31]); throws ArgumentOutOfRangeException on violation.
+void ValidateUtcTicks(int64_t utcTicks)
+{
+    if (utcTicks < 0 || utcTicks > kMaxTicks)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "value",
+            "The UTC time represented when the offset is applied must be between year 0 and 10,000.");
+    }
+}
+
+Il2CppDateTimeOffset MakeDto(int64_t utcTicks, int32_t offsetMinutes)
+{
+    ValidateUtcTicks(utcTicks);
+    Il2CppDateTimeOffset result;
+    result.utcTicks = utcTicks;
+    result.offsetMinutes = offsetMinutes;
+    return result;
+}
+
+int64_t OffsetTicks(const Il2CppDateTimeOffset& dto)
+{
+    return static_cast<int64_t>(dto.offsetMinutes) * kTicksPerMinute;
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -55,7 +85,6 @@ void icall_dtoffset_ctor(Il2CppDateTimeOffset* out, Il2CppDateTime localTime,
     // net48 ctor rule: the UTC instant must be in [0001-01-01, 9999-12-31]
     // (DateTime.MinValue/MaxValue.Ticks). DateTime.MinValue + a positive
     // offset underflows -> ArgumentOutOfRangeException("offset") (dtaudit4).
-    constexpr int64_t kMaxTicks = 3155378975999999999LL;
     if (utcTicks < 0 || utcTicks > kMaxTicks)
     {
         il2cpp_throw_argument_out_of_range_exception(
@@ -90,6 +119,18 @@ Il2CppDateTimeOffset icall_dtoffset_utc_now()
     Il2CppDateTimeOffset dto;
     dto.utcTicks = utc.ticks;
     dto.offsetMinutes = 0;
+    return dto;
+}
+
+// DateTimeOffset.Now: the current UTC instant plus the host timezone offset.
+// The offset is truncated to whole minutes (net48 stores whole minutes).
+Il2CppDateTimeOffset icall_dtoffset_now()
+{
+    const Il2CppDateTime utc = icall_datetime_utc_now();
+    const int64_t offsetSeconds = il2cpp_timezone_get_utc_offset();
+    Il2CppDateTimeOffset dto;
+    dto.utcTicks = utc.ticks;
+    dto.offsetMinutes = static_cast<int32_t>(offsetSeconds / 60);
     return dto;
 }
 
@@ -142,6 +183,26 @@ int32_t icall_dtoffset_get_second(Il2CppDateTimeOffset dto)
     return icall_datetime_get_second(icall_dtoffset_get_datetime(dto));
 }
 
+int64_t icall_dtoffset_get_ticks(Il2CppDateTimeOffset dto)
+{
+    return dto.utcTicks + OffsetTicks(dto);
+}
+
+int64_t icall_dtoffset_get_utc_ticks(Il2CppDateTimeOffset dto)
+{
+    return dto.utcTicks;
+}
+
+int32_t icall_dtoffset_get_dayofweek(Il2CppDateTimeOffset dto)
+{
+    return icall_datetime_get_dayofweek(icall_dtoffset_get_datetime(dto));
+}
+
+int32_t icall_dtoffset_get_dayofyear(Il2CppDateTimeOffset dto)
+{
+    return icall_datetime_get_day_of_year(icall_dtoffset_get_datetime(dto));
+}
+
 //------------------------------------------------------------------------------
 // Comparison / equality (UTC instants).
 //------------------------------------------------------------------------------
@@ -161,6 +222,117 @@ int32_t icall_dtoffset_compare(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
 bool icall_dtoffset_equals(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
 {
     return a.utcTicks == b.utcTicks;
+}
+
+//------------------------------------------------------------------------------
+// Arithmetic. The DateTime.Add* kernels run on the LOCAL clock (net48
+// DateTimeOffset.AddDays = new DateTimeOffset(ClockDateTime.AddDays(days),
+// Offset)); the result is re-based to UTC ticks and range-checked.
+//------------------------------------------------------------------------------
+namespace {
+
+Il2CppDateTimeOffset AddLocal(const Il2CppDateTimeOffset& dto, Il2CppDateTime local)
+{
+    return MakeDto(local.ticks - OffsetTicks(dto), dto.offsetMinutes);
+}
+
+} // namespace
+
+Il2CppDateTimeOffset icall_dtoffset_add_days(Il2CppDateTimeOffset dto, double days)
+{
+    return AddLocal(dto, icall_datetime_add_days(icall_dtoffset_get_datetime(dto), days));
+}
+
+Il2CppDateTimeOffset icall_dtoffset_add_hours(Il2CppDateTimeOffset dto, double hours)
+{
+    return AddLocal(dto, icall_datetime_add_hours(icall_dtoffset_get_datetime(dto), hours));
+}
+
+Il2CppDateTimeOffset icall_dtoffset_add_minutes(Il2CppDateTimeOffset dto, double minutes)
+{
+    return AddLocal(dto, icall_datetime_add_minutes(icall_dtoffset_get_datetime(dto), minutes));
+}
+
+Il2CppDateTimeOffset icall_dtoffset_add_seconds(Il2CppDateTimeOffset dto, double seconds)
+{
+    return AddLocal(dto, icall_datetime_add_seconds(icall_dtoffset_get_datetime(dto), seconds));
+}
+
+Il2CppDateTimeOffset icall_dtoffset_add_milliseconds(Il2CppDateTimeOffset dto, double milliseconds)
+{
+    return AddLocal(dto, icall_datetime_add_milliseconds(icall_dtoffset_get_datetime(dto), milliseconds));
+}
+
+Il2CppDateTimeOffset icall_dtoffset_add_ticks(Il2CppDateTimeOffset dto, int64_t ticks)
+{
+    return MakeDto(dto.utcTicks + ticks, dto.offsetMinutes);
+}
+
+Il2CppDateTimeOffset icall_dtoffset_add(Il2CppDateTimeOffset dto, Il2CppTimeSpan span)
+{
+    return MakeDto(dto.utcTicks + span.ticks, dto.offsetMinutes);
+}
+
+Il2CppDateTimeOffset icall_dtoffset_subtract_ts(Il2CppDateTimeOffset dto, Il2CppTimeSpan span)
+{
+    return MakeDto(dto.utcTicks - span.ticks, dto.offsetMinutes);
+}
+
+Il2CppTimeSpan icall_dtoffset_subtract_dto(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
+{
+    return Il2CppTimeSpan(a.utcTicks - b.utcTicks);
+}
+
+// net48 UnixTimeSeconds/Milliseconds are relative to 1970-01-01T00:00:00Z.
+// net48 divides the ABSOLUTE tick count first and then subtracts the epoch
+// constant (DateTimeOffset.ToUnixTimeSeconds: UtcTicks / TicksPerSecond -
+// UnixEpoch.Ticks / TicksPerSecond), so the same order is used here for
+// byte-exact pre-1970 truncation.
+constexpr int64_t kUnixEpochTicks = 621355968000000000LL;
+
+int64_t icall_dtoffset_to_unix_seconds(Il2CppDateTimeOffset dto)
+{
+    return dto.utcTicks / kTicksPerSecond - kUnixEpochTicks / kTicksPerSecond;
+}
+
+int64_t icall_dtoffset_to_unix_milliseconds(Il2CppDateTimeOffset dto)
+{
+    return dto.utcTicks / kTicksPerMillisecond - kUnixEpochTicks / kTicksPerMillisecond;
+}
+
+Il2CppDateTimeOffset icall_dtoffset_to_offset(Il2CppDateTimeOffset dto, Il2CppTimeSpan offset)
+{
+    return MakeDto(dto.utcTicks, ValidateOffset(offset));
+}
+
+bool icall_dtoffset_op_equality(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
+{
+    return a.utcTicks == b.utcTicks;
+}
+
+bool icall_dtoffset_op_inequality(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
+{
+    return a.utcTicks != b.utcTicks;
+}
+
+bool icall_dtoffset_op_less_than(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
+{
+    return a.utcTicks < b.utcTicks;
+}
+
+bool icall_dtoffset_op_greater_than(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
+{
+    return a.utcTicks > b.utcTicks;
+}
+
+bool icall_dtoffset_op_less_or_equal(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
+{
+    return a.utcTicks <= b.utcTicks;
+}
+
+bool icall_dtoffset_op_greater_or_equal(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
+{
+    return a.utcTicks >= b.utcTicks;
 }
 
 //------------------------------------------------------------------------------

@@ -47,6 +47,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "listi4.h"
+#include "sortedlist.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -448,6 +449,45 @@ Il2CppArray* il2cpp_linq_where_i4(Il2CppArray* src, Il2CppObject* pred)
     return out;
 }
 
+Il2CppArray* il2cpp_linq_where_idx_i4(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireInt32Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    // SINGLE predicate pass over the index-aware callback (net48
+    // Func<TSource,int,bool>); the index is the element's position in the
+    // SOURCE sequence (never the output position).
+    Il2CppArray* scratch = il2cpp_array_new(nullptr, 4, false, src->length);
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        if (InvokePredI4I4(d, v, i))
+        {
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(scratch, w)) = v;
+            ++w;
+        }
+    }
+    if (w == src->length)
+    {
+        return scratch;
+    }
+    Il2CppArray* out = il2cpp_array_new(nullptr, 4, false, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(scratch, i));
+    }
+    return out;
+}
+
 Il2CppArray* il2cpp_linq_where_ref(Il2CppArray* src, Il2CppObject* pred)
 {
     RequireArray(src);
@@ -507,6 +547,32 @@ Il2CppArray* il2cpp_linq_select_i4_i4(Il2CppArray* src, Il2CppObject* sel)
         // stale). No allocation separates the address computation from the
         // store, so no collection can interleave.
         int32_t r = InvokeSelI4I4(d, I4At(src, i));
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_i4_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, 4, false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        // Index-aware selector (net48 Func<TSource,int,TResult>): the index is
+        // the element's position in the SOURCE sequence. The callback runs
+        // FIRST; the result slot is computed afterwards through the rooted
+        // 'out' (a cached slot address would be stale after a collecting
+        // callback).
+        const int32_t r = InvokeZipI4I4(d, I4At(src, i), i);
         *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
     }
     return out;
@@ -1033,6 +1099,98 @@ Il2CppObject* il2cpp_linq_group_by_i4(Il2CppArray* src, Il2CppObject* keySel)
     return result;
 }
 
+//------------------------------------------------------------------------------
+// il2cpp_linq_group_by_elem_i4 -- GroupBy(source, keySelector,
+// elementSelector) (net48 Func<TSource,TKey> + Func<TSource,TElement>).
+// Identical bucketing to il2cpp_linq_group_by_i4, except that each element is
+// projected through elemSel BEFORE being appended to its bucket. Both
+// selectors run EXACTLY ONCE per source element (net48 GroupBy semantics).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_group_by_elem_i4(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel)
+{
+    RequireArray(src);
+    Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
+    Il2CppDelegate* ed = RequireCallback(elemSel, "elementSelector");
+    RequireInt32Family(src);
+
+    EnsureGroupingClassesRegistered();
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&kd));
+    roots.Add(reinterpret_cast<void**>(&ed));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* result = il2cpp_object_new(&g_groupingResultClass);
+    roots.Add(reinterpret_cast<void**>(&result));
+
+    Il2CppArray* groups = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+    Il2CppLinqGroupingResult* res = AsGroupingResult(result);
+    res->groups = groups;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&res->groups),
+                         reinterpret_cast<Il2CppObject*>(groups));
+    res->count = 0;
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const int32_t key = InvokeSelI4I4(kd, v);   // may allocate -> collect
+        const int32_t elem = InvokeSelI4I4(ed, v);  // may allocate -> collect
+
+        // Re-derive everything through the rooted slots after the callbacks.
+        res = AsGroupingResult(result);
+        const int32_t n = res->count;
+        Il2CppObject** groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+
+        int32_t found = -1;
+        for (int32_t j = 0; j < n; ++j)
+        {
+            if (AsGrouping(groupSlots[j])->key == key)
+            {
+                found = j;
+                break;
+            }
+        }
+
+        if (found >= 0)
+        {
+            Il2CppLinqGrouping* grp = AsGrouping(groupSlots[found]);
+            if (grp->count == grp->elements->length)
+            {
+                GrowGroupElements(&result, found);
+            }
+            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                AsGroupingResult(result)->groups->data + found * sizeof(void*)));
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, grp->count)) = elem;
+            ++grp->count;
+        }
+        else
+        {
+            Il2CppObject* ng = il2cpp_object_new(&g_groupingClass);
+            Il2CppLinqGrouping* grp = AsGrouping(ng);
+            grp->key = key;
+            grp->elements = nullptr;
+            grp->count = 0;
+            res = AsGroupingResult(result);
+            groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+            groupSlots[res->count] = ng;
+            ++res->count;
+
+            Il2CppArray* elems = il2cpp_array_new(
+                nullptr, sizeof(int32_t), false, kMinGroupItems);
+            res = AsGroupingResult(result); // re-derive after the (possibly collecting) allocation
+            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                res->groups->data + (res->count - 1) * sizeof(void*)));
+            grp->elements = elems;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
+                                 reinterpret_cast<Il2CppObject*>(elems));
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, 0)) = elem;
+            grp->count = 1;
+        }
+    }
+    return result;
+}
+
 int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
@@ -1104,6 +1262,66 @@ Il2CppArray* il2cpp_linq_grouping_get_elements(Il2CppObject* grouping)
             *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, i));
     }
     return out;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_linq_grouping_result_get_enumerator -- IEnumerable.GetEnumerator over
+// a GroupBy result: the buckets in first-appearance order. The internal groups
+// array is a GROWABLE backing store (capacity = source length), so an
+// EXACT-SIZE reference snapshot is materialized and wrapped in the shared
+// managed array enumerator (il2cpp_sortedlist_snapshot_get_enumerator); the
+// reference get_Current carrier yields the bucket object.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_grouping_result_get_enumerator(Il2CppObject* result)
+{
+    ThrowIfNullReceiver(result);
+    EnsureGroupingClassesRegistered();
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&result));
+    const int32_t n = AsGroupingResult(result)->count;
+    Il2CppArray* snap = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppLinqGroupingResult* res = AsGroupingResult(result); // re-derive after the allocation
+    Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(snap->data);
+    Il2CppObject** src = reinterpret_cast<Il2CppObject**>(res->groups->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        dst[i] = src[i];
+        il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), dst[i]);
+    }
+    return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(reinterpret_cast<Il2CppObject*>(snap));
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_linq_grouping_get_enumerator -- IEnumerable.GetEnumerator over ONE
+// bucket: its elements as a BOXED-int32 exact-size snapshot (the SortedList
+// Values precedent), so the i4 get_Current carrier unboxes the net48 int32
+// value and the ref carrier yields the boxed element. il2cpp_box_int32 may
+// collect/compact on every element: the bucket and the snapshot are rooted and
+// re-read after each allocation (no cached slot address survives a call).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    EnsureGroupingClassesRegistered();
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&grouping));
+    const int32_t n = AsGrouping(grouping)->count;
+    Il2CppArray* snap = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t v = *reinterpret_cast<int32_t*>(
+            il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+        Il2CppObject* boxed = il2cpp_box_int32(nullptr, v);
+        // Re-derive both rooted slots AFTER the (possibly collecting) box.
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(snap->data);
+        dst[i] = boxed;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), boxed);
+    }
+    return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(reinterpret_cast<Il2CppObject*>(snap));
 }
 
 //------------------------------------------------------------------------------

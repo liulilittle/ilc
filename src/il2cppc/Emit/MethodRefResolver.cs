@@ -1018,6 +1018,13 @@ public static partial class MethodRefResolver
         string[]? genArgNames = null, string? instName = null)
     {
         var (count, ret, ps) = RawSignature(md, sigHandle);
+        // DateTimeOffset arithmetic overloads (Add(TimeSpan) vs the DateTime
+        // operand forms; Subtract(TimeSpan) vs Subtract(DateTimeOffset)) carry
+        // two valuetype parameter bytes (0x11) and cannot be told apart from
+        // ps alone -- the decoded parameter-type text disambiguates.
+        var dtoParamTypes = owner == "System.DateTimeOffset"
+            ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
+            : null;
         // #region BCL domain dispatch
         switch (owner)
         {
@@ -1222,7 +1229,7 @@ public static partial class MethodRefResolver
             case "System.DateTime": return TryMapDateTime(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapTimeExt2(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapDateTimeExtra(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.DateTimeOffset": return TryMapDtoffset(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.DateTimeOffset": return TryMapDtoffset(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, dtoParamTypes);
             case "System.TimeSpan": return TryMapTimeSpan(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapTimeExt2(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapDateTimeExtra(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
@@ -2022,6 +2029,15 @@ var userRecvLike = receiverType ?? arg0Type;
                         // reference arm (the DottedRefArg kind rule).
                         if (DottedRefArg(instName) != null)
                             return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true);
+                        // nb9: a NESTED GENERIC element (GroupBy's
+                        // IGrouping<int,int>) is a REFERENCE. DottedSuffix
+                        // rejects backticked names, so without this arm the
+                        // grouping element silently fell through to the int32
+                        // carrier and the foreach local was truncated to
+                        // int32 (C0 break on the next call).
+                        if (instName?.Contains("IGrouping", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true,
+                                returnTypeName: "System.Linq.IGrouping");
                         // int32-slot primitives (int/bool/char/sbyte/byte/
                         // short/ushort/uint) and unknown instantiations.
                         return I("il2cpp::il2cpp_ienum_get_current_i4", 0, true, false, true);

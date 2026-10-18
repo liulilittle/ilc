@@ -14,10 +14,32 @@ public static partial class MethodRefResolver
         {
             case ".ctor":
                 if (count == 0) return I("il2cpp::runtime::icall_stringbuilder_ctor_default", 0, false, false, true);
-                if (ps[0] == 0x08) return I("il2cpp::runtime::icall_stringbuilder_ctor_capacity", 1, false, false, true, new[] { "", "i" });
-                if (ps[0] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_ctor_string", 1, false, false, true);
+                if (count == 1 && ps[0] == 0x08) return I("il2cpp::runtime::icall_stringbuilder_ctor_capacity", 1, false, false, true, new[] { "", "i" });
+                if (count == 1 && ps[0] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_ctor_string", 1, false, false, true);
+                // SB-REST: ctor(int capacity, int maxCapacity). The 2-arg form
+                // must NOT fall through to the 1-arg capacity arm (the fold
+                // would pop one arg and desync the stack).
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_ctor_capacity_max", 2, false, false, true, new[] { "", "i", "i" });
                 throw new NotSupportedException($"StringBuilder ctor param type 0x{ps[0]:X2} not wired in M5");
             case "Append":
+                // SB-REST: the range overloads are 3-param methods. The old
+                // ps[0]-only dispatch bound them to the 1-arg Append icall
+                // (ParamCount 1): the fold popped only the trailing count,
+                // then callvirt popped the receiver -- receiver AND string
+                // were lost (`append_s(2LL, 3LL)`, a C0 compile break).
+                if (count == 3)
+                {
+                    if (ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x08)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_s_range", 3, true, true, true,
+                            new[] { "", "", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
+                    if (ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_c_array_range", 3, true, true, true,
+                            new[] { "", "a", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
+                    throw new NotSupportedException($"StringBuilder.Append 3-arg signature not wired in M5");
+                }
+                if (count != 1)
+                    throw new NotSupportedException($"StringBuilder.Append with {count} args not wired in M5");
                 return ps[0] switch
                 {
                     0x0E => I("il2cpp::runtime::icall_stringbuilder_append_s", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
@@ -54,6 +76,11 @@ public static partial class MethodRefResolver
                 }
                 if (count == 3 && ps[0] == 0x08 && ps[1] == 0x0E && ps[2] == 0x08)
                     return I("il2cpp::runtime::icall_stringbuilder_insert_s_count", 3, true, true, true, new[] { "", "i", "", "i" }, null, false, false, false, "System.Text.StringBuilder");
+                // SB-REST: Insert(int, char[], int, int) -- the range form over
+                // a managed char[] (SZARRAY 0x1D).
+                if (count == 4 && ps[0] == 0x08 && ps[1] == 0x1D && ps[2] == 0x08 && ps[3] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_insert_c_array_range", 4, true, true, true,
+                        new[] { "", "i", "a", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
                 throw new NotSupportedException($"StringBuilder.Insert signature not wired in M5");
             case "Remove":
                 return I("il2cpp::runtime::icall_stringbuilder_remove", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
@@ -79,10 +106,39 @@ public static partial class MethodRefResolver
                     _ => throw new NotSupportedException($"StringBuilder.AppendFormat with {count} args not wired in M5"),
                 };
             case "Replace":
+                // SB-REST: the 4-arg range forms
+                // Replace(string,string,int,int) / Replace(char,char,int,int).
+                if (count == 4)
+                {
+                    if (ps[0] == 0x0E && ps[1] == 0x0E && ps[2] == 0x08 && ps[3] == 0x08)
+                        return I("il2cpp::runtime::icall_stringbuilder_replace_s_s_range", 4, true, true, true,
+                            new[] { "", "", "", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
+                    if (ps[0] == 0x03 && ps[1] == 0x03 && ps[2] == 0x08 && ps[3] == 0x08)
+                        return I("il2cpp::runtime::icall_stringbuilder_replace_c_c_range", 4, true, true, true,
+                            new[] { "", "c", "c", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
+                    throw new NotSupportedException($"StringBuilder.Replace 4-arg signature not wired in M5");
+                }
                 if (count != 2) throw new NotSupportedException($"StringBuilder.Replace with {count} args not wired in M5");
                 if (ps[0] == 0x0E && ps[1] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_replace_s_s", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 if (ps[0] == 0x03 && ps[1] == 0x03) return I("il2cpp::runtime::icall_stringbuilder_replace_c_c", 2, true, true, true, new[] { "", "c", "c" }, null, false, false, false, "System.Text.StringBuilder");
                 throw new NotSupportedException($"StringBuilder.Replace param type 0x{ps[0]:X2} not wired in M5");
+            // SB-REST: CopyTo(int, char[], int, int) -- copies the builder
+            // window into a managed char[] (void result).
+            case "CopyTo":
+                if (count == 4 && ps[0] == 0x08 && ps[1] == 0x1D && ps[2] == 0x08 && ps[3] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_copy_to", 4, false, false, true,
+                        new[] { "", "i", "a", "i", "i" });
+                throw new NotSupportedException($"StringBuilder.CopyTo signature not wired in M5");
+            // SB-REST: EnsureCapacity(int) -> int (the resulting Capacity).
+            case "EnsureCapacity":
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_ensure_capacity", 1, true, false, true, new[] { "", "i" });
+                throw new NotSupportedException($"StringBuilder.EnsureCapacity signature not wired in M5");
+            // SB-REST: Equals(StringBuilder) -- reference equality.
+            case "Equals":
+                if (count == 1 && ps[0] == 0x12)
+                    return I("il2cpp::runtime::icall_stringbuilder_equals", 1, true, false, true, new[] { "", "" });
+                throw new NotSupportedException($"StringBuilder.Equals signature not wired in M5");
             case "ToString":
                 // The 2-arg overload ToString(int startIndex, int length) must
                 // NOT bind to the 0-arg snapshot icall (that would pass the

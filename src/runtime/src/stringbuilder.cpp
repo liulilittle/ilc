@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // stringbuilder.cpp -- System.Text.StringBuilder runtime semantics (see
 // il2cpp_stringbuilder.h for the layout, GC contract and semantics list).
 //
@@ -66,6 +66,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace il2cpp {
 
@@ -660,6 +661,44 @@ void icall_stringbuilder_ctor_string(Il2CppObject* self, Il2CppObject* value)
 }
 
 //------------------------------------------------------------------------------
+// icall_stringbuilder_ctor_capacity_max -- StringBuilder(int, int) (SB-REST).
+// net48 validation: capacity < 0 -> AOORE("capacity"); maxCapacity < 1 ->
+// AOORE("maxCapacity"); capacity > maxCapacity -> AOORE("capacity");
+// capacity == 0 -> min(DefaultCapacity, maxCapacity). The buffer is exactly
+// 'capacity' units (the one-argument ctor's default bump does NOT apply).
+//------------------------------------------------------------------------------
+void icall_stringbuilder_ctor_capacity_max(Il2CppObject* self, int32_t capacity, int32_t maxCapacity)
+{
+    ThrowIfNullReceiver(self);
+    if (capacity < 0)
+    {
+        ThrowAoore("capacity");
+    }
+    if (maxCapacity < 1)
+    {
+        ThrowAoore("maxCapacity");
+    }
+    if (capacity > maxCapacity)
+    {
+        ThrowAoore("capacity");
+    }
+    if (capacity == 0)
+    {
+        capacity = (kDefaultCapacity < maxCapacity) ? kDefaultCapacity : maxCapacity;
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    sb->capacity = capacity;
+    sb->length = 0;
+    Il2CppArray* chars = NewCharBuffer(capacity);
+    sb = AsBuilder(self); // re-derive: the allocation may have moved the builder
+    il2cpp_write_barrier(reinterpret_cast<void**>(&sb->chars),
+                         reinterpret_cast<Il2CppObject*>(chars));
+    sb->chars = chars;
+}
+
+//------------------------------------------------------------------------------
 // icall_stringbuilder_append_s -- Append(string) (see header). Null is a
 // no-op returning the same builder.
 //------------------------------------------------------------------------------
@@ -1123,6 +1162,334 @@ Il2CppObject* icall_stringbuilder_insert_s_count(Il2CppObject* self, int32_t ind
         dst += vLen;
     }
     sb->length += total;
+    return self;
+}
+
+//------------------------------------------------------------------------------
+// SB-REST (nb9): the range / buffer-array surface (see il2cpp_stringbuilder.h).
+//------------------------------------------------------------------------------
+
+// Append(string value, int startIndex, int count) -- net48 contract: a null
+// value no-ops ONLY for the valid empty window (0, 0); otherwise
+// ArgumentNullException. The window bounds are checked in 64-bit.
+Il2CppObject* icall_stringbuilder_append_s_range(Il2CppObject* self, Il2CppObject* value,
+                                                int32_t startIndex, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&value));
+    if (value == nullptr)
+    {
+        if (startIndex == 0 && count == 0)
+        {
+            return self;
+        }
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'value')");
+    }
+    const Il2CppString* v = reinterpret_cast<const Il2CppString*>(value);
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
+    if (static_cast<int64_t>(startIndex) + count > v->length)
+    {
+        ThrowAoore("count");
+    }
+    AppendUnits(&self, v->chars + startIndex, count);
+    return self;
+}
+
+// Append(char[] value, int startIndex, int count) -- same contract over the
+// managed char[] payload (elemSize 2).
+Il2CppObject* icall_stringbuilder_append_c_array_range(Il2CppObject* self, Il2CppArray* value,
+                                                       int32_t startIndex, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&value));
+    if (value == nullptr)
+    {
+        if (startIndex == 0 && count == 0)
+        {
+            return self;
+        }
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'value')");
+    }
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
+    if (static_cast<int64_t>(startIndex) + count > value->length)
+    {
+        ThrowAoore("count");
+    }
+    AppendUnits(&self, reinterpret_cast<const char16_t*>(value->data) + startIndex, count);
+    return self;
+}
+
+// Insert(int index, char[] value, int startIndex, int count) -- the index
+// bounds are checked even for a null/empty value (net48).
+Il2CppObject* icall_stringbuilder_insert_c_array_range(Il2CppObject* self, int32_t index,
+                                                       Il2CppArray* value,
+                                                       int32_t startIndex, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&value));
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (index < 0 || static_cast<int64_t>(index) > sb->length)
+    {
+        ThrowAoore("index");
+    }
+    if (value == nullptr)
+    {
+        if (startIndex == 0 && count == 0)
+        {
+            return self;
+        }
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'value')");
+    }
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
+    if (static_cast<int64_t>(startIndex) + count > value->length)
+    {
+        ThrowAoore("count");
+    }
+    InsertUnits(&self, index, reinterpret_cast<const char16_t*>(value->data) + startIndex, count);
+    return self;
+}
+
+// CopyTo(int sourceIndex, char[] destination, int destinationIndex, int
+// count) -- net48 validation order: destination null, negative indices/count,
+// source window, destination room (ArgumentException).
+void icall_stringbuilder_copy_to(Il2CppObject* self, int32_t sourceIndex,
+                                 Il2CppArray* destination, int32_t destinationIndex,
+                                 int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&destination));
+    if (destination == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'destination')");
+    }
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (sourceIndex < 0)
+    {
+        ThrowAoore("sourceIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
+    if (destinationIndex < 0)
+    {
+        ThrowAoore("destinationIndex");
+    }
+    if (static_cast<int64_t>(sourceIndex) + count > sb->length)
+    {
+        ThrowAoore("count");
+    }
+    if (static_cast<int64_t>(destinationIndex) + count > destination->length)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+    }
+    if (count > 0)
+    {
+        std::memcpy(destination->data + static_cast<size_t>(destinationIndex) * sizeof(char16_t),
+                    sb->chars->data + static_cast<size_t>(sourceIndex) * sizeof(char16_t),
+                    static_cast<size_t>(count) * sizeof(char16_t));
+    }
+}
+
+// EnsureCapacity(int capacity) -- returns the resulting Capacity (net48 Grow
+// policy; a negative capacity is ArgumentOutOfRangeException).
+int32_t icall_stringbuilder_ensure_capacity(Il2CppObject* self, int32_t capacity)
+{
+    ThrowIfNullReceiver(self);
+    if (capacity < 0)
+    {
+        ThrowAoore("capacity");
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    GrowBuffer(&self, capacity);
+    return AsBuilder(self)->capacity;
+}
+
+// Equals(StringBuilder) -- net48 REFERENCE equality.
+bool icall_stringbuilder_equals(Il2CppObject* self, Il2CppObject* other)
+{
+    ThrowIfNullReceiver(self);
+    return self == other;
+}
+
+// Replace(string oldValue, string newValue, int startIndex, int count) --
+// replaces occurrences fully inside [startIndex, startIndex + count).
+Il2CppObject* icall_stringbuilder_replace_s_s_range(Il2CppObject* self, Il2CppObject* oldValue,
+                                                    Il2CppObject* newValue,
+                                                    int32_t startIndex, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&oldValue));
+    scope.Add(reinterpret_cast<void**>(&newValue));
+    if (oldValue == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'oldValue')");
+    }
+    const Il2CppString* oldS = reinterpret_cast<const Il2CppString*>(oldValue);
+    if (oldS->length == 0)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+                         "String cannot be of zero length.");
+    }
+    const Il2CppString* newS = (newValue != nullptr)
+        ? reinterpret_cast<const Il2CppString*>(newValue) : nullptr;
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
+    if (static_cast<int64_t>(startIndex) + count > sb->length)
+    {
+        ThrowAoore("count");
+    }
+    const int32_t oldLen = oldS->length;
+    const int32_t newLen = newS ? newS->length : 0;
+    const int32_t windowEnd = startIndex + count;
+    // Pass 1: count the non-overlapping occurrences fully inside the window.
+    int32_t occurrenceCount = 0;
+    int32_t pos = startIndex;
+    while (pos <= windowEnd - oldLen)
+    {
+        if (UnitsMatchAt(sb, pos, oldS->chars, oldLen))
+        {
+            ++occurrenceCount;
+            pos += oldLen;
+        }
+        else
+        {
+            ++pos;
+        }
+    }
+    if (occurrenceCount == 0)
+    {
+        return self;
+    }
+    const int64_t delta64 = static_cast<int64_t>(newLen) - oldLen;
+    const int64_t totalDelta = delta64 * occurrenceCount;
+    const int64_t resultLength64 = static_cast<int64_t>(sb->length) + totalDelta;
+    if (resultLength64 > INT32_MAX)
+    {
+        ThrowOom();
+    }
+    if (totalDelta > 0)
+    {
+        const int64_t newCapacity64 = static_cast<int64_t>(sb->capacity) + totalDelta;
+        if (newCapacity64 > INT32_MAX)
+        {
+            ThrowOom();
+        }
+        ReplaceBuffer(&self, static_cast<int32_t>(newCapacity64));
+        sb = AsBuilder(self);
+    }
+    // Build the rewritten window off to the side (std::vector is NOT a
+    // managed allocation -- no GC interaction), then splice it in.
+    std::vector<char16_t> window;
+    window.reserve(static_cast<size_t>(count) + static_cast<size_t>(totalDelta > 0 ? totalDelta : 0));
+    pos = startIndex;
+    while (pos < windowEnd)
+    {
+        if (pos <= windowEnd - oldLen && UnitsMatchAt(sb, pos, oldS->chars, oldLen))
+        {
+            if (newLen > 0)
+            {
+                window.insert(window.end(), newS->chars, newS->chars + newLen);
+            }
+            pos += oldLen;
+        }
+        else
+        {
+            window.push_back(reinterpret_cast<const char16_t*>(sb->chars->data)[pos]);
+            ++pos;
+        }
+    }
+    char* data = sb->chars->data;
+    const int32_t newWindowLen = static_cast<int32_t>(window.size());
+    const int32_t tailLen = sb->length - windowEnd;
+    if (totalDelta != 0 && tailLen > 0)
+    {
+        std::memmove(data + static_cast<size_t>(startIndex + newWindowLen) * sizeof(char16_t),
+                     data + static_cast<size_t>(windowEnd) * sizeof(char16_t),
+                     static_cast<size_t>(tailLen) * sizeof(char16_t));
+    }
+    if (newWindowLen > 0)
+    {
+        std::memcpy(data + static_cast<size_t>(startIndex) * sizeof(char16_t),
+                    window.data(), static_cast<size_t>(newWindowLen) * sizeof(char16_t));
+    }
+    sb->length = static_cast<int32_t>(resultLength64);
+    return self;
+}
+
+// Replace(char oldChar, char newChar, int startIndex, int count) -- replaces
+// matching units inside the window (no allocation).
+Il2CppObject* icall_stringbuilder_replace_c_c_range(Il2CppObject* self, char16_t oldChar,
+                                                    char16_t newChar,
+                                                    int32_t startIndex, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
+    if (static_cast<int64_t>(startIndex) + count > sb->length)
+    {
+        ThrowAoore("count");
+    }
+    char16_t* data = reinterpret_cast<char16_t*>(sb->chars->data);
+    for (int32_t i = startIndex; i < startIndex + count; ++i)
+    {
+        if (data[i] == oldChar)
+        {
+            data[i] = newChar;
+        }
+    }
     return self;
 }
 

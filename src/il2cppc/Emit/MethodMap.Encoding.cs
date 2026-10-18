@@ -105,30 +105,69 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_encoding_get_preamble", 0, true, true, true,
                     returnTypeName: "System.Byte[]");
             case "GetBytes":
-                // Allocating form only: Encoding.GetBytes(string) -> byte[].
+                // Allocating forms: GetBytes(string) -> byte[],
+                // GetBytes(char[]) / GetBytes(char[],int,int) -> byte[].
                 // receiverType == null is the fold's FIRST resolution (the
                 // receiver is popped after) -- defer to the receiver-aware
                 // re-resolve by returning null (generated-name fallback).
-                if (count != 1 || ps[0] != 0x0E)
-                    throw new NotSupportedException(
-                        $"Encoding.GetBytes overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
-                        "(allocating single-string form only)");
                 if (receiverType == null) return null;
-                return ObjectEncodingIcall("icall_encoding_get_bytes", "get_bytes",
-                    new[] { "", "s" }, "System.Byte[]");
+                if (count == 1 && ps[0] == 0x0E)
+                    return ObjectEncodingIcall("icall_encoding_get_bytes", "get_bytes",
+                        new[] { "", "s" }, "System.Byte[]");
+                if (count == 1 && ps[0] == 0x1D)
+                    return ObjectEncodingIcall("icall_encoding_get_bytes_chars", "get_bytes",
+                        new[] { "", "a" }, "System.Byte[]");
+                if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return ObjectEncodingIcall("icall_encoding_get_bytes_chars_range", "get_bytes",
+                        new[] { "", "a", "i", "i" }, "System.Byte[]");
+                throw new NotSupportedException(
+                    $"Encoding.GetBytes overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
+                    "(allocating string/char[] and ranged (char,int,int) forms only)");
+            case "GetByteCount":
+                if (receiverType == null) return null;
+                if (count == 1 && ps[0] == 0x0E)
+                    return ObjectEncodingIcall("icall_encoding_get_byte_count_string", "get_byte_count",
+                        new[] { "", "s" }, null);
+                if (count == 1 && ps[0] == 0x1D)
+                    return ObjectEncodingIcall("icall_encoding_get_byte_count_chars", "get_byte_count",
+                        new[] { "", "a" }, null);
+                if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return ObjectEncodingIcall("icall_encoding_get_byte_count_chars_range", "get_byte_count",
+                        new[] { "", "a", "i", "i" }, null);
+                throw new NotSupportedException(
+                    $"Encoding.GetByteCount overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
+                    "(string/char[] and ranged (char,int,int) forms only)");
+            case "GetCharCount":
+                if (receiverType == null) return null;
+                if (count == 1 && ps[0] == 0x1D)
+                    return ObjectEncodingIcall("icall_encoding_get_char_count_bytes", "get_char_count",
+                        new[] { "", "a" }, null);
+                if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return ObjectEncodingIcall("icall_encoding_get_char_count_bytes_range", "get_char_count",
+                        new[] { "", "a", "i", "i" }, null);
+                throw new NotSupportedException(
+                    $"Encoding.GetCharCount overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
+                    "(byte[] and ranged (byte,int,int) forms only)");
             case "GetString":
-                if (count != 1 || ps[0] != 0x1D)
-                    throw new NotSupportedException(
-                        $"Encoding.GetString overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
-                        "(allocating single-byte[] form only)");
                 if (receiverType == null) return null;
-                return ObjectEncodingIcall("icall_encoding_get_string", "get_string",
-                    new[] { "", "a" }, "System.String");
+                if (count == 1 && ps[0] == 0x1D)
+                    return ObjectEncodingIcall("icall_encoding_get_string", "get_string",
+                        new[] { "", "a" }, "System.String");
+                if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return ObjectEncodingIcall("icall_encoding_get_string_range", "get_string",
+                        new[] { "", "a", "i", "i" }, "System.String");
+                throw new NotSupportedException(
+                    $"Encoding.GetString overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
+                    "(byte[] and ranged (byte,int,int) forms only)");
             case "GetChars":
-                // Allocating forms only:
-                //   GetChars(byte[])            -> char[]  (single-array form)
-                //   GetChars(byte[], int, int)  -> char[]  (ranged form)
+                // GetChars(byte[]) / GetChars(byte[],int,int) -> char[],
+                // GetChars(byte[],int,int,char[],int) -> int (writes into the
+                // caller's destination array).
                 if (receiverType == null) return null;
+                if (count == 5 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                    && ps[3] == 0x1D && ps[4] == 0x08)
+                    return ObjectEncodingIcall("icall_encoding_get_chars_into", "get_chars",
+                        new[] { "", "a", "i", "i", "a", "i" }, null);
                 if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return ObjectEncodingIcall("icall_encoding_get_chars", "get_chars",
                         new[] { "", "a", "i", "i" }, "System.Char[]");
@@ -137,7 +176,7 @@ public static partial class MethodRefResolver
                         new[] { "", "a" }, "System.Char[]");
                 throw new NotSupportedException(
                     $"Encoding.GetChars overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired in M5 " +
-                    "(allocating single-byte[] and ranged (byte,int,int) forms only)");
+                    "(allocating single-byte[] / ranged / destination-array forms only)");
             default: return null;
         }
     }
@@ -148,9 +187,9 @@ public static partial class MethodRefResolver
     // check. ASCII/UTF8/Unicode/BE receiver types are all accepted (the object
     // carries the page).
     private static ResolvedMethod ObjectEncodingIcall(string cpp, string member,
-        string[] casts, string resultType)
+        string[] casts, string? resultType)
     {
-        return I($"il2cpp::runtime::{cpp}", casts.Length - 1, true, true, true, casts,
+        return I($"il2cpp::runtime::{cpp}", casts.Length - 1, true, resultType != null, true, casts,
             returnTypeName: resultType);
     }
 

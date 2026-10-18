@@ -124,6 +124,15 @@ Il2CppObject* il2cpp_sortedlist_get_by_index(Il2CppObject* self, int32_t index);
 // null key raises ArgumentNullException.
 Il2CppObject* il2cpp_sortedlist_get_by_key(Il2CppObject* self, Il2CppObject* key);
 
+// TryGetValue(object key, out object value): true and the stored value on a
+// hit; false and a null out value on a miss (net48).
+bool il2cpp_sortedlist_try_get_value(Il2CppObject* self, Il2CppObject* key,
+                                     Il2CppObject** outValue);
+
+// IndexOfValue(object value): the first sorted index whose value equals the
+// argument (net48 value equality), or -1.
+int32_t il2cpp_sortedlist_index_of_value(Il2CppObject* self, Il2CppObject* value);
+
 // SetAt(index, value): replace the value at the given sorted index (the key
 // order is untouched). An index outside [0, Count) raises
 // ArgumentOutOfRangeException.

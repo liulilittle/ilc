@@ -117,6 +117,14 @@ bool il2cpp_linq_contains_i4(Il2CppArray* src, int32_t value);
 // per-binding dispatch). Each step's result becomes the next accumulator.
 int32_t il2cpp_linq_aggregate_i4(Il2CppArray* src, Il2CppObject* func);
 
+// Aggregate(source, seed, func) on int32[]: fold the sequence left-to-right
+// using the binary func, seeding the accumulator with 'seed' (net48
+// Aggregate(seed, func)). An EMPTY source returns the seed unchanged (net48:
+// no InvalidOperationException when a seed is supplied). The func ABI is the
+// same binary family as the seedless overload
+// (int32(*)(int32_t,int32_t) / int32(*)(Il2CppObject*,int32_t,int32_t)).
+int32_t il2cpp_linq_aggregate_seed_i4(Il2CppArray* src, int32_t seed, Il2CppObject* func);
+
 // LongCount on int32[]: the number of elements as int64 (net48 Enumerable.
 // LongCount returns long). Null source -> ArgumentNullException; empty -> 0.
 int64_t il2cpp_linq_long_count(Il2CppArray* src);

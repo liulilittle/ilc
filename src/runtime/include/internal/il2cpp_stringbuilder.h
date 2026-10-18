@@ -198,9 +198,27 @@ void icall_stringbuilder_ctor_capacity(Il2CppObject* self, int32_t capacity);
 // null value yields an empty builder.
 void icall_stringbuilder_ctor_string(Il2CppObject* self, Il2CppObject* value);
 
+// StringBuilder(int capacity, int maxCapacity) -- SB-REST (nb9). net48
+// validation: capacity < 0 -> ArgumentOutOfRangeException("capacity");
+// maxCapacity < 1 -> ArgumentOutOfRangeException("maxCapacity");
+// capacity > maxCapacity -> ArgumentOutOfRangeException("capacity");
+// capacity == 0 -> min(DefaultCapacity, maxCapacity). The initial buffer is
+// exactly 'capacity' units (capacity 5 with max 10 stays 5, unlike the
+// one-argument ctor's default bump).
+void icall_stringbuilder_ctor_capacity_max(Il2CppObject* self, int32_t capacity, int32_t maxCapacity);
+
 // Append(string): appends the value's UTF-16 units; null is a no-op.
 // Returns the SAME builder (chaining).
 Il2CppObject* icall_stringbuilder_append_s(Il2CppObject* self, Il2CppObject* value);
+
+// Append(string value, int startIndex, int count): appends the substring
+// [startIndex, startIndex+count) of 'value' (net48 semantics). A null value
+// is a no-op AFTER the index/count validation (net48 validates first). Throws
+// ArgumentOutOfRangeException for startIndex < 0, count < 0, or
+// startIndex+count beyond value.Length; ArgumentException when the range is
+// invalid with a non-null value in the net48-specific order. Returns the SAME
+// builder.
+Il2CppObject* icall_stringbuilder_append_s_range(Il2CppObject* self, Il2CppObject* value, int32_t startIndex, int32_t count);
 
 // Append(char): appends one UTF-16 unit. Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_append_c(Il2CppObject* self, char16_t value);
@@ -316,6 +334,70 @@ Il2CppObject* icall_stringbuilder_insert_c(Il2CppObject* self, int32_t index, ch
 // the total repeated length (count * value.Length) must fit int32 or the
 // call throws ArgumentOutOfRangeException. Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_insert_s_count(Il2CppObject* self, int32_t index, Il2CppObject* value, int32_t count);
+
+//------------------------------------------------------------------------------
+// SB-REST (nb9): the range / buffer-array surface.
+//------------------------------------------------------------------------------
+// Append(string value, int startIndex, int count): appends the window
+// [startIndex, startIndex + count) of value. net48 contract: a null value is
+// a no-op only when (startIndex, count) is a valid empty window; otherwise
+// ArgumentNullException. startIndex < 0 / count < 0 / count >
+// value.Length - startIndex -> ArgumentOutOfRangeException. Returns the SAME
+// builder.
+Il2CppObject* icall_stringbuilder_append_s_range(Il2CppObject* self, Il2CppObject* value,
+                                                int32_t startIndex, int32_t count);
+
+// Append(char[] value, int startIndex, int count): same contract as
+// append_s_range over the managed char[] payload (a null array is a no-op
+// only for the empty window). Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_append_c_array_range(Il2CppObject* self, Il2CppArray* value,
+                                                       int32_t startIndex, int32_t count);
+
+// Insert(int index, char[] value, int startIndex, int count): inserts the
+// window of value before 'index'. net48 contract: index < 0 or index >
+// Length -> ArgumentOutOfRangeException; a null array is a no-op only for the
+// empty window (otherwise ArgumentNullException); startIndex < 0 / count < 0
+// / count > value.Length - startIndex -> ArgumentOutOfRangeException.
+// Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_insert_c_array_range(Il2CppObject* self, int32_t index,
+                                                       Il2CppArray* value,
+                                                       int32_t startIndex, int32_t count);
+
+// CopyTo(int sourceIndex, char[] destination, int destinationIndex, int
+// count): copies the builder window into the destination array (net48
+// validation: null destination -> ArgumentNullException; negative indices /
+// count -> ArgumentOutOfRangeException; sourceIndex > Length - count ->
+// ArgumentOutOfRangeException; destinationIndex > destination.Length - count
+// -> ArgumentException). The destination is a managed char[] (elemSize 2).
+void icall_stringbuilder_copy_to(Il2CppObject* self, int32_t sourceIndex,
+                                 Il2CppArray* destination, int32_t destinationIndex,
+                                 int32_t count);
+
+// EnsureCapacity(int capacity): returns the resulting Capacity. capacity < 0
+// -> ArgumentOutOfRangeException; a capacity already covered returns the
+// current Capacity; growth follows the net48 Grow policy
+// (max(required, max(Length, oldCapacity) * 2)).
+int32_t icall_stringbuilder_ensure_capacity(Il2CppObject* self, int32_t capacity);
+
+// Equals(StringBuilder sb): net48 StringBuilder.Equals is REFERENCE
+// equality (the object identity contract; a null other is false).
+bool icall_stringbuilder_equals(Il2CppObject* self, Il2CppObject* other);
+
+// Replace(string oldValue, string newValue, int startIndex, int count):
+// replaces every non-overlapping occurrence fully inside the window
+// [startIndex, startIndex + count). Same null/empty oldValue contract as
+// Replace(string,string); startIndex < 0 / count < 0 / count > Length -
+// startIndex -> ArgumentOutOfRangeException. Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_replace_s_s_range(Il2CppObject* self, Il2CppObject* oldValue,
+                                                    Il2CppObject* newValue,
+                                                    int32_t startIndex, int32_t count);
+
+// Replace(char oldChar, char newChar, int startIndex, int count): replaces
+// every matching unit inside the window. Same bounds contract as the string
+// range form. Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_replace_c_c_range(Il2CppObject* self, char16_t oldChar,
+                                                    char16_t newChar,
+                                                    int32_t startIndex, int32_t count);
 
 // Remove(int startIndex, int length): removes 'length' units starting at
 // 'startIndex' (the tail shifts left). Throws ArgumentOutOfRangeException

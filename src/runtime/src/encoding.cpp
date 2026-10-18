@@ -1148,6 +1148,216 @@ Il2CppArray* icall_encoding_get_chars_all(Il2CppObject* self, Il2CppArray* bytes
     return icall_encoding_get_chars(self, bytes, 0, len);
 }
 
+//------------------------------------------------------------------------------
+// ENC-REST (nb9): counts + range/char[] overloads (see il2cpp_encoding.h).
+//------------------------------------------------------------------------------
+namespace {
+
+void ThrowNullSelf()
+{
+    il2cpp_throw_new("System.NullReferenceException,System.Exception",
+                     "Object reference not set to an instance of an object.");
+}
+
+// Validate a managed char[] argument and return its length.
+int32_t CheckCharArrayArg(Il2CppArray* chars)
+{
+    if (chars == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null.");
+    }
+    if (chars->isRefElem || chars->elemSize != static_cast<int32_t>(sizeof(char16_t)))
+    {
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+                         "Object must be an array of chars.");
+    }
+    return chars->length;
+}
+
+// Validate a managed char[] RANGE and return the unit pointer (nullptr for an
+// empty range).
+const char16_t* CheckCharsRange(Il2CppArray* chars, int32_t index, int32_t count, int32_t* outCount)
+{
+    const int32_t n = CheckCharArrayArg(chars);
+    if (index < 0 || count < 0 || n - index < count)
+    {
+        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.Exception",
+                         "Index and count must refer to a location within the buffer.");
+    }
+    *outCount = count;
+    if (count == 0)
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<const char16_t*>(il2cpp_array_get_elem_ptr(chars, index));
+}
+
+int32_t EncodeCountForPage(int32_t page, const char16_t* src, int32_t len)
+{
+    switch (page)
+    {
+    case 65001: return il2cpp_encoding_utf8_convert(src, len, nullptr, 0);
+    case 1200:
+    case 1201: return len * 2;
+    case 20127: return il2cpp_encoding_ascii_convert(src, len, nullptr, 0);
+    }
+    il2cpp_throw_new("System.ArgumentException,System.Exception",
+                     "Unknown encoding code page.");
+}
+
+Il2CppArray* EncodeToBytesForPage(int32_t page, const char16_t* src, int32_t len)
+{
+    const int32_t required = EncodeCountForPage(page, src, len);
+    Il2CppArray* arr = AllocBytes(required);
+    if (required == 0)
+    {
+        return arr;
+    }
+    char* dst = reinterpret_cast<char*>(il2cpp_array_get_elem_ptr(arr, 0));
+    switch (page)
+    {
+    case 65001: il2cpp_encoding_utf8_convert(src, len, dst, required); break;
+    case 1200:
+        std::memcpy(dst, src, static_cast<size_t>(required));
+        break;
+    case 1201:
+        for (int32_t i = 0; i < len; ++i)
+        {
+            dst[i * 2] = static_cast<char>(static_cast<uint16_t>(src[i]) >> 8);
+            dst[i * 2 + 1] = static_cast<char>(static_cast<uint16_t>(src[i]) & 0xFF);
+        }
+        break;
+    case 20127: il2cpp_encoding_ascii_convert(src, len, dst, required); break;
+    default:
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+                         "Unknown encoding code page.");
+    }
+    return arr;
+}
+
+int32_t DecodeCountForPage(int32_t page, const uint8_t* src, int32_t n)
+{
+    switch (page)
+    {
+    case 65001: return ConvertUtf8ToUtf16(reinterpret_cast<const char*>(src), n, nullptr, 0);
+    case 1200: return Utf16LeDecode(src, n, nullptr);
+    case 1201: return Utf16BeDecode(src, n, nullptr);
+    case 20127: return n;
+    }
+    il2cpp_throw_new("System.ArgumentException,System.Exception",
+                     "Unknown encoding code page.");
+}
+
+} // namespace
+
+int32_t icall_encoding_get_byte_count_string(Il2CppObject* self, Il2CppString* text)
+{
+    if (self == nullptr) ThrowNullSelf();
+    if (text == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null.");
+    }
+    return EncodeCountForPage(PageOf(self), text->chars, text->length);
+}
+
+int32_t icall_encoding_get_byte_count_chars(Il2CppObject* self, Il2CppArray* chars)
+{
+    if (self == nullptr) ThrowNullSelf();
+    const int32_t n = CheckCharArrayArg(chars);
+    return EncodeCountForPage(PageOf(self),
+        n == 0 ? nullptr : reinterpret_cast<const char16_t*>(chars->data), n);
+}
+
+int32_t icall_encoding_get_byte_count_chars_range(Il2CppObject* self, Il2CppArray* chars,
+                                                  int32_t index, int32_t count)
+{
+    if (self == nullptr) ThrowNullSelf();
+    int32_t n = 0;
+    const char16_t* src = CheckCharsRange(chars, index, count, &n);
+    return EncodeCountForPage(PageOf(self), src, n);
+}
+
+int32_t icall_encoding_get_char_count_bytes(Il2CppObject* self, Il2CppArray* bytes)
+{
+    if (self == nullptr) ThrowNullSelf();
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null.");
+    }
+    const int32_t n = bytes->length;
+    const uint8_t* src = (n == 0)
+        ? nullptr : reinterpret_cast<const uint8_t*>(il2cpp_array_get_elem_ptr(bytes, 0));
+    return DecodeCountForPage(PageOf(self), src, n);
+}
+
+int32_t icall_encoding_get_char_count_bytes_range(Il2CppObject* self, Il2CppArray* bytes,
+                                                  int32_t index, int32_t count)
+{
+    if (self == nullptr) ThrowNullSelf();
+    int32_t n = 0;
+    const uint8_t* src = CheckBytesRange(bytes, index, count, &n);
+    return DecodeCountForPage(PageOf(self), src, n);
+}
+
+Il2CppArray* icall_encoding_get_bytes_chars(Il2CppObject* self, Il2CppArray* chars)
+{
+    if (self == nullptr) ThrowNullSelf();
+    const int32_t n = CheckCharArrayArg(chars);
+    return EncodeToBytesForPage(PageOf(self),
+        n == 0 ? nullptr : reinterpret_cast<const char16_t*>(chars->data), n);
+}
+
+Il2CppArray* icall_encoding_get_bytes_chars_range(Il2CppObject* self, Il2CppArray* chars,
+                                                  int32_t index, int32_t count)
+{
+    if (self == nullptr) ThrowNullSelf();
+    int32_t n = 0;
+    const char16_t* src = CheckCharsRange(chars, index, count, &n);
+    return EncodeToBytesForPage(PageOf(self), src, n);
+}
+
+Il2CppString* icall_encoding_get_string_range(Il2CppObject* self, Il2CppArray* bytes,
+                                              int32_t index, int32_t count)
+{
+    if (self == nullptr) ThrowNullSelf();
+    int32_t n = 0;
+    const uint8_t* src = CheckBytesRange(bytes, index, count, &n);
+    return il2cpp_encoding_get_chars(src, n,
+        static_cast<il2cpp_encoding_code_page>(PageOf(self)));
+}
+
+int32_t icall_encoding_get_chars_into(Il2CppObject* self, Il2CppArray* bytes,
+                                      int32_t byteIndex, int32_t byteCount,
+                                      Il2CppArray* chars, int32_t charIndex)
+{
+    if (self == nullptr) ThrowNullSelf();
+    const int32_t dstLen = CheckCharArrayArg(chars);
+    if (charIndex < 0)
+    {
+        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.Exception",
+                         "Non-negative number required.");
+    }
+    // Decode the byte range into a fresh char[] (the existing ranged entry),
+    // then copy it into the caller's destination after the capacity check.
+    Il2CppArray* decoded = GetCharsRange(bytes, byteIndex, byteCount,
+        static_cast<il2cpp_encoding_code_page>(PageOf(self)));
+    const int32_t units = decoded->length;
+    if (static_cast<int64_t>(charIndex) + units > dstLen)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+                         "Destination array is not long enough.");
+    }
+    if (units > 0)
+    {
+        std::memcpy(chars->data + static_cast<size_t>(charIndex) * sizeof(char16_t),
+                    decoded->data, static_cast<size_t>(units) * sizeof(char16_t));
+    }
+    return units;
+}
+
 }} // namespace il2cpp::runtime
 
 //------------------------------------------------------------------------------

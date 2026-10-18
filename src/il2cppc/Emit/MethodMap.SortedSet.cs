@@ -41,8 +41,24 @@ public static partial class MethodRefResolver
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 0, false, false, true, null, null, appendZero: true);
-                if (count == 1)
+                // nb9 CTOR-GATE: the 1-arg ctor must inspect the parameter
+                // shape. SortedSet<int>(IEnumerable<int>) arrives as a
+                // GENERICINST (0x15) and needs the array-populating entry
+                // (the only enumerable carrier the AOT surface passes is an
+                // int32[]); SortedSet<int>(int capacity) is 0x08 and keeps the
+                // capacity arm. Before this gate ANY 1-arg ctor emitted
+                // `create(self, <arg>)` -- an Il2CppArray* where an int32
+                // capacity belongs (C0 break).
+                if (count == 1 && ps[0] == 0x15)
+                {
+                    if (intReceiver)
+                        return I("il2cpp::runtime::icall_sortedset_int_ctor_array", 1, false, false, true, new[] { "", "a" });
+                    return null;
+                }
+                if (count == 1 && ps[0] == 0x08)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
+                if (count == 1)
+                    return null;
                 return null;
             case "Add":
                 if (count != 1) return null;
@@ -122,6 +138,15 @@ public static partial class MethodRefResolver
                 return count == 0
                     ? I("il2cpp::runtime::il2cpp_sortedlist_clear", 0, false, false, true, new[] { "" })
                     : null;
+            case "Reverse":
+                // nb9: net48 SortedSet<T>.Reverse() is an INSTANCE method
+                // returning IEnumerable<T> in DESCENDING order. The runtime
+                // materializes a fresh int32[] (the same eager form every other
+                // LINQ-family entry uses), tracked as System.Int32[] so
+                // downstream operators resolve on the array.
+                if (count != 0 || !intReceiver) return null;
+                return I("il2cpp::runtime::icall_sortedset_int_reverse", 0, true, true, true,
+                    returnTypeName: "System.Int32[]");
             default:
                 return null;
         }

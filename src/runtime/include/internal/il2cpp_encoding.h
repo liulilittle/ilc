@@ -240,4 +240,37 @@ Il2CppString* icall_encoding_get_string(Il2CppObject* self, Il2CppArray* bytes);
 Il2CppArray* icall_encoding_get_chars(Il2CppObject* self, Il2CppArray* bytes, int32_t index, int32_t count);
 Il2CppArray* icall_encoding_get_chars_all(Il2CppObject* self, Il2CppArray* bytes);
 
+//------------------------------------------------------------------------------
+// ENC-REST (nb9): the remaining net48 Encoding surface -- byte/char COUNTS and
+// the range/char[] overloads. The receiver object selects the code page
+// (PageOf); each entry follows the page's net48 default replacement fallback
+// (the same kernels as the existing GetBytes/GetString/GetChars entries).
+//------------------------------------------------------------------------------
+
+// GetByteCount(string) / GetByteCount(char[]) / GetByteCount(char[],int,int).
+int32_t icall_encoding_get_byte_count_string(Il2CppObject* self, Il2CppString* text);
+int32_t icall_encoding_get_byte_count_chars(Il2CppObject* self, Il2CppArray* chars);
+int32_t icall_encoding_get_byte_count_chars_range(Il2CppObject* self, Il2CppArray* chars,
+                                                  int32_t index, int32_t count);
+
+// GetCharCount(byte[]) / GetCharCount(byte[],int,int).
+int32_t icall_encoding_get_char_count_bytes(Il2CppObject* self, Il2CppArray* bytes);
+int32_t icall_encoding_get_char_count_bytes_range(Il2CppObject* self, Il2CppArray* bytes,
+                                                  int32_t index, int32_t count);
+
+// GetBytes(char[]) / GetBytes(char[],int,int) -> byte[].
+Il2CppArray* icall_encoding_get_bytes_chars(Il2CppObject* self, Il2CppArray* chars);
+Il2CppArray* icall_encoding_get_bytes_chars_range(Il2CppObject* self, Il2CppArray* chars,
+                                                  int32_t index, int32_t count);
+
+// GetString(byte[],int,int) -> string.
+Il2CppString* icall_encoding_get_string_range(Il2CppObject* self, Il2CppArray* bytes,
+                                              int32_t index, int32_t count);
+
+// GetChars(byte[],int,int,char[],int) -> the number of chars written into the
+// caller-supplied destination array.
+int32_t icall_encoding_get_chars_into(Il2CppObject* self, Il2CppArray* bytes,
+                                      int32_t byteIndex, int32_t byteCount,
+                                      Il2CppArray* chars, int32_t charIndex);
+
 }} // namespace il2cpp::runtime

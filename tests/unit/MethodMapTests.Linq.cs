@@ -712,7 +712,10 @@ public class MethodMapTestsLinq
             new byte[] { 0x00, 0x00, 0x08 }), "get_Key");
 
         Assert.Equal("il2cpp::il2cpp_linq_grouping_get_key", resolved.CppName);
-        Assert.Equal(1, resolved.ParamCount);
+        // INSTANCE accessor: ParamCount counts the EXPLICIT parameters only
+        // (the emitter prepends the receiver); get_Key takes none.
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.True(resolved.IsInstance);
         Assert.True(resolved.ReturnsValue);
         Assert.False(resolved.ReturnsRef);
     }

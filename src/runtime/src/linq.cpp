@@ -489,6 +489,35 @@ int32_t il2cpp_linq_aggregate_i4(Il2CppArray* src, Il2CppObject* func)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_linq_aggregate_seed_i4 -- Aggregate(source, seed, func) on int32[]:
+// fold left-to-right from 'seed' (net48 Enumerable.Aggregate(seed, func)).
+// An EMPTY source returns the seed unchanged (net48: supplying a seed removes
+// the "Sequence contains no elements" case). The func ABI is the shared
+// binary int32 family (see il2cpp_linq_aggregate_i4); the callback may
+// allocate, so the rooting discipline is identical.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_aggregate_seed_i4(Il2CppArray* src, int32_t seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<I4BinThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<I4BinFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_linq_long_count -- LongCount on int32[]: the number of elements as
 // int64 (net48 Enumerable.LongCount returns long). Type-independent (the
 // array is self-describing); null source -> ArgumentNullException.

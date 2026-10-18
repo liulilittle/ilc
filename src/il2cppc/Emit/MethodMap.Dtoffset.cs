@@ -32,7 +32,8 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapDtoffset(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
+        string? paramTypes = null)
     {
         switch (name)
         {
@@ -41,6 +42,18 @@ public static partial class MethodRefResolver
             // shape with result kind "dto".
             case "get_UtcNow":
                 return I("il2cpp::runtime::icall_dtoffset_utc_now", 0, true, false, false, null, "dto");
+            // DateTimeOffset.Now: the local clock instant + the host offset.
+            case "get_Now":
+                return I("il2cpp::runtime::icall_dtoffset_now", 0, true, false, false, null, "dto");
+            // Ticks (local clock) / UtcTicks (UTC instant) -> int64.
+            case "get_Ticks":
+                return I("il2cpp::runtime::icall_dtoffset_get_ticks", 0, true, false, true, new[] { "deref:dto" }, "l");
+            case "get_UtcTicks":
+                return I("il2cpp::runtime::icall_dtoffset_get_utc_ticks", 0, true, false, true, new[] { "deref:dto" }, "l");
+            case "get_DayOfWeek":
+                return I("il2cpp::runtime::icall_dtoffset_get_dayofweek", 0, true, false, true, new[] { "deref:dto" });
+            case "get_DayOfYear":
+                return I("il2cpp::runtime::icall_dtoffset_get_dayofyear", 0, true, false, true, new[] { "deref:dto" });
             // .ctor(DateTime, TimeSpan) / .ctor(int, int, int, int, int, int,
             // TimeSpan): the result slot is prepended by the vctor path (the
             // icall writes the slot -- the decimal ctor precedent). The
@@ -107,6 +120,65 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x1C)
                     throw new NotSupportedException("Equals(object) not wired: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall");
                 return null;
+            // AddDays/AddHours/AddMinutes/AddSeconds/AddMilliseconds(double):
+            // the double rides the "d" cast, the receiver is the deref:dto
+            // address; the result is a fresh DateTimeOffset ("dto").
+            case "AddDays":
+                return I("il2cpp::runtime::icall_dtoffset_add_days", 1, true, false, true, new[] { "deref:dto", "d" }, "dto");
+            case "AddHours":
+                return I("il2cpp::runtime::icall_dtoffset_add_hours", 1, true, false, true, new[] { "deref:dto", "d" }, "dto");
+            case "AddMinutes":
+                return I("il2cpp::runtime::icall_dtoffset_add_minutes", 1, true, false, true, new[] { "deref:dto", "d" }, "dto");
+            case "AddSeconds":
+                return I("il2cpp::runtime::icall_dtoffset_add_seconds", 1, true, false, true, new[] { "deref:dto", "d" }, "dto");
+            case "AddMilliseconds":
+                return I("il2cpp::runtime::icall_dtoffset_add_milliseconds", 1, true, false, true, new[] { "deref:dto", "d" }, "dto");
+            case "AddTicks":
+                return I("il2cpp::runtime::icall_dtoffset_add_ticks", 1, true, false, true, new[] { "deref:dto", "l" }, "dto");
+            case "Add":
+                // Add(TimeSpan) only (the DateTime operand form does not exist).
+                if (count == 1 && ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_dtoffset_add", 1, true, false, true, new[] { "deref:dto", "" }, "dto");
+                return null;
+            case "Subtract":
+                // Subtract(TimeSpan) -> DateTimeOffset; Subtract(DateTimeOffset)
+                // -> TimeSpan. Both operands are valuetypes (0x11), so the
+                // parameter-type text disambiguates.
+                if (count != 1) return null;
+                if ((paramTypes ?? arg0Type ?? "").Contains("System.TimeSpan", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_dtoffset_subtract_ts", 1, true, false, true, new[] { "deref:dto", "" }, "dto");
+                if ((paramTypes ?? arg0Type ?? "").Contains("System.DateTimeOffset", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_dtoffset_subtract_dto", 1, true, false, true, new[] { "deref:dto", "" }, "ts");
+                return null;
+            case "ToUnixTimeSeconds":
+                return I("il2cpp::runtime::icall_dtoffset_to_unix_seconds", 0, true, false, true, new[] { "deref:dto" }, "l");
+            case "ToUnixTimeMilliseconds":
+                return I("il2cpp::runtime::icall_dtoffset_to_unix_milliseconds", 0, true, false, true, new[] { "deref:dto" }, "l");
+            case "ToOffset":
+                return I("il2cpp::runtime::icall_dtoffset_to_offset", 1, true, false, true, new[] { "deref:dto", "" }, "dto");
+            // The relational operators compare the UTC instants.
+            case "op_Addition":
+                return I("il2cpp::runtime::icall_dtoffset_add", 2, true, false, false, new[] { "", "" }, "dto");
+            case "op_Subtraction":
+                // (DateTimeOffset, TimeSpan) -> DateTimeOffset;
+                // (DateTimeOffset, DateTimeOffset) -> TimeSpan.
+                if ((paramTypes ?? arg1Type ?? "").Contains("System.TimeSpan", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_dtoffset_subtract_ts", 2, true, false, false, new[] { "", "" }, "dto");
+                if ((paramTypes ?? arg1Type ?? "").Contains("System.DateTimeOffset", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_dtoffset_subtract_dto", 2, true, false, false, new[] { "", "" }, "ts");
+                return null;
+            case "op_Equality":
+                return I("il2cpp::runtime::icall_dtoffset_op_equality", 2, true, false, false, new[] { "", "" });
+            case "op_Inequality":
+                return I("il2cpp::runtime::icall_dtoffset_op_inequality", 2, true, false, false, new[] { "", "" });
+            case "op_LessThan":
+                return I("il2cpp::runtime::icall_dtoffset_op_less_than", 2, true, false, false, new[] { "", "" });
+            case "op_GreaterThan":
+                return I("il2cpp::runtime::icall_dtoffset_op_greater_than", 2, true, false, false, new[] { "", "" });
+            case "op_LessThanOrEqual":
+                return I("il2cpp::runtime::icall_dtoffset_op_less_or_equal", 2, true, false, false, new[] { "", "" });
+            case "op_GreaterThanOrEqual":
+                return I("il2cpp::runtime::icall_dtoffset_op_greater_or_equal", 2, true, false, false, new[] { "", "" });
             // string ToString(): the parameterless overload keeps its own
             // runtime entry (culture "G" pattern + " zzz", delegating to the
             // format icall); ToString(string) / ToString(string,

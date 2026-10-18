@@ -21,6 +21,7 @@
 //                       and get_Current unboxing the element
 //------------------------------------------------------------------------------
 
+#include "il2cpp_array.h"
 #include "il2cpp_object.h"
 
 #include <cstdint>
@@ -68,6 +69,39 @@ bool icall_sortedset_ref_contains(Il2CppObject* self, Il2CppObject* item);
 bool icall_sortedset_ref_remove(Il2CppObject* self, Il2CppObject* item);
 Il2CppObject* icall_sortedset_ref_get_min(Il2CppObject* self);
 Il2CppObject* icall_sortedset_ref_get_max(Il2CppObject* self);
+
+//------------------------------------------------------------------------------
+// COLL-SETOPS (nb9): the SortedSet<T> set algebra. The operations work on the
+// boxed-key sortedlist storage directly (key equality/order come from the
+// core), so they serve every instantiation; the int-only entries are the ones
+// with int32 C++ boundaries (ctor from an int32[], CopyTo int[], TryGetValue,
+// Reverse, GetViewBetween, RemoveWhere).
+//------------------------------------------------------------------------------
+
+// .ctor(IEnumerable<int>): populate the fresh set from an int32[] (the only
+// enumerable carrier the AOT surface can pass).
+void icall_sortedset_int_ctor_array(Il2CppObject* self, Il2CppArray* items);
+
+// The set algebra (other is another SortedSet storage object).
+void icall_sortedset_union_with(Il2CppObject* self, Il2CppObject* other);
+void icall_sortedset_intersect_with(Il2CppObject* self, Il2CppObject* other);
+void icall_sortedset_except_with(Il2CppObject* self, Il2CppObject* other);
+void icall_sortedset_symmetric_except_with(Il2CppObject* self, Il2CppObject* other);
+bool icall_sortedset_is_subset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_sortedset_is_superset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_sortedset_is_proper_subset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_sortedset_is_proper_superset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_sortedset_overlaps(Il2CppObject* self, Il2CppObject* other);
+bool icall_sortedset_set_equals(Il2CppObject* self, Il2CppObject* other);
+
+// int-family members.
+int32_t icall_sortedset_int_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+int32_t icall_sortedset_int_copy_to_range(Il2CppObject* self, Il2CppArray* array,
+                                          int32_t index, int32_t arrayIndex, int32_t count);
+bool icall_sortedset_int_try_get_value(Il2CppObject* self, int32_t equalValue, int32_t* actualValue);
+Il2CppArray* icall_sortedset_int_reverse(Il2CppObject* self);
+Il2CppObject* icall_sortedset_int_get_view_between(Il2CppObject* self, int32_t lowerValue, int32_t upperValue);
+int32_t icall_sortedset_int_remove_where(Il2CppObject* self, Il2CppObject* match);
 
 } // namespace runtime
 } // namespace il2cpp

@@ -2115,6 +2115,14 @@ public static class StackFold
                     _ => null,
                 };
             }
+            // nb9: a call result's MANAGED type (Resolved.ReturnTypeName) must
+            // survive a stloc into a local -- the foreach element of a GroupBy
+            // result is stored that way, and the per-bucket Count/Sum dispatch
+            // needs the "System.Linq.IGrouping" hint (without it Count fell
+            // through to the int32[] array icall and read the bucket KEY as a
+            // length).
+            if (value is CallExpr rc3 && rc3.Resolved?.ReturnTypeName is string rtn3)
+                return rtn3;
             // P-G3 D1: a SHARED clone's VAR/MVAR return is the boxed T slot --
             // the stloc store into a local carries the concrete T so a later
             // value-type BCL call on the local (ldloca + Int32::ToString)

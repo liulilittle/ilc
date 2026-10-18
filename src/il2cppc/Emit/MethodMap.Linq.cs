@@ -129,7 +129,9 @@ public static partial class MethodRefResolver
             || (owner == "System.Linq.IGrouping`2" && name == "get_Key"))
         {
             if (name == "get_Key" && count == 0)
-                return I("il2cpp::il2cpp_linq_grouping_get_key", 1, true, false, false, new[] { "" });
+                // INSTANCE property accessor: ParamCount is the EXPLICIT
+                // parameter count (0); the emitter prepends the receiver.
+                return I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true);
         }
 
         // The generic operators (Where/Select/Count/Any/All/First/FirstOr-
@@ -214,12 +216,24 @@ public static partial class MethodRefResolver
             case "Where":
                 // Returns a fresh int32[] -- tracked as "System.Int32[]" so a
                 // downstream .ToArray()/.Count()/indexer resolves on the array.
+                // The index overload Where(Func<TSource,int,bool>) carries a
+                // 3-argument Func, which the 1-argument predicate icall cannot
+                // represent -- route it to the *_idx entry (same discriminator
+                // as TakeWhile/SkipWhile).
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    return I("il2cpp::il2cpp_linq_where_idx_i4", 2, true, true, false, TwoArg,
+                        returnTypeName: "System.Int32[]");
                 return I("il2cpp::il2cpp_linq_where_i4", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Int32[]");
             case "Select":
                 // int32 -> int32 family (select_i4_i4). The ref-result
                 // variants (select_i4_ref / select_ref_ref) have no selector
                 // producer in stage 1.
+                // The index overload Select(Func<TSource,int,TResult>) carries
+                // a 3-argument Func -- route it to the *_idx entry.
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    return I("il2cpp::il2cpp_linq_select_idx_i4_i4", 2, true, true, false, TwoArg,
+                        returnTypeName: "System.Int32[]");
                 return I("il2cpp::il2cpp_linq_select_i4_i4", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Int32[]");
             case "ToArray":
@@ -385,6 +399,19 @@ public static partial class MethodRefResolver
                         "the stage-1 runtime grouping surface (il2cpp_linq_group_by_i4) is int32 (0x08) " +
                         "elements AND int32 (0x08) keys only -- the runtime buckets by int32 keys");
                 }
+                // ARITY DISPATCH (nb9 LINQ-ARITY): GroupBy(keySelector) takes
+                // one delegate, GroupBy(keySelector, elementSelector) takes two.
+                // The 2-delegate overload projects each element through the
+                // element selector BEFORE bucketing (net48 semantics), so it
+                // must NOT be mapped to the key-only entry point.
+                // Enumerable.GroupBy(source, keySelector) -> count == 2,
+                // Enumerable.GroupBy(source, keySelector, elementSelector) -> count == 3.
+                if (count == 3)
+                    return I("il2cpp::il2cpp_linq_group_by_elem_i4", 3, true, true, false,
+                        new[] { "a", "", "" }, returnTypeName: "System.Linq.IGroupingResult");
+                if (count != 2)
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy with {count} argument(s) not wired in M5");
                 return I("il2cpp::il2cpp_linq_group_by_i4", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Linq.IGroupingResult");
             case "Concat":
@@ -456,7 +483,18 @@ public static partial class MethodRefResolver
                 // Aggregate(source, func) -> il2cpp_linq_aggregate_i4: fold
                 // left-to-right seeded from the first element (net48 Aggregate
                 // without a seed). Empty -> InvalidOperationException.
-                return I("il2cpp::il2cpp_linq_aggregate_i4", 2, true, false, false, TwoArg);
+                // Aggregate(source, seed, func) -> il2cpp_linq_aggregate_seed_i4:
+                // fold from the seed; empty source returns the seed (net48).
+                // The extension-method form resolves as
+                // Enumerable.Aggregate(source, func) -> count == 2, and
+                // Enumerable.Aggregate(source, seed, func) -> count == 3.
+                if (count == 2)
+                    return I("il2cpp::il2cpp_linq_aggregate_i4", 2, true, false, false, TwoArg);
+                if (count == 3)
+                    return I("il2cpp::il2cpp_linq_aggregate_seed_i4", 3, true, false, false,
+                        new[] { "a", "i", "" });
+                throw new NotSupportedException(
+                    $"Enumerable.Aggregate with {count} argument(s) not wired in M5");
             case "LongCount":
                 // LongCount(source) -> il2cpp_linq_long_count: the number of
                 // elements as int64 (net48 Enumerable.LongCount returns long).

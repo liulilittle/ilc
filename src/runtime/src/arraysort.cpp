@@ -43,6 +43,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
+#include "linq_map.h" // nb9: GroupBy result/bucket enumerator dispatch
 #include "string_compare.h" // a5reds: ordinal / ordinal-ignore-case helpers
 #include "sortedlist.h" // P25d: array snapshot enumerator re-use
 #include "sortedlistint_obj.h" // P3-extra: SortedList<string,int> values view enumerator
@@ -2315,6 +2316,14 @@ Il2CppObject* il2cpp_ienum_get_enumerator(Il2CppObject* receiver)
         return il2cpp::runtime::icall_sortedlist_si_values_get_enumerator(receiver);
     if (receiver->klass == &System_Collections_Generic_Dictionary_2_string_int_class)
         return il2cpp_dict_si_get_enumerator(receiver);
+    // nb9: the LINQ GroupBy surfaces (a grouping RESULT enumerates its
+    // buckets; one grouping enumerates its elements). Both return the shared
+    // managed array enumerator, so MoveNext/get_Current/Dispose ride the
+    // forwarders below.
+    if (receiver->klass == il2cpp_linq_grouping_result_class())
+        return il2cpp_linq_grouping_result_get_enumerator(receiver);
+    if (receiver->klass == il2cpp_linq_grouping_class())
+        return il2cpp_linq_grouping_get_enumerator(receiver);
     if (il2cpp::il2cpp_is_list_obj(receiver))
         return il2cpp::il2cpp_list_obj_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumerator, "GetEnumerator");
@@ -2333,6 +2342,14 @@ Il2CppObject* il2cpp_ienum_get_enumerator_nongeneric(Il2CppObject* receiver)
         return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(receiver);
     if (receiver->klass == &System_Collections_Generic_Dictionary_2_string_int_class)
         return il2cpp_dict_si_get_enumerator(receiver);
+    // nb9: the LINQ GroupBy surfaces (a grouping RESULT enumerates its
+    // buckets; one grouping enumerates its elements). Both return the shared
+    // managed array enumerator, so MoveNext/get_Current/Dispose ride the
+    // forwarders below.
+    if (receiver->klass == il2cpp_linq_grouping_result_class())
+        return il2cpp_linq_grouping_result_get_enumerator(receiver);
+    if (receiver->klass == il2cpp_linq_grouping_class())
+        return il2cpp_linq_grouping_get_enumerator(receiver);
     if (il2cpp::il2cpp_is_list_obj(receiver))
         return il2cpp::il2cpp_list_obj_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumeratorObj, "GetEnumerator");
