@@ -611,6 +611,54 @@ int main()
     }
 
     //--------------------------------------------------------------------------
+    // nb8 REGEX-GAP: single-quote aliases + explicit all-digit group numbers
+    // (.NET CountCaptures/AssignNameSlots numbering; see the p-nb8-regex2
+    // difftest oracle).
+    //--------------------------------------------------------------------------
+    {
+        // "(?'mid'b)" is a single-quote alias for "(?<mid>b)".
+        const char16_t sq[] = {u'(', u'a', u')', u'(', u'?', u'\'', u'm', u'i', u'd', u'\'',
+                               u'b', u')'};
+        RegexParseError err = RegexParseError::None;
+        RegexAst* ast = RegexParse(sq, 12, 0, &err);
+        Expect(ast != nullptr, "single-quote group parses");
+        if (ast != nullptr)
+        {
+            Expect(ast->groupCount == 2, "single-quote: (a)=1, mid=2");
+            Expect(ast->nameCount == 1 && ast->names[0].index == 2,
+                   "single-quote: mid maps to group 2");
+        }
+        RegexAstFree(ast);
+
+        // "(?<1>a)(?<2>b)": explicit numbers take slots 1/2 (no real names).
+        const char16_t ex[] = {u'(', u'?', u'<', u'1', u'>', u'a', u')',
+                               u'(', u'?', u'<', u'2', u'>', u'b', u')'};
+        err = RegexParseError::None;
+        ast = RegexParse(ex, 14, 0, &err);
+        Expect(ast != nullptr, "explicit numeric groups parse");
+        if (ast != nullptr)
+        {
+            Expect(ast->groupCount == 2, "explicit numbers: max slot 2");
+            Expect(ast->nameCount == 0 && !ast->hasNamedGroups,
+                   "explicit numbers are not real names");
+        }
+        RegexAstFree(ast);
+
+        // "(a)(?<2>b)(c)": the explicit number collides with the third
+        // unnamed group (the .NET last-capture-wins rule); 2 unique slots.
+        const char16_t mix[] = {u'(', u'a', u')', u'(', u'?', u'<', u'2', u'>', u'b', u')',
+                                u'(', u'c', u')'};
+        err = RegexParseError::None;
+        ast = RegexParse(mix, 13, 0, &err);
+        Expect(ast != nullptr, "mixed explicit/unnamed groups parse");
+        if (ast != nullptr)
+        {
+            Expect(ast->groupCount == 2, "mixed: (a)=1, c/b collide on 2");
+        }
+        RegexAstFree(ast);
+    }
+
+    //--------------------------------------------------------------------------
     // Parser error paths (contract: nullptr + error code, never throws)
     //--------------------------------------------------------------------------
     {
@@ -622,11 +670,15 @@ int main()
             {"a{999999999999}", RegexParseError::InvalidRepeat},
             {"(?=a)", RegexParseError::UnsupportedConstruct},
             {"(?:a)", RegexParseError::UnsupportedConstruct},
-            // OBJ-3 named-group headers: empty name, all-digit name (net48
-            // treats it as an explicit group number -- out of subset), and a
-            // non-word name char are all rejected; a missing '>' is unclosed.
+            // OBJ-3 named-group headers: empty name and a non-word name char
+            // are rejected; a missing '>' is unclosed. nb8: an all-digit name
+            // is an explicit group NUMBER (supported); a numbering HOLE
+            // ("(?<2>a)" alone pads an empty group 1 -- the .NET sparse-capture
+            // machinery) and a leading-zero numeric name stay documented GAPs.
             {"(?<>a)", RegexParseError::UnsupportedConstruct},
-            {"(?<1>a)", RegexParseError::UnsupportedConstruct},
+            {"(?''a)", RegexParseError::UnsupportedConstruct},
+            {"(?<2>a)", RegexParseError::UnsupportedConstruct},
+            {"(?<0>a)", RegexParseError::UnsupportedConstruct},
             {"(?<a b>c)", RegexParseError::UnsupportedConstruct},
             {"(?<name", RegexParseError::UnclosedGroup},
             // Duplicate group names: net48 merges them onto one number (last

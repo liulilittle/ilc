@@ -1626,7 +1626,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 // domain (the full pipe drain) -- route there before the
                 // StringIO arm (ReadToEnd is declared on TextReader, so the
                 // callvirt owner lands HERE, not in StreamIO).
-                if (receiverType is "System.Diagnostics.Process" or "System.Diagnostics.Process.Stderr")
+                if (receiverType is "System.Diagnostics.Process" or "System.Diagnostics.Process.Stderr" or "System.Diagnostics.Process.Stdin")
                     return TryMapProcess(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
                 if (receiverType is "System.IO.StreamReader" or "System.IO.StreamWriter")
                     return TryMapStreamIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);

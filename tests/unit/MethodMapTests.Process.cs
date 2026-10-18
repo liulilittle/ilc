@@ -42,10 +42,12 @@ using Xunit;
 //
 // LOUD rejections (known but unwireable): .ctor (no object model),
 // Start with 3+ params (only the two string forms + ProcessStartInfo),
-// WaitForExit(int) (the runtime waits without a timeout), get_StandardInput
-// (the child is built with NUL stdin -- construction order). Unlisted members
-// (Refresh, ...) fall through to the generated-name path (Thread-domain
-// convention). The ProcessStartInfo members live in MethodMap.ProcessInfo.cs.
+// WaitForExit(int) (the runtime waits without a timeout). nb8 wired
+// get_StandardInput (the PID identity fold under the "...Process.Stdin"
+// pseudo-type; the StreamWriter members route to the stdin pipe icalls).
+// Unlisted members (Refresh, ...) fall through to the generated-name path
+// (Thread-domain convention). The ProcessStartInfo members live in
+// MethodMap.ProcessInfo.cs.
 //
 // Signature blobs are the raw bytes RawSignature consumes (0x01=void,
 // 0x08=i4, 0x0E=string, 0x12=class); CLASS (0x12) params/returns carry the
@@ -394,20 +396,85 @@ public class MethodMapProcessTests
     }
 
     //--------------------------------------------------------------------------
-    // StandardInput -- known but unwireable: the child is built with NUL stdin
-    // (pathproc.cpp STARTF_USESTDHANDLES), so a managed stdin write cannot
-    // reach the child. LOUD, so the missing redirect fails at transpile.
+    // nb8 STDIN-WRITE: StandardInput -- the same PID identity fold as
+    // StandardOutput, tracked as the "System.Diagnostics.Process.Stdin"
+    // pseudo-type; the StreamWriter members route to the stdin pipe icalls.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Process_StandardInput_ThrowsLoud()
+    public void Resolve_Process_StandardInput_IsIdentityWithStdinPseudoType()
     {
-        // StreamReader get_StandardInput(): CLASS return.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Diagnostics", "Process", "get_StandardInput",
-                new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_StandardInput"));
+        // StreamWriter get_StandardInput(): CLASS return (0x12 + 0x05).
+        var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "get_StandardInput",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_StandardInput");
 
-        Assert.Contains("System.Diagnostics.Process::get_StandardInput", ex.Message);
-        Assert.Contains("stdin", ex.Message);
+        Assert.Equal(ResolvedMethod.IdentityMarker, m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal("System.Diagnostics.Process.Stdin", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_WriteLine_OnStdinReceiver_MapsToStdinLine()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01, 0x0E)),
+            "WriteLine", receiverType: "System.Diagnostics.Process.Stdin");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_process_write_stdin_line", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "i", "" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_Write_OnStdinReceiver_MapsToStdinText()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StreamWriter", "Write", Sig(0x01, 0x0E)),
+            "Write", receiverType: "System.Diagnostics.Process.Stdin");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_process_write_stdin", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(new[] { "i", "" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_FlushAndClose_OnStdinReceiver()
+    {
+        var flush = ResolveMember(Synthesize("System.IO", "StreamWriter", "Flush", Sig(0x01)),
+            "Flush", receiverType: "System.Diagnostics.Process.Stdin");
+        Assert.Equal("il2cpp::runtime::il2cpp_process_flush_stdin", flush.CppName);
+        Assert.Equal(new[] { "i" }, flush.ParamTypeNames);
+
+        var close = ResolveMember(Synthesize("System.IO", "StreamWriter", "Close", Sig(0x01)),
+            "Close", receiverType: "System.Diagnostics.Process.Stdin");
+        Assert.Equal("il2cpp::runtime::il2cpp_process_close_stdin", close.CppName);
+        Assert.Equal(new[] { "i" }, close.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_AutoFlush_OnStdinReceiver()
+    {
+        var get = ResolveMember(Synthesize("System.IO", "StreamWriter", "get_AutoFlush", Sig(0x02)),
+            "get_AutoFlush", receiverType: "System.Diagnostics.Process.Stdin");
+        Assert.Equal("il2cpp::runtime::il2cpp_process_get_stdin_autofush", get.CppName);
+
+        var set = ResolveMember(Synthesize("System.IO", "StreamWriter", "set_AutoFlush", Sig(0x01, 0x02)),
+            "set_AutoFlush", receiverType: "System.Diagnostics.Process.Stdin");
+        Assert.Equal("il2cpp::runtime::il2cpp_process_set_stdin_autofush", set.CppName);
+        Assert.Equal(new[] { "i", "i" }, set.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_RedirectStandardInput_GetterAndSetter()
+    {
+        var get = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "get_RedirectStandardInput",
+            Sig(0x02)), "get_RedirectStandardInput");
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_get_redirectstdin", get.CppName);
+        Assert.True(get.ReturnsValue);
+
+        var set = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "set_RedirectStandardInput",
+            Sig(0x01, 0x02)), "set_RedirectStandardInput");
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_set_redirectstdin", set.CppName);
+        Assert.Equal(new[] { "", "i" }, set.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -526,3 +593,4 @@ public class MethodMapProcessTests
         return new MemoryStream(blob.ToArray());
     }
 }
+

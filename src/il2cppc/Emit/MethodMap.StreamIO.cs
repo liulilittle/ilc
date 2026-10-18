@@ -61,6 +61,16 @@ public static partial class MethodRefResolver
     private static ResolvedMethod? TryMapStreamIO(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
+        // nb8 STDIN-WRITE: Process.StandardInput is a PID, not a genuine
+        // StreamWriter (its get_StandardInput identity fold tracks the pseudo-type
+        // "System.Diagnostics.Process.Stdin"). Defer to the Process domain
+        // (MethodMap.Process.cs), which owns WriteLine/Write/Flush/Close/AutoFlush
+        // for that receiver; the generic stream icalls would write to the wrong
+        // (nonexistent) stream handle otherwise.
+        if (receiverType == "System.Diagnostics.Process.Stdin")
+        {
+            return null;
+        }
         switch (name)
         {
             // ---- constructors (owner-specific) --------------------------------

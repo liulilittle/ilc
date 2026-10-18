@@ -99,6 +99,16 @@ public static partial class MethodRefResolver
                         new[] { "", "i" });
                 return null;
 
+            case "get_RedirectStandardInput":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_processstartinfo_get_redirectstdin", 0, true, false, true);
+                return null;
+            case "set_RedirectStandardInput":
+                if (count == 1 && ps[0] == 0x02)
+                    return I("il2cpp::runtime::icall_processstartinfo_set_redirectstdin", 1, false, false, true,
+                        new[] { "", "i" });
+                return null;
+
             case "get_CreateNoWindow":
                 if (count == 0)
                     return I("il2cpp::runtime::icall_processstartinfo_get_createnowindow", 0, true, false, true);

@@ -34,16 +34,18 @@
 //
 //   Process (simplified domain):
 //     * process_start     -- CreateProcessW with an exe path + command
-//       line; stdout/stderr are redirected to a temporary file (read back
-//       via read_stdout_line) and the child process handle is kept in a
+//       line; stdout/stderr are redirected into anonymous pipes (CreatePipe,
+//       nb7 PROC-STARTINFO) drained by read_stdout_to_end /
+//       read_stderr_to_end, and the child process handle is kept in a
 //       PID-keyed table until wait_for_exit. Returns the child PID (> 0)
 //       on success; non-positive on failure.
 //     * process ids       -- GetCurrentProcessId / GetCurrentThreadId,
 //       delegated to the platform layer (plat_process_id /
 //       plat_thread_current_id).
 //     * process_exit      -- ExitProcess (never returns).
-//     * process_wait_for_exit / get_exit_code / read_stdout_line -- the
-//       wait/exit-code/stdout trio; see the declarations below.
+//     * process_wait_for_exit / get_exit_code / read_stdout_to_end /
+//       read_stderr_to_end -- the wait/exit-code/redirected-read quartet; see
+//       the declarations below.
 //
 // Result conventions follow il2cpp_io.h: managed strings in/out; failures
 // and null inputs are null / non-zero returns, never C++ throws (the
@@ -156,11 +158,33 @@ int32_t il2cpp_process_get_exit_code(int32_t pid);
 // DEADLOCK BOUNDARY (honest simplification): the drain is a BLOCKING read on
 // the calling thread. The supported pattern is a SEQUENTIAL ReadToEnd (one
 // stream at a time, the child's total buffered output below the pipe buffer
-// -- 64KB default) -- exactly the net48 documented-recommended use. A child
-// that simultaneously fills BOTH redirected pipes past the buffer deadlocks,
-// the same class of hazard net48's own ReadToEnd carries.
+// -- the CreatePipe default buffer, ~4KB on Windows, NOT 64KB) -- exactly the
+// net48 documented-recommended use. A child that simultaneously fills BOTH
+// redirected pipes past the buffer deadlocks, the same class of hazard
+// net48's own ReadToEnd carries.
 Il2CppObject* il2cpp_process_read_stdout_to_end(int32_t pid);
 Il2CppObject* il2cpp_process_read_stderr_to_end(int32_t pid);
+
+// Process StandardInput (nb8 STDIN-WRITE): Start(psi) with RedirectStandardInput
+// = true gives the child an anonymous INPUT pipe; the write end stays in the
+// parent slot and these icalls push UTF-8 text to it. WriteLine appends the
+// net48 StreamWriter NewLine ("\r\n"); Write appends nothing; Flush is a no-op
+// (every write goes straight to the pipe -- equivalent to AutoFlush true);
+// Close closes the write end (the child then sees EOF). All four throw
+// InvalidOperationException through the managed transport when that stream was
+// NOT redirected ("StandardInput has not been redirected.", net48) and are
+// silent no-ops for an unknown PID / on POSIX (the same simplified-domain
+// convention as the stdout drain). NOT thread-safe.
+void il2cpp_process_write_stdin_line(int32_t pid, Il2CppObject* text);
+void il2cpp_process_write_stdin(int32_t pid, Il2CppObject* text);
+void il2cpp_process_flush_stdin(int32_t pid);
+void il2cpp_process_close_stdin(int32_t pid);
+
+// StreamWriter.AutoFlush on the stdin reader: the runtime writes straight to
+// the pipe, so the getter reports 1 (AutoFlush-equivalent) and the setter is a
+// no-op (a documented deviation -- net48 defaults false and buffers).
+int32_t il2cpp_process_get_stdin_autofush(int32_t pid);
+void il2cpp_process_set_stdin_autofush(int32_t pid, int32_t value);
 
 // Process.GetCurrentProcess().Id / GetCurrentThread().Id: the OS process /
 // thread identifiers (always > 0).
@@ -230,9 +254,18 @@ int64_t il2cpp_process_get_working_set64(int32_t pid);
 // OBJECT MODEL: ProcessStartInfo is a light managed object -- header + the
 // FileName/Arguments string fields (GC reference slots 1/2) + the boolean
 // flags (UseShellExecute / RedirectStandardOutput / RedirectStandardError /
-// CreateNoWindow). The transpiler emits no descriptor for it; the generated
+// RedirectStandardInput / CreateNoWindow). The transpiler emits no descriptor
+// for it; the generated
 // newobj fallback allocates through il2cpp_object_new(&System_Diagnostics_
 // ProcessStartInfo_class) and the property accessors below own the storage.
+//
+// DOCUMENTED DEVIATION (nb8): CreateNoWindow round-trips through the
+// get/set_CreateNoWindow icalls (the field is stored and observable) but is
+// NOT consulted by Start(psi): the launcher ALWAYS passes CreateProcessW the
+// CREATE_NO_WINDOW flag (pathproc.cpp LaunchChild), so every child is started
+// windowless regardless of the property -- the net48 CreateNoWindow=false
+// console-window creation is out of this simplified domain (and would corrupt
+// the diff harness).
 //------------------------------------------------------------------------------
 
 // Managed System.Diagnostics.ProcessStartInfo layout. The GC reference fields
@@ -246,6 +279,7 @@ struct Il2CppProcessStartInfo
     int32_t useShellExecute;       // (net48 default 1)
     int32_t redirectStandardOutput;
     int32_t redirectStandardError;
+    int32_t redirectStandardInput; // nb8 STDIN-WRITE
     int32_t createNoWindow;
 };
 
@@ -279,14 +313,18 @@ int32_t icall_processstartinfo_get_redirectstdout(Il2CppObject* self);
 void icall_processstartinfo_set_redirectstdout(Il2CppObject* self, int32_t value);
 int32_t icall_processstartinfo_get_redirectstderr(Il2CppObject* self);
 void icall_processstartinfo_set_redirectstderr(Il2CppObject* self, int32_t value);
+int32_t icall_processstartinfo_get_redirectstdin(Il2CppObject* self);
+void icall_processstartinfo_set_redirectstdin(Il2CppObject* self, int32_t value);
 int32_t icall_processstartinfo_get_createnowindow(Il2CppObject* self);
 void icall_processstartinfo_set_createnowindow(Il2CppObject* self, int32_t value);
 
 // Process.Start(ProcessStartInfo): launches the psi's FileName + Arguments via
 // CreateProcessW. RedirectStandardOutput/Error route the child stream into an
-// anonymous pipe (read back by read_stdout_to_end / read_stderr_to_end); when
-// a redirect is requested while UseShellExecute is true the call throws
-// InvalidOperationException through the managed transport (net48 semantics).
+// anonymous pipe (read back by read_stdout_to_end / read_stderr_to_end);
+// RedirectStandardInput gives the child an input pipe whose write end feeds the
+// stdin icalls above. When a redirect is requested while UseShellExecute is
+// true the call throws InvalidOperationException through the managed transport
+// (net48 semantics).
 // UseShellExecute is otherwise recorded but not consulted (the runtime always
 // launches through CreateProcessW -- the ShellExecuteEx/DDE path is out of
 // scope, a documented deviation). Returns the child PID (> 0) on success, 0

@@ -23,9 +23,10 @@
 // line, CREATE_NO_WINDOW) and the two id queries (the process id delegates
 // to plat_process_id, the thread id to plat_thread_current_id), and maps
 // process_exit to ExitProcess. A started child is tracked: its
-// stdout/stderr are redirected to a temporary file (read back line-wise by
-// read_stdout_line) and its process handle lives in a PID-keyed table until
-// wait_for_exit caches the exit code and closes it. The POSIX branch
+// stdout/stderr are redirected into anonymous pipes (CreatePipe, nb7
+// PROC-STARTINFO) drained by read_stdout_to_end / read_stderr_to_end and its
+// process handle lives in a PID-keyed table until wait_for_exit caches the
+// exit code and closes it. The POSIX branch
 // (WSL/GCC baseline) keeps the sources compiling with best-effort semantics
 // (process_start returns non-zero; see the header).
 //------------------------------------------------------------------------------
@@ -97,9 +98,9 @@ std::vector<wchar_t> CsToWide(Il2CppObject* obj)
     return out;
 }
 
-// Opaque byte buffer (stdout capture; length excludes any terminator) ->
+// Opaque byte buffer (a drained pipe; length excludes any terminator) ->
 // managed string, 1:1 byte pass-through like the POSIX CsFromBytes below.
-// The capture is binary-opaque data (see read_stdout_line); ASCII output
+// The capture is binary-opaque data (see read_stdout_to_end); ASCII output
 // round-trips, higher bytes do not.
 Il2CppObject* CsFromBytes(const char* data, size_t length)
 {
@@ -125,10 +126,15 @@ struct ProcessSlot
     // was not redirected keeps a null placeholder and its ReadToEnd throws.
     HANDLE stdoutRead;
     HANDLE stderrRead;
+    // nb8 STDIN-WRITE: the anonymous-pipe WRITE end feeding the child's stdin
+    // (INVALID_HANDLE_VALUE = not redirected). Closed by close_stdin (EOF).
+    HANDLE stdinWrite;
     bool stdoutRedirected;
     bool stderrRedirected;
+    bool stdinRedirected;
     bool stdoutDrained;
     bool stderrDrained;
+    bool stdinClosed;
     uint32_t exitCode;
     bool waited;
     // nb4 PROC-DIAG (双审 defect 4): the net48 first-read WorkingSet64 cache.
@@ -735,14 +741,19 @@ Il2CppObject* il2cpp_path_get_file_name_without_extension(Il2CppObject* path)
 // NUL-terminated string (an embedded NUL truncates the command line --
 // cmd.exe then starts interactively and prints its banner).
 //
-// Redirected streams use anonymous pipes (CreatePipe; the read end is made
-// parent-only via SetHandleInformation). A NON-redirected stream (and stdin)
-// is bound to NUL: the child can never write through to the parent's captured
-// stdout/stderr (the diff harness would otherwise observe output the net48
-// oracle cannot) -- a documented deviation from net48's console inheritance.
-// Returns the child PID (> 0) and stores the tracked slot; 0 on failure.
+// Redirected streams use anonymous pipes (CreatePipe): a redirected OUTPUT
+// stream makes its READ end parent-only, a redirected INPUT stream (nb8
+// STDIN-WRITE) makes its WRITE end parent-only; SetHandleInformation achieves
+// both. A NON-redirected stream is bound to NUL: the child can never write
+// through to the parent's captured stdout/stderr (the diff harness would
+// otherwise observe output the net48 oracle cannot) -- a documented deviation
+// from net48's console inheritance.
+// The process is ALWAYS started with CREATE_NO_WINDOW: the ProcessStartInfo
+// CreateNoWindow flag is stored/observable but deliberately not consulted
+// (nb8 documented deviation -- see pathproc.h). Returns the child PID (> 0)
+// and stores the tracked slot; 0 on failure.
 static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wchar_t>& argLine,
-                           bool redirectOut, bool redirectErr)
+                           bool redirectOut, bool redirectErr, bool redirectIn)
 {
     std::vector<wchar_t> cmd;
     cmd.reserve(app.size() + argLine.size() + 4);
@@ -762,6 +773,8 @@ static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wc
     HANDLE outWrite = INVALID_HANDLE_VALUE;
     HANDLE errRead = INVALID_HANDLE_VALUE;
     HANDLE errWrite = INVALID_HANDLE_VALUE;
+    HANDLE inRead = INVALID_HANDLE_VALUE;
+    HANDLE inWrite = INVALID_HANDLE_VALUE;
     if (redirectOut && ::CreatePipe(&outRead, &outWrite, &sa, 0))
     {
         ::SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0); // parent-only read end
@@ -778,8 +791,19 @@ static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wc
     {
         redirectErr = false;
     }
-    HANDLE hIn = ::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               &sa, OPEN_EXISTING, 0, nullptr);
+    // nb8 STDIN-WRITE: the WRITE end stays parent-only (the child inherits only
+    // the READ end as its stdin).
+    if (redirectIn && ::CreatePipe(&inRead, &inWrite, &sa, 0))
+    {
+        ::SetHandleInformation(inWrite, HANDLE_FLAG_INHERIT, 0); // parent-only write end
+    }
+    else
+    {
+        redirectIn = false;
+    }
+    HANDLE hIn = redirectIn ? inRead
+        : ::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        &sa, OPEN_EXISTING, 0, nullptr);
     HANDLE hOut = redirectOut ? outWrite
         : ::CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                         &sa, OPEN_EXISTING, 0, nullptr);
@@ -791,11 +815,13 @@ static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wc
         // A NUL fallback could not be opened: fail the launch, close everything.
         if (outWrite != INVALID_HANDLE_VALUE) ::CloseHandle(outWrite);
         if (errWrite != INVALID_HANDLE_VALUE) ::CloseHandle(errWrite);
+        if (inWrite != INVALID_HANDLE_VALUE) ::CloseHandle(inWrite);
         if (hIn != INVALID_HANDLE_VALUE) ::CloseHandle(hIn);
         if (!redirectOut && hOut != INVALID_HANDLE_VALUE) ::CloseHandle(hOut);
         if (!redirectErr && hErr != INVALID_HANDLE_VALUE) ::CloseHandle(hErr);
         if (outRead != INVALID_HANDLE_VALUE) ::CloseHandle(outRead);
         if (errRead != INVALID_HANDLE_VALUE) ::CloseHandle(errRead);
+        if (inRead != INVALID_HANDLE_VALUE) ::CloseHandle(inRead);
         return 0;
     }
 
@@ -812,16 +838,20 @@ static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wc
                                           TRUE /* inherit the pipe write / NUL handles */,
                                           CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
     // Parent-side duplicates: the child keeps its own inherited copies. Close
-    // the write ends (EOF depends on this) and every NUL fallback handle.
+    // the child-side write/read ends (EOF depends on this) and every NUL
+    // fallback handle. The parent KEEPS the stdin WRITE end (inWrite) -- the
+    // child-side stdin READ end (inRead) is closed here.
     if (outWrite != INVALID_HANDLE_VALUE) ::CloseHandle(outWrite);
     if (errWrite != INVALID_HANDLE_VALUE) ::CloseHandle(errWrite);
     if (!redirectOut && hOut != INVALID_HANDLE_VALUE) ::CloseHandle(hOut);
     if (!redirectErr && hErr != INVALID_HANDLE_VALUE) ::CloseHandle(hErr);
-    ::CloseHandle(hIn);
+    if (redirectIn) ::CloseHandle(inRead);
+    else ::CloseHandle(hIn);
     if (created == 0)
     {
         if (outRead != INVALID_HANDLE_VALUE) ::CloseHandle(outRead);
         if (errRead != INVALID_HANDLE_VALUE) ::CloseHandle(errRead);
+        if (inWrite != INVALID_HANDLE_VALUE) ::CloseHandle(inWrite);
         return 0; // launch failure (missing exe, bad command line, ...); header contract: 0
     }
     // Tracked start: the process handle lives in the table until wait_for_exit;
@@ -832,10 +862,13 @@ static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wc
     slot.process = pi.hProcess;
     slot.stdoutRead = redirectOut ? outRead : INVALID_HANDLE_VALUE;
     slot.stderrRead = redirectErr ? errRead : INVALID_HANDLE_VALUE;
+    slot.stdinWrite = redirectIn ? inWrite : INVALID_HANDLE_VALUE;
     slot.stdoutRedirected = redirectOut;
     slot.stderrRedirected = redirectErr;
+    slot.stdinRedirected = redirectIn;
     slot.stdoutDrained = !redirectOut;
     slot.stderrDrained = !redirectErr;
+    slot.stdinClosed = !redirectIn;
     slot.exitCode = 0;
     slot.waited = false;
     slot.wsCached = false;
@@ -853,13 +886,12 @@ int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args)
     {
         return -1;
     }
-    // The static Start(string, string) redirects BOTH streams (preserving the
-    // legacy temp-file capture semantics -- the captured output is only
-    // observable through the ProcessStartInfo redirect form; net48's
-    // ShellExecute static Start does not redirect at all).
+    // The static Start(string, string) redirects BOTH streams (the captured
+    // output is only observable through the ProcessStartInfo redirect form;
+    // net48's ShellExecute static Start does not redirect at all).
     const std::vector<wchar_t> app = CsToWide(exePath);
     const std::vector<wchar_t> argLine = CsToWide(args);
-    return LaunchChild(app, argLine, true, true);
+    return LaunchChild(app, argLine, true, true, false);
 #else
     (void)exePath;
     (void)args;
@@ -879,7 +911,8 @@ int32_t il2cpp_process_start_info(Il2CppObject* psi)
     const Il2CppProcessStartInfo* info = reinterpret_cast<const Il2CppProcessStartInfo*>(psi);
     const bool redirectOut = info->redirectStandardOutput != 0;
     const bool redirectErr = info->redirectStandardError != 0;
-    if (info->useShellExecute != 0 && (redirectOut || redirectErr))
+    const bool redirectIn = info->redirectStandardInput != 0;
+    if (info->useShellExecute != 0 && (redirectOut || redirectErr || redirectIn))
     {
         // net48 (probe-pinned): "The Process object must have the
         // UseShellExecute property set to false in order to redirect IO
@@ -895,7 +928,7 @@ int32_t il2cpp_process_start_info(Il2CppObject* psi)
     const std::vector<wchar_t> argLine = info->arguments != nullptr
         ? CsToWide(reinterpret_cast<Il2CppObject*>(info->arguments))
         : std::vector<wchar_t>(1, L'\0');
-    return LaunchChild(app, argLine, redirectOut, redirectErr);
+    return LaunchChild(app, argLine, redirectOut, redirectErr, redirectIn);
 #else
     (void)psi;
     return -1; // fork/exec is beyond this simplified surface
@@ -1011,6 +1044,135 @@ Il2CppObject* il2cpp_process_read_stderr_to_end(int32_t pid)
 #else
     (void)pid;
     return nullptr; // unsupported on POSIX
+#endif
+}
+
+#if defined(_WIN32)
+
+// nb8 STDIN-WRITE: write raw UTF-8 bytes to the child's redirected stdin pipe.
+// The pipe is the parent-only WRITE end; WriteFile blocks until the child
+// drains (the documented single-stream simplification). Returns false on an
+// unknown PID / write failure.
+static bool WriteStdinBytes(int32_t pid, const char* data, size_t length, bool& redirected)
+{
+    redirected = false;
+    const auto it = g_processes().find(pid);
+    if (it == g_processes().end())
+    {
+        return false; // unknown PID
+    }
+    ProcessSlot& slot = it->second;
+    if (!slot.stdinRedirected)
+    {
+        return false; // stream not redirected (the caller raises IOE)
+    }
+    redirected = true;
+    if (slot.stdinClosed || slot.stdinWrite == INVALID_HANDLE_VALUE)
+    {
+        // net48: a write AFTER Close is silently dropped (no throw).
+        return true;
+    }
+    size_t written = 0;
+    while (written < length)
+    {
+        DWORD chunk = static_cast<DWORD>(
+            (length - written > 0x40000000u) ? 0x40000000u : (length - written));
+        DWORD got = 0;
+        if (::WriteFile(slot.stdinWrite, data + written, chunk, &got, nullptr) == 0)
+        {
+            return false;
+        }
+        written += got;
+    }
+    return true;
+}
+
+#endif // _WIN32
+
+// The shared stdin-write entry: root-free (no allocation -> no GC hazard), the
+// managed text arrives as the uniform Il2CppObject* reference slot.
+static void WriteStdinText(int32_t pid, Il2CppObject* text, bool newline)
+{
+#if defined(_WIN32)
+    std::string utf8;
+    if (text != nullptr)
+    {
+        utf8 = CsToUtf8(text);
+    }
+    if (newline)
+    {
+        utf8.push_back('\r');
+        utf8.push_back('\n');
+    }
+    bool redirected = false;
+    if (!WriteStdinBytes(pid, utf8.data(), utf8.size(), redirected))
+    {
+        if (g_processes().find(pid) != g_processes().end())
+        {
+            il2cpp_throw_invalid_operation_exception(
+                "StandardInput has not been redirected.");
+        }
+        return; // unknown PID: silent no-op (the simplified-domain convention)
+    }
+    (void)redirected;
+#else
+    (void)pid;
+    (void)text;
+    (void)newline;
+#endif
+}
+
+void il2cpp_process_write_stdin_line(int32_t pid, Il2CppObject* text)
+{
+    WriteStdinText(pid, text, true);
+}
+
+void il2cpp_process_write_stdin(int32_t pid, Il2CppObject* text)
+{
+    WriteStdinText(pid, text, false);
+}
+
+void il2cpp_process_flush_stdin(int32_t pid)
+{
+    // Every stdin write goes straight to the pipe (AutoFlush-equivalent), so
+    // Flush is a no-op. Return early for an unknown PID.
+    (void)pid;
+}
+
+int32_t il2cpp_process_get_stdin_autofush(int32_t pid)
+{
+    (void)pid;
+    return 1; // writes always flush (documented deviation from net48 default)
+}
+
+void il2cpp_process_set_stdin_autofush(int32_t pid, int32_t value)
+{
+    (void)pid;
+    (void)value;
+}
+
+void il2cpp_process_close_stdin(int32_t pid)
+{
+#if defined(_WIN32)
+    const auto it = g_processes().find(pid);
+    if (it == g_processes().end())
+    {
+        return;
+    }
+    ProcessSlot& slot = it->second;
+    if (!slot.stdinRedirected)
+    {
+        il2cpp_throw_invalid_operation_exception(
+            "StandardInput has not been redirected.");
+    }
+    if (!slot.stdinClosed && slot.stdinWrite != INVALID_HANDLE_VALUE)
+    {
+        ::CloseHandle(slot.stdinWrite);
+        slot.stdinWrite = INVALID_HANDLE_VALUE;
+        slot.stdinClosed = true;
+    }
+#else
+    (void)pid;
 #endif
 }
 
@@ -1357,6 +1519,7 @@ void InitProcessStartInfo(Il2CppObject*& self)
     info->useShellExecute = 1;
     info->redirectStandardOutput = 0;
     info->redirectStandardError = 0;
+    info->redirectStandardInput = 0;
     info->createNoWindow = 0;
 }
 
@@ -1475,6 +1638,16 @@ int32_t icall_processstartinfo_get_redirectstderr(Il2CppObject* self)
 void icall_processstartinfo_set_redirectstderr(Il2CppObject* self, int32_t value)
 {
     reinterpret_cast<Il2CppProcessStartInfo*>(self)->redirectStandardError = value;
+}
+
+int32_t icall_processstartinfo_get_redirectstdin(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppProcessStartInfo*>(self)->redirectStandardInput;
+}
+
+void icall_processstartinfo_set_redirectstdin(Il2CppObject* self, int32_t value)
+{
+    reinterpret_cast<Il2CppProcessStartInfo*>(self)->redirectStandardInput = value;
 }
 
 int32_t icall_processstartinfo_get_createnowindow(Il2CppObject* self)

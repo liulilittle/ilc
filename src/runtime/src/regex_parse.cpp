@@ -43,13 +43,23 @@ namespace il2cpp { namespace runtime {
 namespace {
 
 // One capture group from the pre-pass, in left-paren order. number is the
-// .NET group number (unnamed groups first, then named groups); nameStart/Len
-// locate the (?<name>...) name inside the pattern (named == true only).
+// .NET group slot (.NET CountCaptures/AssignNameSlots numbering -- see
+// ScanGroups); nameStart/Len locate a real (?<name>...) / (?'name'...) name
+// inside the pattern (named && nameOrder >= 0).
 struct GroupPlanEntry {
-    bool    named;
+    bool    named;      // "(?<...>" / "(?'...'" opener (real name OR explicit number)
+    int32_t nameStart;  // real-name text location (nameOrder >= 0 only)
+    int32_t nameLen;
+    int32_t nameOrder;  // index into the ScannedName list, -1 when not a real name
+    int32_t number;     // .NET group slot
+};
+
+// A real (non-numeric) group name collected by the pre-pass, in first-seen
+// order, with the slot AssignNameSlots gave it.
+struct ScannedName {
     int32_t nameStart;
     int32_t nameLen;
-    int32_t number;
+    int32_t slot;
 };
 
 struct ParseState {
@@ -378,21 +388,61 @@ bool IsDigitChar(char16_t c)
     return c >= u'0' && c <= u'9';
 }
 
-// OBJ-3 pre-pass: collect every CAPTURE group in left-paren order and assign
-// the .NET group numbers. Runs before parsing so (a) backreferences can be
-// validated against groups defined anywhere (forward refs included) and (b)
-// the .NET numbering rule is applied: unnamed groups are numbered first
-// (left-to-right), named groups AFTER them (left-to-right). A '(' is a capture
-// group opener unless escaped or inside a [...] class; "(?<name>" is a NAMED
-// capture group, any other "(?" construct is non-capturing (the parser reports
-// the unsupported construct). Returns false + *err for a malformed named-group
-// header ((?< without '>', empty name, non-word name chars) or an all-digit
-// name (net48 treats "(?<1>" as an explicit group NUMBER -- out of this
-// batch's subset, documented GAP).
+// An explicit all-digit group number beyond this bound is refused (net48 caps
+// the slot at Int32.MaxValue; allocating a capture array that large is absurd,
+// so the runtime documents a conservative ceiling -- a documented GAP).
+constexpr int32_t kMaxExplicitGroupNumber = 4096;
+
+// Pre-pass: collect every CAPTURE group in left-paren order and assign the
+// .NET group slots using the exact net48 RegexParser algorithm
+// (CountCaptures + AssignNameSlots, referencesource RegexParser.cs):
+//   * "(?<...>" / "(?'...'": a named capture group. When the name is a pure
+//     decimal starting 1-9 it is an EXPLICIT group number (NoteCaptureSlot);
+//     otherwise it is a real name (NoteCaptureName). "(?<=" / "(?<!" are
+//     lookbehind constructs (non-capturing, error later in ParseAtom).
+//   * "(": an unnamed capture group takes the next automatic slot
+//     (NoteCaptureSlot(_autocap++)) -- NOTE _autocap advances even when the
+//     slot already exists, so an explicit number can COLLIDE with an unnamed
+//     group (net48 last-capture-wins; oracle [mix.gc] / [dup.num]).
+//   * AssignNameSlots: each real name takes the next free slot above every
+//     used slot (in first-seen order); unnamed numbers are NOT reassigned.
+// The .NET slot of a Group node is plan[k].number; *outGroupCount is the
+// maximum slot (0 = no capture groups). Intra-pattern backreference bounds use
+// that maximum.
+//
+// Returns false + *err for a malformed header ((?< without the close, empty
+// name), a non-word name char, a leading-zero numeric name, or duplicate real
+// names (net48 MERGES duplicates -- a documented GAP, rejected loudly here).
 bool ScanGroups(const char16_t* p, int32_t len, std::vector<GroupPlanEntry>* out,
+                std::vector<ScannedName>* names, int32_t* outGroupCount,
                 RegexParseError* err)
 {
+    std::vector<int32_t> used;   // used capture slots (a set; 0 = whole match)
+    used.push_back(0);
+    auto slotUsed = [&used](int32_t s) -> bool {
+        for (size_t k = 0; k < used.size(); ++k)
+        {
+            if (used[k] == s)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+    auto noteSlot = [&used](int32_t s) {
+        for (size_t k = 0; k < used.size(); ++k)
+        {
+            if (used[k] == s)
+            {
+                return;
+            }
+        }
+        used.push_back(s);
+    };
+
+    int32_t autocap = 1; // next auto slot for an unnamed group
     bool inClass = false;
+
     for (int32_t i = 0; i < len;)
     {
         const char16_t c = p[i];
@@ -420,26 +470,29 @@ bool ScanGroups(const char16_t* p, int32_t len, std::vector<GroupPlanEntry>* out
         {
             if (i + 1 < len && p[i + 1] == u'?')
             {
-                // A named group is "(?<name>" -- but "(?<=" / "(?<!" are
+                // "(?<name>" / "(?'name'" -- but "(?<=" / "(?<!" are
                 // lookbehind constructs (out of subset, non-capturing).
-                if (i + 2 < len && p[i + 2] == u'<' && i + 3 < len &&
-                    p[i + 3] != u'=' && p[i + 3] != u'!')
+                const bool isAngle = (i + 2 < len && p[i + 2] == u'<' &&
+                                      i + 3 < len && p[i + 3] != u'=' && p[i + 3] != u'!');
+                const bool isQuote = (i + 2 < len && p[i + 2] == u'\'');
+                if (isAngle || isQuote)
                 {
+                    const char16_t close = isAngle ? u'>' : u'\'';
                     int32_t j = i + 3;
-                    while (j < len && p[j] != u'>')
+                    while (j < len && p[j] != close)
                     {
                         ++j;
                     }
                     if (j >= len)
                     {
-                        *err = RegexParseError::UnclosedGroup; // "(?<name" no '>'
+                        *err = RegexParseError::UnclosedGroup; // no close delimiter
                         return false;
                     }
                     const int32_t nameStart = i + 3;
                     const int32_t nameLen = j - nameStart;
                     if (nameLen <= 0)
                     {
-                        *err = RegexParseError::UnsupportedConstruct; // "(?<>"
+                        *err = RegexParseError::UnsupportedConstruct; // "(?<>" / "(?''"
                         return false;
                     }
                     bool allDigits = true;
@@ -456,28 +509,84 @@ bool ScanGroups(const char16_t* p, int32_t len, std::vector<GroupPlanEntry>* out
                             allDigits = false;
                         }
                     }
-                    if (allDigits)
-                    {
-                        *err = RegexParseError::UnsupportedConstruct; // explicit number (GAP)
-                        return false;
-                    }
                     GroupPlanEntry e;
                     e.named = true;
                     e.nameStart = nameStart;
                     e.nameLen = nameLen;
+                    e.nameOrder = -1;
                     e.number = 0;
+                    if (allDigits)
+                    {
+                        // Explicit group NUMBER (net48 "(?<1>"): pure decimal
+                        // starting 1-9. A leading zero / all-digit name is a
+                        // documented GAP (net48 takes a different path).
+                        if (p[nameStart] == u'0')
+                        {
+                            *err = RegexParseError::UnsupportedConstruct;
+                            return false;
+                        }
+                        int64_t v = 0;
+                        for (int32_t k = 0; k < nameLen; ++k)
+                        {
+                            v = v * 10 + (p[nameStart + k] - u'0');
+                            if (v > kMaxExplicitGroupNumber)
+                            {
+                                *err = RegexParseError::UnsupportedConstruct;
+                                return false;
+                            }
+                        }
+                        noteSlot(static_cast<int32_t>(v));
+                        e.number = static_cast<int32_t>(v);
+                    }
+                    else
+                    {
+                        // Real name: duplicate names are rejected loudly (net48
+                        // merges -- documented GAP).
+                        for (size_t m = 0; m < names->size(); ++m)
+                        {
+                            if ((*names)[m].nameLen != nameLen)
+                            {
+                                continue;
+                            }
+                            bool same = true;
+                            for (int32_t k = 0; k < nameLen; ++k)
+                            {
+                                if ((*names)[m].nameStart + k >= len ||
+                                    p[(*names)[m].nameStart + k] != p[nameStart + k])
+                                {
+                                    same = false;
+                                    break;
+                                }
+                            }
+                            if (same)
+                            {
+                                *err = RegexParseError::UnsupportedConstruct; // duplicate name
+                                return false;
+                            }
+                        }
+                        ScannedName nm;
+                        nm.nameStart = nameStart;
+                        nm.nameLen = nameLen;
+                        nm.slot = -1; // assigned by AssignNameSlots below
+                        names->push_back(nm);
+                        e.nameOrder = static_cast<int32_t>(names->size()) - 1;
+                    }
                     out->push_back(e);
-                    i = j + 1; // consume through '>'
+                    i = j + 1; // consume through the close delimiter
                     continue;
                 }
                 i += 2; // "(?" non-capturing / unsupported: parser reports it
                 continue;
             }
+            // Unnamed capture group: NoteCaptureSlot(_autocap++).
             GroupPlanEntry e;
             e.named = false;
             e.nameStart = 0;
             e.nameLen = 0;
-            e.number = 0;
+            e.nameOrder = -1;
+            e.number = autocap;
+            noteSlot(autocap);
+            ++autocap;
             out->push_back(e);
             ++i; // consume '('
             continue;
@@ -485,62 +594,43 @@ bool ScanGroups(const char16_t* p, int32_t len, std::vector<GroupPlanEntry>* out
         ++i;
     }
 
-    // Assign .NET numbers: unnamed first, then named.
-    int32_t unnamed = 0;
-    for (size_t k = 0; k < out->size(); ++k)
+    // AssignNameSlots: each real name takes the next free slot (first-seen
+    // order), starting above every used slot (_autocap).
+    for (size_t k = 0; k < names->size(); ++k)
     {
-        if (!(*out)[k].named)
+        while (slotUsed(autocap))
         {
-            ++unnamed;
+            ++autocap;
         }
+        (*names)[k].slot = autocap;
+        noteSlot(autocap);
+        ++autocap;
     }
-    int32_t nextUnnamed = 1;
-    int32_t nextNamed = unnamed + 1;
     for (size_t k = 0; k < out->size(); ++k)
     {
-        if ((*out)[k].named)
+        if ((*out)[k].nameOrder >= 0)
         {
-            (*out)[k].number = nextNamed++;
-        }
-        else
-        {
-            (*out)[k].number = nextUnnamed++;
+            (*out)[k].number = (*names)[(*out)[k].nameOrder].slot;
         }
     }
 
-    // OBJ-3: duplicate group names are REJECTED loudly at parse time. net48
-    // instead merges two same-named groups onto one number (last capture wins);
-    // that merge semantics is a deeper follow-up (documented GAP), so this
-    // runtime refuses the pattern with ArgumentException rather than silently
-    // producing a different Groups.Count / capture than net48.
-    for (size_t k = 0; k < out->size(); ++k)
+    // Maximum slot + gap detection: the .NET sparse-capture machinery (an
+    // empty group padded for every hole, plus the GroupCollection sparse
+    // mapping) is a documented GAP, so a numbering hole is refused loudly.
+    int32_t maxSlot = 0;
+    for (size_t k = 0; k < used.size(); ++k)
     {
-        if (!(*out)[k].named)
+        if (used[k] > maxSlot)
         {
-            continue;
-        }
-        for (size_t m = k + 1; m < out->size(); ++m)
-        {
-            if (!(*out)[m].named || (*out)[m].nameLen != (*out)[k].nameLen)
-            {
-                continue;
-            }
-            bool same = true;
-            for (int32_t c = 0; c < (*out)[k].nameLen; ++c)
-            {
-                if (p[(*out)[k].nameStart + c] != p[(*out)[m].nameStart + c])
-                {
-                    same = false;
-                    break;
-                }
-            }
-            if (same)
-            {
-                *err = RegexParseError::UnsupportedConstruct; // duplicate name
-                return false;
-            }
+            maxSlot = used[k];
         }
     }
+    if (static_cast<int32_t>(used.size()) != maxSlot + 1)
+    {
+        *err = RegexParseError::UnsupportedConstruct; // sparse slot (gap) -> GAP
+        return false;
+    }
+    *outGroupCount = maxSlot;
     return true;
 }
 
@@ -836,15 +926,19 @@ RegexNode* ParseAtom(ParseState* st)
     {
         if (st->pos + 1 < st->length && st->pattern[st->pos + 1] == u'?')
         {
-            // OBJ-3: "(?<name>" is a NAMED capture group (the pre-pass already
-            // validated the name and assigned its .NET number). Every other
-            // "(?" construct ((?: (?= (?! (?<= (?<! (?> (?i) is out of subset.
-            if (st->pos + 2 < st->length && st->pattern[st->pos + 2] == u'<' &&
-                st->pos + 3 < st->length && st->pattern[st->pos + 3] != u'=' &&
-                st->pattern[st->pos + 3] != u'!')
+            // "(?<name>" / "(?'name'" is a capture group (a real name or an
+            // explicit number; the pre-pass validated it and assigned its .NET
+            // slot). Every other "(?" construct ((?: (?= (?! (?<= (?<! (?>
+            // (?i) is out of subset.
+            const bool isAngle = (st->pos + 2 < st->length && st->pattern[st->pos + 2] == u'<' &&
+                                  st->pos + 3 < st->length && st->pattern[st->pos + 3] != u'=' &&
+                                  st->pattern[st->pos + 3] != u'!');
+            const bool isQuote = (st->pos + 2 < st->length && st->pattern[st->pos + 2] == u'\'');
+            if (isAngle || isQuote)
             {
+                const char16_t close = isAngle ? u'>' : u'\'';
                 int32_t at = st->pos + 3;
-                while (at < st->length && st->pattern[at] != u'>')
+                while (at < st->length && st->pattern[at] != close)
                 {
                     ++at;
                 }
@@ -853,7 +947,7 @@ RegexNode* ParseAtom(ParseState* st)
                     st->error = RegexParseError::UnclosedGroup;
                     return nullptr;
                 }
-                st->pos = at + 1; // consume "(?<name>"
+                st->pos = at + 1; // consume "(?<name>" / "(?'name'"
             }
             else
             {
@@ -1400,10 +1494,12 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
         return nullptr;
     }
 
-    // OBJ-3 pre-pass: capture-group plan (left-paren order + .NET numbers).
+    // Pre-pass: capture-group plan (left-paren order + .NET slots).
     std::vector<GroupPlanEntry> plan;
+    std::vector<ScannedName> scanNames;
+    int32_t maxGroup = 0;
     RegexParseError scanError = RegexParseError::None;
-    if (!ScanGroups(pattern, length, &plan, &scanError))
+    if (!ScanGroups(pattern, length, &plan, &scanNames, &maxGroup, &scanError))
     {
         if (outError != nullptr)
         {
@@ -1421,7 +1517,7 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
     st.plan = plan.empty() ? nullptr : plan.data();
     st.planCount = static_cast<int32_t>(plan.size());
     st.planIndex = 0;
-    st.groupCount = static_cast<int32_t>(plan.size());
+    st.groupCount = maxGroup;
 
     RegexNode* root = ParseAlternation(&st);
     if (root == nullptr || st.error != RegexParseError::None)
@@ -1454,17 +1550,10 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
         FreeNode(root);
         return nullptr;
     }
-    int32_t namedCount = 0;
-    for (size_t k = 0; k < plan.size(); ++k)
-    {
-        if (plan[k].named)
-        {
-            ++namedCount;
-        }
-    }
+    const int32_t namedCount = static_cast<int32_t>(scanNames.size());
 
     ast->root = root;
-    ast->groupCount = static_cast<int32_t>(plan.size());
+    ast->groupCount = maxGroup; // maximum .NET slot (0 = no capture groups)
     ast->options = options;
     ast->nameCount = 0;
     ast->names = nullptr;
@@ -1479,14 +1568,10 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
             delete ast;
             return nullptr; // OOM -> parse failure
         }
-        for (size_t k = 0; k < plan.size(); ++k)
+        for (int32_t k = 0; k < namedCount; ++k)
         {
-            if (!plan[k].named)
-            {
-                continue;
-            }
             char16_t* text = static_cast<char16_t*>(
-                std::malloc(sizeof(char16_t) * static_cast<size_t>(plan[k].nameLen + 1)));
+                std::malloc(sizeof(char16_t) * static_cast<size_t>(scanNames[k].nameLen + 1)));
             if (text == nullptr)
             {
                 for (int32_t m = 0; m < ast->nameCount; ++m)
@@ -1499,12 +1584,12 @@ RegexAst* RegexParse(const char16_t* pattern, int32_t length, int32_t options,
                 delete ast;
                 return nullptr; // OOM -> parse failure
             }
-            std::memcpy(text, pattern + plan[k].nameStart,
-                        sizeof(char16_t) * static_cast<size_t>(plan[k].nameLen));
-            text[plan[k].nameLen] = 0;
+            std::memcpy(text, pattern + scanNames[k].nameStart,
+                        sizeof(char16_t) * static_cast<size_t>(scanNames[k].nameLen));
+            text[scanNames[k].nameLen] = 0;
             ast->names[ast->nameCount].text = text;
-            ast->names[ast->nameCount].length = plan[k].nameLen;
-            ast->names[ast->nameCount].index = plan[k].number;
+            ast->names[ast->nameCount].length = scanNames[k].nameLen;
+            ast->names[ast->nameCount].index = scanNames[k].slot;
             ++ast->nameCount;
         }
     }

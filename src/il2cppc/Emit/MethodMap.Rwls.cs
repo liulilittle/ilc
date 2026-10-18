@@ -13,7 +13,8 @@ namespace Il2Cpp.Transpiler.Emit;
 // SemaphoreSlim contract, MethodMap.SyncLite.cs), so NO BclAllocExpr entry is
 // required. The receiver passes through the "" cast; int32 args use "i".
 //
-// Wired surface (nb5 RWLS-LOCK, LockRecursionPolicy.NoRecursion):
+// Wired surface (nb5 RWLS-LOCK; nb8 added the LockRecursionPolicy.
+// SupportsRecursion recursion semantics in rwls.cpp):
 // ctor()/ctor(LockRecursionPolicy) / Enter+Exit{Read,Write,UpgradeableRead}Lock
 // / TryEnter{Read,Write,UpgradeableRead}Lock(int) / IsReadLockHeld /
 // IsWriteLockHeld / IsUpgradeableReadLockHeld / CurrentReadCount /

@@ -24,11 +24,15 @@
 //     System.Threading.LockRecursionException.
 //   * Exit without entering throws System.Threading.SynchronizationLockException.
 //   * upgradeable read -> write is the same-thread upgrade (allowed).
-// DOCUMENTED SUBSET: LockRecursionPolicy.SupportsRecursion is rejected LOUDLY
-// at construction with NotSupportedException (the runtime does not model read/
-// write recursion counters); the policy argument is never silently ignored.
-// The blocking/waiting counters read 0 (single-thread deterministic probes);
-// the state mutex/condition variable exist for the future concurrent forms.
+// LockRecursionPolicy.SupportsRecursion is implemented (nb8): a recursive
+// Enter{Read,Write,UpgradeableRead}Lock increments the per-mode recursion depth
+// (each Exit decrements it; an Exit at depth 0 throws), CurrentReadCount stays
+// the UNIQUE reader count (1 while a thread holds any read/un upgrade), a
+// recursive read from a held write / upgradeable read is allowed, and
+// read -> write stays a LockRecursionException (cross-type, oracle
+// [sup.read.write]). The blocking/waiting counters read 0 (single-thread
+// deterministic probes); the state mutex/condition variable exist for the
+// future concurrent forms.
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"   // Il2CppObject (managed object header)
@@ -62,8 +66,9 @@ void il2cpp_rwls_register_classes();
 void icall_rwls_ctor_default(Il2CppObject* self);
 
 // ReaderWriterLockSlim(LockRecursionPolicy recursionPolicy): NoRecursion (0)
-// accepted; supportsRecursion (1) throws NotSupportedException (documented
-// subset). Allocates the native state.
+// and SupportsRecursion (1) are both accepted (nb8: recursion counters are
+// modelled); any other value throws NotSupportedException (never silently
+// ignored). Allocates the native state.
 void icall_rwls_ctor_policy(Il2CppObject* self, int32_t recursionPolicy);
 
 // --- read lock --------------------------------------------------------------

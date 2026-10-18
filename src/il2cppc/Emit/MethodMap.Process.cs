@@ -181,8 +181,17 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::il2cpp_process_get_working_set64", 0, true, false, true,
                             new[] { "i" }, "l");
                     return null;
+                // nb8 STDIN-WRITE: StandardInput is the same PID identity fold
+                // as StandardOutput, but tracked under the distinct pseudo-type
+                // "System.Diagnostics.Process.Stdin" so the StreamWriter members
+                // (WriteLine/Write/Flush/Close/AutoFlush) route to the stdin
+                // pipe icalls in the receiver block below instead of the
+                // generic stream/text handlers.
                 case "get_StandardInput":
-                    throw new NotSupportedException("Process.StandardInput not wired: pathproc builds the child with NUL stdin (pathproc.cpp STARTF_USESTDHANDLES) -- a managed stdin write cannot reach the child (construction order); deferred to a later batch");
+                    if (count == 0)
+                        return I(ResolvedMethod.IdentityMarker, 0, true, false, true,
+                            returnTypeName: "System.Diagnostics.Process.Stdin");
+                    return null;
                 case ".ctor":
                     throw new NotSupportedException("new Process() not wired: the runtime has no Process object model -- use Process.Start (handle-gap: the process value is the PID, not an object)");
                 default:
@@ -208,6 +217,56 @@ public static partial class MethodRefResolver
             if (receiverType == "System.Diagnostics.Process.Stderr")
                 return I("il2cpp::runtime::il2cpp_process_read_stderr_to_end", 0, true, true, true,
                     new[] { "i" }, null, false, false, false, returnTypeName: "System.String");
+        }
+        // nb8 STDIN-WRITE: Process.StandardInput (the PID identity fold tracked
+        // as "System.Diagnostics.Process.Stdin") is a StreamWriter in C#; its
+        // members route here (the StreamIO/TextWriter dispatch defers the Stdin
+        // receiver). The receiver PID slot is cast "i"; string args use "".
+        if (receiverType == "System.Diagnostics.Process.Stdin")
+        {
+            switch (name)
+            {
+                case "WriteLine":
+                    if (count == 1 && ps[0] == 0x0E)
+                        return I("il2cpp::runtime::il2cpp_process_write_stdin_line", 1, false, true, true,
+                            new[] { "i", "" });
+                    return null;
+                case "Write":
+                    if (count == 1 && ps[0] == 0x0E)
+                        return I("il2cpp::runtime::il2cpp_process_write_stdin", 1, false, true, true,
+                            new[] { "i", "" });
+                    return null;
+                case "Flush":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_flush_stdin", 0, false, true, true,
+                            new[] { "i" });
+                    return null;
+                case "Close":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_close_stdin", 0, false, true, true,
+                            new[] { "i" });
+                    return null;
+                case "Dispose":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_close_stdin", 0, false, true, true,
+                            new[] { "i" });
+                    return null;
+                // AutoFlush: every write goes straight to the pipe, so the
+                // getter reports true (AutoFlush-equivalent) and the setter is
+                // accepted as a no-op (net48 lets the caller enable it).
+                case "get_AutoFlush":
+                    if (count == 0)
+                        return I("il2cpp::runtime::il2cpp_process_get_stdin_autofush", 0, true, true, true,
+                            new[] { "i" });
+                    return null;
+                case "set_AutoFlush":
+                    if (count == 1 && ps[0] == 0x02)
+                        return I("il2cpp::runtime::il2cpp_process_set_stdin_autofush", 1, false, true, true,
+                            new[] { "i", "i" });
+                    return null;
+                default:
+                    return null;
+            }
         }
         return null;
     }

@@ -265,10 +265,12 @@ int32_t FindGroupByName(const RegexAst* ast, const char16_t* name, int32_t len)
     return -1;
 }
 
-// Expand rep[0..repLen) per net48 ParseReplacement ($0-$9 group refs, $$
-// literal '$', two-digit $nn = group nn when it exists else first digit
-// group + literal second digit, ${name} / ${n} group refs (unknown name kept
-// literally), any other '$' sequence kept literally).
+// Expand rep[0..repLen) per net48 ParseReplacement ($$ literal '$'; a bare
+// "$<digits>" scans the WHOLE digit run as one int32 -- a value in the group
+// range is a group reference, "$01" -> group 1 (leading zeros allowed), an
+// in-range-but-absent value stays literally "$10"/"$99", an int32 OVERFLOW
+// throws ArgumentException; ${name}/${n} group refs keep a missing name
+// literally; any other '$' sequence is kept literally).
 void AppendReplacement(std::u16string& out, const char16_t* input,
                        const char16_t* rep, int32_t repLen,
                        const MatchSpan& span, const RegexAst* ast)
@@ -373,26 +375,33 @@ void AppendReplacement(std::u16string& out, const char16_t* input,
         }
         if (next >= u'0' && next <= u'9')
         {
-            const int32_t first = next - u'0';
-            const bool twoDigits = (i + 2 < repLen) &&
-                                   rep[i + 2] >= u'0' && rep[i + 2] <= u'9';
-            if (twoDigits)
+            // net48 scans the WHOLE run of digits as one int32 (leading zeros
+            // are fine): in range -> a group reference ("$01" == group 1), out
+            // of range -> the whole "$<digits>" stays literal ("$10"/"$99"),
+            // overflow -> ArgumentException (raised eagerly by
+            // ValidateReplacementTokens before this per-match path).
+            int64_t n = static_cast<int64_t>(next - u'0');
+            int32_t j = i + 1;
+            while (j + 1 < repLen && rep[j + 1] >= u'0' && rep[j + 1] <= u'9')
             {
-                const int32_t num = first * 10 + (rep[i + 2] - u'0');
-                if (num <= groupCount)
+                ++j;
+                n = n * 10 + (rep[j] - u'0');
+                if (n > 2147483647LL)
                 {
-                    AppendGroup(out, input, span, num);
+                    il2cpp_throw_argument_exception(
+                        "Replacement pattern is invalid (group number overflows Int32).");
                 }
-                else
-                {
-                    AppendGroup(out, input, span, first);
-                    out.push_back(rep[i + 2]);
-                }
-                i += 2;
-                continue;
             }
-            AppendGroup(out, input, span, first);
-            ++i;
+            if (n <= static_cast<int64_t>(groupCount))
+            {
+                AppendGroup(out, input, span, static_cast<int32_t>(n));
+            }
+            else
+            {
+                out.push_back(u'$');
+                out.append(rep + i + 1, static_cast<size_t>(j - i));
+            }
+            i = j;
             continue;
         }
         out.push_back(u'$'); // '$x': '$' literal, 'x' handled next iteration
@@ -417,9 +426,28 @@ void ValidateReplacementTokens(const char16_t* rep, int32_t repLen)
             i += 2; // "$$" -> literal '$' (the second '$' is consumed)
             continue;
         }
+        if (rep[i + 1] >= u'0' && rep[i + 1] <= u'9')
+        {
+            // bare "$<digits>": net48 scans the whole int32 run; an overflow
+            // throws even when the pattern has no match.
+            int64_t n = 0;
+            int32_t j = i + 1;
+            while (j < repLen && rep[j] >= u'0' && rep[j] <= u'9')
+            {
+                n = n * 10 + (rep[j] - u'0');
+                if (n > 2147483647LL)
+                {
+                    il2cpp_throw_argument_exception(
+                        "Replacement pattern is invalid (group number overflows Int32).");
+                }
+                ++j;
+            }
+            i = j;
+            continue;
+        }
         if (rep[i + 1] != u'{')
         {
-            ++i; // '$x' / '$d': the '$' is literal, 'x' handled next iteration
+            ++i; // '$x': the '$' is literal, 'x' handled next iteration
             continue;
         }
         int32_t j = i + 2;

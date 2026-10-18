@@ -15,9 +15,10 @@
 //      Group{Value,Index,Length,Success,Name}; no match -> Success false,
 //      0/0/"" and Groups.Count == 1; a non-participating group -> Success
 //      false with an empty Value.
-//   3. il2cpp_regex_replace: literal replacement, $1 group reference,
-//      $10 boundary (group 10 exists -> group 10; absent -> group 1 +
-//      literal '0'), $$ literal dollar, $0 whole match, every-match
+//   3. il2cpp_regex_replace: literal replacement, $1 group reference, the
+//      bare "$<digits>" rule (whole run as int32: $01 -> group 1, an
+//      in-range-but-absent $10 stays literally "$10", an overflow throws
+//      ArgumentException), $$ literal dollar, $0 whole match, every-match
 //      replacement, empty-pattern advancement (does not hang), unknown
 //      '$x' kept literally, trailing '$' literal.
 //   4. il2cpp_regex_split: plain split, consecutive separators
@@ -273,11 +274,19 @@ int main()
     Expect(StrEq(il2cpp_regex_replace(S("a"), S("a"), S("$$"), 0), "$"),
            "replace: $$ is a literal dollar");
     {
-        // Group 10 does not exist: $10 = group 1 + literal '0'.
+        // nb8 GAP#5 (net48): a bare "$<digits>" scans the WHOLE run as one
+        // int32. Group 10 does not exist -> the token stays literally "$10".
         const il2cpp::Il2CppString* r = il2cpp_regex_replace(
             S("a1"), S("(\\d)"), S("$10"), 0);
-        Expect(StrEq(r, "a10"),
-               "replace: $10 without group 10 = group 1 + literal '0'");
+        Expect(StrEq(r, "a$10"),
+               "replace: $10 without group 10 stays literal (net48)");
+    }
+    {
+        // Leading zeros are allowed: "$01" -> group 1.
+        const il2cpp::Il2CppString* r = il2cpp_regex_replace(
+            S("a1"), S("(\\d)"), S("$01"), 0);
+        Expect(StrEq(r, "a1"),
+               "replace: $01 -> group 1 (leading zeros allowed)");
     }
     {
         // Group 10 exists: $10 expands to group 10.
@@ -285,6 +294,13 @@ int main()
             S("abcdefghij"), S("(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)"), S("$10"), 0);
         Expect(StrEq(r, "j"),
                "replace: $10 with group 10 present expands to group 10");
+    }
+    {
+        // A bare "$<digits>" that overflows int32 throws ArgumentException.
+        bool threw = false;
+        try { il2cpp_regex_replace(S("a1"), S("(\\d)"), S("$9999999999"), 0); }
+        catch (...) { threw = true; }
+        Expect(threw, "replace: bare $overflow throws ArgumentException (net48)");
     }
     {
         // Unknown '$x' is kept literally: "a" + "$x" + "c".

@@ -34,19 +34,26 @@ namespace il2cpp { namespace runtime {
 namespace {
 
 constexpr int32_t kLockRecursionPolicyNoRecursion = 0;
+constexpr int32_t kLockRecursionPolicySupportsRecursion = 1;
 
 // Native state. The mutex/condition variable exist so the blocking forms have
 // their eventual concurrency semantics; the deterministic probes drive them
 // single-threaded, so the counters are exact (no wall-clock).
+//
+// The three lock modes are tracked as per-thread RECURSION DEPTHS (readDepth /
+// writeDepth / upgradeDepth): a recursive Enter increments the depth, each Exit
+// decrements it, and an Exit with depth 0 is a SynchronizationLockException.
+// readCount is the .NET CurrentReadCount -- the number of UNIQUE read holders
+// (single-threaded: 0 or 1), NOT the recursion depth.
 struct RwlsState
 {
     std::mutex mtx;
     std::condition_variable cv;
-    int32_t policy;          // 0 = NoRecursion (only supported value)
-    int32_t readCount;       // plain read-lock holders (CurrentReadCount)
+    int32_t policy;          // 0 = NoRecursion, 1 = SupportsRecursion
+    int32_t readCount;       // CurrentReadCount (unique read holders)
     int32_t readDepth;       // current thread's read-lock recursion depth
-    int32_t writeHeld;       // write lock held by the current thread
-    int32_t upgradeHeld;     // upgradeable read lock held by the current thread
+    int32_t writeDepth;      // current thread's write-lock recursion depth
+    int32_t upgradeDepth;    // current thread's upgradeable-read recursion depth
     int32_t waitingRead;
     int32_t waitingWrite;
     int32_t waitingUpgrade;
@@ -87,11 +94,24 @@ RwlsState* AsState(Il2CppObject* self)
 #endif
 }
 
-// Acquire the read lock (single-thread deterministic). Recursive acquire in
-// NoRecursion is a LockRecursionException.
+// Acquire the read lock (single-thread deterministic).
+//   * NoRecursion: ANY existing hold (a read or a write) is a recursion error.
+//   * SupportsRecursion (net48 oracle p-nb8-rwlsrec): a recursive read from an
+//     existing read, from a held write, or from a held upgradeable read is
+//     allowed and increments the recursion depth; CurrentReadCount stays 1
+//     (unique readers, not depth).
 void AcquireRead(RwlsState* state)
 {
-    if (state->readDepth > 0 || state->writeHeld != 0)
+    if (state->policy == kLockRecursionPolicySupportsRecursion)
+    {
+        if (state->readDepth == 0)
+        {
+            state->readCount = 1; // first read acquisition on this thread
+        }
+        ++state->readDepth;
+        return;
+    }
+    if (state->readDepth > 0 || state->writeDepth != 0)
     {
         ThrowLockRecursionException();
     }
@@ -101,7 +121,25 @@ void AcquireRead(RwlsState* state)
 
 void AcquireWrite(RwlsState* s)
 {
-    if (s->writeHeld != 0)
+    if (s->policy == kLockRecursionPolicySupportsRecursion)
+    {
+        if (s->writeDepth > 0)
+        {
+            ++s->writeDepth; // recursive write
+            return;
+        }
+        // read -> write is a CROSS-TYPE violation even under SupportsRecursion
+        // (oracle [sup.read.write]=LockRecursionException; the upgradeable read
+        // lock is the valid upgrade path). A read taken UNDER an upgradeable
+        // read is not a cross-type violation (the upgradeable owner may write).
+        if (s->readDepth > 0 && s->upgradeDepth == 0)
+        {
+            ThrowLockRecursionException();
+        }
+        s->writeDepth = 1; // fresh, or upgradeable read -> write (same thread)
+        return;
+    }
+    if (s->writeDepth != 0)
     {
         ThrowLockRecursionException(); // nested write
     }
@@ -111,20 +149,34 @@ void AcquireWrite(RwlsState* s)
         // error in NoRecursion (upgradeable read holders are the valid path).
         ThrowLockRecursionException();
     }
-    s->writeHeld = 1;
+    s->writeDepth = 1;
 }
 
 void AcquireUpgradeable(RwlsState* s)
 {
+    if (s->policy == kLockRecursionPolicySupportsRecursion)
+    {
+        if (s->upgradeDepth > 0)
+        {
+            ++s->upgradeDepth; // recursive upgradeable read
+            return;
+        }
+        if (s->readDepth > 0 || s->writeDepth > 0)
+        {
+            ThrowLockRecursionException();
+        }
+        s->upgradeDepth = 1;
+        return;
+    }
     // D2: holding the WRITE lock then requesting the upgradeable read lock is
     // a recursion error in NoRecursion (the failed request must leave the
     // state untouched). Same path for EnterUpgradeableReadLock and
     // TryEnterUpgradeableReadLock(0).
-    if (s->writeHeld != 0 || s->upgradeHeld != 0 || s->readDepth > 0)
+    if (s->writeDepth != 0 || s->upgradeDepth != 0 || s->readDepth > 0)
     {
         ThrowLockRecursionException();
     }
-    s->upgradeHeld = 1;
+    s->upgradeDepth = 1;
 }
 
 } // namespace
@@ -153,12 +205,13 @@ void icall_rwls_ctor_default(Il2CppObject* self)
 void icall_rwls_ctor_policy(Il2CppObject* self, int32_t recursionPolicy)
 {
     il2cpp_rwls_register_classes();
-    if (recursionPolicy != kLockRecursionPolicyNoRecursion)
+    if (recursionPolicy != kLockRecursionPolicyNoRecursion &&
+        recursionPolicy != kLockRecursionPolicySupportsRecursion)
     {
-        // SupportsRecursion is the documented LOUD subset (the runtime does
-        // not model recursion counters); never silently ignore the policy.
+        // LockRecursionPolicy only has the two values; never silently ignore an
+        // out-of-range argument.
         il2cpp_throw_not_supported_exception(
-            "LockRecursionPolicy.SupportsRecursion is not supported by this runtime.");
+            "LockRecursionPolicy value is not supported by this runtime.");
     }
     auto* state = new RwlsState();
     state->policy = recursionPolicy;
@@ -180,8 +233,11 @@ void icall_rwls_exit_read(Il2CppObject* self)
     {
         ThrowSynchronizationLockException();
     }
-    --state->readCount;
-    state->readDepth = 0;
+    --state->readDepth;
+    if (state->readDepth == 0)
+    {
+        state->readCount = 0; // last reader on this thread released
+    }
 }
 
 bool icall_rwls_try_enter_read(Il2CppObject* self, int32_t millisecondsTimeout)
@@ -202,11 +258,11 @@ void icall_rwls_enter_write(Il2CppObject* self)
 void icall_rwls_exit_write(Il2CppObject* self)
 {
     RwlsState* state = AsState(self);
-    if (state->writeHeld == 0)
+    if (state->writeDepth == 0)
     {
         ThrowSynchronizationLockException();
     }
-    state->writeHeld = 0;
+    --state->writeDepth;
 }
 
 bool icall_rwls_try_enter_write(Il2CppObject* self, int32_t millisecondsTimeout)
@@ -227,11 +283,11 @@ void icall_rwls_enter_upgradeable(Il2CppObject* self)
 void icall_rwls_exit_upgradeable(Il2CppObject* self)
 {
     RwlsState* state = AsState(self);
-    if (state->upgradeHeld == 0)
+    if (state->upgradeDepth == 0)
     {
         ThrowSynchronizationLockException();
     }
-    state->upgradeHeld = 0;
+    --state->upgradeDepth;
 }
 
 bool icall_rwls_try_enter_upgradeable(Il2CppObject* self, int32_t millisecondsTimeout)
@@ -251,12 +307,12 @@ bool icall_rwls_get_is_read_lock_held(Il2CppObject* self)
 
 bool icall_rwls_get_is_write_lock_held(Il2CppObject* self)
 {
-    return AsState(self)->writeHeld != 0;
+    return AsState(self)->writeDepth != 0;
 }
 
 bool icall_rwls_get_is_upgradeable_read_lock_held(Il2CppObject* self)
 {
-    return AsState(self)->upgradeHeld != 0;
+    return AsState(self)->upgradeDepth != 0;
 }
 
 int32_t icall_rwls_get_current_read_count(Il2CppObject* self)
