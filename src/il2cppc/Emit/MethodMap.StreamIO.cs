@@ -92,7 +92,11 @@ public static partial class MethodRefResolver
                 // owns ReadToEnd in MethodMap.Process.cs, whose dispatch line
                 // runs AFTER StreamIO -- return null here so the stdout-line
                 // icall wins for that receiver.
-                if (receiverType == "System.Diagnostics.Process") return null;
+                // nb7 PROC-STARTINFO: the StandardError shape carries the
+                // distinct "System.Diagnostics.Process.Stderr" pseudo-type (the
+                // get_StandardError identity fold), also deferred to the
+                // Process domain's stderr drain.
+                if (receiverType is "System.Diagnostics.Process" or "System.Diagnostics.Process.Stderr") return null;
                 if (owner == "System.IO.StreamReader" || receiverType == "System.IO.StreamReader")
                     return I("il2cpp::runtime::icall_stream_read_to_end", 0, true, true, true, null, null, returnTypeName: "System.String");
                 return null;

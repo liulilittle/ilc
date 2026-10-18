@@ -34,6 +34,9 @@
 
 #include "il2cpp_exception.h" // il2cpp_throw_new (GetDirectoryName ArgumentException)
 #include "il2cpp_exception_ext.h" // il2cpp_throw_invalid_operation_exception (POSTEXIT IOE)
+#include "il2cpp_gcroot.h"        // GcRoot (ProcessStartInfo ctor/setter rooting)
+#include "il2cpp_metadata.h"      // Il2CppClass / System_Object_class (ProcessStartInfo descriptor)
+#include "il2cpp_runtime.h"       // il2cpp_class_register / il2cpp_object_new
 #include "il2cpp_string.h"
 #include "platform.h" // plat_path_tmpdir / plat_path_full / plat_process_id / plat_thread_current_id
 
@@ -53,6 +56,26 @@
     #include <limits.h>   // PATH_MAX (fallback guard in the anonymous namespace)
     #include <unistd.h>   // getcwd
 #endif
+
+//------------------------------------------------------------------------------
+// nb7 PROC-STARTINFO: the System.Diagnostics.ProcessStartInfo GLOBAL descriptor
+// (the regex_obj.cpp / sync_lite.cpp contract). Layout: the GC reference fields
+// (fileName slot 1, arguments slot 2) -> refFieldBitmap 0x03 (bits 0/1), 2 refs;
+// the object header is the first member so the bitmap is pointer-size
+// independent. Registered lazily by the ctors; the transpiler's newobj fallback
+// emits il2cpp_object_new(&System_Diagnostics_ProcessStartInfo_class).
+//------------------------------------------------------------------------------
+::il2cpp::Il2CppClass System_Diagnostics_ProcessStartInfo_class = {
+    "System.Diagnostics.ProcessStartInfo",
+    static_cast<int32_t>(sizeof(::il2cpp::runtime::Il2CppProcessStartInfo)),
+    0x03u,
+    2,
+    &System_Object_class,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
 
 namespace il2cpp { namespace runtime {
 
@@ -90,15 +113,22 @@ Il2CppObject* CsFromBytes(const char* data, size_t length)
         il2cpp_string_new(out.data(), static_cast<int32_t>(out.size())));
 }
 
-// One tracked child process. The slot exists from start until read_stdout_line
-// reaches EOF (which also removes the capture file) or process exit, so the
-// exit code stays queryable after wait_for_exit. Not thread-safe, like the
-// rest of this simplified domain.
+// One tracked child process. The slot exists from start until the redirected
+// stream(s) reach EOF or process exit, so the exit code stays queryable after
+// wait_for_exit. Not thread-safe, like the rest of this simplified domain.
 struct ProcessSlot
 {
     HANDLE process;            // closed by wait_for_exit; null afterwards
-    std::wstring stdoutPath;   // capture file; empty = no redirect
-    int64_t readOffset;        // capture bytes consumed so far
+    // nb7 PROC-STARTINFO: the anonymous-pipe READ ends of the redirected
+    // streams (INVALID_HANDLE_VALUE = not redirected). Drained by
+    // read_stdout_to_end / read_stderr_to_end (closed at EOF). A stream that
+    // was not redirected keeps a null placeholder and its ReadToEnd throws.
+    HANDLE stdoutRead;
+    HANDLE stderrRead;
+    bool stdoutRedirected;
+    bool stderrRedirected;
+    bool stdoutDrained;
+    bool stderrDrained;
     uint32_t exitCode;
     bool waited;
     // nb4 PROC-DIAG (双审 defect 4): the net48 first-read WorkingSet64 cache.
@@ -692,25 +722,28 @@ Il2CppObject* il2cpp_path_get_file_name_without_extension(Il2CppObject* path)
 // System.Diagnostics.Process (simplified).
 //------------------------------------------------------------------------------
 
-int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args)
-{
 #if defined(_WIN32)
-    if (exePath == nullptr || args == nullptr)
-    {
-        return -1;
-    }
-    const std::vector<wchar_t> app = CsToWide(exePath);
-    const std::vector<wchar_t> argLine = CsToWide(args);
-    // The executable is passed inside the command line, quoted, with
-    // lpApplicationName left null: lpApplicationName without a path does not
-    // always resolve (probe: "cmd.exe" -> ERROR_FILE_NOT_FOUND), while the
-    // null-app command-line form applies the standard executable search
-    // (application dir, current dir, system dirs, PATH) -- the same
-    // resolution .NET Process.Start relies on. lpCommandLine must be
-    // writable (CreateProcessW rewrites it in place). CsToWide appends a
-    // NUL terminator: it is dropped here so the composed line stays a
-    // single NUL-terminated string (an embedded NUL truncates the command
-    // line -- cmd.exe then starts interactively and prints its banner).
+
+// nb7 PROC-STARTINFO: the shared child launcher. The executable is passed
+// inside the command line, quoted, with lpApplicationName left null:
+// lpApplicationName without a path does not always resolve (probe: "cmd.exe"
+// -> ERROR_FILE_NOT_FOUND), while the null-app command-line form applies the
+// standard executable search (application dir, current dir, system dirs,
+// PATH) -- the same resolution .NET Process.Start relies on. lpCommandLine
+// must be writable (CreateProcessW rewrites it in place). CsToWide appends a
+// NUL terminator: it is dropped here so the composed line stays a single
+// NUL-terminated string (an embedded NUL truncates the command line --
+// cmd.exe then starts interactively and prints its banner).
+//
+// Redirected streams use anonymous pipes (CreatePipe; the read end is made
+// parent-only via SetHandleInformation). A NON-redirected stream (and stdin)
+// is bound to NUL: the child can never write through to the parent's captured
+// stdout/stderr (the diff harness would otherwise observe output the net48
+// oracle cannot) -- a documented deviation from net48's console inheritance.
+// Returns the child PID (> 0) and stores the tracked slot; 0 on failure.
+static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wchar_t>& argLine,
+                           bool redirectOut, bool redirectErr)
+{
     std::vector<wchar_t> cmd;
     cmd.reserve(app.size() + argLine.size() + 4);
     cmd.push_back(L'"');
@@ -720,56 +753,50 @@ int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args)
     cmd.insert(cmd.end(), argLine.begin(), argLine.end() - 1);
     cmd.push_back(L'\0');
 
-    // stdout/stderr capture: a unique temp file (GetTempFileNameW creates
-    // it) is inherited by the child through STARTF_USESTDHANDLES; the slot
-    // remembers its path so read_stdout_line can read it back. Failure here
-    // degrades to an unredirected start, not a launch failure.
-    std::wstring capturePath;
-    HANDLE hOut = INVALID_HANDLE_VALUE;
-    DWORD tmpNeeded = ::GetTempPathW(0, nullptr);
-    if (tmpNeeded != 0)
-    {
-        std::vector<wchar_t> tmpDir(static_cast<size_t>(tmpNeeded));
-        if (::GetTempPathW(tmpNeeded, tmpDir.data()) != 0 && tmpDir.back() == L'\0')
-        {
-            tmpDir.pop_back(); // drop the NUL; GetTempPathW guarantees a trailing separator
-            while (!tmpDir.empty()
-                   && (tmpDir.back() == L'\\' || tmpDir.back() == L'/'))
-            {
-                tmpDir.pop_back(); // GetTempFileNameW joins the separator itself
-            }
-            wchar_t tmpFile[MAX_PATH];
-            if (!tmpDir.empty()
-                && ::GetTempFileNameW(tmpDir.data(), L"ilp", 0, tmpFile) != 0)
-            {
-                capturePath.assign(tmpFile, tmpFile + std::wcslen(tmpFile));
-            }
-        }
-    }
     SECURITY_ATTRIBUTES sa;
     sa.nLength = sizeof(sa);
     sa.lpSecurityDescriptor = nullptr;
-    sa.bInheritHandle = TRUE; // the child must inherit the capture handle
-    if (!capturePath.empty())
+    sa.bInheritHandle = TRUE; // the child must inherit the write/NUL handles
+
+    HANDLE outRead = INVALID_HANDLE_VALUE;
+    HANDLE outWrite = INVALID_HANDLE_VALUE;
+    HANDLE errRead = INVALID_HANDLE_VALUE;
+    HANDLE errWrite = INVALID_HANDLE_VALUE;
+    if (redirectOut && ::CreatePipe(&outRead, &outWrite, &sa, 0))
     {
-        hOut = ::CreateFileW(capturePath.c_str(), FILE_APPEND_DATA,
-                             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                             &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hOut == INVALID_HANDLE_VALUE)
-        {
-            capturePath.clear();
-        }
+        ::SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0); // parent-only read end
     }
-    // stdin: our own handle when present, else NUL (an invalid stdin handle
-    // would make cmd complain into the capture file).
-    HANDLE hIn = ::GetStdHandle(STD_INPUT_HANDLE);
-    bool closeIn = false;
-    if (hIn == nullptr || hIn == INVALID_HANDLE_VALUE)
+    else
     {
-        hIn = ::CreateFileW(L"NUL", GENERIC_READ,
-                            FILE_SHARE_READ | FILE_SHARE_WRITE,
-                            &sa, OPEN_EXISTING, 0, nullptr);
-        closeIn = (hIn != INVALID_HANDLE_VALUE);
+        redirectOut = false;
+    }
+    if (redirectErr && ::CreatePipe(&errRead, &errWrite, &sa, 0))
+    {
+        ::SetHandleInformation(errRead, HANDLE_FLAG_INHERIT, 0);
+    }
+    else
+    {
+        redirectErr = false;
+    }
+    HANDLE hIn = ::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               &sa, OPEN_EXISTING, 0, nullptr);
+    HANDLE hOut = redirectOut ? outWrite
+        : ::CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        &sa, OPEN_EXISTING, 0, nullptr);
+    HANDLE hErr = redirectErr ? errWrite
+        : ::CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        &sa, OPEN_EXISTING, 0, nullptr);
+    if (hIn == INVALID_HANDLE_VALUE || hOut == INVALID_HANDLE_VALUE || hErr == INVALID_HANDLE_VALUE)
+    {
+        // A NUL fallback could not be opened: fail the launch, close everything.
+        if (outWrite != INVALID_HANDLE_VALUE) ::CloseHandle(outWrite);
+        if (errWrite != INVALID_HANDLE_VALUE) ::CloseHandle(errWrite);
+        if (hIn != INVALID_HANDLE_VALUE) ::CloseHandle(hIn);
+        if (!redirectOut && hOut != INVALID_HANDLE_VALUE) ::CloseHandle(hOut);
+        if (!redirectErr && hErr != INVALID_HANDLE_VALUE) ::CloseHandle(hErr);
+        if (outRead != INVALID_HANDLE_VALUE) ::CloseHandle(outRead);
+        if (errRead != INVALID_HANDLE_VALUE) ::CloseHandle(errRead);
+        return 0;
     }
 
     STARTUPINFOW si;
@@ -778,45 +805,99 @@ int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args)
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdInput = hIn;
     si.hStdOutput = hOut;
-    si.hStdError = hOut; // stderr joins the same capture
+    si.hStdError = hErr;
     PROCESS_INFORMATION pi;
     std::memset(&pi, 0, sizeof(pi));
     const BOOL created = ::CreateProcessW(nullptr, cmd.data(), nullptr, nullptr,
-                                          TRUE /* bInheritHandles: the capture file */,
+                                          TRUE /* inherit the pipe write / NUL handles */,
                                           CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-    if (closeIn)
-    {
-        ::CloseHandle(hIn);
-    }
-    if (hOut != INVALID_HANDLE_VALUE)
-    {
-        ::CloseHandle(hOut); // the child keeps its inherited copy
-    }
+    // Parent-side duplicates: the child keeps its own inherited copies. Close
+    // the write ends (EOF depends on this) and every NUL fallback handle.
+    if (outWrite != INVALID_HANDLE_VALUE) ::CloseHandle(outWrite);
+    if (errWrite != INVALID_HANDLE_VALUE) ::CloseHandle(errWrite);
+    if (!redirectOut && hOut != INVALID_HANDLE_VALUE) ::CloseHandle(hOut);
+    if (!redirectErr && hErr != INVALID_HANDLE_VALUE) ::CloseHandle(hErr);
+    ::CloseHandle(hIn);
     if (created == 0)
     {
-        if (!capturePath.empty())
-        {
-            ::DeleteFileW(capturePath.c_str());
-        }
+        if (outRead != INVALID_HANDLE_VALUE) ::CloseHandle(outRead);
+        if (errRead != INVALID_HANDLE_VALUE) ::CloseHandle(errRead);
         return 0; // launch failure (missing exe, bad command line, ...); header contract: 0
     }
-    // Tracked start: the process handle lives in the table until
-    // wait_for_exit; the child PID identifies the slot.
+    // Tracked start: the process handle lives in the table until wait_for_exit;
+    // the child PID identifies the slot.
     const int32_t pid = static_cast<int32_t>(::GetProcessId(pi.hProcess));
     ::CloseHandle(pi.hThread);
     ProcessSlot slot;
     slot.process = pi.hProcess;
-    slot.stdoutPath = std::move(capturePath);
-    slot.readOffset = 0;
+    slot.stdoutRead = redirectOut ? outRead : INVALID_HANDLE_VALUE;
+    slot.stderrRead = redirectErr ? errRead : INVALID_HANDLE_VALUE;
+    slot.stdoutRedirected = redirectOut;
+    slot.stderrRedirected = redirectErr;
+    slot.stdoutDrained = !redirectOut;
+    slot.stderrDrained = !redirectErr;
     slot.exitCode = 0;
     slot.waited = false;
     slot.wsCached = false;
     slot.wsCache = 0;
     g_processes()[pid] = std::move(slot);
     return pid;
+}
+
+#endif // _WIN32
+
+int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args)
+{
+#if defined(_WIN32)
+    if (exePath == nullptr || args == nullptr)
+    {
+        return -1;
+    }
+    // The static Start(string, string) redirects BOTH streams (preserving the
+    // legacy temp-file capture semantics -- the captured output is only
+    // observable through the ProcessStartInfo redirect form; net48's
+    // ShellExecute static Start does not redirect at all).
+    const std::vector<wchar_t> app = CsToWide(exePath);
+    const std::vector<wchar_t> argLine = CsToWide(args);
+    return LaunchChild(app, argLine, true, true);
 #else
     (void)exePath;
     (void)args;
+    return -1; // fork/exec is beyond this simplified surface
+#endif
+}
+
+// nb7 PROC-STARTINFO: Process.Start(ProcessStartInfo). See pathproc.h for the
+// contract (redirect pipes + the net48 UseShellExecute/redirect guard).
+int32_t il2cpp_process_start_info(Il2CppObject* psi)
+{
+#if defined(_WIN32)
+    if (psi == nullptr)
+    {
+        return -1;
+    }
+    const Il2CppProcessStartInfo* info = reinterpret_cast<const Il2CppProcessStartInfo*>(psi);
+    const bool redirectOut = info->redirectStandardOutput != 0;
+    const bool redirectErr = info->redirectStandardError != 0;
+    if (info->useShellExecute != 0 && (redirectOut || redirectErr))
+    {
+        // net48 (probe-pinned): "The Process object must have the
+        // UseShellExecute property set to false in order to redirect IO
+        // streams." -- raised through the managed transport.
+        il2cpp_throw_invalid_operation_exception(
+            "The Process object must have the UseShellExecute property set to false in order to redirect IO streams.");
+    }
+    if (info->fileName == nullptr)
+    {
+        return -1;
+    }
+    const std::vector<wchar_t> app = CsToWide(reinterpret_cast<Il2CppObject*>(info->fileName));
+    const std::vector<wchar_t> argLine = info->arguments != nullptr
+        ? CsToWide(reinterpret_cast<Il2CppObject*>(info->arguments))
+        : std::vector<wchar_t>(1, L'\0');
+    return LaunchChild(app, argLine, redirectOut, redirectErr);
+#else
+    (void)psi;
     return -1; // fork/exec is beyond this simplified surface
 #endif
 }
@@ -865,67 +946,68 @@ int32_t il2cpp_process_get_exit_code(int32_t pid)
 #endif
 }
 
-Il2CppObject* il2cpp_process_read_stdout_line(int32_t pid)
-{
 #if defined(_WIN32)
+
+// nb7 PROC-STARTINFO: drain one redirected stream's anonymous pipe to EOF and
+// return the full captured text. The drain is BLOCKING (see pathproc.h for the
+// documented single-stream simplification). A stream that was not redirected
+// raises InvalidOperationException (the net48 "not been redirected" contract);
+// an already-drained pipe yields "". Not thread-safe (the simplified domain).
+static Il2CppObject* ReadPipeToEnd(int32_t pid, bool stderrStream)
+{
     const auto it = g_processes().find(pid);
-    if (it == g_processes().end() || it->second.stdoutPath.empty())
+    if (it == g_processes().end())
     {
-        return nullptr; // unknown PID or the start had no capture
+        return nullptr; // unknown PID
     }
     ProcessSlot& slot = it->second;
-    HANDLE hFile = ::CreateFileW(slot.stdoutPath.c_str(), GENERIC_READ,
-                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                 nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE)
+    const bool redirected = stderrStream ? slot.stderrRedirected : slot.stdoutRedirected;
+    bool& drained = stderrStream ? slot.stderrDrained : slot.stdoutDrained;
+    HANDLE& h = stderrStream ? slot.stderrRead : slot.stdoutRead;
+    if (!redirected)
     {
-        slot.stdoutPath.clear(); // capture gone: treat as EOF, forget it
-        return nullptr;
+        il2cpp_throw_invalid_operation_exception(
+            stderrStream
+                ? "StandardError has not been redirected."
+                : "StandardOutput has not been redirected.");
     }
-    LARGE_INTEGER offset;
-    offset.QuadPart = slot.readOffset;
-    ::SetFilePointerEx(hFile, offset, nullptr, FILE_BEGIN);
-    std::vector<char> line;
-    char buf[256];
+    if (drained || h == INVALID_HANDLE_VALUE)
+    {
+        return CsFromBytes(nullptr, 0); // already at EOF: net48 ReadToEnd -> ""
+    }
+    std::vector<char> captured;
+    char buf[4096];
     for (;;)
     {
         DWORD got = 0;
-        if (::ReadFile(hFile, buf, sizeof(buf), &got, nullptr) == 0 || got == 0)
+        if (::ReadFile(h, buf, sizeof(buf), &got, nullptr) == 0 || got == 0)
         {
-            break; // EOF (or read error): the capture is consumed below
+            break; // EOF (all write ends closed) or a read error
         }
-        slot.readOffset += static_cast<int64_t>(got);
-        for (DWORD i = 0; i < got; ++i)
-        {
-            if (buf[i] == '\n')
-            {
-                // Only the bytes up to and including this newline are
-                // consumed; the rest stays for the next read.
-                slot.readOffset -= static_cast<int64_t>(got - i - 1);
-                if (!line.empty() && line.back() == '\r')
-                {
-                    line.pop_back(); // strip CRLF / CR
-                }
-                ::CloseHandle(hFile);
-                return CsFromBytes(line.data(), line.size());
-            }
-            line.push_back(buf[i]);
-        }
+        captured.insert(captured.end(), buf, buf + got);
     }
-    // EOF: the file is consumed; drop the capture and let a final unterminated
-    // line through once.
-    ::CloseHandle(hFile);
-    ::DeleteFileW(slot.stdoutPath.c_str());
-    slot.stdoutPath.clear();
-    if (line.empty())
-    {
-        return nullptr; // EOF, no pending data
-    }
-    if (line.back() == '\r')
-    {
-        line.pop_back();
-    }
-    return CsFromBytes(line.data(), line.size());
+    ::CloseHandle(h);
+    h = INVALID_HANDLE_VALUE;
+    drained = true;
+    return CsFromBytes(captured.data(), captured.size());
+}
+
+#endif // _WIN32
+
+Il2CppObject* il2cpp_process_read_stdout_to_end(int32_t pid)
+{
+#if defined(_WIN32)
+    return ReadPipeToEnd(pid, false);
+#else
+    (void)pid;
+    return nullptr; // unsupported on POSIX
+#endif
+}
+
+Il2CppObject* il2cpp_process_read_stderr_to_end(int32_t pid)
+{
+#if defined(_WIN32)
+    return ReadPipeToEnd(pid, true);
 #else
     (void)pid;
     return nullptr; // unsupported on POSIX
@@ -1244,6 +1326,165 @@ int64_t il2cpp_process_get_working_set64(int32_t pid)
     (void)pid;
     return 0; // unsupported on POSIX
 #endif
+}
+
+//------------------------------------------------------------------------------
+// nb7 PROC-STARTINFO: the ProcessStartInfo object model (GLOBAL descriptor +
+// the property icalls). The descriptor is registered lazily by the ctors; the
+// object is a plain light object allocated by the transpiler's newobj fallback.
+//------------------------------------------------------------------------------
+
+namespace {
+
+bool g_processStartInfoRegistered = false;
+
+// The net48 default: FileName/Arguments "" (never null) and UseShellExecute
+// true; the remaining flags false. The two string allocations can trigger a
+// compacting collection that MOVES the fresh object (reachable only through
+// the caller's frame slot): 'self' is rooted across them and re-read after
+// every allocation (the versionuri.cpp GcRoot contract).
+void InitProcessStartInfo(Il2CppObject*& self)
+{
+    GcRoot<Il2CppObject*> root(self, "ProcessStartInfo..ctor");
+    static const char16_t kEmpty[1] = { 0 };
+    // Allocation then immediate store (no allocation in between keeps the
+    // fresh string valid); the rooted object is re-read after each allocation.
+    Il2CppString* fn = il2cpp_string_new(kEmpty, 0);
+    reinterpret_cast<Il2CppProcessStartInfo*>(root.Get())->fileName = fn;
+    Il2CppString* args = il2cpp_string_new(kEmpty, 0);
+    Il2CppProcessStartInfo* info = reinterpret_cast<Il2CppProcessStartInfo*>(root.Get());
+    info->arguments = args;
+    info->useShellExecute = 1;
+    info->redirectStandardOutput = 0;
+    info->redirectStandardError = 0;
+    info->createNoWindow = 0;
+}
+
+// A null managed setter argument is stored as the empty string (net48 never
+// holds null for these text properties). The generated code passes the uniform
+// Il2CppObject* reference slot.
+Il2CppString* NonNullString(Il2CppObject* value)
+{
+    if (value != nullptr)
+    {
+        return reinterpret_cast<Il2CppString*>(value);
+    }
+    static const char16_t kEmpty[1] = { 0 };
+    return il2cpp_string_new(kEmpty, 0);
+}
+
+} // namespace
+
+void il2cpp_process_start_info_register_classes()
+{
+    if (g_processStartInfoRegistered)
+    {
+        return;
+    }
+    il2cpp_class_register(&System_Diagnostics_ProcessStartInfo_class);
+    g_processStartInfoRegistered = true;
+}
+
+void icall_processstartinfo_ctor(Il2CppObject* self)
+{
+    il2cpp_process_start_info_register_classes();
+    if (self == nullptr)
+    {
+        return;
+    }
+    InitProcessStartInfo(self); // updates 'self' in place if the object moved
+}
+
+void icall_processstartinfo_ctor_fn(Il2CppObject* self, Il2CppObject* fileName)
+{
+    il2cpp_process_start_info_register_classes();
+    if (self == nullptr)
+    {
+        return;
+    }
+    InitProcessStartInfo(self);
+    GcRoot<Il2CppObject*> root(self, "ProcessStartInfo..ctor(string)");
+    reinterpret_cast<Il2CppProcessStartInfo*>(root.Get())->fileName = NonNullString(fileName);
+}
+
+void icall_processstartinfo_ctor_fn_args(Il2CppObject* self, Il2CppObject* fileName, Il2CppObject* arguments)
+{
+    il2cpp_process_start_info_register_classes();
+    if (self == nullptr)
+    {
+        return;
+    }
+    InitProcessStartInfo(self);
+    GcRoot<Il2CppObject*> root(self, "ProcessStartInfo..ctor(string, string)");
+    Il2CppString* fn = NonNullString(fileName);
+    reinterpret_cast<Il2CppProcessStartInfo*>(root.Get())->fileName = fn;
+    Il2CppString* args = NonNullString(arguments);
+    reinterpret_cast<Il2CppProcessStartInfo*>(root.Get())->arguments = args;
+}
+
+Il2CppObject* icall_processstartinfo_get_filename(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppObject*>(
+        reinterpret_cast<Il2CppProcessStartInfo*>(self)->fileName);
+}
+
+void icall_processstartinfo_set_filename(Il2CppObject* self, Il2CppObject* value)
+{
+    // A null value allocates the empty string -> root 'self' across it.
+    GcRoot<Il2CppObject*> root(self, "ProcessStartInfo.set_FileName");
+    reinterpret_cast<Il2CppProcessStartInfo*>(root.Get())->fileName = NonNullString(value);
+}
+
+Il2CppObject* icall_processstartinfo_get_arguments(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppObject*>(
+        reinterpret_cast<Il2CppProcessStartInfo*>(self)->arguments);
+}
+
+void icall_processstartinfo_set_arguments(Il2CppObject* self, Il2CppObject* value)
+{
+    GcRoot<Il2CppObject*> root(self, "ProcessStartInfo.set_Arguments");
+    reinterpret_cast<Il2CppProcessStartInfo*>(root.Get())->arguments = NonNullString(value);
+}
+
+int32_t icall_processstartinfo_get_useshellexecute(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppProcessStartInfo*>(self)->useShellExecute;
+}
+
+void icall_processstartinfo_set_useshellexecute(Il2CppObject* self, int32_t value)
+{
+    reinterpret_cast<Il2CppProcessStartInfo*>(self)->useShellExecute = value;
+}
+
+int32_t icall_processstartinfo_get_redirectstdout(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppProcessStartInfo*>(self)->redirectStandardOutput;
+}
+
+void icall_processstartinfo_set_redirectstdout(Il2CppObject* self, int32_t value)
+{
+    reinterpret_cast<Il2CppProcessStartInfo*>(self)->redirectStandardOutput = value;
+}
+
+int32_t icall_processstartinfo_get_redirectstderr(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppProcessStartInfo*>(self)->redirectStandardError;
+}
+
+void icall_processstartinfo_set_redirectstderr(Il2CppObject* self, int32_t value)
+{
+    reinterpret_cast<Il2CppProcessStartInfo*>(self)->redirectStandardError = value;
+}
+
+int32_t icall_processstartinfo_get_createnowindow(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppProcessStartInfo*>(self)->createNoWindow;
+}
+
+void icall_processstartinfo_set_createnowindow(Il2CppObject* self, int32_t value)
+{
+    reinterpret_cast<Il2CppProcessStartInfo*>(self)->createNoWindow = value;
 }
 
 }} // namespace il2cpp::runtime

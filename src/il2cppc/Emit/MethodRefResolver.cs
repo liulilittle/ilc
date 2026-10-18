@@ -1620,6 +1620,14 @@ var userRecvLike = receiverType ?? arg0Type;
                 // re-resolve) instead of handing a stream member to StringIO's
                 // wrong stringwrapper icall. Concrete StringReader/StringWriter
                 // owners resolve directly (no ambiguity).
+                // nb7 PROC-STARTINFO: Process.StandardOutput / StandardError
+                // (the PID identity folds, tracked as "System.Diagnostics.
+                // Process" / "...Process.Stderr") own ReadToEnd in the Process
+                // domain (the full pipe drain) -- route there before the
+                // StringIO arm (ReadToEnd is declared on TextReader, so the
+                // callvirt owner lands HERE, not in StreamIO).
+                if (receiverType is "System.Diagnostics.Process" or "System.Diagnostics.Process.Stderr")
+                    return TryMapProcess(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
                 if (receiverType is "System.IO.StreamReader" or "System.IO.StreamWriter")
                     return TryMapStreamIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
                 if (receiverType is "System.IO.StringReader" or "System.IO.StringWriter")
@@ -1752,6 +1760,11 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Security.Cryptography.RNGCryptoServiceProvider":
             case "System.Security.Cryptography.RandomNumberGenerator": return TryMapCrypto(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Diagnostics.Process": return TryMapProcess(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // nb7 PROC-STARTINFO: the ProcessStartInfo object model
+            // (MethodMap.ProcessInfo.cs, pathproc.h GLOBAL descriptor) -- the
+            // ctor + the FileName/Arguments/UseShellExecute/Redirect*/CreateNoWindow
+            // accessors.
+            case "System.Diagnostics.ProcessStartInfo": return TryMapProcessInfo(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // TimeZone domain (MethodMap.TimeZone.cs): TimeZoneInfo simplification
             // (Local/Utc singletons + offset/conversion/daylight probes) and the
             // net48 TimeZone.CurrentTimeZone old API -- timezone.h surface.

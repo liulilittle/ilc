@@ -60,10 +60,19 @@
 // Process domain remains unsupported (non-zero / null returns).
 //------------------------------------------------------------------------------
 
+#include "il2cpp_metadata.h" // Il2CppClass (ProcessStartInfo GLOBAL descriptor)
 #include "il2cpp_object.h"
-#include "il2cpp_time.h" // Il2CppDateTime (Process.StartTime / ExitTime)
+#include "il2cpp_string.h" // Il2CppString (ProcessStartInfo fields)
+#include "il2cpp_time.h"   // Il2CppDateTime (Process.StartTime / ExitTime)
 
 #include <cstdint>
+
+// GLOBAL-scope ProcessStartInfo descriptor (the regex_obj.h / sync_lite.h
+// contract): the transpiler's newobj fallback emits
+// il2cpp_object_new(&System_Diagnostics_ProcessStartInfo_class) from generated
+// code at GLOBAL scope, so the extern must live OUTSIDE the il2cpp::runtime
+// namespace. Defined in pathproc.cpp.
+extern il2cpp::Il2CppClass System_Diagnostics_ProcessStartInfo_class;
 
 namespace il2cpp { namespace runtime {
 
@@ -115,11 +124,12 @@ Il2CppObject* il2cpp_path_get_file_name_without_extension(Il2CppObject* path);
 
 // Process.Start(exePath, args): launches 'exePath' with the command line
 // 'args' via CreateProcessW (CREATE_NO_WINDOW child console). The child's
-// stdout and stderr are redirected to a temporary file that read_stdout_line
-// reads back, and its process handle is kept in a PID-keyed table. Returns
-// the child's PID (> 0) on success; 0 on launch failure, -1 on null input
-// (and unsupported on POSIX). A started child should be waited on with
-// wait_for_exit to release its handle.
+// stdout and stderr are redirected to anonymous pipes (CreatePipe; nb7
+// PROC-STARTINFO replaced the legacy temp-file capture) that
+// read_stdout_to_end / read_stderr_to_end drain, and its process handle is
+// kept in a PID-keyed table. Returns the child's PID (> 0) on success; 0 on
+// launch failure, -1 on null input (and unsupported on POSIX). A started
+// child should be waited on with wait_for_exit to release its handle.
 int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args);
 
 // Process.WaitForExit(pid): blocks until the child with PID 'pid' exits,
@@ -133,11 +143,24 @@ int32_t il2cpp_process_wait_for_exit(int32_t pid);
 // or on POSIX (unsupported).
 int32_t il2cpp_process_get_exit_code(int32_t pid);
 
-// Process stdout line read: one line of the child's redirected stdout with
-// the line terminator stripped (.NET ReadLine semantics), or null at EOF,
-// for an unknown PID, or on POSIX (unsupported). Bytes are passed through
-// 1:1 (the capture is opaque binary data; only ASCII output round-trips).
-Il2CppObject* il2cpp_process_read_stdout_line(int32_t pid);
+// Process StandardOutput.ReadToEnd(pid) / StandardError.ReadToEnd(pid) (nb7
+// PROC-STARTINFO): drain the child's redirected stdout / stderr anonymous
+// pipe to EOF and return the FULL captured text (the legacy temp-file first-
+// line read is retired). Bytes are passed through 1:1 (the pipe carries
+// opaque bytes; only ASCII output round-trips -- the ReadToEnd encoding
+// divergence is documented). Once drained, a later call returns "" (net48
+// EOF semantics). Throws InvalidOperationException (managed transport) when
+// that stream was NOT redirected -- the net48 "StandardOutput has not been
+// redirected" contract; returns null for an unknown PID or on POSIX.
+//
+// DEADLOCK BOUNDARY (honest simplification): the drain is a BLOCKING read on
+// the calling thread. The supported pattern is a SEQUENTIAL ReadToEnd (one
+// stream at a time, the child's total buffered output below the pipe buffer
+// -- 64KB default) -- exactly the net48 documented-recommended use. A child
+// that simultaneously fills BOTH redirected pipes past the buffer deadlocks,
+// the same class of hazard net48's own ReadToEnd carries.
+Il2CppObject* il2cpp_process_read_stdout_to_end(int32_t pid);
+Il2CppObject* il2cpp_process_read_stderr_to_end(int32_t pid);
 
 // Process.GetCurrentProcess().Id / GetCurrentThread().Id: the OS process /
 // thread identifiers (always > 0).
@@ -197,5 +220,77 @@ il2cpp::runtime::Il2CppDateTime il2cpp_process_get_exit_time(int32_t pid);
 // throws the same managed exception for a waited (exited) tracked child and
 // for an unopenable PID. Returns the byte count on success.
 int64_t il2cpp_process_get_working_set64(int32_t pid);
+
+//------------------------------------------------------------------------------
+// nb7 PROC-STARTINFO: the System.Diagnostics.ProcessStartInfo object model
+// (GLOBAL descriptor -- the regex_obj / synclite / Version contract), the
+// Start(ProcessStartInfo) factory and the FULL anonymous-pipe StandardOutput /
+// StandardError read.
+//
+// OBJECT MODEL: ProcessStartInfo is a light managed object -- header + the
+// FileName/Arguments string fields (GC reference slots 1/2) + the boolean
+// flags (UseShellExecute / RedirectStandardOutput / RedirectStandardError /
+// CreateNoWindow). The transpiler emits no descriptor for it; the generated
+// newobj fallback allocates through il2cpp_object_new(&System_Diagnostics_
+// ProcessStartInfo_class) and the property accessors below own the storage.
+//------------------------------------------------------------------------------
+
+// Managed System.Diagnostics.ProcessStartInfo layout. The GC reference fields
+// sit in slots 1/2 (bit i marks the field at offset i*sizeof(void*), so the
+// refFieldBitmap 0x03 is pointer-size independent).
+struct Il2CppProcessStartInfo
+{
+    Il2CppObject obj;              // object header (klass pointer, offset 0)
+    Il2CppString* fileName;        // FileName (GC reference -- slot 1)
+    Il2CppString* arguments;       // Arguments (GC reference -- slot 2)
+    int32_t useShellExecute;       // (net48 default 1)
+    int32_t redirectStandardOutput;
+    int32_t redirectStandardError;
+    int32_t createNoWindow;
+};
+
+// The GLOBAL class descriptor is declared above (outside this namespace);
+// defined in pathproc.cpp.
+
+// Register the descriptor once (idempotent; il2cpp_class_register dedupes by
+// pointer). Called defensively by the ctors.
+void il2cpp_process_start_info_register_classes();
+
+// --- ProcessStartInfo icalls (receiver = Il2CppObject* self) -----------------
+// String parameters arrive as Il2CppObject* (the generated code passes the
+// uniform reference slot); the implementation casts to Il2CppString*.
+
+// new ProcessStartInfo() / (string fileName) / (string fileName, string args).
+// The parameterless form sets the net48 defaults: FileName/Arguments ""
+// (empty, never null) and UseShellExecute true.
+void icall_processstartinfo_ctor(Il2CppObject* self);
+void icall_processstartinfo_ctor_fn(Il2CppObject* self, Il2CppObject* fileName);
+void icall_processstartinfo_ctor_fn_args(Il2CppObject* self, Il2CppObject* fileName, Il2CppObject* arguments);
+
+// Property accessors (string / bool). A null setter argument is stored as the
+// empty string (the net48 non-null contract).
+Il2CppObject* icall_processstartinfo_get_filename(Il2CppObject* self);
+void icall_processstartinfo_set_filename(Il2CppObject* self, Il2CppObject* value);
+Il2CppObject* icall_processstartinfo_get_arguments(Il2CppObject* self);
+void icall_processstartinfo_set_arguments(Il2CppObject* self, Il2CppObject* value);
+int32_t icall_processstartinfo_get_useshellexecute(Il2CppObject* self);
+void icall_processstartinfo_set_useshellexecute(Il2CppObject* self, int32_t value);
+int32_t icall_processstartinfo_get_redirectstdout(Il2CppObject* self);
+void icall_processstartinfo_set_redirectstdout(Il2CppObject* self, int32_t value);
+int32_t icall_processstartinfo_get_redirectstderr(Il2CppObject* self);
+void icall_processstartinfo_set_redirectstderr(Il2CppObject* self, int32_t value);
+int32_t icall_processstartinfo_get_createnowindow(Il2CppObject* self);
+void icall_processstartinfo_set_createnowindow(Il2CppObject* self, int32_t value);
+
+// Process.Start(ProcessStartInfo): launches the psi's FileName + Arguments via
+// CreateProcessW. RedirectStandardOutput/Error route the child stream into an
+// anonymous pipe (read back by read_stdout_to_end / read_stderr_to_end); when
+// a redirect is requested while UseShellExecute is true the call throws
+// InvalidOperationException through the managed transport (net48 semantics).
+// UseShellExecute is otherwise recorded but not consulted (the runtime always
+// launches through CreateProcessW -- the ShellExecuteEx/DDE path is out of
+// scope, a documented deviation). Returns the child PID (> 0) on success, 0
+// on launch failure, -1 for a null input (and unsupported on POSIX).
+int32_t il2cpp_process_start_info(Il2CppObject* psi);
 
 }} // namespace il2cpp::runtime

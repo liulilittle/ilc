@@ -27,14 +27,17 @@
 //   5. Process ids : GetCurrentProcessId / GetCurrentThreadId are > 0.
 //   6. Process.Start error paths : null exe path or null args are rejected
 //                    (non-zero); no live child is launched by these cases.
-//   7. Process wait/exit-code/stdout (Windows only; POSIX keeps the
+//   7. Process wait/exit-code/full-drain (Windows only; POSIX keeps the
 //                    unsupported semantics): Start("cmd.exe", "/c exit 42")
 //                    returns a positive child PID; WaitForExit succeeds and
 //                    is idempotent; ExitCode is 42. Start("cmd.exe",
-//                    "/c echo hello") redirects stdout to a temp file:
-//                    ReadStdoutLine returns "hello" (terminator stripped)
-//                    and then null at EOF; two echoed lines are returned in
-//                    order. Unknown PIDs are rejected by all three APIs.
+//                    "/c echo hello") redirects stdout to an anonymous pipe:
+//                    ReadToEnd returns the FULL text ("hello\r\n", CRLF kept)
+//                    and "" on a second call; two echoed lines return in one
+//                    drain. nb7 PROC-STARTINFO: the ProcessStartInfo object
+//                    model (defaults + round-trip) + Start(psi) with separate
+//                    stdout/stderr pipes. Unknown PIDs are rejected by all
+//                    the APIs.
 //
 // Harness: like the other runtime tests -- plain executable, any failed
 // Expect() prints FAIL and bumps the counter; non-zero exit on failure.
@@ -44,7 +47,8 @@
 
 #include "pathproc.h"
 
-#include "il2cpp_io.h"    // icall_directory_exists (temp path existence check)
+#include "il2cpp_io.h"      // icall_directory_exists (temp path existence check)
+#include "il2cpp_runtime.h" // il2cpp_object_new (ProcessStartInfo allocation)
 #include "il2cpp_string.h"
 
 #include <cstdint>
@@ -377,8 +381,10 @@ int main()
            "Process.WaitForExit rejects an unknown PID");
     Expect(il2cpp_process_get_exit_code(999999) == -1,
            "Process.ExitCode is -1 for an unknown PID");
-    Expect(il2cpp_process_read_stdout_line(999999) == nullptr,
-           "Process.ReadStdoutLine is null for an unknown PID");
+    Expect(il2cpp_process_read_stdout_to_end(999999) == nullptr,
+           "Process.ReadToEnd is null for an unknown PID");
+    Expect(il2cpp_process_read_stderr_to_end(999999) == nullptr,
+           "Process.ReadToEnd(stderr) is null for an unknown PID");
 #if defined(_WIN32)
     // Contract (pathproc.h): 0 on launch failure (a missing exe with valid
     // args), -1 on null input. The two cases above are the -1 branch; this
@@ -389,9 +395,10 @@ int main()
            "Process.Start reports launch failure with 0 (missing exe)");
 #endif
 
-    // --- 7. Process wait / exit code / stdout (live children, Windows) ---------
+    // --- 7. Process wait / exit code / full drain (live children, Windows) -----
 #if defined(_WIN32)
-    // 7a. start -> wait -> exit code: cmd /c exit 42 must exit with 42.
+    // 7a. start -> wait -> exit code: cmd /c exit 42 must exit with 42. Both
+    // redirected streams drain to "" (no output).
     const int32_t pid42 = il2cpp_process_start(Cs("cmd.exe"), Cs("/c exit 42"));
     Expect(pid42 > 0, "Process.Start returns a positive child PID (exit case)");
     Expect(il2cpp_process_wait_for_exit(pid42) == 0,
@@ -400,32 +407,64 @@ int main()
            "Process.ExitCode is 42 (cmd /c exit 42)");
     Expect(il2cpp_process_wait_for_exit(pid42) == 0,
            "Process.WaitForExit is idempotent after the child exited");
-    Expect(il2cpp_process_read_stdout_line(pid42) == nullptr,
-           "ReadStdoutLine hits EOF immediately for a child with no output");
+    Expect(StrEquals(il2cpp_process_read_stdout_to_end(pid42), ""),
+           "ReadToEnd returns \"\" for a child with no stdout");
+    Expect(StrEquals(il2cpp_process_read_stderr_to_end(pid42), ""),
+           "ReadToEnd(stderr) returns \"\" for a child with no stderr");
 
-    // 7b. stdout line reading: one echo line, then EOF (null).
+    // 7b. full stdout drain: the echoed line INCLUDING its CRLF terminator
+    // (ReadToEnd semantics; the legacy ReadLine terminator strip is retired).
     const int32_t pidHello = il2cpp_process_start(Cs("cmd.exe"), Cs("/c echo hello"));
     Expect(pidHello > 0, "Process.Start returns a positive child PID (stdout case)");
     Expect(il2cpp_process_wait_for_exit(pidHello) == 0,
            "Process.WaitForExit succeeds for the stdout child");
-    Expect(StrEquals(il2cpp_process_read_stdout_line(pidHello), "hello"),
-           "Process.ReadStdoutLine returns the echoed line without a terminator");
-    Expect(il2cpp_process_read_stdout_line(pidHello) == nullptr,
-           "Process.ReadStdoutLine returns null at EOF");
+    Expect(StrEquals(il2cpp_process_read_stdout_to_end(pidHello), "hello\r\n"),
+           "ReadToEnd returns the FULL echoed text (CRLF kept)");
+    Expect(StrEquals(il2cpp_process_read_stdout_to_end(pidHello), ""),
+           "a second ReadToEnd is empty at EOF");
 
-    // 7c. two lines are returned in order (offset tracking across reads).
-    // cmd /c parsing keeps a trailing space around a spaced " & ", so the
-    // unspaced "&&" form is used to get clean "one"/"two" output.
+    // 7c. multiple lines are returned in ONE drain (nb7: no per-line offset).
     const int32_t pidTwo = il2cpp_process_start(Cs("cmd.exe"), Cs("/c echo one&&echo two"));
     Expect(pidTwo > 0, "Process.Start returns a positive child PID (two-line case)");
     Expect(il2cpp_process_wait_for_exit(pidTwo) == 0,
            "Process.WaitForExit succeeds for the two-line child");
-    Expect(StrEquals(il2cpp_process_read_stdout_line(pidTwo), "one"),
-           "Process.ReadStdoutLine returns the first line in order");
-    Expect(StrEquals(il2cpp_process_read_stdout_line(pidTwo), "two"),
-           "Process.ReadStdoutLine returns the second line in order");
-    Expect(il2cpp_process_read_stdout_line(pidTwo) == nullptr,
-           "Process.ReadStdoutLine returns null after the last line");
+    Expect(StrEquals(il2cpp_process_read_stdout_to_end(pidTwo), "one\r\ntwo\r\n"),
+           "ReadToEnd returns both lines in order");
+
+    // 7d. nb7 PROC-STARTINFO: the ProcessStartInfo object model + Start(psi)
+    // with separately redirected stdout/stderr pipes.
+    Il2CppObject* psi = reinterpret_cast<Il2CppObject*>(
+        il2cpp_object_new(&System_Diagnostics_ProcessStartInfo_class));
+    icall_processstartinfo_ctor(psi);
+    Expect(icall_processstartinfo_get_useshellexecute(psi) == 1,
+           "ProcessStartInfo defaults UseShellExecute to true");
+    Expect(StrEquals(icall_processstartinfo_get_filename(psi), ""),
+           "ProcessStartInfo defaults FileName to \"\" (not null)");
+    icall_processstartinfo_set_filename(psi, Cs("cmd.exe"));
+    icall_processstartinfo_set_arguments(psi, Cs("/c echo out & echo err 1>&2"));
+    icall_processstartinfo_set_useshellexecute(psi, 0);
+    icall_processstartinfo_set_redirectstdout(psi, 1);
+    icall_processstartinfo_set_redirectstderr(psi, 1);
+    Expect(StrEquals(icall_processstartinfo_get_filename(psi), "cmd.exe"),
+           "ProcessStartInfo FileName round-trips");
+    Expect(StrEquals(icall_processstartinfo_get_arguments(psi), "/c echo out & echo err 1>&2"),
+           "ProcessStartInfo Arguments round-trips");
+    Expect(icall_processstartinfo_get_redirectstdout(psi) == 1
+               && icall_processstartinfo_get_redirectstderr(psi) == 1,
+           "ProcessStartInfo redirect flags round-trip");
+    Expect(icall_processstartinfo_get_useshellexecute(psi) == 0,
+           "ProcessStartInfo UseShellExecute round-trips");
+    const int32_t pidPsi = il2cpp_process_start_info(psi);
+    Expect(pidPsi > 0, "Process.Start(ProcessStartInfo) returns a positive PID");
+    Expect(il2cpp_process_wait_for_exit(pidPsi) == 0,
+           "Process.WaitForExit succeeds for the psi child");
+    Expect(StrEquals(il2cpp_process_read_stdout_to_end(pidPsi), "out \r\n"),
+           "psi stdout drains the FULL output (separate pipe)");
+    Expect(StrEquals(il2cpp_process_read_stderr_to_end(pidPsi), "err \r\n"),
+           "psi stderr drains into its own pipe");
+    // UseShellExecute=true + a redirect raises InvalidOperationException
+    // through the managed transport (uncaught here would abort the test), so
+    // that negative path is exercised only by the transpiled p-nb7-psi probe.
 #endif
     // --- Report ---
     if (g_failures != 0)

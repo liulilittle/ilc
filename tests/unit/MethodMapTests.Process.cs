@@ -22,26 +22,30 @@ using Xunit;
 //   get_ExitCode              -> il2cpp_process_get_exit_code (instance)
 //   get_StandardOutput        -> "::identity::" (the reader IS the pid --
 //                                fold pushes the receiver)
-//   ReadToEnd on a Process receiver (owner System.IO.StreamReader/TextReader
-//   -- ReadToEnd is inherited from TextReader, so the callvirt owner is NOT
-//   Process; the receiver hint discriminates the StandardOutput shape) ->
-//   il2cpp_process_read_stdout_line (SIMPLIFIED ReadToEnd = one captured
-//   line, the only stdout read pathproc exposes)
+//   get_StandardOutput        -> "::identity::" (the reader IS the pid --
+//                                fold pushes the receiver; ReturnTypeName
+//                                "System.Diagnostics.Process")
+//   get_StandardError         -> "::identity::" (same PID fold, tracked as the
+//                                "System.Diagnostics.Process.Stderr" pseudo-type,
+//                                nb7)
+//   ReadToEnd on a Process/Stderr receiver (owner System.IO.StreamReader /
+//   TextReader -- ReadToEnd is inherited, so the callvirt owner is NOT
+//   Process; the receiver hint discriminates the stream shape) ->
+//   il2cpp_process_read_stdout_to_end / read_stderr_to_end (nb7 PROC-STARTINFO:
+//   the FULL anonymous-pipe drain, not the legacy first line)
 //   GetCurrentProcess()       -> il2cpp_process_get_current_process_id
 //                                (static, PID result, ReturnTypeName Process)
 //   get_Id                    -> "::identity::" (the receiver IS the pid:
 //                                .Id of a process value is the pid itself)
+//   Start(ProcessStartInfo)   -> il2cpp_process_start_info (static, PID result;
+//                                nb7: the info object is a light managed object)
 //
 // LOUD rejections (known but unwireable): .ctor (no object model),
-// Start with 3+ params (only the two string forms), Start(ProcessStartInfo)
-// (the CLASS form -- no object model for the info object), WaitForExit(int)
-// (the runtime waits without a timeout), get_StandardInput (pathproc
-// redirects stdout/stderr only; stdin is never redirected -- construction
-// order). ProcessStartInfo::.ctor and unlisted members (Kill, ...) fall
-// through to the generated-name path (Thread-domain convention: the
-// ProcessStartInfo owner is not dispatched to TryMapProcess -- the shared
-// MethodRefResolver dispatch is a do-not-edit region, so the ctor cannot
-// be LOUD-rejected there; the generated name fails LOUD at C++ link).
+// Start with 3+ params (only the two string forms + ProcessStartInfo),
+// WaitForExit(int) (the runtime waits without a timeout), get_StandardInput
+// (the child is built with NUL stdin -- construction order). Unlisted members
+// (Refresh, ...) fall through to the generated-name path (Thread-domain
+// convention). The ProcessStartInfo members live in MethodMap.ProcessInfo.cs.
 //
 // Signature blobs are the raw bytes RawSignature consumes (0x01=void,
 // 0x08=i4, 0x0E=string, 0x12=class); CLASS (0x12) params/returns carry the
@@ -144,31 +148,65 @@ public class MethodMapProcessTests
     [Fact]
     public void Resolve_Process_StandardOutput_IsIdentity()
     {
-        // StreamReader get_StandardOutput(): CLASS return (0x12 + 0x05).
+        // StreamReader get_StandardOutput(): CLASS return (0x12 + 0x05). The
+        // identity fold records the ReturnTypeName so a stderr pseudo-type
+        // cannot leak into a later stdout ReadToEnd.
         var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "get_StandardOutput",
             new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_StandardOutput");
 
         Assert.Equal(ResolvedMethod.IdentityMarker, m.CppName);
         Assert.True(m.IsInstance);
         Assert.True(m.ReturnsValue);
+        Assert.Equal("System.Diagnostics.Process", m.ReturnTypeName);
     }
 
     [Fact]
-    public void Resolve_StreamReader_ReadToEnd_OnProcessReceiver_MapsToStdoutLine()
+    public void Resolve_Process_StandardError_IsIdentityWithStderrPseudoType()
     {
-        // StandardOutput.ReadToEnd(): the callvirt OWNER is StreamReader
-        // (ReadToEnd is inherited from TextReader) -- the receiver hint
-        // "System.Diagnostics.Process" discriminates the StandardOutput
-        // shape (a genuine StreamReader can never exist: its ctor is
-        // LOUD-rejected in the stream domain).
+        // nb7 PROC-STARTINFO: StandardError is the same PID identity fold but
+        // tracked as the distinct stderr pseudo-type.
+        var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "get_StandardError",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_StandardError");
+
+        Assert.Equal(ResolvedMethod.IdentityMarker, m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal("System.Diagnostics.Process.Stderr", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_ReadToEnd_OnProcessReceiver_MapsToStdoutDrain()
+    {
+        // StandardOutput.ReadToEnd(): the callvirt OWNER is TextReader (the
+        // Process dispatch routes the Process receiver hint here) -- the hint
+        // "System.Diagnostics.Process" discriminates the stdout shape (a
+        // genuine StreamReader can never exist: its ctor is LOUD-rejected).
+        // nb7: the FULL pipe drain (read_stdout_to_end), not the first line.
         var m = ResolveMember(Synthesize("System.IO", "StreamReader", "ReadToEnd", Sig(0x0E)),
             "ReadToEnd", receiverType: "System.Diagnostics.Process");
 
-        Assert.Equal("il2cpp::runtime::il2cpp_process_read_stdout_line", m.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_process_read_stdout_to_end", m.CppName);
         Assert.True(m.IsInstance);
         Assert.Equal(0, m.ParamCount);
         Assert.True(m.ReturnsValue);
-        Assert.True(m.ReturnsRef); // the line is a managed string
+        Assert.True(m.ReturnsRef); // the text is a managed string
+        Assert.Equal("System.String", m.ReturnTypeName);
+        Assert.Equal(new[] { "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_ReadToEnd_OnStderrReceiver_MapsToStderrDrain()
+    {
+        // StandardError.ReadToEnd(): the stderr pseudo-type selects the stderr
+        // pipe drain.
+        var m = ResolveMember(Synthesize("System.IO", "StreamReader", "ReadToEnd", Sig(0x0E)),
+            "ReadToEnd", receiverType: "System.Diagnostics.Process.Stderr");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_process_read_stderr_to_end", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef);
         Assert.Equal("System.String", m.ReturnTypeName);
         Assert.Equal(new[] { "i" }, m.ParamTypeNames);
     }
@@ -228,45 +266,137 @@ public class MethodMapProcessTests
     }
 
     //--------------------------------------------------------------------------
-    // ProcessStartInfo form -- known but unwireable: Start(ProcessStartInfo)
-    // is LOUD (the info object has no runtime model); ProcessStartInfo::.ctor
-    // falls through to the generated-name path (the shared dispatch does not
-    // route that owner to TryMapProcess -- do-not-edit region), failing LOUD
-    // at C++ link like any other unlisted member.
+    // nb7 PROC-STARTINFO -- Start(ProcessStartInfo): the info object is a real
+    // light object now (MethodMap.ProcessInfo.cs); the CLASS param launches
+    // through il2cpp_process_start_info (the PID value slot result).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Process_Start_ProcessStartInfo_ThrowsLoud()
+    public void Resolve_Process_Start_ProcessStartInfo_MapsToStartInfoIcall()
     {
         // Process Start(ProcessStartInfo): one CLASS param (0x12 + coded index).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Diagnostics", "Process", "Start",
-                new byte[] { 0x00, 0x01, 0x12, 0x05, 0x12, 0x05 }), "Start"));
+        var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "Start",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x12, 0x05 }), "Start");
 
-        Assert.Contains("System.Diagnostics.Process::Start", ex.Message);
-        Assert.Contains("ProcessStartInfo", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_process_start_info", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.ReturnsRef); // handle-gap: the PID is an int32 value slot
+        Assert.Equal("System.Diagnostics.Process", m.ReturnTypeName);
+        Assert.Equal(new[] { "" }, m.ParamTypeNames);
     }
 
+    //--------------------------------------------------------------------------
+    // nb7 PROC-STARTINFO -- the ProcessStartInfo object-model members:
+    // .ctor / get_/set_ FileName / Arguments / UseShellExecute /
+    // RedirectStandardOutput / RedirectStandardError / CreateNoWindow.
+    //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_ProcessStartInfo_Ctor_FallsThroughToGeneratedName()
+    public void Resolve_ProcessStartInfo_Ctor_MapsToCtorIcall()
     {
-        // The owner is NOT dispatched to TryMapProcess (MethodRefResolver's
-        // do-not-edit region routes only System.Diagnostics.Process) -- the
-        // ctor keeps the Thread-domain convention: generated-name path.
         // The synthetic MemberRef header carries HAS_THIS (0x20): an instance
         // ctor's real signature has the this-flag set, so the #44 header-based
         // classification (not the name heuristic) pins IsInstance.
         var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", ".ctor",
             new byte[] { 0x20, 0x00, 0x01 }), ".ctor");
 
-        Assert.StartsWith("System_Diagnostics_ProcessStartInfo_", m.CppName);
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_ctor", m.CppName);
         Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_CtorFn_MapsToCtorFnIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", ".ctor",
+            new byte[] { 0x20, 0x01, 0x01, 0x0E }), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_ctor_fn", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_GetFileName_MapsToGetter()
+    {
+        var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "get_FileName",
+            Sig(0x0E)), "get_FileName");
+
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_get_filename", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal("System.String", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_SetFileName_MapsToSetter()
+    {
+        var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "set_FileName",
+            Sig(0x01, 0x0E)), "set_FileName");
+
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_set_filename", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+        Assert.Equal(new[] { "", "" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_GetUseShellExecute_MapsToGetter()
+    {
+        // bool get_UseShellExecute(): BOOLEAN return (0x02).
+        var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "get_UseShellExecute",
+            Sig(0x02)), "get_UseShellExecute");
+
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_get_useshellexecute", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_SetUseShellExecute_MapsToSetter()
+    {
+        // set_UseShellExecute(bool): the bool rides the int32 slot ("i").
+        var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "set_UseShellExecute",
+            Sig(0x01, 0x02)), "set_UseShellExecute");
+
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_set_useshellexecute", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_GetRedirectStandardError_MapsToGetter()
+    {
+        var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "get_RedirectStandardError",
+            Sig(0x02)), "get_RedirectStandardError");
+
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_get_redirectstderr", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_ProcessStartInfo_GetCreateNoWindow_MapsToGetter()
+    {
+        var m = ResolveMember(Synthesize("System.Diagnostics", "ProcessStartInfo", "get_CreateNoWindow",
+            Sig(0x02)), "get_CreateNoWindow");
+
+        Assert.Equal("il2cpp::runtime::icall_processstartinfo_get_createnowindow", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
     }
 
     //--------------------------------------------------------------------------
-    // StandardInput -- known but unwireable: pathproc redirects stdout and
-    // stderr to a capture file only; stdin is inherited or NUL (pathproc.cpp
-    // STARTF_USESTDHANDLES), so a managed stdin write cannot reach the child.
-    // LOUD, so the missing redirect fails at transpile, not C++ link.
+    // StandardInput -- known but unwireable: the child is built with NUL stdin
+    // (pathproc.cpp STARTF_USESTDHANDLES), so a managed stdin write cannot
+    // reach the child. LOUD, so the missing redirect fails at transpile.
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Process_StandardInput_ThrowsLoud()
