@@ -438,10 +438,13 @@ static void CtorEnumImpl(Il2CppObject* self, Il2CppObject* items, Il2CppObject* 
     }
     GcRoot<Il2CppObject*> selfRoot(self, "sortedset_int_ctor_enum_self");
     GcRoot<Il2CppObject*> itemsRoot(items, "sortedset_int_ctor_enum_items");
+    // nb9 fix M2: the comparer must survive the create allocation below (it
+    // is installed after the container object is materialized).
+    GcRoot<Il2CppObject*> comparerRoot(comparer, "sortedset_int_ctor_enum_comparer");
     il2cpp_sortedlist_create(selfRoot.Get(), 0);
-    if (comparer != nullptr)
+    if (comparerRoot.Get() != nullptr)
     {
-        il2cpp_sortedlist_set_comparer(selfRoot.Get(), comparer);
+        il2cpp_sortedlist_set_comparer(selfRoot.Get(), comparerRoot.Get());
     }
 
     // nb9 (M4): the carrier's CONCRETE runtime class decides the enumeration
@@ -542,8 +545,10 @@ void icall_sortedset_int_ctor_comparer(Il2CppObject* self, Il2CppObject* compare
         il2cpp_throw_argument_null_exception("comparer");
     }
     GcRoot<Il2CppObject*> selfRoot(self, "sortedset_int_ctor_cmp_self");
+    // nb9 fix M2: root the comparer across the create allocation.
+    GcRoot<Il2CppObject*> comparerRoot(comparer, "sortedset_int_ctor_cmp_comparer");
     il2cpp_sortedlist_create(selfRoot.Get(), 0);
-    il2cpp_sortedlist_set_comparer(selfRoot.Get(), comparer);
+    il2cpp_sortedlist_set_comparer(selfRoot.Get(), comparerRoot.Get());
 }
 
 void icall_sortedset_int_ctor_enum(Il2CppObject* self, Il2CppObject* items)
