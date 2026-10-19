@@ -9974,6 +9974,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "addr:i" => $"reinterpret_cast<int32_t*>({code})",
                 "addr:l" => $"reinterpret_cast<int64_t*>({code})",
                 "addr:d" => $"reinterpret_cast<double*>({code})",
+                // nb9 E1: the unsigned receiver addresses (UInt32/UInt64.CompareTo).
+                "addr:ui" => $"reinterpret_cast<uint32_t*>({code})",
+                "addr:ul" => $"reinterpret_cast<uint64_t*>({code})",
                 // netcore21/31 Interlocked.CompareExchange out-bool: the bool
                 // slot is an int32 carrier (the M-stage bool convention) --
                 // the wrapper writes 0/1 through int32_t*.

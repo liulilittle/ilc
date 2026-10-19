@@ -29,6 +29,7 @@
 
 #include "il2cpp_boxing_ext.h"
 
+#include "il2cpp_boxing_ext2.h" // nb9 E1: icall_unbox_long / icall_unbox_float
 #include "il2cpp_exception.h"
 #include "il2cpp_metadata.h"
 #include "il2cpp_object.h"
@@ -37,6 +38,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace il2cpp {
 namespace runtime {
@@ -279,6 +281,125 @@ bool icall_value_equals_i4(int32_t* self, int32_t value)
 int32_t icall_int32_compare_to(int32_t* self, int32_t value)
 {
     return *self < value ? -1 : (*self > value ? 1 : 0);
+}
+
+// nb9 E1: the wide primitive CompareTo(T) / CompareTo(object) entries. The
+// receiver is the value-slot ADDRESS; the value argument is by value. net48
+// Double/Single semantics: NaN sorts before every non-NaN and equals NaN.
+namespace {
+int32_t CompareDoublesNet(double a, double b)
+{
+    if (std::isnan(a)) return std::isnan(b) ? 0 : -1;
+    if (std::isnan(b)) return 1;
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+bool KlassNamed(const Il2CppObject* obj, const char* name)
+{
+    return obj != nullptr && obj->klass != nullptr && obj->klass->name != nullptr &&
+           std::strcmp(obj->klass->name, name) == 0;
+}
+} // namespace
+int32_t icall_int64_compare_to(int64_t* self, int64_t value)
+{
+    return *self < value ? -1 : (*self > value ? 1 : 0);
+}
+int32_t icall_uint64_compare_to(uint64_t* self, uint64_t value)
+{
+    return *self < value ? -1 : (*self > value ? 1 : 0);
+}
+int32_t icall_uint32_compare_to(uint32_t* self, uint32_t value)
+{
+    return *self < value ? -1 : (*self > value ? 1 : 0);
+}
+int32_t icall_double_compare_to(double* self, double value)
+{
+    return CompareDoublesNet(*self, value);
+}
+int32_t icall_single_compare_to(double* self, double value)
+{
+    return CompareDoublesNet(*self, value);
+}
+int32_t icall_int64_compare_to_obj(int64_t* self, Il2CppObject* other)
+{
+    if (other == nullptr) return 1;
+    if (!KlassNamed(other, "System.Int64")) il2cpp_throw_argument_exception("Object must be of type Int64.");
+    return icall_int64_compare_to(self, icall_unbox_long(other));
+}
+int32_t icall_uint64_compare_to_obj(uint64_t* self, Il2CppObject* other)
+{
+    if (other == nullptr) return 1;
+    if (!KlassNamed(other, "System.UInt64")) il2cpp_throw_argument_exception("Object must be of type UInt64.");
+    return icall_uint64_compare_to(self, static_cast<uint64_t>(icall_unbox_long(other)));
+}
+int32_t icall_double_compare_to_obj(double* self, Il2CppObject* other)
+{
+    if (other == nullptr) return 1;
+    if (!KlassNamed(other, "System.Double")) il2cpp_throw_argument_exception("Object must be of type Double.");
+    return icall_double_compare_to(self, icall_unbox_double(other));
+}
+int32_t icall_single_compare_to_obj(double* self, Il2CppObject* other)
+{
+    if (other == nullptr) return 1;
+    if (!KlassNamed(other, "System.Single")) il2cpp_throw_argument_exception("Object must be of type Single.");
+    return icall_single_compare_to(self, icall_unbox_float(other));
+}
+int32_t icall_int32_compare_to_obj(int32_t* self, Il2CppObject* other, const char* expectedName)
+{
+    if (other == nullptr) return 1;
+    if (expectedName != nullptr && !KlassNamed(other, expectedName))
+        il2cpp_throw_argument_exception("Object must be of the expected type.");
+    // nb9 E1: unbox through the family-specific helper (the box classes are
+    // distinct; icall_unbox_int32 rejects a boxed byte/char/etc.).
+    int32_t v;
+    bool difference = false;
+    if (expectedName != nullptr && std::strcmp(expectedName, "System.Byte") == 0)
+    {
+        v = icall_unbox_byte(other);
+        difference = true;
+    }
+    else if (expectedName != nullptr && std::strcmp(expectedName, "System.SByte") == 0)
+    {
+        v = icall_unbox_sbyte(other);
+        difference = true;
+    }
+    else if (expectedName != nullptr && std::strcmp(expectedName, "System.Int16") == 0)
+    {
+        v = icall_unbox_short(other);
+        difference = true;
+    }
+    else if (expectedName != nullptr && std::strcmp(expectedName, "System.UInt16") == 0)
+    {
+        v = icall_unbox_ushort(other);
+        difference = true;
+    }
+    else if (expectedName != nullptr && std::strcmp(expectedName, "System.Char") == 0)
+    {
+        v = icall_unbox_char(other);
+        difference = true;
+    }
+    else if (expectedName != nullptr && std::strcmp(expectedName, "System.Boolean") == 0)
+    {
+        v = icall_unbox_bool(other) ? 1 : 0;
+    }
+    else
+    {
+        v = icall_unbox_int32(other);
+    }
+    return difference ? (*self - v) : icall_int32_compare_to(self, v);
+}
+
+// nb9 E1: Byte/SByte/Int16/UInt16/Char.CompareTo(T) return the raw numeric
+// DIFFERENCE (net48), not the -1/0/1 sign.
+int32_t icall_primitive_compare_to_diff(int32_t* self, int32_t value)
+{
+    return *self - value;
+}
+int32_t icall_uint32_compare_to_obj(uint32_t* self, Il2CppObject* other, const char* expectedName)
+{
+    if (other == nullptr) return 1;
+    if (expectedName != nullptr && !KlassNamed(other, expectedName))
+        il2cpp_throw_argument_exception("Object must be of the expected type.");
+    return icall_uint32_compare_to(self, static_cast<uint32_t>(icall_unbox_uint(other)));
 }
 
 bool icall_value_equals_i8(int64_t* self, int64_t value)

@@ -55,12 +55,14 @@ public static partial class MethodRefResolver
                 // icall_value_equals_i4 -- the arg cast "i" is the value).
                 if (name == "CompareTo" && ps.Length == 1 && ps[0] == 0x08)
                     return I("il2cpp::runtime::icall_int32_compare_to", 1, true, false, true,
-                        new[] { "", "i" });
+                        new[] { "addr:i", "i" });
                 // M5 wiring: Int32.Equals(object) on a boxed receiver -- the
                 // boxed-value equality dispatcher (boxingext2 domain). D5
                 // cov2: Equals(int32) on an UNBOXED receiver (implicit-this
                 // arrives as an address) routes to the value-equals icall
                 // (ps[0] is the ARG element byte -- 0x08 = the int32 form).
+                if (name == "CompareTo" && ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::icall_int32_compare_to_obj", 1, true, false, true, new[] { "addr:i", "" }, appendLiterals: new[] { "\"System.Int32\"" });
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -84,6 +86,13 @@ public static partial class MethodRefResolver
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_int64_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:l" : "unbox:l" });
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x0A => I("il2cpp::runtime::icall_int64_compare_to", 1, true, false, true, new[] { "addr:l", "l" }),
+                        0x1C => I("il2cpp::runtime::icall_int64_compare_to_obj", 1, true, false, true, new[] { "addr:l", "" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -108,6 +117,13 @@ public static partial class MethodRefResolver
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_bool_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:b" : "unbox:b" });
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x02 => I("il2cpp::runtime::icall_int32_compare_to", 1, true, false, true, new[] { "addr:i", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_int32_compare_to_obj", 1, true, false, true, new[] { "addr:i", "" }, appendLiterals: new[] { "\"System.Boolean\"" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -124,6 +140,13 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_char_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:u2" : "unbox:c" });
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x03 => I("il2cpp::runtime::icall_primitive_compare_to_diff", 1, true, false, true, new[] { "addr:i", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_int32_compare_to_obj", 1, true, false, true, new[] { "addr:i", "" }, appendLiterals: new[] { "\"System.Char\"" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -147,6 +170,13 @@ public static partial class MethodRefResolver
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_double_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:d" : "unbox:d" });
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x0D => I("il2cpp::runtime::icall_double_compare_to", 1, true, false, true, new[] { "addr:d", "d" }),
+                        0x1C => I("il2cpp::runtime::icall_double_compare_to_obj", 1, true, false, true, new[] { "addr:d", "" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -159,13 +189,20 @@ public static partial class MethodRefResolver
                 // float values live in double slots; Single.ToString formats like
                 // double (the runtime prints double semantics).
                 if (name == "ToString" && ps.Length == 0)
-                    return I("il2cpp::runtime::icall_double_to_string", 0, true, true, true,
+                    return I("il2cpp::runtime::icall_single_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:d" : "unbox:d" });
                 // float.Parse(string): the value rides a double slot and the
                 // float domain is a subset of double -- the double parser is
                 // exact for every float-representable text.
                 if (name == "Parse" && ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::icall_string_parse_double", 1, true, false, false, new[] { "s" }, "d");
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x0C => I("il2cpp::runtime::icall_single_compare_to", 1, true, false, true, new[] { "addr:d", "d" }),
+                        0x1C => I("il2cpp::runtime::icall_single_compare_to_obj", 1, true, false, true, new[] { "addr:d", "" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -195,6 +232,13 @@ public static partial class MethodRefResolver
                 // sig=[0 2 2 14 16 5]); 0x01 is VOID, never the element.
                 if (name == "TryParse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x05)
                     return I("il2cpp::runtime::icall_try_parse_byte", 2, true, false, false, new[] { "", "addr:i" });
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x05 => I("il2cpp::runtime::icall_primitive_compare_to_diff", 1, true, false, true, new[] { "addr:i", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_int32_compare_to_obj", 1, true, false, true, new[] { "addr:i", "" }, appendLiterals: new[] { "\"System.Byte\"" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -204,6 +248,13 @@ public static partial class MethodRefResolver
                     };
                 return null;
             case "System.SByte":
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x04 => I("il2cpp::runtime::icall_primitive_compare_to_diff", 1, true, false, true, new[] { "addr:i", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_int32_compare_to_obj", 1, true, false, true, new[] { "addr:i", "" }, appendLiterals: new[] { "\"System.SByte\"" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -213,6 +264,13 @@ public static partial class MethodRefResolver
                     };
                 return null;
             case "System.Int16":
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x06 => I("il2cpp::runtime::icall_primitive_compare_to_diff", 1, true, false, true, new[] { "addr:i", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_int32_compare_to_obj", 1, true, false, true, new[] { "addr:i", "" }, appendLiterals: new[] { "\"System.Int16\"" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -222,6 +280,13 @@ public static partial class MethodRefResolver
                     };
                 return null;
             case "System.UInt16":
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x07 => I("il2cpp::runtime::icall_primitive_compare_to_diff", 1, true, false, true, new[] { "addr:i", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_int32_compare_to_obj", 1, true, false, true, new[] { "addr:i", "" }, appendLiterals: new[] { "\"System.UInt16\"" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -240,6 +305,13 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_uint32_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:ui" : "unbox:ui" });
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x09 => I("il2cpp::runtime::icall_uint32_compare_to", 1, true, false, true, new[] { "addr:ui", "i" }),
+                        0x1C => I("il2cpp::runtime::icall_uint32_compare_to_obj", 1, true, false, true, new[] { "addr:ui", "" }, appendLiterals: new[] { "\"System.UInt32\"" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -255,6 +327,13 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_uint64_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:ul" : "unbox:ul" });
+                if (name == "CompareTo" && ps.Length == 1)
+                    return ps[0] switch
+                    {
+                        0x0B => I("il2cpp::runtime::icall_uint64_compare_to", 1, true, false, true, new[] { "addr:ul", "l" }),
+                        0x1C => I("il2cpp::runtime::icall_uint64_compare_to_obj", 1, true, false, true, new[] { "addr:ul", "" }),
+                        _ => null,
+                    };
                 if (name == "Equals" && ps.Length == 1)
                     return ps[0] switch
                     {

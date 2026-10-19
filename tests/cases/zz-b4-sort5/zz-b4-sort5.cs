@@ -64,6 +64,17 @@ namespace Cases
             Array.Sort((Array)nr, 0, 3);
             Console.WriteLine("[ng_sort_str_range]=" + J(nr));
 
+            // nb9 E2/E3: non-generic keys/items + comparer, range + comparer,
+            // and StringComparer over string keys.
+            string[] k3 = { "c", "a", "b" };
+            int[] v3 = { 3, 1, 2 };
+            Array.Sort((Array)k3, (Array)v3, StringComparer.Ordinal);
+            Console.WriteLine("[ng_keys3_str]=" + J(k3) + "|" + J(v3));
+
+            int[] r4 = { 5, 4, 3, 2, 1 };
+            Array.Sort((Array)r4, 1, 3, Comparer<int>.Create((a, b) => b.CompareTo(a)));
+            Console.WriteLine("[ng_range4_cmp]=" + J(r4));
+
             object[] o = { 3, 1, 2 };
             Array.Sort(o);
             Console.WriteLine("[obj_sort]=" + J(o));

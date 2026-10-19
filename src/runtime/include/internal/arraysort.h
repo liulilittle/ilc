@@ -430,6 +430,7 @@ int32_t il2cpp_array_binary_search_icomparer_float_range(Il2CppArray* arr, int32
 // double/reference); the keys/items pair sorts the key array and applies the
 // same permutation to items.
 void il2cpp_array_sort_any(Il2CppArray* arr);
+void il2cpp_array_sort_any_range_icomparer(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* comparer);
 void il2cpp_array_sort_any_range(Il2CppArray* arr, int32_t index, int32_t length);
 void il2cpp_array_sort_keys_items(Il2CppArray* keys, Il2CppArray* items, Il2CppObject* comparer);
 void il2cpp_array_sort_keys_items_default(Il2CppArray* keys, Il2CppArray* items);

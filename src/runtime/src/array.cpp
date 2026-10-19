@@ -128,7 +128,10 @@ Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass)
     slot.klass.instanceSize = static_cast<int32_t>(sizeof(Il2CppArray));
     slot.klass.refFieldBitmap = 0u; // payload scanned dynamically via isRefElem
     slot.klass.refFieldCount = 0;
-    slot.klass.baseClass = nullptr;
+    // nb9 E3: a reference-element array is assignable to object[] (and via
+    // object[]'s own base chain to Array), exactly like net48; the shared
+    // object-array descriptor is the base of every synthesized ref array.
+    slot.klass.baseClass = &g_objectArrayClass;
     slot.klass.vtable = nullptr;
     slot.klass.vtableSize = 0;
     slot.klass.interfaces = nullptr;

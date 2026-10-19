@@ -20,6 +20,18 @@ namespace Cases
             catch (Exception e) { return e.GetType().Name; }
         }
 
+        static string M(Action a)
+        {
+            try { a(); return "ok"; }
+            catch (Exception e)
+            {
+                if (e.Message.Contains("endIndex")) return "endIndex";
+                if (e.Message.Contains("startIndex")) return "startIndex";
+                if (e.Message.Contains("count")) return "count";
+                return e.GetType().Name;
+            }
+        }
+
         public static void Main()
         {
             int[] a = { 1, 2, 3, 1 };

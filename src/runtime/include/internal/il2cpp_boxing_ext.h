@@ -102,5 +102,20 @@ bool icall_value_equals_f4(double* self, double value);
 // ABI as icall_value_equals_i4 (cast "").
 int32_t icall_int32_compare_to(int32_t* self, int32_t value);
 
+// nb9 E1: the wide primitive CompareTo surface (net48 semantics; NaN sorts
+// first and equals NaN for float/double).
+int32_t icall_int64_compare_to(int64_t* self, int64_t value);
+int32_t icall_uint64_compare_to(uint64_t* self, uint64_t value);
+int32_t icall_uint32_compare_to(uint32_t* self, uint32_t value);
+int32_t icall_double_compare_to(double* self, double value);
+int32_t icall_single_compare_to(double* self, double value);
+int32_t icall_int64_compare_to_obj(int64_t* self, Il2CppObject* other);
+int32_t icall_uint64_compare_to_obj(uint64_t* self, Il2CppObject* other);
+int32_t icall_double_compare_to_obj(double* self, Il2CppObject* other);
+int32_t icall_single_compare_to_obj(double* self, Il2CppObject* other);
+int32_t icall_int32_compare_to_obj(int32_t* self, Il2CppObject* other, const char* expectedName);
+int32_t icall_primitive_compare_to_diff(int32_t* self, int32_t value);
+int32_t icall_uint32_compare_to_obj(uint32_t* self, Il2CppObject* other, const char* expectedName);
+
 } // namespace runtime
 } // namespace il2cpp

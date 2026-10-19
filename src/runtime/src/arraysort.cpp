@@ -2509,6 +2509,28 @@ void ValidateLastIndexOfStartIndex(const Il2CppArray* a, int32_t startIndex)
     }
 }
 
+// nb9 D13: the NON-GENERIC Array.LastIndexOf(Array, object, int, int) names
+// the range-overflow parameter "endIndex" (the generic overload names it
+// "count"). Both keep "count" for a negative count.
+void ValidateLastIndexOfRangeAny(const Il2CppArray* a, int32_t startIndex, int32_t count)
+{
+    ValidateLastIndexOfStartIndex(a, startIndex);
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "count",
+            "Count must be positive and count must refer to a location within "
+            "the string/array/collection.");
+    }
+    if (static_cast<int64_t>(count) > static_cast<int64_t>(startIndex) + 1)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "endIndex",
+            "Count must be positive and count must refer to a location within "
+            "the string/array/collection.");
+    }
+}
+
 void ValidateLastIndexOfRange(const Il2CppArray* a, int32_t startIndex, int32_t count)
 {
     ValidateLastIndexOfStartIndex(a, startIndex);
@@ -3235,7 +3257,7 @@ int32_t il2cpp_array_last_index_of_any_range(Il2CppArray* arr, Il2CppObject* val
                                              int32_t startIndex, int32_t count)
 {
     Il2CppArray* a = RequireArraySort(arr);
-    ValidateLastIndexOfRange(a, startIndex, count);
+    ValidateLastIndexOfRangeAny(a, startIndex, count);
     const int32_t lo = startIndex - count + 1;
     for (int32_t i = startIndex; i >= lo && i < a->length; --i)
     {
@@ -3537,6 +3559,13 @@ int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* co
     {
         Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(keys->data);
         if (comparer == nullptr) return ComparerCompareCore(slots[i], slots[j]);
+        // nb9 E3: the StringComparer singletons have no reflected Compare
+        // slot; compare the string keys ordinally (same special case as the
+        // single-array comparer sort).
+        if (comparer == &System_StringComparer_Ordinal_singleton)
+            return CompareStringOrdinalElement(slots[i], slots[j], false);
+        if (comparer == &System_StringComparer_OrdinalIgnoreCase_singleton)
+            return CompareStringOrdinalElement(slots[i], slots[j], true);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyRef, slots[i], slots[j]);
     }
     if (kind == 1)
@@ -3621,6 +3650,28 @@ void il2cpp_array_sort_any(Il2CppArray* arr)
         try
         {
             QuickSortAnyIndices(&a, 0, a->length - 1, CompareAnyDefault);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
+
+void il2cpp_array_sort_any_range_icomparer(Il2CppArray* arr, int32_t index,
+                                           int32_t length, Il2CppObject* comparer)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    if (length > 1)
+    {
+        try
+        {
+            AnyComparerCompare cmp{&comparer};
+            QuickSortAnyIndices(&a, index, index + length - 1, cmp);
         }
         catch (const DotNetException&)
         {

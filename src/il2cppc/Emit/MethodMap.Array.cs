@@ -22,6 +22,12 @@ namespace Il2Cpp.Transpiler.Emit;
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
+    private static bool SecondIsArrayParam(string? paramTypes)
+    {
+        var t1 = SortedSetParamDefName(paramTypes, 1);
+        return t1 == "System.Array" || (t1 != null && t1.StartsWith("SZARRAY", StringComparison.Ordinal));
+    }
+
     private static ResolvedMethod? TryMapArray(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
         string? paramTypes = null)
@@ -62,7 +68,7 @@ public static partial class MethodRefResolver
                     // comparer route; everything else keeps the historical
                     // Comparison<T> route (a StringComparer singleton is an
                     // IComparer<string> and lands here too).
-                    var secondIsIComparer =
+        var secondIsIComparer =
                         SortedSetParamDefName(paramTypes, 1) == "System.Collections.Generic.IComparer`1";
                     // nb9 zz-b4-cmp4: the RANGE overload's comparer is the
                     // FOURTH parameter (array, index, length, comparer).
@@ -158,14 +164,18 @@ public static partial class MethodRefResolver
                     // nb9 D5: Sort(Array, Array) vs Sort(Array, IComparer) are
                     // told apart by the second argument's type (an array type
                     // means keys/items).
-                    2 when arg1Type is not null &&
-                           (arg1Type.EndsWith("[]", StringComparison.Ordinal) ||
-                            arg1Type.Contains("System.Array", StringComparison.Ordinal)) =>
+                    2 when SecondIsArrayParam(paramTypes) =>
                         I("il2cpp::il2cpp_array_sort_keys_items_default", 2, false, false, false, new[] { "a", "a" }),
                     2 => I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" }),
-                    // nb9 D4: Sort(Array, int, int[, IComparer]).
+                    // nb9 D4/E2: Sort(Array, int, int[, IComparer]) vs
+                    // Sort(Array keys, Array items, IComparer): the second
+                    // argument type decides (an array type means keys/items).
+                    3 when SecondIsArrayParam(paramTypes) =>
+                        I("il2cpp::il2cpp_array_sort_keys_items", 3, false, false, false, new[] { "a", "a", "" }),
                     3 => I("il2cpp::il2cpp_array_sort_any_range", 3, false, false, false, new[] { "a", "i", "i" }),
-                    4 => I("il2cpp::il2cpp_array_sort_keys_items_default_range", 4, false, false, false, new[] { "a", "a", "i", "i" }),
+                    4 when SecondIsArrayParam(paramTypes) =>
+                        I("il2cpp::il2cpp_array_sort_keys_items_default_range", 4, false, false, false, new[] { "a", "a", "i", "i" }),
+                    4 => I("il2cpp::il2cpp_array_sort_any_range_icomparer", 4, false, false, false, new[] { "a", "i", "i", "" }),
                     5 => I("il2cpp::il2cpp_array_sort_keys_items_range", 5, false, false, false, new[] { "a", "a", "i", "i", "" }),
                     _ => throw new NotSupportedException($"Array.Sort(Array, ...) with {count} arg(s) not wired in M5"),
                 };
