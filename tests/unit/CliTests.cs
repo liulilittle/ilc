@@ -950,11 +950,14 @@ public class CliTests
 
             var cmake = File.ReadAllText(Path.Combine(dir, "CMakeLists.txt"));
             Assert.Contains("enable_language(RC)", cmake);
-            // app.rc belongs to the EXECUTABLE source list only.
+            // app.rc is bound to a WIN32-only source variable: a non-Windows
+            // configure must never see a .rc for a language it did not enable.
+            Assert.Contains("set(IL2CPP_MANIFEST_SOURCES app.rc)", cmake);
             var exeBlock = cmake.Substring(cmake.IndexOf("add_executable(il2cpp_gen_exe", StringComparison.Ordinal));
-            Assert.Contains("app.rc", exeBlock);
-            var libBlock = cmake.Substring(cmake.IndexOf("add_library(il2cpp_gen STATIC", StringComparison.Ordinal));
-            Assert.DoesNotContain("app.rc", libBlock.Substring(0, libBlock.IndexOf("add_executable", StringComparison.Ordinal)));
+            Assert.Contains("${IL2CPP_MANIFEST_SOURCES}", exeBlock);
+            // The .rc is referenced only by its WIN32-only binding and its
+            // dependency property -- never by a library's source list.
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(cmake, "app\\.rc").Count);
         }
         finally
         {
@@ -1014,6 +1017,193 @@ public class CliTests
         var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
         File.WriteAllText(path, xml);
         return path;
+    }
+
+    // nb10 (HIGH-1): the embedded RT_MANIFEST must be valid for the encoding its
+    // own declaration names. A UTF-16 file transcoded as UTF-8 while still
+    // declaring "utf-16" is rejected by the loader (SideBySide id 59) and the
+    // produced exe never starts.
+    [Fact]
+    public void Manifest_Utf16File_IsTranscodedWithTruthfulDeclaration()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        const string xml =
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>\n"
+            + "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\">\n"
+            + "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\"><security>\n"
+            + "    <requestedPrivileges xmlns=\"urn:schemas-microsoft-com:asm.v3\">\n"
+            + "      <requestedExecutionLevel level=\"requireAdministrator\" uiAccess=\"false\"/>\n"
+            + "    </requestedPrivileges></security></trustInfo>\n"
+            + "</assembly>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.Unicode.GetPreamble()
+            .Concat(System.Text.Encoding.Unicode.GetBytes(xml)).ToArray());
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            var embedded = opts.ManifestBytes;
+
+            // Valid UTF-8, no BOM, declaration rewritten, semantics preserved.
+            var text = new System.Text.UTF8Encoding(false, true).GetString(embedded);
+            Assert.Equal((byte)'<', embedded[0]);
+            Assert.Contains("encoding=\"utf-8\"", text);
+            Assert.DoesNotContain("utf-16", text);
+            Assert.Contains("level=\"requireAdministrator\"", text);
+            Assert.Equal(xml.Replace("encoding=\"utf-16\"", "encoding=\"utf-8\""), text);
+        }
+        finally
+        {
+            File.Delete(path);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Manifest_Utf8Bom_IsCarriedThroughByteForByte()
+    {
+        const string xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<assembly/>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        var original = System.Text.Encoding.UTF8.GetPreamble()
+            .Concat(System.Text.Encoding.UTF8.GetBytes(xml)).ToArray();
+        File.WriteAllBytes(path, original);
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            Assert.Equal(original, opts.ManifestBytes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_Latin1File_IsTranscodedToUtf8()
+    {
+        // 0xE9 is 'e-acute' in ISO-8859-1 and an invalid UTF-8 lead byte.
+        const string xml = "<?xml version=\"1.0\" encoding=\"iso-8859-1\"?>\n"
+            + "<assembly description=\"caf\u00e9\"/>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.Latin1.GetBytes(xml));
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            var text = new System.Text.UTF8Encoding(false, true).GetString(opts.ManifestBytes);
+            Assert.Contains("encoding=\"utf-8\"", text);
+            Assert.Contains("caf\u00e9", text);
+            // The non-ASCII character is now two UTF-8 bytes, not one Latin-1 byte.
+            Assert.Contains((byte)0xC3, opts.ManifestBytes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_UnsupportedDeclaredEncoding_ThrowsCleanError()
+    {
+        // GBK bytes (no BOM) declaring gbk: this tool has no codepage provider,
+        // so the only safe answer is a clean error, never a corrupt resource.
+        // 0xD6 0xD0 0xCE 0xC4 is GBK for U+4E2D U+6587 and is invalid UTF-8.
+        var head = System.Text.Encoding.ASCII.GetBytes(
+            "<?xml version=\"1.0\" encoding=\"gbk\"?>\n<assembly description=\"");
+        var tail = System.Text.Encoding.ASCII.GetBytes("\"/>\n");
+        var gbk = new byte[head.Length + 4 + tail.Length];
+        head.CopyTo(gbk, 0);
+        gbk[head.Length] = 0xD6; gbk[head.Length + 1] = 0xD0;
+        gbk[head.Length + 2] = 0xCE; gbk[head.Length + 3] = 0xC4;
+        tail.CopyTo(gbk, head.Length + 4);
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, gbk);
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("not valid UTF-8", ex.Message);
+            Assert.Contains("re-save it as UTF-8", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_Utf8BytesWithWrongDeclaration_IsCorrectedNotRejected()
+    {
+        const string xml = "<?xml version=\"1.0\" encoding=\"gbk\"?>\n<assembly/>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, new System.Text.UTF8Encoding(false).GetBytes(xml));
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            var text = System.Text.Encoding.UTF8.GetString(opts.ManifestBytes);
+            Assert.Contains("encoding=\"utf-8\"", text);
+            Assert.Contains("<assembly/>", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_EmptyFile_ThrowsCleanError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, Array.Empty<byte>());
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("is empty", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Main_NoManifest_RemovesStaleArtifactsFromPreviousRun()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        // A previous generation into the same directory.
+        File.WriteAllText(Path.Combine(dir, "app.rc"),
+            "// nb10: Windows application manifest -- resource id 1, type 24 (RT_MANIFEST).\n1 24 \"app.manifest\"\n");
+        File.WriteAllText(Path.Combine(dir, "app.manifest"), "<assembly/>");
+        try
+        {
+            var code = Program.RunMain(new[] { FixturePath(), dir });
+            Assert.Equal(0, code);
+            Assert.False(File.Exists(Path.Combine(dir, "app.rc")));
+            Assert.False(File.Exists(Path.Combine(dir, "app.manifest")));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Main_NoManifest_KeepsForeignRcFile()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        const string foreign = "// hand-written resource script, not ours\n1 ICON \"app.ico\"\n";
+        File.WriteAllText(Path.Combine(dir, "app.rc"), foreign);
+        try
+        {
+            var code = Program.RunMain(new[] { FixturePath(), dir });
+            Assert.Equal(0, code);
+            Assert.Equal(foreign, File.ReadAllText(Path.Combine(dir, "app.rc")));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
     }
 
     private static string TempManifest(params string[] lines)

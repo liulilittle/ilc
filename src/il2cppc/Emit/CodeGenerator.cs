@@ -11103,7 +11103,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
-    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section �?
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section ②
     // RF-N6): construct the MEMBER-level custom attribute instances (methods /
     // fields / properties) and register each annotated member's array in the
     // RF-N6 member registry (attribute.h) under the "FullName::memberName"
@@ -11508,7 +11508,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         h.Open();
         h.Line("return il2cpp::il2cpp_report_unhandled_exception(__il2cpp_unhandled.message_text());");
         h.Close();
-        // GN-17 (方案�?: a native std::exception or any other C++ escape that
+        // GN-17 (方案乙): a native std::exception or any other C++ escape that
         // slips past the P/Invoke boundary wrap (il2cpp_pinvoke_call) must NOT
         // reach std::terminate/abort -- report and exit non-zero (the .NET
         // process contract: an uncaught native exception is a reported,
@@ -11727,9 +11727,22 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // the CMake RC arm are not emitted at all, so every existing build path
         // stays byte-identical.
         var manifestFile = EmitManifestIfRequested(outDir, options);
+        if (manifestFile != null)
+        {
+            // nb10: the manifest is a Windows RESOURCE. The source list is
+            // populated only under WIN32, so a Linux/Android configure never
+            // sees a .rc for a language it did not enable. OBJECT_DEPENDS makes
+            // CMake re-run windres/rc.exe when app.manifest changes (the .rc's
+            // `1 24 "app.manifest"` line is not a dependency CMake can infer).
+            w.Line("if(WIN32)");
+            w.Line("  set(IL2CPP_MANIFEST_SOURCES " + manifestFile + ")");
+            w.Line("  set_source_files_properties(" + manifestFile
+                + " PROPERTIES OBJECT_DEPENDS \"${CMAKE_CURRENT_SOURCE_DIR}/app.manifest\")");
+            w.Line("endif()");
+        }
         w.Line("add_executable(il2cpp_gen_exe");
         w.Line("    src/host.cpp");
-        if (manifestFile != null) w.Line("    " + manifestFile);
+        if (manifestFile != null) w.Line("    ${IL2CPP_MANIFEST_SOURCES}");
         w.Line(")");
         w.Line("target_include_directories(il2cpp_gen_exe PRIVATE include/internal)");
         w.Line("target_link_libraries(il2cpp_gen_exe PRIVATE il2cpp_gen)");
@@ -11739,6 +11752,24 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         w.Line("else()");
         w.Line("  target_compile_options(il2cpp_gen_exe PRIVATE -Wall -Wextra -fexceptions)");
         w.Line("endif()");
+        if (manifestFile != null)
+        {
+            // nb10 (MSVC): link.exe synthesizes its own RT_MANIFEST id 1 by
+            // default. Combined with the .rc the result is two resources with
+            // the same id: CVTRES CVT1100 (duplicate resource) + LNK1123, so
+            // the link fails; on the Ninja path where it survives, the MSVC
+            // default manifest wins and the requestedExecutionLevel is silently
+            // lost (the exe still runs asInvoker). /MANIFEST:NO turns the
+            // linker's manifest off and leaves the .rc's resource as the only
+            // one. MinGW/clang need nothing: windres owns the resource and no
+            // linker-generated manifest exists.
+            w.Line("if(MSVC)");
+            // LINK_FLAGS (not target_link_options): the project declares
+            // cmake_minimum_required(VERSION 3.10) and target_link_options only
+            // exists from 3.13.
+            w.Line("  set_property(TARGET il2cpp_gen_exe APPEND_STRING PROPERTY LINK_FLAGS \" /MANIFEST:NO\")");
+            w.Line("endif()");
+        }
         w.Line("# P-F section 3: distributable package -- cmake --install <build> gives");
         w.Line("# lib<name>.a + libil2cpp_runtime.a + include/ (consumers: -L -l<name> -lil2cpp_runtime)");
         w.Line("install(TARGETS il2cpp_gen ARCHIVE DESTINATION lib)");
@@ -11758,7 +11789,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // in that resource. Nothing in the C++ output could express it, so the
     // generator writes the two files that make the resource real:
     //
-    //   app.manifest   -- the XML (copied verbatim, or synthesized)
+    //   app.manifest   -- the XML (verbatim UTF-8, transcoded, or synthesized)
     //   app.rc         -- `1 24 "app.manifest"` (RT_MANIFEST = 24)
     //
     // and adds app.rc to the il2cpp_gen_exe source list. CMake compiles .rc
@@ -11771,73 +11802,117 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     //--------------------------------------------------------------------------
     private static string? EmitManifestIfRequested(string outDir, CliOptions? options)
     {
-        if (options == null) return null;
-        var xml = ReadManifestXml(options);
-        if (xml == null) return null;
-
-        // The .manifest must be written as UTF-8. Windows accepts UTF-8 in a
-        // manifest (the XML declaration names the encoding), and a BOM-free
-        // file keeps the resource bytes stable across hosts.
         var manifestPath = Path.Combine(outDir, "app.manifest");
-        File.WriteAllText(manifestPath, xml, new System.Text.UTF8Encoding(false));
+        var rcPath = Path.Combine(outDir, "app.rc");
+
+        if (options == null)
+        {
+            RemoveStaleManifestArtifacts(manifestPath, rcPath);
+            return null;
+        }
+
+        // The bytes are already normalized by CliParser.LoadManifestBytes: a
+        // file-sourced manifest arrives either verbatim (valid UTF-8) or
+        // transcoded to UTF-8 with a truthful declaration, so the embedded
+        // RT_MANIFEST always agrees with its own `encoding` attribute. Writing
+        // them as-is is what keeps "verbatim" true.
+        byte[] xml;
+        if (options.ManifestIsGenerated)
+        {
+            xml = new System.Text.UTF8Encoding(false).GetBytes(SynthesizeManifest(options));
+        }
+        else if (options.ManifestBytes.Length > 0)
+        {
+            xml = options.ManifestBytes;
+        }
+        else
+        {
+            // No manifest source: a REUSED output directory must not keep the
+            // previous run's elevation model. Only artifacts this generator
+            // wrote (recognized by the marker comment in app.rc) are removed.
+            RemoveStaleManifestArtifacts(manifestPath, rcPath);
+            return null;
+        }
+
+        File.WriteAllBytes(manifestPath, xml);
 
         // `1 24 "app.manifest"`: id 1, type 24 (RT_MANIFEST). The path is
         // relative to the .rc file, and both live in the project root, so a
         // bare file name is correct and relocatable.
-        var rcPath = Path.Combine(outDir, "app.rc");
-        File.WriteAllText(rcPath,
-            "// nb10: Windows application manifest -- resource id 1, type 24 (RT_MANIFEST).\n"
-            + "// Embedded into il2cpp_gen_exe only; the requestedExecutionLevel below\n"
-            + "// decides the process elevation model at CreateProcess time.\n"
-            + "1 24 \"app.manifest\"\n",
-            new System.Text.UTF8Encoding(false));
+        File.WriteAllBytes(rcPath,
+            new System.Text.UTF8Encoding(false).GetBytes(
+                "// nb10: Windows application manifest -- resource id 1, type 24 (RT_MANIFEST).\n"
+                + "// Embedded into il2cpp_gen_exe only; the requestedExecutionLevel below\n"
+                + "// decides the process elevation model at CreateProcess time.\n"
+                + "1 24 \"app.manifest\"\n"));
         return "app.rc";
     }
 
-    // True when the options carry a manifest source (either an explicit file /
-    // sidecar path, or a synthesized requestedExecutionLevel).
-    private static bool ManifestRequested(CliOptions? options) =>
-        options != null && (options.ManifestPath.Length > 0 || options.ManifestIsGenerated);
+    // Marker that identifies app.rc as OURS (see EmitManifestIfRequested).
+    private const string ManifestRcMarker = "nb10: Windows application manifest";
 
-    // Resolve the manifest XML: a synthesized standard manifest for
-    // --requested-execution-level, otherwise the bytes of the resolved file
-    // (--manifest or the sidecar). Null = no manifest requested.
-    private static string? ReadManifestXml(CliOptions options)
+    // Delete app.rc + app.manifest left behind by an earlier generation into the
+    // same directory. Paired and marker-gated: a user's own app.rc/app.manifest
+    // in that directory is never touched.
+    private static void RemoveStaleManifestArtifacts(string manifestPath, string rcPath)
     {
-        if (options.ManifestIsGenerated)
+        try
         {
-            var level = options.RequestedExecutionLevel;
-            var uiAccess = options.UiAccess ? "true" : "false";
-            return
-                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-                + "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\">\n"
-                + "  <assemblyIdentity version=\"1.0.0.0\" name=\"il2cpp.app\" type=\"win32\"/>\n"
-                + "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\">\n"
-                + "    <security>\n"
-                + "      <requestedPrivileges xmlns=\"urn:schemas-microsoft-com:asm.v3\">\n"
-                + "        <requestedExecutionLevel level=\"" + level + "\" uiAccess=\"" + uiAccess + "\"/>\n"
-                + "      </requestedPrivileges>\n"
-                + "    </security>\n"
-                + "  </trustInfo>\n"
-                + "  <compatibility xmlns=\"urn:schemas-microsoft-com:compatibility.v1\">\n"
-                + "    <application>\n"
-                // The same supportedOS set the MinGW/LLVM default manifest
-                // carries (Vista .. Windows 10/11). Replacing the linker's
-                // default must not drop OS-compatibility declarations.
-                + "      <supportedOS Id=\"{e2011457-1546-43c5-a5fe-008deee3d3f0}\"/>\n"
-                + "      <supportedOS Id=\"{35138b9a-5d96-4fbd-8e2d-a2440225f93a}\"/>\n"
-                + "      <supportedOS Id=\"{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}\"/>\n"
-                + "      <supportedOS Id=\"{1f676c76-80e1-4239-95bb-83d0f6d0da78}\"/>\n"
-                + "      <supportedOS Id=\"{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}\"/>\n"
-                + "    </application>\n"
-                + "  </compatibility>\n"
-                + "</assembly>\n";
+            if (!File.Exists(rcPath)) return;
+            string head;
+            using (var reader = new StreamReader(rcPath, System.Text.Encoding.UTF8, true, 256))
+                head = reader.ReadLine() ?? "";
+            if (!head.Contains(ManifestRcMarker, StringComparison.Ordinal)) return;
+            File.Delete(rcPath);
+            if (File.Exists(manifestPath)) File.Delete(manifestPath);
         }
+        catch (IOException)
+        {
+            // Best effort: a stale artifact that cannot be deleted is harmless
+            // (the new CMakeLists does not reference it) and must not fail the
+            // transpile.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
-        if (options.ManifestPath.Length == 0) return null;
-        // A manifest the user supplied is embedded VERBATIM -- rewriting it
-        // would silently change the artifact's elevation model.
-        return File.ReadAllText(options.ManifestPath);
+    // True when the options carry a manifest source (either an explicit file /
+    // sidecar, or a synthesized requestedExecutionLevel).
+    private static bool ManifestRequested(CliOptions? options) =>
+        options != null && (options.ManifestBytes.Length > 0 || options.ManifestIsGenerated);
+
+    // Synthesize the standard manifest for --requested-execution-level. Kept
+    // separate from the file path so the emitted bytes of a generated manifest
+    // are independent of how a user-supplied one is normalized.
+    private static string SynthesizeManifest(CliOptions options)
+    {
+        var level = options.RequestedExecutionLevel;
+        var uiAccess = options.UiAccess ? "true" : "false";
+        return
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            + "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\">\n"
+            + "  <assemblyIdentity version=\"1.0.0.0\" name=\"il2cpp.app\" type=\"win32\"/>\n"
+            + "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\">\n"
+            + "    <security>\n"
+            + "      <requestedPrivileges xmlns=\"urn:schemas-microsoft-com:asm.v3\">\n"
+            + "        <requestedExecutionLevel level=\"" + level + "\" uiAccess=\"" + uiAccess + "\"/>\n"
+            + "      </requestedPrivileges>\n"
+            + "    </security>\n"
+            + "  </trustInfo>\n"
+            + "  <compatibility xmlns=\"urn:schemas-microsoft-com:compatibility.v1\">\n"
+            + "    <application>\n"
+            // The same supportedOS set the MinGW/LLVM default manifest
+            // carries (Vista .. Windows 10/11). Replacing the linker's
+            // default must not drop OS-compatibility declarations.
+            + "      <supportedOS Id=\"{e2011457-1546-43c5-a5fe-008deee3d3f0}\"/>\n"
+            + "      <supportedOS Id=\"{35138b9a-5d96-4fbd-8e2d-a2440225f93a}\"/>\n"
+            + "      <supportedOS Id=\"{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}\"/>\n"
+            + "      <supportedOS Id=\"{1f676c76-80e1-4239-95bb-83d0f6d0da78}\"/>\n"
+            + "      <supportedOS Id=\"{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}\"/>\n"
+            + "    </application>\n"
+            + "  </compatibility>\n"
+            + "</assembly>\n";
     }
 
     // Relative path (same volume); degrades to an absolute path across volumes.

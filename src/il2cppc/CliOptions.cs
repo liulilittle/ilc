@@ -71,7 +71,9 @@ OPTIONS
                                  are ignored).
   --reflection-granularity <g>   all | members (default: members).
   --manifest <file>              embed this Windows application manifest into
-                                 the generated executable (verbatim). Mutually
+                                 the generated executable. Embedded verbatim
+                                 when the file is UTF-8; otherwise transcoded to
+                                 UTF-8 with its declaration rewritten. Mutually
                                  exclusive with --requested-execution-level.
   --requested-execution-level <l>
                                  asInvoker | highestAvailable |
@@ -121,9 +123,16 @@ EXAMPLES
 WINDOWS APPLICATION MANIFEST
   The generated executable embeds an RT_MANIFEST resource (id 1) when a
   manifest is requested. Sources, in precedence order:
-    1. --manifest <file>                (embedded verbatim)
+    1. --manifest <file>                (verbatim when UTF-8)
     2. --requested-execution-level <l>  (synthesized, with --ui-access)
     3. the sidecar <input-assembly>.manifest (e.g. App.exe.manifest)
+  An explicit source (1 or 2) suppresses the sidecar. A manifest that is not
+  UTF-8 is transcoded to UTF-8 and its XML declaration rewritten; an encoding
+  this build cannot decode is rejected, never embedded corrupt (a mismatch
+  between bytes and declaration makes Windows refuse to start the image).
+  uiAccess=""true"" only takes effect for a binary that is Authenticode-signed
+  and installed in a secure location -- Windows enforces both; an unsigned
+  build requesting it will not start.
   With no manifest source the project emits no .rc file at all, so the
   non-Windows build path is byte-identical to before.
 
@@ -161,7 +170,7 @@ NOTES
     public int PointerSize { get; init; } = IntPtr.Size;
 
     // Windows application manifest (nb10). Three sources, in precedence order:
-    //   1. --manifest <file>              -- embed that XML verbatim
+    //   1. --manifest <file>              -- embed that XML (verbatim when UTF-8)
     //   2. --requested-execution-level    -- synthesize the standard manifest
     //      <asInvoker|highestAvailable|requireAdministrator>
     //   3. the SIDECAR <input-assembly>.manifest (App.exe.manifest), the same
@@ -173,6 +182,16 @@ NOTES
     public bool ManifestIsGenerated { get; init; }
     public string RequestedExecutionLevel { get; init; } = "";
     public bool UiAccess { get; init; }
+
+    // nb10 (HIGH-1): the EXACT bytes to embed for a file-sourced manifest,
+    // already normalized to a form Windows can parse. An XML declaration's
+    // encoding attribute is authoritative for the reader, so a file that is
+    // UTF-16/UTF-32 (or a supported 8-bit codepage) must be transcoded AND its
+    // declaration rewritten -- otherwise the embedded RT_MANIFEST is declared
+    // one encoding while carrying another and CreateProcess fails with
+    // SideBySide "Invalid Xml syntax" (event id 59). A file that is already
+    // valid UTF-8 is carried through byte-for-byte (verbatim), BOM included.
+    public byte[] ManifestBytes { get; init; } = Array.Empty<byte>();
 }
 
 public sealed class CliParseException : Exception
@@ -278,17 +297,23 @@ public static class CliParser
         // external-manifest convention Windows honors -- so a project that
         // already ships one needs no extra flag.
         var resolvedManifest = "";
+        var manifestBytes = Array.Empty<byte>();
         if (appManifestPath != null)
         {
             if (!File.Exists(appManifestPath))
                 throw new CliParseException(
                     $"Windows application manifest not found: {appManifestPath}");
             resolvedManifest = appManifestPath;
+            manifestBytes = LoadManifestBytes(appManifestPath);
         }
         else if (requestedExecutionLevel.Length == 0)
         {
             var sidecar = positionals[0] + ".manifest";
-            if (File.Exists(sidecar)) resolvedManifest = sidecar;
+            if (File.Exists(sidecar))
+            {
+                resolvedManifest = sidecar;
+                manifestBytes = LoadManifestBytes(sidecar);
+            }
         }
 
         return new CliOptions
@@ -302,6 +327,7 @@ public static class CliParser
             Quiet = quiet,
             Verbose = verbose,
             ManifestPath = resolvedManifest,
+            ManifestBytes = manifestBytes,
             ManifestIsGenerated = requestedExecutionLevel.Length > 0,
             RequestedExecutionLevel = requestedExecutionLevel,
             UiAccess = uiAccess,
@@ -384,6 +410,191 @@ public static class CliParser
         value.Equals("all", StringComparison.OrdinalIgnoreCase) ? ReflectionGranularity.All
         : value.Equals("members", StringComparison.OrdinalIgnoreCase) ? ReflectionGranularity.Members
         : throw new CliParseException($"invalid --reflection-granularity '{value}' (expected 'all' or 'members')");
+
+    // nb10 (HIGH-1): normalize a file-sourced Windows application manifest to
+    // bytes Windows can actually parse, without touching its semantics.
+    //
+    // An XML reader honours the declaration's `encoding` pseudo-attribute, so
+    // the bytes and that attribute MUST agree. Getting this wrong is not a
+    // cosmetic defect: the embedded RT_MANIFEST is then rejected at
+    // CreateProcess time with SideBySide "Invalid Xml syntax" (event id 59) and
+    // the produced executable never starts. Rules:
+    //   * already valid UTF-8  -> returned untouched (verbatim; a UTF-8 BOM is
+    //     legal XML and is preserved)
+    //   * UTF-16/UTF-32 BOM, or a supported 8-bit codepage
+    //                          -> transcoded to UTF-8 with the declaration
+    //                             rewritten to encoding="utf-8" (mt.exe's
+    //                             behaviour)
+    //   * anything else        -> clean parse error naming the file, telling the
+    //     user to re-save as UTF-8. Never emit an invalid RT_MANIFEST.
+    private static byte[] LoadManifestBytes(string path)
+    {
+        byte[] raw;
+        try
+        {
+            raw = File.ReadAllBytes(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new CliParseException(
+                $"cannot read Windows application manifest '{path}': {ex.Message}");
+        }
+        if (raw.Length == 0)
+            throw new CliParseException($"Windows application manifest is empty: {path}");
+
+        var strictUtf8 = new System.Text.UTF8Encoding(false, true);
+        var bom = SniffBom(raw, out var bomLength);
+
+        // 1. No BOM, or a UTF-8 BOM: valid UTF-8 is carried through verbatim.
+        if (bom == null || bom is System.Text.UTF8Encoding)
+        {
+            var body = bom == null ? raw : raw[bomLength..];
+            if (IsValidUtf8(strictUtf8, body))
+            {
+                var declared = SniffDeclaredEncoding(body);
+                // A declaration that names some OTHER encoding while the bytes
+                // are UTF-8 is a lie the reader would trip over: fix the
+                // declaration, keep the text.
+                if (declared == null || IsUtf8Name(declared))
+                    return raw;
+                return System.Text.Encoding.UTF8.GetBytes(
+                    RewriteDeclaration(strictUtf8.GetString(body)));
+            }
+        }
+
+        // 2. Decode with the BOM encoding when present, else with the declared
+        //    one; the result is re-encoded as UTF-8 with a truthful declaration.
+        string? text = null;
+        if (bom != null)
+        {
+            try { text = bom.GetString(raw, bomLength, raw.Length - bomLength); }
+            catch (System.Text.DecoderFallbackException) { text = null; }
+        }
+        else
+        {
+            var declared = SniffDeclaredEncoding(raw);
+            var enc = declared == null ? null : TryGetBuiltinEncoding(declared);
+            if (enc != null)
+            {
+                try { text = enc.GetString(raw); }
+                catch (System.Text.DecoderFallbackException) { text = null; }
+            }
+            if (text == null && !IsValidUtf8(strictUtf8, raw))
+            {
+                var declaredText = declared == null
+                    ? "and declares no XML encoding"
+                    : $"and its declared encoding '{declared}' is not supported";
+                throw new CliParseException(
+                    $"Windows application manifest '{path}' is not valid UTF-8 {declaredText} "
+                    + "(re-save it as UTF-8)");
+            }
+        }
+
+        if (text == null)
+            throw new CliParseException(
+                $"cannot decode Windows application manifest '{path}' (re-save it as UTF-8)");
+
+        return System.Text.Encoding.UTF8.GetBytes(RewriteDeclaration(text));
+    }
+
+    // Byte-order mark -> the encoding it announces, plus its byte length.
+    // UTF-32 is probed before UTF-16 (FF FE 00 00 also matches FF FE).
+    private static System.Text.Encoding? SniffBom(byte[] raw, out int length)
+    {
+        length = 0;
+        if (raw.Length >= 4 && raw[0] == 0xFF && raw[1] == 0xFE && raw[2] == 0x00 && raw[3] == 0x00)
+        { length = 4; return new System.Text.UTF32Encoding(false, true); }
+        if (raw.Length >= 4 && raw[0] == 0x00 && raw[1] == 0x00 && raw[2] == 0xFE && raw[3] == 0xFF)
+        { length = 4; return new System.Text.UTF32Encoding(true, true); }
+        if (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
+        { length = 3; return new System.Text.UTF8Encoding(false); }
+        if (raw.Length >= 2 && raw[0] == 0xFF && raw[1] == 0xFE)
+        { length = 2; return new System.Text.UnicodeEncoding(false, false); }
+        if (raw.Length >= 2 && raw[0] == 0xFE && raw[1] == 0xFF)
+        { length = 2; return new System.Text.UnicodeEncoding(true, false); }
+        return null;
+    }
+
+    private static bool IsValidUtf8(System.Text.Encoding strictUtf8, byte[] bytes)
+    {
+        try { strictUtf8.GetString(bytes); return true; }
+        catch (System.Text.DecoderFallbackException) { return false; }
+    }
+
+    private static bool IsUtf8Name(string name) =>
+        name.Equals("utf-8", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("utf8", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("us-ascii", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("ascii", StringComparison.OrdinalIgnoreCase);
+
+    // The 8-bit/Unicode encodings this tool can transcode WITHOUT a codepage
+    // provider (il2cppc does not reference System.Text.Encoding.CodePages).
+    // Anything else (gbk, shift_jis, ...) is rejected with advice rather than
+    // guessed at.
+    private static System.Text.Encoding? TryGetBuiltinEncoding(string name) =>
+        name.ToLowerInvariant() switch
+        {
+            "utf-16" or "utf-16le" or "unicode" => System.Text.Encoding.Unicode,
+            "utf-16be" or "unicodefffe" => System.Text.Encoding.BigEndianUnicode,
+            "utf-32" or "utf-32le" => System.Text.Encoding.UTF32,
+            "utf-32be" => new System.Text.UTF32Encoding(true, false),
+            "iso-8859-1" or "latin1" or "latin-1" => System.Text.Encoding.Latin1,
+            _ => null,
+        };
+
+    // The `encoding` pseudo-attribute of the XML DECLARATION (an `encoding`
+    // elsewhere is not a reader directive). The declaration itself is pure
+    // ASCII in every encoding handled here, so a Latin-1 window is a safe view.
+    private static string? SniffDeclaredEncoding(byte[] raw)
+    {
+        var window = System.Text.Encoding.Latin1.GetString(raw, 0, Math.Min(raw.Length, 512));
+        var open = window.IndexOf("<?xml", StringComparison.Ordinal);
+        if (open < 0) return null;
+        var close = window.IndexOf("?>", open, StringComparison.Ordinal);
+        if (close < 0) return null;
+        var decl = window.Substring(open, close - open);
+        return ReadEncodingValue(decl);
+    }
+
+    // Replace the declaration's encoding value with utf-8. A declaration with no
+    // encoding attribute needs no rewrite: XML's default is UTF-8/UTF-16
+    // auto-detection, which the transcoded bytes already satisfy.
+    private static string RewriteDeclaration(string text)
+    {
+        var open = text.IndexOf("<?xml", StringComparison.Ordinal);
+        if (open < 0) return text;
+        var close = text.IndexOf("?>", open, StringComparison.Ordinal);
+        if (close < 0) return text;
+        var decl = text.Substring(open, close - open);
+        if (ReadEncodingValue(decl) == null) return text;
+
+        var at = decl.IndexOf("encoding", StringComparison.OrdinalIgnoreCase) + "encoding".Length;
+        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        at++; // '='
+        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        var quote = decl[at];
+        var start = at + 1;
+        var end = decl.IndexOf(quote, start);
+        if (end < 0) return text;
+        return text[..(open + start)] + "utf-8" + text[(open + end)..];
+    }
+
+    private static string? ReadEncodingValue(string decl)
+    {
+        var at = decl.IndexOf("encoding", StringComparison.OrdinalIgnoreCase);
+        if (at < 0) return null;
+        at += "encoding".Length;
+        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        if (at >= decl.Length || decl[at] != '=') return null;
+        at++;
+        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        if (at >= decl.Length || (decl[at] != '"' && decl[at] != '\'')) return null;
+        var quote = decl[at];
+        var start = at + 1;
+        var end = decl.IndexOf(quote, start);
+        if (end < 0) return null;
+        return decl.Substring(start, end - start);
+    }
 
     private static IReadOnlyList<string> ReadManifest(string path)
     {
