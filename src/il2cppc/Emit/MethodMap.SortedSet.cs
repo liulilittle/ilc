@@ -56,10 +56,14 @@ public static partial class MethodRefResolver
                     if (ps[0] == 0x08)
                         return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
                     if (p0 == "System.Collections.Generic.IComparer`1")
-                        return intReceiver
-                            ? I("il2cpp::runtime::icall_sortedset_int_ctor_comparer", 1, false, false, true,
-                                new[] { "", "" })
-                            : null;
+                        // nb9 M-5: the sorted-array storage is shared by every
+                        // element family, and the comparer is installed on that
+                        // storage (boxed-key family dispatch happens at compare
+                        // time), so the SAME entry serves long/double/ref. The
+                        // old null fall-through emitted an undeclared phantom
+                        // ctor for non-int instantiations (C0).
+                        return I("il2cpp::runtime::icall_sortedset_int_ctor_comparer", 1, false, false, true,
+                            new[] { "", "" });
                     if (p0 == "System.Collections.Generic.IEnumerable`1")
                         return intReceiver
                             ? I("il2cpp::runtime::icall_sortedset_int_ctor_enum", 1, false, false, true,
