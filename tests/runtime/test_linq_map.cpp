@@ -89,6 +89,7 @@
 //------------------------------------------------------------------------------
 
 #include "linq_map.h"
+#include "linq.h" // nb9 P0-1: il2cpp_linq_aggregate_seed_f / to_array_family
 
 #include "il2cpp_delegate.h"
 #include "il2cpp_delegate_ext.h"
@@ -96,6 +97,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
+#include "genericcomparer_obj.h" // nb9 P0-2: Comparer<T>.Create wrappers
 #include "listi4.h"
 
 #include <cstdint>
@@ -433,6 +435,124 @@ int32_t InstZipAddOffset(il2cpp::Il2CppObject* this_, int32_t a, int32_t b)
 {
     return a + b + reinterpret_cast<LinqZipInst*>(this_)->offset;
 }
+
+//------------------------------------------------------------------------------
+// nb9 fix (H1/H2) GroupBy element/result-selector fixtures for
+// il2cpp_linq_group_by_full (the single entry every GroupBy overload uses;
+// it drives BuildGroups + ApplyResultSelector internally).
+//------------------------------------------------------------------------------
+int32_t KeyZero(int32_t) { return 0; }
+
+il2cpp::Il2CppObject* MakeCsString(const char* text)
+{
+    return reinterpret_cast<il2cpp::Il2CppObject*>(
+        il2cpp::il2cpp_string_new_from_cs(text));
+}
+
+// Element selector (Func<int,string>): "e<v>".
+il2cpp::Il2CppObject* ElemStr(int32_t v)
+{
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "e%d", v);
+    return MakeCsString(buf);
+}
+
+// Element selector (Func<int,long>): a wide value (exercises the box path).
+int64_t ElemI8(int32_t v) { return static_cast<int64_t>(v) * 1000000000LL; }
+
+// H2 regression probe: same budget trick as GarbageElemStr, but for the boxed
+// int64 family. The value itself is a scalar, so no root is needed; what is at
+// stake is BuildGroups' cached 'grp' pointer, which the box allocation (a GC
+// point) can invalidate before elements/count are touched.
+int64_t GarbageElemI8(int32_t v)
+{
+    // Establish a low bumped-byte counter ONCE (the first call only). Forcing
+    // a collection on every call would promote the freshly created bucket out
+    // of Gen0 before the box runs, hiding the very hazard this probe targets.
+    static bool primed = false;
+    if (!primed)
+    {
+        primed = true;
+        const int64_t before = il2cpp::il2cpp_gc_get_collection_count(0);
+        while (il2cpp::il2cpp_gc_get_collection_count(0) == before)
+        {
+            (void)il2cpp::il2cpp_array_new(nullptr, 65536, false, 1);
+        }
+    }
+    // Leave the bumped-byte counter above the budget so the NEXT allocation
+    // (the box inside BuildGroups) runs a compacting collection while the
+    // bucket is still a Gen0 object.
+    (void)il2cpp::il2cpp_array_new(nullptr, 300 * 1024, false, 1);
+    return ElemI8(v);
+}
+
+// H1 regression probe. BuildGroups runs, per iteration:
+//     keySel -> elemSel -> (bucket growth if full) -> store
+// so the projected reference element is produced BEFORE the growth allocation.
+// This selector leaves the GC's bumped-byte counter ABOVE its collection budget
+// (kCollectAfterBumpedBytes) without tripping a collection itself, so the very
+// next allocation -- the bucket growth inside BuildGroups -- runs a full
+// compacting collection. At that moment the projected string is reachable only
+// through BuildGroups' element slot: unrooted (the pre-fix state) it is swept
+// away, and the bucket stores a dangling pointer.
+il2cpp::Il2CppObject* GarbageElemStr(int32_t v)
+{
+    // Step 1: drain the counter to a known state by forcing one collection.
+    // (An allocation that starts above the budget collects BEFORE bumping, so
+    // repeatedly allocating large blocks guarantees an observed collection.)
+    const int64_t before = il2cpp::il2cpp_gc_get_collection_count(0);
+    while (il2cpp::il2cpp_gc_get_collection_count(0) == before)
+    {
+        (void)il2cpp::il2cpp_array_new(nullptr, 65536, false, 1);
+    }
+
+    // Step 2: create the element this probe is about, and keep it alive only
+    // through a FIXTURE-LOCAL root (removed before returning) -- the CALLER is
+    // what must root it after the return.
+    il2cpp::Il2CppObject* s = ElemStr(v);
+    il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&s));
+
+    // Step 3: bump the counter past the budget WITHOUT collecting (this
+    // allocation starts at ~0, so the pre-check does not fire). The next
+    // allocation -- BuildGroups' bucket growth -- is then guaranteed to run a
+    // compacting collection.
+    (void)il2cpp::il2cpp_array_new(nullptr, 300 * 1024, false, 1);
+
+    il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&s));
+    return s;
+}
+
+// Result selector (Func<int,IEnumerable<int>,int>): key * 100 + count.
+// NOTE: the second argument is the bucket's int32[] snapshot (the stage-1
+// IEnumerable<TElement> carrier), so its length is the bucket count.
+int32_t ResKeyCountI4(int32_t key, il2cpp::Il2CppObject* group)
+{
+    const int32_t n = reinterpret_cast<il2cpp::Il2CppArray*>(group)->length;
+    return key * 100 + n;
+}
+
+// Result selector (Func<int,IEnumerable<int>,string>): "k<c>".
+il2cpp::Il2CppObject* ResKeyCountStr(int32_t key, il2cpp::Il2CppObject* group)
+{
+    const int32_t n = reinterpret_cast<il2cpp::Il2CppArray*>(group)->length;
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "k%d=%d", key, n);
+    return MakeCsString(buf);
+}
+
+// A boxed Int64 payload (the runtime box layout: klass at 0, value at 8).
+int64_t BoxedI8Value(il2cpp::Il2CppObject* boxed)
+{
+    return *reinterpret_cast<int64_t*>(reinterpret_cast<char*>(boxed) + 8);
+}
+
+// nb9 P0-1/P0-2 fixtures: the float accumulator ABI is float(double,int32_t)
+// (the F stack carries the accumulator as double), and the Comparison<T>
+// delegates use the matching element ABI.
+float FloatAdd(double a, int32_t b) { return static_cast<float>(a) + static_cast<float>(b); }
+int32_t CmpDescI4(int32_t a, int32_t b) { return b < a ? -1 : b > a ? 1 : 0; }
+int32_t CmpAscI8(int64_t a, int64_t b) { return a < b ? -1 : a > b ? 1 : 0; }
+int32_t CmpDescD(double a, double b) { return b < a ? -1 : b > a ? 1 : 0; }
 
 } // namespace
 
@@ -2037,6 +2157,147 @@ int main()
                 gcOk = false;
         }
         Expect(gcOk, "take_while_idx_i4 with a collecting predicate yields correct values");
+    }
+
+    // --- 20. nb9 fix H1/H2/M1: group_by_full element + result selectors ---
+    {
+        // 20a (H1): a REFERENCE element selector over a 12-element bucket
+        // (crossing the 4/8 growth boundaries) where the selector leaves ~1MB
+        // of unreachable garbage per call, so the bucket-growth allocation
+        // itself trips the Gen0 budget and compacts the heap while the
+        // projected element is live. Before the fix 'elemRef' was a bare local
+        // and the bucket got stale/corrupt values.
+        int32_t twelve[12];
+        for (int32_t i = 0; i < 12; ++i) twelve[i] = i;
+        Il2CppArray* src = MakeI4Array(twelve, 12);
+        Il2CppObject* res = il2cpp::il2cpp_linq_group_by_full(
+            src,
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&KeyZero))),
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&GarbageElemStr))),
+            nullptr, nullptr, /*elemKind=*/1, /*rsKind=*/0);
+        Expect(il2cpp::il2cpp_linq_grouping_result_get_count(res) == 1,
+               "group_by_full ref-element: a single key yields one bucket");
+        Il2CppObject* g = il2cpp::il2cpp_linq_grouping_result_get_grouping(res, 0);
+        Expect(il2cpp::il2cpp_linq_grouping_get_count(g) == 12,
+               "group_by_full ref-element: the grown bucket keeps all 12 elements");
+        Il2CppArray* elems = il2cpp::il2cpp_linq_grouping_get_elements(g);
+        bool refOk = elems != nullptr && elems->length == 12 && elems->isRefElem;
+        for (int32_t i = 0; i < 12 && refOk; ++i)
+        {
+            Il2CppObject* s = *reinterpret_cast<Il2CppObject**>(
+                il2cpp::il2cpp_array_get_elem_ptr(elems, i));
+            char expected[16];
+            std::snprintf(expected, sizeof(expected), "e%d", twelve[i]);
+            if (!IsAsciiString(s, expected)) refOk = false;
+        }
+        Expect(refOk,
+               "group_by_full ref-element: every projected string survives the growth compaction");
+
+        // 20b (H2): a boxed int64 element selector over the same 12-element
+        // bucket. Each append boxes AFTER the growth check, so 'grp' must be
+        // re-derived from the rooted result before touching elements/count.
+        int32_t wide[12];
+        for (int32_t i = 0; i < 12; ++i) wide[i] = i + 1;
+        Il2CppArray* srcW = MakeI4Array(wide, 12);
+        Il2CppObject* resW = il2cpp::il2cpp_linq_group_by_full(
+            srcW,
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&KeyZero))),
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&GarbageElemI8))),
+            nullptr, nullptr, /*elemKind=*/2, /*rsKind=*/0);
+        Il2CppObject* gW = il2cpp::il2cpp_linq_grouping_result_get_grouping(resW, 0);
+        Expect(il2cpp::il2cpp_linq_grouping_get_count(gW) == 12,
+               "group_by_full boxed-int64: the grown bucket keeps all 12 elements");
+        Il2CppArray* elemsW = il2cpp::il2cpp_linq_grouping_get_elements(gW);
+        bool wideOk = elemsW != nullptr && elemsW->length == 12 && elemsW->isRefElem;
+        for (int32_t i = 0; i < 12 && wideOk; ++i)
+        {
+            Il2CppObject* boxed = *reinterpret_cast<Il2CppObject**>(
+                il2cpp::il2cpp_array_get_elem_ptr(elemsW, i));
+            if (BoxedI8Value(boxed) != static_cast<int64_t>(wide[i]) * 1000000000LL)
+                wideOk = false;
+        }
+        Expect(wideOk,
+               "group_by_full boxed-int64: every boxed value survives the growth/box sequence");
+
+        // 20c (M1): the result-selector surface (ApplyResultSelector) for both
+        // TResult families -- one selector call per bucket, first-appearance
+        // order. Source {1..10}: key 1 (5 elements) then key 0 (5 elements).
+        int32_t ten[10];
+        TenValues(ten);
+        Il2CppArray* srcR = MakeI4Array(ten, 10);
+        Il2CppObject* rI4 = il2cpp::il2cpp_linq_group_by_full(
+            srcR,
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&KeyParity))),
+            nullptr, nullptr,
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&ResKeyCountI4))),
+            /*elemKind=*/0, /*rsKind=*/1);
+        Il2CppArray* outI4 = reinterpret_cast<Il2CppArray*>(rI4);
+        Expect(outI4 != nullptr && outI4->length == 2 && !outI4->isRefElem &&
+                   *reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(outI4, 0)) == 105 &&
+                   *reinterpret_cast<int32_t*>(il2cpp::il2cpp_array_get_elem_ptr(outI4, 1)) == 5,
+               "group_by_full result-selector: int32 TResult = {105,5}");
+
+        Il2CppObject* rRef = il2cpp::il2cpp_linq_group_by_full(
+            srcR,
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&KeyParity))),
+            nullptr, nullptr,
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&ResKeyCountStr))),
+            /*elemKind=*/0, /*rsKind=*/2);
+        Il2CppArray* outRef = reinterpret_cast<Il2CppArray*>(rRef);
+        bool refSelOk = outRef != nullptr && outRef->length == 2 && outRef->isRefElem;
+        if (refSelOk)
+        {
+            Il2CppObject* s0 = *reinterpret_cast<Il2CppObject**>(
+                il2cpp::il2cpp_array_get_elem_ptr(outRef, 0));
+            Il2CppObject* s1 = *reinterpret_cast<Il2CppObject**>(
+                il2cpp::il2cpp_array_get_elem_ptr(outRef, 1));
+            refSelOk = IsAsciiString(s0, "k1=5") && IsAsciiString(s1, "k0=5");
+        }
+        Expect(refSelOk, "group_by_full result-selector: reference TResult = {k1=5,k0=5}");
+    }
+
+    // --- 21. nb9 P0 kernels: float fold, family ToArray, created comparers ---
+    {
+        // 21a (P0-1): a FLOAT accumulator over an int32 source. The lambda ABI
+        // is float(double, int32_t) -- the accumulator rides the F stack as
+        // double, the result comes back as float. Reading it as a double (the
+        // pre-fix behaviour) yielded 10.5000019418076 instead of 10.5.
+        int32_t four[4] = { 1, 2, 3, 4 };
+        Il2CppArray* fsrc = MakeI4Array(four, 4);
+        float facc = il2cpp::il2cpp_linq_aggregate_seed_f(
+            fsrc, 0.5f, reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&FloatAdd))));
+        Expect(facc == 10.5f, "aggregate_seed_f(0.5) over {1,2,3,4} == 10.5f");
+
+        // 21b (P0-4): ToArray over a widened family clones by the source's own
+        // layout (int64[] here); the int32-only clone would truncate.
+        int64_t wide[3] = { 1, 2, 3 };
+        Il2CppArray* wsrc = il2cpp::il2cpp_array_new(nullptr, 8, false, 3);
+        for (int32_t i = 0; i < 3; ++i)
+            *reinterpret_cast<int64_t*>(il2cpp::il2cpp_array_get_elem_ptr(wsrc, i)) = wide[i];
+        Il2CppArray* wcopy = il2cpp::il2cpp_linq_to_array_family(wsrc);
+        Expect(wcopy != nullptr && wcopy->length == 3 && wcopy->elemSize == 8 &&
+                   !wcopy->isRefElem &&
+                   *reinterpret_cast<int64_t*>(il2cpp::il2cpp_array_get_elem_ptr(wcopy, 2)) == 3,
+               "to_array_family clones an int64[] with the 8-byte layout");
+
+        // 21c (P0-2): Comparer<T>.Create must invoke the WRAPPED delegate.
+        Il2CppObject* cmpI = il2cpp::runtime::il2cpp_comparer_create_int(
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&CmpDescI4))));
+        Expect(il2cpp::runtime::il2cpp_created_comparer_compare_int(cmpI, 1, 2) == 1 &&
+                   il2cpp::runtime::il2cpp_created_comparer_compare_int(cmpI, 2, 1) == -1 &&
+                   il2cpp::runtime::il2cpp_created_comparer_compare_int(cmpI, 2, 2) == 0,
+               "Comparer<int>.Create(descending) Compare = {1,-1,0}");
+
+        Il2CppObject* cmpL = il2cpp::runtime::il2cpp_comparer_create_long(
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&CmpAscI8))));
+        Expect(il2cpp::runtime::il2cpp_created_comparer_compare_long(cmpL, 5, 3) == 1,
+               "Comparer<long>.Create(ascending) Compare(5,3) == 1");
+
+        Il2CppObject* cmpD = il2cpp::runtime::il2cpp_comparer_create_double(
+            reinterpret_cast<Il2CppObject*>(Del(reinterpret_cast<void*>(&CmpDescD))));
+        Expect(il2cpp::runtime::il2cpp_created_comparer_compare_double(cmpD, 1.0, 2.0) == 1 &&
+                   il2cpp::runtime::il2cpp_created_comparer_compare_double(cmpD, 2.0, 1.0) == -1,
+               "Comparer<double>.Create(descending) Compare = {1,-1}");
     }
 
     // --- Report ---

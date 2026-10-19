@@ -21,6 +21,15 @@ using System.Text;
 //------------------------------------------------------------------------------
 namespace Cases
 {
+    // A USER IComparer<int> implementation (not Comparer<int>.Default and not
+    // Comparer<int>.Create): its reflected Compare slot is emitted with the
+    // real i(i,i) signature, so the runtime must unbox the int32 keys before
+    // the call.
+    public sealed class RevCmp : IComparer<int>
+    {
+        public int Compare(int a, int b) { return b.CompareTo(a); }
+    }
+
     public static class PNb9FixSs
     {
         static string Join(IEnumerable<int> items)
@@ -69,6 +78,16 @@ namespace Cases
             // M18: the 2-arg (IEnumerable<int>, IComparer<int>) ctor.
             var arrCmp = new SortedSet<int>(new[] { 1, 3, 2 }, Comparer<int>.Create((a, b) => b.CompareTo(a)));
             Console.WriteLine("[ss_arr_cmp]=" + Join(arrCmp));
+
+            // nb9 fix H3: a USER IComparer<int> (reflected i(i,i) Compare slot).
+            var userCmp = new SortedSet<int>(new RevCmp());
+            userCmp.Add(2);
+            userCmp.Add(1);
+            userCmp.Add(3);
+            Console.WriteLine("[ss_user_cmp]=" + Join(userCmp));
+
+            var userCmp2 = new SortedSet<int>(new[] { 3, 1, 2 }, new RevCmp());
+            Console.WriteLine("[ss_user_cmp2]=" + Join(userCmp2));
         }
     }
 }
