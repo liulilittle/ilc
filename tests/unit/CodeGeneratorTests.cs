@@ -1285,9 +1285,11 @@ public class CodeGeneratorTests
             var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_PinvokeExt.cpp"));
             // reverse_static's result temp must be full-width (an int32_t temp
             // truncates the pointer before it reaches the consumer). The native
-            // return rides the P/Invoke result bridge
-            // (il2cpp_pinvoke_result<intptr_t>).
-            var m = System.Text.RegularExpressions.Regex.Match(cpp, @"(\w+) = il2cpp::runtime::il2cpp_pinvoke_result<intptr_t>\(reverse_static\(");
+            // call rides the P/Invoke bridge: the inner call performs the
+            // native-result conversion and the outer result wraps it.
+            var m = System.Text.RegularExpressions.Regex.Match(cpp,
+                @"(\w+) = il2cpp::runtime::il2cpp_pinvoke_result<intptr_t>\("
+                + @"il2cpp::runtime::il2cpp_pinvoke_call<intptr_t>\(reverse_static,");
             Assert.True(m.Success, "reverse_static call must assign to a temp");
             var target = m.Groups[1].Value;
             Assert.Contains($"intptr_t {target};", cpp);
@@ -1348,12 +1350,13 @@ public class CodeGeneratorTests
             Assert.DoesNotContain("extern \"C\" int32_t add_doubles", cpp);
             Assert.DoesNotContain("extern \"C\" int32_t scale_float", cpp);
             Assert.DoesNotContain("extern \"C\" int32_t sum_ulongs", cpp);
-            // the native-ABI arg bridge stays active at the call sites (the
-            // templated conversion now deduces the full-width native type)
-            Assert.Contains("add_longs(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
-            Assert.Contains("add_doubles(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
-            Assert.Contains("scale_float(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
-            Assert.Contains("sum_ulongs(il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            // the native-ABI arg bridge stays active at the call sites, and the
+            // native call rides the SEH/conversion bridge with the full-width
+            // result type as the template argument
+            Assert.Contains("il2cpp_pinvoke_call<int64_t>(add_longs, il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            Assert.Contains("il2cpp_pinvoke_call<double>(add_doubles, il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            Assert.Contains("il2cpp_pinvoke_call<float>(scale_float, il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
+            Assert.Contains("il2cpp_pinvoke_call<uint64_t>(sum_ulongs, il2cpp::runtime::il2cpp_pinvoke_arg(", cpp);
             // the header carries the same full-width decls (other TUs call)
             var header = File.ReadAllText(Path.Combine(dir, "include", "internal", "generated.h"));
             Assert.Contains("extern \"C\" int64_t add_longs(int64_t, int64_t);", header);
@@ -2134,7 +2137,11 @@ public class CodeGeneratorTests
             // The void* result rides the intptr_t "ptr" carrier slot. P/Invoke
             // args ride the native-ABI bridge wrapper (il2cpp_pinvoke_arg).
             Assert.Contains("il2cpp_delegate_gfp_4f6d2a1c5276bdc6(", cpp);
-            Assert.Contains("call_callback(il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<intptr_t>(t1)), il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<int32_t>(14LL)", cpp);
+            Assert.Contains(
+                "il2cpp_pinvoke_call<int32_t>(call_callback, "
+                + "il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<intptr_t>(t1)), "
+                + "il2cpp::runtime::il2cpp_pinvoke_arg(static_cast<int32_t>(14LL)",
+                cpp);
         }
         finally
         {
