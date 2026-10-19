@@ -664,7 +664,17 @@ Il2CppDateTime icall_datetime_add_months(Il2CppDateTime dt, int32_t months)
 
 Il2CppDateTime icall_datetime_add_years(Il2CppDateTime dt, int32_t years)
 {
-    return icall_datetime_add_months(dt, years * 12);
+    // nb9 fix M3: 'years * 12' was an int32 multiply, i.e. signed-overflow UB
+    // for large inputs -- the wrapped result could land back inside the valid
+    // range and silently produce a wrong DateTime. Widen first, then range
+    // check (net48 rejects anything outside +-10000 years with AOORE).
+    const int64_t months = static_cast<int64_t>(years) * 12;
+    if (months < static_cast<int64_t>(INT32_MIN) ||
+        months > static_cast<int64_t>(INT32_MAX))
+    {
+        ThrowArgOutOfRange();
+    }
+    return icall_datetime_add_months(dt, static_cast<int32_t>(months));
 }
 
 Il2CppTimeSpan icall_datetime_subtract(Il2CppDateTime left, Il2CppDateTime right)
