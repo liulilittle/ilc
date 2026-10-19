@@ -1275,6 +1275,114 @@ public class CliTests
     }
 
     [Fact]
+    public void Manifest_WideDeclarationOnNonWideBytes_IsRejectedNotMojibake()
+    {
+        // A file whose bytes are NOT wide (no BOM, no wide prolog) cannot be the
+        // UTF-16 its declaration claims. Decoding it as UTF-16 would produce
+        // mojibake that is then embedded as a valid-looking manifest, so the
+        // only safe answer is an error. (Latin-1 0xE9 is invalid UTF-8.)
+        var head = System.Text.Encoding.ASCII.GetBytes(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>\n<assembly description=\"");
+        var tail = System.Text.Encoding.ASCII.GetBytes("\"/>\n");
+        var bytes = new byte[head.Length + 1 + tail.Length];
+        head.CopyTo(bytes, 0);
+        bytes[head.Length] = 0xE9;
+        tail.CopyTo(bytes, head.Length + 1);
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, bytes);
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("declares encoding 'utf-16'", ex.Message);
+            Assert.Contains("cannot decode", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_BomOnlyFile_IsReportedEmpty()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.Unicode.GetPreamble());
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("is empty", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_AsciiBytesWithLatin1Declaration_IsRelabelledNotRefused()
+    {
+        // Every byte < 0x80 means the same thing in ASCII, Latin-1 and UTF-8, so
+        // an all-ASCII body under a Latin-1 declaration is unambiguous.
+        const string xml = "<?xml version=\"1.0\" encoding=\"iso-8859-1\"?>\n<assembly/>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.ASCII.GetBytes(xml));
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            var text = System.Text.Encoding.UTF8.GetString(opts.ManifestBytes);
+            Assert.Contains("encoding=\"utf-8\"", text);
+            Assert.Contains("<assembly/>", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_MalformedXml_ThrowsCleanError()
+    {
+        // A missing "?>" is valid UTF-8 and passes every encoding check, but the
+        // loader rejects the manifest at CreateProcess time. Reject at parse time.
+        const string xml = "<?xml version=\"1.0\"\n<assembly manifestVersion=\"1.0\"/>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.UTF8.GetBytes(xml));
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("not well-formed XML", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_DtdIsRejected()
+    {
+        const string xml =
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            + "<!DOCTYPE assembly [<!ENTITY x \"y\">]>\n"
+            + "<assembly>&x;</assembly>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.UTF8.GetBytes(xml));
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("not well-formed XML", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Manifest_EmptyFile_ThrowsCleanError()
     {
         var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");

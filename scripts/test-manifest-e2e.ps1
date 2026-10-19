@@ -33,7 +33,10 @@ param(
     [string]$UiAccess = "false",
     [ValidateSet("mingw", "msvc", "all")]
     [string]$Compiler = "mingw",
-    [string]$Arch = ""
+    [string]$Arch = "",
+    # Skip the launch check (it may raise a UAC prompt for a requireAdministrator
+    # image on a non-elevated desktop; the resource assertions still run).
+    [switch]$SkipRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,7 +74,26 @@ if ($null -eq $assembly) {
 }
 
 $work = Join-Path $Root ".opencode\tmp\manifest-e2e\$Case"
-if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+# A previous run's MSBuild/msbuild node can still hold app.res open, which makes
+# Remove-Item fail and would then be misreported as a build failure. Retry, and
+# if the directory still cannot be cleared, build into a fresh sibling instead of
+# failing: the point of this gate is the artifact, not a fixed directory.
+function Remove-WorkTree([string]$path) {
+    for ($i = 0; $i -lt 5; $i++) {
+        if (-not (Test-Path -LiteralPath $path)) { return $true }
+        try {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+            return $true
+        } catch {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    return -not (Test-Path -LiteralPath $path)
+}
+if (-not (Remove-WorkTree $work)) {
+    $work = Join-Path $Root (".opencode\tmp\manifest-e2e\$Case-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+    Write-Host "== note: previous work dir is locked, using $work"
+}
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 # The sidecar would win over nothing but is irrelevant here: an explicit
@@ -102,24 +124,68 @@ foreach ($c in $compilers) {
     Write-Host ""
     Write-Host "== [$c] configure + build"
     $build = Join-Path $work "build-$c"
+    $log = Join-Path $work "build-$c.log"
     $env:IL2CPP_MINGW_ROOT = if ($env:IL2CPP_MINGW_ROOT) { $env:IL2CPP_MINGW_ROOT } else { "D:\Program Files\mingw\msys2\mingw64" }
     $env:PATH = "$($env:IL2CPP_MINGW_ROOT)\bin;D:\android\sdk\cmake\3.22.1\bin;$env:PATH"
 
     if ($c -eq "mingw") {
         $toolchain = Join-Path $Root "cmake\mingw-w64.cmake"
-        & cmake -S $gen -B $build -G "MinGW Makefiles" "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DCMAKE_BUILD_TYPE=Release" | Out-Null
-        if ($LASTEXITCODE -ne 0) { $failed += "$c configure"; continue }
-        & cmake --build $build --parallel | Out-Null
-        if ($LASTEXITCODE -ne 0) { $failed += "$c build"; continue }
+        # Native tools write progress/warnings to stderr. With
+        # $ErrorActionPreference = "Stop", a redirected native stderr line
+        # becomes a TERMINATING error and silently aborts the build mid-way, so
+        # relax the preference for the duration of each native call.
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & cmake -S $gen -B $build -G "MinGW Makefiles" "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DCMAKE_BUILD_TYPE=Release" *>&1 | Out-File -Encoding utf8 $log
+            $cfg = $LASTEXITCODE
+            if ($cfg -eq 0) {
+                & cmake --build $build --parallel *>&1 | Out-File -Encoding utf8 -Append $log
+                $bld = $LASTEXITCODE
+            } else { $bld = -1 }
+        } finally {
+            $ErrorActionPreference = $prev
+        }
+        if ($cfg -ne 0) {
+            Write-Host (Get-Content $log -Tail 20 | Out-String)
+            $failed += "$c configure"
+            continue
+        }
+        if ($bld -ne 0) {
+            Write-Host (Get-Content $log -Tail 30 | Out-String)
+            $failed += "$c build"
+            continue
+        }
         $exe = Join-Path $build "il2cpp_gen_exe.exe"
     } else {
         $generator = if ($env:IL2CPP_MSVC_GENERATOR) { $env:IL2CPP_MSVC_GENERATOR } else { "Visual Studio 17 2022" }
         $args = @("-S", $gen, "-B", $build, "-G", $generator)
         if ($Arch -ne "") { $args += @("-A", $Arch) }
-        & cmake @args | Out-Null
-        if ($LASTEXITCODE -ne 0) { $failed += "$c configure"; continue }
-        & cmake --build $build --config Release --parallel | Out-Null
-        if ($LASTEXITCODE -ne 0) { $failed += "$c build (CVT1100 / LNK1123 = the linker's own manifest collided with ours)"; continue }
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & cmake @args *>&1 | Out-File -Encoding utf8 $log
+            $cfg = $LASTEXITCODE
+            if ($cfg -eq 0) {
+                & cmake --build $build --config Release --parallel *>&1 | Out-File -Encoding utf8 -Append $log
+                $bld = $LASTEXITCODE
+            } else { $bld = -1 }
+        } finally {
+            $ErrorActionPreference = $prev
+        }
+        if ($cfg -ne 0) {
+            Write-Host (Get-Content $log -Tail 20 | Out-String)
+            $failed += "$c configure"
+            continue
+        }
+        if ($bld -ne 0) {
+            # Do not guess the cause: show the real toolchain output and let the
+            # log name the error (CVT1100/LNK1123 is one possibility, not the
+            # only one -- a locked .res file also lands here).
+            Write-Host (Get-Content $log -Tail 30 | Out-String)
+            $failed += "$c build (see $log)"
+            continue
+        }
         $exe = Join-Path $build "Release\il2cpp_gen_exe.exe"
     }
 
@@ -131,7 +197,47 @@ foreach ($c in $compilers) {
     $needle = "il2cpp.app"
     & powershell -NoProfile -ExecutionPolicy Bypass -File $Verify -Exe $exe `
         -Level $Level -UiAccess $UiAccess -ExpectSha256 $expectedSha -ExpectIdentity $needle
-    if ($LASTEXITCODE -ne 0) { $failed += "$c manifest verification" }
+    if ($LASTEXITCODE -ne 0) {
+        $failed += "$c manifest verification"
+        continue
+    }
+
+    # The resource check proves the manifest is EMBEDDED. Only running the image
+    # proves the loader ACCEPTS it -- a manifest whose bytes and declaration
+    # disagree builds and verifies fine, then dies at CreateProcess with
+    # SideBySide "Invalid Xml syntax" (event id 59).
+    #
+    # A requireAdministrator image may raise a UAC prompt on a non-elevated
+    # desktop, which would hang an unattended CI run. The launch is therefore
+    # time-boxed: a timeout is reported as SKIP (not a failure), a non-zero exit
+    # IS a failure (the loader rejected the manifest).
+    if ($SkipRun) {
+        Write-Host "SKIP: $c launch (-SkipRun)"
+        continue
+    }
+    $runLog = Join-Path $work "run-$c.log"
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $exe
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    # Read both streams asynchronously: draining one synchronously can deadlock
+    # when the child fills the other pipe's buffer.
+    $outTask = $proc.StandardOutput.ReadToEndAsync()
+    $errTask = $proc.StandardError.ReadToEndAsync()
+    if (-not $proc.WaitForExit(20000)) {
+        try { $proc.Kill() } catch { }
+        Write-Host "SKIP: $c launch timed out after 20s (UAC prompt or no interactive desktop)"
+        continue
+    }
+    ($outTask.Result + $errTask.Result) | Out-File -Encoding utf8 $runLog
+    if ($proc.ExitCode -ne 0) {
+        Write-Host (Get-Content $runLog | Out-String)
+        $failed += "$c executable did not start (exit $($proc.ExitCode))"
+        continue
+    }
+    Write-Host "OK: $c executable started (exit 0)"
 }
 
 Write-Host ""

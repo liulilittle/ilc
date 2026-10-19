@@ -439,6 +439,37 @@ public static class CliParser
     // UTF-8 test and be embedded as garbage.
     private static byte[] LoadManifestBytes(string path)
     {
+        var bytes = NormalizeManifestBytes(path);
+
+        // Encoding consistency is necessary but not sufficient: a manifest whose
+        // XML is malformed (missing "?>", unclosed element, ...) builds fine and
+        // then refuses to start with SideBySide "Invalid Xml syntax". Rejecting
+        // it here turns a runtime-only failure into a parse error. DTDs are
+        // prohibited: a manifest needs none, and allowing them would make a
+        // build-time parser fetch/expand attacker-controlled content.
+        var offset = (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) ? 3 : 0;
+        var text = System.Text.Encoding.UTF8.GetString(bytes, offset, bytes.Length - offset);
+        var settings = new System.Xml.XmlReaderSettings
+        {
+            DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+            XmlResolver = null,
+        };
+        try
+        {
+            using var reader = System.Xml.XmlReader.Create(new StringReader(text), settings);
+            while (reader.Read()) { }
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw new CliParseException(
+                $"Windows application manifest '{path}' is not well-formed XML: {ex.Message}");
+        }
+        return bytes;
+    }
+
+    // Encoding normalization only (see LoadManifestBytes for the contract).
+    private static byte[] NormalizeManifestBytes(string path)
+    {
         byte[] raw;
         try
         {
@@ -466,6 +497,8 @@ public static class CliParser
             if (text == null)
                 throw new CliParseException(
                     $"cannot decode Windows application manifest '{path}' (re-save it as UTF-8)");
+            if (text.Length == 0)
+                throw new CliParseException($"Windows application manifest is empty: {path}");
             var converted = System.Text.Encoding.UTF8.GetBytes(RewriteDeclaration(text));
             return bom is System.Text.UTF8Encoding ? PrependUtf8Bom(converted) : converted;
         }
@@ -480,6 +513,8 @@ public static class CliParser
             if (text == null)
                 throw new CliParseException(
                     $"cannot decode Windows application manifest '{path}' (re-save it as UTF-8)");
+            if (text.Length == 0)
+                throw new CliParseException($"Windows application manifest is empty: {path}");
             return System.Text.Encoding.UTF8.GetBytes(RewriteDeclaration(text));
         }
 
@@ -531,7 +566,15 @@ public static class CliParser
                 RewriteDeclaration(System.Text.Encoding.ASCII.GetString(raw)));
         }
 
-        // 4. Any other declared name. Valid-UTF-8 bytes are ambiguous: they can
+        // 4. A pure-ASCII body is unambiguous for every ASCII-compatible
+        //    declaration (ASCII and Latin-1 share 0x00-0x7F), so a legacy
+        //    "iso-8859-1" label on an all-ASCII manifest is relabelled rather
+        //    than refused.
+        if (IsAllAscii(raw) && IsAsciiCompatibleName(declared))
+            return System.Text.Encoding.UTF8.GetBytes(
+                RewriteDeclaration(System.Text.Encoding.ASCII.GetString(raw)));
+
+        // 5. Any other declared name. Valid-UTF-8 bytes are ambiguous: they can
         //    be a correctly-labelled legacy file or a UTF-8 file with a stale
         //    declaration. Refusing is the only lossless answer.
         if (validUtf8)
@@ -625,17 +668,26 @@ public static class CliParser
         name.Equals("us-ascii", StringComparison.OrdinalIgnoreCase)
         || name.Equals("ascii", StringComparison.OrdinalIgnoreCase);
 
-    // The 8-bit/Unicode encodings this tool can transcode WITHOUT a codepage
-    // provider (il2cppc does not reference System.Text.Encoding.CodePages).
-    // Anything else (gbk, shift_jis, ...) is rejected with advice rather than
-    // guessed at.
+    // Encodings whose 0x00-0x7F range is ASCII: an all-ASCII body means the
+    // same thing under any of them, so the label can be corrected losslessly.
+    private static bool IsAsciiCompatibleName(string name) =>
+        IsAsciiName(name)
+        || name.Equals("iso-8859-1", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("latin1", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("latin-1", StringComparison.OrdinalIgnoreCase);
+
+    // The 8-bit encoding this tool can transcode WITHOUT a codepage provider
+    // (il2cppc does not reference System.Text.Encoding.CodePages).
+    //
+    // Wide encodings (utf-16/utf-32) are deliberately ABSENT: a real wide file
+    // is already identified by its BOM or by the XML prolog's byte pattern, so
+    // reaching this fallback with a wide declaration means the declaration and
+    // the bytes contradict each other. Decoding those bytes as UTF-16 would
+    // produce mojibake that is then embedded as a valid-looking manifest, which
+    // is exactly the silent-corruption failure this code exists to prevent.
     private static System.Text.Encoding? TryGetBuiltinEncoding(string name) =>
         name.ToLowerInvariant() switch
         {
-            "utf-16" or "utf-16le" or "unicode" => System.Text.Encoding.Unicode,
-            "utf-16be" or "unicodefffe" => System.Text.Encoding.BigEndianUnicode,
-            "utf-32" or "utf-32le" => System.Text.Encoding.UTF32,
-            "utf-32be" => new System.Text.UTF32Encoding(true, false),
             "iso-8859-1" or "latin1" or "latin-1" => System.Text.Encoding.Latin1,
             _ => null,
         };

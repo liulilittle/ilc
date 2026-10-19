@@ -46,6 +46,16 @@ Write-Host "=== 5. e2e msvc ==="
 pwsh -NoProfile -File "$Root/scripts/run-tests.ps1" -Compiler msvc
 if ($LASTEXITCODE -ne 0) { throw "e2e msvc failed" }
 
+# nb10: the Windows application manifest. Unit tests only inspect the generated
+# CMakeLists, which cannot catch a toolchain that overrides the .rc -- the MSVC
+# linker synthesizes its own RT_MANIFEST id 1 (CVT1100 + LNK1123, or silently
+# winning on the Ninja path, leaving a requireAdministrator build running
+# asInvoker). This gate builds BOTH toolchains and reads the resource back,
+# asserting its SHA-256 equals the generated app.manifest.
+Write-Host "=== 5.5 windows application manifest (mingw + msvc) ==="
+pwsh -NoProfile -File "$Root/scripts/test-manifest-e2e.ps1" -Compiler all
+if ($LASTEXITCODE -ne 0) { throw "manifest e2e failed" }
+
 Write-Host "=== 6. e2e wsl ==="
 pwsh -NoProfile -File "$Root/scripts/run-tests.ps1" -Compiler wsl
 if ($LASTEXITCODE -ne 0) { throw "e2e wsl failed" }
