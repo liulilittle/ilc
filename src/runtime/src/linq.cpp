@@ -37,6 +37,7 @@
 #include "il2cpp_gc.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 namespace il2cpp {
@@ -145,12 +146,21 @@ public:
     }
     void Add(void** slot)
     {
+        // nb9 H-B1: FoldRef roots THREE slots (delegate + source + seed); the
+        // old [2] capacity wrote past the array into m_count and corrupted the
+        // root table (a ref-accumulator Aggregate could crash). The capacity
+        // must always cover the Add count -- and an overflow is a programming
+        // error that must abort, never silently corrupt the count.
+        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        {
+            std::abort();
+        }
         il2cpp_gc_add_static_root(slot);
         m_slots[m_count++] = slot;
     }
 
 private:
-    void** m_slots[2]; // today: delegate + source array
+    void** m_slots[4]; // delegate + source array + seed (FoldRef) + spare
     int32_t m_count;
 };
 

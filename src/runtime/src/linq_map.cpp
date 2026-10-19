@@ -57,6 +57,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -175,6 +176,11 @@ public:
     }
     void Add(void** slot)
     {
+        // nb9 H-B1: guard the fixed slot table (an overflow corrupts m_count).
+        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        {
+            std::abort();
+        }
         il2cpp_gc_add_static_root(slot);
         m_slots[m_count++] = slot;
     }
