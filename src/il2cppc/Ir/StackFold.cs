@@ -6054,7 +6054,12 @@ public static class StackFold
             var (_, _, signature) = ResolveField(md, ins);
             if (signature.Length < 2) return false;
             var typeByte = int.Parse(signature.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
-            if (typeByte is 0x0E or 0x12 or 0x1C) return true;
+            // nb9 H-B5: SZARRAY (0x1D) / ARRAY (0x14) fields are GC references
+            // too. A closure's captured array field (<>c__DisplayClass.a1) was
+            // classified as a value field, so the generated temp was int32_t
+            // and the object pointer assignment was ill-typed (the reported
+            // nested-closure 0xC0000005 / C0 build failure).
+            if (typeByte is 0x0E or 0x12 or 0x1C or 0x1D or 0x14) return true;
             if (typeByte == 0x15 && md != null) return IsGenericInstRefCarrier(md, ins);
             return false;
         }
