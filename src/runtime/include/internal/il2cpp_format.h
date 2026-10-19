@@ -79,6 +79,7 @@ Il2CppString* icall_char_to_string(int32_t utf16);
 // double -> net48-style "G15" text (see header: 15 sig digits, .NET
 // fixed/scientific layout, specials "NaN"/U+221E/-U+221E/"0").
 Il2CppString* icall_double_to_string(double value);
+Il2CppString* icall_single_to_string(double value);
 
 // int32 -> uppercase hex, no "0x", no padding ("FF", "80000000" for
 // int.MinValue -- twos-complement over 32 bits).

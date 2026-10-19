@@ -263,7 +263,7 @@ public class MethodMapFormatExtTests
     {
         var resolved = ResolveMember(Synthesize("System", "Single", "ToString", Sig(0x0E)), "ToString");
 
-        Assert.Equal("il2cpp::runtime::icall_double_to_string", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_single_to_string", resolved.CppName);
         Assert.Equal(new[] { "unbox:d" }, resolved.ParamTypeNames);
     }
 

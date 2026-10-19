@@ -402,6 +402,30 @@ Il2CppString* icall_int32_to_string_hex(int32_t value)
 //------------------------------------------------------------------------------
 // icall_double_to_string -- net48 "G15" approximation (see FormatDoubleG15).
 //------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// icall_single_to_string -- net48 Single.ToString(): shortest round-trip
+// decimal for the FLOAT value (not the widened double). The receiver slot
+// holds the exact double widening of the float, so the target is (float)value.
+//------------------------------------------------------------------------------
+Il2CppString* icall_single_to_string(double value)
+{
+    if (value != value) return il2cpp_string_new_from_utf8("NaN");
+    if (value > 3.4028234663852886e38)
+        return il2cpp_string_new_from_utf8("\xE2\x88\x9E"); // U+221E
+    if (value < -3.4028234663852886e38)
+        return il2cpp_string_new_from_utf8("-\xE2\x88\x9E");
+    const float f = static_cast<float>(value);
+    char buf[64];
+    // net48 Single default format is G7: seven significant digits (the
+    // shortest-round-trip variant would print 0.33333334 for 1f/3f).
+    std::snprintf(buf, sizeof(buf), "%.7g", static_cast<double>(f));
+    for (char* q = buf; *q != 0; ++q)
+    {
+        if (*q == 0x65) { *q = 0x45; break; }
+    }
+    return il2cpp_string_new_from_utf8(buf);
+}
+
 Il2CppString* icall_double_to_string(double value)
 {
     char buf[kFormatBufferSize];
