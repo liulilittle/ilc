@@ -86,6 +86,11 @@ public static partial class MethodRefResolver
                     // int32 is claimed by the icall-layer domain (2-arg only);
                     // here the 3/4-arg forms and the other families.
                     0x08 when count == 3 => I("il2cpp::il2cpp_array_index_of_int32_start", 3, true, false, false, new[] { "a", "i", "i" }),
+                    // nb9 D17: uint32 scans (equality needs no sign; the
+                    // bits pass through the int32 ABI).
+                    0x09 when count == 2 => I("il2cpp::runtime::icall_array_index_of_int32", 2, true, false, false),
+                    0x09 when count == 3 => I("il2cpp::il2cpp_array_index_of_int32_start", 3, true, false, false, new[] { "a", "i", "i" }),
+                    0x09 when count == 4 => I("il2cpp::il2cpp_array_index_of_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
                     0x08 when count == 4 => I("il2cpp::il2cpp_array_index_of_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
                     0x0A when count == 2 => I("il2cpp::il2cpp_array_index_of_int64", 2, true, false, false, new[] { "a", "l" }),
                     0x0A when count == 3 => I("il2cpp::il2cpp_array_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
@@ -110,6 +115,9 @@ public static partial class MethodRefResolver
                 return genArgs[0] switch
                 {
                     0x08 when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int32_start", 3, true, false, false, new[] { "a", "i", "i" }),
+                    0x09 when count == 2 => I("il2cpp::runtime::icall_array_last_index_of_int32", 2, true, false, false),
+                    0x09 when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int32_start", 3, true, false, false, new[] { "a", "i", "i" }),
+                    0x09 when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
                     0x08 when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
                     0x0A when count == 2 => I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" }),
                     0x0A when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
@@ -134,6 +142,9 @@ public static partial class MethodRefResolver
                 return genArgs[0] switch
                 {
                     0x08 when count == 2 => I("il2cpp::il2cpp_array_binary_search_int32", 2, true, false, false, new[] { "a", "i" }),
+                    0x09 when count == 2 => I("il2cpp::il2cpp_array_binary_search_uint32", 2, true, false, false, new[] { "a", "i" }),
+                    0x09 when count == 4 => I("il2cpp::il2cpp_array_binary_search_uint32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
+                    0x09 when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_uint32", 3, true, false, false, new[] { "a", "i", "" }),
                     0x08 when count == 4 => I("il2cpp::il2cpp_array_binary_search_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
                     0x0A when count == 2 => I("il2cpp::il2cpp_array_binary_search_int64", 2, true, false, false, new[] { "a", "l" }),
                     0x0A when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64", 3, true, false, false, new[] { "a", "l", "" }),

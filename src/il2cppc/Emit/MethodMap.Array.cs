@@ -105,6 +105,16 @@ public static partial class MethodRefResolver
                             secondIsIComparer
                                 ? I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" })
                                 : I("il2cpp::il2cpp_array_sort_int32_comparison", 2, false, false, false, new[] { "a", "" }),
+                        // nb9 E6/D17: Comparison<T> for uint (carried as int32;
+                        // the delegate supplies the unsigned order), int64,
+                        // float and double.
+                        0x09 when count == 2 =>
+                            secondIsIComparer
+                                ? I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" })
+                                : I("il2cpp::il2cpp_array_sort_int32_comparison", 2, false, false, false, new[] { "a", "" }),
+                        0x0A when count == 2 && !secondIsIComparer => I("il2cpp::il2cpp_array_sort_int64_comparison", 2, false, false, false, new[] { "a", "" }),
+                        0x0C when count == 2 && !secondIsIComparer => I("il2cpp::il2cpp_array_sort_float_comparison", 2, false, false, false, new[] { "a", "" }),
+                        0x0D when count == 2 && !secondIsIComparer => I("il2cpp::il2cpp_array_sort_double_comparison", 2, false, false, false, new[] { "a", "" }),
                         // a5reds (strsort_ordinal): the SAME generic Sort<T>
                         0x0E or 0x1C or 0x12 when count == 2 =>
                             secondIsIComparer

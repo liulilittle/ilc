@@ -86,6 +86,7 @@ constexpr size_t  kElementArrayNameMax = 96;
 struct ElementArrayClassSlot
 {
     char        name[kElementArrayNameMax]; // "[<element full name>"
+    bool        isRef;
     Il2CppClass klass;
 };
 
@@ -95,7 +96,7 @@ std::mutex g_elementArrayMutex; // guards the pool (array alloc is multi-threade
 
 // Look up the synthesized array class for an element class, creating and
 // registering it on first use. Null element -> the shared object-array class.
-Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass)
+Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass, bool isRef = true)
 {
     if (elemClass == nullptr || elemClass->name == nullptr)
     {
@@ -110,7 +111,8 @@ Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass)
     std::lock_guard<std::mutex> lock(g_elementArrayMutex);
     for (int32_t i = 0; i < g_elementArrayClassCount; ++i)
     {
-        if (std::strcmp(g_elementArrayClasses[i].klass.name + 1, elemClass->name) == 0)
+        if (g_elementArrayClasses[i].isRef == isRef &&
+            std::strcmp(g_elementArrayClasses[i].klass.name + 1, elemClass->name) == 0)
         {
             return &g_elementArrayClasses[i].klass;
         }
@@ -131,7 +133,10 @@ Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass)
     // nb9 E3: a reference-element array is assignable to object[] (and via
     // object[]'s own base chain to Array), exactly like net48; the shared
     // object-array descriptor is the base of every synthesized ref array.
-    slot.klass.baseClass = &g_objectArrayClass;
+    slot.isRef = isRef;
+    // nb9 F1: value-element arrays are NOT assignable to object[]; reference
+    // arrays derive from the shared object-array descriptor (E3).
+    slot.klass.baseClass = isRef ? &g_objectArrayClass : nullptr;
     slot.klass.vtable = nullptr;
     slot.klass.vtableSize = 0;
     slot.klass.interfaces = nullptr;
@@ -178,6 +183,11 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
         length = 0; // defensive: negative length is a caller bug
     }
     Il2CppClass* arrayClass = isRefElement ? ArrayClassForElement(elemClass) : &g_int32ArrayClass;
+    // nb9 F1/typed-cast: value arrays with a known element descriptor get
+    // their own array class ("[System.Int64" etc.) so Array -> T[] casts
+    // conform; int32[] keeps the fixed descriptor.
+    if (!isRefElement && elemClass != nullptr && elemClass != &System_Int32_class)
+        arrayClass = ArrayClassForElement(elemClass, false);
     // For reference arrays, the element descriptor is recorded on the array
     // (used by future cast checks); the class itself is the element-aware
     // object array class (D-TYPG-1: string[] stamps "[System.String", so
@@ -197,6 +207,7 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
         else if (elemClass == &System_Int64_class) arr->elemKind = 2;
         else if (elemClass == &System_Single_class) arr->elemKind = 3;
         else if (elemClass == &System_Double_class) arr->elemKind = 4;
+        else if (elemClass == &System_UInt32_class) arr->elemKind = 5;
     }
     arr->rank = 1; // one-dimensional scope; multi-dimensional support is future work
     arr->dims[0] = length; // single-dim fills dims[0] (rank-aware GetLength/GetUpperBound parity)
@@ -245,6 +256,11 @@ Il2CppArray* il2cpp_array_new_multi(Il2CppClass* elemClass, int32_t elemSize, bo
     }
     const int32_t length = static_cast<int32_t>(total);
     Il2CppClass* arrayClass = isRefElement ? ArrayClassForElement(elemClass) : &g_int32ArrayClass;
+    // nb9 F1/typed-cast: value arrays with a known element descriptor get
+    // their own array class ("[System.Int64" etc.) so Array -> T[] casts
+    // conform; int32[] keeps the fixed descriptor.
+    if (!isRefElement && elemClass != nullptr && elemClass != &System_Int32_class)
+        arrayClass = ArrayClassForElement(elemClass, false);
     Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(
         il2cpp_gc_alloc_size(arrayClass, ArrayAllocSize(elemSize, length)));
     arr->length = length;

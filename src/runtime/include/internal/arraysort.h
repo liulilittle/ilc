@@ -189,6 +189,8 @@ int32_t il2cpp_array_binary_search_int32(Il2CppArray* arr, int32_t value);
 // Array.BinarySearch<int64>: int64 variant of il2cpp_array_binary_search_int32.
 int32_t il2cpp_array_binary_search_int64(Il2CppArray* arr, int64_t value);
 
+int32_t il2cpp_array_binary_search_uint32(Il2CppArray* arr, int32_t value);
+int32_t il2cpp_array_binary_search_icomparer_uint32(Il2CppArray* arr, int32_t value, Il2CppObject* comparer);
 // Array.BinarySearch<string>: ordinal variant of the int32 binary search.
 // 'value' may be null (matches only null slots); any other non-string object
 // throws System.ArgumentException. Reference arrays only.
@@ -212,6 +214,13 @@ void il2cpp_array_sort_double(Il2CppArray* arr);
 // arrays only (isRefElem == false, elemSize == 4; comparison widens to
 // double, so NaN/-0.0 behave exactly like the double sort).
 void il2cpp_array_sort_float(Il2CppArray* arr);
+
+// Array.Sort<T>(T[], Comparison<T>) for the wide value families (nb9
+// E6/D17): int64, double and float. The delegate carries the model ABI
+// (int64_t / double / double).
+void il2cpp_array_sort_int64_comparison(Il2CppArray* arr, Il2CppObject* comparison);
+void il2cpp_array_sort_double_comparison(Il2CppArray* arr, Il2CppObject* comparison);
+void il2cpp_array_sort_float_comparison(Il2CppArray* arr, Il2CppObject* comparison);
 
 // Array.IndexOf<double>: index of the FIRST element Double.Equals to
 // 'value' (NaN finds NaN), or -1 when absent. double arrays only.
@@ -281,6 +290,10 @@ enum ComparerValueFamily : int32_t
     kComparerFamilyI8 = 1,
     kComparerFamilyD = 2,
     kComparerFamilyRef = 3,
+    // nb9 F4: float elements with an IComparer<float>. The reflected slot
+    // signature is "(f,f)" while the C++ ABI carries the values widened to
+    // double, exactly like the D family.
+    kComparerFamilyF = 4,
 };
 
 int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
@@ -408,6 +421,7 @@ int32_t il2cpp_array_binary_search_any_icomparer_range(Il2CppArray* arr, int32_t
 int32_t il2cpp_array_binary_search_int32_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t value);
 int32_t il2cpp_array_binary_search_int64_range(Il2CppArray* arr, int32_t index, int32_t length, int64_t value);
 int32_t il2cpp_array_binary_search_float_range(Il2CppArray* arr, int32_t index, int32_t length, double value);
+int32_t il2cpp_array_binary_search_uint32_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t value);
 int32_t il2cpp_array_binary_search_double_range(Il2CppArray* arr, int32_t index, int32_t length, double value);
 int32_t il2cpp_array_binary_search_float(Il2CppArray* arr, double value);
 int32_t il2cpp_array_binary_search_object(Il2CppArray* arr, Il2CppObject* value);

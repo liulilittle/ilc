@@ -984,6 +984,67 @@ int32_t il2cpp_array_binary_search_int32(Il2CppArray* arr, int32_t value)
     return ~at; // missing: complement of the insertion point
 }
 
+
+// nb9 D17: uint32 binary search (unsigned lower bound).
+
+// nb9 D17: uint32 BinarySearch with a comparer. A null/default comparer is
+// ordered UNSIGNED; a user IComparer<uint> supplies its own order.
+int32_t il2cpp_array_binary_search_icomparer_uint32(Il2CppArray* arr, int32_t value,
+                                               Il2CppObject* comparer)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint32_t));
+    const uint32_t* data = reinterpret_cast<const uint32_t*>(a->data);
+    const uint32_t needle = static_cast<uint32_t>(value);
+    const bool byDefault =
+        comparer == nullptr ||
+        (comparer->klass != nullptr && comparer->klass->name != nullptr &&
+         std::strstr(comparer->klass->name, "Comparer`1") != nullptr);
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        int32_t c;
+        if (byDefault)
+            c = data[mid] < needle ? -1 : (data[mid] > needle ? 1 : 0);
+        else
+            c = il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &data[mid], &needle);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
+}
+int32_t il2cpp_array_binary_search_uint32(Il2CppArray* arr, int32_t value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint32_t));
+    const uint32_t* data = reinterpret_cast<const uint32_t*>(a->data);
+    const uint32_t needle = static_cast<uint32_t>(value);
+    const int32_t at = LowerBoundValues(data, 0, a->length, needle);
+    if (at < a->length && data[at] == needle)
+    {
+        return at;
+    }
+    return ~at;
+}
+
+int32_t il2cpp_array_binary_search_uint32_range(Il2CppArray* arr, int32_t index,
+                                              int32_t length, int32_t value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint32_t));
+    RequireRangeSort(a, index, length);
+    const uint32_t* data = reinterpret_cast<const uint32_t*>(a->data);
+    const uint32_t needle = static_cast<uint32_t>(value);
+    const int32_t at = LowerBoundValues(data, index, index + length, needle);
+    if (at < index + length && data[at] == needle)
+    {
+        return at;
+    }
+    return ~at;
+}
 int32_t il2cpp_array_binary_search_int64(Il2CppArray* arr, int64_t value)
 {
     Il2CppArray* a = RequireArraySort(arr);
@@ -1735,7 +1796,7 @@ struct FComparerCompare
         double dx = static_cast<double>(x);
         double dy = static_cast<double>(y);
         if (*slot == nullptr) return DoubleCompareTotal(dx, dy);
-        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &dx, &dy);
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyF, &dx, &dy);
     }
 };
 
@@ -1943,6 +2004,7 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
                     comparer, *static_cast<const int64_t*>(a),
                     *static_cast<const int64_t*>(b));
             case kComparerFamilyD:
+            case kComparerFamilyF:
                 return runtime::il2cpp_created_comparer_compare_double(
                     comparer, *static_cast<const double*>(a),
                     *static_cast<const double*>(b));
@@ -1977,6 +2039,7 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
                 return x < y ? -1 : (x > y ? 1 : 0);
             }
             case kComparerFamilyD:
+            case kComparerFamilyF:
                 return DoubleCompareTotal(*static_cast<const double*>(a),
                                           *static_cast<const double*>(b));
             default:
@@ -1990,6 +2053,7 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
         family == kComparerFamilyI4 ? "(i,i)"
         : family == kComparerFamilyI8 ? "(l,l)"
         : family == kComparerFamilyD ? "(d,d)"
+        : family == kComparerFamilyF ? "(f,f)"
         : "(r:";
     const int32_t slot =
         FindVirtualSlotByNameAndSignature(comparer, "Compare", fragment);
@@ -2008,6 +2072,7 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
                     comparer, *static_cast<const int64_t*>(a),
                     *static_cast<const int64_t*>(b));
             case kComparerFamilyD:
+            case kComparerFamilyF:
                 return reinterpret_cast<IComparerDFn>(fn)(
                     comparer, *static_cast<const double*>(a),
                     *static_cast<const double*>(b));
@@ -2257,6 +2322,120 @@ void il2cpp_array_sort_icomparer_##SUF##_range(Il2CppArray* arr, int32_t index, 
 NB9_DEFINE_ICOMPARER_SORT(int64, int64_t, I8ComparerCompare)
 NB9_DEFINE_ICOMPARER_SORT(double, double, DComparerCompare)
 NB9_DEFINE_ICOMPARER_SORT(float, float, FComparerCompare)
+
+//------------------------------------------------------------------------------
+// nb9 E6/D17: Comparison<T> sorts for the wide value families. The delegate
+// ABI follows the model: int64->int64_t, single/double->double, uint32->int32.
+//------------------------------------------------------------------------------
+namespace {
+
+using I8ComparisonFn = int32_t (*)(int64_t, int64_t);
+using I8ComparisonThisFn = int32_t (*)(Il2CppObject*, int64_t, int64_t);
+using DComparisonFn = int32_t (*)(double, double);
+using DComparisonThisFn = int32_t (*)(Il2CppObject*, double, double);
+
+struct I8ComparisonCompare
+{
+    Il2CppObject** comparisonSlot;
+    explicit I8ComparisonCompare(Il2CppObject** slot) : comparisonSlot(slot) {}
+    int32_t operator()(int64_t x, int64_t y) const
+    {
+        Il2CppDelegate* d = reinterpret_cast<Il2CppDelegate*>(*comparisonSlot);
+        return d->target != nullptr
+            ? reinterpret_cast<I8ComparisonThisFn>(d->methodPtr)(d->target, x, y)
+            : reinterpret_cast<I8ComparisonFn>(d->methodPtr)(x, y);
+    }
+};
+
+struct DComparisonCompare
+{
+    Il2CppObject** comparisonSlot;
+    explicit DComparisonCompare(Il2CppObject** slot) : comparisonSlot(slot) {}
+    int32_t operator()(double x, double y) const
+    {
+        Il2CppDelegate* d = reinterpret_cast<Il2CppDelegate*>(*comparisonSlot);
+        return d->target != nullptr
+            ? reinterpret_cast<DComparisonThisFn>(d->methodPtr)(d->target, x, y)
+            : reinterpret_cast<DComparisonFn>(d->methodPtr)(x, y);
+    }
+};
+
+} // namespace
+
+void il2cpp_array_sort_int64_comparison(Il2CppArray* arr, Il2CppObject* comparison)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(int64_t));
+    if (comparison == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("comparison");
+    }
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparison));
+    if (a->length > 1)
+    {
+        try
+        {
+            I8ComparisonCompare cmp(&comparison);
+            QuickSortValArray<int64_t>(&a, 0, a->length - 1, cmp);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
+
+void il2cpp_array_sort_double_comparison(Il2CppArray* arr, Il2CppObject* comparison)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(double));
+    if (comparison == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("comparison");
+    }
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparison));
+    if (a->length > 1)
+    {
+        try
+        {
+            DComparisonCompare cmp(&comparison);
+            QuickSortValArray<double>(&a, 0, a->length - 1, cmp);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
+
+void il2cpp_array_sort_float_comparison(Il2CppArray* arr, Il2CppObject* comparison)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(float));
+    if (comparison == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("comparison");
+    }
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparison));
+    if (a->length > 1)
+    {
+        try
+        {
+            DComparisonCompare cmp(&comparison);
+            QuickSortValArray<float>(&a, 0, a->length - 1, cmp);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
 
 #undef NB9_DEFINE_ICOMPARER_SORT
 
@@ -3126,6 +3305,7 @@ enum AnyValueKind
     AnyI8,
     AnyD,
     AnyF,
+    AnyU4,
     AnyRef,
 };
 
@@ -3137,6 +3317,7 @@ AnyValueKind ClassifyAnyValue(Il2CppObject* value)
     }
     const char* n = value->klass->name;
     if (std::strcmp(n, "System.Int32") == 0) return AnyI4;
+    if (std::strcmp(n, "System.UInt32") == 0) return AnyU4;
     if (std::strcmp(n, "System.Int64") == 0) return AnyI8;
     if (std::strcmp(n, "System.Double") == 0) return AnyD;
     if (std::strcmp(n, "System.Single") == 0) return AnyF;
@@ -3184,6 +3365,12 @@ bool AnyElementEquals(Il2CppArray* a, int32_t idx, Il2CppObject* value)
                DoubleEqualsNet(
                    *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(a, idx)),
                    runtime::icall_unbox_double(value));
+    }
+    if (kind == 5)
+    {
+        return k == AnyU4 &&
+               *reinterpret_cast<const uint32_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
+                   static_cast<uint32_t>(runtime::icall_unbox_uint(value));
     }
     if (a->elemSize == sizeof(int32_t) && k == AnyI4)
     {
@@ -3313,6 +3500,13 @@ int32_t CompareAnyElement(Il2CppArray* a, int32_t index, Il2CppObject* value,
         const double needle = runtime::icall_unbox_double(value);
         if (comparer == nullptr) return DoubleCompareTotal(elem, needle);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &elem, &needle);
+    }
+    if (kind == 5 && k == AnyU4)
+    {
+        const uint32_t elem = *reinterpret_cast<const uint32_t*>(il2cpp_array_get_elem_ptr(a, index));
+        const uint32_t needle = static_cast<uint32_t>(runtime::icall_unbox_uint(value));
+        if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &elem, &needle);
     }
     if (kind == 0)
     {
@@ -3480,6 +3674,11 @@ int32_t CompareAnyDefault(Il2CppArray* a, int32_t i, int32_t j)
         const double* d = reinterpret_cast<const double*>(a->data);
         return DoubleCompareTotal(d[i], d[j]);
     }
+    if (kind == 5)
+    {
+        const uint32_t* d = reinterpret_cast<const uint32_t*>(a->data);
+        return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
+    }
     const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
     return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
 }
@@ -3545,6 +3744,12 @@ struct AnyComparerCompare
             double x = d[i], y = d[j];
             return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &x, &y);
         }
+    if (kind == 5)
+    {
+        const uint32_t* d5 = reinterpret_cast<const uint32_t*>(a->data);
+        uint32_t x = d5[i], y = d5[j];
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
+    }
         const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
         int64_t x = d[i], y = d[j];
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
@@ -3588,6 +3793,13 @@ int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* co
         double x = d[i], y = d[j];
         if (comparer == nullptr) return DoubleCompareTotal(x, y);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &x, &y);
+    }
+    if (kind == 5)
+    {
+        const uint32_t* d5 = reinterpret_cast<const uint32_t*>(keys->data);
+        uint32_t x = d5[i], y = d5[j];
+        if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &x, &y);
     }
     const int64_t* d = reinterpret_cast<const int64_t*>(keys->data);
     int64_t x = d[i], y = d[j];

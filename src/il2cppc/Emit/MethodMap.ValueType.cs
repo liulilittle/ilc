@@ -190,7 +190,7 @@ public static partial class MethodRefResolver
                 // double (the runtime prints double semantics).
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_single_to_string", 0, true, true, true,
-                        new[] { receiverIsAddress ? "deref:d" : "unbox:d" });
+                        new[] { receiverIsAddress ? "deref:sf" : "unbox:d" });
                 // float.Parse(string): the value rides a double slot and the
                 // float domain is a subset of double -- the double parser is
                 // exact for every float-representable text.

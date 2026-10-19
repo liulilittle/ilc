@@ -98,6 +98,23 @@ Il2CppString* ElementAsSegment(Il2CppObject* elem)
 Il2CppString* ValueArrayElement(Il2CppArray* array, int32_t index)
 {
     const char* base = array->data + static_cast<size_t>(index) * static_cast<size_t>(array->elemSize);
+    // nb9 F2: the element KIND decides the formatting -- float/double arrays
+    // used to print their raw bit patterns through the int formatters.
+    switch (array->elemKind)
+    {
+    case 1:
+        return icall_int32_to_string(*reinterpret_cast<const int32_t*>(base));
+    case 2:
+        return icall_int64_to_string(*reinterpret_cast<const int64_t*>(base));
+    case 3:
+        return icall_single_to_string(static_cast<double>(*reinterpret_cast<const float*>(base)));
+    case 4:
+        return icall_double_to_string(*reinterpret_cast<const double*>(base));
+    case 5:
+        return icall_uint32_to_string(*reinterpret_cast<const uint32_t*>(base));
+    default:
+        break;
+    }
     switch (array->elemSize)
     {
     case 1:

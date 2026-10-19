@@ -574,7 +574,6 @@ int32_t icall_array_last_index_of_int32(Il2CppObject* arr, int32_t value)
 void icall_array_clear_int32(Il2CppObject* arr, int32_t index, int32_t length)
 {
     Il2CppArray* a = RequireArrayExt2(arr);
-    RequireInt32ArrayExt2(a);
     if (index < 0 || length < 0)
     {
         il2cpp_throw_argument_out_of_range_exception(
@@ -586,10 +585,12 @@ void icall_array_clear_int32(Il2CppObject* arr, int32_t index, int32_t length)
         il2cpp_throw_argument_exception(
             "Offset and length were out of bounds for the array.");
     }
+    // nb9 E7: a zero fill over elemSize bytes clears any element kind
+    // (0 == null for reference elements, default(T) for value elements).
     if (length > 0)
     {
-        std::memset(a->data + static_cast<size_t>(index) * sizeof(int32_t), 0,
-                    static_cast<size_t>(length) * sizeof(int32_t));
+        std::memset(a->data + static_cast<size_t>(index) * a->elemSize, 0,
+                    static_cast<size_t>(length) * a->elemSize);
     }
 }
 
@@ -715,7 +716,6 @@ int32_t icall_array_find_index_3(Il2CppArray* arr, Il2CppObject* predicate,
 void icall_array_reverse_range(Il2CppObject* arr, int32_t index, int32_t length)
 {
     Il2CppArray* a = RequireArrayExt2(arr);
-    RequireInt32ArrayExt2(a);
     if (index < 0 || length < 0)
     {
         il2cpp_throw_argument_out_of_range_exception(
@@ -727,12 +727,30 @@ void icall_array_reverse_range(Il2CppObject* arr, int32_t index, int32_t length)
         il2cpp_throw_argument_exception(
             "Offset and length were out of bounds for the array.");
     }
-    int32_t* data = reinterpret_cast<int32_t*>(a->data);
+    // nb9 F3: elemSize-byte swap so ref/int64/float/double/user-struct arrays
+    // reverse too (the old int32-only path aborted for string[]/long[]).
+    unsigned char* data = reinterpret_cast<unsigned char*>(a->data);
+    const int32_t es = a->elemSize;
     for (int32_t i = index, j = index + length - 1; i < j; ++i, --j)
     {
-        const int32_t tmp = data[i];
-        data[i] = data[j];
-        data[j] = tmp;
+        unsigned char* p = data + static_cast<size_t>(i) * es;
+        unsigned char* q = data + static_cast<size_t>(j) * es;
+        if (es <= 32)
+        {
+            unsigned char tmp[32];
+            std::memcpy(tmp, p, es);
+            std::memcpy(p, q, es);
+            std::memcpy(q, tmp, es);
+        }
+        else
+        {
+            for (int32_t k = 0; k < es; ++k)
+            {
+                const unsigned char t = p[k];
+                p[k] = q[k];
+                q[k] = t;
+            }
+        }
     }
 }
 

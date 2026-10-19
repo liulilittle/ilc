@@ -93,6 +93,9 @@ public static partial class MethodRefResolver
             "System.Collections.Generic.Comparer`1_double" => "double",
             "System.Collections.Generic.Comparer`1_string" => "string",
             "System.Collections.Generic.Comparer`1_long" => "long",
+            // nb9 E6: float comparers ride the double carrier (widened ABI).
+            "System.Collections.Generic.Comparer`1_float" => "float",
+            "System.Collections.Generic.Comparer`1_uint" => "uint",
             "System.Collections.Generic.Comparer`1_object" => "object",
             _ => null,
         };
@@ -100,6 +103,15 @@ public static partial class MethodRefResolver
         {
             case "get_Default":
                 if (count != 0 || cmpKind == null) return null;
+                // nb9 E6: Comparer<float>.Default reuses the double singleton.
+                if (cmpKind == "float")
+                    return I("il2cpp::il2cpp_comparer_default_double", 0, true, true, false,
+                        returnTypeName: "System.Collections.Generic.Comparer`1_double");
+                // nb9 D17: uint default rides the int singleton (the uint
+                // searches treat a Comparer`1* default by name as unsigned).
+                if (cmpKind == "uint")
+                    return I("il2cpp::il2cpp_comparer_default_int", 0, true, true, false,
+                        returnTypeName: "System.Collections.Generic.Comparer`1_uint");
                 return I($"il2cpp::il2cpp_comparer_default_{cmpKind}", 0, true, true, false,
                     returnTypeName: $"System.Collections.Generic.Comparer`1_{cmpKind}");
             case "Create":
@@ -118,6 +130,10 @@ public static partial class MethodRefResolver
                         "long" => I("il2cpp::runtime::il2cpp_comparer_create_long", 1, true, true, false,
                             new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_long"),
                         "double" => I("il2cpp::runtime::il2cpp_comparer_create_double", 1, true, true, false,
+                            new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_double"),
+                        // nb9 E6: float values ride the double ABI; the wrapper
+                        // reuses the double carrier class.
+                        "float" => I("il2cpp::runtime::il2cpp_comparer_create_double", 1, true, true, false,
                             new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_double"),
                         _ => I("il2cpp::runtime::il2cpp_comparer_create_ref", 1, true, true, false,
                             new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_string"),

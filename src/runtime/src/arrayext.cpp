@@ -266,13 +266,31 @@ void icall_array_sort(Il2CppObject* arr)
 void icall_array_reverse(Il2CppObject* arr)
 {
     Il2CppArray* a = RequireArray(arr);
-    RequireInt32Array(a);
-    int32_t* data = reinterpret_cast<int32_t*>(a->data);
+    if (a->length < 2) return;
+    // nb9 F3: every element kind is reversible by swapping elemSize bytes;
+    // the old int32-only path aborted for string[]/long[]/double[].
+    unsigned char* data = reinterpret_cast<unsigned char*>(a->data);
+    const int32_t es = a->elemSize;
     for (int32_t i = 0, j = a->length - 1; i < j; ++i, --j)
     {
-        const int32_t tmp = data[i];
-        data[i] = data[j];
-        data[j] = tmp;
+        unsigned char* p = data + static_cast<size_t>(i) * es;
+        unsigned char* q = data + static_cast<size_t>(j) * es;
+        if (es <= 32)
+        {
+            unsigned char tmp[32];
+            std::memcpy(tmp, p, es);
+            std::memcpy(p, q, es);
+            std::memcpy(q, tmp, es);
+        }
+        else
+        {
+            for (int32_t k = 0; k < es; ++k)
+            {
+                const unsigned char t = p[k];
+                p[k] = q[k];
+                q[k] = t;
+            }
+        }
     }
 }
 
