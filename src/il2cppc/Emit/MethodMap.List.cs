@@ -94,6 +94,15 @@ public static partial class MethodRefResolver
         // so downstream member calls on the inner list resolve.
         var nestedReceiver = instTag != null
             && instTag.StartsWith("System.Collections.Generic.List`1_System.Collections.Generic.List", StringComparison.Ordinal);
+        // nb9: a List`1 whose element is ANY OTHER NESTED GENERIC (GroupBy's
+        // IGrouping`2, a Task`1, ...) is still a managed reference -- it rides
+        // the listobj reference domain exactly like the simple reference
+        // elements. Without this arm the GroupBy(...).ToList() result could
+        // not answer Count/indexer/foreach (an untracked-receiver LOUD).
+        if (!nestedReceiver && instTag != null
+            && instTag.StartsWith("System.Collections.Generic.List`1_", StringComparison.Ordinal)
+            && instTag.IndexOf('`', "System.Collections.Generic.List`1_".Length) >= 0)
+            nestedReceiver = true;
         if (nestedReceiver) objReceiver = true;
         // A5/B1/B6 (myIList/baudit2/ilistException): user-class
         // instantiations ("List`1_System.Exception" /

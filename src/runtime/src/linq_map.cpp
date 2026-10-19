@@ -41,12 +41,18 @@
 //------------------------------------------------------------------------------
 
 #include "linq_map.h"
+#include "linq.h"              // int32 array kernels reused by the grouping wrappers
 
+#include "arraysort.h"            // FindVirtualSlotByNameAndSignature (user comparers)
+#include "genericcomparer_obj.h"  // the default EqualityComparer/Comparer singletons
+#include "il2cpp_boxing_ext.h"    // icall_box_double
+#include "il2cpp_boxing_ext2.h"   // icall_box_long
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "listi4.h"
+#include "listobj.h"             // GroupBy-result ToList (List<object> carrier)
 #include "sortedlist.h"
 
 #include <algorithm>
@@ -174,7 +180,7 @@ public:
     }
 
 private:
-    void** m_slots[4]; // max 4 used today (zip: delegate + first + second + result)
+    void** m_slots[8]; // nb9: the GroupBy result-selector path roots 6
     int32_t m_count;
 };
 
@@ -280,6 +286,56 @@ bool InvokePredI4I4(Il2CppDelegate* d, int32_t v, int32_t index)
         : reinterpret_cast<PredI4I4Fn>(d->methodPtr)(v, index);
 }
 
+// The element-selector ABIs (Func<TSource,TElement>): int64 / double results.
+typedef int64_t (*SelI4I8Fn)(int32_t);
+typedef int64_t (*SelI4I8ThisFn)(Il2CppObject*, int32_t);
+typedef double (*SelI4DFn)(int32_t);
+typedef double (*SelI4DThisFn)(Il2CppObject*, int32_t);
+
+int64_t InvokeSelI4I8(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI4I8ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI4I8Fn>(d->methodPtr)(v);
+}
+
+double InvokeSelI4D(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI4DThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI4DFn>(d->methodPtr)(v);
+}
+
+// The INDEX-aware 2-arg selector family (Func<TSource,int,TResult>): the same
+// per-binding dispatch, with a reference / int64 / double result.
+typedef Il2CppObject* (*ZipI4RefFn)(int32_t, int32_t);
+typedef Il2CppObject* (*ZipI4RefThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef int64_t (*ZipI4I8Fn)(int32_t, int32_t);
+typedef int64_t (*ZipI4I8ThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef double (*ZipI4DFn)(int32_t, int32_t);
+typedef double (*ZipI4DThisFn)(Il2CppObject*, int32_t, int32_t);
+
+Il2CppObject* InvokeZipI4Ref(Il2CppDelegate* d, int32_t a, int32_t b)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<ZipI4RefThisFn>(d->methodPtr)(d->target, a, b)
+        : reinterpret_cast<ZipI4RefFn>(d->methodPtr)(a, b);
+}
+
+int64_t InvokeZipI4I8(Il2CppDelegate* d, int32_t a, int32_t b)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<ZipI4I8ThisFn>(d->methodPtr)(d->target, a, b)
+        : reinterpret_cast<ZipI4I8Fn>(d->methodPtr)(a, b);
+}
+
+double InvokeZipI4D(Il2CppDelegate* d, int32_t a, int32_t b)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<ZipI4DThisFn>(d->methodPtr)(d->target, a, b)
+        : reinterpret_cast<ZipI4DFn>(d->methodPtr)(a, b);
+}
+
 //------------------------------------------------------------------------------
 // LINQ GROUPING domain (D-LINQ-4) -- managed object model, see linq_map.h.
 // Layout pinning: the grouping classes' refFieldBitmap bits are literal
@@ -379,27 +435,48 @@ void EnsureGroupingClassesRegistered()
 // the ROOTED result's groups array afterwards; the old array stays reachable
 // through the re-derived bucket while the pure int32 value copy runs (no
 // allocation inside the copy).
+// nb9 FIX: family-aware. The bucket's element array is EITHER an int32 value
+// array (the int32 element family) OR a REFERENCE array (the reference / boxed
+// int64 / boxed double element families). The array self-describes
+// (isRefElem/elemSize), so the copy is chosen from the OLD array -- a
+// reference copy publishes every moved slot through a write barrier.
 void GrowGroupElements(Il2CppObject** resultSlot, int32_t bucketIndex)
 {
     Il2CppLinqGroupingResult* res = AsGroupingResult(*resultSlot);
     Il2CppLinqGrouping* grp = AsGrouping(
         *reinterpret_cast<Il2CppObject**>(res->groups->data + bucketIndex * sizeof(void*)));
     const int32_t oldLength = grp->elements->length;
+    const bool isRef = grp->elements->isRefElem;
     const int32_t newLength = GroupNextLength(oldLength);
     if (newLength == oldLength)
     {
         return; // at the 2^30 cap
     }
-    Il2CppArray* newElems = il2cpp_array_new(nullptr, sizeof(int32_t), false, newLength);
+    Il2CppArray* newElems = il2cpp_array_new(
+        nullptr, isRef ? static_cast<int32_t>(sizeof(void*)) : static_cast<int32_t>(sizeof(int32_t)),
+        isRef, newLength);
     res = AsGroupingResult(*resultSlot); // re-derive after the (possibly collecting) allocation
     grp = AsGrouping(
         *reinterpret_cast<Il2CppObject**>(res->groups->data + bucketIndex * sizeof(void*))); // re-derive the bucket
     const int32_t n = grp->count;
-    int32_t* dst = reinterpret_cast<int32_t*>(newElems->data);
-    const int32_t* src = reinterpret_cast<int32_t*>(grp->elements->data);
-    for (int32_t i = 0; i < n; ++i)
+    if (isRef)
     {
-        dst[i] = src[i];
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(newElems->data);
+        Il2CppObject** srcRefs = reinterpret_cast<Il2CppObject**>(grp->elements->data);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            dst[i] = srcRefs[i];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), dst[i]);
+        }
+    }
+    else
+    {
+        int32_t* dst = reinterpret_cast<int32_t*>(newElems->data);
+        const int32_t* src = reinterpret_cast<const int32_t*>(grp->elements->data);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            dst[i] = src[i];
+        }
     }
     il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
                          reinterpret_cast<Il2CppObject*>(newElems));
@@ -610,7 +687,6 @@ Il2CppArray* il2cpp_linq_select_ref_ref(Il2CppArray* src, Il2CppObject* sel)
     RequireArray(src);
     Il2CppDelegate* d = RequireCallback(sel, "selector");
     RequireRefFamily(src);
-
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
@@ -623,7 +699,111 @@ Il2CppArray* il2cpp_linq_select_ref_ref(Il2CppArray* src, Il2CppObject* sel)
         Il2CppObject* r = InvokeSelRefRef(d, RefAt(src, i));
         Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
             il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
         *slot = r;
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// nb9 FIX (M19) -- the remaining Select result families.
+//
+// net48 Select is generic in TResult, so the transpiler must dispatch on
+// TResult: int32 -> int32[], a reference -> a reference array, int64/double ->
+// their result arrays. The index overloads (Func<TSource,int,TResult>) run the
+// selector once per element with the SOURCE index. The old mapping sent every
+// non-int32 result through the int32 entry: the result array was int32[] and
+// the foreach's ref/i8 carrier read the wrong layout (access violation).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_i4_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int64_t)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t r = InvokeSelI4I8(d, I4At(src, i));
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_i4_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(double)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const double r = InvokeSelI4D(d, I4At(src, i));
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_i4_ref(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* r = InvokeZipI4Ref(d, I4At(src, i), i);
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+        *slot = r;
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_i4_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int64_t)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t r = InvokeZipI4I8(d, I4At(src, i), i);
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_i4_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(double)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const double r = InvokeZipI4D(d, I4At(src, i), i);
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = r;
     }
     return out;
 }
@@ -1081,6 +1261,11 @@ Il2CppObject* il2cpp_linq_group_by_i4(Il2CppArray* src, Il2CppObject* keySel)
             grp->count = 0;
             res = AsGroupingResult(result);
             groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+            // nb9 (M13): the groups array is preallocated at source length and
+            // can be promoted to Gen1 / allocated in LOH, so publishing a
+            // young bucket needs a card-marking barrier (the same contract the
+            // grouping enumerators already use).
+            il2cpp_write_barrier(reinterpret_cast<void**>(&groupSlots[res->count]), ng);
             groupSlots[res->count] = ng;
             ++res->count;
 
@@ -1173,6 +1358,11 @@ Il2CppObject* il2cpp_linq_group_by_elem_i4(Il2CppArray* src, Il2CppObject* keySe
             grp->count = 0;
             res = AsGroupingResult(result);
             groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+            // nb9 (M13): the groups array is preallocated at source length and
+            // can be promoted to Gen1 / allocated in LOH, so publishing a
+            // young bucket needs a card-marking barrier (the same contract the
+            // grouping enumerators already use).
+            il2cpp_write_barrier(reinterpret_cast<void**>(&groupSlots[res->count]), ng);
             groupSlots[res->count] = ng;
             ++res->count;
 
@@ -1189,6 +1379,366 @@ Il2CppObject* il2cpp_linq_group_by_elem_i4(Il2CppArray* src, Il2CppObject* keySe
         }
     }
     return result;
+}
+
+//------------------------------------------------------------------------------
+// nb9 FIX BATCH -- the generalized GroupBy core.
+//
+// One bucketing pass shared by every remaining overload:
+//   * the KEY selector always runs once per source element (int32 key);
+//   * the ELEMENT selector (when present) runs once per source element, in
+//     net48 order (key first);
+//   * the bucket lookup compares the key through the supplied
+//     IEqualityComparer<int> (nullptr = int32 equality).
+//
+// The element family is a compile-time decision of the caller (the TElement
+// metadata byte) and only affects the STORAGE of a bucket:
+//   Int32 -> an int32[] value array (no boxing)
+//   Ref   -> a reference array holding the selector's Il2CppObject*
+//   I8/D  -> a reference array holding BOXED int64/double values
+// Readers (get_elements / get_enumerator) dispatch on the array's own
+// isRefElem flag, so every family round-trips through the same IGrouping.
+//------------------------------------------------------------------------------
+namespace {
+
+enum class GroupElemKind
+{
+    Int32 = 0,
+    Ref = 1,
+    I8 = 2,
+    D = 3,
+};
+
+
+// The 2-argument result selector Func<TKey,IEnumerable<TElement>,TResult>:
+// the key is int32, the second argument is a REFERENCE (the bucket's element
+// array -- an IEnumerable<TElement> carrier with the grouping's contents).
+typedef int32_t (*SelKeyGroupI4Fn)(int32_t, Il2CppObject*);
+typedef int32_t (*SelKeyGroupI4ThisFn)(Il2CppObject*, int32_t, Il2CppObject*);
+typedef Il2CppObject* (*SelKeyGroupRefFn)(int32_t, Il2CppObject*);
+typedef Il2CppObject* (*SelKeyGroupRefThisFn)(Il2CppObject*, int32_t, Il2CppObject*);
+
+int32_t InvokeSelKeyGroupI4(Il2CppDelegate* d, int32_t key, Il2CppObject* bucket)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelKeyGroupI4ThisFn>(d->methodPtr)(d->target, key, bucket)
+        : reinterpret_cast<SelKeyGroupI4Fn>(d->methodPtr)(key, bucket);
+}
+
+Il2CppObject* InvokeSelKeyGroupRef(Il2CppDelegate* d, int32_t key, Il2CppObject* bucket)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelKeyGroupRefThisFn>(d->methodPtr)(d->target, key, bucket)
+        : reinterpret_cast<SelKeyGroupRefFn>(d->methodPtr)(key, bucket);
+}
+
+// IsDefaultIntComparer -- the runtime's default EqualityComparer<int> /
+// Comparer<int> singletons compare int32 keys by value; recognize them by
+// POINTER IDENTITY (they are static objects with no reflected typeinfo).
+bool IsDefaultIntComparer(Il2CppObject* cmp)
+{
+    return cmp == il2cpp_equality_comparer_default_int() || cmp == il2cpp_comparer_default_int();
+}
+
+// ComparerKeyEquals -- IEqualityComparer<int>.Equals(key, existingKey).
+//   * nullptr                       -> int32 equality (the default contract)
+//   * the default singletons        -> int32 equality
+//   * a user comparer               -> the reflected virtual Equals(int,int)
+// The reflected lookup uses the signature-matched slot so an
+// Equals(object)/IEquatable overload is never called through the (i,i) ABI.
+bool ComparerKeyEquals(Il2CppObject* cmp, int32_t key, int32_t existing)
+{
+    if (cmp == nullptr || IsDefaultIntComparer(cmp))
+    {
+        return key == existing;
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", "(i,i)");
+    if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "IEqualityComparer<int>.Equals dispatch: the comparer type has no reflected "
+            "virtual Equals(int,int) slot.");
+        return false; // unreachable (the factory throws)
+    }
+    typedef bool (*EqualsFn)(Il2CppObject*, int32_t, int32_t);
+    return reinterpret_cast<EqualsFn>(cmp->klass->vtable[slot])(cmp, key, existing);
+}
+
+// NewGroupElementArray -- the bucket storage for one element family.
+Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
+{
+    return kind == GroupElemKind::Int32
+        ? il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int32_t)), false, length)
+        : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
+}
+
+// BuildGroups -- the shared bucketing pass (see the block comment).
+Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel,
+                          GroupElemKind kind, Il2CppObject* cmp)
+{
+    RequireArray(src);
+    Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
+    Il2CppDelegate* ed = elemSel != nullptr ? RequireCallback(elemSel, "elementSelector") : nullptr;
+    RequireInt32Family(src);
+    if (elemSel == nullptr && cmp == nullptr)
+    {
+        // Nothing extra to validate.
+    }
+
+    EnsureGroupingClassesRegistered();
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&kd));
+    roots.Add(reinterpret_cast<void**>(&ed));
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&cmp));
+
+    Il2CppObject* result = il2cpp_object_new(&g_groupingResultClass);
+    roots.Add(reinterpret_cast<void**>(&result));
+
+    // Preallocate at the source length so publishing a bucket never allocates.
+    Il2CppArray* groups = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+    Il2CppLinqGroupingResult* res = AsGroupingResult(result);
+    res->groups = groups;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&res->groups),
+                         reinterpret_cast<Il2CppObject*>(groups));
+    res->count = 0;
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const int32_t key = InvokeSelI4I4(kd, v); // may allocate -> collect
+
+        // The projected element (only for the element-selector overloads).
+        // Boxed families are NOT boxed yet: the growth allocation below could
+        // move the box, so the box happens after the capacity check.
+        int32_t elemI4 = 0;
+        Il2CppObject* elemRef = nullptr;
+        int64_t elemI8 = 0;
+        double elemD = 0;
+        if (ed != nullptr)
+        {
+            switch (kind)
+            {
+                case GroupElemKind::Int32: elemI4 = InvokeSelI4I4(ed, v); break;
+                case GroupElemKind::Ref: elemRef = InvokeSelI4Ref(ed, v); break;
+                case GroupElemKind::I8: elemI8 = InvokeSelI4I8(ed, v); break;
+                case GroupElemKind::D: elemD = InvokeSelI4D(ed, v); break;
+            }
+        }
+        else if (kind == GroupElemKind::Int32)
+        {
+            elemI4 = v;
+        }
+
+        res = AsGroupingResult(result);
+        const int32_t n = res->count;
+        Il2CppObject** groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+
+        int32_t found = -1;
+        for (int32_t j = 0; j < n; ++j)
+        {
+            if (ComparerKeyEquals(cmp, key, AsGrouping(groupSlots[j])->key))
+            {
+                found = j;
+                break;
+            }
+        }
+
+        if (found >= 0)
+        {
+            Il2CppLinqGrouping* grp = AsGrouping(groupSlots[found]);
+            if (grp->count == grp->elements->length)
+            {
+                GrowGroupElements(&result, found);
+            }
+            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                AsGroupingResult(result)->groups->data + found * sizeof(void*)));
+            const int32_t at = grp->count;
+            switch (kind)
+            {
+                case GroupElemKind::Int32:
+                    *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, at)) = elemI4;
+                    break;
+                case GroupElemKind::Ref:
+                {
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(grp->elements, at));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), elemRef);
+                    *slot = elemRef;
+                    break;
+                }
+                case GroupElemKind::I8:
+                {
+                    // Box AFTER the growth (no allocation may interleave the
+                    // box and the slot store).
+                    Il2CppObject* boxed = runtime::icall_box_long(elemI8);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(grp->elements, at));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), boxed);
+                    *slot = boxed;
+                    break;
+                }
+                case GroupElemKind::D:
+                {
+                    Il2CppObject* boxed = runtime::icall_box_double(elemD);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(grp->elements, at));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), boxed);
+                    *slot = boxed;
+                    break;
+                }
+            }
+            ++grp->count;
+        }
+        else
+        {
+            Il2CppObject* ng = il2cpp_object_new(&g_groupingClass);
+            Il2CppLinqGrouping* grp = AsGrouping(ng);
+            grp->key = key;
+            grp->elements = nullptr;
+            grp->count = 0;
+            res = AsGroupingResult(result);
+            groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+            il2cpp_write_barrier(reinterpret_cast<void**>(&groupSlots[res->count]), ng);
+            groupSlots[res->count] = ng;
+            ++res->count;
+
+            Il2CppArray* elems = NewGroupElementArray(kind, kMinGroupItems);
+            res = AsGroupingResult(result); // re-derive after the allocation
+            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                res->groups->data + (res->count - 1) * sizeof(void*)));
+            grp->elements = elems;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
+                                 reinterpret_cast<Il2CppObject*>(elems));
+            switch (kind)
+            {
+                case GroupElemKind::Int32:
+                    *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, 0)) = elemI4;
+                    break;
+                case GroupElemKind::Ref:
+                {
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(grp->elements, 0));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), elemRef);
+                    *slot = elemRef;
+                    break;
+                }
+                case GroupElemKind::I8:
+                {
+                    Il2CppObject* boxed = runtime::icall_box_long(elemI8);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(grp->elements, 0));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), boxed);
+                    *slot = boxed;
+                    break;
+                }
+                case GroupElemKind::D:
+                {
+                    Il2CppObject* boxed = runtime::icall_box_double(elemD);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(grp->elements, 0));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), boxed);
+                    *slot = boxed;
+                    break;
+                }
+            }
+            grp->count = 1;
+        }
+    }
+    return result;
+}
+
+// ApplyResultSelector -- run Func<TKey,IEnumerable<TElement>,TResult> once per
+// bucket, in first-appearance order, and materialize the results into an array
+// of the TResult family (int32[] or a reference array).
+Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, bool refResult)
+{
+    Il2CppDelegate* d = RequireCallback(resSel, "resultSelector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&result));
+
+    const int32_t n = AsGroupingResult(result)->count;
+    Il2CppArray* out = refResult
+        ? il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n)
+        : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int32_t)), false, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject* bucket = *reinterpret_cast<Il2CppObject**>(
+            AsGroupingResult(result)->groups->data + i * sizeof(void*));
+        Il2CppObject* elemsObj = reinterpret_cast<Il2CppObject*>(
+            il2cpp_linq_grouping_get_elements(bucket));
+        // Rooted for the duration of ONE selector call only (the RootScope
+        // above must not accumulate per-iteration slots).
+        Il2CppObject* elemsRoot = elemsObj;
+        il2cpp_gc_add_static_root(reinterpret_cast<void**>(&elemsRoot));
+        // The get_elements allocation may have moved the result/out.
+        Il2CppLinqGroupingResult* res = AsGroupingResult(result);
+        const int32_t key = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+            res->groups->data + i * sizeof(void*)))->key;
+        if (refResult)
+        {
+            Il2CppObject* r = InvokeSelKeyGroupRef(d, key, elemsRoot);
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(out, i));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+            *slot = r;
+        }
+        else
+        {
+            const int32_t r = InvokeSelKeyGroupI4(d, key, elemsRoot);
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+        }
+        il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&elemsRoot));
+    }
+    return out;
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// il2cpp_linq_group_by_full -- every GroupBy overload (see linq_map.h).
+// elemKind: 0 int32 | 1 reference | 2 int64 (boxed) | 3 double (boxed)
+// rsKind:   0 no result selector | 1 int32 TResult | 2 reference TResult
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, Il2CppObject* cmp,
+                                        Il2CppObject* resSel, int32_t elemKind, int32_t rsKind)
+{
+    if (cmp == nullptr)
+    {
+        // No comparer supplied: the default int32 equality (nullptr).
+    }
+    if (elemSel == nullptr)
+    {
+        elemKind = 0; // key-only: the element IS the source int32
+    }
+    GroupElemKind kind = GroupElemKind::Int32;
+    switch (elemKind)
+    {
+        case 0: kind = GroupElemKind::Int32; break;
+        case 1: kind = GroupElemKind::Ref; break;
+        case 2: kind = GroupElemKind::I8; break;
+        case 3: kind = GroupElemKind::D; break;
+        default:
+            il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
+    }
+    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp);
+    if (rsKind == 0)
+    {
+        return result;
+    }
+    if (rsKind != 1 && rsKind != 2)
+    {
+        il2cpp_throw_not_supported_exception("GroupBy: unsupported TResult family code.");
+    }
+    return reinterpret_cast<Il2CppObject*>(
+        ApplyResultSelector(result, resSel, rsKind == 2));
 }
 
 int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping)
@@ -1250,16 +1800,39 @@ Il2CppArray* il2cpp_linq_grouping_get_elements(Il2CppObject* grouping)
     // length is a capacity >= count), so the public surface returns an
     // EXACT-SIZE copy (listi4 to_array contract). The allocation may collect
     // and compact, so the grouping is rooted and re-derived afterwards; the
-    // copy is a pure int32 value pass with no allocation inside.
+    // copy is a pure value pass with no allocation inside.
+    //
+    // nb9: the bucket storage family is read off the array itself -- an int32
+    // value array (int32 element family) or a REFERENCE array (the reference /
+    // boxed int64 / boxed double element families), so every GroupBy overload
+    // round-trips through the same IGrouping surface.
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&grouping));
     Il2CppLinqGrouping* grp = AsGrouping(grouping);
-    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(int32_t), false, grp->count);
+    const bool isRef = grp->elements != nullptr && grp->elements->isRefElem;
+    Il2CppArray* out = isRef
+        ? il2cpp_array_new(nullptr, sizeof(void*), true, grp->count)
+        : il2cpp_array_new(nullptr, sizeof(int32_t), false, grp->count);
     grp = AsGrouping(grouping); // re-derive after the (possibly collecting) allocation
-    for (int32_t i = 0; i < grp->count; ++i)
+    if (isRef)
     {
-        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
-            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, i));
+        for (int32_t i = 0; i < grp->count; ++i)
+        {
+            Il2CppObject* v = *reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(grp->elements, i));
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(out, i));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), v);
+            *slot = v;
+        }
+    }
+    else
+    {
+        for (int32_t i = 0; i < grp->count; ++i)
+        {
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, i));
+        }
     }
     return out;
 }
@@ -1311,11 +1884,26 @@ Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping)
     Il2CppArray* snap = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
     roots.Add(reinterpret_cast<void**>(&snap));
+    // nb9: a REFERENCE-element bucket already holds managed references (a
+    // reference / boxed int64 / boxed double element) -- copy them directly
+    // instead of boxing an int32. The int32 family keeps the boxed snapshot
+    // (the i4 get_Current carrier unboxes it).
+    const bool isRef = AsGrouping(grouping)->elements != nullptr &&
+                       AsGrouping(grouping)->elements->isRefElem;
     for (int32_t i = 0; i < n; ++i)
     {
-        const int32_t v = *reinterpret_cast<int32_t*>(
-            il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
-        Il2CppObject* boxed = il2cpp_box_int32(nullptr, v);
+        Il2CppObject* boxed;
+        if (isRef)
+        {
+            boxed = *reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+        }
+        else
+        {
+            const int32_t v = *reinterpret_cast<int32_t*>(
+                il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+            boxed = il2cpp_box_int32(nullptr, v);
+        }
         // Re-derive both rooted slots AFTER the (possibly collecting) box.
         Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(snap->data);
         dst[i] = boxed;
@@ -1487,6 +2075,371 @@ Il2CppArray* il2cpp_linq_zip_i4(Il2CppArray* first, Il2CppArray* second,
         *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
     }
     return out;
+}
+
+//------------------------------------------------------------------------------
+// nb9 FIX (M21) -- the SELECTOR forms of the int32 aggregates: project every
+// element through the selector, then aggregate the projected int32 values.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_sum_sel_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return il2cpp_linq_sum_i4(il2cpp_linq_select_i4_i4(src, sel));
+}
+
+int32_t il2cpp_linq_min_sel_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return il2cpp_linq_min_i4(il2cpp_linq_select_i4_i4(src, sel));
+}
+
+int32_t il2cpp_linq_max_sel_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return il2cpp_linq_max_i4(il2cpp_linq_select_i4_i4(src, sel));
+}
+
+double il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return il2cpp_linq_average_i4(il2cpp_linq_select_i4_i4(src, sel));
+}
+
+// int64 / double projection families (net48 Func<TSource,long/double>).
+namespace {
+
+int64_t SumI8Array(Il2CppArray* src)
+{
+    int64_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t v = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if ((v > 0 && sum > INT64_MAX - v) || (v < 0 && sum < INT64_MIN - v))
+        {
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        }
+        sum += v;
+    }
+    return sum;
+}
+
+int64_t MinI8Array(Il2CppArray* src)
+{
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t m = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t v = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (v < m) m = v;
+    }
+    return m;
+}
+
+int64_t MaxI8Array(Il2CppArray* src)
+{
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t m = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t v = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (v > m) m = v;
+    }
+    return m;
+}
+
+double AverageI8Array(Il2CppArray* src)
+{
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t sum = SumI8Array(src);
+    return static_cast<double>(sum) / static_cast<double>(src->length);
+}
+
+double SumDArray(Il2CppArray* src)
+{
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+    }
+    return sum;
+}
+
+double MinDArray(Il2CppArray* src)
+{
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double m = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double v = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        if (v < m || (v != v)) m = v; // net48: NaN propagates
+    }
+    return m;
+}
+
+double MaxDArray(Il2CppArray* src)
+{
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double m = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double v = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        if (v > m || (v != v)) m = v;
+    }
+    return m;
+}
+
+double AverageDArray(Il2CppArray* src)
+{
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    return SumDArray(src) / static_cast<double>(src->length);
+}
+
+} // namespace
+
+int64_t il2cpp_linq_sum_sel_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return SumI8Array(il2cpp_linq_select_i4_i8(src, sel));
+}
+
+int64_t il2cpp_linq_min_sel_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return MinI8Array(il2cpp_linq_select_i4_i8(src, sel));
+}
+
+int64_t il2cpp_linq_max_sel_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return MaxI8Array(il2cpp_linq_select_i4_i8(src, sel));
+}
+
+double il2cpp_linq_average_sel_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return AverageI8Array(il2cpp_linq_select_i4_i8(src, sel));
+}
+
+double il2cpp_linq_sum_sel_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return SumDArray(il2cpp_linq_select_i4_d(src, sel));
+}
+
+double il2cpp_linq_min_sel_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return MinDArray(il2cpp_linq_select_i4_d(src, sel));
+}
+
+double il2cpp_linq_max_sel_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return MaxDArray(il2cpp_linq_select_i4_d(src, sel));
+}
+
+double il2cpp_linq_average_sel_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    return AverageDArray(il2cpp_linq_select_i4_d(src, sel));
+}
+
+//------------------------------------------------------------------------------
+// nb9 FIX BATCH -- Enumerable operators over an IGrouping bucket / the whole
+// GroupBy result (see linq_map.h). Each entry materializes the bucket's exact
+// element snapshot and reuses the int32 array kernel, so the semantics are
+// identical to the array surface (the grouping IS an IEnumerable<int>).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_where_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+}
+
+Il2CppArray* il2cpp_linq_grouping_select(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_select_i4_i4(il2cpp_linq_grouping_get_elements(grouping), sel);
+}
+
+int32_t il2cpp_linq_grouping_count_pred(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_count_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+}
+
+int32_t il2cpp_linq_grouping_sum_sel(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    // net48 Sum(selector) == Sum(Select(selector)) -- checked addition.
+    Il2CppArray* projected = il2cpp_linq_select_i4_i4(
+        il2cpp_linq_grouping_get_elements(grouping), sel);
+    return il2cpp_linq_sum_i4(projected);
+}
+
+double il2cpp_linq_grouping_average_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_average_i4(il2cpp_linq_grouping_get_elements(grouping));
+}
+
+double il2cpp_linq_grouping_average_sel(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_average_sel_i4(il2cpp_linq_grouping_get_elements(grouping), sel);
+}
+
+int32_t il2cpp_linq_grouping_min_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_min_i4(il2cpp_linq_grouping_get_elements(grouping));
+}
+
+int32_t il2cpp_linq_grouping_max_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_max_i4(il2cpp_linq_grouping_get_elements(grouping));
+}
+
+bool il2cpp_linq_grouping_any(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return AsGrouping(grouping)->count > 0;
+}
+
+bool il2cpp_linq_grouping_any_pred(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_any_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+}
+
+bool il2cpp_linq_grouping_all(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_all_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+}
+
+int32_t il2cpp_linq_grouping_first_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_first_i4(il2cpp_linq_grouping_get_elements(grouping));
+}
+
+int32_t il2cpp_linq_grouping_first_or_default_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_first_or_default_i4(il2cpp_linq_grouping_get_elements(grouping));
+}
+
+int32_t il2cpp_linq_grouping_last_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_last_i4(il2cpp_linq_grouping_get_elements(grouping));
+}
+
+int32_t il2cpp_linq_grouping_element_at_i4(Il2CppObject* grouping, int32_t index)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_element_at_i4(il2cpp_linq_grouping_get_elements(grouping), index);
+}
+
+bool il2cpp_linq_grouping_contains_i4(Il2CppObject* grouping, int32_t value)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_contains_i4(il2cpp_linq_grouping_get_elements(grouping), value);
+}
+
+Il2CppArray* il2cpp_linq_grouping_to_array(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_grouping_get_elements(grouping);
+}
+
+// The whole GroupBy result: the buckets as a REFERENCE array (an
+// IEnumerable<IGrouping> carrier), the first bucket, and Any().
+Il2CppArray* il2cpp_linq_grouping_result_to_array(Il2CppObject* result)
+{
+    ThrowIfNullReceiver(result);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&result));
+    const int32_t n = AsGroupingResult(result)->count;
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(void*), true, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    Il2CppLinqGroupingResult* res = AsGroupingResult(result);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject* bucket = *reinterpret_cast<Il2CppObject**>(
+            res->groups->data + i * sizeof(void*));
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), bucket);
+        *slot = bucket;
+    }
+    return out;
+}
+
+Il2CppObject* il2cpp_linq_grouping_result_first(Il2CppObject* result)
+{
+    ThrowIfNullReceiver(result);
+    if (AsGroupingResult(result)->count == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    return il2cpp_linq_grouping_result_get_grouping(result, 0);
+}
+
+Il2CppObject* il2cpp_linq_grouping_result_first_or_default(Il2CppObject* result)
+{
+    ThrowIfNullReceiver(result);
+    if (AsGroupingResult(result)->count == 0)
+    {
+        return nullptr;
+    }
+    return il2cpp_linq_grouping_result_get_grouping(result, 0);
+}
+
+bool il2cpp_linq_grouping_result_any(Il2CppObject* result)
+{
+    ThrowIfNullReceiver(result);
+    return AsGroupingResult(result)->count > 0;
+}
+
+// ToList() over the GroupBy result: a List<object> (the listobj domain)
+// holding the bucket objects in first-appearance order -- the same carrier the
+// reference-element List<T> surface uses, so Count/indexer/foreach resolve.
+Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result)
+{
+    ThrowIfNullReceiver(result);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&result));
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+    const int32_t n = AsGroupingResult(result)->count;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject* bucket = *reinterpret_cast<Il2CppObject**>(
+            AsGroupingResult(result)->groups->data + i * sizeof(void*));
+        il2cpp_list_obj_add(list, bucket);
+    }
+    return list;
 }
 
 } // namespace il2cpp

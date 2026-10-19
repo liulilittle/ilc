@@ -139,4 +139,36 @@ bool il2cpp_linq_sequence_equal_i4(Il2CppArray* first, Il2CppArray* second);
 // default). Null source -> ArgumentNullException.
 Il2CppArray* il2cpp_linq_default_if_empty_i4(Il2CppArray* src);
 
+//------------------------------------------------------------------------------
+// nb9 FIX BATCH -- Aggregate's accumulator family + the result-selector form.
+//
+// net48 Aggregate<TSource,TAccumulate[,TResult]>:
+//   Aggregate(seed, func)                  -- returns TAccumulate
+//   Aggregate(seed, func, resultSelector)  -- returns TResult, the selector
+//                                             runs ONCE on the final accumulator
+// TAccumulate decides the fold ABI: int32, int64, double or a managed
+// reference (string/object/class). An EMPTY source returns the seed (and then
+// runs the result selector on it).
+//------------------------------------------------------------------------------
+int64_t       il2cpp_linq_aggregate_seed_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);
+double        il2cpp_linq_aggregate_seed_d(Il2CppArray* src, double seed, Il2CppObject* func);
+Il2CppObject* il2cpp_linq_aggregate_seed_ref(Il2CppArray* src, Il2CppObject* seed, Il2CppObject* func);
+
+int32_t       il2cpp_linq_aggregate_seed_rs_i4(Il2CppArray* src, int32_t seed,
+                                               Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_rs_ref(Il2CppArray* src, int32_t seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+int32_t       il2cpp_linq_aggregate_seed_i8_rs_i4(Il2CppArray* src, int64_t seed,
+                                                  Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_i8_rs_ref(Il2CppArray* src, int64_t seed,
+                                                   Il2CppObject* func, Il2CppObject* resSel);
+int32_t       il2cpp_linq_aggregate_seed_d_rs_i4(Il2CppArray* src, double seed,
+                                                 Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_d_rs_ref(Il2CppArray* src, double seed,
+                                                  Il2CppObject* func, Il2CppObject* resSel);
+int32_t       il2cpp_linq_aggregate_seed_ref_rs_i4(Il2CppArray* src, Il2CppObject* seed,
+                                                   Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObject* seed,
+                                                    Il2CppObject* func, Il2CppObject* resSel);
+
 } // namespace il2cpp

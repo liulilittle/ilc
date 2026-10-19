@@ -45,6 +45,8 @@
 #include "sortedlist.h"
 
 #include "il2cpp_exception_ext.h"
+#include "arraysort.h"       // FindVirtualSlotByNameAndSignature (nb9: SortedSet comparers)
+#include "genericcomparer_obj.h" // nb9: Comparer<T>.Create dispatch
 #include "il2cpp_gcroot.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
@@ -71,8 +73,8 @@
 il2cpp::Il2CppClass System_Collections_SortedList_class = {
     "System.Collections.SortedList", // name
     static_cast<int32_t>(sizeof(il2cpp::Il2CppSortedList)), // instanceSize
-    0b00010u,                       // refFieldBitmap: bit 1 = items
-    1,                              // refFieldCount
+    0b01010u,                       // refFieldBitmap: bit 1 = items, bit 3 = comparer (nb9)
+    2,                              // refFieldCount
     nullptr,                        // baseClass
     nullptr,                        // vtable
     0,                              // vtableSize
@@ -134,6 +136,7 @@ namespace {
 static_assert(offsetof(Il2CppSortedList, items) == 1 * sizeof(void*), "Il2CppSortedList: items must sit at slot 1 (bitmap bit 1)");
 static_assert(offsetof(Il2CppSortedList, count) == 2 * sizeof(void*), "Il2CppSortedList: count sits at slot 2 (NOT in the bitmap)");
 static_assert(offsetof(Il2CppSortedList, capacity) == 2 * sizeof(void*) + sizeof(int32_t), "Il2CppSortedList: capacity sits at slot 3 (NOT in the bitmap)");
+static_assert(offsetof(Il2CppSortedList, comparer) == 3 * sizeof(void*), "Il2CppSortedList: comparer must sit at slot 3 (bitmap bit 3)");
 
 // Minimum capacity: avoids a degenerate 1-slot table for tiny capacities.
 constexpr int32_t kMinCapacity = 4;
@@ -287,9 +290,60 @@ int32_t CompareStringOrdinal(const Il2CppString* a, const Il2CppString* b)
 // CompareKeys -- the sort contract (see the header). Returns <0 when 'a'
 // sorts before 'b', 0 when equal (same key), >0 otherwise. Explicit
 // relational tests only -- never subtraction (no signed-overflow UB).
+//
+// nb9 (M4/M18): when the container carries a user IComparer<T> (the SortedSet
+// ctor overloads), the comparison dispatches through the comparer's reflected
+// virtual Compare(T,T) slot. The default comparers (Comparer<int>.Default and
+// friends) are static singletons whose payload is boxed by the runtime, so
+// they keep the boxed-value order below (their reflected slots are the same
+// value comparison -- the fast path avoids a vtable hop per probe).
 //------------------------------------------------------------------------------
-int32_t CompareKeys(const Il2CppObject* a, const Il2CppObject* b)
+bool IsDefaultComparerObject(const Il2CppObject* comparer)
 {
+    if (comparer == nullptr) return true;
+    // nb9: a Comparer<T>.Create wrapper is NOT the default -- it must run its
+    // wrapped delegate (checked first, before the name-prefix test below).
+    if (runtime::il2cpp_is_created_comparer(const_cast<Il2CppObject*>(comparer))) return false;
+    const char* name = comparer->klass != nullptr ? comparer->klass->name : nullptr;
+    if (name == nullptr) return true;
+    // "System.Collections.Generic.Comparer`1_<kind>" / "...EqualityComparer`1_<kind>"
+    return std::strstr(name, "System.Collections.Generic.Comparer`1") != nullptr ||
+           std::strstr(name, "System.Collections.Generic.EqualityComparer`1") != nullptr ||
+           std::strcmp(name, "System.Collections.Comparer") == 0;
+}
+
+int32_t CompareWithComparer(const Il2CppObject* comparer, const Il2CppObject* a, const Il2CppObject* b)
+{
+    // nb9: a Comparer<int>.Create wrapper dispatches through its delegate
+    // (the boxed int32 keys are unboxed for the Comparison<int> ABI).
+    if (runtime::il2cpp_is_created_comparer(const_cast<Il2CppObject*>(comparer)))
+    {
+        return runtime::il2cpp_created_comparer_compare_int(
+            const_cast<Il2CppObject*>(comparer),
+            BoxedInt32Value(a), BoxedInt32Value(b));
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(
+        const_cast<Il2CppObject*>(comparer), "Compare", "(r:System.Object,r:System.Object)");
+    if (slot < 0 || comparer->klass->vtable == nullptr || slot >= comparer->klass->vtableSize ||
+        comparer->klass->vtable[slot] == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "IComparer<T>.Compare dispatch: the comparer type has no reflected "
+            "virtual Compare(T,T) slot.");
+        return 0; // unreachable (the factory throws)
+    }
+    typedef int32_t (*CompareFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
+    return reinterpret_cast<CompareFn>(comparer->klass->vtable[slot])(
+        const_cast<Il2CppObject*>(comparer),
+        const_cast<Il2CppObject*>(a), const_cast<Il2CppObject*>(b));
+}
+
+int32_t CompareKeys(const Il2CppObject* comparer, const Il2CppObject* a, const Il2CppObject* b)
+{
+    if (comparer != nullptr && !IsDefaultComparerObject(comparer))
+    {
+        return CompareWithComparer(comparer, a, b);
+    }
     const bool aInt = IsBoxedInt32Key(a);
     const bool bInt = IsBoxedInt32Key(b);
     const bool aStr = IsStringKey(a);
@@ -356,7 +410,7 @@ int32_t FindKey(const Il2CppSortedList* sl, const Il2CppObject* key, bool* found
     while (lo < hi)
     {
         const int32_t mid = lo + (hi - lo) / 2;
-        const int32_t c = CompareKeys(keys[mid], key);
+        const int32_t c = CompareKeys(sl->comparer, keys[mid], key);
         if (c < 0) lo = mid + 1;
         else if (c > 0) hi = mid;
         else
@@ -597,6 +651,20 @@ void il2cpp_sortedlist_create(Il2CppObject* self, int32_t capacity)
     il2cpp_write_barrier(reinterpret_cast<void**>(&sl->items),
                          reinterpret_cast<Il2CppObject*>(sl->items));
     sl->count = 0;
+    sl->comparer = nullptr;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_sortedlist_set_comparer -- nb9 (M4/M18): install the SortedSet<T>
+// comparer (nullptr = the default boxed-value order). The container may be old
+// while the comparer is young, so the store is card-marked first.
+//------------------------------------------------------------------------------
+void il2cpp_sortedlist_set_comparer(Il2CppObject* self, Il2CppObject* comparer)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppSortedList* sl = AsSortedList(self);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&sl->comparer), comparer);
+    sl->comparer = comparer;
 }
 
 //------------------------------------------------------------------------------

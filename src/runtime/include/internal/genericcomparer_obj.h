@@ -68,5 +68,18 @@ int32_t icall_comparer_string_compare(Il2CppObject* self, Il2CppObject* x, Il2Cp
 int32_t icall_comparer_long_compare(Il2CppObject* self, int64_t x, int64_t y);
 int32_t icall_comparer_object_compare(Il2CppObject* self, Il2CppObject* x, Il2CppObject* y);
 
+//------------------------------------------------------------------------------
+// nb9 (M4/M18): Comparer<int>.Create(Comparison<int>) -- a heap comparer that
+// wraps the caller's delegate. net48's Comparer<T>.Create returns an object
+// whose Compare dispatches to the delegate; this runtime models it as a
+// two-slot managed object (header + the delegate reference).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_comparer_create_int(Il2CppObject* comparison);
+// True when `obj` is one of the Create() wrappers (so the sorted containers
+// dispatch through the stored delegate instead of the default value order).
+bool il2cpp_is_created_comparer(Il2CppObject* obj);
+// Compare(a, b) through the wrapped delegate (int32 ABI).
+int32_t il2cpp_created_comparer_compare_int(Il2CppObject* self, int32_t a, int32_t b);
+
 } // namespace runtime
 } // namespace il2cpp

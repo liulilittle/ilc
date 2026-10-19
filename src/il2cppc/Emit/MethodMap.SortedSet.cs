@@ -23,7 +23,8 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapSortedSet(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null,
+        string? paramTypes = null)
     {
         var instTag = instName ?? receiverType;
         var intReceiver = instTag is "System.Collections.Generic.SortedSet`1_int";
@@ -41,24 +42,45 @@ public static partial class MethodRefResolver
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 0, false, false, true, null, null, appendZero: true);
-                // nb9 CTOR-GATE: the 1-arg ctor must inspect the parameter
-                // shape. SortedSet<int>(IEnumerable<int>) arrives as a
-                // GENERICINST (0x15) and needs the array-populating entry
-                // (the only enumerable carrier the AOT surface passes is an
-                // int32[]); SortedSet<int>(int capacity) is 0x08 and keeps the
-                // capacity arm. Before this gate ANY 1-arg ctor emitted
-                // `create(self, <arg>)` -- an Il2CppArray* where an int32
-                // capacity belongs (C0 break).
-                if (count == 1 && ps[0] == 0x15)
+                // nb9 CTOR-GATE (fixed): the 1-argument ctor overloads are
+                // AMBIGUOUS by bytes -- SortedSet<int>(IEnumerable<int>) and
+                // SortedSet<int>(IComparer<int>) are BOTH GENERICINST (0x15)
+                // with ONE generic argument, so ps cannot tell them apart (the
+                // old gate routed the comparer to the array entry: an
+                // Il2CppArray* reinterpretation of a comparer object). The
+                // decoded parameter-type text carries the generic DEFINITION
+                // name, which is authoritative.
+                if (count == 1)
                 {
-                    if (intReceiver)
-                        return I("il2cpp::runtime::icall_sortedset_int_ctor_array", 1, false, false, true, new[] { "", "a" });
+                    var p0 = SortedSetParamDefName(paramTypes, 0);
+                    if (ps[0] == 0x08)
+                        return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
+                    if (p0 == "System.Collections.Generic.IComparer`1")
+                        return intReceiver
+                            ? I("il2cpp::runtime::icall_sortedset_int_ctor_comparer", 1, false, false, true,
+                                new[] { "", "" })
+                            : null;
+                    if (p0 == "System.Collections.Generic.IEnumerable`1")
+                        return intReceiver
+                            ? I("il2cpp::runtime::icall_sortedset_int_ctor_enum", 1, false, false, true,
+                                new[] { "", "" })
+                            : null;
+                    // A raw int32[] argument (no generic inst) is the array
+                    // carrier: route it through the generic entry, which takes
+                    // the int32[] fast path.
+                    if (ps[0] == 0x1D)
+                        return intReceiver
+                            ? I("il2cpp::runtime::icall_sortedset_int_ctor_enum", 1, false, false, true,
+                                new[] { "", "" })
+                            : null;
                     return null;
                 }
-                if (count == 1 && ps[0] == 0x08)
-                    return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
-                if (count == 1)
-                    return null;
+                // nb9 (M18): SortedSet<int>(IEnumerable<int>, IComparer<int>).
+                // The enumerable argument is a GENERICINST (0x15) or a raw
+                // int32[] (SZARRAY 0x1D); the comparer is always 0x15.
+                if (count == 2 && (ps[0] == 0x15 || ps[0] == 0x1D) && ps[1] == 0x15 && intReceiver)
+                    return I("il2cpp::runtime::icall_sortedset_int_ctor_enum_comparer", 2, false, false, true,
+                        new[] { "", "", "" });
                 return null;
             case "Add":
                 if (count != 1) return null;
@@ -150,6 +172,23 @@ public static partial class MethodRefResolver
             default:
                 return null;
         }
+    }
+
+    //--------------------------------------------------------------------------
+    // SortedSetParamDefName -- the generic DEFINITION name of the encoded
+    // parameter at `index` ("r:System.Collections.Generic.IComparer`1<...>" ->
+    // "System.Collections.Generic.IComparer`1"). Empty when the parameter list
+    // is unavailable or the parameter is not a generic instantiation.
+    //--------------------------------------------------------------------------
+    private static string SortedSetParamDefName(string? paramTypes, int index)
+    {
+        if (string.IsNullOrEmpty(paramTypes)) return "";
+        var parts = CodeGenerator.SplitTopLevel(paramTypes).ToArray();
+        if (index >= parts.Length) return "";
+        var s = parts[index];
+        if (s.StartsWith("r:", StringComparison.Ordinal)) s = s[2..];
+        var lt = s.IndexOf('<');
+        return lt >= 0 ? s[..lt] : s;
     }
 
     //--------------------------------------------------------------------------

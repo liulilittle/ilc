@@ -86,6 +86,19 @@ Il2CppArray* il2cpp_linq_select_ref_ref(Il2CppArray* src, Il2CppObject* sel); //
 // length as the source.
 Il2CppArray* il2cpp_linq_select_idx_i4_i4(Il2CppArray* src, Il2CppObject* sel);
 
+// nb9 FIX (M19): the non-int32 Select result families. net48's Select is
+// generic in TResult, so the transpiler dispatches on it:
+//   * int64   -> an int64[] value array
+//   * double  -> a double[] value array
+//   * ref     -> a reference array
+// The *_idx forms are the Func<TSource,int,TResult> overloads (the selector
+// receives the element AND its SOURCE index, exactly once per element).
+Il2CppArray* il2cpp_linq_select_i4_i8(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_i4_d(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_ref(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_i8(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_d(Il2CppArray* src, Il2CppObject* sel);
+
 // First -- the first element. Empty array -> InvalidOperationException.
 int32_t       il2cpp_linq_first_i4(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_first_ref(Il2CppArray* src);
@@ -274,6 +287,89 @@ Il2CppObject* il2cpp_linq_group_by_i4(Il2CppArray* src, Il2CppObject* keySel);
 //   keySel  : delegate wrapping int32(*)(int32_t)
 //   elemSel : delegate wrapping int32(*)(int32_t) (projected element)
 Il2CppObject* il2cpp_linq_group_by_elem_i4(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel);
+
+//------------------------------------------------------------------------------
+// nb9 FIX BATCH -- the remaining GroupBy overloads (no LOUD, no mis-wiring).
+//
+// net48's GroupBy family:
+//   GroupBy(keySelector)
+//   GroupBy(keySelector, elementSelector)
+//   GroupBy(keySelector, comparer)
+//   GroupBy(keySelector, resultSelector)
+//   GroupBy(keySelector, elementSelector, comparer)
+//   GroupBy(keySelector, elementSelector, resultSelector)
+//   GroupBy(keySelector, elementSelector, comparer, resultSelector)
+//
+// ONE entry serves every shape: the transpiler passes nullptr for the absent
+// delegates plus the two family codes as trailing literals:
+//   elemKind : 0 int32 | 1 reference | 2 int64 (boxed) | 3 double (boxed)
+//   rsKind   : 0 no result selector | 1 int32 TResult | 2 reference TResult
+// The RESULT selector (`Func<TKey,IEnumerable<TElement>,TResult>`) receives
+// (int32 key, Il2CppObject* bucketElements) -- the SECOND argument is the
+// bucket's exact-size element ARRAY (an IEnumerable<TElement> carrier with the
+// same contents as net48's IGrouping), so a `vals.Count()`/`Sum()` inside the
+// selector resolves on the array surface.
+//
+// Return: the grouping-result object (rsKind == 0) or the materialized result
+// array (rsKind != 0).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, Il2CppObject* cmp,
+                                        Il2CppObject* resSel, int32_t elemKind, int32_t rsKind);
+
+//------------------------------------------------------------------------------
+// nb9 FIX BATCH -- Enumerable operators over an IGrouping bucket / the whole
+// GroupBy result. Each entry materializes the grouping's EXACT-SIZE element
+// snapshot (il2cpp_linq_grouping_get_elements) and then reuses the int32 array
+// kernel, so the semantics are identical to the array surface.
+//------------------------------------------------------------------------------
+
+// nb9 FIX (M21): the SELECTOR forms of the int32 aggregates. net48
+// Sum(source, Func<TSource,int>) / Min / Max / Average project EVERY element
+// through the selector FIRST and aggregate the projected int32 values (Min/Max
+// over an empty source still throw InvalidOperationException; Sum -> 0;
+// Average -> InvalidOperationException). The old mapping dropped the selector
+// and returned the selector-less aggregate (a silent wrong value).
+int32_t il2cpp_linq_sum_sel_i4(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_min_sel_i4(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_max_sel_i4(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel);
+
+// The same selector forms for the int64 / double projection families
+// (Func<TSource,long> / Func<TSource,double>). net48 has these overloads, so
+// the transpiler must not silently truncate them into the int32 family.
+int64_t il2cpp_linq_sum_sel_i8(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_min_sel_i8(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_max_sel_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_sum_sel_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_min_sel_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_max_sel_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_d(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_grouping_select(Il2CppObject* grouping, Il2CppObject* sel);
+int32_t       il2cpp_linq_grouping_count_pred(Il2CppObject* grouping, Il2CppObject* pred);
+int32_t       il2cpp_linq_grouping_sum_sel(Il2CppObject* grouping, Il2CppObject* sel);
+double        il2cpp_linq_grouping_average_i4(Il2CppObject* grouping);
+double        il2cpp_linq_grouping_average_sel(Il2CppObject* grouping, Il2CppObject* sel);
+int32_t       il2cpp_linq_grouping_min_i4(Il2CppObject* grouping);
+int32_t       il2cpp_linq_grouping_max_i4(Il2CppObject* grouping);
+bool          il2cpp_linq_grouping_any(Il2CppObject* grouping);
+bool          il2cpp_linq_grouping_any_pred(Il2CppObject* grouping, Il2CppObject* pred);
+bool          il2cpp_linq_grouping_all(Il2CppObject* grouping, Il2CppObject* pred);
+int32_t       il2cpp_linq_grouping_first_i4(Il2CppObject* grouping);
+int32_t       il2cpp_linq_grouping_first_or_default_i4(Il2CppObject* grouping);
+int32_t       il2cpp_linq_grouping_last_i4(Il2CppObject* grouping);
+int32_t       il2cpp_linq_grouping_element_at_i4(Il2CppObject* grouping, int32_t index);
+bool          il2cpp_linq_grouping_contains_i4(Il2CppObject* grouping, int32_t value);
+Il2CppArray*  il2cpp_linq_grouping_to_array(Il2CppObject* grouping);
+Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result);
+
+// The whole GroupBy result: the buckets as a reference array / the first bucket.
+Il2CppArray*  il2cpp_linq_grouping_result_to_array(Il2CppObject* result);
+Il2CppObject* il2cpp_linq_grouping_result_first(Il2CppObject* result);
+Il2CppObject* il2cpp_linq_grouping_result_first_or_default(Il2CppObject* result);
+bool          il2cpp_linq_grouping_result_any(Il2CppObject* result);
 
 // Sum on a grouping (the per-bucket aggregate): CHECKED int32 addition over
 // the bucket's elements (net48 Enumerable.Sum is checked -- D-LINQ-3); an

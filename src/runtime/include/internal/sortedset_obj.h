@@ -82,6 +82,21 @@ Il2CppObject* icall_sortedset_ref_get_max(Il2CppObject* self);
 // enumerable carrier the AOT surface can pass).
 void icall_sortedset_int_ctor_array(Il2CppObject* self, Il2CppArray* items);
 
+//------------------------------------------------------------------------------
+// nb9 FIX (M4/M18) -- the remaining SortedSet<int> ctor overloads.
+//
+// .ctor(IEnumerable<int>) for ANY carrier: an int32[] takes the fast path,
+// every other carrier (List<int>, Queue<int>, HashSet<int>, SortedSet<int>, a
+// user iterator) is enumerated through the shared IEnumerable surface
+// (il2cpp_ienum_get_enumerator / move_next / get_current_i4).
+// .ctor(IComparer<int>): installs the comparer (the set then orders through it).
+// .ctor(IEnumerable<int>, IComparer<int>): both.
+//------------------------------------------------------------------------------
+void icall_sortedset_int_ctor_enum(Il2CppObject* self, Il2CppObject* items);
+void icall_sortedset_int_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
+void icall_sortedset_int_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items,
+                                            Il2CppObject* comparer);
+
 // The set algebra (other is another SortedSet storage object).
 void icall_sortedset_union_with(Il2CppObject* self, Il2CppObject* other);
 void icall_sortedset_intersect_with(Il2CppObject* self, Il2CppObject* other);

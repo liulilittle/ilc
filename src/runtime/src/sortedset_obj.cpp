@@ -12,7 +12,12 @@
 
 #include "sortedset_obj.h"
 
+#include "arraysort.h"        // il2cpp_ienum_* (nb9: generic IEnumerable ctors)
 #include "dictsi_obj.h" // il2cpp_dict_si_keycollection_*
+#include "il2cpp_hashtable.h" // HashSet<int> key snapshot (nb9 ctor carriers)
+#include "listi4.h"          // List<int> carrier
+#include "queueint_obj.h"     // Queue<int> carrier
+#include "stackqueue.h"       // Stack<int> carrier
 #include "il2cpp_array.h"
 #include "il2cpp_boxing_ext.h" // runtime::icall_unbox_int32/icall_box_double
 #include "il2cpp_boxing_ext2.h" // runtime::icall_box_long/icall_unbox_long
@@ -23,6 +28,7 @@
 #include "sortedlist.h" // il2cpp::runtime::il2cpp_sortedlist_*
 
 #include <vector>
+#include <cstring>
 
 namespace il2cpp {
 namespace runtime {
@@ -391,6 +397,169 @@ void icall_sortedset_int_ctor_array(Il2CppObject* self, Il2CppArray* items)
             il2cpp_sortedlist_add(set, keyRoot.Get(), keyRoot.Get());
         }
     }
+}
+
+//------------------------------------------------------------------------------
+// nb9 FIX (M4/M18) -- the remaining SortedSet<int> ctor overloads.
+//
+// The enumerable ctor accepts ANY IEnumerable<int> carrier: an int32[] takes
+// the direct fast path, every other carrier (List<int>, Queue<int>,
+// HashSet<int>, SortedSet<int>, a user iterator) goes through the shared
+// IEnumerable surface (arraysort.cpp). The comparer ctor installs the
+// comparer on the sortedlist storage, so every subsequent Add/Contains/Remove
+// orders through it (sortedlist.cpp CompareKeys).
+//------------------------------------------------------------------------------
+namespace {
+
+// AddIntItem -- one deduplicated insert (box + ContainsKey + add), rooted
+// across the allocations.
+void AddIntItem(GcRoot<Il2CppObject*>& selfRoot, int32_t v)
+{
+    Il2CppObject* boxed = il2cpp_box_int32(nullptr, v);
+    GcRoot<Il2CppObject*> keyRoot(boxed, "sortedset_int_ctor_enum_key");
+    Il2CppObject* set = selfRoot.Get();
+    if (!ContainsKey(set, keyRoot.Get()))
+    {
+        il2cpp_sortedlist_add(set, keyRoot.Get(), keyRoot.Get());
+    }
+}
+
+} // namespace
+
+// nb9 (M4/M18): shared ctor body. The COMPARER is installed BEFORE the
+// carrier is enumerated -- the sorted array layout must be built under the
+// final comparer (net48 constructs the tree with it).
+static void CtorEnumImpl(Il2CppObject* self, Il2CppObject* items, Il2CppObject* comparer)
+{
+    ThrowIfNullReceiver(self);
+    if (items == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("collection");
+    }
+    GcRoot<Il2CppObject*> selfRoot(self, "sortedset_int_ctor_enum_self");
+    GcRoot<Il2CppObject*> itemsRoot(items, "sortedset_int_ctor_enum_items");
+    il2cpp_sortedlist_create(selfRoot.Get(), 0);
+    if (comparer != nullptr)
+    {
+        il2cpp_sortedlist_set_comparer(selfRoot.Get(), comparer);
+    }
+
+    // nb9 (M4): the carrier's CONCRETE runtime class decides the enumeration
+    // strategy. Each branch uses the carrier domain's existing public
+    // accessors, so no new per-carrier enumerator surface is needed:
+    //   * int32[]            -> direct element reads
+    //   * List<int>          -> il2cpp_list_i4_to_array (int32[])
+    //   * Queue<int>         -> icall_queue_int_to_array (int32[], HEAD-first)
+    //   * HashSet<int>       -> the hashtable key snapshot (boxed ints)
+    //   * SortedSet<int>     -> the sortedlist key snapshot (boxed ints)
+    //   * Stack<int>         -> il2cpp_stack_to_array (boxed ints)
+    //   * anything else      -> the shared IEnumerable surface (user iterators)
+    Il2CppObject* itemsObj = itemsRoot.Get();
+    const char* name = itemsObj->klass != nullptr ? itemsObj->klass->name : nullptr;
+
+    if (name != nullptr && name[0] == '[')
+    {
+        Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(itemsObj);
+        if (!arr->isRefElem && arr->elemSize == static_cast<int32_t>(sizeof(int32_t)))
+        {
+            for (int32_t i = 0; i < arr->length; ++i)
+            {
+                AddIntItem(selfRoot, *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(arr, i)));
+            }
+            return;
+        }
+    }
+
+    auto AddIntArray = [&selfRoot](Il2CppArray* arr) {
+        if (arr == nullptr) return;
+        for (int32_t i = 0; i < arr->length; ++i)
+        {
+            AddIntItem(selfRoot, *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(arr, i)));
+        }
+    };
+    auto AddBoxedArray = [&selfRoot](Il2CppArray* arr) {
+        if (arr == nullptr) return;
+        for (int32_t i = 0; i < arr->length; ++i)
+        {
+            Il2CppObject* boxed = *reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(arr, i));
+            AddIntItem(selfRoot, runtime::icall_unbox_int32(boxed));
+        }
+    };
+
+    if (name != nullptr)
+    {
+        if (std::strcmp(name, "System.Collections.Generic.List`1") == 0)
+        {
+            AddIntArray(reinterpret_cast<Il2CppArray*>(
+                il2cpp_list_i4_to_array(itemsRoot.Get())));
+            return;
+        }
+        if (std::strcmp(name, "System.Collections.Queue") == 0)
+        {
+            AddIntArray(reinterpret_cast<Il2CppArray*>(
+                runtime::icall_queue_int_to_array(itemsRoot.Get())));
+            return;
+        }
+        if (std::strcmp(name, "System.Collections.Hashtable") == 0)
+        {
+            Il2CppObject* keys = runtime::icall_hashtable_get_keys(itemsRoot.Get());
+            GcRoot<Il2CppObject*> keysRoot(keys, "sortedset_int_ctor_enum_hashkeys");
+            AddBoxedArray(reinterpret_cast<Il2CppArray*>(keysRoot.Get()));
+            return;
+        }
+        if (std::strcmp(name, "System.Collections.SortedList") == 0)
+        {
+            Il2CppObject* keys = il2cpp_sortedlist_get_keys(itemsRoot.Get());
+            GcRoot<Il2CppObject*> keysRoot(keys, "sortedset_int_ctor_enum_sortedkeys");
+            AddBoxedArray(reinterpret_cast<Il2CppArray*>(keysRoot.Get()));
+            return;
+        }
+        if (std::strcmp(name, "System.Collections.Stack") == 0)
+        {
+            Il2CppObject* snap = il2cpp_stack_to_array(itemsRoot.Get());
+            GcRoot<Il2CppObject*> snapRoot(snap, "sortedset_int_ctor_enum_stack");
+            AddBoxedArray(reinterpret_cast<Il2CppArray*>(snapRoot.Get()));
+            return;
+        }
+    }
+
+    // Generic carrier (a user iterator): the shared IEnumerable surface.
+    Il2CppObject* en = il2cpp_ienum_get_enumerator(itemsRoot.Get());
+    GcRoot<Il2CppObject*> enRoot(en, "sortedset_int_ctor_enum_enumerator");
+    while (il2cpp_ienum_move_next(enRoot.Get()))
+    {
+        AddIntItem(selfRoot, il2cpp_ienum_get_current_i4(enRoot.Get()));
+    }
+    il2cpp_ienum_dispose(enRoot.Get());
+}
+
+void icall_sortedset_int_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer)
+{
+    ThrowIfNullReceiver(self);
+    if (comparer == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("comparer");
+    }
+    GcRoot<Il2CppObject*> selfRoot(self, "sortedset_int_ctor_cmp_self");
+    il2cpp_sortedlist_create(selfRoot.Get(), 0);
+    il2cpp_sortedlist_set_comparer(selfRoot.Get(), comparer);
+}
+
+void icall_sortedset_int_ctor_enum(Il2CppObject* self, Il2CppObject* items)
+{
+    CtorEnumImpl(self, items, nullptr);
+}
+
+void icall_sortedset_int_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items,
+                                            Il2CppObject* comparer)
+{
+    if (comparer == nullptr)
+    {
+        ThrowIfNullReceiver(self);
+        il2cpp_throw_argument_null_exception("comparer");
+    }
+    CtorEnumImpl(self, items, comparer);
 }
 
 void icall_sortedset_union_with(Il2CppObject* self, Il2CppObject* other)

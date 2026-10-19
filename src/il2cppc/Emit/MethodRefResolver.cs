@@ -1417,7 +1417,7 @@ public static partial class MethodRefResolver
             // the same runtime objects through the receiver-aware arms.
             case "System.Collections.Generic.Queue`1": return TryMapQueue(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
             case "System.Collections.Generic.Stack`1": return TryMapStack(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
-            case "System.Collections.Generic.SortedSet`1": return TryMapSortedSet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.SortedSet`1": return TryMapSortedSet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
             case "System.Collections.Generic.SortedSet`1+Enumerator":
                 return TryMapSortedSetEnumerator(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.IO.Stream":
@@ -1820,7 +1820,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 // TryMapLinq i4-family gate sees it. A non-int32 element
                 // overload (IEnumerable<double>) decodes to its byte and is
                 // LOUD-rejected by the gate.
-                if (name is "Sum" or "Min" or "Max" && genArgs == null)
+                if (name is "Sum" or "Min" or "Max" or "Average" && genArgs == null)
                     genArgs = LinqAggregateElementByte(md, sigHandle);
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // D-LINQ-4 grouping instance surface: the REAL BCL owner of an

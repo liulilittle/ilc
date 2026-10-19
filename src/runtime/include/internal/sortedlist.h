@@ -94,6 +94,12 @@ struct Il2CppSortedList
     Il2CppArray* items;    // reference array: [0,cap) keys, [cap,2cap) values
     int32_t      count;    // number of key/value pairs
     int32_t      capacity; // allocated capacity (items->length / 2)
+    // nb9 (M4/M18): the SortedSet<T>(IComparer<T>) / SortedSet<T>(items,
+    // comparer) comparer. nullptr = the default (boxed-value) order above;
+    // a non-null object is dispatched through its reflected virtual
+    // Compare(T,T) slot. The field sits AFTER count/capacity so every existing
+    // offset is unchanged (instanceSize 24 -> 32, refFieldBitmap gains bit 3).
+    Il2CppObject* comparer;
 };
 
 // The System.Collections.SortedList runtime descriptor (registered lazily on
@@ -107,6 +113,11 @@ namespace runtime {
 // ArgumentOutOfRangeException. 'self' must be a fresh object created with
 // il2cpp_object_new(il2cpp_sortedlist_class()).
 void il2cpp_sortedlist_create(Il2CppObject* self, int32_t capacity);
+
+// SetComparer(comparer) -- nb9 (M4/M18): install the SortedSet<T> comparer.
+// nullptr restores the default boxed-value order. The store goes through a
+// write barrier (the container may already be old when the comparer is young).
+void il2cpp_sortedlist_set_comparer(Il2CppObject* self, Il2CppObject* comparer);
 
 // Add(key, value) -- insert a new pair, keeping the array sorted. A null key
 // raises ArgumentNullException; a duplicate key (per the sorting contract)

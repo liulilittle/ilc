@@ -76,28 +76,56 @@ public static partial class MethodRefResolver
         string[] TwoArg = { "a", "" };
         string[] OneArg = { "a" };
 
+        // nb9 FIX: the SOURCE receiver hint. For an extension call the source
+        // is the FIRST IL argument -- the stack's SECOND value for arity >= 2
+        // (arg1Type) and the ONLY value for arity 1 (arg0Type); an instance
+        // call (get_Key) carries receiverType. The old code read arg0Type
+        // unconditionally, so `g.Where(pred)` (arity 2) saw the DELEGATE's
+        // tracked type instead of the grouping and fell through to the array
+        // icalls.
+        string? srcType = receiverType ?? (count >= 2 ? arg1Type : arg0Type);
+
         // Sum/Min/Max are special: net48 carries a CONCRETE non-generic
         // overload family Sum(this IEnumerable<int32>) / Min / Max (no
         // MethodSpec -- the il2cpp_linq_*_i4 aggregate). The element byte is
         // decoded from the raw signature's first GenericInst arg (the
         // BclResolveCore LINQ case synthesizes it for these names).
-        if (name is "Sum" or "Min" or "Max")
+        //
+        // nb9 FIX: the per-bucket (IGrouping) and whole-result (IGroupingResult)
+        // forms are dispatched here, BEFORE the i4 gate -- a grouping receiver
+        // is an OBJECT, never an int32[] (the old gate LOUD-rejected Min/Max
+        // and silently routed Sum(selector) to the array kernel).
+        if (name is "Sum" or "Min" or "Max" or "Average")
         {
-            // D-LINQ-4: per-bucket Sum on an IGrouping receiver
-            // (`gr.Sum()` where gr is a GroupBy result grouping). The
-            // receiver is tracked as the pseudo-type "System.Linq.IGrouping"
-            // (GroupBy's ReturnTypeName), so the aggregate routes to the
-            // per-bucket icall instead of the int32[] array icall. Min/Max
-            // have no per-bucket runtime entry in stage 1 (the test drives
-            // Count/Sum only) -- LOUD.
-            if (receiverType == "System.Linq.IGrouping" || arg0Type == "System.Linq.IGrouping")
+            var aggRecv = srcType;
+            if (aggRecv is "System.Linq.IGrouping" or "System.Linq.IGroupingResult")
             {
                 if (name == "Sum")
+                {
+                    // Sum() -> the per-bucket checked sum; Sum(selector) ->
+                    // Select(selector) then the same checked sum.
+                    if (count >= 2)
+                        return I("il2cpp::il2cpp_linq_grouping_sum_sel", 2, true, false, false,
+                            new[] { "", "" });
                     return I("il2cpp::il2cpp_linq_grouping_sum", 1, true, false, false, new[] { "" });
-                throw new NotSupportedException(
-                    $"Enumerable.{name} on an IGrouping receiver not wired: " +
-                    "D-LINQ-4 wires the per-bucket grouping Sum (il2cpp_linq_grouping_sum) only -- " +
-                    "the stage-1 grouping runtime has no per-bucket Min/Max entry");
+                }
+                if (name == "Average")
+                {
+                    // Average()/Average(selector) -> double over the bucket.
+                    return count >= 2
+                        ? I("il2cpp::il2cpp_linq_grouping_average_sel", 2, true, false, false,
+                            new[] { "", "" }, resultKind: "d")
+                        : I("il2cpp::il2cpp_linq_grouping_average_i4", 1, true, false, false,
+                            new[] { "" }, resultKind: "d");
+                }
+                // Min()/Max() over the bucket's int32 elements. NOTE: `count`
+                // is the EXTENSION-METHOD arity -- the source itself is
+                // parameter 1, so Min() arrives as count == 1.
+                if (count > 1) return null;
+                return I(name == "Min"
+                        ? "il2cpp::il2cpp_linq_grouping_min_i4"
+                        : "il2cpp::il2cpp_linq_grouping_max_i4",
+                    1, true, false, false, new[] { "" });
             }
             if (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08)
             {
@@ -107,11 +135,65 @@ public static partial class MethodRefResolver
                     "the stage-1 runtime LINQ surface is int32 (0x08) element-family only " +
                     "(the ref-family icalls have no transpiler producer for their bool(*)(Il2CppObject*) callback ABI)");
             }
+            // nb9 FIX (M21): the SELECTOR forms project every element FIRST
+            // and aggregate the projected values. The old mapping ignored
+            // `count` and returned the selector-less aggregate with
+            // ParamCount 1 -- a silent wrong value (and a stack desync).
+            if (count >= 2)
+            {
+                // net48's selector overloads are generic only in TSource; the
+                // PROJECTION type lives in the selector's own generic argument
+                // (Func<TSource,int> / <TSource,long> / <TSource,double>).
+                var proj = LinqSelectorProjectionType(md, sigHandle);
+                switch (proj)
+                {
+                    case "i":
+                        return name switch
+                        {
+                            "Sum" => I("il2cpp::il2cpp_linq_sum_sel_i4", 2, true, false, false, TwoArg),
+                            "Min" => I("il2cpp::il2cpp_linq_min_sel_i4", 2, true, false, false, TwoArg),
+                            "Max" => I("il2cpp::il2cpp_linq_max_sel_i4", 2, true, false, false, TwoArg),
+                            _ => I("il2cpp::il2cpp_linq_average_sel_i4", 2, true, false, false,
+                                TwoArg, resultKind: "d"),
+                        };
+                    case "l":
+                        return name switch
+                        {
+                            "Sum" => I("il2cpp::il2cpp_linq_sum_sel_i8", 2, true, false, false,
+                                TwoArg, resultKind: "l"),
+                            "Min" => I("il2cpp::il2cpp_linq_min_sel_i8", 2, true, false, false,
+                                TwoArg, resultKind: "l"),
+                            "Max" => I("il2cpp::il2cpp_linq_max_sel_i8", 2, true, false, false,
+                                TwoArg, resultKind: "l"),
+                            _ => I("il2cpp::il2cpp_linq_average_sel_i8", 2, true, false, false,
+                                TwoArg, resultKind: "d"),
+                        };
+                    case "d":
+                        return name switch
+                        {
+                            "Sum" => I("il2cpp::il2cpp_linq_sum_sel_d", 2, true, false, false,
+                                TwoArg, resultKind: "d"),
+                            "Min" => I("il2cpp::il2cpp_linq_min_sel_d", 2, true, false, false,
+                                TwoArg, resultKind: "d"),
+                            "Max" => I("il2cpp::il2cpp_linq_max_sel_d", 2, true, false, false,
+                                TwoArg, resultKind: "d"),
+                            _ => I("il2cpp::il2cpp_linq_average_sel_d", 2, true, false, false,
+                                TwoArg, resultKind: "d"),
+                        };
+                    default:
+                        throw new NotSupportedException(
+                            $"Enumerable.{name} with selector projection '{proj}' not wired: " +
+                            "the stage-1 selector-aggregate surface covers int32/int64/double projections " +
+                            "(a decimal projection has no runtime aggregate kernel)");
+                }
+            }
             return name switch
             {
                 "Sum" => I("il2cpp::il2cpp_linq_sum_i4", 1, true, false, false, OneArg),
                 "Min" => I("il2cpp::il2cpp_linq_min_i4", 1, true, false, false, OneArg),
-                _ => I("il2cpp::il2cpp_linq_max_i4", 1, true, false, false, OneArg),
+                "Max" => I("il2cpp::il2cpp_linq_max_i4", 1, true, false, false, OneArg),
+                _ => I("il2cpp::il2cpp_linq_average_i4", 1, true, false, false,
+                    OneArg, resultKind: "d"),
             };
         }
 
@@ -125,13 +207,81 @@ public static partial class MethodRefResolver
         // NOTE: no get_Item branch -- the BCL GroupBy result has no indexer
         // (ILookup's this[key] is key-based with no stage-1 runtime entry);
         // index-th bucket reads stay inside the runtime enumerator.
-        if (receiverType == "System.Linq.IGrouping" || arg0Type == "System.Linq.IGrouping"
+        //
+        // nb9 FIX: EVERY Enumerable operator over a grouping receiver is now
+        // a thin wrapper over the bucket's exact element snapshot (the runtime
+        // reuses the int32 array kernels), so no operator falls through to the
+        // array-family icall with an object cast.
+        if (srcType == "System.Linq.IGrouping"
             || (owner == "System.Linq.IGrouping`2" && name == "get_Key"))
         {
             if (name == "get_Key" && count == 0)
                 // INSTANCE property accessor: ParamCount is the EXPLICIT
                 // parameter count (0); the emitter prepends the receiver.
                 return I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true);
+            switch (name)
+            {
+                case "Count" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_get_count", 1, true, false, false, new[] { "" });
+                case "Count":
+                    return I("il2cpp::il2cpp_linq_grouping_count_pred", 2, true, false, false, new[] { "", "" });
+                case "Where":
+                    return I("il2cpp::il2cpp_linq_grouping_where", 2, true, true, false, new[] { "", "" },
+                        returnTypeName: "System.Int32[]");
+                case "Select":
+                    return I("il2cpp::il2cpp_linq_grouping_select", 2, true, true, false, new[] { "", "" },
+                        returnTypeName: "System.Int32[]");
+                case "ToArray":
+                    return I("il2cpp::il2cpp_linq_grouping_to_array", 1, true, true, false, new[] { "" },
+                        returnTypeName: "System.Int32[]");
+                case "Any" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_any", 1, true, false, false, new[] { "" });
+                case "Any":
+                    return I("il2cpp::il2cpp_linq_grouping_any_pred", 2, true, false, false, new[] { "", "" });
+                case "All":
+                    return I("il2cpp::il2cpp_linq_grouping_all", 2, true, false, false, new[] { "", "" });
+                case "First" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_first_i4", 1, true, false, false, new[] { "" });
+                case "FirstOrDefault" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_first_or_default_i4", 1, true, false, false, new[] { "" });
+                case "Last" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_last_i4", 1, true, false, false, new[] { "" });
+                case "ElementAt":
+                    return I("il2cpp::il2cpp_linq_grouping_element_at_i4", 2, true, false, false,
+                        new[] { "", "i" });
+                case "Contains":
+                    return I("il2cpp::il2cpp_linq_grouping_contains_i4", 2, true, false, false,
+                        new[] { "", "i" });
+                default:
+                    break;
+            }
+        }
+
+        // nb9 FIX (M15): the whole GroupBy RESULT (IEnumerable<IGrouping>) --
+        // the gate below used to reject it because TSource is IGrouping (0x15).
+        if (srcType == "System.Linq.IGroupingResult")
+        {
+            switch (name)
+            {
+                case "Count" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_result_get_count", 1, true, false, false, new[] { "" });
+                case "Any" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_result_any", 1, true, false, false, new[] { "" });
+                case "ToArray":
+                    return I("il2cpp::il2cpp_linq_grouping_result_to_array", 1, true, true, false, new[] { "" },
+                        returnTypeName: "System.Object[]");
+                case "ToList":
+                    return I("il2cpp::il2cpp_linq_grouping_result_to_list", 1, true, true, false, new[] { "" },
+                        returnTypeName: "System.Collections.Generic.List`1_object");
+                case "First" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_result_first", 1, true, true, false, new[] { "" },
+                        returnTypeName: "System.Linq.IGrouping");
+                case "FirstOrDefault" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_result_first_or_default", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Linq.IGrouping");
+                default:
+                    break;
+            }
         }
 
         // The generic operators (Where/Select/Count/Any/All/First/FirstOr-
@@ -226,16 +376,52 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_where_i4", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Int32[]");
             case "Select":
-                // int32 -> int32 family (select_i4_i4). The ref-result
-                // variants (select_i4_ref / select_ref_ref) have no selector
-                // producer in stage 1.
+                // int32 -> int32 family (select_i4_i4). nb9 FIX (M19): the
+                // RESULT family is generic -- a non-int32 TResult must NOT go
+                // through the int32 entry (the result array layout and the
+                // foreach carrier would disagree: an access violation).
                 // The index overload Select(Func<TSource,int,TResult>) carries
                 // a 3-argument Func -- route it to the *_idx entry.
-                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    return I("il2cpp::il2cpp_linq_select_idx_i4_i4", 2, true, true, false, TwoArg,
-                        returnTypeName: "System.Int32[]");
-                return I("il2cpp::il2cpp_linq_select_i4_i4", 2, true, true, false, TwoArg,
-                    returnTypeName: "System.Int32[]");
+                {
+                    bool selIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                    byte tRes = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                    switch (tRes)
+                    {
+                        case 0x08:
+                        case 0x02:
+                        case 0x03:
+                        case 0x04:
+                        case 0x05:
+                        case 0x06:
+                        case 0x07:
+                        case 0x09:
+                            return I(selIdx
+                                    ? "il2cpp::il2cpp_linq_select_idx_i4_i4"
+                                    : "il2cpp::il2cpp_linq_select_i4_i4",
+                                2, true, true, false, TwoArg, returnTypeName: "System.Int32[]");
+                        case 0x0A:
+                        case 0x0B:
+                            return I(selIdx
+                                    ? "il2cpp::il2cpp_linq_select_idx_i4_i8"
+                                    : "il2cpp::il2cpp_linq_select_i4_i8",
+                                2, true, true, false, TwoArg, returnTypeName: "System.Int64[]");
+                        case 0x0C:
+                        case 0x0D:
+                            return I(selIdx
+                                    ? "il2cpp::il2cpp_linq_select_idx_i4_d"
+                                    : "il2cpp::il2cpp_linq_select_i4_d",
+                                2, true, true, false, TwoArg, returnTypeName: "System.Double[]");
+                        default:
+                            // A reference TResult -> a reference array. The
+                            // element name is tracked so downstream member
+                            // calls resolve on the array's element type.
+                            return I(selIdx
+                                    ? "il2cpp::il2cpp_linq_select_idx_i4_ref"
+                                    : "il2cpp::il2cpp_linq_select_i4_ref",
+                                2, true, true, false, TwoArg,
+                                returnTypeName: GenericArgTypeName(tRes) + "[]");
+                    }
+                }
             case "ToArray":
                 // D-LINQ-4: ToArray over one IGrouping bucket materializes an
                 // exact-size int32[] copy (get_elements contract), tracked for
@@ -386,8 +572,18 @@ public static partial class MethodRefResolver
                 // is NOT an int32[] -- it is tracked as the pseudo-type
                 // "System.Linq.IGroupingResult" so the enumerator surface
                 // (GetEnumerator / get_Current / get_Key / per-bucket
-                // Count/Sum) dispatches on the receiver hint
-                // (MethodMap.Linq.cs TryMapLinqGrouping).
+                // operators) dispatches on the receiver hint.
+                //
+                // nb9 FIX (M1/M2/M16): the 3-argument overloads are AMBIGUOUS
+                // by bytes (Func`2 element selector, IEqualityComparer`1
+                // comparer and Func`3 result selector are all GENERICINST
+                // 0x15), so the third parameter's GENERIC DEFINITION NAME
+                // decides. The family of the element / result is genArgs:
+                //   GroupBy<TSource,TKey,TElement>          -> genArgs[2] = TElement
+                //   GroupBy<TSource,TKey,TResult>           -> genArgs[2] = TResult
+                //   GroupBy<TSource,TKey,TElement,TResult>  -> genArgs[3] = TResult
+                // Everything is served by il2cpp_linq_group_by_full with the
+                // two family codes as trailing literals.
                 if (genArgs is not { Length: >= 2 } || genArgs[1] != 0x08)
                 {
                     string elemArgType = genArgs is { Length: >= 1 }
@@ -396,24 +592,74 @@ public static partial class MethodRefResolver
                         ? GenericArgTypeName(genArgs[1]) : "?";
                     throw new NotSupportedException(
                         $"Enumerable.GroupBy<{elemArgType},{keyArgType}> not wired: " +
-                        "the stage-1 runtime grouping surface (il2cpp_linq_group_by_i4) is int32 (0x08) " +
+                        "the stage-1 runtime grouping surface is int32 (0x08) " +
                         "elements AND int32 (0x08) keys only -- the runtime buckets by int32 keys");
                 }
-                // ARITY DISPATCH (nb9 LINQ-ARITY): GroupBy(keySelector) takes
-                // one delegate, GroupBy(keySelector, elementSelector) takes two.
-                // The 2-delegate overload projects each element through the
-                // element selector BEFORE bucketing (net48 semantics), so it
-                // must NOT be mapped to the key-only entry point.
-                // Enumerable.GroupBy(source, keySelector) -> count == 2,
-                // Enumerable.GroupBy(source, keySelector, elementSelector) -> count == 3.
-                if (count == 3)
-                    return I("il2cpp::il2cpp_linq_group_by_elem_i4", 3, true, true, false,
-                        new[] { "a", "", "" }, returnTypeName: "System.Linq.IGroupingResult");
-                if (count != 2)
-                    throw new NotSupportedException(
-                        $"Enumerable.GroupBy with {count} argument(s) not wired in M5");
-                return I("il2cpp::il2cpp_linq_group_by_i4", 2, true, true, false, TwoArg,
-                    returnTypeName: "System.Linq.IGroupingResult");
+                {
+                    var gbParams = LinqEncodedParamTypes(md, sigHandle);
+                    string ElemFamily(byte b) => b switch
+                    {
+                        0x08 => "0",                                   // int32
+                        0x0A => "2",                                   // int64 (boxed)
+                        0x0D => "3",                                   // double (boxed)
+                        0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1", // reference
+                        _ => "",
+                    };
+                    string ResultFamily(byte b) => b switch
+                    {
+                        0x08 => "1",
+                        _ => "2",
+                    };
+
+                    // Which IL argument is the element selector / comparer /
+                    // result selector (decided by the generic DEFINITION name).
+                    int elemArg = -1;
+                    int cmpArg = -1;
+                    int resArg = -1;
+                    for (int pi = 2; pi < gbParams.Length; pi++)
+                    {
+                        var def = GenericDefNameOf(gbParams[pi]);
+                        if (def == "System.Func`2") elemArg = pi;
+                        else if (def == "System.Func`3") resArg = pi;
+                        else if (def == "System.Collections.Generic.IEqualityComparer`1") cmpArg = pi;
+                    }
+
+                    byte? elemByte = elemArg >= 0 && genArgs.Length >= 3 ? genArgs[2] : null;
+                    byte? resByte = resArg >= 0 && genArgs.Length >= 3
+                        ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2])
+                        : null;
+
+                    string ek = elemByte is { } eb ? ElemFamily(eb) : "0";
+                    if (ek.Length == 0)
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.GroupBy TElement '{GenericArgTypeName(elemByte!.Value)}' is not a supported element family");
+                    }
+                    string rk = resByte is { } rb ? ResultFamily(rb) : "0";
+
+                    // The runtime entry takes (source, keySelector,
+                    // elementSelector, comparer, resultSelector, elemKind,
+                    // rsKind). The IL argument order differs per overload
+                    // (source, key, [element], [comparer], [result]), so
+                    // ArgOrder maps each ICALL slot to its IL argument index
+                    // (-1 = absent -> nullptr); the two family codes are
+                    // appended literals.
+                    int elemIdx = elemArg >= 0 ? elemArg : -1;
+                    int cmpIdx = cmpArg >= 0 ? cmpArg : -1;
+                    int resIdx = resArg >= 0 ? resArg : -1;
+                    var argOrder = new[] { 0, 1, elemIdx, cmpIdx, resIdx };
+                    var casts = new[] { "a", "", "", "", "" };
+                    var literals = new[] { ek, rk };
+                    var retType = rk == "0"
+                        ? "System.Linq.IGroupingResult"
+                        : rk == "1" ? "System.Int32[]" : "System.Object[]";
+                    // The result is ALWAYS a managed reference (a grouping
+                    // result object or a result array), so the result temp is
+                    // the Il2CppObject* slot (rv=true, rr=true).
+                    return I("il2cpp::il2cpp_linq_group_by_full", count, true, true, false, casts,
+                        returnTypeName: retType, appendLiterals: literals,
+                        argOrder: argOrder);
+                }
             case "Concat":
                 // Concat(source, second) -> il2cpp_linq_concat_i4 (D-LINQZ-1):
                 // a NEW int32[] holding ALL of source then ALL of second,
@@ -483,18 +729,69 @@ public static partial class MethodRefResolver
                 // Aggregate(source, func) -> il2cpp_linq_aggregate_i4: fold
                 // left-to-right seeded from the first element (net48 Aggregate
                 // without a seed). Empty -> InvalidOperationException.
-                // Aggregate(source, seed, func) -> il2cpp_linq_aggregate_seed_i4:
-                // fold from the seed; empty source returns the seed (net48).
-                // The extension-method form resolves as
-                // Enumerable.Aggregate(source, func) -> count == 2, and
-                // Enumerable.Aggregate(source, seed, func) -> count == 3.
+                // Aggregate(source, seed, func) -> the accumulator family the
+                // TAccumulate metadata byte selects (nb9 FIX M3: the old code
+                // truncated every non-int32 seed and ran the callback through
+                // the int32 ABI -- a silent wrong result).
+                // Aggregate(source, seed, func, resultSelector) (nb9 M16): the
+                // selector runs ONCE on the final accumulator.
                 if (count == 2)
                     return I("il2cpp::il2cpp_linq_aggregate_i4", 2, true, false, false, TwoArg);
-                if (count == 3)
-                    return I("il2cpp::il2cpp_linq_aggregate_seed_i4", 3, true, false, false,
-                        new[] { "a", "i", "" });
-                throw new NotSupportedException(
-                    $"Enumerable.Aggregate with {count} argument(s) not wired in M5");
+                if (count == 3 || count == 4)
+                {
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    byte accByte = genArgs[1];
+                    // The result-selector family (only for count == 4).
+                    byte resByte = count == 4 && genArgs.Length >= 3 ? genArgs[2] : (byte)0;
+                    string acc = accByte switch
+                    {
+                        0x08 => "i4",
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "i4",
+                        0x0A => "i8",
+                        0x0C or 0x0D => "d",
+                        0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "ref",
+                        _ => "",
+                    };
+                    if (acc.Length == 0)
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.Aggregate TAccumulate '{GenericArgTypeName(accByte)}' is not a supported accumulator family");
+                    }
+                    if (count == 3)
+                    {
+                        return acc switch
+                        {
+                            "i4" => I("il2cpp::il2cpp_linq_aggregate_seed_i4", 3, true, false, false,
+                                new[] { "a", "i", "" }),
+                            "i8" => I("il2cpp::il2cpp_linq_aggregate_seed_i8", 3, true, false, false,
+                                new[] { "a", "l", "" }, resultKind: "l"),
+                            "d" => I("il2cpp::il2cpp_linq_aggregate_seed_d", 3, true, false, false,
+                                new[] { "a", "d", "" }, resultKind: "d"),
+                            _ => I("il2cpp::il2cpp_linq_aggregate_seed_ref", 3, true, true, false,
+                                new[] { "a", "", "" }),
+                        };
+                    }
+                    // count == 4: TResult decides the result carrier.
+                    bool resRef = resByte is not (0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06
+                        or 0x07 or 0x09 or 0x0A or 0x0C or 0x0D);
+                    string seedCast = acc switch { "i4" => "i", "i8" => "l", "d" => "d", _ => "" };
+                    string cpp = acc switch
+                    {
+                        "i4" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_rs_ref"
+                                       : "il2cpp::il2cpp_linq_aggregate_seed_rs_i4",
+                        "i8" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_i8_rs_ref"
+                                       : "il2cpp::il2cpp_linq_aggregate_seed_i8_rs_i4",
+                        "d" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_d_rs_ref"
+                                      : "il2cpp::il2cpp_linq_aggregate_seed_d_rs_i4",
+                        _ => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_ref_rs_ref"
+                                    : "il2cpp::il2cpp_linq_aggregate_seed_ref_rs_i4",
+                    };
+                    return I(cpp, 4, true, resRef, false,
+                        new[] { "a", seedCast, "", "" },
+                        resultKind: resRef ? null : (resByte == 0x0A ? "l" : resByte == 0x0C || resByte == 0x0D ? "d" : null));
+                }
+                return null;
             case "LongCount":
                 // LongCount(source) -> il2cpp_linq_long_count: the number of
                 // elements as int64 (net48 Enumerable.LongCount returns long).
@@ -512,5 +809,48 @@ public static partial class MethodRefResolver
             default:
                 return null;
         }
+    }
+
+    //--------------------------------------------------------------------------
+    // nb9 FIX helpers -- overload discrimination by the ENCODED PARAMETER TYPE
+    // TEXT (MethodSignatureCoder.Decode(...).ParamTypes, the same authority the
+    // DateTimeOffset overload dispatch uses). A GENERICINST parameter encodes
+    // as "r:Definition`N<args>", so the generic DEFINITION name is everything
+    // before the first '<'. The raw parameter bytes CANNOT tell
+    // IEqualityComparer`1 from Func`2 / Func`3 (all 0x15).
+    //--------------------------------------------------------------------------
+    private static string[] LinqEncodedParamTypes(MetadataReader md, BlobHandle sigHandle)
+    {
+        var pt = MethodSignatureCoder.Decode(md, sigHandle).ParamTypes;
+        return pt.Length == 0 ? Array.Empty<string>() : CodeGenerator.SplitTopLevel(pt).ToArray();
+    }
+
+    private static string GenericDefNameOf(string encoded)
+    {
+        var s = encoded.StartsWith("r:", StringComparison.Ordinal) ? encoded[2..] : encoded;
+        var lt = s.IndexOf('<');
+        return lt >= 0 ? s[..lt] : s;
+    }
+
+    //--------------------------------------------------------------------------
+    // LinqSelectorProjectionType -- the encoded RESULT type of the SECOND
+    // parameter when it is a Func`2 ("r:System.Func`2<i,i>" -> "i"), or "" when
+    // the shape does not apply. The selector-aggregate overloads
+    // (Sum/Min/Max/Average(source, Func<TSource,TResult>)) are generic only in
+    // TSource, so TResult is NOT in genArgs -- it must come from the
+    // parameter's own generic argument list.
+    //--------------------------------------------------------------------------
+    private static string LinqSelectorProjectionType(MetadataReader md, BlobHandle sigHandle)
+    {
+        var parts = LinqEncodedParamTypes(md, sigHandle);
+        if (parts.Length < 2) return "";
+        var s = parts[1];
+        if (s.StartsWith("r:", StringComparison.Ordinal)) s = s[2..];
+        if (!s.StartsWith("System.Func`2<", StringComparison.Ordinal)) return "";
+        var inner = s["System.Func`2<".Length..];
+        var gt = inner.LastIndexOf('>');
+        if (gt >= 0) inner = inner[..gt];
+        var args = CodeGenerator.SplitTopLevel(inner).ToArray();
+        return args.Length >= 2 ? args[1] : "";
     }
 }

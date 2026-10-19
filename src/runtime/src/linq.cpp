@@ -573,4 +573,265 @@ Il2CppArray* il2cpp_linq_default_if_empty_i4(Il2CppArray* src)
     return result;
 }
 
+//------------------------------------------------------------------------------
+// nb9 FIX BATCH -- Aggregate's accumulator family (see linq.h).
+//
+// One fold per accumulator ABI; the RESULT selector (`Func<TAccumulate,TResult>`)
+// runs ONCE on the final accumulator, after the fold (net48). An empty source
+// returns the seed (and then projects it). Rooting: the delegate, the source
+// and (for the reference accumulator) the seed/accumulator are rooted across
+// every callback.
+//------------------------------------------------------------------------------
+namespace {
+
+typedef int64_t (*I8BinFn)(int64_t, int32_t);
+typedef int64_t (*I8BinThisFn)(Il2CppObject*, int64_t, int32_t);
+typedef double (*DBinFn)(double, int32_t);
+typedef double (*DBinThisFn)(Il2CppObject*, double, int32_t);
+typedef Il2CppObject* (*RefBinFn)(Il2CppObject*, int32_t);
+typedef Il2CppObject* (*RefBinThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+
+// Func<TAccumulate,TResult> -- the result selector ABI.
+typedef int32_t (*AccI4ResFn)(int32_t);
+typedef int32_t (*AccI4ResThisFn)(Il2CppObject*, int32_t);
+typedef Il2CppObject* (*AccI4ResRefFn)(int32_t);
+typedef Il2CppObject* (*AccI4ResRefThisFn)(Il2CppObject*, int32_t);
+typedef int32_t (*AccI8ResFn)(int64_t);
+typedef int32_t (*AccI8ResThisFn)(Il2CppObject*, int64_t);
+typedef Il2CppObject* (*AccI8ResRefFn)(int64_t);
+typedef Il2CppObject* (*AccI8ResRefThisFn)(Il2CppObject*, int64_t);
+typedef int32_t (*AccDResFn)(double);
+typedef int32_t (*AccDResThisFn)(Il2CppObject*, double);
+typedef Il2CppObject* (*AccDResRefFn)(double);
+typedef Il2CppObject* (*AccDResRefThisFn)(Il2CppObject*, double);
+typedef int32_t (*AccRefResFn)(Il2CppObject*);
+typedef int32_t (*AccRefResThisFn)(Il2CppObject*, Il2CppObject*);
+typedef Il2CppObject* (*AccRefResRefFn)(Il2CppObject*);
+typedef Il2CppObject* (*AccRefResRefThisFn)(Il2CppObject*, Il2CppObject*);
+
+int64_t FoldI8(Il2CppArray* src, int64_t seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int64_t acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<I8BinThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<I8BinFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+double FoldD(Il2CppArray* src, double seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    double acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<DBinThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<DBinFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+Il2CppObject* FoldRef(Il2CppArray* src, Il2CppObject* seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&seed));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        seed = d->target != nullptr
+            ? reinterpret_cast<RefBinThisFn>(d->methodPtr)(d->target, seed, elem)
+            : reinterpret_cast<RefBinFn>(d->methodPtr)(seed, elem);
+    }
+    return seed;
+}
+
+int32_t ProjectI4(Il2CppDelegate* d, int32_t acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccI4ResThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccI4ResFn>(d->methodPtr)(acc);
+}
+
+Il2CppObject* ProjectI4Ref(Il2CppDelegate* d, int32_t acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccI4ResRefThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccI4ResRefFn>(d->methodPtr)(acc);
+}
+
+int32_t ProjectI8(Il2CppDelegate* d, int64_t acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccI8ResThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccI8ResFn>(d->methodPtr)(acc);
+}
+
+Il2CppObject* ProjectI8Ref(Il2CppDelegate* d, int64_t acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccI8ResRefThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccI8ResRefFn>(d->methodPtr)(acc);
+}
+
+int32_t ProjectD(Il2CppDelegate* d, double acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccDResThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccDResFn>(d->methodPtr)(acc);
+}
+
+Il2CppObject* ProjectDRef(Il2CppDelegate* d, double acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccDResRefThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccDResRefFn>(d->methodPtr)(acc);
+}
+
+int32_t ProjectRef(Il2CppDelegate* d, Il2CppObject* acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccRefResThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccRefResFn>(d->methodPtr)(acc);
+}
+
+Il2CppObject* ProjectRefRef(Il2CppDelegate* d, Il2CppObject* acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccRefResRefThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccRefResRefFn>(d->methodPtr)(acc);
+}
+
+} // namespace
+
+int64_t il2cpp_linq_aggregate_seed_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldI8(src, seed, RequireCallback(func));
+}
+
+double il2cpp_linq_aggregate_seed_d(Il2CppArray* src, double seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldD(src, seed, RequireCallback(func));
+}
+
+Il2CppObject* il2cpp_linq_aggregate_seed_ref(Il2CppArray* src, Il2CppObject* seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldRef(src, seed, RequireCallback(func));
+}
+
+int32_t il2cpp_linq_aggregate_seed_rs_i4(Il2CppArray* src, int32_t seed,
+                                         Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectI4(rd, il2cpp_linq_aggregate_seed_i4(src, seed, reinterpret_cast<Il2CppObject*>(fd)));
+}
+
+Il2CppObject* il2cpp_linq_aggregate_seed_rs_ref(Il2CppArray* src, int32_t seed,
+                                                Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectI4Ref(rd, il2cpp_linq_aggregate_seed_i4(src, seed, reinterpret_cast<Il2CppObject*>(fd)));
+}
+
+int32_t il2cpp_linq_aggregate_seed_i8_rs_i4(Il2CppArray* src, int64_t seed,
+                                            Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectI8(rd, FoldI8(src, seed, fd));
+}
+
+Il2CppObject* il2cpp_linq_aggregate_seed_i8_rs_ref(Il2CppArray* src, int64_t seed,
+                                                   Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectI8Ref(rd, FoldI8(src, seed, fd));
+}
+
+int32_t il2cpp_linq_aggregate_seed_d_rs_i4(Il2CppArray* src, double seed,
+                                           Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectD(rd, FoldD(src, seed, fd));
+}
+
+Il2CppObject* il2cpp_linq_aggregate_seed_d_rs_ref(Il2CppArray* src, double seed,
+                                                  Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectDRef(rd, FoldD(src, seed, fd));
+}
+
+int32_t il2cpp_linq_aggregate_seed_ref_rs_i4(Il2CppArray* src, Il2CppObject* seed,
+                                             Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    Il2CppObject* acc = FoldRef(src, seed, fd);
+    Il2CppObject* accRoot = acc;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&accRoot));
+    const int32_t r = ProjectRef(rd, accRoot);
+    il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&accRoot));
+    return r;
+}
+
+Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObject* seed,
+                                                    Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    Il2CppObject* acc = FoldRef(src, seed, fd);
+    Il2CppObject* accRoot = acc;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&accRoot));
+    Il2CppObject* r = ProjectRefRef(rd, accRoot);
+    il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&accRoot));
+    return r;
+}
+
 } // namespace il2cpp

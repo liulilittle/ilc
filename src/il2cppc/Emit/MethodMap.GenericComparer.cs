@@ -102,6 +102,14 @@ public static partial class MethodRefResolver
                 if (count != 0 || cmpKind == null) return null;
                 return I($"il2cpp::il2cpp_comparer_default_{cmpKind}", 0, true, true, false,
                     returnTypeName: $"System.Collections.Generic.Comparer`1_{cmpKind}");
+            case "Create":
+                // nb9 (M4/M18): Comparer<int>.Create(Comparison<int>) -- a
+                // heap comparer wrapping the caller's delegate. net48's
+                // returned object's Compare dispatches to that delegate.
+                if (count == 1 && ps.Length == 1 && ps[0] == 0x15)
+                    return I("il2cpp::runtime::il2cpp_comparer_create_int", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_int");
+                return null;
             case "Compare":
                 if (count != 2 || cmpKind == null) return null;
                 return cmpKind switch
