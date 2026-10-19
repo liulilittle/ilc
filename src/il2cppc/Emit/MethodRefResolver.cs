@@ -2013,6 +2013,16 @@ var userRecvLike = receiverType ?? arg0Type;
                             throw new NotSupportedException(
                                 $"IEnumerator<T>.get_Current for VALUETYPE T (instName '{instName}') is not built -- " +
                                 "the 16-byte struct carriers are out of scope; only the primitive/ref carriers exist");
+                        // nb9 fix P0-3: a GROUPING element is ALWAYS a managed
+                        // reference (the bucket object), whatever TElement is.
+                        // This arm must run BEFORE the primitive-name probes:
+                        // for IEnumerator<IGrouping<int,long>> the instantiation
+                        // name carries the element family too ("..._long"), so
+                        // the old order picked the int64 carrier and emitted
+                        // get_key(int64) -- ill-typed C++.
+                        if (instName?.Contains("IGrouping", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true,
+                                returnTypeName: "System.Linq.IGrouping");
                         if (instName?.Contains("_long", StringComparison.Ordinal) == true
                             || instName?.Contains("_ulong", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_i8", 0, true, false, true, resultKind: "l");
@@ -2029,15 +2039,6 @@ var userRecvLike = receiverType ?? arg0Type;
                         // reference arm (the DottedRefArg kind rule).
                         if (DottedRefArg(instName) != null)
                             return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true);
-                        // nb9: a NESTED GENERIC element (GroupBy's
-                        // IGrouping<int,int>) is a REFERENCE. DottedSuffix
-                        // rejects backticked names, so without this arm the
-                        // grouping element silently fell through to the int32
-                        // carrier and the foreach local was truncated to
-                        // int32 (C0 break on the next call).
-                        if (instName?.Contains("IGrouping", StringComparison.Ordinal) == true)
-                            return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true,
-                                returnTypeName: "System.Linq.IGrouping");
                         // int32-slot primitives (int/bool/char/sbyte/byte/
                         // short/ushort/uint) and unknown instantiations.
                         return I("il2cpp::il2cpp_ienum_get_current_i4", 0, true, false, true);

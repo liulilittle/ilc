@@ -171,4 +171,43 @@ int32_t       il2cpp_linq_aggregate_seed_ref_rs_i4(Il2CppArray* src, Il2CppObjec
 Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObject* seed,
                                                     Il2CppObject* func, Il2CppObject* resSel);
 
+// nb9 fix P0-1: the FLOAT accumulator channel. The transpiler puts float on
+// the IL F stack, so a float-returning lambda is emitted as
+// `float f(double, int32_t)` (int32-element source) or `float f(double, double)`
+// (widened double-element source): the accumulator arrives as double and the
+// result is float. The old mapping folded float into the double family and
+// read the float return back as a double (upper 32 bits garbage).
+float il2cpp_linq_aggregate_seed_f(Il2CppArray* src, float seed, Il2CppObject* func);
+float il2cpp_linq_aggregate_seed_f_d(Il2CppArray* src, float seed, Il2CppObject* func);
+int32_t il2cpp_linq_aggregate_seed_f_rs_i4(Il2CppArray* src, float seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_f_rs_ref(Il2CppArray* src, float seed,
+                                                  Il2CppObject* func, Il2CppObject* resSel);
+
+// nb9 fix P0-1/P0-4: the WIDENED source families. An int64/double/float
+// Select result is a real int64[]/double[]; these fold it without narrowing.
+int64_t il2cpp_linq_aggregate_i8(Il2CppArray* src, Il2CppObject* func);
+double  il2cpp_linq_aggregate_d(Il2CppArray* src, Il2CppObject* func);
+float   il2cpp_linq_aggregate_f_d(Il2CppArray* src, Il2CppObject* func);
+int64_t il2cpp_linq_aggregate_seed_i8_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);
+double  il2cpp_linq_aggregate_seed_d_d(Il2CppArray* src, double seed, Il2CppObject* func);
+
+// nb9 fix P0-4: ToArray over ANY element family (clones by the source's own
+// elemSize / isRefElem).
+Il2CppArray* il2cpp_linq_to_array_family(Il2CppArray* src);
+
+// nb9 fix P0-4: the source-only aggregates over the widened element families.
+int64_t il2cpp_linq_sum_i8(Il2CppArray* src);
+int64_t il2cpp_linq_min_i8(Il2CppArray* src);
+int64_t il2cpp_linq_max_i8(Il2CppArray* src);
+double  il2cpp_linq_average_i8(Il2CppArray* src);
+double  il2cpp_linq_sum_d(Il2CppArray* src);
+double  il2cpp_linq_min_d(Il2CppArray* src);
+double  il2cpp_linq_max_d(Il2CppArray* src);
+double  il2cpp_linq_average_d(Il2CppArray* src);
+float   il2cpp_linq_sum_f(Il2CppArray* src);
+float   il2cpp_linq_min_f(Il2CppArray* src);
+float   il2cpp_linq_max_f(Il2CppArray* src);
+float   il2cpp_linq_average_f(Il2CppArray* src);
+
 } // namespace il2cpp

@@ -295,6 +295,204 @@ int32_t il2cpp_linq_max_i4(Il2CppArray* src)
 }
 
 //------------------------------------------------------------------------------
+// nb9 fix P0-4: the source-only aggregates over the WIDENED element families
+// (an int64/double/float Select result is a real int64[]/double[]). net48's
+// return carriers: Sum/Min/Max keep the element type, Average is double for
+// the integer/double families and float for the float family.
+//------------------------------------------------------------------------------
+int64_t il2cpp_linq_sum_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    int64_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        // net48 Enumerable.Sum(long) is CHECKED.
+        if ((elem > 0 && sum > INT64_MAX - elem) ||
+            (elem < 0 && sum < INT64_MIN - elem))
+        {
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        }
+        sum += elem;
+    }
+    return sum;
+}
+
+int64_t il2cpp_linq_min_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t best = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+int64_t il2cpp_linq_max_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t best = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_average_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if ((elem > 0 && sum > INT64_MAX - elem) ||
+            (elem < 0 && sum < INT64_MIN - elem))
+        {
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        }
+        sum += elem;
+    }
+    return static_cast<double>(sum) / static_cast<double>(src->length);
+}
+
+double il2cpp_linq_sum_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+    }
+    return sum;
+}
+
+double il2cpp_linq_min_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double best = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_max_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double best = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_average_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+    }
+    return sum / static_cast<double>(src->length);
+}
+
+// The float family: our Select materializes float as double[], so these read
+// doubles and keep net48's float carriers (Sum/Min/Max -> float, Average ->
+// float with a double accumulator).
+float il2cpp_linq_sum_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+    }
+    return static_cast<float>(sum);
+}
+
+float il2cpp_linq_min_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    float best = static_cast<float>(*reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0)));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const float elem = static_cast<float>(
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i)));
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+float il2cpp_linq_max_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    float best = static_cast<float>(*reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0)));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const float elem = static_cast<float>(
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i)));
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+float il2cpp_linq_average_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+    }
+    return static_cast<float>(sum / static_cast<double>(src->length));
+}
+
+//------------------------------------------------------------------------------
 // Predicate entries: reference family (bool(*)(Il2CppObject*)).
 //------------------------------------------------------------------------------
 
@@ -811,11 +1009,11 @@ int32_t il2cpp_linq_aggregate_seed_ref_rs_i4(Il2CppArray* src, Il2CppObject* see
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&rd));
     Il2CppObject* acc = FoldRef(src, seed, fd);
-    Il2CppObject* accRoot = acc;
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&accRoot));
-    const int32_t r = ProjectRef(rd, accRoot);
-    il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&accRoot));
-    return r;
+    // nb9 fix M1: an exception-safe per-call root (the manual add/remove pair
+    // leaked a static-root slot whenever the selector threw).
+    RootScope accRoots;
+    accRoots.Add(reinterpret_cast<void**>(&acc));
+    return ProjectRef(rd, acc);
 }
 
 Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObject* seed,
@@ -827,11 +1025,278 @@ Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObje
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&rd));
     Il2CppObject* acc = FoldRef(src, seed, fd);
-    Il2CppObject* accRoot = acc;
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&accRoot));
-    Il2CppObject* r = ProjectRefRef(rd, accRoot);
-    il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&accRoot));
-    return r;
+    RootScope accRoots;
+    accRoots.Add(reinterpret_cast<void**>(&acc));
+    return ProjectRefRef(rd, acc);
+}
+
+//------------------------------------------------------------------------------
+// nb9 fix P0-1: the FLOAT accumulator channel and the widened-source kernels.
+//
+// The transpiler puts float on the IL F stack, so a float-returning lambda is
+// emitted as `float f(double, int32_t)` / `float f(double, double)` -- the
+// accumulator arrives as double, the result is float. The old mapping folded
+// float into the double family, i.e. the float return was read back as a
+// double and the upper 32 bits were garbage (10.5000019418076 vs 10.5).
+//
+// Also here: the no-seed and widened-source variants of the int64/double
+// folds (an int64/double/float Select result is a real int64[]/double[]).
+//------------------------------------------------------------------------------
+namespace {
+
+typedef float (*FAccI4Fn)(double, int32_t);
+typedef float (*FAccI4ThisFn)(Il2CppObject*, double, int32_t);
+typedef float (*FAccDFn)(double, double);
+typedef float (*FAccDThisFn)(Il2CppObject*, double, double);
+typedef int64_t (*I8BinI8Fn)(int64_t, int64_t);
+typedef int64_t (*I8BinI8ThisFn)(Il2CppObject*, int64_t, int64_t);
+typedef double (*DBinDFn)(double, double);
+typedef double (*DBinDThisFn)(Il2CppObject*, double, double);
+
+// Func<float,TResult> -- the float result-selector ABI (the parameter rides
+// the F stack as double).
+typedef int32_t (*AccFResFn)(double);
+typedef int32_t (*AccFResThisFn)(Il2CppObject*, double);
+typedef Il2CppObject* (*AccFResRefFn)(double);
+typedef Il2CppObject* (*AccFResRefThisFn)(Il2CppObject*, double);
+
+// Fold a float accumulator over an int32-element source.
+float FoldF(Il2CppArray* src, float seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    float acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<FAccI4ThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<FAccI4Fn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+// Fold a float accumulator over a double-element source (a float Select
+// result is materialized as double[]).
+float FoldFD(Il2CppArray* src, float seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    float acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+int64_t FoldI8I8(Il2CppArray* src, int64_t seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int64_t acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<I8BinI8ThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<I8BinI8Fn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+double FoldDD(Il2CppArray* src, double seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    double acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<DBinDThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<DBinDFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+int32_t ProjectF(Il2CppDelegate* d, float acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccFResThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccFResFn>(d->methodPtr)(acc);
+}
+
+Il2CppObject* ProjectFRef(Il2CppDelegate* d, float acc)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<AccFResRefThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<AccFResRefFn>(d->methodPtr)(acc);
+}
+
+} // namespace
+
+// No-seed Aggregate over the WIDENED source families (the accumulator IS
+// TSource): the first element seeds the fold.
+int64_t il2cpp_linq_aggregate_i8(Il2CppArray* src, Il2CppObject* func)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int64_t acc = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<I8BinI8ThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<I8BinI8Fn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+double il2cpp_linq_aggregate_d(Il2CppArray* src, Il2CppObject* func)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    double acc = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<DBinDThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<DBinDFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+float il2cpp_linq_aggregate_f_d(Il2CppArray* src, Il2CppObject* func)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    float acc = static_cast<float>(*reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0)));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
+float il2cpp_linq_aggregate_seed_f(Il2CppArray* src, float seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldF(src, seed, RequireCallback(func));
+}
+
+float il2cpp_linq_aggregate_seed_f_d(Il2CppArray* src, float seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldFD(src, seed, RequireCallback(func));
+}
+
+int64_t il2cpp_linq_aggregate_seed_i8_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldI8I8(src, seed, RequireCallback(func));
+}
+
+double il2cpp_linq_aggregate_seed_d_d(Il2CppArray* src, double seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldDD(src, seed, RequireCallback(func));
+}
+
+int32_t il2cpp_linq_aggregate_seed_f_rs_i4(Il2CppArray* src, float seed,
+                                           Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectF(rd, FoldF(src, seed, fd));
+}
+
+Il2CppObject* il2cpp_linq_aggregate_seed_f_rs_ref(Il2CppArray* src, float seed,
+                                                  Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectFRef(rd, FoldF(src, seed, fd));
+}
+
+//------------------------------------------------------------------------------
+// nb9 fix P0-4: ToArray over ANY element family. The clone follows the
+// SOURCE array's own element layout (elemSize / isRefElem), so int32/int64/
+// double/reference results round-trip byte-exactly. The int32-only form
+// (il2cpp_linq_to_array) remains for the int32 entry points.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_to_array_family(Il2CppArray* src)
+{
+    CheckSource(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, src->elemSize, src->isRefElem, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    if (src->length == 0)
+    {
+        return out;
+    }
+    if (src->isRefElem)
+    {
+        for (int32_t i = 0; i < src->length; ++i)
+        {
+            Il2CppObject* v = *reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(src, i));
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(out, i));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), v);
+            *slot = v;
+        }
+    }
+    else
+    {
+        // Pure value copy, no allocation inside.
+        std::memcpy(out->data, src->data,
+                    static_cast<size_t>(src->length) * static_cast<size_t>(src->elemSize));
+    }
+    return out;
 }
 
 } // namespace il2cpp

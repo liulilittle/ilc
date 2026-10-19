@@ -37,6 +37,7 @@
 #include "listobj.h" // ilistException: List<object> wrapper + snapshot enumerator re-use
 #include "il2cpp_array_ext2.h"
 #include "il2cpp_boxing_ext.h"
+#include "il2cpp_boxing_ext2.h" // nb9 fix P0-4: icall_box_long (array-enumerator ref carrier)
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_exception_ext.h"
@@ -2208,6 +2209,140 @@ int32_t il2cpp_ienum_move_next(Il2CppObject* receiver)
 //------------------------------------------------------------------------------
 // The get_Current carriers (generic IEnumerator<T>.get_Current).
 //------------------------------------------------------------------------------
+namespace {
+
+// nb9 fix P0-4: read the CURRENT element of the shared array enumerator by the
+// SNAPSHOT ARRAY's own layout. The enumerator backs plain `foreach` over an
+// array as well as the LINQ Select/GroupBy results, so the element may be:
+//   * a reference slot        (isRefElem -- a boxed value or a real reference)
+//   * a 4-byte value          (int32 family)
+//   * an 8-byte value         (int64 / double family)
+// Reading a value array through the reference slot (the old i8/d path) treated
+// the payload as a pointer -> NullReferenceException / access violation.
+Il2CppArrayEnumerator* ArrayEnum(Il2CppObject* self)
+{
+    return reinterpret_cast<Il2CppArrayEnumerator*>(self);
+}
+
+const char* ArrayEnumElemPtr(Il2CppArray* arr, int32_t index, int32_t* elemSize)
+{
+    *elemSize = arr->elemSize;
+    return arr->data + static_cast<size_t>(index) * static_cast<size_t>(arr->elemSize);
+}
+
+// nb9 fix P0-3: unbox a boxed Int64/Int32 payload for the snapshot-enumerator
+// i8 carrier. The box layout is the documented M2 one (klass at 0, aligned
+// value at 8). A foreign payload is an InvalidCastException, never garbage.
+int64_t UnboxInt64Payload(Il2CppObject* boxed, const char* expected)
+{
+    if (boxed == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (boxed->klass != nullptr)
+    {
+        if (std::strcmp(boxed->klass->name, "System.Int64") == 0)
+            return *reinterpret_cast<int64_t*>(reinterpret_cast<char*>(boxed) + 8);
+        if (std::strcmp(boxed->klass->name, "System.Int32") == 0)
+            return static_cast<int64_t>(
+                *reinterpret_cast<int32_t*>(reinterpret_cast<char*>(boxed) + 8));
+    }
+    (void)expected;
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+    return 0; // unreachable
+}
+
+int64_t ArrayEnumI8(Il2CppObject* self)
+{
+    Il2CppArray* arr = ArrayEnum(self)->array;
+    const int32_t idx = ArrayEnum(self)->index;
+    if (arr->isRefElem)
+    {
+        Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        return UnboxInt64Payload(boxed, "Int64");
+    }
+    int32_t size = 0;
+    const char* p = ArrayEnumElemPtr(arr, idx, &size);
+    if (size == 8) return *reinterpret_cast<const int64_t*>(p);
+    if (size == 4) return static_cast<int64_t>(*reinterpret_cast<const int32_t*>(p));
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+    return 0;
+}
+
+double ArrayEnumD(Il2CppObject* self)
+{
+    Il2CppArray* arr = ArrayEnum(self)->array;
+    const int32_t idx = ArrayEnum(self)->index;
+    if (arr->isRefElem)
+    {
+        Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        if (boxed == nullptr)
+        {
+            il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+        }
+        if (boxed->klass != nullptr &&
+            (std::strcmp(boxed->klass->name, "System.Double") == 0 ||
+             std::strcmp(boxed->klass->name, "System.Single") == 0))
+        {
+            return *reinterpret_cast<double*>(reinterpret_cast<char*>(boxed) + 8);
+        }
+        il2cpp_throw_new(
+            "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+            "Specified cast is not valid.");
+    }
+    int32_t size = 0;
+    const char* p = ArrayEnumElemPtr(arr, idx, &size);
+    if (size == 8) return *reinterpret_cast<const double*>(p);
+    if (size == 4) return static_cast<double>(*reinterpret_cast<const int32_t*>(p));
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+    return 0.0;
+}
+
+int32_t ArrayEnumI4(Il2CppObject* self)
+{
+    Il2CppArray* arr = ArrayEnum(self)->array;
+    const int32_t idx = ArrayEnum(self)->index;
+    if (arr->isRefElem)
+    {
+        Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        return runtime::icall_unbox_int32(boxed);
+    }
+    int32_t size = 0;
+    const char* p = ArrayEnumElemPtr(arr, idx, &size);
+    if (size == 4) return *reinterpret_cast<const int32_t*>(p);
+    if (size == 8) return static_cast<int32_t>(*reinterpret_cast<const int64_t*>(p));
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+    return 0;
+}
+
+Il2CppObject* ArrayEnumRef(Il2CppObject* self)
+{
+    Il2CppArray* arr = ArrayEnum(self)->array;
+    const int32_t idx = ArrayEnum(self)->index;
+    if (arr->isRefElem)
+    {
+        return reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+    }
+    // A value array read through the reference carrier boxes the value.
+    int32_t size = 0;
+    const char* p = ArrayEnumElemPtr(arr, idx, &size);
+    if (size == 4)
+        return il2cpp_box_int32(nullptr, *reinterpret_cast<const int32_t*>(p));
+    if (size == 8)
+        return runtime::icall_box_long(*reinterpret_cast<const int64_t*>(p));
+    return nullptr;
+}
+
+} // namespace
+
 int32_t il2cpp_ienum_get_current_i4(Il2CppObject* receiver)
 {
     if (receiver == nullptr)
@@ -2218,8 +2353,11 @@ int32_t il2cpp_ienum_get_current_i4(Il2CppObject* receiver)
     // the boxed-int Values snapshot carries the i4 carrier directly (the
     // concrete wrapper unboxes; get_current_ref below already forwards to the
     // same core enumerator for the reference domain).
+    // nb9 fix P0-4: the same enumerator backs `foreach` over a plain array AND
+    // over the LINQ Select/GroupBy results, so the carrier reads the CURRENT
+    // element by the snapshot array's own layout.
     if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
-        return il2cpp::runtime::icall_sortedlist_si_enumerator_get_current(receiver);
+        return ArrayEnumI4(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentI4, "get_Current");
     return reinterpret_cast<IEnumFnI32>(
         RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
@@ -2231,6 +2369,11 @@ int64_t il2cpp_ienum_get_current_i8(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // nb9 fix P0-3/P0-4: the shared array enumerator (plain arrays, Select and
+    // GroupBy results). Reading it through the i8 virtual slot threw because
+    // the snapshot type has no such slot.
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+        return ArrayEnumI8(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentI8, "get_Current");
     return reinterpret_cast<IEnumFnI64>(
         RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
@@ -2242,6 +2385,9 @@ double il2cpp_ienum_get_current_d(Il2CppObject* receiver)
     {
         il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
     }
+    // nb9 fix P0-3/P0-4: same shared-enumerator arm for the double carrier.
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+        return ArrayEnumD(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentD, "get_Current");
     return reinterpret_cast<IEnumFnD>(
         RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
@@ -2256,8 +2402,10 @@ Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver)
     // P25d: the snapshot-object receivers forward to their concrete get_current
     // (the SortedList/array enumerator yields the element ref; the Dictionary
     // enumerator yields the per-pair KeyValuePair<string,int> object).
+    // nb9 fix P0-4: a value-array element is boxed so the reference carrier
+    // stays well-typed.
     if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
-        return il2cpp::runtime::il2cpp_sortedlist_enumerator_get_current(receiver);
+        return ArrayEnumRef(receiver);
     if (receiver->klass == &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class)
         return il2cpp_dict_si_enumerator_get_current(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentRef, "get_Current");

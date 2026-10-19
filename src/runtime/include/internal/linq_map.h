@@ -346,6 +346,14 @@ double  il2cpp_linq_sum_sel_d(Il2CppArray* src, Il2CppObject* sel);
 double  il2cpp_linq_min_sel_d(Il2CppArray* src, Il2CppObject* sel);
 double  il2cpp_linq_max_sel_d(Il2CppArray* src, Il2CppObject* sel);
 double  il2cpp_linq_average_sel_d(Il2CppArray* src, Il2CppObject* sel);
+// nb9 fix P0-1: the float selector projection (Func<TSource,float>). The
+// elements materialize as double[]; the result carrier stays float.
+Il2CppArray* il2cpp_linq_select_i4_f(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_f(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_sum_sel_f(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_min_sel_f(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_max_sel_f(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_average_sel_f(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray*  il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred);
 Il2CppArray*  il2cpp_linq_grouping_select(Il2CppObject* grouping, Il2CppObject* sel);
 int32_t       il2cpp_linq_grouping_count_pred(Il2CppObject* grouping, Il2CppObject* pred);

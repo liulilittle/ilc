@@ -127,13 +127,20 @@ public static partial class MethodRefResolver
                         : "il2cpp::il2cpp_linq_grouping_max_i4",
                     1, true, false, false, new[] { "" });
             }
+            if (count < 2)
+            {
+                // nb9 fix P0-4: the SOURCE-ONLY form is element-family
+                // agnostic (Sum()/Min()/Max()/Average() over int64[]/double[]
+                // /float-as-double[]). A reference source still falls through
+                // to the generated-name path.
+                return LinqFamilyAggregate(name, genArgs, receiverType, arg0Type);
+            }
             if (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08)
             {
                 string argType = genArgs is { Length: > 0 } ? GenericArgTypeName(genArgs[0]) : "IEnumerable<non-int32>";
                 throw new NotSupportedException(
-                    $"Enumerable.{name}<{argType}> not wired: " +
-                    "the stage-1 runtime LINQ surface is int32 (0x08) element-family only " +
-                    "(the ref-family icalls have no transpiler producer for their bool(*)(Il2CppObject*) callback ABI)");
+                    $"Enumerable.{name}<{argType}> with a selector not wired: " +
+                    "the stage-1 selector-aggregate surface is int32 (0x08) element-family only");
             }
             // nb9 FIX (M21): the SELECTOR forms project every element FIRST
             // and aggregate the projected values. The old mapping ignored
@@ -179,6 +186,22 @@ public static partial class MethodRefResolver
                                 TwoArg, resultKind: "d"),
                             _ => I("il2cpp::il2cpp_linq_average_sel_d", 2, true, false, false,
                                 TwoArg, resultKind: "d"),
+                        };
+                    case "f":
+                        // nb9 fix P0-1: float selector projection. net48's
+                        // Sum/Average(Func<T,float>) return float; the callback
+                        // returns float (its F-stack parameters arrive as
+                        // double), so this needs its own kernel.
+                        return name switch
+                        {
+                            "Sum" => I("il2cpp::il2cpp_linq_sum_sel_f", 2, true, false, false,
+                                TwoArg, resultKind: "f"),
+                            "Min" => I("il2cpp::il2cpp_linq_min_sel_f", 2, true, false, false,
+                                TwoArg, resultKind: "f"),
+                            "Max" => I("il2cpp::il2cpp_linq_max_sel_f", 2, true, false, false,
+                                TwoArg, resultKind: "f"),
+                            _ => I("il2cpp::il2cpp_linq_average_sel_f", 2, true, false, false,
+                                TwoArg, resultKind: "f"),
                         };
                     default:
                         throw new NotSupportedException(
@@ -292,7 +315,17 @@ public static partial class MethodRefResolver
         // element byte. A non-int32 generic argument (or a non-generic call)
         // has no stage-1 runtime entry. ToList is EXCLUDED here -- its own
         // case carries the precise "List<int32> only" LOUD message.
-        if (name != "ToList" && (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08))
+        //
+        // nb9 fix P0-4: Count / ToArray / Sum / Min / Max / Average /
+        // Aggregate are ELEMENT-FAMILY AGNOSTIC in their storage handling
+        // (count reads the array header, ToArray clones the array by its own
+        // elemSize/isRefElem, and the aggregate kernels have per-family
+        // entries), so they are excluded from the int32-only gate and served
+        // below. Everything else still rejects a non-int32 source.
+        bool familyAgnostic = name is "Count" or "ToArray" or "Sum" or "Min" or "Max"
+            or "Average" or "Aggregate";
+        if (!familyAgnostic && name != "ToList" &&
+            (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08))
         {
             // The generic argument name for the LOUD message. The guard above
             // enters this block for a null/empty genArgs too (a plain
@@ -356,16 +389,15 @@ public static partial class MethodRefResolver
             case "All":
                 return I("il2cpp::il2cpp_linq_all_i4", 2, true, false, false, TwoArg);
             case "Sum":
-                return I("il2cpp::il2cpp_linq_sum_i4", 1, true, false, false, OneArg);
+                return LinqFamilyAggregate("Sum", genArgs, receiverType, arg0Type);
             case "Min":
-                return I("il2cpp::il2cpp_linq_min_i4", 1, true, false, false, OneArg);
+                return LinqFamilyAggregate("Min", genArgs, receiverType, arg0Type);
             case "Max":
-                return I("il2cpp::il2cpp_linq_max_i4", 1, true, false, false, OneArg);
+                return LinqFamilyAggregate("Max", genArgs, receiverType, arg0Type);
             case "Average":
                 // Average(int32[]) -> double (resultKind "d", linq.h). net48
                 // Enumerable.Average(this IEnumerable<int>) returns double.
-                return I("il2cpp::il2cpp_linq_average_i4", 1, true, false, false,
-                    OneArg, resultKind: "d");
+                return LinqFamilyAggregate("Average", genArgs, receiverType, arg0Type);
             case "Where":
                 // Returns a fresh int32[] -- tracked as "System.Int32[]" so a
                 // downstream .ToArray()/.Count()/indexer resolves on the array.
@@ -409,6 +441,15 @@ public static partial class MethodRefResolver
                                     : "il2cpp::il2cpp_linq_select_i4_i8",
                                 2, true, true, false, TwoArg, returnTypeName: "System.Int64[]");
                         case 0x0C:
+                            // nb9 fix P0-1: a float TResult is a float-returning
+                            // selector; materialize it as a double[] (the F
+                            // stack family) through the float ABI. Mapping it
+                            // to the double kernel read the 32-bit float
+                            // return as a double (garbage upper bits).
+                            return I(selIdx
+                                    ? "il2cpp::il2cpp_linq_select_idx_i4_f"
+                                    : "il2cpp::il2cpp_linq_select_i4_f",
+                                2, true, true, false, TwoArg, returnTypeName: "System.Single[]");
                         case 0x0D:
                             return I(selIdx
                                     ? "il2cpp::il2cpp_linq_select_idx_i4_d"
@@ -433,8 +474,17 @@ public static partial class MethodRefResolver
                 if (toArrRecv == "System.Linq.IGrouping")
                     return I("il2cpp::il2cpp_linq_grouping_get_elements", 1, true, true, false,
                         new[] { "" }, returnTypeName: "System.Int32[]");
-                return I("il2cpp::il2cpp_linq_to_array", 1, true, true, false, OneArg,
-                    returnTypeName: "System.Int32[]");
+                // nb9 fix P0-4: ToArray is element-family agnostic -- the runtime
+                // clones the array by its own elemSize/isRefElem. The tracked
+                // return type follows TSource so downstream members resolve.
+                {
+                    var toArrType = genArgs is { Length: >= 1 }
+                        ? GenericArgTypeName(genArgs[0]) + "[]"
+                        : (toArrRecv != null && toArrRecv.EndsWith("[]", StringComparison.Ordinal)
+                            ? toArrRecv : "System.Int32[]");
+                    return I("il2cpp::il2cpp_linq_to_array_family", 1, true, true, false, OneArg,
+                        returnTypeName: toArrType);
+                }
             case "First":
                 // First() -> first_i4 (source-only); First(source, predicate)
                 // -> first_predicate (walks from the start, returns the first
@@ -603,6 +653,11 @@ public static partial class MethodRefResolver
                     string ElemFamily(byte b) => b switch
                     {
                         0x08 => "0",                                   // int32
+                        // nb9 fix P0-3: the int32-slot primitives (bool/char/
+                        // sbyte/byte/short/ushort/uint) ride the int32 bucket
+                        // family -- net48 boxes them as int32-width values and
+                        // the enumerator's i4 carrier unboxes them.
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
                         0x0A => "2",                                   // int64 (boxed)
                         0x0D => "3",                                   // double (boxed)
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1", // reference
@@ -739,7 +794,26 @@ public static partial class MethodRefResolver
                 // Aggregate(source, seed, func, resultSelector) (nb9 M16): the
                 // selector runs ONCE on the final accumulator.
                 if (count == 2)
-                    return I("il2cpp::il2cpp_linq_aggregate_i4", 2, true, false, false, TwoArg);
+                {
+                    // nb9 fix P0-1: the no-seed accumulator IS TSource, so the
+                    // source element family decides the kernel (a float/double
+                    // Select result is a double[] here).
+                    var noSeedFam = LinqElementFamily(genArgs, receiverType, arg0Type);
+                    return noSeedFam switch
+                    {
+                        "i4" => I("il2cpp::il2cpp_linq_aggregate_i4", 2, true, false, false, TwoArg),
+                        "i8" => I("il2cpp::il2cpp_linq_aggregate_i8", 2, true, false, false,
+                            TwoArg, resultKind: "l"),
+                        // float TSource: our Select materializes float as a
+                        // double[] (the F stack family), so the source read is
+                        // double while the accumulator stays float.
+                        "f" => I("il2cpp::il2cpp_linq_aggregate_f_d", 2, true, false, false,
+                            TwoArg, resultKind: "f"),
+                        "d" => I("il2cpp::il2cpp_linq_aggregate_d", 2, true, false, false,
+                            TwoArg, resultKind: "d"),
+                        _ => null,
+                    };
+                }
                 if (count == 3 || count == 4)
                 {
                     if (genArgs is not { Length: >= 2 })
@@ -752,7 +826,12 @@ public static partial class MethodRefResolver
                         0x08 => "i4",
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "i4",
                         0x0A => "i8",
-                        0x0C or 0x0D => "d",
+                        // nb9 fix P0-1: float is its OWN accumulator family.
+                        // The old code folded 0x0C into "d", so the float
+                        // return was read back as a double (upper 32 bits
+                        // garbage -> 10.5000019418076 instead of 10.5).
+                        0x0C => "f",
+                        0x0D => "d",
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "ref",
                         _ => "",
                     };
@@ -761,16 +840,28 @@ public static partial class MethodRefResolver
                         throw new NotSupportedException(
                             $"Enumerable.Aggregate TAccumulate '{GenericArgTypeName(accByte)}' is not a supported accumulator family");
                     }
+                    var srcFam = LinqElementFamily(genArgs, receiverType, arg0Type);
                     if (count == 3)
                     {
                         return acc switch
                         {
                             "i4" => I("il2cpp::il2cpp_linq_aggregate_seed_i4", 3, true, false, false,
                                 new[] { "a", "i", "" }),
-                            "i8" => I("il2cpp::il2cpp_linq_aggregate_seed_i8", 3, true, false, false,
-                                new[] { "a", "l", "" }, resultKind: "l"),
-                            "d" => I("il2cpp::il2cpp_linq_aggregate_seed_d", 3, true, false, false,
-                                new[] { "a", "d", "" }, resultKind: "d"),
+                            "i8" => srcFam == "i8"
+                                ? I("il2cpp::il2cpp_linq_aggregate_seed_i8_i8", 3, true, false, false,
+                                    new[] { "a", "l", "" }, resultKind: "l")
+                                : I("il2cpp::il2cpp_linq_aggregate_seed_i8", 3, true, false, false,
+                                    new[] { "a", "l", "" }, resultKind: "l"),
+                            "f" => srcFam is "f" or "d"
+                                ? I("il2cpp::il2cpp_linq_aggregate_seed_f_d", 3, true, false, false,
+                                    new[] { "a", "d", "" }, resultKind: "f")
+                                : I("il2cpp::il2cpp_linq_aggregate_seed_f", 3, true, false, false,
+                                    new[] { "a", "d", "" }, resultKind: "f"),
+                            "d" => srcFam is "f" or "d"
+                                ? I("il2cpp::il2cpp_linq_aggregate_seed_d_d", 3, true, false, false,
+                                    new[] { "a", "d", "" }, resultKind: "d")
+                                : I("il2cpp::il2cpp_linq_aggregate_seed_d", 3, true, false, false,
+                                    new[] { "a", "d", "" }, resultKind: "d"),
                             _ => I("il2cpp::il2cpp_linq_aggregate_seed_ref", 3, true, true, false,
                                 new[] { "a", "", "" }),
                         };
@@ -778,13 +869,22 @@ public static partial class MethodRefResolver
                     // count == 4: TResult decides the result carrier.
                     bool resRef = resByte is not (0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06
                         or 0x07 or 0x09 or 0x0A or 0x0C or 0x0D);
-                    string seedCast = acc switch { "i4" => "i", "i8" => "l", "d" => "d", _ => "" };
+                    string seedCast = acc switch
+                    {
+                        "i4" => "i",
+                        "i8" => "l",
+                        "f" => "d", // float seed rides the F stack family as double
+                        "d" => "d",
+                        _ => "",
+                    };
                     string cpp = acc switch
                     {
                         "i4" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_rs_ref"
                                        : "il2cpp::il2cpp_linq_aggregate_seed_rs_i4",
                         "i8" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_i8_rs_ref"
                                        : "il2cpp::il2cpp_linq_aggregate_seed_i8_rs_i4",
+                        "f" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_f_rs_ref"
+                                      : "il2cpp::il2cpp_linq_aggregate_seed_f_rs_i4",
                         "d" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_d_rs_ref"
                                       : "il2cpp::il2cpp_linq_aggregate_seed_d_rs_i4",
                         _ => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_ref_rs_ref"
@@ -792,7 +892,10 @@ public static partial class MethodRefResolver
                     };
                     return I(cpp, 4, true, resRef, false,
                         new[] { "a", seedCast, "", "" },
-                        resultKind: resRef ? null : (resByte == 0x0A ? "l" : resByte == 0x0C || resByte == 0x0D ? "d" : null));
+                        resultKind: resRef ? null
+                            : (resByte == 0x0A ? "l"
+                               : resByte == 0x0C ? "f"
+                               : resByte == 0x0D ? "d" : null));
                 }
                 return null;
             case "LongCount":
@@ -811,6 +914,80 @@ public static partial class MethodRefResolver
                     OneArg, returnTypeName: "System.Int32[]");
             default:
                 return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // LinqElementFamily -- the SOURCE element family of an Enumerable operator.
+    // Prefers the MethodSpec generic argument (TSource); falls back to the
+    // tracked receiver/arg0 array name (a Select result carries
+    // "System.Int64[]" / "System.Double[]" / "System.String[]").
+    //   i4 | i8 | f | d | ref
+    //--------------------------------------------------------------------------
+    private static string LinqElementFamily(byte[]? genArgs, string? receiverType, string? arg0Type)
+    {
+        if (genArgs is { Length: >= 1 })
+        {
+            switch (genArgs[0])
+            {
+                case 0x08: case 0x02: case 0x03: case 0x04:
+                case 0x05: case 0x06: case 0x07: case 0x09:
+                    return "i4";
+                case 0x0A: case 0x0B: return "i8";
+                case 0x0C: return "f";
+                case 0x0D: return "d";
+                default: return "ref";
+            }
+        }
+        var name = receiverType ?? arg0Type;
+        if (name != null)
+        {
+            if (name.EndsWith("System.Int32[]", StringComparison.Ordinal)) return "i4";
+            if (name.EndsWith("System.Int64[]", StringComparison.Ordinal)) return "i8";
+            if (name.EndsWith("System.Single[]", StringComparison.Ordinal)) return "f";
+            if (name.EndsWith("System.Double[]", StringComparison.Ordinal)) return "d";
+            if (name.EndsWith("[]", StringComparison.Ordinal)) return "ref";
+        }
+        return "i4";
+    }
+
+    //--------------------------------------------------------------------------
+    // LinqFamilyAggregate -- the SOURCE-ONLY Sum/Min/Max/Average overloads.
+    // The result carrier follows the element family (net48):
+    //   int32  -> int32   (Average -> double)
+    //   int64  -> int64   (Average -> double)
+    //   float  -> float   (Average -> float)
+    //   double -> double  (Average -> double)
+    // A reference source has no numeric aggregate (net48's Sum/Min/Max over
+    // strings do not exist for these overloads) -> generated-name fallback.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? LinqFamilyAggregate(string name, byte[]? genArgs,
+        string? receiverType, string? arg0Type)
+    {
+        var fam = LinqElementFamily(genArgs, receiverType, arg0Type);
+        if (fam == "ref") return null;
+        bool avg = name == "Average";
+        switch (fam)
+        {
+            case "i4":
+                return avg
+                    ? I("il2cpp::il2cpp_linq_average_i4", 1, true, false, false, new[] { "a" }, resultKind: "d")
+                    : I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_i4", 1, true, false, false, new[] { "a" });
+            case "i8":
+                return avg
+                    ? I("il2cpp::il2cpp_linq_average_i8", 1, true, false, false, new[] { "a" }, resultKind: "d")
+                    : I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_i8", 1, true, false, false,
+                        new[] { "a" }, resultKind: "l");
+            case "f":
+                return avg
+                    ? I("il2cpp::il2cpp_linq_average_f", 1, true, false, false, new[] { "a" }, resultKind: "f")
+                    : I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_f", 1, true, false, false,
+                        new[] { "a" }, resultKind: "f");
+            default:
+                return avg
+                    ? I("il2cpp::il2cpp_linq_average_d", 1, true, false, false, new[] { "a" }, resultKind: "d")
+                    : I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_d", 1, true, false, false,
+                        new[] { "a" }, resultKind: "d");
         }
     }
 
