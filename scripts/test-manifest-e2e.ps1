@@ -74,26 +74,15 @@ if ($null -eq $assembly) {
 }
 
 $work = Join-Path $Root ".opencode\tmp\manifest-e2e\$Case"
-# A previous run's MSBuild/msbuild node can still hold app.res open, which makes
-# Remove-Item fail and would then be misreported as a build failure. Retry, and
-# if the directory still cannot be cleared, build into a fresh sibling instead of
-# failing: the point of this gate is the artifact, not a fixed directory.
-function Remove-WorkTree([string]$path) {
-    for ($i = 0; $i -lt 5; $i++) {
-        if (-not (Test-Path -LiteralPath $path)) { return $true }
-        try {
-            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
-            return $true
-        } catch {
-            Start-Sleep -Milliseconds 500
-        }
-    }
-    return -not (Test-Path -LiteralPath $path)
-}
-if (-not (Remove-WorkTree $work)) {
-    $work = Join-Path $Root (".opencode\tmp\manifest-e2e\$Case-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
-    Write-Host "== note: previous work dir is locked, using $work"
-}
+# Each run gets its OWN directory. A fixed shared directory makes two concurrent
+# runs delete each other's tree and report a bogus build failure (observed: run3
+# vs a simultaneous run in the same checkout). Unique per (PID, timestamp) makes
+# the gate concurrency-safe; stale directories are pruned best-effort.
+$runDir = Join-Path $Root (".opencode\tmp\manifest-e2e\$Case-" + (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + $PID)
+Get-ChildItem -LiteralPath $work -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
+    ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop } catch { } }
+$work = $runDir
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 # The sidecar would win over nothing but is irrelevant here: an explicit
@@ -159,15 +148,30 @@ foreach ($c in $compilers) {
         $exe = Join-Path $build "il2cpp_gen_exe.exe"
     } else {
         $generator = if ($env:IL2CPP_MSVC_GENERATOR) { $env:IL2CPP_MSVC_GENERATOR } else { "Visual Studio 17 2022" }
-        $args = @("-S", $gen, "-B", $build, "-G", $generator)
-        if ($Arch -ne "") { $args += @("-A", $Arch) }
+        # The configured generator decides BOTH the configure arguments and the
+        # output layout: "Visual Studio ..." is a multi-config generator (--config
+        # Release, exe under Release\), "Ninja" is single-config (needs
+        # CMAKE_BUILD_TYPE at configure time, exe directly in the build dir).
+        # Hard-coding the VS layout would report "produced no exe" for a perfectly
+        # successful Ninja build.
+        $isVs = $generator -match "^Visual Studio"
+        $cmakeArgs = @("-S", $gen, "-B", $build, "-G", $generator)
+        if ($isVs) {
+            if ($Arch -ne "") { $cmakeArgs += @("-A", $Arch) }
+        } else {
+            $cmakeArgs += @("-DCMAKE_BUILD_TYPE=Release")
+        }
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            & cmake @args *>&1 | Out-File -Encoding utf8 $log
+            & cmake @cmakeArgs *>&1 | Out-File -Encoding utf8 $log
             $cfg = $LASTEXITCODE
             if ($cfg -eq 0) {
-                & cmake --build $build --config Release --parallel *>&1 | Out-File -Encoding utf8 -Append $log
+                if ($isVs) {
+                    & cmake --build $build --config Release --parallel *>&1 | Out-File -Encoding utf8 -Append $log
+                } else {
+                    & cmake --build $build --parallel *>&1 | Out-File -Encoding utf8 -Append $log
+                }
                 $bld = $LASTEXITCODE
             } else { $bld = -1 }
         } finally {
@@ -186,7 +190,11 @@ foreach ($c in $compilers) {
             $failed += "$c build (see $log)"
             continue
         }
-        $exe = Join-Path $build "Release\il2cpp_gen_exe.exe"
+        if ($isVs) {
+            $exe = Join-Path $build "Release\il2cpp_gen_exe.exe"
+        } else {
+            $exe = Join-Path $build "il2cpp_gen_exe.exe"
+        }
     }
 
     if (-not (Test-Path -LiteralPath $exe)) {
@@ -202,15 +210,18 @@ foreach ($c in $compilers) {
         continue
     }
 
-    # The resource check proves the manifest is EMBEDDED. Only running the image
+    # The resource check proves the manifest is EMBEDDED. Only starting the image
     # proves the loader ACCEPTS it -- a manifest whose bytes and declaration
     # disagree builds and verifies fine, then dies at CreateProcess with
     # SideBySide "Invalid Xml syntax" (event id 59).
     #
-    # A requireAdministrator image may raise a UAC prompt on a non-elevated
-    # desktop, which would hang an unattended CI run. The launch is therefore
-    # time-boxed: a timeout is reported as SKIP (not a failure), a non-zero exit
-    # IS a failure (the loader rejected the manifest).
+    # Elevation matters here. CreateProcess on a requireAdministrator image from
+    # a non-elevated process fails with ERROR_ELEVATION_REQUIRED (740) -- and
+    # that is POSITIVE evidence: the loader parsed the manifest and is asking for
+    # elevation. A manifest it rejects instead yields ERROR_SXS_* (14001 etc.).
+    # 740 is therefore reported as OK, 1223 (user dismissed UAC) as SKIP, and
+    # anything else as a failure. Process.Start throws Win32Exception for these,
+    # so it must be caught -- otherwise CI dies with an unhandled exception.
     if ($SkipRun) {
         Write-Host "SKIP: $c launch (-SkipRun)"
         continue
@@ -221,7 +232,22 @@ foreach ($c in $compilers) {
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false
-    $proc = [System.Diagnostics.Process]::Start($psi)
+    try {
+        $proc = [System.Diagnostics.Process]::Start($psi)
+    } catch [System.ComponentModel.Win32Exception] {
+        $code = $_.Exception.NativeErrorCode
+        if ($code -eq 740) {
+            Write-Host "OK: $c loader accepted the manifest (elevation required, not launched)"
+            continue
+        }
+        if ($code -eq 1223) {
+            Write-Host "SKIP: $c launch cancelled at the UAC prompt"
+            continue
+        }
+        Write-Host "FAIL: $c could not be started (Win32 error $code): $($_.Exception.Message)"
+        $failed += "$c launch failed (Win32 $code)"
+        continue
+    }
     # Read both streams asynchronously: draining one synchronously can deadlock
     # when the child fills the other pipe's buffer.
     $outTask = $proc.StandardOutput.ReadToEndAsync()

@@ -130,6 +130,9 @@ WINDOWS APPLICATION MANIFEST
   UTF-8 is transcoded to UTF-8 and its XML declaration rewritten; an encoding
   this build cannot decode is rejected, never embedded corrupt (a mismatch
   between bytes and declaration makes Windows refuse to start the image).
+  A manifest is also validated as well-formed XML and may not contain a DTD:
+  either would build successfully and then fail at CreateProcess, so both are
+  reported as usage errors (exit 1) instead.
   uiAccess=""true"" only takes effect for a binary that is Authenticode-signed
   and installed in a secure location -- Windows enforces both; an unsigned
   build requesting it will not start.
