@@ -20,6 +20,7 @@
 
 #include "il2cpp_exception_ext.h" // il2cpp_throw_index_out_of_range_exception / _null_reference_
 #include "il2cpp_gc.h"
+#include "il2cpp_metadata.h" // nb9 D10: primitive element descriptors (elemKind)
 #include "il2cpp_runtime.h"
 
 #include <cstddef>
@@ -184,6 +185,16 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
     arr->elemSize = elemSize;
     arr->elemClass = isRefElement ? elemClass : nullptr;
     arr->isRefElem = isRefElement;
+    // nb9 D10: record the primitive element kind from the descriptor the
+    // transpiler passes for value-element arrays (int32/int64/single/double).
+    arr->elemKind = 0;
+    if (!isRefElement)
+    {
+        if (elemClass == &System_Int32_class) arr->elemKind = 1;
+        else if (elemClass == &System_Int64_class) arr->elemKind = 2;
+        else if (elemClass == &System_Single_class) arr->elemKind = 3;
+        else if (elemClass == &System_Double_class) arr->elemKind = 4;
+    }
     arr->rank = 1; // one-dimensional scope; multi-dimensional support is future work
     arr->dims[0] = length; // single-dim fills dims[0] (rank-aware GetLength/GetUpperBound parity)
     return arr;

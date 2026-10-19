@@ -693,6 +693,21 @@ int32_t icall_array_find_index_2(Il2CppArray* arr, Il2CppObject* predicate)
 }
 
 //------------------------------------------------------------------------------
+// icall_array_find_index_3 -- Array.FindIndex<T>(T[], int, Predicate<T>): the
+// 3-arg overload (startIndex, to the end). The old mapping emitted the 4-arg
+// entry, so the emitter popped one argument too many and read across the
+// stack (0xC0000409). count = Length - startIndex; the 4-arg core validates
+// startIndex first, so a start > Length still reports "startIndex".
+//------------------------------------------------------------------------------
+int32_t icall_array_find_index_3(Il2CppArray* arr, Il2CppObject* predicate,
+                                 int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index(a, predicate, startIndex,
+                                  a->length - startIndex);
+}
+
+//------------------------------------------------------------------------------
 // icall_array_reverse_range -- Array.Reverse(int32[], index, length) (see
 // header). Validation as Clear; length 0/1 is a no-op. In-place two-pointer
 // reversal of [index, index + length).

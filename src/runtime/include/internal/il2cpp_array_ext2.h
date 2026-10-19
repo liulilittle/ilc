@@ -158,6 +158,8 @@ int32_t icall_array_find_index(Il2CppArray* arr, Il2CppObject* predicate,
 // Array.FindIndex<T>(T[], Predicate<T>): the 2-arg overload -- the whole
 // range (start=0, count=Length), delegating to the validated 4-arg core.
 int32_t icall_array_find_index_2(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_3(Il2CppArray* arr, Il2CppObject* predicate,
+                                     int32_t startIndex);
 
 // Array.Reverse(int32[], int index, int length): reverse the range
 // [index, index + length) in place. Validation per the header comment

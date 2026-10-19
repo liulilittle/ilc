@@ -69,12 +69,12 @@ public class MethodMapArrayTests
             new byte[] { 0x00, 0x03, 0x08, 0x1D, 0x08, 0x08, 0x08 },
             new byte[] { 0x0A, 0x01, 0x08 }));
 
-        Assert.Equal("il2cpp::runtime::icall_array_find_index", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_array_find_index_3", resolved.CppName);
         Assert.True(resolved.ReturnsValue);
         Assert.False(resolved.ReturnsRef);
         Assert.False(resolved.IsInstance);
-        Assert.Equal(4, resolved.ParamCount);
-        Assert.Equal(new[] { "a", "", "i", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]

@@ -62,6 +62,11 @@ struct Il2CppArray
     int32_t      elemSize;  // bytes per element
     Il2CppClass* elemClass; // element descriptor (null for primitive arrays)
     bool         isRefElem; // true: elements are GC references (Il2CppObject*)
+    // nb9 D10: the primitive element kind (0 unknown/ref, 1 int32, 2 int64,
+    // 3 single, 4 double). Recorded at allocation from the element descriptor
+    // so the non-generic Array scans can read the element correctly even
+    // though int32[] and float[] share the same array class.
+    int32_t      elemKind;
     int32_t      rank;      // number of dimensions (1 in the one-dimensional scope)
     int32_t      dims[IL2CPP_MAX_ARRAY_RANK]; // per-dim sizes (dims[0..rank-1])
     char         data[1];   // element storage: length * elemSize bytes inline

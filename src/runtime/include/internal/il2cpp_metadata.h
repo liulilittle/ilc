@@ -117,6 +117,8 @@ extern il2cpp::Il2CppClass System_UInt32_class;
 extern il2cpp::Il2CppClass System_Boolean_class;
 extern il2cpp::Il2CppClass System_Char_class;
 extern il2cpp::Il2CppClass System_Double_class;
+extern il2cpp::Il2CppClass System_Int64_class;   // nb9 D10: primitive array kind
+extern il2cpp::Il2CppClass System_Single_class;  // nb9 D10: primitive array kind
 extern il2cpp::Il2CppClass System_IConvertible_class;
 extern il2cpp::Il2CppClass System_IComparable_class;
 extern il2cpp::Il2CppClass System_IFormattable_class;

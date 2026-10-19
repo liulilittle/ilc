@@ -215,10 +215,17 @@ Il2CppArray* RequireRefArraySort(Il2CppArray* arr)
 //------------------------------------------------------------------------------
 void RequireRangeSort(const Il2CppArray* arr, int32_t index, int32_t length)
 {
-    if (index < 0 || length < 0)
+    // nb9 D13: net48 reports ParamName "index" for a negative index and
+    // "length" for a negative length.
+    if (index < 0)
     {
         il2cpp_throw_argument_out_of_range_exception(
             "index", "Non-negative number required.");
+    }
+    if (length < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "length", "Non-negative number required.");
     }
     if (static_cast<int64_t>(index) + static_cast<int64_t>(length) >
         static_cast<int64_t>(arr->length))
@@ -1653,6 +1660,85 @@ struct I4ComparerCompare
     }
 };
 
+// nb9 L-11/D7: the wide value-family comparer sorts (int64/double/float).
+template <typename T>
+T ReadValElem(Il2CppArray** pa, int32_t idx)
+{
+    return *reinterpret_cast<T*>(il2cpp_array_get_elem_ptr(*pa, idx));
+}
+
+template <typename T>
+void WriteValElem(Il2CppArray** pa, int32_t idx, T v)
+{
+    *reinterpret_cast<T*>(il2cpp_array_get_elem_ptr(*pa, idx)) = v;
+}
+
+template <typename T, typename Compare>
+void QuickSortValArray(Il2CppArray** pa, int32_t lo, int32_t hi, Compare compare)
+{
+    while (lo < hi)
+    {
+        const T pivot = ReadValElem<T>(pa, lo + (hi - lo) / 2);
+        int32_t i = lo;
+        int32_t j = hi;
+        while (i <= j)
+        {
+            while (compare(ReadValElem<T>(pa, i), pivot) < 0) ++i;
+            while (compare(ReadValElem<T>(pa, j), pivot) > 0) --j;
+            if (i <= j)
+            {
+                const T tmp = ReadValElem<T>(pa, i);
+                WriteValElem<T>(pa, i, ReadValElem<T>(pa, j));
+                WriteValElem<T>(pa, j, tmp);
+                ++i;
+                --j;
+            }
+        }
+        if (j - lo < hi - i)
+        {
+            QuickSortValArray<T>(pa, lo, j, compare);
+            lo = i;
+        }
+        else
+        {
+            QuickSortValArray<T>(pa, i, hi, compare);
+            hi = j;
+        }
+    }
+}
+
+struct I8ComparerCompare
+{
+    Il2CppObject** slot;
+    int32_t operator()(int64_t x, int64_t y) const
+    {
+        if (*slot == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
+    }
+};
+
+struct DComparerCompare
+{
+    Il2CppObject** slot;
+    int32_t operator()(double x, double y) const
+    {
+        if (*slot == nullptr) return DoubleCompareTotal(x, y);
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &x, &y);
+    }
+};
+
+struct FComparerCompare
+{
+    Il2CppObject** slot;
+    int32_t operator()(float x, float y) const
+    {
+        double dx = static_cast<double>(x);
+        double dy = static_cast<double>(y);
+        if (*slot == nullptr) return DoubleCompareTotal(dx, dy);
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &dx, &dy);
+    }
+};
+
 // The comparer-driven reference comparison (elements are already objects).
 // a5reds (strsort_ordinal): the StringComparer singletons get a dedicated
 // ordinal element comparison; everything else keeps the existing dispatch.
@@ -2122,6 +2208,58 @@ void il2cpp_array_sort_icomparer_range(Il2CppArray* arr, int32_t index, int32_t 
     SortIComparerCore(&a, index, index + length - 1, &comparer, mode);
 }
 
+// nb9 L-11/D7: the wide value-family IComparer sorts.
+#define NB9_DEFINE_ICOMPARER_SORT(SUF, T, CMPTYPE)                              \
+void il2cpp_array_sort_icomparer_##SUF(Il2CppArray* arr, Il2CppObject* comparer) \
+{                                                                               \
+    Il2CppArray* a = RequireArraySort(arr);                                     \
+    RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));                  \
+    RootScopeSort roots;                                                        \
+    roots.Add(reinterpret_cast<void**>(&a));                                    \
+    roots.Add(reinterpret_cast<void**>(&comparer));                             \
+    if (a->length > 1)                                                          \
+    {                                                                           \
+        try                                                                     \
+        {                                                                       \
+            CMPTYPE cmp{&comparer};                                             \
+            QuickSortValArray<T>(&a, 0, a->length - 1, cmp);                    \
+        }                                                                       \
+        catch (const DotNetException&)                                          \
+        {                                                                       \
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);   \
+        }                                                                       \
+    }                                                                           \
+}                                                                               \
+void il2cpp_array_sort_icomparer_##SUF##_range(Il2CppArray* arr, int32_t index, \
+                                               int32_t length,                  \
+                                               Il2CppObject* comparer)          \
+{                                                                               \
+    Il2CppArray* a = RequireArraySort(arr);                                     \
+    RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));                  \
+    RequireRangeSort(a, index, length);                                         \
+    RootScopeSort roots;                                                        \
+    roots.Add(reinterpret_cast<void**>(&a));                                    \
+    roots.Add(reinterpret_cast<void**>(&comparer));                             \
+    if (length > 1)                                                             \
+    {                                                                           \
+        try                                                                     \
+        {                                                                       \
+            CMPTYPE cmp{&comparer};                                             \
+            QuickSortValArray<T>(&a, index, index + length - 1, cmp);           \
+        }                                                                       \
+        catch (const DotNetException&)                                          \
+        {                                                                       \
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);   \
+        }                                                                       \
+    }                                                                           \
+}
+
+NB9_DEFINE_ICOMPARER_SORT(int64, int64_t, I8ComparerCompare)
+NB9_DEFINE_ICOMPARER_SORT(double, double, DComparerCompare)
+NB9_DEFINE_ICOMPARER_SORT(float, float, FComparerCompare)
+
+#undef NB9_DEFINE_ICOMPARER_SORT
+
 //------------------------------------------------------------------------------
 // il2cpp_array_sort_int32_comparison -- Array.Sort<int>(int32[], Comparison<int>)
 // (D-ICMP-3). Delegate-driven int32 sort (raw values, no boxing).
@@ -2356,6 +2494,12 @@ void ValidateIndexOfRange(const Il2CppArray* a, int32_t startIndex, int32_t coun
 
 void ValidateLastIndexOfStartIndex(const Il2CppArray* a, int32_t startIndex)
 {
+    // nb9 D12: an EMPTY array accepts startIndex 0 and yields -1 (net48),
+    // unlike the non-empty contract (startIndex >= Length is out of range).
+    if (a->length == 0 && startIndex == 0)
+    {
+        return;
+    }
     if (startIndex < 0 || startIndex >= a->length)
     {
         il2cpp_throw_argument_out_of_range_exception(
@@ -2368,6 +2512,8 @@ void ValidateLastIndexOfStartIndex(const Il2CppArray* a, int32_t startIndex)
 void ValidateLastIndexOfRange(const Il2CppArray* a, int32_t startIndex, int32_t count)
 {
     ValidateLastIndexOfStartIndex(a, startIndex);
+    // nb9 D13 matrix (net48 host measured): negative count and a range that
+    // runs past the beginning both report ParamName "count".
     if (count < 0 ||
         static_cast<int64_t>(count) > static_cast<int64_t>(startIndex) + 1)
     {
@@ -2428,7 +2574,7 @@ int32_t il2cpp_array_last_index_of_##SUF##_start(Il2CppArray* arr, T value,     
     RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));                  \
     ValidateLastIndexOfStartIndex(a, startIndex);                               \
     const T* data = reinterpret_cast<const T*>(a->data);                        \
-    for (int32_t i = startIndex; i >= 0; --i)                                   \
+    for (int32_t i = startIndex; i >= 0 && i < a->length; --i)                                   \
     {                                                                           \
         if (EQFN(data[i], value)) return i;                                     \
     }                                                                           \
@@ -2488,6 +2634,18 @@ int32_t il2cpp_array_index_of_float_range(Il2CppArray* arr, double value,
     return -1;
 }
 
+int32_t il2cpp_array_last_index_of_float(Il2CppArray* arr, double value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(float));
+    const float* data = reinterpret_cast<const float*>(a->data);
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        if (DoubleEqualsNet(static_cast<double>(data[i]), value)) return i;
+    }
+    return -1;
+}
+
 int32_t il2cpp_array_last_index_of_float_start(Il2CppArray* arr, double value,
                                                int32_t startIndex)
 {
@@ -2495,7 +2653,7 @@ int32_t il2cpp_array_last_index_of_float_start(Il2CppArray* arr, double value,
     RequireValueArraySort(a, sizeof(float));
     ValidateLastIndexOfStartIndex(a, startIndex);
     const float* data = reinterpret_cast<const float*>(a->data);
-    for (int32_t i = startIndex; i >= 0; --i)
+    for (int32_t i = startIndex; i >= 0 && i < a->length; --i)
     {
         if (DoubleEqualsNet(static_cast<double>(data[i]), value)) return i;
     }
@@ -2563,7 +2721,7 @@ int32_t il2cpp_array_last_index_of_string_start(Il2CppArray* arr, Il2CppObject* 
     ValidateLastIndexOfStartIndex(a, startIndex);
     const Il2CppString* needle = AsStringOrNull(value);
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-    for (int32_t i = startIndex; i >= 0; --i)
+    for (int32_t i = startIndex; i >= 0 && i < a->length; --i)
     {
         if (CompareOrdinal(reinterpret_cast<const Il2CppString*>(slots[i]), needle) == 0)
         {
@@ -2629,7 +2787,7 @@ int32_t il2cpp_array_last_index_of_object_start(Il2CppArray* arr, Il2CppObject* 
     RequireRefArraySort(a);
     ValidateLastIndexOfStartIndex(a, startIndex);
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-    for (int32_t i = startIndex; i >= 0; --i)
+    for (int32_t i = startIndex; i >= 0 && i < a->length; --i)
     {
         if (runtime::icall_object_equals(slots[i], value)) return i;
     }
@@ -2940,15 +3098,88 @@ int32_t il2cpp_array_binary_search_icomparer_float_range(
 
 namespace {
 
-bool TryUnboxInt32Object(Il2CppObject* value, int32_t* out)
+enum AnyValueKind
 {
-    if (value == nullptr || value->klass == nullptr || value->klass->name == nullptr ||
-        std::strcmp(value->klass->name, "System.Int32") != 0)
+    AnyI4,
+    AnyI8,
+    AnyD,
+    AnyF,
+    AnyRef,
+};
+
+AnyValueKind ClassifyAnyValue(Il2CppObject* value)
+{
+    if (value == nullptr || value->klass == nullptr || value->klass->name == nullptr)
     {
-        return false;
+        return AnyRef;
     }
-    *out = runtime::icall_unbox_int32(value);
-    return true;
+    const char* n = value->klass->name;
+    if (std::strcmp(n, "System.Int32") == 0) return AnyI4;
+    if (std::strcmp(n, "System.Int64") == 0) return AnyI8;
+    if (std::strcmp(n, "System.Double") == 0) return AnyD;
+    if (std::strcmp(n, "System.Single") == 0) return AnyF;
+    return AnyRef;
+}
+
+// nb9 D9/D10: value-family-aware equality for the non-generic scans. The
+// ARRAY's recorded element kind decides the read; the boxed value must belong
+// to the same family, otherwise it is simply "not equal" (net48 IndexOf
+// compares boxed values and never coerces). Arrays created without a kind
+// (runtime-helper arrays) fall back to the conservative int32 / box-family
+// heuristic.
+bool AnyElementEquals(Il2CppArray* a, int32_t idx, Il2CppObject* value)
+{
+    if (a->isRefElem)
+    {
+        return runtime::icall_object_equals(
+            reinterpret_cast<Il2CppObject**>(a->data)[idx], value);
+    }
+    const AnyValueKind k = ClassifyAnyValue(value);
+    const int32_t kind = a->elemKind;
+    if (kind == 1)
+    {
+        return k == AnyI4 &&
+               *reinterpret_cast<const int32_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
+                   runtime::icall_unbox_int32(value);
+    }
+    if (kind == 2)
+    {
+        return k == AnyI8 &&
+               *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
+                   runtime::icall_unbox_long(value);
+    }
+    if (kind == 3)
+    {
+        return k == AnyF &&
+               DoubleEqualsNet(
+                   static_cast<double>(*reinterpret_cast<const float*>(
+                       il2cpp_array_get_elem_ptr(a, idx))),
+                   runtime::icall_unbox_float(value));
+    }
+    if (kind == 4)
+    {
+        return k == AnyD &&
+               DoubleEqualsNet(
+                   *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(a, idx)),
+                   runtime::icall_unbox_double(value));
+    }
+    if (a->elemSize == sizeof(int32_t) && k == AnyI4)
+    {
+        return *reinterpret_cast<const int32_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
+               runtime::icall_unbox_int32(value);
+    }
+    if (a->elemSize == sizeof(int64_t) && k == AnyI8)
+    {
+        return *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
+               runtime::icall_unbox_long(value);
+    }
+    if (a->elemSize == sizeof(int64_t) && k == AnyD)
+    {
+        return DoubleEqualsNet(
+            *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(a, idx)),
+            runtime::icall_unbox_double(value));
+    }
+    return false;
 }
 
 } // namespace
@@ -2958,22 +3189,9 @@ int32_t il2cpp_array_index_of_any_start(Il2CppArray* arr, Il2CppObject* value,
 {
     Il2CppArray* a = RequireArraySort(arr);
     ValidateIndexOfStartIndex(a, startIndex);
-    if (a->isRefElem)
-    {
-        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-        for (int32_t i = startIndex; i < a->length; ++i)
-        {
-            if (runtime::icall_object_equals(slots[i], value)) return i;
-        }
-        return -1;
-    }
-    RequireValueArraySort(a, sizeof(int32_t));
-    int32_t needle = 0;
-    if (!TryUnboxInt32Object(value, &needle)) return -1;
-    const int32_t* data = reinterpret_cast<const int32_t*>(a->data);
     for (int32_t i = startIndex; i < a->length; ++i)
     {
-        if (data[i] == needle) return i;
+        if (AnyElementEquals(a, i, value)) return i;
     }
     return -1;
 }
@@ -2984,22 +3202,9 @@ int32_t il2cpp_array_index_of_any_range(Il2CppArray* arr, Il2CppObject* value,
     Il2CppArray* a = RequireArraySort(arr);
     ValidateIndexOfRange(a, startIndex, count);
     const int32_t end = startIndex + count;
-    if (a->isRefElem)
-    {
-        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-        for (int32_t i = startIndex; i < end; ++i)
-        {
-            if (runtime::icall_object_equals(slots[i], value)) return i;
-        }
-        return -1;
-    }
-    RequireValueArraySort(a, sizeof(int32_t));
-    int32_t needle = 0;
-    if (!TryUnboxInt32Object(value, &needle)) return -1;
-    const int32_t* data = reinterpret_cast<const int32_t*>(a->data);
     for (int32_t i = startIndex; i < end; ++i)
     {
-        if (data[i] == needle) return i;
+        if (AnyElementEquals(a, i, value)) return i;
     }
     return -1;
 }
@@ -3007,22 +3212,9 @@ int32_t il2cpp_array_index_of_any_range(Il2CppArray* arr, Il2CppObject* value,
 int32_t il2cpp_array_last_index_of_any(Il2CppArray* arr, Il2CppObject* value)
 {
     Il2CppArray* a = RequireArraySort(arr);
-    if (a->isRefElem)
-    {
-        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-        for (int32_t i = a->length - 1; i >= 0; --i)
-        {
-            if (runtime::icall_object_equals(slots[i], value)) return i;
-        }
-        return -1;
-    }
-    RequireValueArraySort(a, sizeof(int32_t));
-    int32_t needle = 0;
-    if (!TryUnboxInt32Object(value, &needle)) return -1;
-    const int32_t* data = reinterpret_cast<const int32_t*>(a->data);
     for (int32_t i = a->length - 1; i >= 0; --i)
     {
-        if (data[i] == needle) return i;
+        if (AnyElementEquals(a, i, value)) return i;
     }
     return -1;
 }
@@ -3032,22 +3224,9 @@ int32_t il2cpp_array_last_index_of_any_start(Il2CppArray* arr, Il2CppObject* val
 {
     Il2CppArray* a = RequireArraySort(arr);
     ValidateLastIndexOfStartIndex(a, startIndex);
-    if (a->isRefElem)
+    for (int32_t i = startIndex; i >= 0 && i < a->length; --i)
     {
-        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-        for (int32_t i = startIndex; i >= 0; --i)
-        {
-            if (runtime::icall_object_equals(slots[i], value)) return i;
-        }
-        return -1;
-    }
-    RequireValueArraySort(a, sizeof(int32_t));
-    int32_t needle = 0;
-    if (!TryUnboxInt32Object(value, &needle)) return -1;
-    const int32_t* data = reinterpret_cast<const int32_t*>(a->data);
-    for (int32_t i = startIndex; i >= 0; --i)
-    {
-        if (data[i] == needle) return i;
+        if (AnyElementEquals(a, i, value)) return i;
     }
     return -1;
 }
@@ -3058,22 +3237,9 @@ int32_t il2cpp_array_last_index_of_any_range(Il2CppArray* arr, Il2CppObject* val
     Il2CppArray* a = RequireArraySort(arr);
     ValidateLastIndexOfRange(a, startIndex, count);
     const int32_t lo = startIndex - count + 1;
-    if (a->isRefElem)
+    for (int32_t i = startIndex; i >= lo && i < a->length; --i)
     {
-        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-        for (int32_t i = startIndex; i >= lo; --i)
-        {
-            if (runtime::icall_object_equals(slots[i], value)) return i;
-        }
-        return -1;
-    }
-    RequireValueArraySort(a, sizeof(int32_t));
-    int32_t needle = 0;
-    if (!TryUnboxInt32Object(value, &needle)) return -1;
-    const int32_t* data = reinterpret_cast<const int32_t*>(a->data);
-    for (int32_t i = startIndex; i >= lo; --i)
-    {
-        if (data[i] == needle) return i;
+        if (AnyElementEquals(a, i, value)) return i;
     }
     return -1;
 }
@@ -3090,11 +3256,68 @@ int32_t CompareAnyElement(Il2CppArray* a, int32_t index, Il2CppObject* value,
         if (comparer == nullptr) return ComparerCompareCore(elem, value);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyRef, elem, value);
     }
-    const int32_t elem = reinterpret_cast<const int32_t*>(a->data)[index];
-    int32_t needle = 0;
-    if (!TryUnboxInt32Object(value, &needle)) needle = 0;
-    if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
-    return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &elem, &needle);
+    // nb9 D10/D11: the ARRAY's recorded element kind decides the read; the
+    // boxed value must belong to the same value family. A mismatch is NOT
+    // coerced to 0: net48 raises InvalidOperationException (inner
+    // ArgumentException) instead. Arrays with no recorded kind fall back to
+    // the conservative stride heuristic.
+    const AnyValueKind k = ClassifyAnyValue(value);
+    const int32_t kind = a->elemKind;
+    if (kind == 1 && k == AnyI4)
+    {
+        const int32_t elem = *reinterpret_cast<const int32_t*>(il2cpp_array_get_elem_ptr(a, index));
+        const int32_t needle = runtime::icall_unbox_int32(value);
+        if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &elem, &needle);
+    }
+    if (kind == 2 && k == AnyI8)
+    {
+        const int64_t elem = *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(a, index));
+        const int64_t needle = runtime::icall_unbox_long(value);
+        if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI8, &elem, &needle);
+    }
+    if (kind == 3 && k == AnyF)
+    {
+        const double elem = static_cast<double>(
+            *reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(a, index)));
+        const double needle = runtime::icall_unbox_float(value);
+        if (comparer == nullptr) return DoubleCompareTotal(elem, needle);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &elem, &needle);
+    }
+    if (kind == 4 && k == AnyD)
+    {
+        const double elem = *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(a, index));
+        const double needle = runtime::icall_unbox_double(value);
+        if (comparer == nullptr) return DoubleCompareTotal(elem, needle);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &elem, &needle);
+    }
+    if (kind == 0)
+    {
+        if (a->elemSize == sizeof(int32_t) && k == AnyI4)
+        {
+            const int32_t elem = *reinterpret_cast<const int32_t*>(il2cpp_array_get_elem_ptr(a, index));
+            const int32_t needle = runtime::icall_unbox_int32(value);
+            if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
+            return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &elem, &needle);
+        }
+        if (a->elemSize == sizeof(int64_t) && k == AnyI8)
+        {
+            const int64_t elem = *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(a, index));
+            const int64_t needle = runtime::icall_unbox_long(value);
+            if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
+            return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI8, &elem, &needle);
+        }
+        if (a->elemSize == sizeof(int64_t) && k == AnyD)
+        {
+            const double elem = *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(a, index));
+            const double needle = runtime::icall_unbox_double(value);
+            if (comparer == nullptr) return DoubleCompareTotal(elem, needle);
+            return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &elem, &needle);
+        }
+    }
+    il2cpp_throw_invalid_operation_exception("Failed to compare two elements in the array.");
+    return 0; // unreachable
 }
 
 } // namespace
@@ -3175,6 +3398,329 @@ int32_t il2cpp_array_binary_search_any_icomparer_range(
         else hi = mid - 1;
     }
     return ~lo;
+}
+
+//==============================================================================
+// nb9 D2/D3/D5/D6/D8: the element-kind-driven sorts (non-generic Sort(Array),
+// Sort(Array,Array), Sort<object>(object[])) and the paired keys/items sort.
+//==============================================================================
+
+namespace {
+
+int32_t ReadAnyCompareKind(const Il2CppArray* a)
+{
+    if (a->isRefElem) return 0;
+    if (a->elemKind != 0) return a->elemKind;
+    return a->elemSize == 8 ? 2 : 1; // fallback: int64 for 8-byte, int32 for 4
+}
+
+void SwapValueCells(Il2CppArray* a, int32_t i, int32_t j)
+{
+    if (a->isRefElem)
+    {
+        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
+        Il2CppObject* t = slots[i];
+        slots[i] = slots[j];
+        slots[j] = t;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[i]), slots[i]);
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[j]), slots[j]);
+        return;
+    }
+    char* base = a->data;
+    char tmp[16];
+    char* pi = base + static_cast<size_t>(i) * static_cast<size_t>(a->elemSize);
+    char* pj = base + static_cast<size_t>(j) * static_cast<size_t>(a->elemSize);
+    std::memcpy(tmp, pi, static_cast<size_t>(a->elemSize));
+    std::memcpy(pi, pj, static_cast<size_t>(a->elemSize));
+    std::memcpy(pj, tmp, static_cast<size_t>(a->elemSize));
+}
+
+int32_t CompareAnyDefault(Il2CppArray* a, int32_t i, int32_t j)
+{
+    const int32_t kind = ReadAnyCompareKind(a);
+    if (kind == 0)
+    {
+        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
+        return ComparerCompareCore(slots[i], slots[j]);
+    }
+    if (kind == 1)
+    {
+        const int32_t* d = reinterpret_cast<const int32_t*>(a->data);
+        return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
+    }
+    if (kind == 3)
+    {
+        const float* d = reinterpret_cast<const float*>(a->data);
+        return DoubleCompareTotal(static_cast<double>(d[i]), static_cast<double>(d[j]));
+    }
+    if (kind == 4)
+    {
+        const double* d = reinterpret_cast<const double*>(a->data);
+        return DoubleCompareTotal(d[i], d[j]);
+    }
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
+}
+
+template <typename Compare>
+void QuickSortAnyIndices(Il2CppArray** pa, int32_t lo, int32_t hi, Compare compare)
+{
+    while (lo < hi)
+    {
+        const int32_t pivot = lo + (hi - lo) / 2;
+        int32_t i = lo;
+        int32_t j = hi;
+        while (i <= j)
+        {
+            while (compare(*pa, i, pivot) < 0) ++i;
+            while (compare(*pa, j, pivot) > 0) --j;
+            if (i <= j)
+            {
+                SwapValueCells(*pa, i, j);
+                ++i;
+                --j;
+            }
+        }
+        if (j - lo < hi - i)
+        {
+            QuickSortAnyIndices(pa, lo, j, compare);
+            lo = i;
+        }
+        else
+        {
+            QuickSortAnyIndices(pa, i, hi, compare);
+            hi = j;
+        }
+    }
+}
+
+struct AnyComparerCompare
+{
+    Il2CppObject** slot;
+    int32_t operator()(Il2CppArray* a, int32_t i, int32_t j) const
+    {
+        const int32_t kind = ReadAnyCompareKind(a);
+        if (kind == 0)
+        {
+            Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
+            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyRef, slots[i], slots[j]);
+        }
+        if (kind == 1)
+        {
+            const int32_t* d = reinterpret_cast<const int32_t*>(a->data);
+            int32_t x = d[i], y = d[j];
+            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
+        }
+        if (kind == 3)
+        {
+            const float* d = reinterpret_cast<const float*>(a->data);
+            double x = static_cast<double>(d[i]), y = static_cast<double>(d[j]);
+            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &x, &y);
+        }
+        if (kind == 4)
+        {
+            const double* d = reinterpret_cast<const double*>(a->data);
+            double x = d[i], y = d[j];
+            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &x, &y);
+        }
+        const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+        int64_t x = d[i], y = d[j];
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
+    }
+};
+
+// keys/items paired key comparison and swap.
+int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* comparer)
+{
+    const int32_t kind = ReadAnyCompareKind(keys);
+    if (kind == 0)
+    {
+        Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(keys->data);
+        if (comparer == nullptr) return ComparerCompareCore(slots[i], slots[j]);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyRef, slots[i], slots[j]);
+    }
+    if (kind == 1)
+    {
+        const int32_t* d = reinterpret_cast<const int32_t*>(keys->data);
+        int32_t x = d[i], y = d[j];
+        if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &x, &y);
+    }
+    if (kind == 3)
+    {
+        const float* d = reinterpret_cast<const float*>(keys->data);
+        double x = static_cast<double>(d[i]), y = static_cast<double>(d[j]);
+        if (comparer == nullptr) return DoubleCompareTotal(x, y);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &x, &y);
+    }
+    if (kind == 4)
+    {
+        const double* d = reinterpret_cast<const double*>(keys->data);
+        double x = d[i], y = d[j];
+        if (comparer == nullptr) return DoubleCompareTotal(x, y);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &x, &y);
+    }
+    const int64_t* d = reinterpret_cast<const int64_t*>(keys->data);
+    int64_t x = d[i], y = d[j];
+    if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+    return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI8, &x, &y);
+}
+
+struct KeyPairCompare
+{
+    Il2CppArray** keys;
+    Il2CppObject** comparer;
+    int32_t operator()(Il2CppArray** /*unused*/, int32_t i, int32_t j) const
+    {
+        return CompareKeyPair(*keys, i, j, *comparer);
+    }
+};
+
+void QuickSortKeyPairs(Il2CppArray** keys, Il2CppArray** items, int32_t lo, int32_t hi,
+                       Il2CppObject** comparer)
+{
+    while (lo < hi)
+    {
+        const int32_t pivot = lo + (hi - lo) / 2;
+        int32_t i = lo;
+        int32_t j = hi;
+        while (i <= j)
+        {
+            while (CompareKeyPair(*keys, i, pivot, *comparer) < 0) ++i;
+            while (CompareKeyPair(*keys, j, pivot, *comparer) > 0) --j;
+            if (i <= j)
+            {
+                SwapValueCells(*keys, i, j);
+                if (*items != nullptr) SwapValueCells(*items, i, j);
+                ++i;
+                --j;
+            }
+        }
+        if (j - lo < hi - i)
+        {
+            QuickSortKeyPairs(keys, items, lo, j, comparer);
+            lo = i;
+        }
+        else
+        {
+            QuickSortKeyPairs(keys, items, i, hi, comparer);
+            hi = j;
+        }
+    }
+}
+
+} // namespace
+
+void il2cpp_array_sort_any(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    if (a->length > 1)
+    {
+        try
+        {
+            QuickSortAnyIndices(&a, 0, a->length - 1, CompareAnyDefault);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
+
+void il2cpp_array_sort_any_range(Il2CppArray* arr, int32_t index, int32_t length)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    if (length > 1)
+    {
+        try
+        {
+            QuickSortAnyIndices(&a, index, index + length - 1, CompareAnyDefault);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
+
+void il2cpp_array_sort_keys_items(Il2CppArray* keys, Il2CppArray* items,
+                                  Il2CppObject* comparer)
+{
+    Il2CppArray* k = RequireArraySort(keys);
+    if (items == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("items");
+    }
+    Il2CppArray* it = RequireArraySort(items);
+    if (it->length < k->length)
+    {
+        il2cpp_throw_argument_exception(
+            "The destination array was not long enough.");
+    }
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&k));
+    roots.Add(reinterpret_cast<void**>(&it));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    if (k->length > 1)
+    {
+        try
+        {
+            QuickSortKeyPairs(&k, &it, 0, k->length - 1, &comparer);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
+
+void il2cpp_array_sort_keys_items_default(Il2CppArray* keys, Il2CppArray* items)
+{
+    il2cpp_array_sort_keys_items(keys, items, nullptr);
+}
+
+void il2cpp_array_sort_keys_items_range(Il2CppArray* keys, Il2CppArray* items,
+                                        int32_t index, int32_t length,
+                                        Il2CppObject* comparer)
+{
+    Il2CppArray* k = RequireArraySort(keys);
+    if (items == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("items");
+    }
+    Il2CppArray* it = RequireArraySort(items);
+    RequireRangeSort(k, index, length);
+    if (it->length < k->length)
+    {
+        il2cpp_throw_argument_exception(
+            "The destination array was not long enough.");
+    }
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&k));
+    roots.Add(reinterpret_cast<void**>(&it));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    if (length > 1)
+    {
+        try
+        {
+            QuickSortKeyPairs(&k, &it, index, index + length - 1, &comparer);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
+
+void il2cpp_array_sort_keys_items_default_range(Il2CppArray* keys, Il2CppArray* items,
+                                                int32_t index, int32_t length)
+{
+    il2cpp_array_sort_keys_items_range(keys, items, index, length, nullptr);
 }
 
 // ---- Array.Sort<T>(T[], int, int) for double/float (int32/uint32/int64/

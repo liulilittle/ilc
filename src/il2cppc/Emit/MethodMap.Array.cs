@@ -31,6 +31,28 @@ public static partial class MethodRefResolver
             case "Sort":
                 if (genArgs != null)
                 {
+                    // nb9 D2/D3: Sort<TKey,TValue>(keys, items[, comparer]) has
+                    // TWO generic arguments; the single-array overloads have
+                    // one. The parameter COUNT alone cannot tell the 2-arg
+                    // keys/items form from Sort<T>(T[], Comparison<T>), so the
+                    // generic-argument count is checked FIRST.
+                    if (genArgs.Length >= 2)
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_sort_keys_items_default", 2, false, false, false,
+                                new[] { "a", "a" });
+                        if (count == 3)
+                            return I("il2cpp::il2cpp_array_sort_keys_items", 3, false, false, false,
+                                new[] { "a", "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_sort_keys_items_default_range", 4, false, false, false,
+                                new[] { "a", "a", "i", "i" });
+                        if (count == 5)
+                            return I("il2cpp::il2cpp_array_sort_keys_items_range", 5, false, false, false,
+                                new[] { "a", "a", "i", "i", "" });
+                        throw new NotSupportedException(
+                            $"Array.Sort<TKey,TValue> with {count} arg(s) is not a net48 overload");
+                    }
                     // nb9 H-B3: Array.Sort<T>(T[], IComparer<T>) and
                     // Array.Sort<T>(T[], Comparison<T>) share the same
                     // GENERICINST parameter bytes, so the overload must be
@@ -53,6 +75,9 @@ public static partial class MethodRefResolver
                         // direct-call domain for uint32/int64 (arraysort.h).
                         0x0E when count == 1 => I("il2cpp::runtime::icall_array_sort_strings", 1, false, false, false),
                         0x08 when count == 1 => I("il2cpp::runtime::icall_array_sort", 1, false, false, false),
+                        // nb9 D8: Sort<object>/Sort<T class>(T[]) and its range
+                        // form use the element-kind-driven default sorter.
+                        0x12 or 0x1C when count == 1 => I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
                         0x09 or 0x0A or 0x0C or 0x0D when count == 1 => null,
                         // Array.Sort<T>(T[], Comparison<T>) count==2 -- the
                         // DELEGATE sort (cg8-b23). The System.Comparison`1
@@ -97,12 +122,26 @@ public static partial class MethodRefResolver
                         0x0C when count == 3 => I("il2cpp::il2cpp_array_sort_float", 3, false, false, false, new[] { "a", "i", "i" }),
                         0x0D when count == 3 => I("il2cpp::il2cpp_array_sort_double", 3, false, false, false, new[] { "a", "i", "i" }),
                         0x0E when count == 3 => I("il2cpp::il2cpp_array_sort_string", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_sort_any_range", 3, false, false, false, new[] { "a", "i", "i" }),
                         // nb9 zz-b4-cmp4: Array.Sort<T>(T[], int, int,
                         // IComparer<T>) -- only [index, index+length) is
                         // ordered. The 4th parameter's generic definition is
                         // the authoritative overload discriminator. The
                         // Comparison<T> range form stays LOUD (no delegate
                         // range entry -- report section 7).
+                        // nb9 L-11/D7: the wide value-family IComparer sorts.
+                        0x0A when count == 2 && secondIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_int64", 2, false, false, false, new[] { "a", "" }),
+                        0x0C when count == 2 && secondIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_float", 2, false, false, false, new[] { "a", "" }),
+                        0x0D when count == 2 && secondIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_double", 2, false, false, false, new[] { "a", "" }),
+                        0x0A when count == 4 && fourthIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_int64_range", 4, false, false, false, new[] { "a", "i", "i", "" }),
+                        0x0C when count == 4 && fourthIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_float_range", 4, false, false, false, new[] { "a", "i", "i", "" }),
+                        0x0D when count == 4 && fourthIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_double_range", 4, false, false, false, new[] { "a", "i", "i", "" }),
                         0x08 or 0x0E or 0x1C or 0x12 when count == 4 && fourthIsIComparer =>
                             I("il2cpp::il2cpp_array_sort_icomparer_range", 4, false, false, false,
                                 new[] { "a", "i", "i", "" }),
@@ -112,13 +151,22 @@ public static partial class MethodRefResolver
                 // Non-generic Array.Sort(Array[, IComparer]).
                 return count switch
                 {
-                    1 => I("il2cpp::runtime::icall_array_sort", 1, false, false, false),
-                    // D-ICMP-3 (icomparedeep): Array.Sort(Array, IComparer) --
-                    // the comparer-driven NON-GENERIC sort (arraysort.h
-                    // il2cpp_array_sort_icomparer; a null comparer means the
-                    // default comparer, net48). int32 value arrays (elements
-                    // boxed per comparison) and reference arrays are supported.
+                    // nb9 D6: the element-kind-driven non-generic sort (string
+                    // and wider value arrays included; the old icall was
+                    // int32-only).
+                    1 => I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                    // nb9 D5: Sort(Array, Array) vs Sort(Array, IComparer) are
+                    // told apart by the second argument's type (an array type
+                    // means keys/items).
+                    2 when arg1Type is not null &&
+                           (arg1Type.EndsWith("[]", StringComparison.Ordinal) ||
+                            arg1Type.Contains("System.Array", StringComparison.Ordinal)) =>
+                        I("il2cpp::il2cpp_array_sort_keys_items_default", 2, false, false, false, new[] { "a", "a" }),
                     2 => I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" }),
+                    // nb9 D4: Sort(Array, int, int[, IComparer]).
+                    3 => I("il2cpp::il2cpp_array_sort_any_range", 3, false, false, false, new[] { "a", "i", "i" }),
+                    4 => I("il2cpp::il2cpp_array_sort_keys_items_default_range", 4, false, false, false, new[] { "a", "a", "i", "i" }),
+                    5 => I("il2cpp::il2cpp_array_sort_keys_items_range", 5, false, false, false, new[] { "a", "a", "i", "i", "" }),
                     _ => throw new NotSupportedException($"Array.Sort(Array, ...) with {count} arg(s) not wired in M5"),
                 };
             case "BinarySearch":
@@ -184,7 +232,7 @@ public static partial class MethodRefResolver
                 }
                 // Non-generic Array.IndexOf(Array, object[, startIndex[, count]]):
                 // int32/ref element dispatch in the ArraySort domain.
-                if (count == 2) return I("il2cpp::runtime::icall_array_index_of", 2, true, false, false);
+                if (count == 2) return I("il2cpp::il2cpp_array_index_of_any_start", 2, true, false, false, new[] { "a", "" }, appendZero: true);
                 if (count == 3) return I("il2cpp::il2cpp_array_index_of_any_start", 3, true, false, false, new[] { "a", "", "i" });
                 if (count == 4) return I("il2cpp::il2cpp_array_index_of_any_range", 4, true, false, false, new[] { "a", "", "i", "i" });
                 throw new NotSupportedException($"Array.IndexOf(Array, object, ...) with {count} arg(s) not wired in M5");
@@ -329,6 +377,9 @@ public static partial class MethodRefResolver
                     if (ps.Length == 2)
                         return I("il2cpp::runtime::icall_array_find_index_2", 2, true, false, false,
                             new[] { "a", "" });
+                    if (ps.Length == 3)
+                        return I("il2cpp::runtime::icall_array_find_index_3", 3, true, false, false,
+                            new[] { "a", "", "i" });
                     return I("il2cpp::runtime::icall_array_find_index", 4, true, false, false,
                         new[] { "a", "", "i", "i" });
                 }

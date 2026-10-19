@@ -338,6 +338,14 @@ int32_t il2cpp_array_binary_search_icomparer_ref(Il2CppArray* arr, Il2CppObject*
 // insertion point in ARRAY coordinates (~(index + localInsertion)).
 void il2cpp_array_sort_icomparer_range(Il2CppArray* arr, int32_t index, int32_t length,
                                        Il2CppObject* comparer);
+
+// nb9 L-11/D7: the wide value-family IComparer<T> sorts (long/float/double).
+void il2cpp_array_sort_icomparer_int64(Il2CppArray* arr, Il2CppObject* comparer);
+void il2cpp_array_sort_icomparer_int64_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* comparer);
+void il2cpp_array_sort_icomparer_float(Il2CppArray* arr, Il2CppObject* comparer);
+void il2cpp_array_sort_icomparer_float_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* comparer);
+void il2cpp_array_sort_icomparer_double(Il2CppArray* arr, Il2CppObject* comparer);
+void il2cpp_array_sort_icomparer_double_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* comparer);
 int32_t il2cpp_array_binary_search_icomparer_int32_range(Il2CppArray* arr, int32_t index,
                                                          int32_t length, int32_t value,
                                                          Il2CppObject* comparer);
@@ -367,6 +375,7 @@ int32_t il2cpp_array_last_index_of_int64_start(Il2CppArray* arr, int64_t value, 
 int32_t il2cpp_array_last_index_of_int64_range(Il2CppArray* arr, int64_t value, int32_t startIndex, int32_t count);
 int32_t il2cpp_array_index_of_float_start(Il2CppArray* arr, double value, int32_t startIndex);
 int32_t il2cpp_array_index_of_float_range(Il2CppArray* arr, double value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_float(Il2CppArray* arr, double value);
 int32_t il2cpp_array_last_index_of_float_start(Il2CppArray* arr, double value, int32_t startIndex);
 int32_t il2cpp_array_last_index_of_float_range(Il2CppArray* arr, double value, int32_t startIndex, int32_t count);
 int32_t il2cpp_array_index_of_double_start(Il2CppArray* arr, double value, int32_t startIndex);
@@ -416,7 +425,16 @@ int32_t il2cpp_array_binary_search_icomparer_float_range(Il2CppArray* arr, int32
 
 // Array.Sort<T>(T[], int, int) for the double/float families (the int32/
 // uint32/int64/string partial sorts are declared above).
-void il2cpp_array_sort_double(Il2CppArray* arr, int32_t index, int32_t length);
+// nb9 D2/D3/D5/D6/D8: element-kind-driven sorts. il2cpp_array_sort_any sorts
+// an array whose element kind was recorded at allocation (int32/int64/float/
+// double/reference); the keys/items pair sorts the key array and applies the
+// same permutation to items.
+void il2cpp_array_sort_any(Il2CppArray* arr);
+void il2cpp_array_sort_any_range(Il2CppArray* arr, int32_t index, int32_t length);
+void il2cpp_array_sort_keys_items(Il2CppArray* keys, Il2CppArray* items, Il2CppObject* comparer);
+void il2cpp_array_sort_keys_items_default(Il2CppArray* keys, Il2CppArray* items);
+void il2cpp_array_sort_keys_items_range(Il2CppArray* keys, Il2CppArray* items, int32_t index, int32_t length, Il2CppObject* comparer);
+void il2cpp_array_sort_keys_items_default_range(Il2CppArray* keys, Il2CppArray* items, int32_t index, int32_t length);void il2cpp_array_sort_double(Il2CppArray* arr, int32_t index, int32_t length);
 void il2cpp_array_sort_float(Il2CppArray* arr, int32_t index, int32_t length);
 
 // Array.Sort<T>(T[], Comparison<T>) -- the DELEGATE sorts. The transpiler

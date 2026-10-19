@@ -9083,8 +9083,20 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             // and carries object elements correctly). Translated user types
             // keep the direct &Symbol form.
             var elemName = TypeTokenFullName(md, arrTok);
+            // nb9 D10: value-element arrays pass their primitive descriptor so
+            // the runtime can record the element kind (int32[] and float[]
+            // otherwise share the same array class and become
+            // indistinguishable to the non-generic Array scans).
+            var valueElemClass = elemName switch
+            {
+                "System.Int32" => "il2cpp::il2cpp_class_by_name(\"System.Int32\")",
+                "System.Int64" => "il2cpp::il2cpp_class_by_name(\"System.Int64\")",
+                "System.Single" => "il2cpp::il2cpp_class_by_name(\"System.Single\")",
+                "System.Double" => "il2cpp::il2cpp_class_by_name(\"System.Double\")",
+                _ => "nullptr",
+            };
             var elemClassCpp = !isRefElem
-                ? "nullptr"
+                ? valueElemClass
                 : types.Any(t => t.MatchesFullName(elemName))
                 ? ArrayElementClassCpp(elemName)
                 : $"il2cpp::il2cpp_class_by_name(\"{elemName}\")";
@@ -9612,6 +9624,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // slot0 (arr) <- args[0] (array); slot1 (predicate) <- args[3] (match);
         // slot2 (startIndex) <- args[1]; slot3 (count) <- args[2].
         ["il2cpp::runtime::icall_array_find_index"] = new[] { 0, 3, 1, 2 },
+        // nb9 D1: the 3-arg FindIndex IL (array, startIndex, match) ->
+        // (arr, predicate, startIndex).
+        ["il2cpp::runtime::icall_array_find_index_3"] = new[] { 0, 2, 1 },
         // Buffer.MemoryCopy IL order (source, destination, destSize,
         // srcBytes) -> runtime sized order (dst, src, destSize, srcBytes):
         // slot0 (dst) <- args[1]; slot1 (src) <- args[0]; rest identity.
@@ -10942,7 +10957,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     // full pointer width -- int32_t truncates the x64 HWND/
                     // WPARAM/LPARAM the WNDPROC ABI passes.
                     "n" => "intptr_t",
-                    var arr when arr.StartsWith("r:System.Array", StringComparison.Ordinal) => "Il2CppArray*",
+                    // nb9 D15: System.Array is a REFERENCE parameter like any
+                    // other (Il2CppObject*), matching TypeEmitter/ReferenceCppType.
+                    // Declaring it Il2CppArray* made a generated `F(Array a)`
+                    // body fail when the callee takes Il2CppObject* (C2664).
                     var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
                     // GN-18 B4 (calli V:/B: value param, ordinary-method side):
                     // a BYREF reference parameter (`ref string` / `ref object` --

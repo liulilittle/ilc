@@ -360,7 +360,7 @@ public class CodeGeneratorTests
             // user types keep the &Symbol descriptor.
             Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.String\"), 8, true", cpp);  // string[]
             Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.Object\"), 8, true", cpp);  // object[]
-            Assert.Contains("il2cpp_array_new(nullptr, 4, false", cpp); // int32[] (unchanged)
+            Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.Int32\"), 4, false", cpp); // int32[] (element kind)
         }
         finally
         {
@@ -1874,7 +1874,7 @@ public class CodeGeneratorTests
             // The enumerated value arms are untouched: byte[] (1,false) and
             // int[] (4,false) keep their non-reference strides.
             Assert.Contains("il2cpp_array_new(nullptr, 1, false,", cpp);
-            Assert.Contains("il2cpp_array_new(nullptr, 4, false,", cpp);
+            Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.Int32\"), 4, false,", cpp);
         }
         finally
         {
@@ -2162,7 +2162,7 @@ public class CodeGeneratorTests
             // CG6: long[] (System.Int64) newarr allocates 8-byte NON-reference
             // elements (the ldelem/stelem i8 width already dispatches; only the
             // allocation stride was missing).
-            Assert.Contains("il2cpp_array_new(nullptr, 8, false,", cpp);
+            Assert.Contains("il2cpp_array_new(il2cpp::il2cpp_class_by_name(\"System.Int64\"), 8, false,", cpp);
         }
         finally
         {

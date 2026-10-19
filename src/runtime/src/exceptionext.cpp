@@ -149,8 +149,10 @@ void il2cpp_throw_argument_out_of_range_exception(const char* paramName, const c
     // append the parameter-name line, a documented runtime divergence). A
     // nullptr message composes the default + parameter-name line (net48
     // 1-arg ctor semantics -- excext).
+    // nb9 D13: net48's (paramName, message) ctor appends the
+    // "\r\nParameter name: xxx" line to the explicit message too.
     const char* msg = (message != nullptr)
-        ? message
+        ? ComposeParamNameMessage(message, paramName)
         : ComposeParamNameMessage(kArgumentOutOfRangeMessage, paramName);
     il2cpp_throw_new("System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
                      msg);

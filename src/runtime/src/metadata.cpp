@@ -217,6 +217,33 @@ Il2CppClass System_Double_class = {
     3,                                     // interfaceCount
 };
 
+// nb9 D10: Int64/Single element descriptors (the primitive array element-kind
+// registry needs a stable pointer identity for long[]/float[]). Same shape as
+// the Int32/Double boxes.
+Il2CppClass System_Int64_class = {
+    "System.Int64",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
+Il2CppClass System_Single_class = {
+    "System.Single",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
 // Boxed UInt32: identical shape to the Int32 box (header + aligned 8-byte
 // payload slot, the full 32-bit pattern -- see boxingext2.cpp), plus the .NET
 // interface table. net48 semantics: a boxed UInt32 IS-A System.Object (base
@@ -451,6 +478,9 @@ void il2cpp_ensure_builtin_system_classes()
         il2cpp_class_register(&System_Boolean_class);
         il2cpp_class_register(&System_Char_class);
         il2cpp_class_register(&System_Double_class);
+    // nb9 D10: the primitive element-kind descriptors for long[]/float[].
+    il2cpp_class_register(&System_Int64_class);
+    il2cpp_class_register(&System_Single_class);
         il2cpp_class_register(&System_IConvertible_class);
         il2cpp_class_register(&System_IComparable_class);
         il2cpp_class_register(&System_IFormattable_class);

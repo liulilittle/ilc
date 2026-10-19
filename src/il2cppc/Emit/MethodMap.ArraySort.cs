@@ -114,7 +114,7 @@ public static partial class MethodRefResolver
                     0x0A when count == 2 => I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" }),
                     0x0A when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
                     0x0A when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
-                    0x0C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_float_start", 2, true, false, false, new[] { "a", "d" }, appendZero: true),
+                    0x0C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_float", 2, true, false, false, new[] { "a", "d" }),
                     0x0C when count == 3 => I("il2cpp::il2cpp_array_last_index_of_float_start", 3, true, false, false, new[] { "a", "d", "i" }),
                     0x0C when count == 4 => I("il2cpp::il2cpp_array_last_index_of_float_range", 4, true, false, false, new[] { "a", "d", "i", "i" }),
                     0x0D when count == 2 => I("il2cpp::il2cpp_array_last_index_of_double", 2, true, false, false, new[] { "a", "d" }),
@@ -123,7 +123,7 @@ public static partial class MethodRefResolver
                     0x0E when count == 2 => I("il2cpp::il2cpp_array_last_index_of_string", 2, true, false, false, new[] { "a", "" }),
                     0x0E when count == 3 => I("il2cpp::il2cpp_array_last_index_of_string_start", 3, true, false, false, new[] { "a", "", "i" }),
                     0x0E when count == 4 => I("il2cpp::il2cpp_array_last_index_of_string_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
-                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_object_start", 2, true, false, false, new[] { "a", "" }, appendZero: true),
+                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_any", 2, true, false, false, new[] { "a", "" }),
                     0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_last_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
                     0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_last_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
                     _ => throw new NotSupportedException(
