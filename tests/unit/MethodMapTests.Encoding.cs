@@ -119,25 +119,26 @@ public class MethodMapEncodingTests
     }
 
     //--------------------------------------------------------------------------
-    // First resolution (no receiver hint) defers to the receiver-aware
-    // re-resolve -- the generated-name fallback, never a LOUD throw.
+    // nb9 (M8): the object-receiver entries read the page off the RECEIVER at
+    // runtime, so an untracked receiver (the fold's first resolution) maps
+    // directly -- there is nothing left to defer to.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Encoding_GetBytes_NoReceiverHint_FallsBackToGeneratedName()
+    public void Resolve_Encoding_GetBytes_NoReceiverHint_MapsToObjectIcall()
     {
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
             SigEx(0x1D, new byte[] { 0x05 }, 1, 0x0E)), "GetBytes");
 
-        Assert.StartsWith("System_Text_Encoding_GetBytes_", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_bytes", resolved.CppName);
     }
 
     [Fact]
-    public void Resolve_Encoding_GetString_NoReceiverHint_FallsBackToGeneratedName()
+    public void Resolve_Encoding_GetString_NoReceiverHint_MapsToObjectIcall()
     {
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetString",
             SigEx(0x0E, Array.Empty<byte>(), 1, 0x1D, 0x05)), "GetString");
 
-        Assert.StartsWith("System_Text_Encoding_GetString_", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_string", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -157,22 +158,46 @@ public class MethodMapEncodingTests
         Assert.Equal("il2cpp::runtime::icall_encoding_get_bytes", resolved.CppName);
     }
 
+    // nb9 (M8): the destination-buffer overload is wired for real.
     [Fact]
-    public void Resolve_Encoding_GetBytes_FiveArgs_ThrowsLoud()
+    public void Resolve_Encoding_GetBytes_FiveArgs_MapsToDestinationIcall()
     {
         // instance int GetBytes(string, int, int, byte[], int): ret i4,
-        // params string + 2x i4 + SZARRAY byte + i4. This shape (write into a
-        // caller destination) has no runtime entry: the RECEIVER-hinted
-        // resolution must reject it LOUDLY.
+        // params string + 2x i4 + SZARRAY byte + i4. Writes into the caller's
+        // destination array and returns the byte count.
+        var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
+            SigEx(0x08, Array.Empty<byte>(), 5, 0x0E, 0x08, 0x08, 0x1D, 0x05, 0x08)),
+            "GetBytes", "System.Text.UTF8Encoding");
+
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_bytes_into_string", resolved.CppName);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(new[] { "", "s", "i", "i", "a", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Encoding_GetBytes_FiveArgsChars_MapsToDestinationIcall()
+    {
+        // instance int GetBytes(char[], int, int, byte[], int).
+        var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
+            SigEx(0x08, Array.Empty<byte>(), 5, 0x1D, 0x03, 0x08, 0x08, 0x1D, 0x05, 0x08)),
+            "GetBytes", "System.Text.UTF8Encoding");
+
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_bytes_into_chars", resolved.CppName);
+        Assert.Equal(new[] { "", "a", "i", "i", "a", "i" }, resolved.ParamTypeNames);
+    }
+
+    // The truly unwired arity still rejects LOUDLY.
+    [Fact]
+    public void Resolve_Encoding_GetBytes_SixArgs_ThrowsLoud()
+    {
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Text", "Encoding", "GetBytes",
-                SigEx(0x08, Array.Empty<byte>(), 5, 0x0E, 0x08, 0x08, 0x1D, 0x05, 0x08)),
+                SigEx(0x08, Array.Empty<byte>(), 6, 0x0E, 0x08, 0x08, 0x1D, 0x05, 0x08, 0x08)),
                 "GetBytes", "System.Text.UTF8Encoding"));
 
         Assert.Contains("System.Text.Encoding::GetBytes", ex.Message);
         Assert.Contains("overload", ex.Message);
     }
-
     [Fact]
     public void Resolve_Encoding_GetString_ThreeArgs_MapsToRangeIcall()
     {
@@ -212,15 +237,15 @@ public class MethodMapEncodingTests
     }
 
     [Fact]
-    public void Resolve_Encoding_GetChars_NoReceiverHint_FallsBackToGeneratedName()
+    public void Resolve_Encoding_GetChars_NoReceiverHint_MapsToObjectIcall()
     {
-        // No receiver hint -> the map returns null (defer to the receiver-aware
-        // re-resolve) and the generated-name fallback is kept, never a LOUD
-        // throw -- the GetBytes/GetString no-hint convention.
+        // nb9 (M8): the object-receiver entry reads the page off the
+        // receiver at runtime -- an untracked receiver maps directly.
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetChars",
             SigEx(0x1D, new byte[] { 0x03 }, 1, 0x1D, 0x05)), "GetChars");
 
-        Assert.StartsWith("System_Text_Encoding_GetChars_", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_chars_all", resolved.CppName);
+        Assert.Equal("System.Char[]", resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------
@@ -247,12 +272,12 @@ public class MethodMapEncodingTests
     }
 
     [Fact]
-    public void Resolve_Encoding_GetChars_Ranged_NoReceiverHint_FallsBackToGeneratedName()
+    public void Resolve_Encoding_GetChars_Ranged_NoReceiverHint_MapsToObjectIcall()
     {
         var resolved = ResolveMember(Synthesize("System.Text", "Encoding", "GetChars",
             SigEx(0x1D, new byte[] { 0x03 }, 3, 0x1D, 0x05, 0x08, 0x08)), "GetChars");
 
-        Assert.StartsWith("System_Text_Encoding_GetChars_", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_encoding_get_chars", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------

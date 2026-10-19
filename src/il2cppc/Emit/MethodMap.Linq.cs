@@ -232,7 +232,10 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_linq_grouping_select", 2, true, true, false, new[] { "", "" },
                         returnTypeName: "System.Int32[]");
                 case "ToArray":
-                    return I("il2cpp::il2cpp_linq_grouping_to_array", 1, true, true, false, new[] { "" },
+                    // The exact-size snapshot IS the get_elements contract
+                    // (the bucket's backing store is growable), so no separate
+                    // wrapper icall is needed.
+                    return I("il2cpp::il2cpp_linq_grouping_get_elements", 1, true, true, false, new[] { "" },
                         returnTypeName: "System.Int32[]");
                 case "Any" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_any", 1, true, false, false, new[] { "" });
