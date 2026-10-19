@@ -1383,6 +1383,63 @@ public class CliTests
     }
 
     [Fact]
+    public void Manifest_EncodingDeclarationWithXmlWhitespace_IsRewritten()
+    {
+        // XML's S production includes CR and LF, so `encoding\r\n=\r\n"utf-16"`
+        // is legal. Skipping only space/tab left the declaration unrewritten
+        // after transcoding, and the loader then rejected the manifest.
+        var xml =
+            "<?xml version=\"1.0\" encoding\r\n=\r\n\"utf-16\"?>\n"
+            + "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\">\n"
+            + "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\"><security>\n"
+            + "    <requestedPrivileges xmlns=\"urn:schemas-microsoft-com:asm.v3\">\n"
+            + "      <requestedExecutionLevel level=\"requireAdministrator\" uiAccess=\"false\"/>\n"
+            + "    </requestedPrivileges></security></trustInfo>\n"
+            + "</assembly>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.Unicode.GetPreamble()
+            .Concat(System.Text.Encoding.Unicode.GetBytes(xml)).ToArray());
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            var text = new System.Text.UTF8Encoding(false, true).GetString(opts.ManifestBytes);
+            // The whitespace around '=' is legal XML and is preserved; only the
+            // VALUE must become utf-8.
+            Assert.Contains("\"utf-8\"", text);
+            Assert.DoesNotContain("utf-16", text);
+            Assert.Contains("level=\"requireAdministrator\"", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_BomWithInvalidBytes_IsRejected()
+    {
+        // A BOM must not launder invalid bytes into U+FFFD: substitution would
+        // emit a corrupt manifest with exit 0.
+        var bytes = System.Text.Encoding.UTF8.GetPreamble()
+            .Concat(System.Text.Encoding.ASCII.GetBytes("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<assembly d=\""))
+            .Concat(new byte[] { 0xFF })
+            .Concat(System.Text.Encoding.ASCII.GetBytes("\"/>"))
+            .ToArray();
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, bytes);
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("cannot decode", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Manifest_EmptyFile_ThrowsCleanError()
     {
         var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");

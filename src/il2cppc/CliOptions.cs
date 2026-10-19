@@ -450,8 +450,11 @@ public static class CliParser
         // it here turns a runtime-only failure into a parse error. DTDs are
         // prohibited: a manifest needs none, and allowing them would make a
         // build-time parser fetch/expand attacker-controlled content.
-        var offset = (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) ? 3 : 0;
-        var text = System.Text.Encoding.UTF8.GetString(bytes, offset, bytes.Length - offset);
+        //
+        // Validation reads the BYTES, not a decoded string: XmlReader then
+        // enforces the declaration's encoding against the actual bytes, so a
+        // manifest whose bytes and declaration disagree (the class of defect
+        // that yields ERROR_SXS_* at CreateProcess) is caught here.
         var settings = new System.Xml.XmlReaderSettings
         {
             DtdProcessing = System.Xml.DtdProcessing.Prohibit,
@@ -459,7 +462,8 @@ public static class CliParser
         };
         try
         {
-            using var reader = System.Xml.XmlReader.Create(new StringReader(text), settings);
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var reader = System.Xml.XmlReader.Create(stream, settings);
             while (reader.Read()) { }
         }
         catch (System.Xml.XmlException ex)
@@ -615,13 +619,13 @@ public static class CliParser
     {
         if (raw.Length < 4) return null;
         if (raw[0] == 0x3C && raw[1] == 0x00 && raw[2] == 0x00 && raw[3] == 0x00)
-            return new System.Text.UTF32Encoding(false, false);
+            return new System.Text.UTF32Encoding(false, false, true);
         if (raw[0] == 0x00 && raw[1] == 0x00 && raw[2] == 0x00 && raw[3] == 0x3C)
-            return new System.Text.UTF32Encoding(true, false);
+            return new System.Text.UTF32Encoding(true, false, true);
         if (raw[0] == 0x3C && raw[1] == 0x00 && raw[2] == 0x3F && raw[3] == 0x00)
-            return new System.Text.UnicodeEncoding(false, false);
+            return new System.Text.UnicodeEncoding(false, false, true);
         if (raw[0] == 0x00 && raw[1] == 0x3C && raw[2] == 0x00 && raw[3] == 0x3F)
-            return new System.Text.UnicodeEncoding(true, false);
+            return new System.Text.UnicodeEncoding(true, false, true);
         return null;
     }
 
@@ -637,16 +641,20 @@ public static class CliParser
     private static System.Text.Encoding? SniffBom(byte[] raw, out int length)
     {
         length = 0;
+        // throwOnInvalidBytes: a malformed sequence must be an ERROR, not a
+        // silent U+FFFD substitution. Substitution would let an invalid manifest
+        // through with exit 0 and fail only when Windows loads it (the BOM-less
+        // path already errors on the same bytes -- the two must agree).
         if (raw.Length >= 4 && raw[0] == 0xFF && raw[1] == 0xFE && raw[2] == 0x00 && raw[3] == 0x00)
-        { length = 4; return new System.Text.UTF32Encoding(false, true); }
+        { length = 4; return new System.Text.UTF32Encoding(false, true, true); }
         if (raw.Length >= 4 && raw[0] == 0x00 && raw[1] == 0x00 && raw[2] == 0xFE && raw[3] == 0xFF)
-        { length = 4; return new System.Text.UTF32Encoding(true, true); }
+        { length = 4; return new System.Text.UTF32Encoding(true, true, true); }
         if (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
-        { length = 3; return new System.Text.UTF8Encoding(false); }
+        { length = 3; return new System.Text.UTF8Encoding(false, true); }
         if (raw.Length >= 2 && raw[0] == 0xFF && raw[1] == 0xFE)
-        { length = 2; return new System.Text.UnicodeEncoding(false, false); }
+        { length = 2; return new System.Text.UnicodeEncoding(false, false, true); }
         if (raw.Length >= 2 && raw[0] == 0xFE && raw[1] == 0xFF)
-        { length = 2; return new System.Text.UnicodeEncoding(true, false); }
+        { length = 2; return new System.Text.UnicodeEncoding(true, false, true); }
         return null;
     }
 
@@ -722,9 +730,9 @@ public static class CliParser
         if (ReadEncodingValue(decl) == null) return text;
 
         var at = decl.IndexOf("encoding", StringComparison.OrdinalIgnoreCase) + "encoding".Length;
-        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        at = SkipXmlSpace(decl, at);
         at++; // '='
-        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        at = SkipXmlSpace(decl, at);
         var quote = decl[at];
         var start = at + 1;
         var end = decl.IndexOf(quote, start);
@@ -732,15 +740,23 @@ public static class CliParser
         return text[..(open + start)] + "utf-8" + text[(open + end)..];
     }
 
+    // XML S production: space, tab, CR, LF. A declaration may legally write
+    // `encoding\r\n=\r\n"utf-16"`; skipping only space/tab silently leaves such
+    // a declaration unrewritten, so the transcoded UTF-8 bytes keep claiming
+    // utf-16 and the loader rejects the manifest (ERROR_SXS_*).
+    private static int SkipXmlSpace(string s, int at)
+    {
+        while (at < s.Length && (s[at] == ' ' || s[at] == '\t' || s[at] == '\r' || s[at] == '\n')) at++;
+        return at;
+    }
+
     private static string? ReadEncodingValue(string decl)
     {
         var at = decl.IndexOf("encoding", StringComparison.OrdinalIgnoreCase);
         if (at < 0) return null;
-        at += "encoding".Length;
-        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        at = SkipXmlSpace(decl, at + "encoding".Length);
         if (at >= decl.Length || decl[at] != '=') return null;
-        at++;
-        while (at < decl.Length && (decl[at] == ' ' || decl[at] == '\t')) at++;
+        at = SkipXmlSpace(decl, at + 1);
         if (at >= decl.Length || (decl[at] != '"' && decl[at] != '\'')) return null;
         var quote = decl[at];
         var start = at + 1;
