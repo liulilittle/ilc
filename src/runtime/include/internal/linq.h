@@ -200,6 +200,30 @@ double  il2cpp_linq_aggregate_seed_ref_rs_f(Il2CppArray* src, Il2CppObject* seed
 double  il2cpp_linq_aggregate_seed_ref_rs_d(Il2CppArray* src, Il2CppObject* seed,
                                             Il2CppObject* func, Il2CppObject* resSel);
 
+// nb9 H-B6: ref-accumulator entries per SOURCE element family (the base
+// il2cpp_linq_aggregate_seed_ref is the int32 source). TSource decides how the
+// element is read and passed to the func delegate.
+#define NB9_DECL_AGG_REF_SRC(SRC)                                                  \
+Il2CppObject* il2cpp_linq_aggregate_seed_ref_##SRC(Il2CppArray* src,               \
+    Il2CppObject* seed, Il2CppObject* func);                                        \
+int32_t il2cpp_linq_aggregate_seed_ref_##SRC##_rs_i4(Il2CppArray* src,             \
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel);                  \
+Il2CppObject* il2cpp_linq_aggregate_seed_ref_##SRC##_rs_ref(Il2CppArray* src,      \
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel);                  \
+int64_t il2cpp_linq_aggregate_seed_ref_##SRC##_rs_i8(Il2CppArray* src,             \
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel);                  \
+double il2cpp_linq_aggregate_seed_ref_##SRC##_rs_f(Il2CppArray* src,               \
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel);                  \
+double il2cpp_linq_aggregate_seed_ref_##SRC##_rs_d(Il2CppArray* src,               \
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel);
+
+NB9_DECL_AGG_REF_SRC(refsrc)
+NB9_DECL_AGG_REF_SRC(i8src)
+NB9_DECL_AGG_REF_SRC(dsrc)
+NB9_DECL_AGG_REF_SRC(fsrc)
+
+#undef NB9_DECL_AGG_REF_SRC
+
 // nb9 fix P0-1: the FLOAT accumulator channel. The transpiler puts float on
 // the IL F stack, so a float-returning lambda is emitted as
 // `float f(double, int32_t)` (int32-element source) or `float f(double, double)`
@@ -227,7 +251,23 @@ double  il2cpp_linq_aggregate_seed_f_rs_d(Il2CppArray* src, float seed,
 int64_t il2cpp_linq_aggregate_i8(Il2CppArray* src, Il2CppObject* func);
 double  il2cpp_linq_aggregate_d(Il2CppArray* src, Il2CppObject* func);
 float   il2cpp_linq_aggregate_f_d(Il2CppArray* src, Il2CppObject* func);
-int64_t il2cpp_linq_aggregate_seed_i8_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);
+int64_t il2cpp_linq_aggregate_seed_i8_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);// nb9 H-F3: matching wide-source numeric accumulator + wide result selector
+// variants (the plain *_i8_rs_* / *_d_rs_* read int32 elements).
+#define NB9_DECL_AGG_NUM_SRC(NAME, SEEDTYPE)                                       \
+int32_t NAME##_rs_i4(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,          \
+    Il2CppObject* resSel);                                                         \
+Il2CppObject* NAME##_rs_ref(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,   \
+    Il2CppObject* resSel);                                                         \
+int64_t NAME##_rs_i8(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,          \
+    Il2CppObject* resSel);                                                         \
+double NAME##_rs_f(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,            \
+    Il2CppObject* resSel);                                                         \
+double NAME##_rs_d(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,            \
+    Il2CppObject* resSel);
+NB9_DECL_AGG_NUM_SRC(il2cpp_linq_aggregate_seed_i8_i8, int64_t)
+NB9_DECL_AGG_NUM_SRC(il2cpp_linq_aggregate_seed_d_d, double)
+#undef NB9_DECL_AGG_NUM_SRC
+
 double  il2cpp_linq_aggregate_seed_d_d(Il2CppArray* src, double seed, Il2CppObject* func);
 
 // nb9 fix P0-4: ToArray over ANY element family (clones by the source's own

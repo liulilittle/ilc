@@ -873,8 +873,11 @@ public static partial class MethodRefResolver
                                     new[] { "a", "d", "" }, resultKind: "d")
                                 : I("il2cpp::il2cpp_linq_aggregate_seed_d", 3, true, false, false,
                                     new[] { "a", "d", "" }, resultKind: "d"),
-                            _ => I("il2cpp::il2cpp_linq_aggregate_seed_ref", 3, true, true, false,
-                                new[] { "a", "", "" }),
+                            // nb9 H-B6: the ref accumulator reads the SOURCE
+                            // element by family (ref pointer, int64, double,
+                            // float widened, or int32).
+                            _ => I("il2cpp::il2cpp_linq_aggregate_seed_ref" + AggRefSrcSuffix(srcFam),
+                                3, true, true, false, new[] { "a", "", "" }),
                         };
                     }
                     // count == 4: TResult decides the result carrier.
@@ -900,10 +903,10 @@ public static partial class MethodRefResolver
                     string cppBase = acc switch
                     {
                         "i4" => "il2cpp::il2cpp_linq_aggregate_seed",
-                        "i8" => "il2cpp::il2cpp_linq_aggregate_seed_i8",
+                        "i8" => srcFam == "i8" ? "il2cpp::il2cpp_linq_aggregate_seed_i8_i8" : "il2cpp::il2cpp_linq_aggregate_seed_i8",
                         "f" => "il2cpp::il2cpp_linq_aggregate_seed_f",
-                        "d" => "il2cpp::il2cpp_linq_aggregate_seed_d",
-                        _ => "il2cpp::il2cpp_linq_aggregate_seed_ref",
+                        "d" => srcFam == "d" ? "il2cpp::il2cpp_linq_aggregate_seed_d_d" : "il2cpp::il2cpp_linq_aggregate_seed_d",
+                        _ => "il2cpp::il2cpp_linq_aggregate_seed_ref" + AggRefSrcSuffix(srcFam),
                     };
                     return I(cppBase + resSuffix, 4, true, resRef, false,
                         new[] { "a", seedCast, "", "" },
@@ -952,6 +955,17 @@ public static partial class MethodRefResolver
     // "System.Int64[]" / "System.Double[]" / "System.String[]").
     //   i4 | i8 | f | d | ref
     //--------------------------------------------------------------------------
+    // nb9 H-B6: the runtime entry suffix for the ref-accumulator fold by the
+    // SOURCE element family (the base entry reads int32 elements).
+    private static string AggRefSrcSuffix(string srcFam) => srcFam switch
+    {
+        "ref" => "_refsrc",
+        "i8" => "_i8src",
+        "d" => "_dsrc",
+        "f" => "_fsrc",
+        _ => "",
+    };
+
     private static string LinqElementFamily(byte[]? genArgs, string? receiverType, string? arg0Type)
     {
         if (genArgs is { Length: >= 1 })
