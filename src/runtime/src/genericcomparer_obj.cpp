@@ -205,7 +205,9 @@ bool icall_equality_comparer_class_equals(Il2CppObject* self, Il2CppObject* x, I
 
 int32_t icall_comparer_double_compare(Il2CppObject* self, double x, double y)
 {
-    (void)self; // the singleton receiver is not consulted
+    // nb9 fix P0-2: a Comparer<T>.Create wrapper runs its delegate.
+    if (il2cpp_is_created_comparer(self))
+        return il2cpp_created_comparer_compare_double(self, x, y);
     // net48 Double.CompareTo: the ordered comparison first; the NaN cases
     // only when neither <, > nor == holds (NaN sorts first; NaN vs NaN 0).
     if (x < y) return -1;
@@ -220,19 +222,23 @@ int32_t icall_comparer_double_compare(Il2CppObject* self, double x, double y)
 // W6 Comparer icalls (-1 / 0 / 1 verdicts).
 int32_t icall_comparer_int_compare(Il2CppObject* self, int32_t x, int32_t y)
 {
-    (void)self;
+    // nb9 fix P0-2: a Comparer<T>.Create wrapper runs its delegate.
+    if (il2cpp_is_created_comparer(self))
+        return il2cpp_created_comparer_compare_int(self, x, y);
     return (x < y) ? -1 : (x > y) ? 1 : 0;
 }
 
 int32_t icall_comparer_long_compare(Il2CppObject* self, int64_t x, int64_t y)
 {
-    (void)self;
+    if (il2cpp_is_created_comparer(self))
+        return il2cpp_created_comparer_compare_long(self, x, y);
     return (x < y) ? -1 : (x > y) ? 1 : 0;
 }
 
 int32_t icall_comparer_string_compare(Il2CppObject* self, Il2CppObject* x, Il2CppObject* y)
 {
-    (void)self;
+    if (il2cpp_is_created_comparer(self))
+        return il2cpp_created_comparer_compare_ref(self, x, y);
     // net48 Comparer<string>.Default is ordinal, null-first; identical
     // references (including both null) compare equal.
     if (x == y) return 0;
@@ -255,7 +261,18 @@ int32_t icall_comparer_object_compare(Il2CppObject* self, Il2CppObject* x, Il2Cp
 }
 
 //------------------------------------------------------------------------------
-// nb9 (M4/M18): Comparer<int>.Create(Comparison<int>).
+// nb9 (M4/M18, P0-2): Comparer<T>.Create(Comparison<T>).
+//
+// net48 returns an object whose Compare(x, y) invokes the WRAPPED delegate.
+// The wrapper is modelled as a two-slot managed object (header + the delegate
+// reference). One class per element family so the tracked receiver type (and
+// therefore the Compare ABI) matches the T of the Create call:
+//   * `_created_int`    Comparison<int>    -> i(i,i)
+//   * `_created_long`   Comparison<long>   -> i(l,l)
+//   * `_created_double` Comparison<double> -> i(d,d)
+//   * `_created_ref`    Comparison<TRef>   -> i(r,r)
+// The previous single `_created_int` class made every Create result claim the
+// int ABI, and icall_comparer_*_compare threw the delegate away.
 //------------------------------------------------------------------------------
 namespace {
 
@@ -267,7 +284,20 @@ Il2CppClass g_createdComparerIntClass = {
     nullptr, nullptr, 0, nullptr, 0,
 };
 
-// Managed layout: header + the wrapped Comparison<int> delegate.
+#define NB9_CREATED_CMP_CLASS(camel, kind) \
+Il2CppClass g_createdComparer##camel##Class = { \
+    "System.Collections.Generic.Comparer`1_created_" kind, \
+    static_cast<int32_t>(sizeof(void*) * 2), 0b10u, 1, \
+    nullptr, nullptr, 0, nullptr, 0, \
+};
+
+NB9_CREATED_CMP_CLASS(Long, "long")
+NB9_CREATED_CMP_CLASS(Double, "double")
+NB9_CREATED_CMP_CLASS(Ref, "ref")
+
+#undef NB9_CREATED_CMP_CLASS
+
+// Managed layout: header + the wrapped Comparison<T> delegate.
 struct CreatedComparer
 {
     Il2CppObject obj;
@@ -276,23 +306,48 @@ struct CreatedComparer
 
 const char kCreatedComparerPrefix[] = "System.Collections.Generic.Comparer`1_created";
 
-} // namespace
-
-Il2CppObject* il2cpp_comparer_create_int(Il2CppObject* comparison)
+Il2CppObject* CreateComparerObject(Il2CppClass* klass, Il2CppObject* comparison,
+                                   const char* name)
 {
     if (comparison == nullptr)
     {
         il2cpp_throw_argument_null_exception("comparison");
     }
-    il2cpp_class_register(&g_createdComparerIntClass);
-    GcRoot<Il2CppObject*> cmpRoot(comparison, "comparer_create_int_cmp");
+    il2cpp_class_register(klass);
+    GcRoot<Il2CppObject*> cmpRoot(comparison, name);
     CreatedComparer* c = reinterpret_cast<CreatedComparer*>(
-        il2cpp_object_new(&g_createdComparerIntClass));
+        il2cpp_object_new(klass));
     Il2CppObject* self = reinterpret_cast<Il2CppObject*>(c);
-    GcRoot<Il2CppObject*> selfRoot(self, "comparer_create_int_self");
+    GcRoot<Il2CppObject*> selfRoot(self, name);
     c->comparison = cmpRoot.Get();
     il2cpp_write_barrier(reinterpret_cast<void**>(&c->comparison), c->comparison);
     return selfRoot.Get();
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_comparer_create_int(Il2CppObject* comparison)
+{
+    return CreateComparerObject(&g_createdComparerIntClass, comparison,
+                                "comparer_create_int");
+}
+
+Il2CppObject* il2cpp_comparer_create_long(Il2CppObject* comparison)
+{
+    return CreateComparerObject(&g_createdComparerLongClass, comparison,
+                                "comparer_create_long");
+}
+
+Il2CppObject* il2cpp_comparer_create_double(Il2CppObject* comparison)
+{
+    return CreateComparerObject(&g_createdComparerDoubleClass, comparison,
+                                "comparer_create_double");
+}
+
+Il2CppObject* il2cpp_comparer_create_ref(Il2CppObject* comparison)
+{
+    return CreateComparerObject(&g_createdComparerRefClass, comparison,
+                                "comparer_create_ref");
 }
 
 bool il2cpp_is_created_comparer(Il2CppObject* obj)
@@ -319,6 +374,63 @@ int32_t il2cpp_created_comparer_compare_int(Il2CppObject* self, int32_t a, int32
     }
     typedef int32_t (*ComparisonFn)(int32_t, int32_t);
     typedef int32_t (*ComparisonThisFn)(Il2CppObject*, int32_t, int32_t);
+    return d->target != nullptr
+        ? reinterpret_cast<ComparisonThisFn>(d->methodPtr)(d->target, a, b)
+        : reinterpret_cast<ComparisonFn>(d->methodPtr)(a, b);
+}
+
+int32_t il2cpp_created_comparer_compare_long(Il2CppObject* self, int64_t a, int64_t b)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    CreatedComparer* c = reinterpret_cast<CreatedComparer*>(self);
+    Il2CppDelegate* d = reinterpret_cast<Il2CppDelegate*>(c->comparison);
+    if (d == nullptr)
+    {
+        return a < b ? -1 : a > b ? 1 : 0;
+    }
+    typedef int32_t (*ComparisonFn)(int64_t, int64_t);
+    typedef int32_t (*ComparisonThisFn)(Il2CppObject*, int64_t, int64_t);
+    return d->target != nullptr
+        ? reinterpret_cast<ComparisonThisFn>(d->methodPtr)(d->target, a, b)
+        : reinterpret_cast<ComparisonFn>(d->methodPtr)(a, b);
+}
+
+int32_t il2cpp_created_comparer_compare_double(Il2CppObject* self, double a, double b)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    CreatedComparer* c = reinterpret_cast<CreatedComparer*>(self);
+    Il2CppDelegate* d = reinterpret_cast<Il2CppDelegate*>(c->comparison);
+    if (d == nullptr)
+    {
+        return a < b ? -1 : a > b ? 1 : 0;
+    }
+    typedef int32_t (*ComparisonFn)(double, double);
+    typedef int32_t (*ComparisonThisFn)(Il2CppObject*, double, double);
+    return d->target != nullptr
+        ? reinterpret_cast<ComparisonThisFn>(d->methodPtr)(d->target, a, b)
+        : reinterpret_cast<ComparisonFn>(d->methodPtr)(a, b);
+}
+
+int32_t il2cpp_created_comparer_compare_ref(Il2CppObject* self, Il2CppObject* a, Il2CppObject* b)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    CreatedComparer* c = reinterpret_cast<CreatedComparer*>(self);
+    Il2CppDelegate* d = reinterpret_cast<Il2CppDelegate*>(c->comparison);
+    if (d == nullptr)
+    {
+        return 0;
+    }
+    typedef int32_t (*ComparisonFn)(Il2CppObject*, Il2CppObject*);
+    typedef int32_t (*ComparisonThisFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
     return d->target != nullptr
         ? reinterpret_cast<ComparisonThisFn>(d->methodPtr)(d->target, a, b)
         : reinterpret_cast<ComparisonFn>(d->methodPtr)(a, b);

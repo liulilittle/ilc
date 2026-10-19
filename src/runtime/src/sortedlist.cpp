@@ -322,20 +322,75 @@ int32_t CompareWithComparer(const Il2CppObject* comparer, const Il2CppObject* a,
             const_cast<Il2CppObject*>(comparer),
             BoxedInt32Value(a), BoxedInt32Value(b));
     }
-    const int32_t slot = FindVirtualSlotByNameAndSignature(
-        const_cast<Il2CppObject*>(comparer), "Compare", "(r:System.Object,r:System.Object)");
-    if (slot < 0 || comparer->klass->vtable == nullptr || slot >= comparer->klass->vtableSize ||
-        comparer->klass->vtable[slot] == nullptr)
+    Il2CppObject* self = const_cast<Il2CppObject*>(comparer);
+
+    // nb9 fix H3: a user IComparer<T> is emitted with the REAL T signature
+    // ("i(i,i)" for Int32, "l(l,l)" for Int64, "d(d,d)" for Double,
+    // "i(r:...)" for references). The previous lookup asked for
+    // "(r:System.Object,r:System.Object)" -- which never matches a user
+    // IComparer<int> -- and then called it through the (this, boxed, boxed)
+    // ABI, i.e. a pointer where the emitted (int,int) slots expect int32.
+    // Dispatch per key family, unboxing the keys for the value families.
+    const char* fragment = nullptr;
+    enum class Abi { I4, I8, D, Ref } abi = Abi::Ref;
+    if (a != nullptr && b != nullptr && IsBoxedInt32Key(a) && IsBoxedInt32Key(b))
+    {
+        fragment = "(i,i)";
+        abi = Abi::I4;
+    }
+    else if (a != nullptr && b != nullptr && IsBoxedInt64Key(a) && IsBoxedInt64Key(b))
+    {
+        fragment = "(l,l)";
+        abi = Abi::I8;
+    }
+    else if (a != nullptr && b != nullptr && IsBoxedDoubleKey(a) && IsBoxedDoubleKey(b))
+    {
+        fragment = "(d,d)";
+        abi = Abi::D;
+    }
+    else
+    {
+        fragment = "(r:";
+        abi = Abi::Ref;
+    }
+
+    const int32_t slot = FindVirtualSlotByNameAndSignature(self, "Compare", fragment);
+    if (slot < 0 || self->klass->vtable == nullptr || slot >= self->klass->vtableSize ||
+        self->klass->vtable[slot] == nullptr)
     {
         il2cpp_throw_not_supported_exception(
             "IComparer<T>.Compare dispatch: the comparer type has no reflected "
-            "virtual Compare(T,T) slot.");
+            "virtual Compare(T,T) slot for the element family.");
         return 0; // unreachable (the factory throws)
     }
-    typedef int32_t (*CompareFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
-    return reinterpret_cast<CompareFn>(comparer->klass->vtable[slot])(
-        const_cast<Il2CppObject*>(comparer),
-        const_cast<Il2CppObject*>(a), const_cast<Il2CppObject*>(b));
+    switch (abi)
+    {
+        case Abi::I4:
+        {
+            typedef int32_t (*CompareI4Fn)(Il2CppObject*, int32_t, int32_t);
+            return reinterpret_cast<CompareI4Fn>(self->klass->vtable[slot])(
+                self, BoxedInt32Value(a), BoxedInt32Value(b));
+        }
+        case Abi::I8:
+        {
+            typedef int32_t (*CompareI8Fn)(Il2CppObject*, int64_t, int64_t);
+            return reinterpret_cast<CompareI8Fn>(self->klass->vtable[slot])(
+                self, BoxedInt64Value(a), BoxedInt64Value(b));
+        }
+        case Abi::D:
+        {
+            typedef int32_t (*CompareDFn)(Il2CppObject*, double, double);
+            return reinterpret_cast<CompareDFn>(self->klass->vtable[slot])(
+                self, BoxedDoubleValue(a), BoxedDoubleValue(b));
+        }
+        case Abi::Ref:
+        default:
+        {
+            typedef int32_t (*CompareFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
+            return reinterpret_cast<CompareFn>(self->klass->vtable[slot])(
+                self, const_cast<Il2CppObject*>(a), const_cast<Il2CppObject*>(b));
+        }
+    }
 }
 
 int32_t CompareKeys(const Il2CppObject* comparer, const Il2CppObject* a, const Il2CppObject* b)
