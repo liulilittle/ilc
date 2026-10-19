@@ -60,6 +60,19 @@ namespace Cases
             string[] ss = { "b", "a", "d", "a", "c" };
             Console.WriteLine("[io_str_3]=" + P(() => Array.IndexOf(ss, "a", 2)));
             Console.WriteLine("[lio_str_4]=" + P(() => Array.LastIndexOf(ss, "a", 3, 4)));
+
+            // Non-generic Array.IndexOf/LastIndexOf/BinarySearch(Array, object...)
+            Array na = dup;
+            Array ns = ss;
+            Console.WriteLine("[ng_io_2]=" + P(() => Array.IndexOf(na, 2)));
+            Console.WriteLine("[ng_io_3]=" + P(() => Array.IndexOf(na, 2, 2)));
+            Console.WriteLine("[ng_io_4]=" + P(() => Array.IndexOf(na, 2, 2, 3)));
+            Console.WriteLine("[ng_lio_2]=" + P(() => Array.LastIndexOf(na, 2)));
+            Console.WriteLine("[ng_lio_4]=" + P(() => Array.LastIndexOf(na, 2, 3, 2)));
+            Console.WriteLine("[ng_bs_2]=" + P(() => Array.BinarySearch((Array)asc, 5)));
+            Console.WriteLine("[ng_bs_4]=" + P(() => Array.BinarySearch((Array)asc, 0, 5, 7)));
+            Console.WriteLine("[ng_bs_5]=" + P(() => Array.BinarySearch((Array)asc, 0, 5, 7, Comparer<int>.Default)));
+            Console.WriteLine("[ng_io_str]=" + P(() => Array.IndexOf(ns, "a", 2)));
         }
     }
 }

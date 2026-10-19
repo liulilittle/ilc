@@ -159,7 +159,15 @@ public static partial class MethodRefResolver
                         _ => null,
                     };
                 }
-                throw new NotSupportedException("Array.BinarySearch(Array, object) non-generic not wired in M5");
+                // Non-generic Array.BinarySearch(Array, object[, ...]).
+                return count switch
+                {
+                    2 => I("il2cpp::il2cpp_array_binary_search_any", 2, true, false, false, new[] { "a", "" }),
+                    3 => I("il2cpp::il2cpp_array_binary_search_any_icomparer", 3, true, false, false, new[] { "a", "", "" }),
+                    4 => I("il2cpp::il2cpp_array_binary_search_any_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
+                    5 => I("il2cpp::il2cpp_array_binary_search_any_icomparer_range", 5, true, false, false, new[] { "a", "i", "i", "", "" }),
+                    _ => throw new NotSupportedException($"Array.BinarySearch(Array, object, ...) with {count} arg(s) not wired in M5"),
+                };
             case "IndexOf":
                 if (genArgs != null)
                 {
@@ -174,10 +182,11 @@ public static partial class MethodRefResolver
                         _ => null, // wider arities and the float/ref families: ArraySort
                     };
                 }
-                // Non-generic Array.IndexOf(Array, object): only the 2-arg
-                // shape is wired (the icall-layer boxed scan). Wider arities
-                // stay LOUD (no silent arity collapse).
+                // Non-generic Array.IndexOf(Array, object[, startIndex[, count]]):
+                // int32/ref element dispatch in the ArraySort domain.
                 if (count == 2) return I("il2cpp::runtime::icall_array_index_of", 2, true, false, false);
+                if (count == 3) return I("il2cpp::il2cpp_array_index_of_any_start", 3, true, false, false, new[] { "a", "", "i" });
+                if (count == 4) return I("il2cpp::il2cpp_array_index_of_any_range", 4, true, false, false, new[] { "a", "", "i", "i" });
                 throw new NotSupportedException($"Array.IndexOf(Array, object, ...) with {count} arg(s) not wired in M5");
             case "LastIndexOf":
                 if (genArgs != null)
@@ -193,7 +202,11 @@ public static partial class MethodRefResolver
                     }
                     return null; // wider arities / other families: ArraySort
                 }
-                return null; // non-generic: ArraySort domain
+                // Non-generic Array.LastIndexOf(Array, object[, ...]).
+                if (count == 2) return I("il2cpp::il2cpp_array_last_index_of_any", 2, true, false, false, new[] { "a", "" });
+                if (count == 3) return I("il2cpp::il2cpp_array_last_index_of_any_start", 3, true, false, false, new[] { "a", "", "i" });
+                if (count == 4) return I("il2cpp::il2cpp_array_last_index_of_any_range", 4, true, false, false, new[] { "a", "", "i", "i" });
+                throw new NotSupportedException($"Array.LastIndexOf(Array, object, ...) with {count} arg(s) not wired in M5");
             case "Empty":
                 // Array.Empty<T>() -- generic static method (MethodSpec
                 // genArgs = [T]; Roslyn lowers no-arg TrimStart()/TrimEnd()

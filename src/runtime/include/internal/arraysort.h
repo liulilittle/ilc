@@ -382,6 +382,19 @@ int32_t il2cpp_array_index_of_object_range(Il2CppArray* arr, Il2CppObject* value
 int32_t il2cpp_array_last_index_of_object_start(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex);
 int32_t il2cpp_array_last_index_of_object_range(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex, int32_t count);
 
+// Non-generic Array.IndexOf/LastIndexOf/BinarySearch arities (Array, object
+// [, startIndex[, count]]) over int32 element arrays (boxed comparand) and
+// reference arrays (Object.Equals / default comparer).
+int32_t il2cpp_array_index_of_any_start(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex);
+int32_t il2cpp_array_index_of_any_range(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_any(Il2CppArray* arr, Il2CppObject* value);
+int32_t il2cpp_array_last_index_of_any_start(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex);
+int32_t il2cpp_array_last_index_of_any_range(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_binary_search_any(Il2CppArray* arr, Il2CppObject* value);
+int32_t il2cpp_array_binary_search_any_icomparer(Il2CppArray* arr, Il2CppObject* value, Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_any_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value);
+int32_t il2cpp_array_binary_search_any_icomparer_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value, Il2CppObject* comparer);
+
 // Array.BinarySearch<T>(T[], int, int, T) -- the range search (no comparer).
 int32_t il2cpp_array_binary_search_int32_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t value);
 int32_t il2cpp_array_binary_search_int64_range(Il2CppArray* arr, int32_t index, int32_t length, int64_t value);
