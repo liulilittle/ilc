@@ -273,4 +273,17 @@ int32_t icall_encoding_get_chars_into(Il2CppObject* self, Il2CppArray* bytes,
                                       int32_t byteIndex, int32_t byteCount,
                                       Il2CppArray* chars, int32_t charIndex);
 
+// nb9 (M8): the DESTINATION-BUFFER GetBytes overloads --
+//   GetBytes(string, int charIndex, int charCount, byte[] bytes, int byteIndex)
+//   GetBytes(char[], int charIndex, int charCount, byte[] bytes, int byteIndex)
+// Both encode the requested char window and copy it into the caller's byte
+// array. net48 bounds: charIndex/charCount -> AOORE("chars"), byteIndex ->
+// AOORE("bytes"); a destination too small -> ArgumentException.
+int32_t icall_encoding_get_bytes_into_string(Il2CppObject* self, Il2CppString* text,
+                                             int32_t charIndex, int32_t charCount,
+                                             Il2CppArray* bytes, int32_t byteIndex);
+int32_t icall_encoding_get_bytes_into_chars(Il2CppObject* self, Il2CppArray* chars,
+                                            int32_t charIndex, int32_t charCount,
+                                            Il2CppArray* bytes, int32_t byteIndex);
+
 }} // namespace il2cpp::runtime

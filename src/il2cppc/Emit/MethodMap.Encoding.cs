@@ -101,7 +101,9 @@ public static partial class MethodRefResolver
             case "GetPreamble":
                 // byte[] GetPreamble() -- the BOM bytes for the receiver's
                 // page/emitBom (empty array when emitBom=0).
-                if (receiverType == null) return null;
+                // nb9 (M4-fix/M8): the object-receiver entries read the page off
+                // the receiver at runtime, so a plain Encoding-typed parameter is
+                // fully supported -- do NOT defer on an untracked receiver.
                 return I("il2cpp::runtime::icall_encoding_get_preamble", 0, true, true, true,
                     returnTypeName: "System.Byte[]");
             case "GetBytes":
@@ -110,7 +112,9 @@ public static partial class MethodRefResolver
                 // receiverType == null is the fold's FIRST resolution (the
                 // receiver is popped after) -- defer to the receiver-aware
                 // re-resolve by returning null (generated-name fallback).
-                if (receiverType == null) return null;
+                // nb9 (M4-fix/M8): the object-receiver entries read the page off
+                // the receiver at runtime, so a plain Encoding-typed parameter is
+                // fully supported -- do NOT defer on an untracked receiver.
                 if (count == 1 && ps[0] == 0x0E)
                     return ObjectEncodingIcall("icall_encoding_get_bytes", "get_bytes",
                         new[] { "", "s" }, "System.Byte[]");
@@ -120,11 +124,25 @@ public static partial class MethodRefResolver
                 if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return ObjectEncodingIcall("icall_encoding_get_bytes_chars_range", "get_bytes",
                         new[] { "", "a", "i", "i" }, "System.Byte[]");
+                // nb9 (M8): the DESTINATION-BUFFER overloads
+                //   GetBytes(string,int,int,byte[],int) -> int
+                //   GetBytes(char[],int,int,byte[],int) -> int
+                // (previously LOUD; the unit test codified the rejection).
+                if (count == 5 && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x08
+                    && ps[3] == 0x1D && ps[4] == 0x08)
+                    return ObjectEncodingIcall("icall_encoding_get_bytes_into_string", "get_bytes",
+                        new[] { "", "s", "i", "i", "a", "i" }, null);
+                if (count == 5 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                    && ps[3] == 0x1D && ps[4] == 0x08)
+                    return ObjectEncodingIcall("icall_encoding_get_bytes_into_chars", "get_bytes",
+                        new[] { "", "a", "i", "i", "a", "i" }, null);
                 throw new NotSupportedException(
                     $"Encoding.GetBytes overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
                     "(allocating string/char[] and ranged (char,int,int) forms only)");
             case "GetByteCount":
-                if (receiverType == null) return null;
+                // nb9 (M4-fix/M8): the object-receiver entries read the page off
+                // the receiver at runtime, so a plain Encoding-typed parameter is
+                // fully supported -- do NOT defer on an untracked receiver.
                 if (count == 1 && ps[0] == 0x0E)
                     return ObjectEncodingIcall("icall_encoding_get_byte_count_string", "get_byte_count",
                         new[] { "", "s" }, null);
@@ -138,7 +156,9 @@ public static partial class MethodRefResolver
                     $"Encoding.GetByteCount overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
                     "(string/char[] and ranged (char,int,int) forms only)");
             case "GetCharCount":
-                if (receiverType == null) return null;
+                // nb9 (M4-fix/M8): the object-receiver entries read the page off
+                // the receiver at runtime, so a plain Encoding-typed parameter is
+                // fully supported -- do NOT defer on an untracked receiver.
                 if (count == 1 && ps[0] == 0x1D)
                     return ObjectEncodingIcall("icall_encoding_get_char_count_bytes", "get_char_count",
                         new[] { "", "a" }, null);
@@ -149,7 +169,9 @@ public static partial class MethodRefResolver
                     $"Encoding.GetCharCount overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
                     "(byte[] and ranged (byte,int,int) forms only)");
             case "GetString":
-                if (receiverType == null) return null;
+                // nb9 (M4-fix/M8): the object-receiver entries read the page off
+                // the receiver at runtime, so a plain Encoding-typed parameter is
+                // fully supported -- do NOT defer on an untracked receiver.
                 if (count == 1 && ps[0] == 0x1D)
                     return ObjectEncodingIcall("icall_encoding_get_string", "get_string",
                         new[] { "", "a" }, "System.String");
@@ -163,7 +185,9 @@ public static partial class MethodRefResolver
                 // GetChars(byte[]) / GetChars(byte[],int,int) -> char[],
                 // GetChars(byte[],int,int,char[],int) -> int (writes into the
                 // caller's destination array).
-                if (receiverType == null) return null;
+                // nb9 (M4-fix/M8): the object-receiver entries read the page off
+                // the receiver at runtime, so a plain Encoding-typed parameter is
+                // fully supported -- do NOT defer on an untracked receiver.
                 if (count == 5 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
                     && ps[3] == 0x1D && ps[4] == 0x08)
                     return ObjectEncodingIcall("icall_encoding_get_chars_into", "get_chars",

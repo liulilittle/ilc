@@ -61,6 +61,18 @@ void ValidateUtcTicks(int64_t utcTicks)
 Il2CppDateTimeOffset MakeDto(int64_t utcTicks, int32_t offsetMinutes)
 {
     ValidateUtcTicks(utcTicks);
+    // nb9 (M11): net48's arithmetic computes through ClockDateTime, so the
+    // LOCAL clock must also stay inside [0001-01-01, 9999-12-31]; otherwise
+    // ArgumentOutOfRangeException. (The CTOR keeps its own UTC-only rule --
+    // net48 validates the ctor differently, so this check is deliberately
+    // NOT applied there.)
+    const int64_t local = utcTicks + static_cast<int64_t>(offsetMinutes) * kTicksPerMinute;
+    if (local < 0 || local > kMaxTicks)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "value",
+            "The UTC time represented when the offset is applied must be between year 0 and 10,000.");
+    }
     Il2CppDateTimeOffset result;
     result.utcTicks = utcTicks;
     result.offsetMinutes = offsetMinutes;
@@ -266,6 +278,23 @@ Il2CppDateTimeOffset icall_dtoffset_add_milliseconds(Il2CppDateTimeOffset dto, d
 Il2CppDateTimeOffset icall_dtoffset_add_ticks(Il2CppDateTimeOffset dto, int64_t ticks)
 {
     return MakeDto(dto.utcTicks + ticks, dto.offsetMinutes);
+}
+
+//------------------------------------------------------------------------------
+// nb9 (M10): AddYears / AddMonths. net48 computes on the LOCAL clock
+// (ClockDateTime.AddYears/AddMonths -- month-end truncation and leap-year
+// rules live in the DateTime kernels), then re-applies the same offset. A
+// result whose local or UTC clock leaves the representable range throws
+// ArgumentOutOfRangeException (the MakeDto contract).
+//------------------------------------------------------------------------------
+Il2CppDateTimeOffset icall_dtoffset_add_years(Il2CppDateTimeOffset dto, int32_t years)
+{
+    return AddLocal(dto, icall_datetime_add_years(icall_dtoffset_get_datetime(dto), years));
+}
+
+Il2CppDateTimeOffset icall_dtoffset_add_months(Il2CppDateTimeOffset dto, int32_t months)
+{
+    return AddLocal(dto, icall_datetime_add_months(icall_dtoffset_get_datetime(dto), months));
 }
 
 Il2CppDateTimeOffset icall_dtoffset_add(Il2CppDateTimeOffset dto, Il2CppTimeSpan span)

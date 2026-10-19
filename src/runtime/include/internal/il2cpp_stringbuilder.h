@@ -168,6 +168,10 @@ struct Il2CppStringBuilder
     int32_t      capacity; // allocated UTF-16 units in 'chars'
     int32_t      length;   // used UTF-16 units (StringBuilder.Length)
     Il2CppArray* chars;    // UTF-16 buffer: managed array (GC reference, slot 2)
+    // nb9 (M6): StringBuilder.MaxCapacity. The one/zero-argument ctors use
+    // INT32_MAX; StringBuilder(int, int) stores its argument, and every growth
+    // path rejects a required length above it (net48 AOORE("requiredLength")).
+    int32_t      maxCapacity;
 };
 
 // The System.Text.StringBuilder runtime descriptor (registered lazily on
@@ -205,6 +209,20 @@ void icall_stringbuilder_ctor_string(Il2CppObject* self, Il2CppObject* value);
 // capacity == 0 -> min(DefaultCapacity, maxCapacity). The initial buffer is
 // exactly 'capacity' units (capacity 5 with max 10 stays 5, unlike the
 // one-argument ctor's default bump).
+// nb9 (M9): StringBuilder(string value, int capacity) and
+// StringBuilder(string value, int startIndex, int length, int capacity).
+// The value (or the substring window) is copied verbatim; the capacity is
+// only the initial buffer size.
+void icall_stringbuilder_ctor_string_capacity(Il2CppObject* self, Il2CppObject* value,
+                                              int32_t capacity);
+void icall_stringbuilder_ctor_string_range_capacity(Il2CppObject* self, Il2CppObject* value,
+                                                    int32_t startIndex, int32_t length,
+                                                    int32_t capacity);
+
+// nb9 (M14): Append(char value, int repeatCount).
+Il2CppObject* icall_stringbuilder_append_c_count(Il2CppObject* self, char16_t value,
+                                                 int32_t repeatCount);
+
 void icall_stringbuilder_ctor_capacity_max(Il2CppObject* self, int32_t capacity, int32_t maxCapacity);
 
 // Append(string): appends the value's UTF-16 units; null is a no-op.

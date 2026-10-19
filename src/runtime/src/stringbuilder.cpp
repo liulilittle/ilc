@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // stringbuilder.cpp -- System.Text.StringBuilder runtime semantics (see
 // il2cpp_stringbuilder.h for the layout, GC contract and semantics list).
 //
@@ -184,10 +184,20 @@ void GrowBuffer(Il2CppObject** selfSlot, int64_t required)
     {
         return;
     }
+    // nb9 (M6): MaxCapacity is enforced on every growth path. net48 throws
+    // ArgumentOutOfRangeException with ParamName "requiredLength".
+    if (required > sb->maxCapacity)
+    {
+        ThrowAoore("requiredLength");
+    }
     int64_t newCapacity = static_cast<int64_t>(sb->capacity) * 2;
     if (required > newCapacity)
     {
         newCapacity = required;
+    }
+    if (newCapacity > sb->maxCapacity)
+    {
+        newCapacity = required; // never allocate past MaxCapacity
     }
     if (newCapacity > INT32_MAX)
     {
@@ -597,6 +607,7 @@ void icall_stringbuilder_ctor_default(Il2CppObject* self)
     scope.Add(reinterpret_cast<void**>(&self));
     Il2CppStringBuilder* sb = AsBuilder(self);
     sb->capacity = kDefaultCapacity;
+    sb->maxCapacity = INT32_MAX;
     sb->length = 0;
     Il2CppArray* chars = NewCharBuffer(kDefaultCapacity);
     sb = AsBuilder(self); // re-derive: the allocation may have moved the builder
@@ -620,6 +631,7 @@ void icall_stringbuilder_ctor_capacity(Il2CppObject* self, int32_t capacity)
     scope.Add(reinterpret_cast<void**>(&self));
     Il2CppStringBuilder* sb = AsBuilder(self);
     sb->capacity = (capacity == 0) ? kDefaultCapacity : capacity;
+    sb->maxCapacity = INT32_MAX;
     sb->length = 0;
     Il2CppArray* chars = NewCharBuffer(sb->capacity);
     sb = AsBuilder(self); // re-derive: the allocation may have moved the builder
@@ -645,6 +657,7 @@ void icall_stringbuilder_ctor_string(Il2CppObject* self, Il2CppObject* value)
     const int32_t valueLength = (value != nullptr)
         ? reinterpret_cast<const Il2CppString*>(value)->length : 0;
     sb->capacity = (valueLength > kDefaultCapacity) ? valueLength : kDefaultCapacity;
+    sb->maxCapacity = INT32_MAX;
     sb->length = 0;
     Il2CppArray* chars = NewCharBuffer(sb->capacity);
     sb = AsBuilder(self); // re-derive: the allocation may have moved the builder
@@ -661,8 +674,97 @@ void icall_stringbuilder_ctor_string(Il2CppObject* self, Il2CppObject* value)
 }
 
 //------------------------------------------------------------------------------
-// icall_stringbuilder_ctor_capacity_max -- StringBuilder(int, int) (SB-REST).
-// net48 validation: capacity < 0 -> AOORE("capacity"); maxCapacity < 1 ->
+// nb9 (M9): StringBuilder(string value, int capacity) and
+// StringBuilder(string value, int startIndex, int length, int capacity).
+// net48: the VALUE is copied verbatim (capacity is only the initial buffer
+// size, so a smaller capacity than the value's length still yields the whole
+// value); the 4-argument form takes the substring [startIndex, startIndex +
+// length) first (AOORE on a bad window) and then allocates 'capacity' units.
+//------------------------------------------------------------------------------
+namespace {
+
+void CtorFromUnits(Il2CppObject* self, const char16_t* units, int32_t unitCount,
+                   int32_t capacity)
+{
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    // net48: the initial capacity is max(capacity, value.Length); a 0 capacity
+    // still falls back to the default 16 (never below the value length).
+    int32_t cap = capacity;
+    if (cap == 0)
+    {
+        cap = kDefaultCapacity;
+    }
+    if (cap < unitCount)
+    {
+        cap = unitCount;
+    }
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    sb->capacity = cap;
+    sb->maxCapacity = INT32_MAX;
+    sb->length = 0;
+    Il2CppArray* chars = NewCharBuffer(cap);
+    sb = AsBuilder(self); // re-derive after the allocation
+    il2cpp_write_barrier(reinterpret_cast<void**>(&sb->chars),
+                         reinterpret_cast<Il2CppObject*>(chars));
+    sb->chars = chars;
+    if (units != nullptr && unitCount > 0)
+    {
+        std::memcpy(sb->chars->data, units,
+                    static_cast<size_t>(unitCount) * sizeof(char16_t));
+        sb->length = unitCount;
+    }
+}
+
+} // namespace
+
+void icall_stringbuilder_ctor_string_capacity(Il2CppObject* self, Il2CppObject* value,
+                                              int32_t capacity)
+{
+    ThrowIfNullReceiver(self);
+    if (capacity < 0)
+    {
+        ThrowAoore("capacity");
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&value));
+    const Il2CppString* v = (value != nullptr)
+        ? reinterpret_cast<const Il2CppString*>(value) : nullptr;
+    CtorFromUnits(self, v != nullptr ? v->chars : nullptr,
+                  v != nullptr ? v->length : 0, capacity);
+}
+
+void icall_stringbuilder_ctor_string_range_capacity(Il2CppObject* self, Il2CppObject* value,
+                                                    int32_t startIndex, int32_t length,
+                                                    int32_t capacity)
+{
+    ThrowIfNullReceiver(self);
+    if (capacity < 0)
+    {
+        ThrowAoore("capacity");
+    }
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (length < 0)
+    {
+        ThrowAoore("length");
+    }
+    const Il2CppString* v = (value != nullptr)
+        ? reinterpret_cast<const Il2CppString*>(value) : nullptr;
+    const int32_t total = (v != nullptr) ? v->length : 0;
+    if (static_cast<int64_t>(startIndex) + length > total)
+    {
+        ThrowAoore("length");
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&value));
+    CtorFromUnits(self, v != nullptr ? v->chars + startIndex : nullptr, length, capacity);
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_ctor_capacity_max -- StringBuilder(int, int) (SB-REST).// net48 validation: capacity < 0 -> AOORE("capacity"); maxCapacity < 1 ->
 // AOORE("maxCapacity"); capacity > maxCapacity -> AOORE("capacity");
 // capacity == 0 -> min(DefaultCapacity, maxCapacity). The buffer is exactly
 // 'capacity' units (the one-argument ctor's default bump does NOT apply).
@@ -690,6 +792,7 @@ void icall_stringbuilder_ctor_capacity_max(Il2CppObject* self, int32_t capacity,
     scope.Add(reinterpret_cast<void**>(&self));
     Il2CppStringBuilder* sb = AsBuilder(self);
     sb->capacity = capacity;
+    sb->maxCapacity = maxCapacity;
     sb->length = 0;
     Il2CppArray* chars = NewCharBuffer(capacity);
     sb = AsBuilder(self); // re-derive: the allocation may have moved the builder
@@ -725,6 +828,36 @@ Il2CppObject* icall_stringbuilder_append_c(Il2CppObject* self, char16_t value)
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
     AppendUnits(&self, &value, 1);
+    return self;
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_append_c_count -- Append(char value, int repeatCount)
+// (nb9 M14). net48: repeatCount < 0 -> AOORE("repeatCount"); 0 -> the builder
+// unchanged; otherwise the unit is appended repeatCount times.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_append_c_count(Il2CppObject* self, char16_t value,
+                                                 int32_t repeatCount)
+{
+    ThrowIfNullReceiver(self);
+    if (repeatCount < 0)
+    {
+        ThrowAoore("repeatCount");
+    }
+    if (repeatCount == 0)
+    {
+        return self;
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    GrowBuffer(&self, static_cast<int64_t>(AsBuilder(self)->length) + repeatCount);
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    char16_t* dst = reinterpret_cast<char16_t*>(sb->chars->data) + sb->length;
+    for (int32_t i = 0; i < repeatCount; ++i)
+    {
+        dst[i] = value;
+    }
+    sb->length += repeatCount;
     return self;
 }
 
@@ -1179,6 +1312,16 @@ Il2CppObject* icall_stringbuilder_append_s_range(Il2CppObject* self, Il2CppObjec
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&value));
+    // nb9 (M7): net48 validates startIndex, then count, BEFORE the null check;
+    // the upper bound is reported as startIndex (startIndex > length - count).
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
     if (value == nullptr)
     {
         if (startIndex == 0 && count == 0)
@@ -1189,17 +1332,9 @@ Il2CppObject* icall_stringbuilder_append_s_range(Il2CppObject* self, Il2CppObjec
                          "Value cannot be null. (Parameter 'value')");
     }
     const Il2CppString* v = reinterpret_cast<const Il2CppString*>(value);
-    if (startIndex < 0)
+    if (static_cast<int64_t>(startIndex) > static_cast<int64_t>(v->length) - count)
     {
         ThrowAoore("startIndex");
-    }
-    if (count < 0)
-    {
-        ThrowAoore("count");
-    }
-    if (static_cast<int64_t>(startIndex) + count > v->length)
-    {
-        ThrowAoore("count");
     }
     AppendUnits(&self, v->chars + startIndex, count);
     return self;
@@ -1214,6 +1349,15 @@ Il2CppObject* icall_stringbuilder_append_c_array_range(Il2CppObject* self, Il2Cp
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&value));
+    // nb9 (M7): startIndex, then count, then the null check (net48 order).
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
     if (value == nullptr)
     {
         if (startIndex == 0 && count == 0)
@@ -1223,17 +1367,9 @@ Il2CppObject* icall_stringbuilder_append_c_array_range(Il2CppObject* self, Il2Cp
         il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
                          "Value cannot be null. (Parameter 'value')");
     }
-    if (startIndex < 0)
+    if (static_cast<int64_t>(startIndex) > static_cast<int64_t>(value->length) - count)
     {
         ThrowAoore("startIndex");
-    }
-    if (count < 0)
-    {
-        ThrowAoore("count");
-    }
-    if (static_cast<int64_t>(startIndex) + count > value->length)
-    {
-        ThrowAoore("count");
     }
     AppendUnits(&self, reinterpret_cast<const char16_t*>(value->data) + startIndex, count);
     return self;
@@ -1325,26 +1461,58 @@ void icall_stringbuilder_copy_to(Il2CppObject* self, int32_t sourceIndex,
     }
 }
 
-// EnsureCapacity(int capacity) -- returns the resulting Capacity (net48 Grow
-// policy; a negative capacity is ArgumentOutOfRangeException).
+// EnsureCapacity(int capacity) -- returns the resulting Capacity. nb9 (M6):
+// net48 grows to EXACTLY the requested capacity (no doubling) and rejects a
+// request above MaxCapacity with ArgumentOutOfRangeException("value").
 int32_t icall_stringbuilder_ensure_capacity(Il2CppObject* self, int32_t capacity)
 {
     ThrowIfNullReceiver(self);
-    if (capacity < 0)
+    if (capacity < 0 || capacity > AsBuilder(self)->maxCapacity)
     {
-        ThrowAoore("capacity");
+        ThrowAoore("value");
     }
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
-    GrowBuffer(&self, capacity);
+    if (capacity > AsBuilder(self)->capacity)
+    {
+        ReplaceBuffer(&self, capacity);
+    }
     return AsBuilder(self)->capacity;
 }
 
-// Equals(StringBuilder) -- net48 REFERENCE equality.
+// Equals(StringBuilder) -- nb9 (M17): net48 StringBuilder.Equals(StringBuilder)
+// is VALUE equality: same Length, same Capacity, same MaxCapacity and the same
+// UTF-16 units. A null argument is False (never throws). this == sb is True.
+// (Equals(object) is System.Object reference equality and does NOT route
+// here -- it resolves through the object domain.)
 bool icall_stringbuilder_equals(Il2CppObject* self, Il2CppObject* other)
 {
     ThrowIfNullReceiver(self);
-    return self == other;
+    if (other == nullptr)
+    {
+        return false;
+    }
+    if (self == other)
+    {
+        return true;
+    }
+    const Il2CppStringBuilder* a = AsBuilder(self);
+    const Il2CppStringBuilder* b = AsBuilder(other);
+    if (a->length != b->length || a->capacity != b->capacity ||
+        a->maxCapacity != b->maxCapacity)
+    {
+        return false;
+    }
+    if (a->length == 0)
+    {
+        return true;
+    }
+    if (a->chars == nullptr || b->chars == nullptr)
+    {
+        return false;
+    }
+    return std::memcmp(a->chars->data, b->chars->data,
+                       static_cast<size_t>(a->length) * sizeof(char16_t)) == 0;
 }
 
 // Replace(string oldValue, string newValue, int startIndex, int count) --
@@ -1358,6 +1526,18 @@ Il2CppObject* icall_stringbuilder_replace_s_s_range(Il2CppObject* self, Il2CppOb
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&oldValue));
     scope.Add(reinterpret_cast<void**>(&newValue));
+    // nb9 (M7): net48 validates startIndex, then count, BEFORE the null check
+    // (so Replace(null, ..., -1, -1) is AOORE:startIndex, while
+    // Replace(null, ..., 0, 0) is ANE:oldValue -- the null check is NOT
+    // skipped for a (0,0) window, unlike Append).
+    if (startIndex < 0)
+    {
+        ThrowAoore("startIndex");
+    }
+    if (count < 0)
+    {
+        ThrowAoore("count");
+    }
     if (oldValue == nullptr)
     {
         il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
@@ -1372,14 +1552,6 @@ Il2CppObject* icall_stringbuilder_replace_s_s_range(Il2CppObject* self, Il2CppOb
     const Il2CppString* newS = (newValue != nullptr)
         ? reinterpret_cast<const Il2CppString*>(newValue) : nullptr;
     Il2CppStringBuilder* sb = AsBuilder(self);
-    if (startIndex < 0)
-    {
-        ThrowAoore("startIndex");
-    }
-    if (count < 0)
-    {
-        ThrowAoore("count");
-    }
     if (static_cast<int64_t>(startIndex) + count > sb->length)
     {
         ThrowAoore("count");

@@ -16,6 +16,13 @@ public static partial class MethodRefResolver
                 if (count == 0) return I("il2cpp::runtime::icall_stringbuilder_ctor_default", 0, false, false, true);
                 if (count == 1 && ps[0] == 0x08) return I("il2cpp::runtime::icall_stringbuilder_ctor_capacity", 1, false, false, true, new[] { "", "i" });
                 if (count == 1 && ps[0] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_ctor_string", 1, false, false, true);
+                // nb9 (M9): StringBuilder(string, int) / (string, int, int, int).
+                if (count == 2 && ps[0] == 0x0E && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_ctor_string_capacity", 2, false, false, true,
+                        new[] { "", "", "i" });
+                if (count == 4 && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_ctor_string_range_capacity", 4, false, false, true,
+                        new[] { "", "", "i", "i", "i" });
                 // SB-REST: ctor(int capacity, int maxCapacity). The 2-arg form
                 // must NOT fall through to the 1-arg capacity arm (the fold
                 // would pop one arg and desync the stack).
@@ -39,7 +46,14 @@ public static partial class MethodRefResolver
                     throw new NotSupportedException($"StringBuilder.Append 3-arg signature not wired in M5");
                 }
                 if (count != 1)
+                {
+                    // nb9 (M14): Append(char, int) -- repeat the unit
+                    // repeatCount times (AOORE("repeatCount") when negative).
+                    if (count == 2 && ps[0] == 0x03 && ps[1] == 0x08)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_c_count", 2, true, true, true,
+                            new[] { "", "c", "i" }, null, false, false, false, "System.Text.StringBuilder");
                     throw new NotSupportedException($"StringBuilder.Append with {count} args not wired in M5");
+                }
                 return ps[0] switch
                 {
                     0x0E => I("il2cpp::runtime::icall_stringbuilder_append_s", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),

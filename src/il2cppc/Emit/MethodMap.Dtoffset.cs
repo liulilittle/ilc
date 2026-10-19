@@ -125,6 +125,14 @@ public static partial class MethodRefResolver
             // address; the result is a fresh DateTimeOffset ("dto").
             case "AddDays":
                 return I("il2cpp::runtime::icall_dtoffset_add_days", 1, true, false, true, new[] { "deref:dto", "d" }, "dto");
+            // nb9 (M10): AddYears/AddMonths (LOCAL-clock semantics; the old
+            // mapping had no arm, so the call became a C0 phantom symbol).
+            case "AddYears":
+                return I("il2cpp::runtime::icall_dtoffset_add_years", 1, true, false, true,
+                    new[] { "deref:dto", "i" }, "dto");
+            case "AddMonths":
+                return I("il2cpp::runtime::icall_dtoffset_add_months", 1, true, false, true,
+                    new[] { "deref:dto", "i" }, "dto");
             case "AddHours":
                 return I("il2cpp::runtime::icall_dtoffset_add_hours", 1, true, false, true, new[] { "deref:dto", "d" }, "dto");
             case "AddMinutes":

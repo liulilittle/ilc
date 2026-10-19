@@ -129,6 +129,11 @@ Il2CppDateTimeOffset icall_dtoffset_add_milliseconds(Il2CppDateTimeOffset dto, d
 
 // AddTicks(ticks): add raw 100 ns ticks (offset preserved); out-of-range ->
 // ArgumentOutOfRangeException.
+// nb9 (M10): AddYears / AddMonths -- computed on the LOCAL clock (month-end
+// truncation and leap years come from the DateTime kernels), then re-offset.
+Il2CppDateTimeOffset icall_dtoffset_add_years(Il2CppDateTimeOffset dto, int32_t years);
+Il2CppDateTimeOffset icall_dtoffset_add_months(Il2CppDateTimeOffset dto, int32_t months);
+
 Il2CppDateTimeOffset icall_dtoffset_add_ticks(Il2CppDateTimeOffset dto, int64_t ticks);
 
 // Add(TimeSpan) / Subtract(TimeSpan): add/subtract the interval (offset

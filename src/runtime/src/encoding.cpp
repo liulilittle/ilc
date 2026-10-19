@@ -22,6 +22,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_encoding.h"
+#include "il2cpp_gcroot.h"      // nb9: destination/source array rooting
 #include "il2cpp_exception.h"
 #include "il2cpp_runtime.h"   // il2cpp_object_new / il2cpp_class_register
 #include "il2cpp_gc.h"        // il2cpp_gc_add_static_root (singleton liveness)
@@ -1335,16 +1336,30 @@ int32_t icall_encoding_get_chars_into(Il2CppObject* self, Il2CppArray* bytes,
 {
     if (self == nullptr) ThrowNullSelf();
     const int32_t dstLen = CheckCharArrayArg(chars);
-    if (charIndex < 0)
+    // nb9 (M12): net48 checks the charIndex RANGE (against the destination
+    // length) with ArgumentOutOfRangeException BEFORE the destination-capacity
+    // check; the old code only rejected negatives (and threw
+    // ArgumentException for an index past the end).
+    if (charIndex < 0 || charIndex > dstLen)
     {
-        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.Exception",
-                         "Non-negative number required.");
+        il2cpp_throw_argument_out_of_range_exception("chars",
+            "Index was out of range. Must be non-negative and less than the size of the collection.");
     }
     // Decode the byte range into a fresh char[] (the existing ranged entry),
     // then copy it into the caller's destination after the capacity check.
-    Il2CppArray* decoded = GetCharsRange(bytes, byteIndex, byteCount,
-        static_cast<il2cpp_encoding_code_page>(PageOf(self)));
-    const int32_t units = decoded->length;
+    // nb9 (M12): the decode allocation can compact the heap, so the
+    // destination array is ROOTED across it and re-read afterwards.
+    const il2cpp_encoding_code_page page =
+        static_cast<il2cpp_encoding_code_page>(PageOf(self));
+    Il2CppObject* charsObj = reinterpret_cast<Il2CppObject*>(chars);
+    GcRoot<Il2CppObject*> charsRoot(charsObj,
+                                    "encoding_get_chars_into_dst");
+    Il2CppArray* decoded = GetCharsRange(bytes, byteIndex, byteCount, page);
+    Il2CppObject* decodedObj = reinterpret_cast<Il2CppObject*>(decoded);
+    GcRoot<Il2CppObject*> decodedRoot(decodedObj,
+                                      "encoding_get_chars_into_decoded");
+    Il2CppArray* dst = reinterpret_cast<Il2CppArray*>(charsRoot.Get());
+    const int32_t units = reinterpret_cast<Il2CppArray*>(decodedRoot.Get())->length;
     if (static_cast<int64_t>(charIndex) + units > dstLen)
     {
         il2cpp_throw_new("System.ArgumentException,System.Exception",
@@ -1352,10 +1367,180 @@ int32_t icall_encoding_get_chars_into(Il2CppObject* self, Il2CppArray* bytes,
     }
     if (units > 0)
     {
-        std::memcpy(chars->data + static_cast<size_t>(charIndex) * sizeof(char16_t),
-                    decoded->data, static_cast<size_t>(units) * sizeof(char16_t));
+        std::memcpy(dst->data + static_cast<size_t>(charIndex) * sizeof(char16_t),
+                    reinterpret_cast<Il2CppArray*>(decodedRoot.Get())->data,
+                    static_cast<size_t>(units) * sizeof(char16_t));
     }
     return units;
+}
+
+//------------------------------------------------------------------------------
+// nb9 (M8): the DESTINATION-BUFFER GetBytes overloads. The char window is
+// encoded into a fresh exact-size byte[] (the same per-page encoder the
+// allocating overloads use), then copied into the caller's byte array after
+// the net48 bounds checks.
+//------------------------------------------------------------------------------
+namespace {
+
+Il2CppArray* EncodeUnitsForPage(int32_t page, const char16_t* units, int32_t unitCount)
+{
+    switch (page)
+    {
+    case 65001:
+    {
+        const int32_t required = il2cpp_encoding_utf8_convert(units, unitCount, nullptr, 0);
+        Il2CppArray* arr = AllocBytes(required);
+        if (required > 0)
+        {
+            il2cpp_encoding_utf8_convert(units, unitCount,
+                reinterpret_cast<char*>(il2cpp_array_get_elem_ptr(arr, 0)), required);
+        }
+        return arr;
+    }
+    case 20127:
+    {
+        const int32_t required = il2cpp_encoding_ascii_convert(units, unitCount, nullptr, 0);
+        Il2CppArray* arr = AllocBytes(required);
+        if (required > 0)
+        {
+            il2cpp_encoding_ascii_convert(units, unitCount,
+                reinterpret_cast<char*>(il2cpp_array_get_elem_ptr(arr, 0)), required);
+        }
+        return arr;
+    }
+    case 1200:
+    case 1201:
+    {
+        const int32_t required = unitCount * 2;
+        Il2CppArray* arr = AllocBytes(required);
+        uint8_t* dst = required > 0
+            ? reinterpret_cast<uint8_t*>(il2cpp_array_get_elem_ptr(arr, 0)) : nullptr;
+        for (int32_t i = 0; i < unitCount; ++i)
+        {
+            const uint16_t u = static_cast<uint16_t>(units[i]);
+            if (page == 1200)
+            {
+                dst[i * 2] = static_cast<uint8_t>(u & 0xFF);
+                dst[i * 2 + 1] = static_cast<uint8_t>(u >> 8);
+            }
+            else
+            {
+                dst[i * 2] = static_cast<uint8_t>(u >> 8);
+                dst[i * 2 + 1] = static_cast<uint8_t>(u & 0xFF);
+            }
+        }
+        return arr;
+    }
+    }
+    il2cpp_throw_new("System.ArgumentException,System.Exception",
+                     "Unknown encoding code page.");
+    return nullptr;
+}
+
+} // namespace
+
+int32_t icall_encoding_get_bytes_into_string(Il2CppObject* self, Il2CppString* text,
+                                             int32_t charIndex, int32_t charCount,
+                                             Il2CppArray* bytes, int32_t byteIndex)
+{
+    if (self == nullptr) ThrowNullSelf();
+    if (text == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null. (Parameter 'chars')");
+    }
+    if (charIndex < 0 || charCount < 0 ||
+        static_cast<int64_t>(charIndex) + charCount > text->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception("chars", nullptr);
+    }
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null. (Parameter 'bytes')");
+    }
+    const int32_t dstLen = bytes->length;
+    if (byteIndex < 0 || byteIndex > dstLen)
+    {
+        il2cpp_throw_argument_out_of_range_exception("bytes", nullptr);
+    }
+    const int32_t page = PageOf(self);
+    Il2CppObject* dstObj = reinterpret_cast<Il2CppObject*>(bytes);
+    GcRoot<Il2CppObject*> dstRoot(dstObj,
+                                  "encoding_get_bytes_into_dst");
+    Il2CppArray* encoded = EncodeUnitsForPage(page, text->chars + charIndex, charCount);
+    Il2CppObject* encObj = reinterpret_cast<Il2CppObject*>(encoded);
+    GcRoot<Il2CppObject*> encRoot(encObj,
+                                  "encoding_get_bytes_into_encoded");
+    Il2CppArray* dst = reinterpret_cast<Il2CppArray*>(dstRoot.Get());
+    const int32_t n = reinterpret_cast<Il2CppArray*>(encRoot.Get())->length;
+    if (static_cast<int64_t>(byteIndex) + n > dstLen)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+                         "Destination array is not long enough.");
+    }
+    if (n > 0)
+    {
+        std::memcpy(reinterpret_cast<uint8_t*>(dst->data) + byteIndex,
+                    reinterpret_cast<Il2CppArray*>(encRoot.Get())->data,
+                    static_cast<size_t>(n));
+    }
+    return n;
+}
+
+int32_t icall_encoding_get_bytes_into_chars(Il2CppObject* self, Il2CppArray* chars,
+                                            int32_t charIndex, int32_t charCount,
+                                            Il2CppArray* bytes, int32_t byteIndex)
+{
+    if (self == nullptr) ThrowNullSelf();
+    if (chars == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null. (Parameter 'chars')");
+    }
+    const int32_t srcLen = CheckCharArrayArg(chars);
+    if (charIndex < 0 || charCount < 0 ||
+        static_cast<int64_t>(charIndex) + charCount > srcLen)
+    {
+        il2cpp_throw_argument_out_of_range_exception("chars", nullptr);
+    }
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.Exception",
+                         "Value cannot be null. (Parameter 'bytes')");
+    }
+    const int32_t dstLen = bytes->length;
+    if (byteIndex < 0 || byteIndex > dstLen)
+    {
+        il2cpp_throw_argument_out_of_range_exception("bytes", nullptr);
+    }
+    const int32_t page = PageOf(self);
+    Il2CppObject* dstObj = reinterpret_cast<Il2CppObject*>(bytes);
+    GcRoot<Il2CppObject*> dstRoot(dstObj,
+                                  "encoding_get_bytes_into_dst");
+    Il2CppObject* srcObj = reinterpret_cast<Il2CppObject*>(chars);
+    GcRoot<Il2CppObject*> srcRoot(srcObj,
+                                  "encoding_get_bytes_into_src");
+    Il2CppArray* src = reinterpret_cast<Il2CppArray*>(srcRoot.Get());
+    Il2CppArray* encoded = EncodeUnitsForPage(
+        page, reinterpret_cast<const char16_t*>(src->data) + charIndex, charCount);
+    Il2CppObject* encObj = reinterpret_cast<Il2CppObject*>(encoded);
+    GcRoot<Il2CppObject*> encRoot(encObj,
+                                  "encoding_get_bytes_into_encoded");
+    Il2CppArray* dst = reinterpret_cast<Il2CppArray*>(dstRoot.Get());
+    const int32_t n = reinterpret_cast<Il2CppArray*>(encRoot.Get())->length;
+    if (static_cast<int64_t>(byteIndex) + n > dstLen)
+    {
+        il2cpp_throw_new("System.ArgumentException,System.Exception",
+                         "Destination array is not long enough.");
+    }
+    if (n > 0)
+    {
+        std::memcpy(reinterpret_cast<uint8_t*>(dst->data) + byteIndex,
+                    reinterpret_cast<Il2CppArray*>(encRoot.Get())->data,
+                    static_cast<size_t>(n));
+    }
+    return n;
 }
 
 }} // namespace il2cpp::runtime

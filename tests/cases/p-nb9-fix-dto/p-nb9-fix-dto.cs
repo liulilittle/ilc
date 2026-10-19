@@ -11,53 +11,102 @@ using System;
 //     came back instead of throwing ArgumentOutOfRangeException.
 //
 // net48 oracle (host .NET Framework 4.x):
-//   [addyears]= ... (month-end truncation: 2020-02-29 +1y -> 2021-02-28)
-//   [addmonths]= ... (2020-01-31 +1mo -> 2020-02-29)
+//   [addyears]=2021-02-28      2020-02-29 + 1 year (month-end truncation)
+//   [addmonths]=2020-02-29     2020-01-31 + 1 month
+//   [addmonths_neg]=2020-02-29 2020-03-31 - 1 month
 //   [to_plus14]=ArgumentOutOfRangeException
 //   [to_minus14]=ArgumentOutOfRangeException
 //   [sub_local]=ArgumentOutOfRangeException
 //   [add_local]=ArgumentOutOfRangeException
+//   [addyears_range]=ArgumentOutOfRangeException
+//   [addmonths_range]=ArgumentOutOfRangeException
+//
+// The boundary checks are written as inline try/catch blocks: the DTO result
+// of an expression-lambda body is a separate pre-existing local-typing gap,
+// unrelated to this batch.
 //------------------------------------------------------------------------------
 namespace Cases
 {
     public static class PNb9FixDto
     {
-        static string Name(Action a)
-        {
-            try
-            {
-                a();
-                return "ok";
-            }
-            catch (Exception ex)
-            {
-                return ex.GetType().Name;
-            }
-        }
-
         public static void Main()
         {
             var leap = new DateTimeOffset(2020, 2, 29, 12, 0, 0, TimeSpan.Zero);
-            Console.WriteLine("[addyears]=" + leap.AddYears(1).ToString("yyyy-MM-dd"));
-            Console.WriteLine("[addmonths]=" + new DateTimeOffset(2020, 1, 31, 12, 0, 0, TimeSpan.Zero)
-                .AddMonths(1).ToString("yyyy-MM-dd"));
-            Console.WriteLine("[addmonths_neg]=" + new DateTimeOffset(2020, 3, 31, 12, 0, 0, TimeSpan.Zero)
-                .AddMonths(-1).ToString("yyyy-MM-dd"));
+            var leapPlus = leap.AddYears(1);
+            Console.WriteLine("[addyears]=" + leapPlus.ToString("yyyy-MM-dd"));
+
+            var jan31 = new DateTimeOffset(2020, 1, 31, 12, 0, 0, TimeSpan.Zero);
+            var janPlus = jan31.AddMonths(1);
+            Console.WriteLine("[addmonths]=" + janPlus.ToString("yyyy-MM-dd"));
+
+            var mar31 = new DateTimeOffset(2020, 3, 31, 12, 0, 0, TimeSpan.Zero);
+            var marMinus = mar31.AddMonths(-1);
+            Console.WriteLine("[addmonths_neg]=" + marMinus.ToString("yyyy-MM-dd"));
 
             var max = new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero);
             var min = new DateTimeOffset(1, 1, 1, 0, 0, 0, TimeSpan.Zero);
-
-            Console.WriteLine("[to_plus14]=" + Name(() => max.ToOffset(TimeSpan.FromHours(14))));
-            Console.WriteLine("[to_minus14]=" + Name(() => min.ToOffset(TimeSpan.FromHours(-14))));
-
             var negOffset = new DateTimeOffset(1, 1, 1, 0, 0, 0, TimeSpan.FromHours(-14));
-            Console.WriteLine("[sub_local]=" + Name(() => negOffset.Subtract(TimeSpan.FromHours(2))));
-
             var posOffset = new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.FromHours(14));
-            Console.WriteLine("[add_local]=" + Name(() => posOffset.Add(TimeSpan.FromHours(2))));
 
-            Console.WriteLine("[addyears_range]=" + Name(() => max.AddYears(1)));
-            Console.WriteLine("[addmonths_range]=" + Name(() => max.AddMonths(1)));
+            try
+            {
+                var bad = max.ToOffset(TimeSpan.FromHours(14));
+                Console.WriteLine("[to_plus14]=ok:" + bad.Ticks);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                Console.WriteLine("[to_plus14]=ArgumentOutOfRangeException");
+            }
+
+            try
+            {
+                var bad = min.ToOffset(TimeSpan.FromHours(-14));
+                Console.WriteLine("[to_minus14]=ok:" + bad.Ticks);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                Console.WriteLine("[to_minus14]=ArgumentOutOfRangeException");
+            }
+
+            try
+            {
+                var bad = negOffset.Subtract(TimeSpan.FromHours(2));
+                Console.WriteLine("[sub_local]=ok:" + bad.Ticks);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                Console.WriteLine("[sub_local]=ArgumentOutOfRangeException");
+            }
+
+            try
+            {
+                var bad = posOffset.Add(TimeSpan.FromHours(2));
+                Console.WriteLine("[add_local]=ok:" + bad.Ticks);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                Console.WriteLine("[add_local]=ArgumentOutOfRangeException");
+            }
+
+            try
+            {
+                var bad = max.AddYears(1);
+                Console.WriteLine("[addyears_range]=ok:" + bad.Ticks);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                Console.WriteLine("[addyears_range]=ArgumentOutOfRangeException");
+            }
+
+            try
+            {
+                var bad = max.AddMonths(1);
+                Console.WriteLine("[addmonths_range]=ok:" + bad.Ticks);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                Console.WriteLine("[addmonths_range]=ArgumentOutOfRangeException");
+            }
         }
     }
 }
