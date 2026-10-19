@@ -79,7 +79,12 @@ $work = Join-Path $Root ".opencode\tmp\manifest-e2e\$Case"
 # vs a simultaneous run in the same checkout). Unique per (PID, timestamp) makes
 # the gate concurrency-safe; stale directories are pruned best-effort.
 $runDir = Join-Path $Root (".opencode\tmp\manifest-e2e\$Case-" + (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + $PID)
-Get-ChildItem -LiteralPath $work -Directory -ErrorAction SilentlyContinue |
+# Prune SIBLING run directories (<Case>-*), not the children of the base name --
+# the run directories live next to it, so enumerating the base path would prune
+# nothing and let the tree accumulate. Only directories older than a day are
+# removed, so a concurrent run is never touched.
+$parent = Split-Path -Parent $runDir
+Get-ChildItem -LiteralPath $parent -Directory -Filter "$Case-*" -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
     ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop } catch { } }
 $work = $runDir
@@ -149,15 +154,15 @@ foreach ($c in $compilers) {
     } else {
         $generator = if ($env:IL2CPP_MSVC_GENERATOR) { $env:IL2CPP_MSVC_GENERATOR } else { "Visual Studio 17 2022" }
         # The configured generator decides BOTH the configure arguments and the
-        # output layout: "Visual Studio ..." is a multi-config generator (--config
-        # Release, exe under Release\), "Ninja" is single-config (needs
-        # CMAKE_BUILD_TYPE at configure time, exe directly in the build dir).
-        # Hard-coding the VS layout would report "produced no exe" for a perfectly
-        # successful Ninja build.
+        # output layout. Multi-config generators (Visual Studio, "Ninja
+        # Multi-Config") take --config and put the exe under Release\; plain
+        # single-config generators (Ninja, Makefiles) need CMAKE_BUILD_TYPE at
+        # configure time and the exe sits in the build root.
         $isVs = $generator -match "^Visual Studio"
+        $isMultiConfig = $generator -match "^Visual Studio|^Ninja Multi-Config"
         $cmakeArgs = @("-S", $gen, "-B", $build, "-G", $generator)
-        if ($isVs) {
-            if ($Arch -ne "") { $cmakeArgs += @("-A", $Arch) }
+        if ($isMultiConfig) {
+            if ($isVs -and $Arch -ne "") { $cmakeArgs += @("-A", $Arch) }
         } else {
             $cmakeArgs += @("-DCMAKE_BUILD_TYPE=Release")
         }
@@ -167,7 +172,7 @@ foreach ($c in $compilers) {
             & cmake @cmakeArgs *>&1 | Out-File -Encoding utf8 $log
             $cfg = $LASTEXITCODE
             if ($cfg -eq 0) {
-                if ($isVs) {
+                if ($isMultiConfig) {
                     & cmake --build $build --config Release --parallel *>&1 | Out-File -Encoding utf8 -Append $log
                 } else {
                     & cmake --build $build --parallel *>&1 | Out-File -Encoding utf8 -Append $log
@@ -190,7 +195,7 @@ foreach ($c in $compilers) {
             $failed += "$c build (see $log)"
             continue
         }
-        if ($isVs) {
+        if ($isMultiConfig) {
             $exe = Join-Path $build "Release\il2cpp_gen_exe.exe"
         } else {
             $exe = Join-Path $build "il2cpp_gen_exe.exe"
