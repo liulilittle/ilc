@@ -479,10 +479,10 @@ public static partial class MethodRefResolver
                 // return type follows TSource so downstream members resolve.
                 {
                     var toArrType = genArgs is { Length: >= 1 }
-                        ? GenericArgTypeName(genArgs[0]) + "[]"
+                        ? LinqArrayTypeName(genArgs[0])
                         : (toArrRecv != null && toArrRecv.EndsWith("[]", StringComparison.Ordinal)
                             ? toArrRecv : "System.Int32[]");
-                    return I("il2cpp::il2cpp_linq_to_array_family", 1, true, true, false, OneArg,
+                    return I("il2cpp::il2cpp_linq_to_array_family", 1, true, true, false, new[] { "a" },
                         returnTypeName: toArrType);
                 }
             case "First":
@@ -916,6 +916,20 @@ public static partial class MethodRefResolver
                 return null;
         }
     }
+
+    //--------------------------------------------------------------------------
+    // LinqArrayTypeName -- the TRACKED full array type name for an element
+    // family byte (GenericArgTypeName returns short names meant for messages).
+    //--------------------------------------------------------------------------
+    private static string LinqArrayTypeName(byte b) => b switch
+    {
+        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "System.Int32[]",
+        0x0A or 0x0B => "System.Int64[]",
+        0x0C => "System.Single[]",
+        0x0D => "System.Double[]",
+        0x0E => "System.String[]",
+        _ => "System.Object[]",
+    };
 
     //--------------------------------------------------------------------------
     // LinqElementFamily -- the SOURCE element family of an Enumerable operator.

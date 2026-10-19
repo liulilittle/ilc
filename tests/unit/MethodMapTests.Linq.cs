@@ -392,13 +392,13 @@ public class MethodMapTestsLinq
     // "System.Int32[]").
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_ToArray_MapsToToArrayIcall()
+    public void Resolve_ToArray_MapsToToArrayFamilyIcall()
     {
         var resolved = ResolveMethodSpec(SynthesizeGeneric("ToArray",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x1D, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
             genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
 
-        Assert.Equal("il2cpp::il2cpp_linq_to_array", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_to_array_family", resolved.CppName);
         Assert.Equal(1, resolved.ParamCount);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
@@ -450,20 +450,19 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
-    // A non-int32 element family is LOUD for the operator surface (the
-    // ref-family icalls have no transpiler callback-ABI producer).
+    // nb9 fix P0-4: Count only reads the array header, so a reference
+    // element family is supported too (no longer LOUD).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Count_StringElement_ThrowsLoud()
+    public void Resolve_Count_StringElement_MapsToCount()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("Count",
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Count",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
-            genericSignature: new byte[] { 0x0A, 0x01, 0x0E })));
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
 
-        Assert.Contains("System.Linq.Enumerable::Count", ex.Message);
-        Assert.Contains("int32 (0x08)", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_count", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
     }
-
     //--------------------------------------------------------------------------
     // Reverse() -> il2cpp_linq_reverse_i4: a fresh int32[] with elements in
     // reverse order (ReturnsRef true, tracked as "System.Int32[]").
