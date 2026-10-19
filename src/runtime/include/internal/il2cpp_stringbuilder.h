@@ -441,6 +441,12 @@ Il2CppObject* icall_stringbuilder_to_string_range(Il2CppObject* self, int32_t st
 // ZERO-FILLED), value < Length truncates (the buffer stays allocated).
 void icall_stringbuilder_set_length(Il2CppObject* self, int32_t value);
 
+// set_Capacity(int32 value) (nb9 M-3): the net48 Capacity setter. A value
+// below the current Length is raised to Length; a value above MaxCapacity
+// throws ArgumentOutOfRangeException with ParamName "value"; otherwise the
+// buffer is resized (content preserved).
+void icall_stringbuilder_set_capacity(Il2CppObject* self, int32_t value);
+
 // Length (getter): the current UTF-16 unit count.
 int32_t icall_stringbuilder_get_length(Il2CppObject* self);
 int32_t icall_stringbuilder_get_max_capacity(Il2CppObject* self);

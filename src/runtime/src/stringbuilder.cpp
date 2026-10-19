@@ -196,10 +196,10 @@ void GrowBuffer(Il2CppObject** selfSlot, int64_t required)
     {
         newCapacity = required;
     }
-    if (newCapacity > sb->maxCapacity)
-    {
-        newCapacity = required; // never allocate past MaxCapacity
-    }
+    // nb9 M-4: do NOT clamp the grown capacity to MaxCapacity. net48 only
+    // rejects required > MaxCapacity; the doubling may legitimately land ABOVE
+    // it (observed capacity 7/10 with max 6). Clamping changed the observable
+    // Capacity.
     if (newCapacity > INT32_MAX)
     {
         if (required > INT32_MAX)
@@ -231,10 +231,8 @@ void GrowBufferForInsert(Il2CppObject** selfSlot, int32_t valueLength)
         ThrowAoore("requiredLength");
     }
     int64_t newCapacity = static_cast<int64_t>(sb->capacity) + valueLength;
-    if (newCapacity > sb->maxCapacity)
-    {
-        newCapacity = required; // never allocate past MaxCapacity
-    }
+    // nb9 M-4: no clamp to MaxCapacity (see GrowBuffer). Only the REQUIRED
+    // length is validated.
     if (newCapacity > INT32_MAX)
     {
         ThrowOom();
@@ -1294,6 +1292,13 @@ Il2CppObject* icall_stringbuilder_insert_s_count(Il2CppObject* self, int32_t ind
         ThrowAoore("count"); // net48: the repeated value does not fit
     }
     const int32_t total = static_cast<int32_t>(total64);
+    // nb9 M-1: this overload reports OutOfMemoryException (NOT the AOORE
+    // "requiredLength" of Insert(int,string)) when the result exceeds
+    // MaxCapacity -- net48 host measurement.
+    if (static_cast<int64_t>(sb->length) + total > sb->maxCapacity)
+    {
+        ThrowOom();
+    }
     if (static_cast<int64_t>(sb->length) + total > sb->capacity)
     {
         GrowBufferForInsert(&self, total);
@@ -1612,11 +1617,9 @@ Il2CppObject* icall_stringbuilder_replace_s_s_range(Il2CppObject* self, Il2CppOb
         {
             ThrowAoore("requiredLength");
         }
+        // nb9 M-4: no clamp to MaxCapacity -- net48 only rejects the REQUIRED
+        // length above the maximum; the grown capacity may exceed it.
         int64_t newCapacity64 = static_cast<int64_t>(sb->capacity) + totalDelta;
-        if (newCapacity64 > sb->maxCapacity)
-        {
-            newCapacity64 = resultLength64; // never allocate past MaxCapacity
-        }
         if (newCapacity64 > INT32_MAX)
         {
             ThrowOom();
@@ -1816,11 +1819,8 @@ Il2CppObject* icall_stringbuilder_replace_s_s(Il2CppObject* self, Il2CppObject* 
         {
             ThrowAoore("requiredLength");
         }
+        // nb9 M-4: no clamp to MaxCapacity (see the range-Replace arm).
         int64_t newCapacity64 = static_cast<int64_t>(sb->capacity) + totalDelta;
-        if (newCapacity64 > sb->maxCapacity)
-        {
-            newCapacity64 = resultLength64; // never allocate past MaxCapacity
-        }
         if (newCapacity64 > INT32_MAX)
         {
             ThrowOom();
@@ -1982,6 +1982,12 @@ void icall_stringbuilder_set_length(Il2CppObject* self, int32_t value)
         sb->length = value;
         return;
     }
+    // nb9 M-2: the Length setter validates against MaxCapacity with
+    // ParamName "value" (net48); GrowBuffer would report "requiredLength".
+    if (value > sb->maxCapacity)
+    {
+        ThrowAoore("value");
+    }
     if (static_cast<int64_t>(value) > sb->capacity)
     {
         GrowBuffer(&self, value);
@@ -1994,6 +2000,32 @@ void icall_stringbuilder_set_length(Il2CppObject* self, int32_t value)
         data[i] = u'\0';
     }
     sb->length = value;
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_set_capacity -- Capacity setter (nb9 M-3). net48:
+// a value below Length is raised to Length; a value above MaxCapacity throws
+// ArgumentOutOfRangeException with ParamName "value"; otherwise the buffer is
+// resized (the content in [0, Length) is preserved).
+//------------------------------------------------------------------------------
+void icall_stringbuilder_set_capacity(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (value < sb->length)
+    {
+        value = sb->length;
+    }
+    if (value > sb->maxCapacity)
+    {
+        ThrowAoore("value");
+    }
+    if (value != sb->capacity)
+    {
+        ReplaceBuffer(&self, value);
+    }
 }
 
 //------------------------------------------------------------------------------

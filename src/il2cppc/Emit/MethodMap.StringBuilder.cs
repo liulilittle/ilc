@@ -189,6 +189,14 @@ public static partial class MethodRefResolver
             case "get_Capacity":
                 // No capacity icall: read the runtime struct field directly.
                 return I("il2cpp::runtime::il2cpp_stringbuilder_capacity", 0, true, false, true, new[] { "fcap" });
+            // nb9 M-3: set_Capacity(int) -- net48 AOORE("value") above
+            // MaxCapacity (the old behaviour fell to a generated-name stub
+            // that threw NotSupportedException at run time).
+            case "set_Capacity":
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_stringbuilder_set_capacity", 1, false, false, true,
+                        new[] { "", "i" });
+                return null;
             // P6: StringBuilder.ReplaceBufferInternal/ReplaceBufferAnsiInternal
             // (net48 internal helpers for char*/byte* buffer replacement).
             case "ReplaceBufferInternal": return I("il2cpp::runtime::icall_stringbuilder_replace_buffer_internal", 1, true, true, true, new[] { "c" });
