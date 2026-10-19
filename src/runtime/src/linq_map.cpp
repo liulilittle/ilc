@@ -1597,12 +1597,17 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
 
         res = AsGroupingResult(result);
         const int32_t n = res->count;
-        Il2CppObject** groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
 
+        // nb9 M-6: ComparerKeyEquals may run USER code (a custom
+        // IEqualityComparer<int>) that allocates, so a groupSlots pointer
+        // cached before the probe can dangle afterwards. Re-derive it from the
+        // rooted result on every iteration and after the scan.
         int32_t found = -1;
         for (int32_t j = 0; j < n; ++j)
         {
-            if (ComparerKeyEquals(cmp, key, AsGrouping(groupSlots[j])->key))
+            Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
+            Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
+            if (ComparerKeyEquals(cmp, key, AsGrouping(slots[j])->key))
             {
                 found = j;
                 break;
@@ -1611,7 +1616,9 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
 
         if (found >= 0)
         {
-            Il2CppLinqGrouping* grp = AsGrouping(groupSlots[found]);
+            res = AsGroupingResult(result);
+            Il2CppLinqGrouping* grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                res->groups->data + found * sizeof(void*)));
             if (grp->count == grp->elements->length)
             {
                 GrowGroupElements(&result, found);
@@ -1670,7 +1677,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             grp->elements = nullptr;
             grp->count = 0;
             res = AsGroupingResult(result);
-            groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+            Il2CppObject** groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
             il2cpp_write_barrier(reinterpret_cast<void**>(&groupSlots[res->count]), ng);
             groupSlots[res->count] = ng;
             ++res->count;
