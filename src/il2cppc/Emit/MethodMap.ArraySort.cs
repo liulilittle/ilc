@@ -73,27 +73,86 @@ public static partial class MethodRefResolver
                 // array: il2cpp_array_copy_to(src = this, dst, dstIndex);
                 // both array slots take Il2CppArray* ("a" cast).
                 return I("il2cpp::il2cpp_array_copy_to", 2, false, false, true, new[] { "a", "a", "i" });
+            // nb9 P0 (arity mispair): IndexOf/LastIndexOf/BinarySearch map the
+            // REAL arity. count 2 = (array, value); 3 = (array, value,
+            // startIndex) for the scans or (array, value, comparer) for the
+            // search; 4 = (array, value, startIndex, count) / (array, index,
+            // length, value); 5 = (array, index, length, value, comparer).
+            // Every entry takes the arguments in exactly the runtime order.
             case "IndexOf":
                 if (genArgs == null) return null;
                 return genArgs[0] switch
                 {
-                    0x08 => I("il2cpp::il2cpp_array_index_of_int32", 2, true, false, false, new[] { "a", "i" }),
-                    0x0A => I("il2cpp::il2cpp_array_index_of_int64", 2, true, false, false, new[] { "a", "l" }),
-                    0x0D => I("il2cpp::il2cpp_array_index_of_double", 2, true, false, false, new[] { "a", "d" }),
-                    0x0E => I("il2cpp::il2cpp_array_index_of_string", 2, true, false, false, new[] { "a", "" }),
+                    // int32 is claimed by the icall-layer domain (2-arg only);
+                    // here the 3/4-arg forms and the other families.
+                    0x08 when count == 3 => I("il2cpp::il2cpp_array_index_of_int32_start", 3, true, false, false, new[] { "a", "i", "i" }),
+                    0x08 when count == 4 => I("il2cpp::il2cpp_array_index_of_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
+                    0x0A when count == 2 => I("il2cpp::il2cpp_array_index_of_int64", 2, true, false, false, new[] { "a", "l" }),
+                    0x0A when count == 3 => I("il2cpp::il2cpp_array_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
+                    0x0A when count == 4 => I("il2cpp::il2cpp_array_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
+                    0x0C when count == 2 => I("il2cpp::il2cpp_array_index_of_float_start", 2, true, false, false, new[] { "a", "d" }, appendZero: true),
+                    0x0C when count == 3 => I("il2cpp::il2cpp_array_index_of_float_start", 3, true, false, false, new[] { "a", "d", "i" }),
+                    0x0C when count == 4 => I("il2cpp::il2cpp_array_index_of_float_range", 4, true, false, false, new[] { "a", "d", "i", "i" }),
+                    0x0D when count == 2 => I("il2cpp::il2cpp_array_index_of_double", 2, true, false, false, new[] { "a", "d" }),
+                    0x0D when count == 3 => I("il2cpp::il2cpp_array_index_of_double_start", 3, true, false, false, new[] { "a", "d", "i" }),
+                    0x0D when count == 4 => I("il2cpp::il2cpp_array_index_of_double_range", 4, true, false, false, new[] { "a", "d", "i", "i" }),
+                    0x0E when count == 2 => I("il2cpp::il2cpp_array_index_of_string", 2, true, false, false, new[] { "a", "" }),
+                    0x0E when count == 3 => I("il2cpp::il2cpp_array_index_of_string_start", 3, true, false, false, new[] { "a", "", "i" }),
+                    0x0E when count == 4 => I("il2cpp::il2cpp_array_index_of_string_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
+                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_index_of_object_start", 2, true, false, false, new[] { "a", "" }, appendZero: true),
+                    0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
+                    0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
                     _ => throw new NotSupportedException(
-                        $"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} has no direct-call (only int32/int64/double/string)"),
+                        $"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call"),
+                };
+            case "LastIndexOf":
+                if (genArgs == null) return null;
+                return genArgs[0] switch
+                {
+                    0x08 when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int32_start", 3, true, false, false, new[] { "a", "i", "i" }),
+                    0x08 when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
+                    0x0A when count == 2 => I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" }),
+                    0x0A when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
+                    0x0A when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
+                    0x0C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_float_start", 2, true, false, false, new[] { "a", "d" }, appendZero: true),
+                    0x0C when count == 3 => I("il2cpp::il2cpp_array_last_index_of_float_start", 3, true, false, false, new[] { "a", "d", "i" }),
+                    0x0C when count == 4 => I("il2cpp::il2cpp_array_last_index_of_float_range", 4, true, false, false, new[] { "a", "d", "i", "i" }),
+                    0x0D when count == 2 => I("il2cpp::il2cpp_array_last_index_of_double", 2, true, false, false, new[] { "a", "d" }),
+                    0x0D when count == 3 => I("il2cpp::il2cpp_array_last_index_of_double_start", 3, true, false, false, new[] { "a", "d", "i" }),
+                    0x0D when count == 4 => I("il2cpp::il2cpp_array_last_index_of_double_range", 4, true, false, false, new[] { "a", "d", "i", "i" }),
+                    0x0E when count == 2 => I("il2cpp::il2cpp_array_last_index_of_string", 2, true, false, false, new[] { "a", "" }),
+                    0x0E when count == 3 => I("il2cpp::il2cpp_array_last_index_of_string_start", 3, true, false, false, new[] { "a", "", "i" }),
+                    0x0E when count == 4 => I("il2cpp::il2cpp_array_last_index_of_string_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
+                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_object_start", 2, true, false, false, new[] { "a", "" }, appendZero: true),
+                    0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_last_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
+                    0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_last_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
+                    _ => throw new NotSupportedException(
+                        $"Array.LastIndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call"),
                 };
             case "BinarySearch":
                 if (genArgs == null) return null;
                 return genArgs[0] switch
                 {
-                    0x08 => I("il2cpp::il2cpp_array_binary_search_int32", 2, true, false, false, new[] { "a", "i" }),
-                    0x0A => I("il2cpp::il2cpp_array_binary_search_int64", 2, true, false, false, new[] { "a", "l" }),
-                    0x0D => I("il2cpp::il2cpp_array_binary_search_double", 2, true, false, false, new[] { "a", "d" }),
-                    0x0E => I("il2cpp::il2cpp_array_binary_search_string", 2, true, false, false, new[] { "a", "" }),
+                    0x08 when count == 2 => I("il2cpp::il2cpp_array_binary_search_int32", 2, true, false, false, new[] { "a", "i" }),
+                    0x08 when count == 4 => I("il2cpp::il2cpp_array_binary_search_int32_range", 4, true, false, false, new[] { "a", "i", "i", "i" }),
+                    0x0A when count == 2 => I("il2cpp::il2cpp_array_binary_search_int64", 2, true, false, false, new[] { "a", "l" }),
+                    0x0A when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64", 3, true, false, false, new[] { "a", "l", "" }),
+                    0x0A when count == 4 => I("il2cpp::il2cpp_array_binary_search_int64_range", 4, true, false, false, new[] { "a", "i", "i", "l" }),
+                    0x0A when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64_range", 5, true, false, false, new[] { "a", "i", "i", "l", "" }),
+                    0x0C when count == 2 => I("il2cpp::il2cpp_array_binary_search_float", 2, true, false, false, new[] { "a", "d" }),
+                    0x0C when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_float", 3, true, false, false, new[] { "a", "d", "" }),
+                    0x0C when count == 4 => I("il2cpp::il2cpp_array_binary_search_float_range", 4, true, false, false, new[] { "a", "i", "i", "d" }),
+                    0x0C when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_float_range", 5, true, false, false, new[] { "a", "i", "i", "d", "" }),
+                    0x0D when count == 2 => I("il2cpp::il2cpp_array_binary_search_double", 2, true, false, false, new[] { "a", "d" }),
+                    0x0D when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_double", 3, true, false, false, new[] { "a", "d", "" }),
+                    0x0D when count == 4 => I("il2cpp::il2cpp_array_binary_search_double_range", 4, true, false, false, new[] { "a", "i", "i", "d" }),
+                    0x0D when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_double_range", 5, true, false, false, new[] { "a", "i", "i", "d", "" }),
+                    0x0E when count == 2 => I("il2cpp::il2cpp_array_binary_search_string", 2, true, false, false, new[] { "a", "" }),
+                    0x0E when count == 4 => I("il2cpp::il2cpp_array_binary_search_string_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
+                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_binary_search_object", 2, true, false, false, new[] { "a", "" }),
+                    0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_binary_search_object_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
                     _ => throw new NotSupportedException(
-                        $"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} has no direct-call (only int32/int64/double/string)"),
+                        $"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call"),
                 };
             default: return null;
         }

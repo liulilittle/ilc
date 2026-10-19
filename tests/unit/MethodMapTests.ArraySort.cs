@@ -234,16 +234,18 @@ public class MethodMapArraySortTests
     }
 
     [Fact]
-    public void Resolve_Array_SortInt64_ThreeArgForm_ThrowsLoud()
+    public void Resolve_Array_SortInt64_ThreeArgForm_MapsToInt64RangeSort()
     {
-        // Array.Sort<long>(long[], int, int): the 3-arg (index, length) form
-        // has no direct call here (the 2-param sort has no range overload) --
-        // it must stay LOUD, never fall to the generated-name path.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Sort",
-                new byte[] { 0x00, 0x03, 0x01, 0x1D, 0x0A, 0x08, 0x08 }, new byte[] { 0x0A, 0x01, 0x0A })));
+        // nb9 P0 (arity mispair): Array.Sort<long>(long[], int, int) is now the
+        // real partial-range sort (arraysort.h il2cpp_array_sort_int64(arr,
+        // index, length)) instead of a LOUD reject.
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Sort",
+            new byte[] { 0x00, 0x03, 0x01, 0x1D, 0x0A, 0x08, 0x08 }, new byte[] { 0x0A, 0x01, 0x0A }));
 
-        Assert.Contains("System.Array::Sort", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_array_sort_int64", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "i", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]

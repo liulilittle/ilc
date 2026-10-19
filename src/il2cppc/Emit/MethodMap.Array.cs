@@ -42,6 +42,10 @@ public static partial class MethodRefResolver
                     // IComparer<string> and lands here too).
                     var secondIsIComparer =
                         SortedSetParamDefName(paramTypes, 1) == "System.Collections.Generic.IComparer`1";
+                    // nb9 zz-b4-cmp4: the RANGE overload's comparer is the
+                    // FOURTH parameter (array, index, length, comparer).
+                    var fourthIsIComparer =
+                        SortedSetParamDefName(paramTypes, 3) == "System.Collections.Generic.IComparer`1";
                     return genArgs[0] switch
                     {
                         // Array.Sort<T>(T[]) count==1 -- the no-comparer family:
@@ -84,6 +88,24 @@ public static partial class MethodRefResolver
                                 // the non-generic arm below).
                                 ? I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" })
                                 : I("il2cpp::il2cpp_array_sort_ref_comparison", 2, false, false, false, new[] { "a", "" }),
+                        // nb9 P0: Array.Sort<T>(T[], int, int) -- the
+                        // no-comparer RANGE sort (arraysort.h partial sorts;
+                        // double/float added for the nb9 P0 arity surface).
+                        0x08 when count == 3 => I("il2cpp::il2cpp_array_sort_int32", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x09 when count == 3 => I("il2cpp::il2cpp_array_sort_uint32", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x0A when count == 3 => I("il2cpp::il2cpp_array_sort_int64", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x0C when count == 3 => I("il2cpp::il2cpp_array_sort_float", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x0D when count == 3 => I("il2cpp::il2cpp_array_sort_double", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x0E when count == 3 => I("il2cpp::il2cpp_array_sort_string", 3, false, false, false, new[] { "a", "i", "i" }),
+                        // nb9 zz-b4-cmp4: Array.Sort<T>(T[], int, int,
+                        // IComparer<T>) -- only [index, index+length) is
+                        // ordered. The 4th parameter's generic definition is
+                        // the authoritative overload discriminator. The
+                        // Comparison<T> range form stays LOUD (no delegate
+                        // range entry -- report section 7).
+                        0x08 or 0x0E or 0x1C or 0x12 when count == 4 && fourthIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_range", 4, false, false, false,
+                                new[] { "a", "i", "i", "" }),
                         _ => throw new NotSupportedException($"Array.Sort<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) not wired in M5"),
                     };
                 }
@@ -116,43 +138,62 @@ public static partial class MethodRefResolver
                         0x08 when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_int32", 3, true, false, false, new[] { "a", "i", "" }),
                         0x0E when count == 2 => I("il2cpp::runtime::icall_array_binary_search_string", 2, true, false, false),
                         0x0E or 0x1C or 0x12 when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_ref", 3, true, false, false, new[] { "a", "", "" }),
+                        // nb9 zz-b4-bsearch2: the RANGE form
+                        // Array.BinarySearch<T>(T[], int, int, T, IComparer<T>)
+                        // (the comparer is parameter 4).
+                        0x08 when count == 5 && SortedSetParamDefName(paramTypes, 4) == "System.Collections.Generic.IComparer`1" =>
+                            I("il2cpp::il2cpp_array_binary_search_icomparer_int32_range", 5, true, false, false,
+                                new[] { "a", "i", "i", "i", "" }),
+                        0x0E or 0x1C or 0x12 when count == 5 && SortedSetParamDefName(paramTypes, 4) == "System.Collections.Generic.IComparer`1" =>
+                            I("il2cpp::il2cpp_array_binary_search_icomparer_ref_range", 5, true, false, false,
+                                new[] { "a", "i", "i", "", "" }),
                         // M6: int64 yields to the ArraySort direct-call
                         // domain (il2cpp_array_binary_search_int64); only
                         // the 2-arg form (ArraySort.cs maps any count to
                         // the 2-param call, so wider arities stay LOUD).
                         // W7: double follows the same yield.
                         0x0A or 0x0D when count == 2 => null,
-                        _ => throw new NotSupportedException($"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) not wired in M5"),
+                        // nb9 P0: everything else (the 4-arg range form and
+                        // the remaining families) yields to the ArraySort
+                        // direct-call domain.
+                        _ => null,
                     };
                 }
                 throw new NotSupportedException("Array.BinarySearch(Array, object) non-generic not wired in M5");
             case "IndexOf":
                 if (genArgs != null)
                 {
+                    // nb9 P0 (arity mispair): every arm is gated by count. Only
+                    // the 2-arg icall-layer shape is claimed here; the 3/4-arg
+                    // (array, value, startIndex[, count]) forms yield to the
+                    // ArraySort direct-call domain (arraysort.h *_start/*_range).
                     return genArgs[0] switch
                     {
-                        0x08 => I("il2cpp::runtime::icall_array_index_of_int32", 2, true, false, false),
-                        // M6: int64/string yield to the ArraySort direct-call
-                        // domain (il2cpp_array_index_of_int64/_string); only
-                        // the 2-arg form (same arity caveat as BinarySearch).
-                        // W7: double follows the same yield.
+                        0x08 when count == 2 => I("il2cpp::runtime::icall_array_index_of_int32", 2, true, false, false),
                         0x0A or 0x0D or 0x0E when count == 2 => null,
-                        _ => throw new NotSupportedException($"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
+                        _ => null, // wider arities and the float/ref families: ArraySort
                     };
                 }
-                return I("il2cpp::runtime::icall_array_index_of", 2, true, false, false);
+                // Non-generic Array.IndexOf(Array, object): only the 2-arg
+                // shape is wired (the icall-layer boxed scan). Wider arities
+                // stay LOUD (no silent arity collapse).
+                if (count == 2) return I("il2cpp::runtime::icall_array_index_of", 2, true, false, false);
+                throw new NotSupportedException($"Array.IndexOf(Array, object, ...) with {count} arg(s) not wired in M5");
             case "LastIndexOf":
                 if (genArgs != null)
                 {
-                    // W7: the double/string/long reverse scans (arraysort.h).
-                    // Only the 2-arg form (array, value) is wired.
-                    if (genArgs[0] == 0x08) return I("il2cpp::runtime::icall_array_last_index_of_int32", 2, true, false, false);
-                    if (genArgs[0] == 0x0D && count == 2) return I("il2cpp::il2cpp_array_last_index_of_double", 2, true, false, false, new[] { "a", "d" });
-                    if (genArgs[0] == 0x0E && count == 2) return I("il2cpp::il2cpp_array_last_index_of_string", 2, true, false, false, new[] { "a", "" });
-                    if (genArgs[0] == 0x0A && count == 2) return I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" });
-                    throw new NotSupportedException($"Array.LastIndexOf<T> generic argument 0x{genArgs[0]:X2} not wired in M5");
+                    // nb9 P0 (arity mispair): count-gated. The 3/4-arg shapes
+                    // yield to ArraySort (*_start/*_range).
+                    if (count == 2)
+                    {
+                        if (genArgs[0] == 0x08) return I("il2cpp::runtime::icall_array_last_index_of_int32", 2, true, false, false);
+                        if (genArgs[0] == 0x0D) return I("il2cpp::il2cpp_array_last_index_of_double", 2, true, false, false, new[] { "a", "d" });
+                        if (genArgs[0] == 0x0E) return I("il2cpp::il2cpp_array_last_index_of_string", 2, true, false, false, new[] { "a", "" });
+                        if (genArgs[0] == 0x0A) return I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" });
+                    }
+                    return null; // wider arities / other families: ArraySort
                 }
-                throw new NotSupportedException("Array.LastIndexOf(Array, object) non-generic not wired in M5");
+                return null; // non-generic: ArraySort domain
             case "Empty":
                 // Array.Empty<T>() -- generic static method (MethodSpec
                 // genArgs = [T]; Roslyn lowers no-arg TrimStart()/TrimEnd()

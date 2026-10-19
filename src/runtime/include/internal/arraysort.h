@@ -331,6 +331,81 @@ int32_t il2cpp_array_binary_search_icomparer_int32(Il2CppArray* arr, int32_t val
 int32_t il2cpp_array_binary_search_icomparer_ref(Il2CppArray* arr, Il2CppObject* value,
                                                  Il2CppObject* comparer);
 
+// The RANGE overloads (nb9 zz-b4-cmp4 / zz-b4-bsearch2):
+//   Array.Sort<T>(T[], int, int, IComparer<T>)
+//   Array.BinarySearch<T>(T[], int, int, T, IComparer<T>)
+// Only [index, index+length) is touched; the BinarySearch complement is the
+// insertion point in ARRAY coordinates (~(index + localInsertion)).
+void il2cpp_array_sort_icomparer_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                       Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_int32_range(Il2CppArray* arr, int32_t index,
+                                                         int32_t length, int32_t value,
+                                                         Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_ref_range(Il2CppArray* arr, int32_t index,
+                                                       int32_t length, Il2CppObject* value,
+                                                       Il2CppObject* comparer);
+
+//------------------------------------------------------------------------------
+// nb9 P0 (arity mispair): the RANGE/START arities of the generic scan surface
+// in net48 parameter order. Each family has:
+//   index_of_*_start(arr, value, startIndex)          Array.IndexOf(T[],T,int)
+//   index_of_*_range(arr, value, startIndex, count)   ...(T[],T,int,int)
+//   last_index_of_*_start(arr, value, startIndex)     Array.LastIndexOf(T[],T,int)
+//   last_index_of_*_range(arr, value, startIndex,count)...(T[],T,int,int)
+// The value families are int32/int64/float/double; 'string' uses the ordinal
+// comparison (null matches null), 'object' uses Object.Equals via
+// runtime::icall_object_equals. Validation matches net48 (AOORE "startIndex" /
+// "count").
+//------------------------------------------------------------------------------
+int32_t il2cpp_array_index_of_int32_start(Il2CppArray* arr, int32_t value, int32_t startIndex);
+int32_t il2cpp_array_index_of_int32_range(Il2CppArray* arr, int32_t value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_int32_start(Il2CppArray* arr, int32_t value, int32_t startIndex);
+int32_t il2cpp_array_last_index_of_int32_range(Il2CppArray* arr, int32_t value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_index_of_int64_start(Il2CppArray* arr, int64_t value, int32_t startIndex);
+int32_t il2cpp_array_index_of_int64_range(Il2CppArray* arr, int64_t value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_int64_start(Il2CppArray* arr, int64_t value, int32_t startIndex);
+int32_t il2cpp_array_last_index_of_int64_range(Il2CppArray* arr, int64_t value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_index_of_float_start(Il2CppArray* arr, double value, int32_t startIndex);
+int32_t il2cpp_array_index_of_float_range(Il2CppArray* arr, double value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_float_start(Il2CppArray* arr, double value, int32_t startIndex);
+int32_t il2cpp_array_last_index_of_float_range(Il2CppArray* arr, double value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_index_of_double_start(Il2CppArray* arr, double value, int32_t startIndex);
+int32_t il2cpp_array_index_of_double_range(Il2CppArray* arr, double value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_double_start(Il2CppArray* arr, double value, int32_t startIndex);
+int32_t il2cpp_array_last_index_of_double_range(Il2CppArray* arr, double value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_index_of_string_start(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex);
+int32_t il2cpp_array_index_of_string_range(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_string_start(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex);
+int32_t il2cpp_array_last_index_of_string_range(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_index_of_object_start(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex);
+int32_t il2cpp_array_index_of_object_range(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_object_start(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex);
+int32_t il2cpp_array_last_index_of_object_range(Il2CppArray* arr, Il2CppObject* value, int32_t startIndex, int32_t count);
+
+// Array.BinarySearch<T>(T[], int, int, T) -- the range search (no comparer).
+int32_t il2cpp_array_binary_search_int32_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t value);
+int32_t il2cpp_array_binary_search_int64_range(Il2CppArray* arr, int32_t index, int32_t length, int64_t value);
+int32_t il2cpp_array_binary_search_float_range(Il2CppArray* arr, int32_t index, int32_t length, double value);
+int32_t il2cpp_array_binary_search_double_range(Il2CppArray* arr, int32_t index, int32_t length, double value);
+int32_t il2cpp_array_binary_search_float(Il2CppArray* arr, double value);
+int32_t il2cpp_array_binary_search_object(Il2CppArray* arr, Il2CppObject* value);
+int32_t il2cpp_array_binary_search_string_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value);
+int32_t il2cpp_array_binary_search_object_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value);
+
+// Array.BinarySearch<T>(T[], T, IComparer<T>) / (..., int, int, T, IComparer<T>)
+// for the wide families (int32/ref already declared above).
+int32_t il2cpp_array_binary_search_icomparer_int64(Il2CppArray* arr, int64_t value, Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_int64_range(Il2CppArray* arr, int32_t index, int32_t length, int64_t value, Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_double(Il2CppArray* arr, double value, Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_double_range(Il2CppArray* arr, int32_t index, int32_t length, double value, Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_float(Il2CppArray* arr, double value, Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_float_range(Il2CppArray* arr, int32_t index, int32_t length, double value, Il2CppObject* comparer);
+
+// Array.Sort<T>(T[], int, int) for the double/float families (the int32/
+// uint32/int64/string partial sorts are declared above).
+void il2cpp_array_sort_double(Il2CppArray* arr, int32_t index, int32_t length);
+void il2cpp_array_sort_float(Il2CppArray* arr, int32_t index, int32_t length);
+
 // Array.Sort<T>(T[], Comparison<T>) -- the DELEGATE sorts. The transpiler
 // passes the compiled Comparison<T> as a managed delegate (single-cast static
 // methodPtr ABI, the Predicate<int> precedent); the runtime invokes it per
