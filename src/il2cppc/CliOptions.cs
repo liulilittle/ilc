@@ -42,7 +42,7 @@ public sealed class CliOptions
     // Program.cs. The "usage:" keyword is kept verbatim (existing error text
     // stays byte-stable).
     public const string Usage =
-        "usage: il2cppc [--arch x86|x64|arm32|arm64] [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
+        "usage: il2cppc [--arch x86|x64|arm32|arm64] [--reflection-list <manifest>] [--reflection-granularity all|members] [--manifest <file>] [--requested-execution-level asInvoker|highestAvailable|requireAdministrator] [--ui-access] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
     public const string AuditUsage = "usage: il2cppc audit-internalcalls <assembly>";
 
     // GN-19 (GL): multi-section English help. The first line keeps the
@@ -50,7 +50,7 @@ public sealed class CliOptions
     // the single-line Usage/AuditUsage constants above remain the parse-error
     // echo (CliOptions.cs parse paths + Program.cs audit-missing-arg).
     public const string HelpText =
-@"usage: il2cppc [--arch <arch>] [--reflection-list <manifest>] [--reflection-granularity all|members] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
+@"usage: il2cppc [--arch <arch>] [--reflection-list <manifest>] [--reflection-granularity all|members] [--manifest <file>] [--requested-execution-level <level>] [--ui-access] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
 usage: il2cppc audit-internalcalls <assembly>
        il2cppc --version | --help | -h
 
@@ -70,6 +70,15 @@ OPTIONS
                                  name per line; '#' comments and blank lines
                                  are ignored).
   --reflection-granularity <g>   all | members (default: members).
+  --manifest <file>              embed this Windows application manifest into
+                                 the generated executable (verbatim). Mutually
+                                 exclusive with --requested-execution-level.
+  --requested-execution-level <l>
+                                 asInvoker | highestAvailable |
+                                 requireAdministrator -- synthesize the standard
+                                 manifest with that requestedExecutionLevel.
+  --ui-access                    set uiAccess=""true"" in the generated manifest
+                                 (requires --requested-execution-level).
   --log <file>                   tee a copy of stdout + stderr into <file>.
   --quiet                        suppress the stdout diagnostics (errors and
                                  warnings on stderr are unaffected).
@@ -106,6 +115,17 @@ EXAMPLES
   il2cppc app.dll gen
   il2cppc --arch arm64 --reflection-list types.txt --log build.log app.dll gen
   il2cppc --arch riscv64 app.dll gen-riscv64
+  il2cppc --requested-execution-level requireAdministrator app.dll gen
+  il2cppc --manifest app.manifest app.dll gen
+
+WINDOWS APPLICATION MANIFEST
+  The generated executable embeds an RT_MANIFEST resource (id 1) when a
+  manifest is requested. Sources, in precedence order:
+    1. --manifest <file>                (embedded verbatim)
+    2. --requested-execution-level <l>  (synthesized, with --ui-access)
+    3. the sidecar <input-assembly>.manifest (e.g. App.exe.manifest)
+  With no manifest source the project emits no .rc file at all, so the
+  non-Windows build path is byte-identical to before.
 
 ENVIRONMENT
   IL2CPP_MINGW_ROOT / IL2CPP_MSVC_GENERATOR / IL2CPP_WSL_DISTRO /
@@ -139,6 +159,20 @@ NOTES
     // output (zero-regression iron rule).
     public string? TargetArch { get; init; }
     public int PointerSize { get; init; } = IntPtr.Size;
+
+    // Windows application manifest (nb10). Three sources, in precedence order:
+    //   1. --manifest <file>              -- embed that XML verbatim
+    //   2. --requested-execution-level    -- synthesize the standard manifest
+    //      <asInvoker|highestAvailable|requireAdministrator>
+    //   3. the SIDECAR <input-assembly>.manifest (App.exe.manifest), the same
+    //      external-manifest convention Windows itself honors
+    // ManifestPath is the RESOLVED source ("" = no manifest requested);
+    // ManifestIsGenerated marks the synthesized form (needed because the
+    // generated text must be written by the generator, not copied).
+    public string ManifestPath { get; init; } = "";
+    public bool ManifestIsGenerated { get; init; }
+    public string RequestedExecutionLevel { get; init; } = "";
+    public bool UiAccess { get; init; }
 }
 
 public sealed class CliParseException : Exception
@@ -151,6 +185,9 @@ public static class CliParser
     public static CliOptions Parse(string[] args)
     {
         string? manifestPath = null;
+        string? appManifestPath = null;
+        string requestedExecutionLevel = "";
+        var uiAccess = false;
         var granularity = ReflectionGranularity.Members;
         string logPath = "";
         var quiet = false;
@@ -171,6 +208,19 @@ public static class CliParser
                     if (i + 1 >= args.Length)
                         throw new CliParseException("option --reflection-list requires a manifest file path");
                     manifestPath = args[++i];
+                    break;
+                case "--manifest":
+                    if (i + 1 >= args.Length)
+                        throw new CliParseException("option --manifest requires a Windows application manifest file path");
+                    appManifestPath = args[++i];
+                    break;
+                case "--requested-execution-level":
+                    if (i + 1 >= args.Length)
+                        throw new CliParseException("option --requested-execution-level requires a value (asInvoker|highestAvailable|requireAdministrator)");
+                    requestedExecutionLevel = ParseRequestedExecutionLevel(args[++i]);
+                    break;
+                case "--ui-access":
+                    uiAccess = true;
                     break;
                 case "--reflection-granularity":
                     if (i + 1 >= args.Length)
@@ -198,6 +248,17 @@ public static class CliParser
         if (quiet && verbose)
             throw new CliParseException("options --quiet and --verbose are mutually exclusive");
 
+        // nb10: the two manifest sources are alternatives (both describe the
+        // SAME artifact); accepting both would silently pick one.
+        if (appManifestPath != null && requestedExecutionLevel.Length > 0)
+            throw new CliParseException(
+                "options --manifest and --requested-execution-level are mutually exclusive "
+                + "(an explicit manifest file already carries its requestedExecutionLevel)");
+        if (uiAccess && requestedExecutionLevel.Length == 0)
+            throw new CliParseException(
+                "option --ui-access requires --requested-execution-level "
+                + "(the generated manifest is the only place uiAccess is expressible)");
+
         if (positionals.Count != 2)
             throw new CliParseException(CliOptions.Usage);
 
@@ -210,6 +271,26 @@ public static class CliParser
             throw new CliParseException(
                 $"input-assembly and output-dir must be non-empty paths ({CliOptions.Usage})");
 
+        // nb10: resolve the Windows application-manifest source. An explicit
+        // --manifest file must exist (same clean-error contract as
+        // --reflection-list). Otherwise the sidecar "<assembly>.manifest"
+        // (e.g. App.exe.manifest) is picked up automatically -- the very
+        // external-manifest convention Windows honors -- so a project that
+        // already ships one needs no extra flag.
+        var resolvedManifest = "";
+        if (appManifestPath != null)
+        {
+            if (!File.Exists(appManifestPath))
+                throw new CliParseException(
+                    $"Windows application manifest not found: {appManifestPath}");
+            resolvedManifest = appManifestPath;
+        }
+        else if (requestedExecutionLevel.Length == 0)
+        {
+            var sidecar = positionals[0] + ".manifest";
+            if (File.Exists(sidecar)) resolvedManifest = sidecar;
+        }
+
         return new CliOptions
         {
             InputAssembly = positionals[0],
@@ -220,6 +301,10 @@ public static class CliParser
             LogPath = logPath,
             Quiet = quiet,
             Verbose = verbose,
+            ManifestPath = resolvedManifest,
+            ManifestIsGenerated = requestedExecutionLevel.Length > 0,
+            RequestedExecutionLevel = requestedExecutionLevel,
+            UiAccess = uiAccess,
             // G1: TargetArch == "" when --arch is absent -> null (host width);
             // PointerSize = normalized target width (4|8), host IntPtr.Size default.
             // GN-19: 11-arch PointerSize table (aliases already normalized by
@@ -233,6 +318,18 @@ public static class CliParser
             },
         };
     }
+
+    // nb10: the three requestedExecutionLevel values net48/Windows accept.
+    // Canonical camelCase is returned (case-insensitive input) so the emitted
+    // manifest is byte-stable.
+    private static string ParseRequestedExecutionLevel(string value) => value.ToLowerInvariant() switch
+    {
+        "asinvoker" => "asInvoker",
+        "highestavailable" => "highestAvailable",
+        "requireadministrator" => "requireAdministrator",
+        _ => throw new CliParseException(
+            $"invalid --requested-execution-level '{value}' (expected one of: asInvoker, highestAvailable, requireAdministrator)"),
+    };
 
     // G1 (cross-platform arch): validate the --arch value (case-insensitive)
     // and return its normalized canonical name (aliases mips32 -> mips, ppc32 ->

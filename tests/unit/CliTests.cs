@@ -810,6 +810,212 @@ public class CliTests
         }
     }
 
+    //--------------------------------------------------------------------------
+    // nb10: Windows application manifest. Three sources (--manifest file,
+    // --requested-execution-level synthesis, the sidecar <assembly>.manifest),
+    // the mutual-exclusion / value validation, and the emitted artifacts
+    // (app.manifest + app.rc with `1 24`, plus the CMake RC arm).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Manifest_RequestedExecutionLevel_SynthesizesAllThreeLevels()
+    {
+        foreach (var (token, canonical) in new[]
+                 {
+                     ("asInvoker", "asInvoker"),
+                     ("highestavailable", "highestAvailable"),
+                     ("requireadministrator", "requireAdministrator"),
+                 })
+        {
+            var opts = CliParser.Parse(new[] { "--requested-execution-level", token, "in.dll", "out" });
+            Assert.Equal(canonical, opts.RequestedExecutionLevel);
+            Assert.True(opts.ManifestIsGenerated);
+            Assert.Equal("", opts.ManifestPath);
+            Assert.False(opts.UiAccess);
+        }
+    }
+
+    [Fact]
+    public void Manifest_InvalidLevel_ThrowsCleanError()
+    {
+        var ex = Assert.Throws<CliParseException>(() =>
+            CliParser.Parse(new[] { "--requested-execution-level", "admin", "in.dll", "out" }));
+        Assert.Contains("invalid --requested-execution-level", ex.Message);
+        Assert.Contains("requireAdministrator", ex.Message);
+    }
+
+    [Fact]
+    public void Manifest_MissingValue_ThrowsCleanError()
+    {
+        var ex = Assert.Throws<CliParseException>(() =>
+            CliParser.Parse(new[] { "in.dll", "--manifest" }));
+        Assert.Contains("requires a Windows application manifest file path", ex.Message);
+    }
+
+    [Fact]
+    public void Manifest_MissingFile_ThrowsCleanError()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), "il2cpp_missing_" + Guid.NewGuid().ToString("N") + ".manifest");
+        var ex = Assert.Throws<CliParseException>(() =>
+            CliParser.Parse(new[] { "--manifest", missing, "in.dll", "out" }));
+        Assert.Contains("Windows application manifest not found", ex.Message);
+    }
+
+    [Fact]
+    public void Manifest_ExplicitFile_IsResolvedVerbatim()
+    {
+        var path = TempManifestXml("<assembly/>");
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            Assert.Equal(path, opts.ManifestPath);
+            Assert.False(opts.ManifestIsGenerated);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_Sidecar_IsPickedUpAutomatically()
+    {
+        // The Windows external-manifest convention: <assembly>.manifest next to
+        // the assembly needs no flag.
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_sidecar_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var asm = Path.Combine(dir, "App.exe");
+            File.WriteAllText(asm, "");
+            var sidecar = asm + ".manifest";
+            File.WriteAllText(sidecar, "<assembly/>");
+            var opts = CliParser.Parse(new[] { asm, Path.Combine(dir, "out") });
+            Assert.Equal(sidecar, opts.ManifestPath);
+            Assert.False(opts.ManifestIsGenerated);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Manifest_NoSource_LeavesManifestPathEmpty()
+    {
+        var opts = CliParser.Parse(new[] { "in.dll", "out" });
+        Assert.Equal("", opts.ManifestPath);
+        Assert.False(opts.ManifestIsGenerated);
+    }
+
+    [Fact]
+    public void Manifest_FileAndLevel_AreMutuallyExclusive()
+    {
+        var path = TempManifestXml("<assembly/>");
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(() =>
+                CliParser.Parse(new[] { "--manifest", path, "--requested-execution-level", "asInvoker", "in.dll", "out" }));
+            Assert.Contains("mutually exclusive", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_UiAccess_RequiresLevel()
+    {
+        var ex = Assert.Throws<CliParseException>(() =>
+            CliParser.Parse(new[] { "--ui-access", "in.dll", "out" }));
+        Assert.Contains("--ui-access requires --requested-execution-level", ex.Message);
+    }
+
+    [Fact]
+    public void Main_RequestedExecutionLevel_EmitsManifestAndRc()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var code = Program.RunMain(new[]
+                { "--requested-execution-level", "requireAdministrator", "--ui-access", FixturePath(), dir });
+            Assert.Equal(0, code);
+
+            var manifest = File.ReadAllText(Path.Combine(dir, "app.manifest"));
+            Assert.Contains("requestedExecutionLevel level=\"requireAdministrator\" uiAccess=\"true\"", manifest);
+            Assert.Contains("urn:schemas-microsoft-com:asm.v3", manifest);
+
+            var rc = File.ReadAllText(Path.Combine(dir, "app.rc"));
+            Assert.Contains("1 24 \"app.manifest\"", rc);
+
+            var cmake = File.ReadAllText(Path.Combine(dir, "CMakeLists.txt"));
+            Assert.Contains("enable_language(RC)", cmake);
+            // app.rc belongs to the EXECUTABLE source list only.
+            var exeBlock = cmake.Substring(cmake.IndexOf("add_executable(il2cpp_gen_exe", StringComparison.Ordinal));
+            Assert.Contains("app.rc", exeBlock);
+            var libBlock = cmake.Substring(cmake.IndexOf("add_library(il2cpp_gen STATIC", StringComparison.Ordinal));
+            Assert.DoesNotContain("app.rc", libBlock.Substring(0, libBlock.IndexOf("add_executable", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Main_NoManifest_EmitsNoRcAndNoRcLanguage()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var code = Program.RunMain(new[] { FixturePath(), dir });
+            Assert.Equal(0, code);
+            Assert.False(File.Exists(Path.Combine(dir, "app.rc")));
+            Assert.False(File.Exists(Path.Combine(dir, "app.manifest")));
+            var cmake = File.ReadAllText(Path.Combine(dir, "CMakeLists.txt"));
+            Assert.DoesNotContain("enable_language(RC)", cmake);
+            Assert.DoesNotContain("app.rc", cmake);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Main_ManifestFile_IsEmbeddedVerbatim()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_cli_" + Guid.NewGuid().ToString("N"));
+        const string xml =
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            + "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\">\n"
+            + "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\"><security>\n"
+            + "    <requestedPrivileges xmlns=\"urn:schemas-microsoft-com:asm.v3\">\n"
+            + "      <requestedExecutionLevel level=\"highestAvailable\" uiAccess=\"false\"/>\n"
+            + "    </requestedPrivileges></security></trustInfo>\n"
+            + "</assembly>\n";
+        var path = TempManifestXml(xml);
+        try
+        {
+            var code = Program.RunMain(new[] { "--manifest", path, FixturePath(), dir });
+            Assert.Equal(0, code);
+            Assert.Equal(xml, File.ReadAllText(Path.Combine(dir, "app.manifest")));
+            Assert.Contains("1 24 \"app.manifest\"", File.ReadAllText(Path.Combine(dir, "app.rc")));
+        }
+        finally
+        {
+            File.Delete(path);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    private static string TempManifestXml(string xml)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllText(path, xml);
+        return path;
+    }
+
     private static string TempManifest(params string[] lines)
     {
         var path = Path.Combine(Path.GetTempPath(), "il2cpp_manifest_" + Guid.NewGuid().ToString("N") + ".txt");
