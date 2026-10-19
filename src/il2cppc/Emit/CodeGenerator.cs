@@ -9162,7 +9162,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // (the fixed-width "i" arm). Read through void** so the value
                 // compares to nullptr and casts to the calli target directly.
                 "fnptr" => $"(*reinterpret_cast<void**>({ldelemPtr}))",
-                "r4" => $"static_cast<double>(*reinterpret_cast<float*>({ldelemPtr}))",
+                // nb9 H-F2: a float element read follows the array's REAL cell
+                // width -- the F-stack carrier may be a widened double[].
+                "r4" => $"il2cpp::il2cpp_array_get_elem_float_as_double({NullSafePtrCast("Il2CppArray*", EmitExpr(c.Args[0], md, types))}, static_cast<int32_t>({EmitExpr(c.Args[1], md, types)}))",
                 "r8" => $"(*reinterpret_cast<double*>({ldelemPtr}))",
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
                 // read -- the full 16-byte value struct.

@@ -303,7 +303,8 @@ Il2CppObject* il2cpp_linq_group_by_elem_i4(Il2CppArray* src, Il2CppObject* keySe
 // ONE entry serves every shape: the transpiler passes nullptr for the absent
 // delegates plus the two family codes as trailing literals:
 //   elemKind : 0 int32 | 1 reference | 2 int64 (boxed) | 3 double (boxed)
-//   rsKind   : 0 no result selector | 1 int32 TResult | 2 reference TResult
+//   rsKind   : 0 no result selector | 1 int32 TResult | 2 reference TResult |
+//              3 int64 TResult | 4 double TResult | 5 float TResult (nb9 H-F4)
 // The RESULT selector (`Func<TKey,IEnumerable<TElement>,TResult>`) receives
 // (int32 key, Il2CppObject* bucketElements) -- the SECOND argument is the
 // bucket's exact-size element ARRAY (an IEnumerable<TElement> carrier with the

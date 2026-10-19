@@ -195,13 +195,13 @@ public static partial class MethodRefResolver
                         return name switch
                         {
                             "Sum" => I("il2cpp::il2cpp_linq_sum_sel_f", 2, true, false, false,
-                                TwoArg, resultKind: "f"),
+                                TwoArg, resultKind: "d"),
                             "Min" => I("il2cpp::il2cpp_linq_min_sel_f", 2, true, false, false,
-                                TwoArg, resultKind: "f"),
+                                TwoArg, resultKind: "d"),
                             "Max" => I("il2cpp::il2cpp_linq_max_sel_f", 2, true, false, false,
-                                TwoArg, resultKind: "f"),
+                                TwoArg, resultKind: "d"),
                             _ => I("il2cpp::il2cpp_linq_average_sel_f", 2, true, false, false,
-                                TwoArg, resultKind: "f"),
+                                TwoArg, resultKind: "d"),
                         };
                     default:
                         throw new NotSupportedException(
@@ -449,7 +449,7 @@ public static partial class MethodRefResolver
                             return I(selIdx
                                     ? "il2cpp::il2cpp_linq_select_idx_i4_f"
                                     : "il2cpp::il2cpp_linq_select_i4_f",
-                                2, true, true, false, TwoArg, returnTypeName: "System.Single[]");
+                                2, true, true, false, TwoArg, returnTypeName: "System.Double[]");
                         case 0x0D:
                             return I(selIdx
                                     ? "il2cpp::il2cpp_linq_select_idx_i4_d"
@@ -663,9 +663,16 @@ public static partial class MethodRefResolver
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1", // reference
                         _ => "",
                     };
+                    // nb9 H-F4: TResult selects the result array's REAL element
+                    // layout and the selector's return ABI (a float/double/
+                    // long TResult was previously run through the reference
+                    // ABI and materialized as object[]).
                     string ResultFamily(byte b) => b switch
                     {
-                        0x08 => "1",
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                        0x0A => "3",
+                        0x0D => "4",
+                        0x0C => "5",
                         _ => "2",
                     };
 
@@ -710,7 +717,10 @@ public static partial class MethodRefResolver
                     var literals = new[] { ek, rk };
                     var retType = rk == "0"
                         ? "System.Linq.IGroupingResult"
-                        : rk == "1" ? "System.Int32[]" : "System.Object[]";
+                        : rk == "1" ? "System.Int32[]"
+                        : rk == "3" ? "System.Int64[]"
+                        : rk == "4" ? "System.Double[]"
+                        : rk == "5" ? "System.Double[]" : "System.Object[]";
                     // The result is ALWAYS a managed reference (a grouping
                     // result object or a result array), so the result temp is
                     // the Il2CppObject* slot (rv=true, rr=true).
@@ -804,11 +814,12 @@ public static partial class MethodRefResolver
                         "i4" => I("il2cpp::il2cpp_linq_aggregate_i4", 2, true, false, false, TwoArg),
                         "i8" => I("il2cpp::il2cpp_linq_aggregate_i8", 2, true, false, false,
                             TwoArg, resultKind: "l"),
-                        // float TSource: our Select materializes float as a
-                        // double[] (the F stack family), so the source read is
-                        // double while the accumulator stays float.
+                        // float TSource: the float Select materializes a
+                        // double[] (the F-stack carrier convention, see H-F2),
+                        // so the source read is double and the accumulator
+                        // stays float.
                         "f" => I("il2cpp::il2cpp_linq_aggregate_f_d", 2, true, false, false,
-                            TwoArg, resultKind: "f"),
+                            TwoArg, resultKind: "d"),
                         "d" => I("il2cpp::il2cpp_linq_aggregate_d", 2, true, false, false,
                             TwoArg, resultKind: "d"),
                         _ => null,
@@ -854,9 +865,9 @@ public static partial class MethodRefResolver
                                     new[] { "a", "l", "" }, resultKind: "l"),
                             "f" => srcFam is "f" or "d"
                                 ? I("il2cpp::il2cpp_linq_aggregate_seed_f_d", 3, true, false, false,
-                                    new[] { "a", "d", "" }, resultKind: "f")
+                                    new[] { "a", "d", "" }, resultKind: "d")
                                 : I("il2cpp::il2cpp_linq_aggregate_seed_f", 3, true, false, false,
-                                    new[] { "a", "d", "" }, resultKind: "f"),
+                                    new[] { "a", "d", "" }, resultKind: "d"),
                             "d" => srcFam is "f" or "d"
                                 ? I("il2cpp::il2cpp_linq_aggregate_seed_d_d", 3, true, false, false,
                                     new[] { "a", "d", "" }, resultKind: "d")
@@ -877,25 +888,28 @@ public static partial class MethodRefResolver
                         "d" => "d",
                         _ => "",
                     };
-                    string cpp = acc switch
+                    // nb9 H-F3: TResult selects the RESULT ABI, not just the
+                    // declared width. The old mapping always used *_rs_i4 and
+                    // the int32 projector, truncating long TResult and reading
+                    // a float TResult's C++ float return as an integer.
+                    string resSuffix = resRef ? "_rs_ref"
+                        : resByte == 0x0A ? "_rs_i8"
+                        : resByte == 0x0C ? "_rs_f"
+                        : resByte == 0x0D ? "_rs_d"
+                        : "_rs_i4";
+                    string cppBase = acc switch
                     {
-                        "i4" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_rs_ref"
-                                       : "il2cpp::il2cpp_linq_aggregate_seed_rs_i4",
-                        "i8" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_i8_rs_ref"
-                                       : "il2cpp::il2cpp_linq_aggregate_seed_i8_rs_i4",
-                        "f" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_f_rs_ref"
-                                      : "il2cpp::il2cpp_linq_aggregate_seed_f_rs_i4",
-                        "d" => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_d_rs_ref"
-                                      : "il2cpp::il2cpp_linq_aggregate_seed_d_rs_i4",
-                        _ => resRef ? "il2cpp::il2cpp_linq_aggregate_seed_ref_rs_ref"
-                                    : "il2cpp::il2cpp_linq_aggregate_seed_ref_rs_i4",
+                        "i4" => "il2cpp::il2cpp_linq_aggregate_seed",
+                        "i8" => "il2cpp::il2cpp_linq_aggregate_seed_i8",
+                        "f" => "il2cpp::il2cpp_linq_aggregate_seed_f",
+                        "d" => "il2cpp::il2cpp_linq_aggregate_seed_d",
+                        _ => "il2cpp::il2cpp_linq_aggregate_seed_ref",
                     };
-                    return I(cpp, 4, true, resRef, false,
+                    return I(cppBase + resSuffix, 4, true, resRef, false,
                         new[] { "a", seedCast, "", "" },
                         resultKind: resRef ? null
                             : (resByte == 0x0A ? "l"
-                               : resByte == 0x0C ? "f"
-                               : resByte == 0x0D ? "d" : null));
+                               : resByte is 0x0C or 0x0D ? "d" : null));
                 }
                 return null;
             case "LongCount":
@@ -925,7 +939,7 @@ public static partial class MethodRefResolver
     {
         0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "System.Int32[]",
         0x0A or 0x0B => "System.Int64[]",
-        0x0C => "System.Single[]",
+        0x0C => "System.Double[]",
         0x0D => "System.Double[]",
         0x0E => "System.String[]",
         _ => "System.Object[]",
@@ -994,9 +1008,9 @@ public static partial class MethodRefResolver
                         new[] { "a" }, resultKind: "l");
             case "f":
                 return avg
-                    ? I("il2cpp::il2cpp_linq_average_f", 1, true, false, false, new[] { "a" }, resultKind: "f")
+                    ? I("il2cpp::il2cpp_linq_average_f", 1, true, false, false, new[] { "a" }, resultKind: "d")
                     : I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_f", 1, true, false, false,
-                        new[] { "a" }, resultKind: "f");
+                        new[] { "a" }, resultKind: "d");
             default:
                 return avg
                     ? I("il2cpp::il2cpp_linq_average_d", 1, true, false, false, new[] { "a" }, resultKind: "d")

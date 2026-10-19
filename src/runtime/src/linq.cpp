@@ -439,9 +439,9 @@ double il2cpp_linq_average_d(Il2CppArray* src)
     return sum / static_cast<double>(src->length);
 }
 
-// The float family: our Select materializes float as double[], so these read
-// doubles and keep net48's float carriers (Sum/Min/Max -> float, Average ->
-// float with a double accumulator).
+// The float family (nb9 H-F2): a float Select materializes a REAL float[], so
+// these read 4-byte elements and keep net48's float carriers (Sum/Min/Max ->
+// float, Average -> float with a double accumulator).
 float il2cpp_linq_sum_f(Il2CppArray* src)
 {
     CheckSource(src);
@@ -924,6 +924,40 @@ Il2CppObject* ProjectRefRef(Il2CppDelegate* d, Il2CppObject* acc)
         : reinterpret_cast<AccRefResRefFn>(d->methodPtr)(acc);
 }
 
+//------------------------------------------------------------------------------
+// nb9 H-F3: the WIDE result-selector projectors. TResult numeric follows the
+// RESULT family: int64_t for long, float for float (the managed leaf returns
+// C++ float -- widening it into a double slot is an exact conversion), double
+// for double. The old mapping always used the int32 projector, so a long
+// TResult was a truncated int32 and a float TResult read the float return as
+// an integer bit pattern.
+//------------------------------------------------------------------------------
+template <typename Res, typename Acc>
+Res ProjectTyped(Il2CppDelegate* d, Acc acc)
+{
+    typedef Res (*LeafFn)(Acc);
+    typedef Res (*ThisFn)(Il2CppObject*, Acc);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<LeafFn>(d->methodPtr)(acc);
+}
+
+int64_t ProjectI4I8(Il2CppDelegate* d, int32_t acc) { return ProjectTyped<int64_t, int32_t>(d, acc); }
+float ProjectI4F(Il2CppDelegate* d, int32_t acc) { return ProjectTyped<float, int32_t>(d, acc); }
+double ProjectI4D(Il2CppDelegate* d, int32_t acc) { return ProjectTyped<double, int32_t>(d, acc); }
+int64_t ProjectI8I8(Il2CppDelegate* d, int64_t acc) { return ProjectTyped<int64_t, int64_t>(d, acc); }
+float ProjectI8F(Il2CppDelegate* d, int64_t acc) { return ProjectTyped<float, int64_t>(d, acc); }
+double ProjectI8D(Il2CppDelegate* d, int64_t acc) { return ProjectTyped<double, int64_t>(d, acc); }
+int64_t ProjectDI8(Il2CppDelegate* d, double acc) { return ProjectTyped<int64_t, double>(d, acc); }
+float ProjectDF(Il2CppDelegate* d, double acc) { return ProjectTyped<float, double>(d, acc); }
+double ProjectDD(Il2CppDelegate* d, double acc) { return ProjectTyped<double, double>(d, acc); }
+int64_t ProjectRefI8(Il2CppDelegate* d, Il2CppObject* acc) { return ProjectTyped<int64_t, Il2CppObject*>(d, acc); }
+float ProjectRefF(Il2CppDelegate* d, Il2CppObject* acc) { return ProjectTyped<float, Il2CppObject*>(d, acc); }
+double ProjectRefD(Il2CppDelegate* d, Il2CppObject* acc) { return ProjectTyped<double, Il2CppObject*>(d, acc); }
+int64_t ProjectFI8(Il2CppDelegate* d, double acc) { return ProjectTyped<int64_t, double>(d, acc); }
+float ProjectFF(Il2CppDelegate* d, double acc) { return ProjectTyped<float, double>(d, acc); }
+double ProjectFD(Il2CppDelegate* d, double acc) { return ProjectTyped<double, double>(d, acc); }
+
 } // namespace
 
 int64_t il2cpp_linq_aggregate_seed_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func)
@@ -1041,6 +1075,97 @@ Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObje
 }
 
 //------------------------------------------------------------------------------
+// nb9 H-F3: the WIDE result-selector wrappers. TResult decides the return
+// carrier: int64_t (long), double (float and double -- a float selector's C++
+// float return is widened exactly), or the reference slot. The old mapping
+// called the *_rs_i4 entry for every numeric TResult, so long was truncated
+// and float read the float bits as int32.
+//------------------------------------------------------------------------------
+#define NB9_AGG_RS_INT(NAME, SEEDTYPE, ACCEXPR, PROJ)                              \
+    int64_t NAME##_i8(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,         \
+                      Il2CppObject* resSel)                                        \
+    {                                                                              \
+        CheckSource(src);                                                          \
+        Il2CppDelegate* fd = RequireCallback(func);                                \
+        Il2CppDelegate* rd = RequireCallback(resSel);                              \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        return PROJ(rd, ACCEXPR);                                                  \
+    }                                                                              \
+    double NAME##_f(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,           \
+                    Il2CppObject* resSel)                                          \
+    {                                                                              \
+        CheckSource(src);                                                          \
+        Il2CppDelegate* fd = RequireCallback(func);                                \
+        Il2CppDelegate* rd = RequireCallback(resSel);                              \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        return static_cast<double>(PROJ##F(rd, ACCEXPR));                      \
+    }                                                                              \
+    double NAME##_d(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,           \
+                    Il2CppObject* resSel)                                          \
+    {                                                                              \
+        CheckSource(src);                                                          \
+        Il2CppDelegate* fd = RequireCallback(func);                                \
+        Il2CppDelegate* rd = RequireCallback(resSel);                              \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        return PROJ##D(rd, ACCEXPR);                                          \
+    }
+
+NB9_AGG_RS_INT(il2cpp_linq_aggregate_seed_rs, int32_t,
+               il2cpp_linq_aggregate_seed_i4(src, seed, reinterpret_cast<Il2CppObject*>(fd)),
+               ProjectI4)
+NB9_AGG_RS_INT(il2cpp_linq_aggregate_seed_i8_rs, int64_t,
+               FoldI8(src, seed, fd), ProjectI8)
+NB9_AGG_RS_INT(il2cpp_linq_aggregate_seed_d_rs, double,
+               FoldD(src, seed, fd), ProjectD)
+#undef NB9_AGG_RS_INT
+
+// The reference-accumulator wide selectors (the accumulator must stay rooted).
+int64_t il2cpp_linq_aggregate_seed_ref_rs_i8(Il2CppArray* src, Il2CppObject* seed,
+                                             Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    Il2CppObject* acc = FoldRef(src, seed, fd);
+    RootScope accRoots;
+    accRoots.Add(reinterpret_cast<void**>(&acc));
+    return ProjectRefI8(rd, acc);
+}
+
+double il2cpp_linq_aggregate_seed_ref_rs_f(Il2CppArray* src, Il2CppObject* seed,
+                                           Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    Il2CppObject* acc = FoldRef(src, seed, fd);
+    RootScope accRoots;
+    accRoots.Add(reinterpret_cast<void**>(&acc));
+    return static_cast<double>(ProjectRefF(rd, acc));
+}
+
+double il2cpp_linq_aggregate_seed_ref_rs_d(Il2CppArray* src, Il2CppObject* seed,
+                                           Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    Il2CppObject* acc = FoldRef(src, seed, fd);
+    RootScope accRoots;
+    accRoots.Add(reinterpret_cast<void**>(&acc));
+    return ProjectRefD(rd, acc);
+}
+
+//------------------------------------------------------------------------------
 // nb9 fix P0-1: the FLOAT accumulator channel and the widened-source kernels.
 //
 // The transpiler puts float on the IL F stack, so a float-returning lambda is
@@ -1107,6 +1232,26 @@ float FoldFD(Il2CppArray* src, float seed, Il2CppDelegate* d)
     return acc;
 }
 
+// Fold a float accumulator over a REAL float-element source (nb9 H-F2: the
+// float Select materializes float[]; the callback ABI is unchanged -- the
+// float parameter still rides the F stack as double).
+float FoldFF(Il2CppArray* src, float seed, Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    float acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const float elem = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
 int64_t FoldI8I8(Il2CppArray* src, int64_t seed, Il2CppDelegate* d)
 {
     RootScope roots;
@@ -1156,6 +1301,42 @@ Il2CppObject* ProjectFRef(Il2CppDelegate* d, float acc)
 }
 
 } // namespace
+
+// nb9 H-F3: the float-accumulator WIDE result selectors (int64 / float /
+// double TResult). Defined after FoldF/ProjectF (they live in the float helper
+// namespace above).
+int64_t il2cpp_linq_aggregate_seed_f_rs_i8(Il2CppArray* src, float seed,
+                                           Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectFI8(rd, FoldF(src, seed, fd));
+}
+
+double il2cpp_linq_aggregate_seed_f_rs_f(Il2CppArray* src, float seed,
+                                         Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return static_cast<double>(ProjectFF(rd, FoldF(src, seed, fd)));
+}
+
+double il2cpp_linq_aggregate_seed_f_rs_d(Il2CppArray* src, float seed,
+                                         Il2CppObject* func, Il2CppObject* resSel)
+{
+    CheckSource(src);
+    Il2CppDelegate* fd = RequireCallback(func);
+    Il2CppDelegate* rd = RequireCallback(resSel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&rd));
+    return ProjectFD(rd, FoldF(src, seed, fd));
+}
 
 // No-seed Aggregate over the WIDENED source families (the accumulator IS
 // TSource): the first element seeds the fold.
@@ -1225,6 +1406,29 @@ float il2cpp_linq_aggregate_f_d(Il2CppArray* src, Il2CppObject* func)
     return acc;
 }
 
+// nb9 H-F2: no-seed float aggregate over a REAL float[] source.
+float il2cpp_linq_aggregate_f_f(Il2CppArray* src, Il2CppObject* func)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    float acc = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const float elem = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, i));
+        acc = d->target != nullptr
+            ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);
+    }
+    return acc;
+}
+
 float il2cpp_linq_aggregate_seed_f(Il2CppArray* src, float seed, Il2CppObject* func)
 {
     CheckSource(src);
@@ -1235,6 +1439,13 @@ float il2cpp_linq_aggregate_seed_f_d(Il2CppArray* src, float seed, Il2CppObject*
 {
     CheckSource(src);
     return FoldFD(src, seed, RequireCallback(func));
+}
+
+// nb9 H-F2: a float accumulator over a REAL float[] source (the float Select).
+float il2cpp_linq_aggregate_seed_f_f(Il2CppArray* src, float seed, Il2CppObject* func)
+{
+    CheckSource(src);
+    return FoldFF(src, seed, RequireCallback(func));
 }
 
 int64_t il2cpp_linq_aggregate_seed_i8_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func)

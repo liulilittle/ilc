@@ -171,6 +171,35 @@ int32_t       il2cpp_linq_aggregate_seed_ref_rs_i4(Il2CppArray* src, Il2CppObjec
 Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObject* seed,
                                                     Il2CppObject* func, Il2CppObject* resSel);
 
+// nb9 H-F3: numeric TResult variants. The result selector's return carrier
+// follows TResult: int64_t (long), double (float -- the C++ float return is
+// widened -- and double). A float/double TResult is carried as double at the
+// transpiler boundary (the F-stack convention).
+int64_t il2cpp_linq_aggregate_seed_rs_i8(Il2CppArray* src, int32_t seed,
+                                         Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_rs_f(Il2CppArray* src, int32_t seed,
+                                        Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_rs_d(Il2CppArray* src, int32_t seed,
+                                        Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_i8_rs_i8(Il2CppArray* src, int64_t seed,
+                                            Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_i8_rs_f(Il2CppArray* src, int64_t seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_i8_rs_d(Il2CppArray* src, int64_t seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_d_rs_i8(Il2CppArray* src, double seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_d_rs_f(Il2CppArray* src, double seed,
+                                          Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_d_rs_d(Il2CppArray* src, double seed,
+                                          Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_ref_rs_i8(Il2CppArray* src, Il2CppObject* seed,
+                                             Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_ref_rs_f(Il2CppArray* src, Il2CppObject* seed,
+                                            Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_ref_rs_d(Il2CppArray* src, Il2CppObject* seed,
+                                            Il2CppObject* func, Il2CppObject* resSel);
+
 // nb9 fix P0-1: the FLOAT accumulator channel. The transpiler puts float on
 // the IL F stack, so a float-returning lambda is emitted as
 // `float f(double, int32_t)` (int32-element source) or `float f(double, double)`
@@ -179,10 +208,19 @@ Il2CppObject* il2cpp_linq_aggregate_seed_ref_rs_ref(Il2CppArray* src, Il2CppObje
 // read the float return back as a double (upper 32 bits garbage).
 float il2cpp_linq_aggregate_seed_f(Il2CppArray* src, float seed, Il2CppObject* func);
 float il2cpp_linq_aggregate_seed_f_d(Il2CppArray* src, float seed, Il2CppObject* func);
+// nb9 H-F2: a float accumulator over a REAL float[] source (float Select).
+float il2cpp_linq_aggregate_f_f(Il2CppArray* src, Il2CppObject* func);
+float il2cpp_linq_aggregate_seed_f_f(Il2CppArray* src, float seed, Il2CppObject* func);
 int32_t il2cpp_linq_aggregate_seed_f_rs_i4(Il2CppArray* src, float seed,
                                            Il2CppObject* func, Il2CppObject* resSel);
 Il2CppObject* il2cpp_linq_aggregate_seed_f_rs_ref(Il2CppArray* src, float seed,
                                                   Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_f_rs_i8(Il2CppArray* src, float seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_f_rs_f(Il2CppArray* src, float seed,
+                                          Il2CppObject* func, Il2CppObject* resSel);
+double  il2cpp_linq_aggregate_seed_f_rs_d(Il2CppArray* src, float seed,
+                                          Il2CppObject* func, Il2CppObject* resSel);
 
 // nb9 fix P0-1/P0-4: the WIDENED source families. An int64/double/float
 // Select result is a real int64[]/double[]; these fold it without narrowing.

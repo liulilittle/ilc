@@ -131,6 +131,21 @@ inline char* il2cpp_array_get_elem_ptr(Il2CppArray* arr, int32_t index)
     il2cpp_array_fail(arr, index);
 }
 
+// nb9 H-F2: float element read on the F-stack carrier. The transpiler's
+// float arrays are materialized as widened double[] (a float Select carries
+// exact double cells), while a genuine 4-byte float cell stays possible.
+// The read follows the ARRAY's real cell width, never the static element type
+// (a static float read from a double cell read the low four zero bytes).
+inline double il2cpp_array_get_elem_float_as_double(Il2CppArray* arr, int32_t index)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, index);
+    if (arr->elemSize == 8)
+    {
+        return *reinterpret_cast<double*>(p);
+    }
+    return static_cast<double>(*reinterpret_cast<float*>(p));
+}
+
 // Element count (the .NET Length property). Inline: a plain field read
 // (null -> 0, matching the previous out-of-line behavior).
 inline int32_t il2cpp_array_get_length(Il2CppArray* arr)

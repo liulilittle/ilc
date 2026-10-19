@@ -1471,6 +1471,20 @@ Il2CppObject* InvokeSelKeyGroupRef(Il2CppDelegate* d, int32_t key, Il2CppObject*
         : reinterpret_cast<SelKeyGroupRefFn>(d->methodPtr)(key, bucket);
 }
 
+// nb9 H-F4: the WIDE numeric TResult selectors (long/double/float). The
+// managed leaf returns C++ int64_t/double/float respectively; the old runtime
+// only had the int32 and reference arms, so a numeric TResult was invoked
+// through the reference (or int32) ABI.
+template <typename Res>
+Res InvokeSelKeyGroupTyped(Il2CppDelegate* d, int32_t key, Il2CppObject* bucket)
+{
+    typedef Res (*Fn)(int32_t, Il2CppObject*);
+    typedef Res (*WithThisFn)(Il2CppObject*, int32_t, Il2CppObject*);
+    return d->target != nullptr
+        ? reinterpret_cast<WithThisFn>(d->methodPtr)(d->target, key, bucket)
+        : reinterpret_cast<Fn>(d->methodPtr)(key, bucket);
+}
+
 // IsDefaultIntComparer -- the runtime's default EqualityComparer<int> /
 // Comparer<int> singletons compare int32 keys by value; recognize them by
 // POINTER IDENTITY (they are static objects with no reflected typeinfo).
@@ -1716,7 +1730,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
 // ApplyResultSelector -- run Func<TKey,IEnumerable<TElement>,TResult> once per
 // bucket, in first-appearance order, and materialize the results into an array
 // of the TResult family (int32[] or a reference array).
-Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, bool refResult)
+Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int32_t rsKind)
 {
     Il2CppDelegate* d = RequireCallback(resSel, "resultSelector");
     RootScope roots;
@@ -1724,9 +1738,19 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, boo
     roots.Add(reinterpret_cast<void**>(&result));
 
     const int32_t n = AsGroupingResult(result)->count;
-    Il2CppArray* out = refResult
-        ? il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n)
-        : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int32_t)), false, n);
+    // nb9 H-F4: the result array follows TResult's real element layout.
+    const bool refResult = rsKind == 2;
+    int32_t rsElemSize = static_cast<int32_t>(sizeof(int32_t));
+    switch (rsKind)
+    {
+        case 1: rsElemSize = static_cast<int32_t>(sizeof(int32_t)); break;
+        case 2: rsElemSize = static_cast<int32_t>(sizeof(void*)); break;
+        case 3: rsElemSize = static_cast<int32_t>(sizeof(int64_t)); break;
+        case 4: rsElemSize = static_cast<int32_t>(sizeof(double)); break;
+        case 5: rsElemSize = static_cast<int32_t>(sizeof(double)); break;
+        default: break;
+    }
+    Il2CppArray* out = il2cpp_array_new(nullptr, rsElemSize, refResult, n);
     roots.Add(reinterpret_cast<void**>(&out));
 
     for (int32_t i = 0; i < n; ++i)
@@ -1755,6 +1779,21 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, boo
             il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
             *slot = r;
         }
+        else if (rsKind == 3)
+        {
+            const int64_t r = InvokeSelKeyGroupTyped<int64_t>(d, key, elemsObj);
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+        }
+        else if (rsKind == 4)
+        {
+            const double r = InvokeSelKeyGroupTyped<double>(d, key, elemsObj);
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+        }
+        else if (rsKind == 5)
+        {
+            const float r = InvokeSelKeyGroupTyped<float>(d, key, elemsObj);
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(r);
+        }
         else
         {
             const int32_t r = InvokeSelKeyGroupI4(d, key, elemsObj);
@@ -1769,7 +1808,8 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, boo
 //------------------------------------------------------------------------------
 // il2cpp_linq_group_by_full -- every GroupBy overload (see linq_map.h).
 // elemKind: 0 int32 | 1 reference | 2 int64 (boxed) | 3 double (boxed)
-// rsKind:   0 no result selector | 1 int32 TResult | 2 reference TResult
+// rsKind:   0 no result selector | 1 int32 TResult | 2 reference TResult |
+//           3 int64 TResult | 4 double TResult | 5 float TResult (nb9 H-F4)
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
                                         Il2CppObject* elemSel, Il2CppObject* cmp,
@@ -1798,12 +1838,12 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
     {
         return result;
     }
-    if (rsKind != 1 && rsKind != 2)
+    if (rsKind < 1 || rsKind > 5)
     {
         il2cpp_throw_not_supported_exception("GroupBy: unsupported TResult family code.");
     }
     return reinterpret_cast<Il2CppObject*>(
-        ApplyResultSelector(result, resSel, rsKind == 2));
+        ApplyResultSelector(result, resSel, rsKind));
 }
 
 int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping)
@@ -2328,10 +2368,12 @@ double il2cpp_linq_average_sel_d(Il2CppArray* src, Il2CppObject* sel)
 }
 
 //------------------------------------------------------------------------------
-// nb9 fix P0-1: the FLOAT selector projection. The elements are materialized
-// as a double[] (a float value widened exactly), so the shared double-array
-// aggregate kernels apply; the RESULT carrier stays float (net48's
-// Sum/Min/Max/Average(Func<T,float>)).
+// nb9 H-F2: the FLOAT selector projection materializes a double[] (a float is
+// widened exactly -- the runtime's F-stack carrier convention) and the
+// transpiler now tracks the result as System.Double[], NOT System.Single[].
+// The old Single[] declaration made every element-level consumer read 4-byte
+// floats from 8-byte cells (the H-F2 mismatch); declaring the REAL layout
+// keeps indexing/foreach/ToArray correct.
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_select_i4_f(Il2CppArray* src, Il2CppObject* sel)
 {
@@ -2346,8 +2388,7 @@ Il2CppArray* il2cpp_linq_select_i4_f(Il2CppArray* src, Il2CppObject* sel)
     for (int32_t i = 0; i < src->length; ++i)
     {
         const float r = InvokeSelI4F(d, I4At(src, i));
-        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
-            static_cast<double>(r);
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(r);
     }
     return out;
 }
@@ -2365,8 +2406,7 @@ Il2CppArray* il2cpp_linq_select_idx_i4_f(Il2CppArray* src, Il2CppObject* sel)
     for (int32_t i = 0; i < src->length; ++i)
     {
         const float r = InvokeZipI4F(d, I4At(src, i), i);
-        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
-            static_cast<double>(r);
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(r);
     }
     return out;
 }
