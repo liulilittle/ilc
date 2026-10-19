@@ -412,21 +412,31 @@ public static class CliParser
         : throw new CliParseException($"invalid --reflection-granularity '{value}' (expected 'all' or 'members')");
 
     // nb10 (HIGH-1): normalize a file-sourced Windows application manifest to
-    // bytes Windows can actually parse, without touching its semantics.
+    // bytes Windows can actually parse, without changing its meaning.
     //
-    // An XML reader honours the declaration's `encoding` pseudo-attribute, so
-    // the bytes and that attribute MUST agree. Getting this wrong is not a
-    // cosmetic defect: the embedded RT_MANIFEST is then rejected at
-    // CreateProcess time with SideBySide "Invalid Xml syntax" (event id 59) and
-    // the produced executable never starts. Rules:
-    //   * already valid UTF-8  -> returned untouched (verbatim; a UTF-8 BOM is
-    //     legal XML and is preserved)
-    //   * UTF-16/UTF-32 BOM, or a supported 8-bit codepage
-    //                          -> transcoded to UTF-8 with the declaration
-    //                             rewritten to encoding="utf-8" (mt.exe's
-    //                             behaviour)
-    //   * anything else        -> clean parse error naming the file, telling the
-    //     user to re-save as UTF-8. Never emit an invalid RT_MANIFEST.
+    // An XML reader honours the declaration's `encoding` pseudo-attribute, and
+    // Windows fusion is stricter still: it accepts ONLY the hyphenated spelling
+    // "UTF-8" for UTF-8. Getting this wrong is not cosmetic -- the embedded
+    // RT_MANIFEST is rejected at CreateProcess time with SideBySide "Invalid Xml
+    // syntax" (event id 59) and the produced executable never starts.
+    //
+    //   BOM (UTF-8/16/32)     -> decode with the BOM, rewrite the declaration
+    //                            to utf-8; a UTF-8 BOM is preserved
+    //   BOM-less UTF-16/32    -> detected from the XML prolog byte pattern,
+    //                            then the same transcode
+    //   declaration "utf-8"   -> bytes must be valid UTF-8, carried verbatim
+    //   no declaration        -> bytes must be valid UTF-8, carried verbatim
+    //   "utf8" alias          -> valid UTF-8, declaration rewritten
+    //   "ascii"/"us-ascii"    -> all-ASCII bytes only, declaration rewritten
+    //   any other name        -> ambiguous (GBK "一" = D2 BB is ALSO valid
+    //                            UTF-8), so a valid-UTF-8 body is REFUSED rather
+    //                            than silently reinterpreted; a known 8-bit
+    //                            encoding is transcoded only when the bytes are
+    //                            not valid UTF-8; everything else is an error.
+    //
+    // A NUL byte without a recognizable wide encoding is always an error: NUL is
+    // legal UTF-8, so without this check a BOM-less UTF-16 file would pass the
+    // UTF-8 test and be embedded as garbage.
     private static byte[] LoadManifestBytes(string path)
     {
         byte[] raw;
@@ -445,56 +455,135 @@ public static class CliParser
         var strictUtf8 = new System.Text.UTF8Encoding(false, true);
         var bom = SniffBom(raw, out var bomLength);
 
-        // 1. No BOM, or a UTF-8 BOM: valid UTF-8 is carried through verbatim.
-        if (bom == null || bom is System.Text.UTF8Encoding)
-        {
-            var body = bom == null ? raw : raw[bomLength..];
-            if (IsValidUtf8(strictUtf8, body))
-            {
-                var declared = SniffDeclaredEncoding(body);
-                // A declaration that names some OTHER encoding while the bytes
-                // are UTF-8 is a lie the reader would trip over: fix the
-                // declaration, keep the text.
-                if (declared == null || IsUtf8Name(declared))
-                    return raw;
-                return System.Text.Encoding.UTF8.GetBytes(
-                    RewriteDeclaration(strictUtf8.GetString(body)));
-            }
-        }
-
-        // 2. Decode with the BOM encoding when present, else with the declared
-        //    one; the result is re-encoded as UTF-8 with a truthful declaration.
-        string? text = null;
+        // 1. A BOM is authoritative: decode with it, then make the declaration
+        //    truthful. A UTF-8 BOM stays in place so a well-formed file is
+        //    reproduced byte-for-byte.
         if (bom != null)
         {
+            string? text = null;
             try { text = bom.GetString(raw, bomLength, raw.Length - bomLength); }
-            catch (System.Text.DecoderFallbackException) { text = null; }
-        }
-        else
-        {
-            var declared = SniffDeclaredEncoding(raw);
-            var enc = declared == null ? null : TryGetBuiltinEncoding(declared);
-            if (enc != null)
-            {
-                try { text = enc.GetString(raw); }
-                catch (System.Text.DecoderFallbackException) { text = null; }
-            }
-            if (text == null && !IsValidUtf8(strictUtf8, raw))
-            {
-                var declaredText = declared == null
-                    ? "and declares no XML encoding"
-                    : $"and its declared encoding '{declared}' is not supported";
+            catch (System.Text.DecoderFallbackException) { }
+            if (text == null)
                 throw new CliParseException(
-                    $"Windows application manifest '{path}' is not valid UTF-8 {declaredText} "
-                    + "(re-save it as UTF-8)");
-            }
+                    $"cannot decode Windows application manifest '{path}' (re-save it as UTF-8)");
+            var converted = System.Text.Encoding.UTF8.GetBytes(RewriteDeclaration(text));
+            return bom is System.Text.UTF8Encoding ? PrependUtf8Bom(converted) : converted;
         }
 
-        if (text == null)
+        // 2. No BOM: the XML prolog's first four bytes identify UTF-16/UTF-32.
+        var wide = SniffBomlessWideEncoding(raw);
+        if (wide != null)
+        {
+            string? text = null;
+            try { text = wide.GetString(raw); }
+            catch (System.Text.DecoderFallbackException) { }
+            if (text == null)
+                throw new CliParseException(
+                    $"cannot decode Windows application manifest '{path}' (re-save it as UTF-8)");
+            return System.Text.Encoding.UTF8.GetBytes(RewriteDeclaration(text));
+        }
+
+        // 3. A NUL byte here means the file is not ASCII-compatible text and we
+        //    could not identify its encoding.
+        if (Array.IndexOf(raw, (byte)0) >= 0)
+            throw new CliParseException(
+                $"Windows application manifest '{path}' contains NUL bytes but no recognizable "
+                + "UTF-16/UTF-32 encoding (re-save it as UTF-8)");
+
+        var declared = SniffDeclaredEncoding(raw);
+        var validUtf8 = IsValidUtf8(strictUtf8, raw);
+
+        if (declared == null)
+        {
+            if (!validUtf8)
+                throw new CliParseException(
+                    $"Windows application manifest '{path}' is not valid UTF-8 and declares no "
+                    + "XML encoding (re-save it as UTF-8)");
+            return raw;
+        }
+
+        if (IsExactUtf8Name(declared))
+        {
+            if (!validUtf8)
+                throw new CliParseException(
+                    $"Windows application manifest '{path}' declares encoding 'utf-8' but the "
+                    + "bytes are not valid UTF-8 (re-save it as UTF-8)");
+            return raw;
+        }
+
+        if (IsUtf8Alias(declared))
+        {
+            if (!validUtf8)
+                throw new CliParseException(
+                    $"Windows application manifest '{path}' declares encoding '{declared}' but "
+                    + "the bytes are not valid UTF-8 (re-save it as UTF-8)");
+            return System.Text.Encoding.UTF8.GetBytes(
+                RewriteDeclaration(strictUtf8.GetString(raw)));
+        }
+
+        if (IsAsciiName(declared))
+        {
+            if (!IsAllAscii(raw))
+                throw new CliParseException(
+                    $"Windows application manifest '{path}' declares encoding '{declared}' but "
+                    + "contains non-ASCII bytes (re-save it as UTF-8)");
+            return System.Text.Encoding.UTF8.GetBytes(
+                RewriteDeclaration(System.Text.Encoding.ASCII.GetString(raw)));
+        }
+
+        // 4. Any other declared name. Valid-UTF-8 bytes are ambiguous: they can
+        //    be a correctly-labelled legacy file or a UTF-8 file with a stale
+        //    declaration. Refusing is the only lossless answer.
+        if (validUtf8)
+            throw new CliParseException(
+                $"Windows application manifest '{path}' declares encoding '{declared}' but its "
+                + "bytes are also valid UTF-8; refusing to guess (re-save it as UTF-8, or fix "
+                + "the declaration)");
+
+        var enc = TryGetBuiltinEncoding(declared);
+        if (enc == null)
+            throw new CliParseException(
+                $"Windows application manifest '{path}' declares encoding '{declared}', which "
+                + "this build cannot decode (re-save it as UTF-8)");
+        string? decoded = null;
+        try { decoded = enc.GetString(raw); }
+        catch (System.Text.DecoderFallbackException) { }
+        if (decoded == null)
             throw new CliParseException(
                 $"cannot decode Windows application manifest '{path}' (re-save it as UTF-8)");
+        return System.Text.Encoding.UTF8.GetBytes(RewriteDeclaration(decoded));
+    }
 
-        return System.Text.Encoding.UTF8.GetBytes(RewriteDeclaration(text));
+    private static byte[] PrependUtf8Bom(byte[] bytes)
+    {
+        var withBom = new byte[bytes.Length + 3];
+        withBom[0] = 0xEF; withBom[1] = 0xBB; withBom[2] = 0xBF;
+        bytes.CopyTo(withBom, 3);
+        return withBom;
+    }
+
+    // A BOM-less wide encoding is identified by the XML prolog's first four
+    // bytes: '<' (0x3C) is the only high byte, and the zero bytes carry the
+    // byte order. UTF-32 is probed first because it shares 3C 00 with UTF-16LE.
+    private static System.Text.Encoding? SniffBomlessWideEncoding(byte[] raw)
+    {
+        if (raw.Length < 4) return null;
+        if (raw[0] == 0x3C && raw[1] == 0x00 && raw[2] == 0x00 && raw[3] == 0x00)
+            return new System.Text.UTF32Encoding(false, false);
+        if (raw[0] == 0x00 && raw[1] == 0x00 && raw[2] == 0x00 && raw[3] == 0x3C)
+            return new System.Text.UTF32Encoding(true, false);
+        if (raw[0] == 0x3C && raw[1] == 0x00 && raw[2] == 0x3F && raw[3] == 0x00)
+            return new System.Text.UnicodeEncoding(false, false);
+        if (raw[0] == 0x00 && raw[1] == 0x3C && raw[2] == 0x00 && raw[3] == 0x3F)
+            return new System.Text.UnicodeEncoding(true, false);
+        return null;
+    }
+
+    private static bool IsAllAscii(byte[] raw)
+    {
+        foreach (var b in raw)
+            if (b >= 0x80) return false;
+        return true;
     }
 
     // Byte-order mark -> the encoding it announces, plus its byte length.
@@ -521,10 +610,19 @@ public static class CliParser
         catch (System.Text.DecoderFallbackException) { return false; }
     }
 
-    private static bool IsUtf8Name(string name) =>
-        name.Equals("utf-8", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("utf8", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("us-ascii", StringComparison.OrdinalIgnoreCase)
+    // Windows fusion accepts ONLY "UTF-8" (case-insensitive, with the hyphen).
+    // A declaration spelled "utf8" is valid XML but is rejected by the loader,
+    // so it must be rewritten even though the bytes are already UTF-8.
+    private static bool IsExactUtf8Name(string name) =>
+        name.Equals("utf-8", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsUtf8Alias(string name) =>
+        name.Equals("utf8", StringComparison.OrdinalIgnoreCase);
+
+    // "us-ascii"/"ascii" name the same byte range as UTF-8 for values < 0x80,
+    // so an all-ASCII body can be relabelled losslessly.
+    private static bool IsAsciiName(string name) =>
+        name.Equals("us-ascii", StringComparison.OrdinalIgnoreCase)
         || name.Equals("ascii", StringComparison.OrdinalIgnoreCase);
 
     // The 8-bit/Unicode encodings this tool can transcode WITHOUT a codepage

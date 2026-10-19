@@ -1120,7 +1120,8 @@ public class CliTests
         {
             var ex = Assert.Throws<CliParseException>(
                 () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
-            Assert.Contains("not valid UTF-8", ex.Message);
+            Assert.Contains("declares encoding 'gbk'", ex.Message);
+            Assert.Contains("cannot decode", ex.Message);
             Assert.Contains("re-save it as UTF-8", ex.Message);
         }
         finally
@@ -1130,9 +1131,11 @@ public class CliTests
     }
 
     [Fact]
-    public void Manifest_Utf8BytesWithWrongDeclaration_IsCorrectedNotRejected()
+    public void Manifest_Utf8AliasDeclaration_IsRewrittenToHyphenatedUtf8()
     {
-        const string xml = "<?xml version=\"1.0\" encoding=\"gbk\"?>\n<assembly/>\n";
+        // Windows fusion accepts ONLY "UTF-8": "utf8" is valid XML but the
+        // loader rejects the manifest, so the declaration must be rewritten.
+        const string xml = "<?xml version=\"1.0\" encoding=\"utf8\"?>\n<assembly/>\n";
         var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
         File.WriteAllBytes(path, new System.Text.UTF8Encoding(false).GetBytes(xml));
         try
@@ -1140,7 +1143,130 @@ public class CliTests
             var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
             var text = System.Text.Encoding.UTF8.GetString(opts.ManifestBytes);
             Assert.Contains("encoding=\"utf-8\"", text);
+            Assert.DoesNotContain("utf8\"", text);
             Assert.Contains("<assembly/>", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("us-ascii")]
+    [InlineData("ascii")]
+    public void Manifest_AsciiDeclaration_IsRewrittenToUtf8(string declared)
+    {
+        var xml = "<?xml version=\"1.0\" encoding=\"" + declared + "\"?>\n<assembly/>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.ASCII.GetBytes(xml));
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            var text = System.Text.Encoding.UTF8.GetString(opts.ManifestBytes);
+            Assert.Contains("encoding=\"utf-8\"", text);
+            Assert.Contains("<assembly/>", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_AsciiDeclarationWithNonAsciiBytes_ThrowsCleanError()
+    {
+        var xml = "<?xml version=\"1.0\" encoding=\"us-ascii\"?>\n<assembly description=\"caf\u00e9\"/>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.UTF8.GetBytes(xml));
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("contains non-ASCII bytes", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_BomlessUtf16_IsDetectedFromTheProlog()
+    {
+        // ASCII-only BOM-less UTF-16LE: every byte is legal UTF-8 (NUL included),
+        // so only the XML prolog pattern can identify it. Left alone it would be
+        // embedded as garbage and the exe would fail to start.
+        const string xml =
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>\n"
+            + "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\">\n"
+            + "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\"><security>\n"
+            + "    <requestedPrivileges xmlns=\"urn:schemas-microsoft-com:asm.v3\">\n"
+            + "      <requestedExecutionLevel level=\"requireAdministrator\" uiAccess=\"false\"/>\n"
+            + "    </requestedPrivileges></security></trustInfo>\n"
+            + "</assembly>\n";
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, System.Text.Encoding.Unicode.GetBytes(xml));
+        try
+        {
+            var opts = CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" });
+            var text = new System.Text.UTF8Encoding(false, true).GetString(opts.ManifestBytes);
+            Assert.Contains("encoding=\"utf-8\"", text);
+            Assert.DoesNotContain("utf-16", text);
+            Assert.Contains("level=\"requireAdministrator\"", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_GbkBytesThatAreAlsoValidUtf8_AreRefusedNotReinterpreted()
+    {
+        // GBK U+4E00 is D2 BB, which is ALSO a valid UTF-8 sequence (U+04BB).
+        // Silently "fixing" the declaration would corrupt the text, so the only
+        // safe answer is a refusal.
+        var head = System.Text.Encoding.ASCII.GetBytes(
+            "<?xml version=\"1.0\" encoding=\"gb2312\"?>\n<assembly description=\"");
+        var tail = System.Text.Encoding.ASCII.GetBytes("\"/>\n");
+        var gbk = new byte[head.Length + 2 + tail.Length];
+        head.CopyTo(gbk, 0);
+        gbk[head.Length] = 0xD2; gbk[head.Length + 1] = 0xBB;
+        tail.CopyTo(gbk, head.Length + 2);
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, gbk);
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("declares encoding 'gb2312'", ex.Message);
+            Assert.Contains("refusing to guess", ex.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Manifest_Utf8DeclarationWithInvalidBytes_ThrowsCleanError()
+    {
+        var head = System.Text.Encoding.ASCII.GetBytes(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<assembly description=\"");
+        var tail = System.Text.Encoding.ASCII.GetBytes("\"/>\n");
+        var bad = new byte[head.Length + 1 + tail.Length];
+        head.CopyTo(bad, 0);
+        bad[head.Length] = 0xFF; // never valid UTF-8
+        tail.CopyTo(bad, head.Length + 1);
+        var path = Path.Combine(Path.GetTempPath(), "il2cpp_appmanifest_" + Guid.NewGuid().ToString("N") + ".manifest");
+        File.WriteAllBytes(path, bad);
+        try
+        {
+            var ex = Assert.Throws<CliParseException>(
+                () => CliParser.Parse(new[] { "--manifest", path, "in.dll", "out" }));
+            Assert.Contains("declares encoding 'utf-8'", ex.Message);
+            Assert.Contains("not valid UTF-8", ex.Message);
         }
         finally
         {
