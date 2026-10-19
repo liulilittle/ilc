@@ -278,6 +278,62 @@ public class MethodMapArraySortTests
         Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
     }
 
+    [Fact]
+    public void Resolve_Array_SortInt32WithIComparer_MethodSpec_MapsToIComparerSort()
+    {
+        // nb9 H-B3: Array.Sort<int>(int32[], IComparer<int>) must route to the
+        // comparer-driven sort, NOT the Comparison<int> delegate entry (the
+        // reported crash: the IComparer object was invoked as a delegate).
+        // The MemberRef's second parameter is a GENERICINST (0x15) whose
+        // definition resolves to System.Collections.Generic.IComparer`1.
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "Sort",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x08 }, "System.Collections.Generic.IComparer`1"));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_icomparer", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_SortStringWithIComparer_MethodSpec_MapsToIComparerSort()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "Sort",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, 0x0E, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x0E }, "System.Collections.Generic.IComparer`1"));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_icomparer", resolved.CppName);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_SortInt32WithGenericComparison_MethodSpec_StaysDelegateSort()
+    {
+        // The real Comparison<int> parameter shape (GENERICINST Comparison`1)
+        // must NOT be mistaken for an IComparer.
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "Sort",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, 0x08, 0x15, 0x12, 0x0D, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x08 }, "System.Comparison`1"));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_int32_comparison", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_Array_BinarySearchInt32WithIComparer_MapsToIComparerSearch()
+    {
+        // nb9 H-B4: the 3-arg BinarySearch<T>(T[], T, IComparer<T>) must map to
+        // the 3-param comparer entry (the old mapping emitted the 2-param icall
+        // for every arity -> the generated C++ did not compile).
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "BinarySearch",
+            new byte[] { 0x00, 0x03, 0x01, 0x1D, 0x08, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x08 }, "System.Collections.Generic.IComparer`1"));
+
+        Assert.Equal("il2cpp::il2cpp_array_binary_search_icomparer_int32", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "i", "" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as the transpiler).
     //--------------------------------------------------------------------------
@@ -325,6 +381,29 @@ public class MethodMapArraySortTests
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
         var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(memberRefSignature));
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
+    }
+
+    // nb9 H-B3: a System.Array MemberRef whose generic-comparer parameter is a
+    // GENERICINST (0x15) referring to a TypeRef row. Both comparer definition
+    // TypeRefs are added so a caller can encode either row:
+    //   row 2 -> coded index 0x09 -> System.Collections.Generic.IComparer`1
+    //   row 3 -> coded index 0x0D -> System.Comparison`1
+    private static MemoryStream SynthesizeGenericComparer(string ns, string typeName, string memberName,
+        byte[] memberRefSignature, byte[] genericSignature, string comparerDefName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IComparer`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Comparison`1"));
+        var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(memberRefSignature));
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        _ = comparerDefName; // selects the coded index in the caller's signature
         return Serialize(mdb);
     }
 

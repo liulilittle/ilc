@@ -23,13 +23,25 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapArray(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
+        string? paramTypes = null)
     {
         switch (name)
         {
             case "Sort":
                 if (genArgs != null)
                 {
+                    // nb9 H-B3: Array.Sort<T>(T[], IComparer<T>) and
+                    // Array.Sort<T>(T[], Comparison<T>) share the same
+                    // GENERICINST parameter bytes, so the overload must be
+                    // selected from the DECODED second parameter's generic
+                    // DEFINITION name (the MemberRef signature, authoritative).
+                    // Only a positively identified IComparer`1 takes the
+                    // comparer route; everything else keeps the historical
+                    // Comparison<T> route (a StringComparer singleton is an
+                    // IComparer<string> and lands here too).
+                    var secondIsIComparer =
+                        SortedSetParamDefName(paramTypes, 1) == "System.Collections.Generic.IComparer`1";
                     return genArgs[0] switch
                     {
                         // Array.Sort<T>(T[]) count==1 -- the no-comparer family:
@@ -49,13 +61,22 @@ public static partial class MethodRefResolver
                         // tested in test_arraysort) are reachable. int32 arrays
                         // compare raw element values; string/object/class arrays
                         // pass the element slots (ref comparison).
-                        0x08 when count == 2 => I("il2cpp::il2cpp_array_sort_int32_comparison", 2, false, false, false, new[] { "a", "" }),
+                        // nb9 H-B3: IComparer<T> (a user comparer or the
+                        // StringComparer singletons) takes the comparer-driven
+                        // sort; the runtime resolves the user Compare(T,T) slot
+                        // per element family. Comparison<T> keeps the delegate
+                        // sort (the ABI decision above).
+                        0x08 when count == 2 =>
+                            secondIsIComparer
+                                ? I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" })
+                                : I("il2cpp::il2cpp_array_sort_int32_comparison", 2, false, false, false, new[] { "a", "" }),
                         // a5reds (strsort_ordinal): the SAME generic Sort<T>
                         0x0E or 0x1C or 0x12 when count == 2 =>
-                            arg0Type is "System.StringComparer.Ordinal" or "System.StringComparer.OrdinalIgnoreCase"
-                                // The second argument is a StringComparer
-                                // singleton (MethodMap.Collections.cs
-                                // TryMapStringComparer ReturnTypeName), NOT a
+                            secondIsIComparer
+                                || arg0Type is "System.StringComparer.Ordinal" or "System.StringComparer.OrdinalIgnoreCase"
+                                // The second argument is an IComparer<T>
+                                // (MethodMap.Collections.cs TryMapStringComparer
+                                // ReturnTypeName for the singletons), NOT a
                                 // Comparison<T> delegate: route to the
                                 // comparer-driven sort (arraysort.cpp
                                 // recognizes the singletons; IL order is
@@ -83,15 +104,25 @@ public static partial class MethodRefResolver
                 {
                     return genArgs[0] switch
                     {
-                        0x08 => I("il2cpp::runtime::icall_array_binary_search_int32", 2, true, false, false),
-                        0x0E => I("il2cpp::runtime::icall_array_binary_search_string", 2, true, false, false),
+                        // nb9 H-B4: the 2-arg form is the default-comparer
+                        // search; the 3-arg Array.BinarySearch<T>(T[], T,
+                        // IComparer<T>) needs its OWN entry (the old mapping
+                        // emitted the 2-param icall for EVERY arity -> the
+                        // third argument shifted the value/comparer slots and
+                        // the generated C++ did not compile). Only the 2/3
+                        // forms exist for the wired families; a wider arity
+                        // stays LOUD.
+                        0x08 when count == 2 => I("il2cpp::runtime::icall_array_binary_search_int32", 2, true, false, false),
+                        0x08 when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_int32", 3, true, false, false, new[] { "a", "i", "" }),
+                        0x0E when count == 2 => I("il2cpp::runtime::icall_array_binary_search_string", 2, true, false, false),
+                        0x0E or 0x1C or 0x12 when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_ref", 3, true, false, false, new[] { "a", "", "" }),
                         // M6: int64 yields to the ArraySort direct-call
                         // domain (il2cpp_array_binary_search_int64); only
                         // the 2-arg form (ArraySort.cs maps any count to
                         // the 2-param call, so wider arities stay LOUD).
                         // W7: double follows the same yield.
                         0x0A or 0x0D when count == 2 => null,
-                        _ => throw new NotSupportedException($"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
+                        _ => throw new NotSupportedException($"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) not wired in M5"),
                     };
                 }
                 throw new NotSupportedException("Array.BinarySearch(Array, object) non-generic not wired in M5");

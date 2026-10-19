@@ -38,6 +38,7 @@
 #include "il2cpp_array_ext2.h"
 #include "il2cpp_boxing_ext.h"
 #include "il2cpp_boxing_ext2.h" // nb9 fix P0-4: icall_box_long (array-enumerator ref carrier)
+#include "genericcomparer_obj.h" // nb9 H-B3: Comparer<T>.Create family dispatch
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_exception_ext.h"
@@ -51,6 +52,7 @@
 #include "typeinfo.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 //------------------------------------------------------------------------------
@@ -1124,6 +1126,12 @@ public:
     }
     void Add(void** slot)
     {
+        // nb9 H-B1: a capacity overflow would corrupt m_count through the
+        // adjacent member; a programming error must abort loudly instead.
+        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        {
+            std::abort();
+        }
         il2cpp_gc_add_static_root(slot);
         m_slots[m_count++] = slot;
     }
@@ -1317,6 +1325,11 @@ using IComparableCompareFn = int32_t (*)(Il2CppObject*, Il2CppObject*);
 
 // The IComparer.Compare ABI: int32_t (*)(this, a, b).
 using IComparerCompareFn = int32_t (*)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
+
+// nb9 H-B3: the per-element-family ABI of a USER IComparer<T>.Compare(T,T).
+using IComparerI4Fn = int32_t (*)(Il2CppObject*, int32_t, int32_t);
+using IComparerI8Fn = int32_t (*)(Il2CppObject*, int64_t, int64_t);
+using IComparerDFn = int32_t (*)(Il2CppObject*, double, double);
 
 //------------------------------------------------------------------------------
 // ComparerCompareCore -- the DEFAULT comparer's Compare(object, object) (net48
@@ -1628,9 +1641,14 @@ struct I4ComparerCompare
         RootedI4Boxes boxes;
         boxes.set_a(il2cpp_box_int32(&System_Int32_class, x));
         boxes.set_b(il2cpp_box_int32(&System_Int32_class, y));
-        return isDefault
-            ? ComparerCompareCore(boxes.a(), boxes.b())
-            : il2cpp_icomparer_compare(*comparerSlot, boxes.a(), boxes.b());
+        if (isDefault)
+        {
+            return ComparerCompareCore(boxes.a(), boxes.b());
+        }
+        // nb9 H-B3: dispatch through the element family -- a user IComparer<int>
+        // exposes Compare(int,int), not Compare(object,object).
+        return il2cpp_icomparer_compare_family(
+            *comparerSlot, kComparerFamilyI4, &x, &y);
     }
 };
 
@@ -1699,7 +1717,10 @@ struct RefComparerCompare
             case RefComparerMode::Default:
                 return ComparerCompareCore(x, y);
             default:
-                return il2cpp_icomparer_compare(*comparerSlot, x, y);
+                // nb9 H-B3: the reference family -- the element objects ARE the
+                // Compare(T,T) operands (string / object / user class).
+                return il2cpp_icomparer_compare_family(
+                    *comparerSlot, kComparerFamilyRef, x, y);
         }
     }
 };
@@ -1800,6 +1821,128 @@ int32_t il2cpp_icomparer_compare(Il2CppObject* comparer, Il2CppObject* a,
     }
     return reinterpret_cast<IComparerCompareFn>(comparer->klass->vtable[slot])(
         comparer, a, b);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_icomparer_compare_family -- the element-family dispatch shared by the
+// array sorts (this file) and the sorted containers (sortedlist.cpp
+// CompareWithComparer). See arraysort.h for the contract.
+//
+// Slot selection is SIGNATURE-BASED, exactly like sortedlist's H3 fix: a user
+// IComparer<int> stores "i(i,i)", an IComparer<string> "i(r:System.String,...)".
+// A name-only "Compare" lookup would return the (T,T) slot and the
+// (this, object, object) ABI would pass pointers where the value ABI expects
+// raw int32/int64/double -- the H-B3 0xC0000005.
+//------------------------------------------------------------------------------
+int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
+                                        const void* a, const void* b)
+{
+    if (comparer == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    // Comparer<T>.Create wrapper -- run the wrapped Comparison<T> delegate with
+    // the family ABI (the wrapper has no reflected Compare slot).
+    if (runtime::il2cpp_is_created_comparer(comparer))
+    {
+        switch (family)
+        {
+            case kComparerFamilyI4:
+                return runtime::il2cpp_created_comparer_compare_int(
+                    comparer, *static_cast<const int32_t*>(a),
+                    *static_cast<const int32_t*>(b));
+            case kComparerFamilyI8:
+                return runtime::il2cpp_created_comparer_compare_long(
+                    comparer, *static_cast<const int64_t*>(a),
+                    *static_cast<const int64_t*>(b));
+            case kComparerFamilyD:
+                return runtime::il2cpp_created_comparer_compare_double(
+                    comparer, *static_cast<const double*>(a),
+                    *static_cast<const double*>(b));
+            default:
+                return runtime::il2cpp_created_comparer_compare_ref(
+                    comparer, const_cast<Il2CppObject*>(static_cast<const Il2CppObject*>(a)),
+                    const_cast<Il2CppObject*>(static_cast<const Il2CppObject*>(b)));
+        }
+    }
+
+    const char* const fragment =
+        family == kComparerFamilyI4 ? "(i,i)"
+        : family == kComparerFamilyI8 ? "(l,l)"
+        : family == kComparerFamilyD ? "(d,d)"
+        : "(r:";
+    const int32_t slot =
+        FindVirtualSlotByNameAndSignature(comparer, "Compare", fragment);
+    if (slot >= 0 && comparer->klass != nullptr && comparer->klass->vtable != nullptr &&
+        slot < comparer->klass->vtableSize && comparer->klass->vtable[slot] != nullptr)
+    {
+        void* const fn = comparer->klass->vtable[slot];
+        switch (family)
+        {
+            case kComparerFamilyI4:
+                return reinterpret_cast<IComparerI4Fn>(fn)(
+                    comparer, *static_cast<const int32_t*>(a),
+                    *static_cast<const int32_t*>(b));
+            case kComparerFamilyI8:
+                return reinterpret_cast<IComparerI8Fn>(fn)(
+                    comparer, *static_cast<const int64_t*>(a),
+                    *static_cast<const int64_t*>(b));
+            case kComparerFamilyD:
+                return reinterpret_cast<IComparerDFn>(fn)(
+                    comparer, *static_cast<const double*>(a),
+                    *static_cast<const double*>(b));
+            default:
+                return reinterpret_cast<IComparerCompareFn>(fn)(
+                    comparer, const_cast<Il2CppObject*>(static_cast<const Il2CppObject*>(a)),
+                    const_cast<Il2CppObject*>(static_cast<const Il2CppObject*>(b)));
+        }
+    }
+
+    // Compatibility fallback: the NON-GENERIC IComparer.Compare(object,object)
+    // slot (Array.Sort(Array, IComparer); a SortedSet built with a
+    // System.Collections.IComparer). The signature must be object/object --
+    // re-resolving by name alone could still land on a (T,T) slot and repeat
+    // the H-B3 crash.
+    const int32_t objSlot =
+        FindVirtualSlotByNameAndSignature(comparer, "Compare", "(r:System.Object");
+    if (objSlot >= 0 && comparer->klass != nullptr && comparer->klass->vtable != nullptr &&
+        objSlot < comparer->klass->vtableSize && comparer->klass->vtable[objSlot] != nullptr)
+    {
+        void* const fn = comparer->klass->vtable[objSlot];
+        if (family == kComparerFamilyRef)
+        {
+            return reinterpret_cast<IComparerCompareFn>(fn)(
+                comparer, const_cast<Il2CppObject*>(static_cast<const Il2CppObject*>(a)),
+                const_cast<Il2CppObject*>(static_cast<const Il2CppObject*>(b)));
+        }
+        // Box the two value operands for the object ABI; the boxes are rooted
+        // across the callback (it may allocate / compact).
+        RootedI4Boxes boxes;
+        switch (family)
+        {
+            case kComparerFamilyI4:
+                boxes.set_a(il2cpp_box_int32(&System_Int32_class,
+                                             *static_cast<const int32_t*>(a)));
+                boxes.set_b(il2cpp_box_int32(&System_Int32_class,
+                                             *static_cast<const int32_t*>(b)));
+                break;
+            case kComparerFamilyI8:
+                boxes.set_a(runtime::icall_box_long(*static_cast<const int64_t*>(a)));
+                boxes.set_b(runtime::icall_box_long(*static_cast<const int64_t*>(b)));
+                break;
+            default:
+                boxes.set_a(runtime::icall_box_double(*static_cast<const double*>(a)));
+                boxes.set_b(runtime::icall_box_double(*static_cast<const double*>(b)));
+                break;
+        }
+        return reinterpret_cast<IComparerCompareFn>(fn)(
+            comparer, boxes.a(), boxes.b());
+    }
+
+    il2cpp_throw_not_supported_exception(
+        "IComparer dispatch: the comparer type has no reflected virtual Compare "
+        "slot for the element family (and no object/object Compare).");
+    return 0; // unreachable (the factory throws)
 }
 
 //------------------------------------------------------------------------------
@@ -1980,6 +2123,82 @@ void il2cpp_array_sort_ref_comparison(Il2CppArray* arr, Il2CppObject* comparison
             il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
         }
     }
+}
+
+//------------------------------------------------------------------------------
+// Array.BinarySearch<T>(T[], T, IComparer<T>) (nb9 H-B4). The comparer's
+// element family is fixed by the ARRAY, never by the dynamic element klass:
+// a value array uses the raw-value ABI, a reference array the object ABI.
+//------------------------------------------------------------------------------
+namespace {
+
+int32_t CompareI4ForSearch(Il2CppObject* comparer, int32_t x, int32_t y)
+{
+    return comparer == nullptr
+        ? (x < y ? -1 : (x > y ? 1 : 0))
+        : il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &x, &y);
+}
+
+int32_t CompareRefForSearch(Il2CppObject* comparer, Il2CppObject* x, Il2CppObject* y)
+{
+    if (comparer == nullptr)
+    {
+        return ComparerCompareCore(x, y);
+    }
+    if (comparer == &System_StringComparer_Ordinal_singleton)
+    {
+        return CompareStringOrdinalElement(x, y, false);
+    }
+    if (comparer == &System_StringComparer_OrdinalIgnoreCase_singleton)
+    {
+        return CompareStringOrdinalElement(x, y, true);
+    }
+    return il2cpp_icomparer_compare_family(comparer, kComparerFamilyRef, x, y);
+}
+
+} // namespace
+
+int32_t il2cpp_array_binary_search_icomparer_int32(Il2CppArray* arr, int32_t value,
+                                                   Il2CppObject* comparer)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(int32_t));
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        const int32_t c = CompareI4ForSearch(comparer, ReadI4Elem(&a, mid), value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
+}
+
+int32_t il2cpp_array_binary_search_icomparer_ref(Il2CppArray* arr, Il2CppObject* value,
+                                                 Il2CppObject* comparer)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRefArraySort(a);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&value));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        const int32_t c = CompareRefForSearch(comparer, ReadRefElem(&a, mid), value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
 }
 
 //------------------------------------------------------------------------------

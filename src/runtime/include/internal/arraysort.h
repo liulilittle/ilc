@@ -255,6 +255,37 @@ int32_t il2cpp_icomparable_compare_to(Il2CppObject* receiver, Il2CppObject* othe
 // System.Collections.IComparer counterpart of il2cpp_icomparable_compare_to.
 int32_t il2cpp_icomparer_compare(Il2CppObject* comparer, Il2CppObject* a, Il2CppObject* b);
 
+// nb9 (H-B3): the element-family dispatch for a USER IComparer<T> (shared with
+// the sorted-container domain -- sortedlist.cpp's CompareWithComparer calls
+// this, so there is exactly ONE family-aware slot resolver).
+//
+// A user IComparer<int> is emitted with the REAL T signature ("i(i,i)"), so the
+// name-only dispatch would select that slot and call it through the
+// (this, object, object) ABI -- a pointer where the emitted (int,int) slot
+// expects int32 (the user-reported 0xC0000005). 'family' selects the signature
+// fragment and call ABI:
+//   kComparerFamilyI4  : int32/uint32/char/bool elements -- fragment "(i,i)",
+//                        a/b point to the raw int32 value
+//   kComparerFamilyI8  : int64/uint64 elements -- "(l,l)", a/b -> int64
+//   kComparerFamilyD   : float/double elements -- "(d,d)", a/b -> double
+//   kComparerFamilyRef : string/object/class elements -- "(r:", a/b ARE the
+//                        element object pointers
+// A Comparer<T>.Create wrapper runs its wrapped delegate. When no family slot
+// exists the non-generic IComparer.Compare(object, object) slot (the
+// Array.Sort(Array, IComparer) / SortedSet-with-non-generic-comparer shape)
+// is used -- value operands boxed for that call -- and NotSupported is thrown
+// when neither exists (never a name-only call through a mismatched ABI).
+enum ComparerValueFamily : int32_t
+{
+    kComparerFamilyI4 = 0,
+    kComparerFamilyI8 = 1,
+    kComparerFamilyD = 2,
+    kComparerFamilyRef = 3,
+};
+
+int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
+                                        const void* a, const void* b);
+
 // System.Collections.Comparer::get_Default / get_DefaultInvariant -- the
 // runtime's default-comparer SINGLETON object (the resolver maps the static
 // getters to this; the returned object's Compare dispatches on the runtime
@@ -288,6 +319,17 @@ int32_t il2cpp_comparer_compare(Il2CppObject* self, Il2CppObject* a, Il2CppObjec
 // dispatched through il2cpp_icomparer_compare (a user comparer object) or the
 // builtin default dispatch (the Comparer.Default singleton / null).
 void il2cpp_array_sort_icomparer(Il2CppArray* arr, Il2CppObject* comparer);
+
+// Array.BinarySearch<T>(T[], T, IComparer<T>) (nb9 H-B4). The typed value
+// carriers follow the same split as the sorts: the int32 entry takes the raw
+// int32 value, the ref entry the element object (string/object/class arrays).
+// A null comparer means the default comparer (net48); the search uses the
+// user comparer's element-family Compare(T,T) slot (the H-B3 dispatch) and
+// returns the found index or the bitwise complement of the insertion point.
+int32_t il2cpp_array_binary_search_icomparer_int32(Il2CppArray* arr, int32_t value,
+                                                   Il2CppObject* comparer);
+int32_t il2cpp_array_binary_search_icomparer_ref(Il2CppArray* arr, Il2CppObject* value,
+                                                 Il2CppObject* comparer);
 
 // Array.Sort<T>(T[], Comparison<T>) -- the DELEGATE sorts. The transpiler
 // passes the compiled Comparison<T> as a managed delegate (single-cast static

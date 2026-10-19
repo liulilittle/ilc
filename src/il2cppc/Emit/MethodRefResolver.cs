@@ -1025,6 +1025,12 @@ public static partial class MethodRefResolver
         var dtoParamTypes = owner == "System.DateTimeOffset"
             ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
             : null;
+        // nb9 H-B3: System.Array.Sort<T>(T[], IComparer<T>) and
+        // Sort<T>(T[], Comparison<T>) share the same GENERICINST parameter
+        // bytes; the decoded second-parameter DEFINITION name disambiguates.
+        var arrayParamTypes = owner == "System.Array"
+            ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
+            : null;
         // #region BCL domain dispatch
         switch (owner)
         {
@@ -1224,7 +1230,7 @@ public static partial class MethodRefResolver
                 return name == "Invoke" ? I("System.Delegate_Invoke", 0, ret != 0x01, false, true) : null;
             case "System.Linq.Expressions.Expression":
             case "System.Linq.Expressions.LambdaExpression": return TryMapExprTree(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.Array": return TryMapArray(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+            case "System.Array": return TryMapArray(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, arrayParamTypes)
                 ?? TryMapArraySort(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.DateTime": return TryMapDateTime(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapTimeExt2(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)

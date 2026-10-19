@@ -314,83 +314,37 @@ bool IsDefaultComparerObject(const Il2CppObject* comparer)
 
 int32_t CompareWithComparer(const Il2CppObject* comparer, const Il2CppObject* a, const Il2CppObject* b)
 {
-    // nb9: a Comparer<int>.Create wrapper dispatches through its delegate
-    // (the boxed int32 keys are unboxed for the Comparison<int> ABI).
-    if (runtime::il2cpp_is_created_comparer(const_cast<Il2CppObject*>(comparer)))
-    {
-        return runtime::il2cpp_created_comparer_compare_int(
-            const_cast<Il2CppObject*>(comparer),
-            BoxedInt32Value(a), BoxedInt32Value(b));
-    }
-    Il2CppObject* self = const_cast<Il2CppObject*>(comparer);
-
     // nb9 fix H3: a user IComparer<T> is emitted with the REAL T signature
     // ("i(i,i)" for Int32, "l(l,l)" for Int64, "d(d,d)" for Double,
     // "i(r:...)" for references). The previous lookup asked for
     // "(r:System.Object,r:System.Object)" -- which never matches a user
     // IComparer<int> -- and then called it through the (this, boxed, boxed)
     // ABI, i.e. a pointer where the emitted (int,int) slots expect int32.
-    // Dispatch per key family, unboxing the keys for the value families.
-    const char* fragment = nullptr;
-    enum class Abi { I4, I8, D, Ref } abi = Abi::Ref;
+    //
+    // nb9 H-B3: the family-aware slot resolution lives ONCE in arraysort.cpp
+    // (il2cpp_icomparer_compare_family, shared with the Array.Sort IComparer
+    // path). This container domain only classifies the BOXED key family and
+    // passes the unboxed value (or the object pointers for references).
+    Il2CppObject* self = const_cast<Il2CppObject*>(comparer);
     if (a != nullptr && b != nullptr && IsBoxedInt32Key(a) && IsBoxedInt32Key(b))
     {
-        fragment = "(i,i)";
-        abi = Abi::I4;
+        const int32_t av = BoxedInt32Value(a);
+        const int32_t bv = BoxedInt32Value(b);
+        return il2cpp_icomparer_compare_family(self, kComparerFamilyI4, &av, &bv);
     }
-    else if (a != nullptr && b != nullptr && IsBoxedInt64Key(a) && IsBoxedInt64Key(b))
+    if (a != nullptr && b != nullptr && IsBoxedInt64Key(a) && IsBoxedInt64Key(b))
     {
-        fragment = "(l,l)";
-        abi = Abi::I8;
+        const int64_t av = BoxedInt64Value(a);
+        const int64_t bv = BoxedInt64Value(b);
+        return il2cpp_icomparer_compare_family(self, kComparerFamilyI8, &av, &bv);
     }
-    else if (a != nullptr && b != nullptr && IsBoxedDoubleKey(a) && IsBoxedDoubleKey(b))
+    if (a != nullptr && b != nullptr && IsBoxedDoubleKey(a) && IsBoxedDoubleKey(b))
     {
-        fragment = "(d,d)";
-        abi = Abi::D;
+        const double av = BoxedDoubleValue(a);
+        const double bv = BoxedDoubleValue(b);
+        return il2cpp_icomparer_compare_family(self, kComparerFamilyD, &av, &bv);
     }
-    else
-    {
-        fragment = "(r:";
-        abi = Abi::Ref;
-    }
-
-    const int32_t slot = FindVirtualSlotByNameAndSignature(self, "Compare", fragment);
-    if (slot < 0 || self->klass->vtable == nullptr || slot >= self->klass->vtableSize ||
-        self->klass->vtable[slot] == nullptr)
-    {
-        il2cpp_throw_not_supported_exception(
-            "IComparer<T>.Compare dispatch: the comparer type has no reflected "
-            "virtual Compare(T,T) slot for the element family.");
-        return 0; // unreachable (the factory throws)
-    }
-    switch (abi)
-    {
-        case Abi::I4:
-        {
-            typedef int32_t (*CompareI4Fn)(Il2CppObject*, int32_t, int32_t);
-            return reinterpret_cast<CompareI4Fn>(self->klass->vtable[slot])(
-                self, BoxedInt32Value(a), BoxedInt32Value(b));
-        }
-        case Abi::I8:
-        {
-            typedef int32_t (*CompareI8Fn)(Il2CppObject*, int64_t, int64_t);
-            return reinterpret_cast<CompareI8Fn>(self->klass->vtable[slot])(
-                self, BoxedInt64Value(a), BoxedInt64Value(b));
-        }
-        case Abi::D:
-        {
-            typedef int32_t (*CompareDFn)(Il2CppObject*, double, double);
-            return reinterpret_cast<CompareDFn>(self->klass->vtable[slot])(
-                self, BoxedDoubleValue(a), BoxedDoubleValue(b));
-        }
-        case Abi::Ref:
-        default:
-        {
-            typedef int32_t (*CompareFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
-            return reinterpret_cast<CompareFn>(self->klass->vtable[slot])(
-                self, const_cast<Il2CppObject*>(a), const_cast<Il2CppObject*>(b));
-        }
-    }
+    return il2cpp_icomparer_compare_family(self, kComparerFamilyRef, a, b);
 }
 
 int32_t CompareKeys(const Il2CppObject* comparer, const Il2CppObject* a, const Il2CppObject* b)
