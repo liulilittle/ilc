@@ -1182,6 +1182,13 @@ Il2CppObject* icall_stringbuilder_insert_i(Il2CppObject* self, int32_t index, in
     scope.Add(reinterpret_cast<void**>(&self));
     char16_t buffer[12];
     const int32_t count = FormatInt32(value, buffer);
+    // nb9 M-1 matrix: numeric/bool Insert reports OutOfMemoryException when the
+    // result exceeds MaxCapacity (Insert(string) keeps AOORE requiredLength).
+    Il2CppStringBuilder* sb0 = AsBuilder(self);
+    if (static_cast<int64_t>(sb0->length) + count > sb0->maxCapacity)
+    {
+        ThrowOom();
+    }
     InsertUnits(&self, index, buffer, count);
     return self;
 }
@@ -1200,6 +1207,11 @@ Il2CppObject* icall_stringbuilder_insert_l(Il2CppObject* self, int32_t index, in
     Il2CppString* text = icall_int64_to_string(value);
     scope.Add(reinterpret_cast<void**>(&text));
     const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    Il2CppStringBuilder* sb0 = AsBuilder(self);
+    if (static_cast<int64_t>(sb0->length) + v->length > sb0->maxCapacity)
+    {
+        ThrowOom();
+    }
     InsertUnits(&self, index, v->chars, v->length);
     return self;
 }
@@ -1216,6 +1228,11 @@ Il2CppObject* icall_stringbuilder_insert_d(Il2CppObject* self, int32_t index, do
     Il2CppString* text = icall_double_to_string(value);
     scope.Add(reinterpret_cast<void**>(&text));
     const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    Il2CppStringBuilder* sb0 = AsBuilder(self);
+    if (static_cast<int64_t>(sb0->length) + v->length > sb0->maxCapacity)
+    {
+        ThrowOom();
+    }
     InsertUnits(&self, index, v->chars, v->length);
     return self;
 }
@@ -1232,6 +1249,11 @@ Il2CppObject* icall_stringbuilder_insert_b(Il2CppObject* self, int32_t index, in
     Il2CppString* text = icall_bool_to_string(value != 0);
     scope.Add(reinterpret_cast<void**>(&text));
     const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    Il2CppStringBuilder* sb0 = AsBuilder(self);
+    if (static_cast<int64_t>(sb0->length) + v->length > sb0->maxCapacity)
+    {
+        ThrowOom();
+    }
     InsertUnits(&self, index, v->chars, v->length);
     return self;
 }
@@ -2014,11 +2036,9 @@ void icall_stringbuilder_set_capacity(Il2CppObject* self, int32_t value)
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
     Il2CppStringBuilder* sb = AsBuilder(self);
-    if (value < sb->length)
-    {
-        value = sb->length;
-    }
-    if (value > sb->maxCapacity)
+    // nb9 M-3 (net48 host measured): Capacity < Length (including negative)
+    // throws AOORE with ParamName "value"; it does NOT clamp to Length.
+    if (value < sb->length || value > sb->maxCapacity)
     {
         ThrowAoore("value");
     }
