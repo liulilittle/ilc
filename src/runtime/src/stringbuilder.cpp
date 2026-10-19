@@ -220,7 +220,20 @@ void GrowBuffer(Il2CppObject** selfSlot, int64_t required)
 // builder-pointer address (see the file-top GC notes).
 void GrowBufferForInsert(Il2CppObject** selfSlot, int32_t valueLength)
 {
-    int64_t newCapacity = static_cast<int64_t>(AsBuilder(*selfSlot)->capacity) + valueLength;
+    Il2CppStringBuilder* sb = AsBuilder(*selfSlot);
+    // nb9 fix H5: Insert growth obeys MaxCapacity exactly like GrowBuffer
+    // (net48 throws ArgumentOutOfRangeException("requiredLength")). The
+    // required capacity is the post-insert length.
+    const int64_t required = static_cast<int64_t>(sb->length) + valueLength;
+    if (required > sb->maxCapacity)
+    {
+        ThrowAoore("requiredLength");
+    }
+    int64_t newCapacity = static_cast<int64_t>(sb->capacity) + valueLength;
+    if (newCapacity > sb->maxCapacity)
+    {
+        newCapacity = required; // never allocate past MaxCapacity
+    }
     if (newCapacity > INT32_MAX)
     {
         ThrowOom();
@@ -1587,7 +1600,17 @@ Il2CppObject* icall_stringbuilder_replace_s_s_range(Il2CppObject* self, Il2CppOb
     }
     if (totalDelta > 0)
     {
-        const int64_t newCapacity64 = static_cast<int64_t>(sb->capacity) + totalDelta;
+        // nb9 fix H5: Replace growth obeys MaxCapacity (net48 throws
+        // ArgumentOutOfRangeException("requiredLength")).
+        if (resultLength64 > sb->maxCapacity)
+        {
+            ThrowAoore("requiredLength");
+        }
+        int64_t newCapacity64 = static_cast<int64_t>(sb->capacity) + totalDelta;
+        if (newCapacity64 > sb->maxCapacity)
+        {
+            newCapacity64 = resultLength64; // never allocate past MaxCapacity
+        }
         if (newCapacity64 > INT32_MAX)
         {
             ThrowOom();
@@ -1781,7 +1804,17 @@ Il2CppObject* icall_stringbuilder_replace_s_s(Il2CppObject* self, Il2CppObject* 
     // always -- the result always fits the freshly sized buffer.
     if (totalDelta > 0)
     {
-        const int64_t newCapacity64 = static_cast<int64_t>(sb->capacity) + totalDelta;
+        // nb9 fix H5: Replace growth obeys MaxCapacity (net48 throws
+        // ArgumentOutOfRangeException("requiredLength")).
+        if (resultLength64 > sb->maxCapacity)
+        {
+            ThrowAoore("requiredLength");
+        }
+        int64_t newCapacity64 = static_cast<int64_t>(sb->capacity) + totalDelta;
+        if (newCapacity64 > sb->maxCapacity)
+        {
+            newCapacity64 = resultLength64; // never allocate past MaxCapacity
+        }
         if (newCapacity64 > INT32_MAX)
         {
             ThrowOom();
@@ -1976,7 +2009,9 @@ int32_t icall_stringbuilder_get_length(Il2CppObject* self)
 int32_t icall_stringbuilder_get_max_capacity(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
-    return int32_t(0x7FFFFFFF);
+    // nb9 fix H4: MaxCapacity is per-instance state (ctor(int,int)), not a
+    // constant -- the previous hard-coded INT32_MAX ignored it.
+    return AsBuilder(self)->maxCapacity;
 }
 
 //------------------------------------------------------------------------------
