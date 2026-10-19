@@ -2430,6 +2430,19 @@ public static class CodeGenerator
         {
             if (!reachable[i] || stmts[i] is not AssignStmt a) continue;
             if (a.Value is StaticFieldExpr) continue; // already classified above
+            // nb9 F5: a delegate Invoke's result slot must follow the DECODED
+            // Invoke return type (Func<long> etc. reach here without a
+            // DelegateInvokeExpr.ResultKind, and the int32 fallback truncated).
+            if (a.Value is DelegateInvokeExpr diKind && diKind.ResultKind == null)
+            {
+                var (retCppK, _) = DelegateSignature(md, diKind.MethodToken);
+                if (retCppK is "int64_t") locKind[a.Target] = "l";
+                else if (retCppK is "double") locKind[a.Target] = "d";
+                else if (retCppK is "float") locKind[a.Target] = "float";
+                else if (retCppK is "Il2CppObject*") locKind[a.Target] = "ref";
+                else locKind[a.Target] = "val";
+                continue;
+            }
             var kind = ExprKind(a.Value, locKind);
             if (kind != null) locKind[a.Target] = kind;
         }
@@ -9093,6 +9106,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "System.Int64" => "il2cpp::il2cpp_class_by_name(\"System.Int64\")",
                 "System.Single" => "il2cpp::il2cpp_class_by_name(\"System.Single\")",
                 "System.Double" => "il2cpp::il2cpp_class_by_name(\"System.Double\")",
+                "System.UInt32" => "il2cpp::il2cpp_class_by_name(\"System.UInt32\")",
                 _ => "nullptr",
             };
             var elemClassCpp = !isRefElem
@@ -9956,6 +9970,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "deref:ui" => $"(*reinterpret_cast<uint32_t*>({code}))",
                 "deref:ul" => $"(*reinterpret_cast<uint64_t*>({code}))",
                 "deref:d" => $"(*reinterpret_cast<double*>({code}))",
+                // nb9 E4: Single receivers need a 4-byte read when the address
+                // is an ARRAY ELEMENT (float[] cells are true 4-byte floats);
+                // locals and closure fields carry the widened double slot.
+                // nb9 F5: a float FIELD is a real 4-byte member; a float LOCAL
+                // keeps the widened double slot; array-element pointers are
+                // 4-byte float cells.
+                "deref:sf" => args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr
+                    ? $"(*reinterpret_cast<double*>({code}))"
+                    : $"static_cast<double>(*reinterpret_cast<float*>({code}))",
                 "deref:b" => $"static_cast<bool>(*reinterpret_cast<int32_t*>({code}))",
                 // marshalrw (2026-09-13): "addr:v" -- pass the ADDRESS of a
                 // VALUE argument. StructureToPtr<T>'s T value reaches the

@@ -332,7 +332,15 @@ public static class TypeEmitter
         var typeByte = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         return typeByte switch
         {
-            0x08 => (FieldTypeKind.Int32, ""),
+            0x08 => (FieldTypeKind.Int32, "System.Int32"),
+            // nb9 F5: NESTED compiler-generated types (closure display
+            // classes!) must keep the REAL wide primitive width and type name;
+            // the old Int32 fallback truncated captured long/double/float and
+            // let the callers read 8 bytes out of a 4-byte member.
+            0x0A => (FieldTypeKind.Int64, "System.Int64"),
+            0x0B => (FieldTypeKind.UInt64, "System.UInt64"),
+            0x0C => (FieldTypeKind.Float, "System.Single"),
+            0x0D => (FieldTypeKind.Double, "System.Double"),
             // wfm1 (winforms1): IntPtr/UIntPtr (0x18/0x19) struct fields --
             // full-width pointer carriers (WNDCLASSEX/MSG hwnd/lpfnWndProc).
             // The emitted C++ member is intptr_t (see EmitClassStruct).
@@ -900,6 +908,11 @@ public static class TypeEmitter
             var cppType = f.TypeKind switch
             {
                 FieldTypeKind.Int32 => "int32_t",
+                // nb9 F5: real widths for wide primitive instance fields.
+                FieldTypeKind.Int64 => "int64_t",
+                FieldTypeKind.UInt64 => "uint64_t",
+                FieldTypeKind.Float => "float",
+                FieldTypeKind.Double => "double",
                 // wfm1 (winforms1): IntPtr/UIntPtr struct fields emit as the
                 // full-width intptr_t carrier -- the native pointer type.
                 // GN-18 B1 (fnptr fields): a `delegate*` (0x1B) field carries a

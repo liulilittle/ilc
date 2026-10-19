@@ -986,6 +986,15 @@ public static class MetadataLoader
             // a byte "System.Byte" (the pre-change "" collapsed every value
             // primitive to the "System.Int32" fallback and the runtime rejected
             // the Boolean/Int16/UInt32 value boxes net48 always uses).
+            // nb9 F5: INSTANCE fields of the wide primitive families keep their
+            // REAL width (a closure's captured long/double/float was emitted as
+            // an int32 member and then read through int64_t*/double* -> silent
+            // truncation and out-of-bounds reads). Static fields keep the
+            // historical int32 value slot.
+            case 0x0A when !extended: return (FieldTypeKind.Int64, "System.Int64");
+            case 0x0B when !extended: return (FieldTypeKind.UInt64, "System.UInt64");
+            case 0x0C when !extended: return (FieldTypeKind.Float, "System.Single");
+            case 0x0D when !extended: return (FieldTypeKind.Double, "System.Double");
             case 0x02: case 0x03: case 0x04: case 0x05:
             case 0x06: case 0x07: case 0x09: case 0x0A:
             case 0x0B: case 0x0C: case 0x0F:
