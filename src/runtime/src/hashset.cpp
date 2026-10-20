@@ -116,18 +116,14 @@ void icall_hashset_string_ctor(Il2CppObject* self, int32_t capacity)
 // icall_hashset_string_add -- Add(item): true when the member was ABSENT
 // (inserted); false when already present. Never throws on a duplicate (net48
 // HashSet.Add semantics; a null item raises ArgumentNullException via dictsi).
+// ONE hash + ONE chain lookup (dict_si_add_unique): net48 HashSet.Add is a
+// single probe, so the old contains-then-set pair double-hashed and
+// double-walked every call.
 //------------------------------------------------------------------------------
 bool icall_hashset_string_add(Il2CppObject* self, Il2CppObject* item)
 {
     ThrowIfNullReceiver(self);
-    Il2CppDictSI* set = AsSet(self);
-    Il2CppString* key = AsKey(item);
-    if (il2cpp_dict_si_contains_key(set, key))
-    {
-        return false; // already a member: net48 Add returns false, no-op
-    }
-    il2cpp_dict_si_set(set, key, 1); // insert with the presence marker
-    return true;
+    return il2cpp_dict_si_add_unique(AsSet(self), AsKey(item), 1); // insert with the presence marker
 }
 
 //------------------------------------------------------------------------------

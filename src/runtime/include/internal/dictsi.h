@@ -95,6 +95,15 @@
 
 namespace il2cpp {
 
+#ifdef IL2CPP_DICT_SI_PROBE
+// Test-only instrumentation (compile with -DIL2CPP_DICT_SI_PROBE): the number
+// of FindEntryIndex (bucket-chain) lookups performed so far. It backs
+// tests/runtime/test_hashset.cpp's "one lookup per Add" assertion -- the
+// red/green evidence for the Add double-lookup fix. The macro is OFF in every
+// production build, so neither the counter nor the increment exists.
+extern int32_t g_dictSiFindEntryCalls;
+#endif
+
 // One slot; collision chains are linked through the 'next' INDEX (-1 at
 // tail). hashCode == -1 marks a FREE slot (skipped by enumeration).
 struct Il2CppDictSIEntry
@@ -137,6 +146,16 @@ void il2cpp_dict_si_add(Il2CppDictSI* d, Il2CppString* key, int32_t value);
 // key raises ArgumentNullException. May grow when the 0.72 load factor would
 // be exceeded (the insert path; a replace never grows).
 void il2cpp_dict_si_set(Il2CppDictSI* d, Il2CppString* key, int32_t value);
+
+// AddUnique(key, value) -- insert-only Add that reports whether it inserted:
+// true when the pair was ABSENT (inserted with 'value'), false when the key
+// was already present (NO write, no slot move -- the stored value is left
+// untouched, R2). A null key raises ArgumentNullException, exactly like
+// add/set. This is the HashSet<T>.Add contract (true = added, false = already
+// a member, never throws on a duplicate) expressed as ONE hash + ONE chain
+// lookup: contains-then-set would repeat both. Growth (0.72 load factor,
+// double + rehash) applies only on the insert path.
+bool il2cpp_dict_si_add_unique(Il2CppDictSI* d, Il2CppString* key, int32_t value);
 
 // TryGetValue(key, &value): true + the stored value on a hit; false on a
 // miss (the out-param is left untouched). Null key -> ArgumentNullException.

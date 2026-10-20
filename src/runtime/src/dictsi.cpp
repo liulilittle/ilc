@@ -60,6 +60,15 @@
 
 namespace il2cpp {
 
+#ifdef IL2CPP_DICT_SI_PROBE
+// Test-only instrumentation (compile with -DIL2CPP_DICT_SI_PROBE): the number
+// of FindEntryIndex calls since the counter was last reset. It backs
+// test_hashset's "HashSet.Add performs ONE chain lookup per call" assertion
+// (red/green evidence for the Add double-lookup fix). Production builds do not
+// define the macro, so the counter and the increment vanish.
+int32_t g_dictSiFindEntryCalls = 0;
+#endif
+
 namespace {
 
 // Minimum bucket count: avoids a degenerate single-bucket table for tiny
@@ -149,6 +158,9 @@ int32_t OccupiedCount(const Il2CppDictSI* d)
 // a bucket chain.
 int32_t FindEntryIndex(const Il2CppDictSI* d, const Il2CppString* key, int32_t hash)
 {
+#ifdef IL2CPP_DICT_SI_PROBE
+    ++g_dictSiFindEntryCalls;
+#endif
     for (int32_t i = d->buckets[BucketIndex(hash, d->bucketCount)]; i >= 0;
          i = d->entries[i].next)
     {
@@ -347,6 +359,34 @@ void il2cpp_dict_si_set(Il2CppDictSI* d, Il2CppString* key, int32_t value)
     d->entries[slot].key = key;
     d->entries[slot].value = value;
     LinkSlot(d, slot, hash);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_dict_si_add_unique -- AddUnique(key, value) (see header): insert-only
+// Add that reports whether it inserted. One hash + one chain lookup covers
+// both questions (absent? -> insert; present? -> report false and leave the
+// stored value and slot untouched, R2). A null key raises
+// ArgumentNullException (the add/set contract). The insert path may grow
+// (double + rehash) when the 0.72 load factor would be exceeded; the
+// duplicate path never grows.
+//------------------------------------------------------------------------------
+bool il2cpp_dict_si_add_unique(Il2CppDictSI* d, Il2CppString* key, int32_t value)
+{
+    ThrowIfNullKey(key);
+    const int32_t hash = StringHash(key);
+    if (FindEntryIndex(d, key, hash) >= 0)
+    {
+        return false; // already present: no write, no slot move (R2)
+    }
+    if (NeedsResize(OccupiedCount(d) + 1, d->bucketCount))
+    {
+        ResizeBuckets(d);
+    }
+    const int32_t slot = AcquireSlot(d);
+    d->entries[slot].key = key;
+    d->entries[slot].value = value;
+    LinkSlot(d, slot, hash);
+    return true;
 }
 
 //------------------------------------------------------------------------------

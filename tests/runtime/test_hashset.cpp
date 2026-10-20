@@ -218,6 +218,60 @@ int main()
         Expect(il2cpp::runtime::icall_hashset_string_contains(r.self, O("key999")) == false, "growth miss for absent member");
     }
 
+    // --- 10. Add performs exactly ONE bucket-chain lookup per call ---
+    // net48 HashSet.Add is a single probe: hash once, walk the chain once, then
+    // insert if absent. The pre-fix implementation was
+    // contains_key(...) + set(...) -- two hashes and two chain walks per Add.
+    // The count is real instrumentation (dictsi.cpp g_dictSiFindEntryCalls,
+    // compiled only with -DIL2CPP_DICT_SI_PROBE); without that macro this
+    // section only re-checks the return-value contract.
+    {
+        RootedSet r(0);
+#ifdef IL2CPP_DICT_SI_PROBE
+        il2cpp::g_dictSiFindEntryCalls = 0;
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-new")) == true,
+               "probe: Add(new) returns true");
+        std::printf("PROBE Add(new) chain lookups = %d\n", il2cpp::g_dictSiFindEntryCalls);
+        Expect(il2cpp::g_dictSiFindEntryCalls == 1,
+               "Add(new member) performs exactly 1 chain lookup");
+        il2cpp::g_dictSiFindEntryCalls = 0;
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-new")) == false,
+               "probe: Add(duplicate) returns false");
+        std::printf("PROBE Add(duplicate) chain lookups = %d\n", il2cpp::g_dictSiFindEntryCalls);
+        Expect(il2cpp::g_dictSiFindEntryCalls == 1,
+               "Add(duplicate) performs exactly 1 chain lookup");
+        il2cpp::g_dictSiFindEntryCalls = 0;
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-twice")) == true,
+               "probe-twice: first Add returns true");
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-twice")) == false,
+               "probe-twice: second Add returns false");
+        std::printf("PROBE AddSameKeyTwice total chain lookups = %d\n", il2cpp::g_dictSiFindEntryCalls);
+        Expect(il2cpp::g_dictSiFindEntryCalls == 2,
+               "AddSameKeyTwice performs 2 chain lookups total (1 per Add, not 3)");
+        Expect(il2cpp::runtime::icall_hashset_string_get_count(r.self) == 2,
+               "probe: count 2 after the probe members");
+#else
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-new")) == true,
+               "probe-disabled: Add(new) returns true");
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-new")) == false,
+               "probe-disabled: Add(duplicate) returns false");
+        Expect(il2cpp::runtime::icall_hashset_string_get_count(r.self) == 1,
+               "probe-disabled: count stays 1");
+#endif
+    }
+
+    // --- 11. Add after Remove re-adds through the free-list slot (R4) and
+    //    still reports true; the count returns to its previous value ---
+    {
+        RootedSet r(0);
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("re")) == true, "re-add: first add true");
+        Expect(il2cpp::runtime::icall_hashset_string_remove(r.self, O("re")) == true, "re-add: remove true");
+        Expect(il2cpp::runtime::icall_hashset_string_get_count(r.self) == 0, "re-add: count 0 after remove");
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("re")) == true, "re-add: re-insert returns true");
+        Expect(il2cpp::runtime::icall_hashset_string_get_count(r.self) == 1, "re-add: count back to 1");
+        Expect(il2cpp::runtime::icall_hashset_string_contains(r.self, O("re")) == true, "re-add: member present");
+    }
+
     if (g_failures == 0)
         std::printf("PASS: test_hashset\n");
     else

@@ -468,6 +468,73 @@ int main()
         Expect(il2cpp::runtime::icall_dict_si_get_count(w) == 3, "wrapper count after snapshots");
     }
 
+    // --- 14. add_unique: insert-only Add that reports whether it inserted.
+    //    The HashSet<T>.Add contract in dictsi terms: true on insert (value
+    //    stored), false on a duplicate (NO write -- the original value and the
+    //    slot position survive, R2), ArgumentNullException on a null key. ---
+    {
+        il2cpp::Il2CppDictSI* d = il2cpp::il2cpp_dict_si_create(0);
+        Expect(il2cpp::il2cpp_dict_si_add_unique(d, S("u"), 1) == true,
+               "add_unique(new key) returns true");
+        Expect(il2cpp::il2cpp_dict_si_get_count(d) == 1, "add_unique(new) count 1");
+        int32_t v = 0;
+        Expect(il2cpp::il2cpp_dict_si_try_get_value(d, S("u"), &v) && v == 1,
+               "add_unique(new) stored the value");
+        // Duplicate: false, and the stored value must NOT be overwritten.
+        Expect(il2cpp::il2cpp_dict_si_add_unique(d, S("u"), 99) == false,
+               "add_unique(duplicate) returns false");
+        Expect(il2cpp::il2cpp_dict_si_get_count(d) == 1, "add_unique(duplicate) leaves count at 1");
+        v = 0;
+        Expect(il2cpp::il2cpp_dict_si_try_get_value(d, S("u"), &v) && v == 1,
+               "add_unique(duplicate) does NOT overwrite the stored value (no set semantics)");
+        // Content equality: a distinct instance with equal content is a duplicate.
+        Expect(il2cpp::il2cpp_dict_si_add_unique(d, S("u"), 7) == false,
+               "add_unique(content-equal distinct instance) returns false");
+        Expect(il2cpp::il2cpp_dict_si_get_count(d) == 1, "content-equal duplicate: count still 1");
+        // Insertion order / position: a second key appends after the first.
+        Expect(il2cpp::il2cpp_dict_si_add_unique(d, S("v"), 2) == true,
+               "add_unique(second key) returns true");
+        Expect(il2cpp::il2cpp_dict_si_get_count(d) == 2, "add_unique(second key) count 2");
+        // Null key: ArgumentNullException, table unchanged.
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_dict_si_add_unique(d, nullptr, 3); },
+                            kArgumentNullChain),
+               "add_unique(null) raises ArgumentNullException");
+        Expect(il2cpp::il2cpp_dict_si_get_count(d) == 2, "add_unique(null) leaves count unchanged");
+        // Remove then add_unique: the freed slot is reused and true is returned.
+        Expect(il2cpp::il2cpp_dict_si_remove(d, S("u")) == true, "add_unique fixture: remove true");
+        Expect(il2cpp::il2cpp_dict_si_add_unique(d, S("u"), 4) == true,
+               "add_unique after remove returns true (free-list reuse)");
+        Expect(il2cpp::il2cpp_dict_si_get_count(d) == 2, "add_unique after remove: count 2");
+        v = 0;
+        Expect(il2cpp::il2cpp_dict_si_try_get_value(d, S("u"), &v) && v == 4,
+               "add_unique after remove stored the NEW value (slot was free, not occupied)");
+        il2cpp::il2cpp_dict_si_destroy(d);
+    }
+
+    // --- 15. add_unique growth: the 0.72 load-factor resize runs on the
+    //    insert path only, and every member reads back afterwards ---
+    {
+        il2cpp::Il2CppDictSI* d = il2cpp::il2cpp_dict_si_create(0);
+        char buf[24];
+        for (int32_t i = 0; i < 200; ++i)
+        {
+            std::snprintf(buf, sizeof(buf), "g%03d", i);
+            Expect(il2cpp::il2cpp_dict_si_add_unique(d, S(buf), i) == true,
+                   "add_unique growth: every new key returns true");
+        }
+        Expect(il2cpp::il2cpp_dict_si_get_count(d) == 200, "add_unique growth: count 200");
+        for (int32_t i = 0; i < 200; i += 13)
+        {
+            std::snprintf(buf, sizeof(buf), "g%03d", i);
+            int32_t v = 0;
+            Expect(il2cpp::il2cpp_dict_si_try_get_value(d, S(buf), &v) && v == i,
+                   "add_unique growth: value reads back after bucket doublings");
+        }
+        Expect(il2cpp::il2cpp_dict_si_add_unique(d, S("g000"), 999) == false,
+               "add_unique growth: existing key still false after resizes");
+        il2cpp::il2cpp_dict_si_destroy(d);
+    }
+
     // --- Report ---
     if (g_failures != 0)
     {
