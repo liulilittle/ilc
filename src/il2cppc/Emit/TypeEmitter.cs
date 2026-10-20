@@ -609,12 +609,14 @@ public static class TypeEmitter
     // is "Outer+Inner", which never equals a child's DeclaringTypeName) and
     // values keep the source list order, so the emitted table order is
     // unchanged. EmitTypeInfo only uses the index when it is handed that SAME
-    // list instance; any other list falls back to the original scan (unit tests
-    // and ad-hoc callers keep byte-identical output). The arrays are read-only
-    // after construction and never handed to a caller -- no shared mutable
-    // buffer is exposed.
+    // list instance AND that list still has the element count the index was
+    // built from; any other list (mode-B filtering, ad-hoc callers, or the same
+    // List mutated in place after the pass) falls back to the original linear
+    // scan, so output is unchanged. The arrays are read-only after construction
+    // and never handed to a caller -- no shared mutable buffer is exposed.
     private static Dictionary<string, TypeDef[]>? _nestedByDeclaring;
     private static IReadOnlyList<TypeDef>? _nestedIndexSource;
+    private static int _nestedIndexSourceCount = -1;
 
     // Public for CodeGenerator (called once per Generate, after all clones are
     // created -- the session map is deterministic on the final type list).
@@ -658,6 +660,7 @@ public static class TypeEmitter
             index[kv.Key] = kv.Value.ToArray();
         _nestedByDeclaring = index;
         _nestedIndexSource = types;
+        _nestedIndexSourceCount = types.Count;
     }
 
     // GN-N5: the disambiguation suffix for a GENERIC-INSTANCE name produced by
@@ -673,14 +676,19 @@ public static class TypeEmitter
     }
 
     // H3: DIRECT nested types of t, in source-list order. Uses the per-Generate
-    // index when the caller passed the very list the index was built from;
-    // otherwise (unit tests / ad-hoc callers) falls back to the original linear
-    // scan so output is unchanged. The returned array is shared and read-only.
+    // index when the caller passed the very list the index was built from and
+    // that list's element count still matches (a List mutated in place after
+    // ResolveTypeCppNameCollisions would otherwise silently under-report
+    // children); otherwise (unit tests / ad-hoc callers / mutated lists) falls
+    // back to the original linear scan so output is unchanged. The returned
+    // array is shared and read-only.
     private static IReadOnlyList<TypeDef> NestedTypesOf(TypeDef t, IReadOnlyList<TypeDef>? allTypes)
     {
         var key = ReflectionFullName(t);
         var index = _nestedByDeclaring;
-        if (index != null && allTypes != null && ReferenceEquals(allTypes, _nestedIndexSource))
+        if (index != null && allTypes != null
+            && ReferenceEquals(allTypes, _nestedIndexSource)
+            && allTypes.Count == _nestedIndexSourceCount)
             return index.TryGetValue(key, out var direct) ? direct : Array.Empty<TypeDef>();
         if (allTypes == null) return Array.Empty<TypeDef>();
         var list = new List<TypeDef>();
