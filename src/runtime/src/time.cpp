@@ -291,6 +291,32 @@ bool SameWallClock(const std::tm& a, const std::tm& b)
         && a.tm_hour == b.tm_hour && a.tm_min == b.tm_min && a.tm_sec == b.tm_sec;
 }
 
+// tzdata reports LOCAL MEAN TIME (the pre-first-rule era) as an offset that is
+// not a whole number of minutes -- e.g. Asia/Shanghai +8:05:43, New York
+// -4:56:02. Every real adjustment rule is minute-aligned, so this is a safe
+// marker for "the CRT has no rule for this instant".
+bool LooksLikeLocalMeanTime(int64_t offsetSeconds)
+{
+    return offsetSeconds % 60 != 0;
+}
+
+// POSIX offset at a UTC instant, straight from the CRT's tzdata -- real
+// history INCLUDING the 1918-1970 DST seasons (net48 agrees there: measured
+// New York 1969-07-01 UTC -> -14400 on both). Returns false when the CRT
+// cannot resolve the instant.
+bool CrtOffsetAtInstant(int64_t utcTicks, int64_t& offsetSeconds)
+{
+    const std::time_t instant = static_cast<std::time_t>((utcTicks - kUnixEpochTicks) / kTicksPerSecond);
+    std::tm localTm = {};
+    std::tm utcTm = {};
+    if (localtime_r(&instant, &localTm) == nullptr || gmtime_r(&instant, &utcTm) == nullptr)
+    {
+        return false;
+    }
+    offsetSeconds = TmWallSeconds(localTm) - TmWallSeconds(utcTm);
+    return true;
+}
+
 // POSIX wall-clock -> UTC offset (net48 TimeZoneInfo.GetUtcOffset(wall)
 // semantics): the two candidate offsets around the wall clock are sampled
 // 30 h apart (a DST window is at most a few hours wide, so the samples
@@ -369,66 +395,77 @@ bool CrtOffsetAtWall(int64_t wallTicks, int64_t& offsetSeconds)
     offsetSeconds = candidates[0] < candidates[1] ? candidates[0] : candidates[1];
     return true;
 }
+#endif // !defined(_WIN32)
 
-// The zone's STANDARD offset (seconds) as the CRT reports it on two post-epoch
-// references (1970-01-01 and 2019-06-01 UTC; the smaller of the two, so the
-// standard side wins in a DST zone). Used for pre-1970 instants, where glibc's
-// tzdata carries LOCAL MEAN TIME (e.g. Asia/Shanghai +8:05:43 before 1901)
-// that net48's rule model never reports: net48 extrapolates the zone's first
-// adjustment rule, whose base offset is the standard one.
-int64_t CrtStandardOffsetSeconds()
+// The zone's STANDARD (non-DST) offset in seconds: the minimum of four season
+// samples of 2000 (Jan/Apr/Jul/Oct 1st, 00:00 UTC), each resolved by the
+// platform's own zone data. 2000 is inside every modern rule set, and the
+// minimum removes the daylight hour for positive-DST zones, so the result is
+// the base offset (Lord Howe: min(+11:00, +10:30) = +10:30; Ireland:
+// min(0, +01:00) = 0).
+int64_t StandardOffsetSeconds()
 {
+    // 2000-01-01 / 04-01 / 07-01 / 10-01 UTC in .NET ticks (630822816000000000
+    // is the pinned 2000-01-01 constant; +91/+182/+274 days).
+    static const int64_t kSamples[4] = {
+        630822816000000000LL, 630901440000000000LL, 630980064000000000LL, 631059552000000000LL
+    };
     int64_t best = 0;
     bool have = false;
-    for (int k = 0; k < 2; ++k)
+    for (int i = 0; i < 4; ++i)
     {
-        const std::time_t probe = static_cast<std::time_t>(k == 0 ? 0 : 1559347200LL); // 1970-01-01 / 2019-06-01
-        std::tm probeTm = {};
-        if (localtime_r(&probe, &probeTm) == nullptr)
+        int64_t candidate = 0;
+#if defined(_WIN32)
+        candidate = il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(kSamples[i], 1 /* Utc */));
+#else
+        if (!CrtOffsetAtInstant(kSamples[i], candidate))
         {
             continue;
         }
-        const int64_t candidate = TmUnixSeconds(probeTm) - static_cast<int64_t>(probe);
+#endif
         if (!have || candidate < best)
         {
             best = candidate;
             have = true;
         }
     }
-    if (!have)
-    {
-        return 0;
-    }
-    return best;
+    return have ? best : 0;
 }
-#endif // !defined(_WIN32)
+
+// The historical floor for the FileTime bridge: 1900-01-01T00:00:00Z in
+// .NET ticks. Below it the two platforms have no comparable rule data --
+// net48 extrapolates the zone's FIRST adjustment rule (measured: Eastern
+// 1601-07 -> DST -14400, AUS Eastern 1601-01 -> DST +39600) while tzdata only
+// carries LOCAL MEAN TIME (Asia/Shanghai +8:05:43, New York -4:56:02). Rather
+// than emulate either one's pre-1900 artefact, both paths use the zone's
+// standard offset there, which is what the net48 extrapolation yields for a
+// no-DST zone (measured: China 1601 -> +28800 on both platforms). From 1900 on
+// each platform reports its own REAL rules, including the 1918-1970 DST
+// seasons (measured: New York 1969-07-01Z -> -14400 on net48 AND glibc).
+constexpr int64_t kHistoricalFloorTicks = 599266080000000000LL; // 1900-01-01Z
 
 // Per-date local UTC offset (seconds, local - UTC) at a UTC INSTANT.
 // Windows: the registry rule model timezone.cpp shares with the .NET
 // Framework (net48's own data source, so historical years match too).
-// POSIX: the CRT's tzdata at that instant (DST-aware), falling back to the
-// registry model when the instant lies outside time_t's range.
+// POSIX: the CRT's tzdata at that instant (real history, DST-aware).
 int64_t LocalOffsetAtUtcInstant(int64_t utcTicks)
 {
 #if defined(_WIN32)
+    if (utcTicks < kHistoricalFloorTicks)
+    {
+        return StandardOffsetSeconds();
+    }
     return il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(utcTicks, 1 /* Utc */));
 #else
-    // Before the Unix epoch the tzdata carries LOCAL MEAN TIME (e.g.
-    // Asia/Shanghai +8:05:43 before 1901), which net48's rule model never
-    // reports -- it extrapolates the zone's first adjustment rule (whose
-    // base offset is the STANDARD one). Use that standard offset there.
-    if (utcTicks < kUnixEpochTicks)
+    if (utcTicks >= kHistoricalFloorTicks)
     {
-        return CrtStandardOffsetSeconds();
+        int64_t offset = 0;
+        if (CrtOffsetAtInstant(utcTicks, offset) && !LooksLikeLocalMeanTime(offset))
+        {
+            return offset;
+        }
     }
-    const std::time_t instant = static_cast<std::time_t>((utcTicks - kUnixEpochTicks) / kTicksPerSecond);
-    std::tm localTm = {};
-    std::tm utcTm = {};
-    if (localtime_r(&instant, &localTm) != nullptr && gmtime_r(&instant, &utcTm) != nullptr)
-    {
-        return TmWallSeconds(localTm) - TmWallSeconds(utcTm);
-    }
-    return il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(utcTicks, 1 /* Utc */));
+    return StandardOffsetSeconds();
 #endif
 }
 
@@ -439,19 +476,21 @@ int64_t LocalOffsetAtUtcInstant(int64_t utcTicks)
 int64_t LocalOffsetAtWall(int64_t wallTicks)
 {
 #if defined(_WIN32)
+    if (wallTicks < kHistoricalFloorTicks)
+    {
+        return StandardOffsetSeconds();
+    }
     return il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(wallTicks, 0 /* Unspecified */));
 #else
-    // Pre-epoch walls: same LOCAL-MEAN-TIME caveat as LocalOffsetAtUtcInstant.
-    if (wallTicks < kUnixEpochTicks)
+    if (wallTicks >= kHistoricalFloorTicks)
     {
-        return CrtStandardOffsetSeconds();
+        int64_t offset = 0;
+        if (CrtOffsetAtWall(wallTicks, offset) && !LooksLikeLocalMeanTime(offset))
+        {
+            return offset;
+        }
     }
-    int64_t offset = 0;
-    if (CrtOffsetAtWall(wallTicks, offset))
-    {
-        return offset;
-    }
-    return il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(wallTicks, 0 /* Unspecified */));
+    return StandardOffsetSeconds();
 #endif
 }
 
