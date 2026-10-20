@@ -190,9 +190,15 @@ void icall_array_copy(Il2CppObject* src, int32_t srcIndex, Il2CppObject* dst,
 {
     Il2CppArray* s = RequireArray(src);
     Il2CppArray* d = RequireArray(dst);
-    if (srcIndex < 0 || dstIndex < 0 || length < 0)
+    if (length < 0)
     {
-        il2cpp_throw_new(kArgOutOfRangeChain, "Index or length is less than zero.");
+        il2cpp_throw_argument_out_of_range_exception("length", "\xE8\xA6\x81\xE6\xB1\x82\xE9\x9D\x9E\xE8\xB4\x9F\xE6\x95\xB0\xE3\x80\x82");
+    }
+    if (srcIndex < 0 || dstIndex < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            srcIndex < 0 ? "srcIndex" : "dstIndex",
+            "\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE9\x9D\x9E\xE8\xB4\x9F\xE5\x80\xBC\xE5\xB9\xB6\xE5\xB0\x8F\xE4\xBA\x8E\xE9\x9B\x86\xE5\x90\x88\xE5\xA4\xA7\xE5\xB0\x8F\xE3\x80\x82");
     }
     if (srcIndex > s->length || srcIndex + length > s->length)
     {

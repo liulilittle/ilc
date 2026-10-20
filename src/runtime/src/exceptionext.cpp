@@ -175,7 +175,7 @@ void il2cpp_throw_invalid_operation_exception(const char* message)
 void il2cpp_throw_index_out_of_range_exception(const char* message)
 {
     il2cpp_throw_new("System.IndexOutOfRangeException,System.IndexOutOfRangeException,System.SystemException,System.Exception",
-                     message != nullptr ? message : "Index was outside the bounds of the array.");
+                     message != nullptr ? message : "\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE4\xBA\x86\xE6\x95\xB0\xE7\xBB\x84\xE7\x95\x8C\xE9\x99\x90\xE3\x80\x82");
 }
 
 //------------------------------------------------------------------------------

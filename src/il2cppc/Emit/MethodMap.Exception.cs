@@ -45,7 +45,7 @@ public static partial class MethodRefResolver
                 // receiver hint -- defer (null) so the receiver-aware
                 // re-resolve below dispatches the catch-variable shape.
                 if (receiverType == null) return null;
-                if (receiverType == "System.Type")
+                if (receiverType is "System.Type" or "System.ArgumentException" or "System.ArgumentNullException" or "System.ArgumentOutOfRangeException")
                     return I("il2cpp::il2cpp_string_intern_literal(__il2cpp_ex.message_text()",
                         0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
                 // ilistException: get_Message on a tracked Exception receiver
@@ -81,12 +81,10 @@ public static partial class MethodRefResolver
             // object. The catch-variable carrier ("System.Type") has no
             // inner model -- best-effort null (the honest answer).
             case "get_ParamName":
-                if (receiverType == null) return null;
-                // nb9 D13: the catch carrier keeps the throw site's
-                // parameter name in the message suffix; parse it back.
-                if (receiverType == "System.Type" || receiverType == "System.Exception")
-                    return I("il2cpp::icall_exception_param_name_current", 0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
-                throw new NotSupportedException("Exception.get_ParamName on this receiver shape is not wired");
+                // nb9 D13: any receiver shape (catch carrier, `is` pattern,
+                // explicit cast/local) answers from the throw-time snapshot;
+                // never stub the whole method for a static shape.
+                return I("il2cpp::icall_exception_param_name_current", 0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
             case "get_InnerException":
                 if (receiverType == "System.Exception")
                     return I("il2cpp::runtime::icall_exception_get_inner_exception", 0, true, true, true,

@@ -137,6 +137,19 @@ bool il2cpp_exception_matches(const char* caught, const char* thrown)
     return false;
 }
 
+// nb9 D13: exception-chain test against a MANAGED type-name string (the
+// catch carrier / `is` pattern operand). ASCII short names only.
+bool il2cpp_exception_matches_string(const char* caughtChain, Il2CppString* thrownName)
+{
+    if (thrownName == nullptr) return false;
+    char buf[256];
+    int32_t n = thrownName->length;
+    if (n > 255) n = 255;
+    for (int32_t i = 0; i < n; ++i) buf[i] = static_cast<char>(thrownName->chars[i]);
+    buf[n] = 0;
+    return il2cpp_exception_matches(caughtChain, buf);
+}
+
 //------------------------------------------------------------------------------
 // il2cpp_report_unhandled_exception -- top-level guard (see header).
 // M3 Task 10: the report includes the managed frame stack (method names) --

@@ -1018,6 +1018,14 @@ public static partial class MethodRefResolver
         string[]? genArgNames = null, string? instName = null)
     {
         var (count, ret, ps) = RawSignature(md, sigHandle);
+        // nb9 D13: get_ParamName is a catch-carrier read for EVERY receiver
+        // shape (catch variable, `is` pattern, cast/local); resolve it before
+        // the domain dispatch so no Argument* owner can fall to the phantom
+        // path. Ditto get_Message for the Argument* family (inherited).
+        if (name == "get_ParamName")
+            return I("il2cpp::icall_exception_param_name_current", 0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
+        if (name == "get_Message" && receiverType != null && owner.StartsWith("System.Argument", StringComparison.Ordinal))
+            return I("il2cpp::il2cpp_string_intern_literal(__il2cpp_ex.message_text()", 0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
         // DateTimeOffset arithmetic overloads (Add(TimeSpan) vs the DateTime
         // operand forms; Subtract(TimeSpan) vs Subtract(DateTimeOffset)) carry
         // two valuetype parameter bytes (0x11) and cannot be told apart from

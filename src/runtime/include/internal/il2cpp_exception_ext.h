@@ -116,4 +116,5 @@ void il2cpp_throw_file_not_found_exception(const char* message);
 // nb9 D13: get_ParamName for a catch carrier (parameter name of the most
 // recent throw; null when none).
 Il2CppString* icall_exception_param_name_current();
+bool il2cpp_exception_matches_string(const char* caughtChain, Il2CppString* thrownName);
 } // namespace il2cpp

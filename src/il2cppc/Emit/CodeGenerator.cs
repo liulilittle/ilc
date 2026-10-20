@@ -3083,6 +3083,16 @@ public static class CodeGenerator
         }
         _curNewArrLengths = newArrLengths;
         _curNewArrElemSizes = newArrElemSizes;
+        // nb9 D13: mark locals holding the catch carrier's type-name string
+        // (e is ArgumentException / cast) so isinst can test the exception chain.
+        for (var iEx = 0; iEx < stmts.Count; iEx++)
+        {
+            if (stmts[iEx] is AssignStmt aEx &&
+                (aEx.Value is ExceptionEntryExpr ||
+                 (aEx.Value is CallExpr cEx && cEx.Function.Contains("__il2cpp_ex.type_name()"))))
+                locKind[aEx.Target] = "excname";
+        }
+
         _curLocKinds = locKind;
 
         // perf2 str_chars: known-length STRING LITERAL locals. A local whose
@@ -8958,6 +8968,29 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if ((c.Function.StartsWith("isinst_", StringComparison.Ordinal) && int.TryParse(c.Function[7..], out var isTok))
             || (c.Function.StartsWith("castclass_", StringComparison.Ordinal) && int.TryParse(c.Function[10..], out isTok)))
         {
+            // nb9 D13: `e is ArgumentException` on a catch carrier is a TEST OF
+            // THE THROWN TYPE-NAME STRING, not an object type identity. The
+            // carrier holds either the exception entry or its interned short
+            // name; compare against the exception chain instead of a descriptor.
+            {
+                var excTargetName = "";
+                try { excTargetName = TypeTokenFullName(md, isTok); } catch { }
+                var excCarrier = c.Args.Count > 0 &&
+                    (c.Args[0] is ExceptionEntryExpr ||
+                     (c.Args[0] is LocExpr leExc && _curLocKinds.TryGetValue(leExc.Name, out var kExc) && kExc == "excname"));
+                if (excCarrier && (excTargetName == "System.Exception" ||
+                    excTargetName == "System.SystemException" ||
+                    excTargetName == "System.ArgumentException" ||
+                    excTargetName == "System.ArgumentNullException" ||
+                    excTargetName == "System.ArgumentOutOfRangeException" ||
+                    excTargetName == "System.InvalidOperationException"))
+                {
+                    var excNameCode = EmitExpr(c.Args[0], md, types);
+                    var excChain = excTargetName;
+                    if (c.Function.StartsWith("isinst_", StringComparison.Ordinal))
+                        return $"((il2cpp::il2cpp_exception_matches(\"{excChain}\", __il2cpp_ex.type_name())) ? reinterpret_cast<Il2CppObject*>({excNameCode}) : nullptr)";
+                }
+            }
             // .NET isinst semantics: returns obj (type matches) or null (no match) -- NOT a bool!
             //   isinst:   match -> obj, no match -> null (as-operator semantics)
             //   castclass:match -> obj, null input -> null (D-CAST-NULL: ECMA castclass on

@@ -574,11 +574,15 @@ int32_t icall_array_last_index_of_int32(Il2CppObject* arr, int32_t value)
 void icall_array_clear_int32(Il2CppObject* arr, int32_t index, int32_t length)
 {
     Il2CppArray* a = RequireArrayExt2(arr);
-    if (index < 0 || length < 0)
+    if (index < 0)
     {
         il2cpp_throw_argument_out_of_range_exception(
-            index < 0 ? "index" : "length",
-            "Index or length is less than zero.");
+            "index",
+            "\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE9\x9D\x9E\xE8\xB4\x9F\xE5\x80\xBC\xE5\xB9\xB6\xE5\xB0\x8F\xE4\xBA\x8E\xE9\x9B\x86\xE5\x90\x88\xE5\xA4\xA7\xE5\xB0\x8F\xE3\x80\x82");
+    }
+    if (length < 0)
+    {
+        il2cpp_throw_index_out_of_range_exception("\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE4\xBA\x86\xE6\x95\xB0\xE7\xBB\x84\xE7\x95\x8C\xE9\x99\x90\xE3\x80\x82");
     }
     if (static_cast<int64_t>(index) + static_cast<int64_t>(length) > a->length)
     {
@@ -720,7 +724,7 @@ void icall_array_reverse_range(Il2CppObject* arr, int32_t index, int32_t length)
     {
         il2cpp_throw_argument_out_of_range_exception(
             index < 0 ? "index" : "length",
-            "Index or length is less than zero.");
+            index < 0 ? "\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE9\x9D\x9E\xE8\xB4\x9F\xE5\x80\xBC\xE5\xB9\xB6\xE5\xB0\x8F\xE4\xBA\x8E\xE9\x9B\x86\xE5\x90\x88\xE5\xA4\xA7\xE5\xB0\x8F\xE3\x80\x82" : "\xE8\xA6\x81\xE6\xB1\x82\xE9\x9D\x9E\xE8\xB4\x9F\xE6\x95\xB0\xE3\x80\x82");
     }
     if (static_cast<int64_t>(index) + static_cast<int64_t>(length) > a->length)
     {
