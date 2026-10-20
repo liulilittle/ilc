@@ -488,18 +488,49 @@ public static class TypeEmitter
         return value == null ? null : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    // H2 (transpiler compile-time perf): per-type C++ name memo.
+    //
+    // TypeCppName is called once per emitted symbol reference -- 55k calls for
+    // a 2.4k-type assembly, 8 of them inside a single EmitTypeInfo (the
+    // struct/typeinfo/registration name for the same t). Every call rebuilt
+    // the sanitized base name (Sanitize = Split + Join) and the
+    // DeclaringTypeName/Name/InstantiationSuffix identity string before doing
+    // one dictionary lookup, so the same pure result was recomputed dozens of
+    // times per type.
+    //
+    // Keyed by TypeDef REFERENCE (TypeDef overrides neither Equals nor
+    // GetHashCode), which is exactly the granularity the collision map uses.
+    // The value is tagged with the _cppNameOverrides instance it was computed
+    // under: that map is replaced once per Generate by
+    // ResolveTypeCppNameCollisions, and a cached name computed BEFORE that
+    // pass (CodeGenerator's generic-usage scan calls TypeCppName at :840,
+    // before :913) would otherwise keep the pre-collision bare name. The token
+    // comparison is the actual invalidation mechanism; the Clear() in
+    // ResolveTypeCppNameCollisions only bounds the cache to one Generate's
+    // types (it is NOT what keeps the names correct -- removing it alone still
+    // yields correct names because every entry is token-tagged, which the
+    // cache unit test pins down).
+    // ConcurrentDictionary because xUnit test classes call TypeCppName in
+    // parallel; the CLI itself is single-threaded (CodeGenerator.Generate
+    // holds _poolLock).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<TypeDef, (object? Token, string Name)> _typeCppNameCache = new();
+
     public static string TypeCppName(TypeDef t)
     {
+        var token = _cppNameOverrides;
+        if (_typeCppNameCache.TryGetValue(t, out var cached) && ReferenceEquals(cached.Token, token))
+            return cached.Name;
         var core = TypeCppNameCore(t);
         // GN-N5: append the deterministic disambiguation suffix when THIS type's
         // C++ name collides with another type's (Sanitize maps '.' and '_' both
         // to '_', so e.g. 'Cases.A_B' and nested 'Cases.A.B' both become
         // 'Cases_A_B'). The suffix is keyed by the type identity
         // (ResolveTypeCppNameCollisions); null/absent = no collision.
-        if (_cppNameOverrides != null
-            && _cppNameOverrides.TryGetValue(TypeCppIdentity(t), out var sfx))
-            return core + sfx;
-        return core;
+        var name = token != null && token.TryGetValue(TypeCppIdentity(t), out var sfx)
+            ? core + sfx
+            : core;
+        _typeCppNameCache[t] = (token, name);
+        return name;
     }
 
     static string TypeCppNameCore(TypeDef t)
@@ -561,6 +592,32 @@ public static class TypeEmitter
         => (t.IsNested && t.DeclaringTypeName.Length > 0 ? t.DeclaringTypeName + "+" + t.Name : t.FullName)
            + "|" + (t.InstantiationSuffix ?? "");
 
+    // H3 (transpiler compile-time perf): nested-type index.
+    //
+    // EmitTypeInfo used to answer "which types are DIRECTLY nested in t?" with
+    // a full Where() over every type, per type -- N^2 string comparisons, plus
+    // a ReflectionFullName(t) rebuild for every element the predicate reached
+    // (it sat inside the lambda, so it was NOT hoisted). Measured on a
+    // 2401-type assembly: 5,764,801 predicate iterations (= 2401^2) for 2401
+    // scans, 85.6/72.3 ms; on a 5001-type assembly 100,020,001 iterations,
+    // 1410.0 ms.
+    //
+    // The index is built in ResolveTypeCppNameCollisions -- the one per-Generate
+    // pass that already walks the final type list (CodeGenerator.cs:913) -- so
+    // its lifetime is exactly that Generate's. Keys are the raw
+    // DeclaringTypeName (NOT ReflectionFullName: a nested type's reflection name
+    // is "Outer+Inner", which never equals a child's DeclaringTypeName) and
+    // values keep the source list order, so the emitted table order is
+    // unchanged. EmitTypeInfo only uses the index when it is handed that SAME
+    // list instance AND that list still has the element count the index was
+    // built from; any other list (mode-B filtering, ad-hoc callers, or the same
+    // List mutated in place after the pass) falls back to the original linear
+    // scan, so output is unchanged. The arrays are read-only after construction
+    // and never handed to a caller -- no shared mutable buffer is exposed.
+    private static Dictionary<string, TypeDef[]>? _nestedByDeclaring;
+    private static IReadOnlyList<TypeDef>? _nestedIndexSource;
+    private static int _nestedIndexSourceCount = -1;
+
     // Public for CodeGenerator (called once per Generate, after all clones are
     // created -- the session map is deterministic on the final type list).
     public static void ResolveTypeCppNameCollisions(IReadOnlyList<TypeDef> types)
@@ -583,6 +640,27 @@ public static class TypeEmitter
                 overrides[unique[i]] = "_h" + Fnv1a(unique[i]);
         }
         _cppNameOverrides = overrides;
+        // H2: the override map just changed identity -- drop every name memoized
+        // against the previous instance (pre-collision bare names from the
+        // generic-usage scan, or another assembly's Generate).
+        _typeCppNameCache.Clear();
+        // H3: rebuild the nested-type index for THIS type list (see
+        // _nestedByDeclaring). Built here so it can never outlive the Generate
+        // whose final type list it describes.
+        var nested = new Dictionary<string, List<TypeDef>>(StringComparer.Ordinal);
+        foreach (var t in types)
+        {
+            if (!t.IsNested || t.DeclaringTypeName.Length == 0) continue;
+            if (!nested.TryGetValue(t.DeclaringTypeName, out var bucket))
+                nested[t.DeclaringTypeName] = bucket = new List<TypeDef>();
+            bucket.Add(t);
+        }
+        var index = new Dictionary<string, TypeDef[]>(nested.Count, StringComparer.Ordinal);
+        foreach (var kv in nested)
+            index[kv.Key] = kv.Value.ToArray();
+        _nestedByDeclaring = index;
+        _nestedIndexSource = types;
+        _nestedIndexSourceCount = types.Count;
     }
 
     // GN-N5: the disambiguation suffix for a GENERIC-INSTANCE name produced by
@@ -595,6 +673,28 @@ public static class TypeEmitter
         if (_cppNameOverrides == null) return "";
         var key = defName + "|" + string.Join("_", args);
         return _cppNameOverrides.TryGetValue(key, out var sfx) ? sfx : "";
+    }
+
+    // H3: DIRECT nested types of t, in source-list order. Uses the per-Generate
+    // index when the caller passed the very list the index was built from and
+    // that list's element count still matches (a List mutated in place after
+    // ResolveTypeCppNameCollisions would otherwise silently under-report
+    // children); otherwise (unit tests / ad-hoc callers / mutated lists) falls
+    // back to the original linear scan so output is unchanged. The returned
+    // array is shared and read-only.
+    private static IReadOnlyList<TypeDef> NestedTypesOf(TypeDef t, IReadOnlyList<TypeDef>? allTypes)
+    {
+        var key = ReflectionFullName(t);
+        var index = _nestedByDeclaring;
+        if (index != null && allTypes != null
+            && ReferenceEquals(allTypes, _nestedIndexSource)
+            && allTypes.Count == _nestedIndexSourceCount)
+            return index.TryGetValue(key, out var direct) ? direct : Array.Empty<TypeDef>();
+        if (allTypes == null) return Array.Empty<TypeDef>();
+        var list = new List<TypeDef>();
+        foreach (var x in allTypes)
+            if (x.IsNested && x.DeclaringTypeName == key) list.Add(x);
+        return list;
     }
 
     // FNV-1a 32-bit hex (lowercase) -- deterministic, no random state.
@@ -1742,9 +1842,7 @@ public static class TypeEmitter
         // order (ExpandNestedTypes appends in md.TypeDefinitions order). 0
         // nested types emit NO table (nullptr/0 -- zero delta for
         // nested-free types).
-        var nestedDefs = (allTypes ?? Enumerable.Empty<TypeDef>())
-            .Where(x => x.IsNested && x.DeclaringTypeName == ReflectionFullName(t))
-            .ToList();
+        var nestedDefs = NestedTypesOf(t, allTypes);
         var nestedEntries = nestedDefs.Select(ReflectionFullName).ToList();
         if (nestedEntries.Count > 0)
         {
