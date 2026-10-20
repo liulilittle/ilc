@@ -16,6 +16,8 @@ namespace Cases
             }
         }
 
+        static string HelperPn(ArgumentException e) { return e.ParamName; }
+
         public static void Main()
         {
             L("lio_end", () => { Array a = new int[3]; Array.LastIndexOf(a, 1, 0, 2); return "no"; });
@@ -28,6 +30,8 @@ namespace Cases
             L("bs_len", () => { var a = new int[3]; Array.BinarySearch(a, 0, -1, 1); return "no"; });
             L("bs_type", () => { Array a = new int[3]; Array.BinarySearch(a, 0, 3, "x"); return "no"; });
             L("sb_cap", () => { var sb = new System.Text.StringBuilder("ab"); sb.Capacity = 1; return "no"; });
+            L("pn_helper", () => { try { Array.Sort(new int[3], 0, -1); return "no"; } catch (ArgumentException e) { return HelperPn(e) ?? "null"; } });
+            L("pn_helper2", () => { try { Array.LastIndexOf((Array)new int[3], 1, 0, 2); return "no"; } catch (ArgumentException e) { var ae = (ArgumentException)e; return HelperPn(ae) ?? "null"; } });
         }
     }
 }
