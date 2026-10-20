@@ -31,11 +31,16 @@ namespace il2cpp {
 // from the message suffix at throw time so get_ParamName can answer it from
 // the catch carrier without re-parsing a nested expression.
 thread_local char g_il2cpp_last_param_name[128] = {0};
+// nb9 E11: Copy's tail overflow throws ArgumentException(message, "") --
+// ParamName is the EMPTY string (distinct from null). The presence flag
+// keeps that distinction after CaptureParamName.
+thread_local bool g_il2cpp_last_param_name_present = false;
 
 namespace {
 void CaptureParamName(const char* message)
 {
     g_il2cpp_last_param_name[0] = 0;
+    g_il2cpp_last_param_name_present = false;
     if (message == nullptr) return;
     const char* const zh = "\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20";
     const char* p = std::strstr(message, zh);
@@ -57,6 +62,7 @@ void CaptureParamName(const char* message)
     if (n >= sizeof(g_il2cpp_last_param_name)) n = sizeof(g_il2cpp_last_param_name) - 1;
     std::memcpy(g_il2cpp_last_param_name, p, n);
     g_il2cpp_last_param_name[n] = 0;
+    g_il2cpp_last_param_name_present = true;
 }
 } // namespace
 
@@ -69,11 +75,32 @@ void il2cpp_throw_new(const char* typeName, const char* message)
     throw DotNetException(typeName, message);
 }
 
+// nb9 E11: explicit ParamName override (net48 (message, paramName) ctor).
+// Used for Array.Copy's tail overflow, whose net48 ParamName is "" while its
+// message carries no parameter-name suffix.
+void il2cpp_throw_new_with_param(const char* typeName, const char* message,
+                                 const char* paramName)
+{
+    CaptureParamName(message);
+    if (paramName != nullptr)
+    {
+        size_t n = std::strlen(paramName);
+        if (n >= sizeof(g_il2cpp_last_param_name))
+        {
+            n = sizeof(g_il2cpp_last_param_name) - 1;
+        }
+        std::memcpy(g_il2cpp_last_param_name, paramName, n);
+        g_il2cpp_last_param_name[n] = 0;
+        g_il2cpp_last_param_name_present = true;
+    }
+    throw DotNetException(typeName, message);
+}
+
 // nb9 D13: get_ParamName for a catch carrier -- returns the parameter name
 // captured by the most recent throw (null when the throw supplied none).
 Il2CppString* icall_exception_param_name_current()
 {
-    if (g_il2cpp_last_param_name[0] == 0) return nullptr;
+    if (!g_il2cpp_last_param_name_present) return nullptr;
     return il2cpp_string_new_from_utf8(g_il2cpp_last_param_name);
 }
 

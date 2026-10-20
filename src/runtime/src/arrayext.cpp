@@ -194,19 +194,27 @@ void icall_array_copy(Il2CppObject* src, int32_t srcIndex, Il2CppObject* dst,
     {
         il2cpp_throw_argument_out_of_range_exception("length", "\xE8\xA6\x81\xE6\xB1\x82\xE9\x9D\x9E\xE8\xB4\x9F\xE6\x95\xB0\xE3\x80\x82");
     }
-    if (srcIndex < 0 || dstIndex < 0)
+    if (srcIndex < 0)
     {
         il2cpp_throw_argument_out_of_range_exception(
-            srcIndex < 0 ? "srcIndex" : "dstIndex",
-            "\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE9\x9D\x9E\xE8\xB4\x9F\xE5\x80\xBC\xE5\xB9\xB6\xE5\xB0\x8F\xE4\xBA\x8E\xE9\x9B\x86\xE5\x90\x88\xE5\xA4\xA7\xE5\xB0\x8F\xE3\x80\x82");
+            "srcIndex", "数字小于数组在第一维的下限。");
+    }
+    if (dstIndex < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "dstIndex", "数字小于数组在第一维的下限。");
     }
     if (srcIndex > s->length || srcIndex + length > s->length)
     {
-        il2cpp_throw_new(kArgumentChain, "Source array is not long enough.");
+        il2cpp_throw_new_with_param(
+            kArgumentChain,
+            "源数组长度不足。请检查 srcIndex 和长度以及数组的下限。", "");
     }
     if (dstIndex > d->length || dstIndex + length > d->length)
     {
-        il2cpp_throw_new(kArgumentChain, "Destination array is not long enough.");
+        il2cpp_throw_new_with_param(
+            kArgumentChain,
+            "目标数组的长度不够。请检查 destIndex 和长度以及数组的下限。", "");
     }
     if (s->isRefElem != d->isRefElem || s->elemSize != d->elemSize)
     {

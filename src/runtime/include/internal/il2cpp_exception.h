@@ -70,6 +70,11 @@ private:
 // as maybe-uninitialized at the merged `return loc0`, the exdeep
 // -Wuninitialized false positive).
 [[noreturn]] void il2cpp_throw_new(const char* typeName, const char* message);
+// Same throw, but overrides the reported parameter name (nullptr = no
+// override). Used where net48's ParamName is "" (Array.Copy tail overflow).
+[[noreturn]] void il2cpp_throw_new_with_param(const char* typeName,
+                                              const char* message,
+                                              const char* paramName);
 
 // Type-conformance test for catch matching:
 //   caught  : the catch clause's exception type ("System.Exception")

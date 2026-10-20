@@ -231,9 +231,7 @@ void RequireRangeSort(const Il2CppArray* arr, int32_t index, int32_t length)
         static_cast<int64_t>(arr->length))
     {
         il2cpp_throw_argument_exception(
-            "offset and length were out of bounds for the array or count is "
-            "greater than the number of elements from index to the end of the "
-            "source collection.");
+            "偏移量和长度超出数组的界限，或者计数大于从索引到源集合结尾处的元素数量。");
     }
 }
 

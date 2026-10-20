@@ -109,16 +109,11 @@ Il2CppArray* RequireRefArrayExtra(Il2CppArray* arr)
 //------------------------------------------------------------------------------
 void RequireRange(Il2CppArray* arr, int32_t index, int32_t length)
 {
-    if (index < 0 || length < 0)
+    if (index < 0 || length < 0 ||
+        static_cast<int64_t>(index) + static_cast<int64_t>(length) >
+            static_cast<int64_t>(arr->length))
     {
-        il2cpp_throw_argument_out_of_range_exception(
-            "index", "Index and length must refer to a location within the array.");
-    }
-    if (static_cast<int64_t>(index) + static_cast<int64_t>(length) >
-        static_cast<int64_t>(arr->length))
-    {
-        il2cpp_throw_argument_exception(
-            "Index and length must refer to a location within the array.");
+        il2cpp_throw_index_out_of_range_exception("索引超出了数组界限。");
     }
 }
 
