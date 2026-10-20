@@ -67,6 +67,10 @@ namespace il2cpp {
 // (red/green evidence for the Add double-lookup fix). Production builds do not
 // define the macro, so the counter and the increment vanish.
 int32_t g_dictSiFindEntryCalls = 0;
+// The number of StringHash calls since the counter was last reset -- the
+// "one hash per Add" half of the same red/green evidence (the old
+// contains_key + set pair hashed twice per Add).
+int32_t g_dictSiStringHashCalls = 0;
 #endif
 
 namespace {
@@ -129,6 +133,9 @@ bool NeedsResize(int32_t occupiedAfterInsert, int32_t bucketCount)
 // the pair would vanish from lookups/enumeration (diffdict001 large case).
 int32_t StringHash(const Il2CppString* key)
 {
+#ifdef IL2CPP_DICT_SI_PROBE
+    ++g_dictSiStringHashCalls;
+#endif
     return runtime::icall_string_get_hash_code(reinterpret_cast<Il2CppObject*>(
         const_cast<Il2CppString*>(key))) & 0x7FFFFFFF;
 }

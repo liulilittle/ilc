@@ -33,6 +33,7 @@
 #include "hashset.h"
 
 #include "il2cpp_exception.h"
+#include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
@@ -77,6 +78,47 @@ bool ThrowsDotNet(Fn fn, const char* expectedChain)
 il2cpp::Il2CppObject* O(const char* ascii)
 {
     return reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs(ascii));
+}
+
+// The ParamName captured by the most recent throw (exception.cpp
+// CaptureParamName). Compared as UTF-16 against the expected ASCII name --
+// the runtime's exception transport carries no ParamName field, so the only
+// observable is the captured suffix/override.
+bool LastParamNameIs(const char* expected)
+{
+    il2cpp::Il2CppString* name = il2cpp::icall_exception_param_name_current();
+    if (name == nullptr)
+    {
+        return false;
+    }
+    const size_t len = std::strlen(expected);
+    if (static_cast<size_t>(name->length) != len)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (name->chars[i] != static_cast<char16_t>(static_cast<unsigned char>(expected[i])))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Same as ThrowsDotNet, but additionally pins the reported ParamName.
+template <typename Fn>
+bool ThrowsDotNetWithParamName(Fn fn, const char* expectedChain, const char* expectedParam)
+{
+    try
+    {
+        fn();
+        return false;
+    }
+    catch (const il2cpp::DotNetException& e)
+    {
+        return std::strcmp(e.type_name(), expectedChain) == 0 && LastParamNameIs(expectedParam);
+    }
 }
 
 // A GC-rooted wrapper: the collector moves live objects, so the test must
@@ -188,15 +230,40 @@ int main()
         Expect(il2cpp::runtime::icall_hashset_string_contains(r.self, O("b")) == false, "mixed seq: b gone");
     }
 
-    // --- 8. Null member -> ArgumentNullException ---
+    // --- 8. Null member -> ArgumentNullException("key") ---
+    // The chain alone would also accept a different parameter name, so the
+    // ParamName captured by the throw (icall_exception_param_name_current) is
+    // pinned too: dictsi's ThrowIfNullKey always reports "key".
     {
         RootedSet r(0);
-        Expect(ThrowsDotNet([&]() { il2cpp::runtime::icall_hashset_string_add(r.self, nullptr); }, kArgumentNullChain),
-               "Add(null) raises ArgumentNullException");
-        Expect(ThrowsDotNet([&]() { il2cpp::runtime::icall_hashset_string_contains(r.self, nullptr); }, kArgumentNullChain),
-               "Contains(null) raises ArgumentNullException");
-        Expect(ThrowsDotNet([&]() { il2cpp::runtime::icall_hashset_string_remove(r.self, nullptr); }, kArgumentNullChain),
-               "Remove(null) raises ArgumentNullException");
+        Expect(ThrowsDotNetWithParamName([&]() { il2cpp::runtime::icall_hashset_string_add(r.self, nullptr); },
+                                         kArgumentNullChain, "key"),
+               "Add(null) raises ArgumentNullException with ParamName \"key\"");
+        Expect(ThrowsDotNetWithParamName([&]() { il2cpp::runtime::icall_hashset_string_contains(r.self, nullptr); },
+                                         kArgumentNullChain, "key"),
+               "Contains(null) raises ArgumentNullException with ParamName \"key\"");
+        Expect(ThrowsDotNetWithParamName([&]() { il2cpp::runtime::icall_hashset_string_remove(r.self, nullptr); },
+                                         kArgumentNullChain, "key"),
+               "Remove(null) raises ArgumentNullException with ParamName \"key\"");
+    }
+
+    // --- 8b. Add is case-SENSITIVE: "abc" and "ABC" are two members ---
+    {
+        RootedSet r(0);
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("abc")) == true,
+               "Add(\"abc\") returns true");
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("ABC")) == true,
+               "Add(\"ABC\") after \"abc\" returns true (ordinal, case-sensitive)");
+        Expect(il2cpp::runtime::icall_hashset_string_get_count(r.self) == 2,
+               "case-distinct adds: count 2");
+        Expect(il2cpp::runtime::icall_hashset_string_contains(r.self, O("abc")) == true,
+               "lowercase member still present");
+        Expect(il2cpp::runtime::icall_hashset_string_contains(r.self, O("ABC")) == true,
+               "uppercase member present as a separate member");
+        Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("abc")) == false,
+               "re-Add(\"abc\") is a duplicate (false)");
+        Expect(il2cpp::runtime::icall_hashset_string_get_count(r.self) == 2,
+               "duplicate re-add leaves count at 2");
     }
 
     // --- 9. Growth: 100 distinct members, every membership back after
@@ -218,36 +285,50 @@ int main()
         Expect(il2cpp::runtime::icall_hashset_string_contains(r.self, O("key999")) == false, "growth miss for absent member");
     }
 
-    // --- 10. Add performs exactly ONE bucket-chain lookup per call ---
+    // --- 10. Add performs exactly ONE bucket-chain lookup and ONE hash per
+    //    call ---
     // net48 HashSet.Add is a single probe: hash once, walk the chain once, then
     // insert if absent. The pre-fix implementation was
     // contains_key(...) + set(...) -- two hashes and two chain walks per Add.
-    // The count is real instrumentation (dictsi.cpp g_dictSiFindEntryCalls,
-    // compiled only with -DIL2CPP_DICT_SI_PROBE); without that macro this
-    // section only re-checks the return-value contract.
+    // Both counts are real instrumentation (dictsi.cpp g_dictSiFindEntryCalls
+    // in FindEntryIndex, g_dictSiStringHashCalls in StringHash), compiled only
+    // with IL2CPP_DICT_SI_PROBE (cmake -DIL2CPP_DICT_SI_PROBE=ON); without
+    // that macro this section only re-checks the return-value contract.
     {
         RootedSet r(0);
 #ifdef IL2CPP_DICT_SI_PROBE
         il2cpp::g_dictSiFindEntryCalls = 0;
+        il2cpp::g_dictSiStringHashCalls = 0;
         Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-new")) == true,
                "probe: Add(new) returns true");
-        std::printf("PROBE Add(new) chain lookups = %d\n", il2cpp::g_dictSiFindEntryCalls);
+        std::printf("PROBE Add(new) chain lookups = %d, hashes = %d\n",
+                    il2cpp::g_dictSiFindEntryCalls, il2cpp::g_dictSiStringHashCalls);
         Expect(il2cpp::g_dictSiFindEntryCalls == 1,
                "Add(new member) performs exactly 1 chain lookup");
+        Expect(il2cpp::g_dictSiStringHashCalls == 1,
+               "Add(new member) computes exactly 1 hash");
         il2cpp::g_dictSiFindEntryCalls = 0;
+        il2cpp::g_dictSiStringHashCalls = 0;
         Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-new")) == false,
                "probe: Add(duplicate) returns false");
-        std::printf("PROBE Add(duplicate) chain lookups = %d\n", il2cpp::g_dictSiFindEntryCalls);
+        std::printf("PROBE Add(duplicate) chain lookups = %d, hashes = %d\n",
+                    il2cpp::g_dictSiFindEntryCalls, il2cpp::g_dictSiStringHashCalls);
         Expect(il2cpp::g_dictSiFindEntryCalls == 1,
                "Add(duplicate) performs exactly 1 chain lookup");
+        Expect(il2cpp::g_dictSiStringHashCalls == 1,
+               "Add(duplicate) computes exactly 1 hash");
         il2cpp::g_dictSiFindEntryCalls = 0;
+        il2cpp::g_dictSiStringHashCalls = 0;
         Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-twice")) == true,
                "probe-twice: first Add returns true");
         Expect(il2cpp::runtime::icall_hashset_string_add(r.self, O("probe-twice")) == false,
                "probe-twice: second Add returns false");
-        std::printf("PROBE AddSameKeyTwice total chain lookups = %d\n", il2cpp::g_dictSiFindEntryCalls);
+        std::printf("PROBE AddSameKeyTwice total chain lookups = %d, hashes = %d\n",
+                    il2cpp::g_dictSiFindEntryCalls, il2cpp::g_dictSiStringHashCalls);
         Expect(il2cpp::g_dictSiFindEntryCalls == 2,
                "AddSameKeyTwice performs 2 chain lookups total (1 per Add, not 3)");
+        Expect(il2cpp::g_dictSiStringHashCalls == 2,
+               "AddSameKeyTwice performs 2 hashes total (1 per Add, not 3)");
         Expect(il2cpp::runtime::icall_hashset_string_get_count(r.self) == 2,
                "probe: count 2 after the probe members");
 #else

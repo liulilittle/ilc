@@ -102,6 +102,10 @@ namespace il2cpp {
 // red/green evidence for the Add double-lookup fix. The macro is OFF in every
 // production build, so neither the counter nor the increment exists.
 extern int32_t g_dictSiFindEntryCalls;
+// The number of StringHash (ordinal content hash) computations performed so
+// far. It backs the "one hash per HashSet.Add" half of the same assertion:
+// the pre-fix contains_key + set pair hashed the key twice, add_unique once.
+extern int32_t g_dictSiStringHashCalls;
 #endif
 
 // One slot; collision chains are linked through the 'next' INDEX (-1 at

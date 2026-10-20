@@ -43,6 +43,7 @@
 #include "dictsi_obj.h" // rtdict-b23 (DICT-GC): the Dictionary<string,int> wrapper icalls
 
 #include "il2cpp_exception.h"
+#include "il2cpp_exception_ext.h"
 #include "il2cpp_string.h"
 #include "il2cpp_value_semantics.h"
 
@@ -95,6 +96,45 @@ bool ThrowsDotNet(Fn fn, const char* expectedChain)
 il2cpp::Il2CppString* S(const char* ascii)
 {
     return il2cpp::il2cpp_string_new_from_cs(ascii);
+}
+
+// The ParamName captured by the most recent throw (exception.cpp
+// CaptureParamName), read through the runtime getter and compared as UTF-16.
+bool LastParamNameIs(const char* expected)
+{
+    il2cpp::Il2CppString* name = il2cpp::icall_exception_param_name_current();
+    if (name == nullptr)
+    {
+        return false;
+    }
+    const size_t len = std::strlen(expected);
+    if (static_cast<size_t>(name->length) != len)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (name->chars[i] != static_cast<char16_t>(static_cast<unsigned char>(expected[i])))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// ThrowsDotNet plus the reported ParamName.
+template <typename Fn>
+bool ThrowsDotNetWithParamName(Fn fn, const char* expectedChain, const char* expectedParam)
+{
+    try
+    {
+        fn();
+        return false;
+    }
+    catch (const il2cpp::DotNetException& e)
+    {
+        return std::strcmp(e.type_name(), expectedChain) == 0 && LastParamNameIs(expectedParam);
+    }
 }
 
 // The wrapper icalls take keys as Il2CppObject* (the generated code's uniform
@@ -302,8 +342,9 @@ int main()
     //    entry point ---
     {
         il2cpp::Il2CppDictSI* d = il2cpp::il2cpp_dict_si_create(0);
-        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_dict_si_add(d, nullptr, 1); }, kArgumentNullChain),
-               "add with a null key raises ArgumentNullException");
+        Expect(ThrowsDotNetWithParamName([&]() { il2cpp::il2cpp_dict_si_add(d, nullptr, 1); },
+                                         kArgumentNullChain, "key"),
+               "add with a null key raises ArgumentNullException(\"key\")");
         Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_dict_si_try_get_value(d, nullptr, nullptr); }, kArgumentNullChain),
                "try_get_value with a null key raises ArgumentNullException");
         Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_dict_si_remove(d, nullptr); }, kArgumentNullChain),
@@ -495,10 +536,10 @@ int main()
         Expect(il2cpp::il2cpp_dict_si_add_unique(d, S("v"), 2) == true,
                "add_unique(second key) returns true");
         Expect(il2cpp::il2cpp_dict_si_get_count(d) == 2, "add_unique(second key) count 2");
-        // Null key: ArgumentNullException, table unchanged.
-        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_dict_si_add_unique(d, nullptr, 3); },
-                            kArgumentNullChain),
-               "add_unique(null) raises ArgumentNullException");
+        // Null key: ArgumentNullException("key"), table unchanged.
+        Expect(ThrowsDotNetWithParamName([&]() { il2cpp::il2cpp_dict_si_add_unique(d, nullptr, 3); },
+                                         kArgumentNullChain, "key"),
+               "add_unique(null) raises ArgumentNullException(\"key\")");
         Expect(il2cpp::il2cpp_dict_si_get_count(d) == 2, "add_unique(null) leaves count unchanged");
         // Remove then add_unique: the freed slot is reused and true is returned.
         Expect(il2cpp::il2cpp_dict_si_remove(d, S("u")) == true, "add_unique fixture: remove true");
@@ -513,6 +554,27 @@ int main()
 
     // --- 15. add_unique growth: the 0.72 load-factor resize runs on the
     //    insert path only, and every member reads back afterwards ---
+    {
+        // The resize points must match dict_si_add exactly (§7): 3rd insert
+        // 4 -> 8 buckets, 6th insert 8 -> 16. A duplicate Add never resizes.
+        il2cpp::Il2CppDictSI* g = il2cpp::il2cpp_dict_si_create(0);
+        Expect(g->bucketCount == 4, "add_unique: fresh dictionary starts with 4 buckets");
+        Expect(il2cpp::il2cpp_dict_si_add_unique(g, S("g0"), 0) == true, "add_unique growth: 1st insert true");
+        Expect(il2cpp::il2cpp_dict_si_add_unique(g, S("g1"), 1) == true, "add_unique growth: 2nd insert true");
+        Expect(g->bucketCount == 4, "add_unique: 2 inserts fit in 4 buckets (2 < 4 * 0.72)");
+        Expect(il2cpp::il2cpp_dict_si_add_unique(g, S("g2"), 2) == true, "add_unique growth: 3rd insert true");
+        Expect(g->bucketCount == 8, "add_unique: 3rd insert exceeds 0.72 * 4 -> doubles to 8");
+        Expect(il2cpp::il2cpp_dict_si_add_unique(g, S("g3"), 3) == true, "add_unique growth: 4th insert true");
+        Expect(il2cpp::il2cpp_dict_si_add_unique(g, S("g4"), 4) == true, "add_unique growth: 5th insert true");
+        Expect(g->bucketCount == 8, "add_unique: 5 inserts still fit in 8 buckets (5 < 8 * 0.72)");
+        Expect(il2cpp::il2cpp_dict_si_add_unique(g, S("g5"), 5) == true, "add_unique growth: 6th insert true");
+        Expect(g->bucketCount == 16, "add_unique: 6th insert exceeds 0.72 * 8 -> doubles to 16");
+        // A duplicate at the boundary reports false and must NOT resize.
+        Expect(il2cpp::il2cpp_dict_si_add_unique(g, S("g5"), 55) == false,
+               "add_unique: duplicate at the boundary returns false");
+        Expect(g->bucketCount == 16, "add_unique: duplicate Add does not resize");
+        il2cpp::il2cpp_dict_si_destroy(g);
+    }
     {
         il2cpp::Il2CppDictSI* d = il2cpp::il2cpp_dict_si_create(0);
         char buf[24];

@@ -16,6 +16,17 @@ target_include_directories(il2cpp_runtime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/internal
 )
 target_compile_features(il2cpp_runtime PUBLIC cxx_std_17)
+# Test-only instrumentation switch: compiles the dictsi lookup/hash counters
+# (g_dictSiFindEntryCalls, g_dictSiStringHashCalls) into FindEntryIndex /
+# StringHash. OFF by default, so a production build carries neither the
+# counters nor the increments. Enable from a clean configure with
+#   cmake -DIL2CPP_DICT_SI_PROBE=ON ...
+# PUBLIC because tests/runtime consumes the declarations through this target.
+option(IL2CPP_DICT_SI_PROBE
+       "Compile the dictsi test instrumentation counters (IL2CPP_DICT_SI_PROBE)" OFF)
+if(IL2CPP_DICT_SI_PROBE)
+    target_compile_definitions(il2cpp_runtime PUBLIC IL2CPP_DICT_SI_PROBE)
+endif()
 if(NOT MSVC)
     # POSIX dlopen/dlsym (pinvoke.cpp) -- PUBLIC propagates to the link target
     target_link_libraries(il2cpp_runtime PUBLIC ${CMAKE_DL_LIBS})
