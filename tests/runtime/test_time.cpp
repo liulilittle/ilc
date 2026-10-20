@@ -43,6 +43,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_object.h"
 #include "il2cpp_string.h"
+#include "timezone.h" // il2cpp_timezone_get_utc_offset_at (FileTime offset oracle)
 
 #include <cmath>
 #include <cstdint>
@@ -524,6 +525,135 @@ int main()
     Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_is_leap_year(10000); },
                           "System.ArgumentOutOfRangeException"),
            "IsLeapYear(10000) throws ArgumentOutOfRangeException");
+
+    // --- 12. The FILETIME bridge (diffdt001b) ---
+    // 1601-01-01T00:00:00Z in DateTime ticks (the FILETIME epoch).
+    constexpr int64_t kFileTimeEpoch = 504911232000000000LL;
+    // The machine offset is whatever this host's zone says; the assertions are
+    // written as properties so they hold on a UTC+8 host, a DST host and a
+    // UTC host alike (the net48 oracle values for China/EST are in
+    // .opencode/tmp/dt-fix.md).
+    const il2cpp::runtime::Il2CppDateTime utcValue(637185764967890000LL, 1 /* Utc */);
+    const il2cpp::runtime::Il2CppDateTime unsValue(637185764967890000LL, 0 /* Unspecified */);
+    const il2cpp::runtime::Il2CppDateTime localValue(637185764967890000LL, 2 /* Local */);
+
+    // Utc / Unspecified: the epoch shift only (measured net48: 132274532967890000).
+    Expect(il2cpp::runtime::icall_datetime_to_file_time_utc(utcValue) == 132274532967890000LL,
+           "ToFileTimeUtc(Utc) is the plain 1601-epoch shift");
+    Expect(il2cpp::runtime::icall_datetime_to_file_time(utcValue) == 132274532967890000LL,
+           "ToFileTime(Utc) is the plain 1601-epoch shift");
+    // net48 ToFileTime == ToUniversalTime().ToFileTimeUtc(); ToUniversalTime
+    // treats Unspecified as a LOCAL wall clock, so ToFileTime must shift it
+    // while ToFileTimeUtc (Kind=Unspecified -> taken as UTC) must not.
+    const int64_t unsOffsetTicks =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(unsValue.ticks)) * 10000000LL;
+    Expect(il2cpp::runtime::icall_datetime_to_file_time(unsValue) == unsValue.ticks - unsOffsetTicks - kFileTimeEpoch,
+           "ToFileTime(Unspecified) converts the wall clock to UTC (net48)");
+    Expect(il2cpp::runtime::icall_datetime_to_file_time_utc(unsValue) == unsValue.ticks - kFileTimeEpoch,
+           "ToFileTimeUtc(Unspecified) keeps the ticks (net48)");
+    // Local: ToFileTime and ToFileTimeUtc both convert the wall clock to UTC.
+    const int64_t localOffsetTicks =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(localValue.ticks)) * 10000000LL;
+    Expect(il2cpp::runtime::icall_datetime_to_file_time(localValue) == localValue.ticks - localOffsetTicks - kFileTimeEpoch,
+           "ToFileTime(Local) subtracts the per-date offset");
+    Expect(il2cpp::runtime::icall_datetime_to_file_time_utc(localValue) == localValue.ticks - localOffsetTicks - kFileTimeEpoch,
+           "ToFileTimeUtc(Local) subtracts the per-date offset too (net48)");
+
+    // FromFileTimeUtc: the epoch shift and Kind=Utc, with the net48 range
+    // contract (negative / above MaxValue throws).
+    const il2cpp::runtime::Il2CppDateTime fromUtc = il2cpp::runtime::icall_datetime_from_file_time_utc(132223104000000000LL);
+    Expect(fromUtc.ticks == 637134336000000000LL, "FromFileTimeUtc(132223104000000000) == 637134336000000000");
+    Expect(fromUtc.kind == 1, "FromFileTimeUtc returns Kind=Utc");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time_utc(-1); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTimeUtc(-1) throws ArgumentOutOfRangeException");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time_utc(2650467744000000000LL); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTimeUtc(max + 1) throws ArgumentOutOfRangeException");
+
+    // FromFileTime: the UTC instant plus the offset in force AT THAT INSTANT.
+    const il2cpp::runtime::Il2CppDateTime fromLocal = il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL);
+    const int64_t instantOffsetTicks =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(637134336000000000LL, 1)) * 10000000LL;
+    Expect(fromLocal.ticks == 637134336000000000LL + instantOffsetTicks,
+           "FromFileTime = the UTC instant + the per-date local offset");
+    Expect(fromLocal.kind == 2, "FromFileTime returns Kind=Local");
+    // Measured net48 values on the two oracle hosts (the test host must be one
+    // of them or a zone with the same offset on that date; the property above
+    // is the machine-independent assertion).
+    if (instantOffsetTicks == 288000000000LL)
+    {
+        Expect(fromLocal.ticks == 637134624000000000LL,
+               "FromFileTime on UTC+8 == 637134624000000000 (net48 oracle)");
+    }
+    else if (instantOffsetTicks == -180000000000LL)
+    {
+        Expect(fromLocal.ticks == 637134156000000000LL,
+               "FromFileTime on UTC-5 == 637134156000000000 (net48 oracle)");
+    }
+    // fileTime = 0 -> the 1601 epoch, shifted by the STANDARD offset (net48
+    // extrapolates the zone's first rule there; measured 504911520000000000
+    // on UTC+8 / 504911052000000000 on EST). The standard offset is the one
+    // in force at 1970-01-01 UTC, so assert against that instant.
+    const int64_t epochOffsetTicks =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(621355968000000000LL, 1)) * 10000000LL;
+    Expect(il2cpp::runtime::icall_datetime_from_file_time(0).ticks == kFileTimeEpoch + epochOffsetTicks,
+           "FromFileTime(0) is the 1601 epoch plus the standard offset");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time(-1); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTime(-1) throws ArgumentOutOfRangeException");
+    // net48 CLAMPS the shifted result at MaxValue instead of throwing
+    // (measured on UTC+8, where max + 8 h overflows; on a negative offset the
+    // result stays inside the range, so assert the CLAMP property).
+    const int64_t maxInstantOffsetTicks =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(3155378975999999999LL, 1)) * 10000000LL;
+    const int64_t maxShifted = 3155378975999999999LL + maxInstantOffsetTicks;
+    const int64_t maxExpected = maxShifted > 3155378975999999999LL ? 3155378975999999999LL : maxShifted;
+    Expect(il2cpp::runtime::icall_datetime_from_file_time(2650467743999999999LL).ticks == maxExpected,
+           "FromFileTime(max) clamps the shifted result to DateTime.MaxValue (net48)");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time(2650467744000000000LL); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTime(max + 1) throws ArgumentOutOfRangeException");
+    // Pre-1601 values throw on both ToFileTime forms (Kind=Utc so the assertion
+    // does not depend on the machine zone's sign).
+    const il2cpp::runtime::Il2CppDateTime preEpoch(504911231999999999LL, 1 /* Utc */);
+    Expect(ThrowsWithType([&]() { il2cpp::runtime::icall_datetime_to_file_time(preEpoch); },
+                          "System.ArgumentOutOfRangeException"),
+           "ToFileTime(pre-1601) throws ArgumentOutOfRangeException");
+    Expect(ThrowsWithType([&]() { il2cpp::runtime::icall_datetime_to_file_time_utc(preEpoch); },
+                          "System.ArgumentOutOfRangeException"),
+           "ToFileTimeUtc(pre-1601) throws ArgumentOutOfRangeException");
+
+    // Round trip on a Local value: FromFileTime(ToFileTime(x)) == x on any host.
+    Expect(il2cpp::runtime::icall_datetime_from_file_time(
+               il2cpp::runtime::icall_datetime_to_file_time(localValue)).ticks == localValue.ticks,
+           "FromFileTime(ToFileTime(Local)) round-trips");
+
+    // DST instance coverage (the per-date offset must be evaluated at the
+    // INSTANT, not "now"). On a DST host the 2020-01-01 and 2020-07-01 UTC
+    // instants have DIFFERENT offsets; on China/UTC they agree. The assertion
+    // is the relation the net48 oracle shows: the offset at each instant
+    // matches the offset the runtime reports for that instant, and (on a DST
+    // host) the two differ -- measured EST: -18000 vs -14400.
+    const int64_t janInstantOffset =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(637134336000000000LL, 1));
+    const int64_t julInstantOffset =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(637269984000000000LL, 1));
+    Expect(il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL).ticks
+               == 637134336000000000LL + janInstantOffset * 10000000LL,
+           "FromFileTime(jan) uses the January instant's offset");
+    Expect(il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks
+               == 637269984000000000LL + julInstantOffset * 10000000LL,
+           "FromFileTime(jul) uses the July instant's offset");
+    if (janInstantOffset != julInstantOffset)
+    {
+        // A DST host: the DST-aware behaviour is distinguishable from the
+        // current-offset simplification (the old code would have used the
+        // same offset for both).
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks
+                   != 637269984000000000LL + janInstantOffset * 10000000LL,
+               "FromFileTime(jul) is NOT the January offset (DST-aware)");
+    }
 
     // --- Report ---
     if (g_failures != 0)

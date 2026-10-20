@@ -72,19 +72,21 @@ public static partial class MethodRefResolver
             case "get_Second": return I("il2cpp::runtime::icall_datetime_get_second", 0, true, false, true, new[] { "deref:dt" });
             case "get_Ticks": return I("il2cpp::runtime::icall_datetime_get_ticks", 0, true, false, true, new[] { "deref:dt" }, "l");
             // ToFileTimeUtc / FromFileTimeUtc -- the 1601-epoch bridge
-            // (time.cpp; the single-zone runtime has no Kind bits so the Utc
-            // and Local forms coincide).
+            // (time.cpp). The Utc pair shifts the ticks directly (a Local
+            // value is converted to UTC first, net48 semantics).
             case "ToFileTimeUtc":
                 return I("il2cpp::runtime::icall_datetime_to_file_time_utc", 0, true, false, true, new[] { "deref:dt" }, "l");
-            // B3 (diffdt001b): the Local form rides the same icall (the
-            // single-zone doctrine above -- Utc and Local coincide).
+            // B3 (diffdt001b, FIXED): ToFileTime is NOT the Utc form -- the
+            // Local flavour converts the wall clock through the machine
+            // zone's per-date offset (net48's ToUniversalTime path).
             case "ToFileTime":
-                return I("il2cpp::runtime::icall_datetime_to_file_time_utc", 0, true, false, true, new[] { "deref:dt" }, "l");
+                return I("il2cpp::runtime::icall_datetime_to_file_time", 0, true, false, true, new[] { "deref:dt" }, "l");
             case "FromFileTimeUtc":
                 return I("il2cpp::runtime::icall_datetime_from_file_time_utc", 1, true, false, false, new[] { "l" }, "dt");
-            // B3 (diffdt001b): the Local form rides the same icall.
+            // B3 (diffdt001b, FIXED): FromFileTime applies the per-date local
+            // offset to the UTC instant and returns Kind=Local.
             case "FromFileTime":
-                return I("il2cpp::runtime::icall_datetime_from_file_time_utc", 1, true, false, false, new[] { "l" }, "dt");
+                return I("il2cpp::runtime::icall_datetime_from_file_time", 1, true, false, false, new[] { "l" }, "dt");
             // AddMonths / AddYears -- civil-calendar arithmetic (the day
             // clamps to the target month's length; time-of-day preserved).
             case "AddMonths":
