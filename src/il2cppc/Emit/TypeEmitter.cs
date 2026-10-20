@@ -488,18 +488,49 @@ public static class TypeEmitter
         return value == null ? null : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    // H2 (transpiler compile-time perf): per-type C++ name memo.
+    //
+    // TypeCppName is called once per emitted symbol reference -- 55k calls for
+    // a 2.4k-type assembly, 8 of them inside a single EmitTypeInfo (the
+    // struct/typeinfo/registration name for the same t). Every call rebuilt
+    // the sanitized base name (Sanitize = Split + Join) and the
+    // DeclaringTypeName/Name/InstantiationSuffix identity string before doing
+    // one dictionary lookup, so the same pure result was recomputed dozens of
+    // times per type.
+    //
+    // Keyed by TypeDef REFERENCE (TypeDef overrides neither Equals nor
+    // GetHashCode), which is exactly the granularity the collision map uses.
+    // The value is tagged with the _cppNameOverrides instance it was computed
+    // under: that map is replaced once per Generate by
+    // ResolveTypeCppNameCollisions, and a cached name computed BEFORE that
+    // pass (CodeGenerator's generic-usage scan calls TypeCppName at :840,
+    // before :913) would otherwise keep the pre-collision bare name. The token
+    // comparison is the actual invalidation mechanism; the Clear() in
+    // ResolveTypeCppNameCollisions only bounds the cache to one Generate's
+    // types (it is NOT what keeps the names correct -- removing it alone still
+    // yields correct names because every entry is token-tagged, which the
+    // cache unit test pins down).
+    // ConcurrentDictionary because xUnit test classes call TypeCppName in
+    // parallel; the CLI itself is single-threaded (CodeGenerator.Generate
+    // holds _poolLock).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<TypeDef, (object? Token, string Name)> _typeCppNameCache = new();
+
     public static string TypeCppName(TypeDef t)
     {
+        var token = _cppNameOverrides;
+        if (_typeCppNameCache.TryGetValue(t, out var cached) && ReferenceEquals(cached.Token, token))
+            return cached.Name;
         var core = TypeCppNameCore(t);
         // GN-N5: append the deterministic disambiguation suffix when THIS type's
         // C++ name collides with another type's (Sanitize maps '.' and '_' both
         // to '_', so e.g. 'Cases.A_B' and nested 'Cases.A.B' both become
         // 'Cases_A_B'). The suffix is keyed by the type identity
         // (ResolveTypeCppNameCollisions); null/absent = no collision.
-        if (_cppNameOverrides != null
-            && _cppNameOverrides.TryGetValue(TypeCppIdentity(t), out var sfx))
-            return core + sfx;
-        return core;
+        var name = token != null && token.TryGetValue(TypeCppIdentity(t), out var sfx)
+            ? core + sfx
+            : core;
+        _typeCppNameCache[t] = (token, name);
+        return name;
     }
 
     static string TypeCppNameCore(TypeDef t)
@@ -583,6 +614,10 @@ public static class TypeEmitter
                 overrides[unique[i]] = "_h" + Fnv1a(unique[i]);
         }
         _cppNameOverrides = overrides;
+        // H2: the override map just changed identity -- drop every name memoized
+        // against the previous instance (pre-collision bare names from the
+        // generic-usage scan, or another assembly's Generate).
+        _typeCppNameCache.Clear();
     }
 
     // GN-N5: the disambiguation suffix for a GENERIC-INSTANCE name produced by
