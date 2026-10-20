@@ -1292,7 +1292,14 @@ public static partial class MethodRefResolver
                     return TryMapCalendar(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
                 return null;
             case "System.WeakReference": return TryMapWeakReference(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.Exception": return TryMapException(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Exception":
+            // nb9 D13: the Argument* exception family inherits get_Message /
+            // get_ParamName from System.Exception; route it there so a caught
+            // ArgumentException exposes its parameter name.
+            case "System.ArgumentException":
+            case "System.ArgumentNullException":
+            case "System.ArgumentOutOfRangeException":
+                return TryMapException(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // === 34-domain parallel-wiring skeleton (2026-08-03) ===
             // One case line per MethodMap.<Domain>.cs skeleton file. Agents fill
             // only their own file's TryMap body -- DO NOT edit this region.

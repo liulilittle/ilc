@@ -122,7 +122,12 @@ public static partial class MethodRefResolver
                 // Compare ABI) must follow T.
                 if (count == 1 && ps.Length == 1 && ps[0] == 0x15)
                 {
-                    if (cmpKind == null) return null;
+                    // nb9: an arbitrary reference T (Box, user class) wraps the
+                    // delegate in the ref carrier; Compare dispatches with the
+                    // (Il2CppObject*, Il2CppObject*) ABI.
+                    if (cmpKind == null)
+                        return I("il2cpp::runtime::il2cpp_comparer_create_ref", 1, true, true, false,
+                            new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_object");
                     return cmpKind switch
                     {
                         "int" => I("il2cpp::runtime::il2cpp_comparer_create_int", 1, true, true, false,

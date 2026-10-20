@@ -126,8 +126,9 @@ void ThrowIfNullReceiver(Il2CppObject* self)
 // ArgumentOutOfRangeException helper (exceptionext chain convention).
 void ThrowAoore(const char* paramName)
 {
-    il2cpp_throw_new("System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
-                     paramName != nullptr ? paramName : "Argument is out of range.");
+    il2cpp_throw_argument_out_of_range_exception(
+        paramName != nullptr ? paramName : "value",
+        "\xE5\xAE\xB9\xE9\x87\x8F\xE5\xB0\x8F\xE4\xBA\x8E\xE5\xBD\x93\xE5\x89\x8D\xE5\xA4\xA7\xE5\xB0\x8F\xE3\x80\x82");
 }
 
 // OutOfMemoryException helper: growth beyond the int32 unit domain.

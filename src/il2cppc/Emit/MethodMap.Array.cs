@@ -134,6 +134,7 @@ public static partial class MethodRefResolver
                         // double/float added for the nb9 P0 arity surface).
                         0x08 when count == 3 => I("il2cpp::il2cpp_array_sort_int32", 3, false, false, false, new[] { "a", "i", "i" }),
                         0x09 when count == 3 => I("il2cpp::il2cpp_array_sort_uint32", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x09 when count == 4 && fourthIsIComparer => I("il2cpp::il2cpp_array_sort_icomparer_uint32_range", 4, false, false, false, new[] { "a", "i", "i", "" }),
                         0x0A when count == 3 => I("il2cpp::il2cpp_array_sort_int64", 3, false, false, false, new[] { "a", "i", "i" }),
                         0x0C when count == 3 => I("il2cpp::il2cpp_array_sort_float", 3, false, false, false, new[] { "a", "i", "i" }),
                         0x0D when count == 3 => I("il2cpp::il2cpp_array_sort_double", 3, false, false, false, new[] { "a", "i", "i" }),

@@ -6450,7 +6450,8 @@ default: return false;                           // primitives/VAR(handled by ca
     // emitter appends the missing paren and emits the nested call WITHOUT the
     // generic `(...)` wrapper (the receiver is dropped, args are empty).
     private static bool IsMessageCarrierCppName(string cpp)
-        => cpp == "il2cpp::il2cpp_string_intern_literal(__il2cpp_ex.message_text()";
+        => cpp == "il2cpp::il2cpp_string_intern_literal(__il2cpp_ex.message_text()"
+           || cpp.EndsWith("(__il2cpp_ex.message_text()", StringComparison.Ordinal);
 
     //--------------------------------------------------------------------------
     // WrapFrameRoots -- frame-root protocol for one method body (Task 10).

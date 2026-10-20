@@ -218,6 +218,7 @@ void il2cpp_array_sort_float(Il2CppArray* arr);
 // Array.Sort<T>(T[], Comparison<T>) for the wide value families (nb9
 // E6/D17): int64, double and float. The delegate carries the model ABI
 // (int64_t / double / double).
+void il2cpp_array_sort_icomparer_uint32_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* comparer);
 void il2cpp_array_sort_int64_comparison(Il2CppArray* arr, Il2CppObject* comparison);
 void il2cpp_array_sort_double_comparison(Il2CppArray* arr, Il2CppObject* comparison);
 void il2cpp_array_sort_float_comparison(Il2CppArray* arr, Il2CppObject* comparison);

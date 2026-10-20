@@ -51,6 +51,8 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_exception_ext.h"
+#include <cstring>
+#include "il2cpp_string.h"
 
 namespace il2cpp {
 
@@ -268,4 +270,40 @@ void il2cpp_throw_file_not_found_exception(const char* message)
 }
 
 } // namespace il2cpp
+
+
+//------------------------------------------------------------------------------
+// nb9 D13: ParamName getter -- net48 exceptions carry the parameter name
+// that the throw site supplied. The runtime appends it to the message as
+// the localized "parameter name: <name>" line, so the getter reads that
+// suffix back out of the pending exception text.
+//------------------------------------------------------------------------------
+il2cpp::Il2CppString* icall_exception_param_name(const char* messageText)
+{
+    if (messageText == nullptr) return nullptr;
+    // UTF-8 "parameter name: " (zh-CN) and the invariant English form.
+    const char* const zh = "\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20";
+    const char* p = std::strstr(messageText, zh);
+    const char* marker = "Parameter name:";
+    if (p == nullptr)
+    {
+        p = std::strstr(messageText, marker);
+        if (p == nullptr) return nullptr;
+        p += std::strlen(marker);
+    }
+    else
+    {
+        p += std::strlen(zh);
+    }
+    while (*p == (char)0x20) ++p;
+    const char* end = p;
+    while (*end != 0 && *end != (char)0x0D && *end != (char)0x0A) ++end;
+    if (end == p) return nullptr;
+    char buf[128];
+    size_t n = static_cast<size_t>(end - p);
+    if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+    std::memcpy(buf, p, n);
+    buf[n] = 0;
+    return il2cpp::il2cpp_string_new_from_utf8(buf);
+}
 

@@ -220,12 +220,12 @@ void RequireRangeSort(const Il2CppArray* arr, int32_t index, int32_t length)
     if (index < 0)
     {
         il2cpp_throw_argument_out_of_range_exception(
-            "index", "Non-negative number required.");
+            "index", "\xE8\xA6\x81\xE6\xB1\x82\xE9\x9D\x9E\xE8\xB4\x9F\xE6\x95\xB0\xE3\x80\x82");
     }
     if (length < 0)
     {
         il2cpp_throw_argument_out_of_range_exception(
-            "length", "Non-negative number required.");
+            "length", "\xE8\xA6\x81\xE6\xB1\x82\xE9\x9D\x9E\xE8\xB4\x9F\xE6\x95\xB0\xE3\x80\x82");
     }
     if (static_cast<int64_t>(index) + static_cast<int64_t>(length) >
         static_cast<int64_t>(arr->length))
@@ -403,6 +403,26 @@ int32_t LowerBoundValues(const T* data, int32_t lo, int32_t hi, T value)
         }
     }
     return lo;
+}
+
+//------------------------------------------------------------------------------
+// Net48BinarySearchValues -- net48 Array.BinarySearch midpoint semantics:
+// the FIRST PROBED midpoint that compares equal wins (NOT the first equal
+// element of a run), and a miss returns ~insertionPoint.
+//   lo = first; hi = last (INCLUSIVE); mid = lo + ((hi - lo) >> 1).
+//------------------------------------------------------------------------------
+template <typename T>
+int32_t Net48BinarySearchValues(const T* data, int32_t lo, int32_t hi, T value)
+{
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const T v = data[mid];
+        if (v == value) return mid;
+        if (v < value) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
 }
 
 //------------------------------------------------------------------------------
@@ -976,12 +996,8 @@ int32_t il2cpp_array_binary_search_int32(Il2CppArray* arr, int32_t value)
     Il2CppArray* a = RequireArraySort(arr);
     RequireValueArraySort(a, sizeof(int32_t));
     const int32_t* data = reinterpret_cast<const int32_t*>(a->data);
-    const int32_t at = LowerBoundValues(data, 0, a->length, value);
-    if (at < a->length && data[at] == value)
-    {
-        return at;
-    }
-    return ~at; // missing: complement of the insertion point
+    // nb9 D14: net48 midpoint semantics (first probe hit wins).
+    return Net48BinarySearchValues(data, 0, a->length - 1, value);
 }
 
 
@@ -1022,12 +1038,7 @@ int32_t il2cpp_array_binary_search_uint32(Il2CppArray* arr, int32_t value)
     RequireValueArraySort(a, sizeof(uint32_t));
     const uint32_t* data = reinterpret_cast<const uint32_t*>(a->data);
     const uint32_t needle = static_cast<uint32_t>(value);
-    const int32_t at = LowerBoundValues(data, 0, a->length, needle);
-    if (at < a->length && data[at] == needle)
-    {
-        return at;
-    }
-    return ~at;
+    return Net48BinarySearchValues(data, 0, a->length - 1, needle);
 }
 
 int32_t il2cpp_array_binary_search_uint32_range(Il2CppArray* arr, int32_t index,
@@ -1038,24 +1049,14 @@ int32_t il2cpp_array_binary_search_uint32_range(Il2CppArray* arr, int32_t index,
     RequireRangeSort(a, index, length);
     const uint32_t* data = reinterpret_cast<const uint32_t*>(a->data);
     const uint32_t needle = static_cast<uint32_t>(value);
-    const int32_t at = LowerBoundValues(data, index, index + length, needle);
-    if (at < index + length && data[at] == needle)
-    {
-        return at;
-    }
-    return ~at;
+    return Net48BinarySearchValues(data, index, index + length - 1, needle);
 }
 int32_t il2cpp_array_binary_search_int64(Il2CppArray* arr, int64_t value)
 {
     Il2CppArray* a = RequireArraySort(arr);
     RequireValueArraySort(a, sizeof(int64_t));
     const int64_t* data = reinterpret_cast<const int64_t*>(a->data);
-    const int32_t at = LowerBoundValues(data, 0, a->length, value);
-    if (at < a->length && data[at] == value)
-    {
-        return at;
-    }
-    return ~at; // missing: complement of the insertion point
+    return Net48BinarySearchValues(data, 0, a->length - 1, value);
 }
 
 //------------------------------------------------------------------------------
@@ -1069,15 +1070,17 @@ int32_t il2cpp_array_binary_search_string(Il2CppArray* arr, Il2CppObject* value)
     RequireRefArraySort(a);
     Il2CppString* needle = AsStringOrNull(value);
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-    const int32_t at = LowerBoundRefs(slots, 0, a->length,
-                                      reinterpret_cast<Il2CppObject*>(needle),
-                                      CompareStringRefs);
-    if (at < a->length && CompareOrdinal(
-            reinterpret_cast<const Il2CppString*>(slots[at]), needle) == 0)
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
     {
-        return at;
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = CompareStringRefs(slots[mid], reinterpret_cast<Il2CppObject*>(needle));
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
-    return ~at; // missing: complement of the insertion point
+    return ~lo;
 }
 
 //------------------------------------------------------------------------------
@@ -1092,24 +1095,16 @@ int32_t il2cpp_array_binary_search_double(Il2CppArray* arr, double value)
     RequireValueArraySort(a, sizeof(double));
     const double* data = reinterpret_cast<const double*>(a->data);
     int32_t lo = 0;
-    int32_t hi = a->length;
-    while (lo < hi)
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
     {
-        const int32_t mid = lo + (hi - lo) / 2;
-        if (DoubleCompareTotal(data[mid], value) < 0)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = DoubleCompareTotal(data[mid], value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
-    if (lo < a->length && DoubleEqualsNet(data[lo], value))
-    {
-        return lo;
-    }
-    return ~lo; // missing: complement of the insertion point
+    return ~lo;
 }
 
 //------------------------------------------------------------------------------
@@ -1784,7 +1779,7 @@ struct DComparerCompare
     int32_t operator()(double x, double y) const
     {
         if (*slot == nullptr) return DoubleCompareTotal(x, y);
-        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &x, &y);
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyF, &x, &y);
     }
 };
 
@@ -2319,6 +2314,46 @@ void il2cpp_array_sort_icomparer_##SUF##_range(Il2CppArray* arr, int32_t index, 
     }                                                                           \
 }
 
+
+// nb9 E8b: Sort<uint>(uint[], int, int, IComparer<uint>) -- default order is
+// UNSIGNED; a user comparer supplies its own (bits through the int32 ABI).
+namespace {
+struct U32ComparerCompare
+{
+    Il2CppObject** slot;
+    int32_t operator()(uint32_t x, uint32_t y) const
+    {
+        if (*slot == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+        if ((*slot)->klass != nullptr && (*slot)->klass->name != nullptr &&
+            std::strstr((*slot)->klass->name, "Comparer`1") != nullptr)
+            return x < y ? -1 : (x > y ? 1 : 0);
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
+    }
+};
+} // namespace
+
+void il2cpp_array_sort_icomparer_uint32_range(Il2CppArray* arr, int32_t index,
+                                              int32_t length, Il2CppObject* comparer)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint32_t));
+    RequireRangeSort(a, index, length);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    if (length > 1)
+    {
+        try
+        {
+            U32ComparerCompare cmp{&comparer};
+            QuickSortValArray<uint32_t>(&a, index, index + length - 1, cmp);
+        }
+        catch (const DotNetException&)
+        {
+            il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+        }
+    }
+}
 NB9_DEFINE_ICOMPARER_SORT(int64, int64_t, I8ComparerCompare)
 NB9_DEFINE_ICOMPARER_SORT(double, double, DComparerCompare)
 NB9_DEFINE_ICOMPARER_SORT(float, float, FComparerCompare)
@@ -2652,7 +2687,7 @@ void ValidateIndexOfStartIndex(const Il2CppArray* a, int32_t startIndex)
     {
         il2cpp_throw_argument_out_of_range_exception(
             "startIndex",
-            "Index was out of range. Must be non-negative and less than the "
+            "\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE9\x9D\x9E\xE8\xB4\x9F\xE5\x80\xBC\xE5\xB9\xB6\xE5\xB0\x8F\xE4\xBA\x8E\xE9\x9B\x86\xE5\x90\x88\xE5\xA4\xA7\xE5\xB0\x8F\xE3\x80\x82"
             "size of the collection.");
     }
 }
@@ -2666,8 +2701,7 @@ void ValidateIndexOfRange(const Il2CppArray* a, int32_t startIndex, int32_t coun
     {
         il2cpp_throw_argument_out_of_range_exception(
             "count",
-            "Count must be positive and count must refer to a location within "
-            "the string/array/collection.");
+            "\xE8\xAE\xA1\xE6\x95\xB0\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE6\xAD\xA3\xEF\xBC\x8C\xE4\xB8\x94\xE8\xAE\xA1\xE6\x95\xB0\xE5\xBF\x85\xE9\xA1\xBB\xE5\xBC\x95\xE7\x94\xA8 string/array/collection \xE5\x86\x85\xE7\x9A\x84\xE4\xBD\x8D\xE7\xBD\xAE\xE3\x80\x82");
     }
 }
 
@@ -2683,7 +2717,7 @@ void ValidateLastIndexOfStartIndex(const Il2CppArray* a, int32_t startIndex)
     {
         il2cpp_throw_argument_out_of_range_exception(
             "startIndex",
-            "Index was out of range. Must be non-negative and less than the "
+            "\xE7\xB4\xA2\xE5\xBC\x95\xE8\xB6\x85\xE5\x87\xBA\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE9\x9D\x9E\xE8\xB4\x9F\xE5\x80\xBC\xE5\xB9\xB6\xE5\xB0\x8F\xE4\xBA\x8E\xE9\x9B\x86\xE5\x90\x88\xE5\xA4\xA7\xE5\xB0\x8F\xE3\x80\x82"
             "size of the collection.");
     }
 }
@@ -2698,15 +2732,13 @@ void ValidateLastIndexOfRangeAny(const Il2CppArray* a, int32_t startIndex, int32
     {
         il2cpp_throw_argument_out_of_range_exception(
             "count",
-            "Count must be positive and count must refer to a location within "
-            "the string/array/collection.");
+            "\xE8\xAE\xA1\xE6\x95\xB0\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE6\xAD\xA3\xEF\xBC\x8C\xE4\xB8\x94\xE8\xAE\xA1\xE6\x95\xB0\xE5\xBF\x85\xE9\xA1\xBB\xE5\xBC\x95\xE7\x94\xA8 string/array/collection \xE5\x86\x85\xE7\x9A\x84\xE4\xBD\x8D\xE7\xBD\xAE\xE3\x80\x82");
     }
     if (static_cast<int64_t>(count) > static_cast<int64_t>(startIndex) + 1)
     {
         il2cpp_throw_argument_out_of_range_exception(
             "endIndex",
-            "Count must be positive and count must refer to a location within "
-            "the string/array/collection.");
+            "endIndex \xE4\xB8\x8D\xE8\x83\xBD\xE5\xA4\xA7\xE4\xBA\x8E startIndex\xE3\x80\x82");
     }
 }
 
@@ -2720,8 +2752,7 @@ void ValidateLastIndexOfRange(const Il2CppArray* a, int32_t startIndex, int32_t 
     {
         il2cpp_throw_argument_out_of_range_exception(
             "count",
-            "Count must be positive and count must refer to a location within "
-            "the string/array/collection.");
+            "\xE8\xAE\xA1\xE6\x95\xB0\xE5\xBF\x85\xE9\xA1\xBB\xE4\xB8\xBA\xE6\xAD\xA3\xEF\xBC\x8C\xE4\xB8\x94\xE8\xAE\xA1\xE6\x95\xB0\xE5\xBF\x85\xE9\xA1\xBB\xE5\xBC\x95\xE7\x94\xA8 string/array/collection \xE5\x86\x85\xE7\x9A\x84\xE4\xBD\x8D\xE7\xBD\xAE\xE3\x80\x82");
     }
 }
 
@@ -3019,10 +3050,7 @@ int32_t il2cpp_array_binary_search_##SUF##_range(Il2CppArray* arr, int32_t index
     RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));                  \
     RequireRangeSort(a, index, length);                                         \
     const T* data = reinterpret_cast<const T*>(a->data);                        \
-    const int32_t hi = index + length;                                          \
-    const int32_t at = LowerBoundValues(data, index, hi, value);                \
-    if (at < hi && EQFN(data[at], value)) return at;                            \
-    return ~at;                                                                 \
+    return Net48BinarySearchValues(data, index, index + length - 1, value);     \
 }
 
 NB9_DEFINE_VALUE_BSEARCH(int32, int32_t, ValueEqualRaw)
@@ -3040,21 +3068,15 @@ int32_t il2cpp_array_binary_search_float_range(Il2CppArray* arr, int32_t index,
     RequireRangeSort(a, index, length);
     const float* data = reinterpret_cast<const float*>(a->data);
     int32_t lo = index;
-    int32_t hi = index + length;
-    while (lo < hi)
+    int32_t hi = index + length - 1;
+    while (lo <= hi)
     {
-        const int32_t mid = lo + (hi - lo) / 2;
-        if (DoubleCompareTotal(static_cast<double>(data[mid]), value) < 0)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = DoubleCompareTotal(static_cast<double>(data[mid]), value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
-    const int32_t end = index + length;
-    if (lo < end && DoubleEqualsNet(static_cast<double>(data[lo]), value)) return lo;
     return ~lo;
 }
 
@@ -3064,20 +3086,15 @@ int32_t il2cpp_array_binary_search_float(Il2CppArray* arr, double value)
     RequireValueArraySort(a, sizeof(float));
     const float* data = reinterpret_cast<const float*>(a->data);
     int32_t lo = 0;
-    int32_t hi = a->length;
-    while (lo < hi)
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
     {
-        const int32_t mid = lo + (hi - lo) / 2;
-        if (DoubleCompareTotal(static_cast<double>(data[mid]), value) < 0)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = DoubleCompareTotal(static_cast<double>(data[mid]), value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
-    if (lo < a->length && DoubleEqualsNet(static_cast<double>(data[lo]), value)) return lo;
     return ~lo;
 }
 
@@ -3087,20 +3104,15 @@ int32_t il2cpp_array_binary_search_object(Il2CppArray* arr, Il2CppObject* value)
     RequireRefArraySort(a);
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
     int32_t lo = 0;
-    int32_t hi = a->length;
-    while (lo < hi)
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
     {
-        const int32_t mid = lo + (hi - lo) / 2;
-        if (ComparerCompareCore(slots[mid], value) < 0)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = ComparerCompareCore(slots[mid], value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
-    if (lo < a->length && ComparerCompareCore(slots[lo], value) == 0) return lo;
     return ~lo;
 }
 
@@ -3112,21 +3124,15 @@ int32_t il2cpp_array_binary_search_double_range(Il2CppArray* arr, int32_t index,
     RequireRangeSort(a, index, length);
     const double* data = reinterpret_cast<const double*>(a->data);
     int32_t lo = index;
-    int32_t hi = index + length;
-    while (lo < hi)
+    int32_t hi = index + length - 1;
+    while (lo <= hi)
     {
-        const int32_t mid = lo + (hi - lo) / 2;
-        if (DoubleCompareTotal(data[mid], value) < 0)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = DoubleCompareTotal(data[mid], value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
-    const int32_t end = index + length;
-    if (lo < end && DoubleEqualsNet(data[lo], value)) return lo;
     return ~lo;
 }
 
@@ -3138,15 +3144,17 @@ int32_t il2cpp_array_binary_search_string_range(Il2CppArray* arr, int32_t index,
     RequireRangeSort(a, index, length);
     Il2CppString* needle = AsStringOrNull(value);
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
-    const int32_t at = LowerBoundRefs(slots, index, index + length,
-                                      reinterpret_cast<Il2CppObject*>(needle),
-                                      CompareStringRefs);
-    if (at < index + length &&
-        CompareOrdinal(reinterpret_cast<const Il2CppString*>(slots[at]), needle) == 0)
+    int32_t lo = index;
+    int32_t hi = index + length - 1;
+    while (lo <= hi)
     {
-        return at;
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = CompareStringRefs(slots[mid], reinterpret_cast<Il2CppObject*>(needle));
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
-    return ~at;
+    return ~lo;
 }
 
 // Array.BinarySearch<object>(T[], int, int, T) -- the default comparer's
@@ -3159,22 +3167,14 @@ int32_t il2cpp_array_binary_search_object_range(Il2CppArray* arr, int32_t index,
     RequireRangeSort(a, index, length);
     Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
     int32_t lo = index;
-    int32_t hi = index + length;
-    while (lo < hi)
+    int32_t hi = index + length - 1;
+    while (lo <= hi)
     {
-        const int32_t mid = lo + (hi - lo) / 2;
-        if (ComparerCompareCore(slots[mid], value) < 0)
-        {
-            lo = mid + 1;
-        }
-        else
-        {
-            hi = mid;
-        }
-    }
-    if (lo < index + length && ComparerCompareCore(slots[lo], value) == 0)
-    {
-        return lo;
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        const int32_t c = ComparerCompareCore(slots[mid], value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
     }
     return ~lo;
 }
@@ -3736,7 +3736,7 @@ struct AnyComparerCompare
         {
             const float* d = reinterpret_cast<const float*>(a->data);
             double x = static_cast<double>(d[i]), y = static_cast<double>(d[j]);
-            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &x, &y);
+            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyF, &x, &y);
         }
         if (kind == 4)
         {
@@ -3785,7 +3785,7 @@ int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* co
         const float* d = reinterpret_cast<const float*>(keys->data);
         double x = static_cast<double>(d[i]), y = static_cast<double>(d[j]);
         if (comparer == nullptr) return DoubleCompareTotal(x, y);
-        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &x, &y);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyF, &x, &y);
     }
     if (kind == 4)
     {

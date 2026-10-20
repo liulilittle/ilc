@@ -80,6 +80,13 @@ public static partial class MethodRefResolver
             // get_Message/GetBaseException folds resolving on the returned
             // object. The catch-variable carrier ("System.Type") has no
             // inner model -- best-effort null (the honest answer).
+            case "get_ParamName":
+                if (receiverType == null) return null;
+                // nb9 D13: the catch carrier keeps the throw site's
+                // parameter name in the message suffix; parse it back.
+                if (receiverType == "System.Type" || receiverType == "System.Exception")
+                    return I("il2cpp::icall_exception_param_name_current", 0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
+                throw new NotSupportedException("Exception.get_ParamName on this receiver shape is not wired");
             case "get_InnerException":
                 if (receiverType == "System.Exception")
                     return I("il2cpp::runtime::icall_exception_get_inner_exception", 0, true, true, true,

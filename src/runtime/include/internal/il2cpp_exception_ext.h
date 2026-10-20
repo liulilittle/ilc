@@ -1,4 +1,5 @@
 #pragma once
+namespace il2cpp { struct Il2CppString; }
 //------------------------------------------------------------------------------
 // il2cpp_exception_ext.h -- convenience factories for common managed exception
 // types (the transport itself lives in il2cpp_exception.h).
@@ -111,4 +112,8 @@ void il2cpp_throw_io_exception(const char* message);
 // File.Copy on a missing source throw this (net48 behavior).
 void il2cpp_throw_file_not_found_exception(const char* message);
 
+
+// nb9 D13: get_ParamName for a catch carrier (parameter name of the most
+// recent throw; null when none).
+Il2CppString* icall_exception_param_name_current();
 } // namespace il2cpp

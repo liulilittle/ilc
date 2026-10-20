@@ -22,16 +22,59 @@
 #include "il2cpp_frame.h"
 
 #include <cstdio>
+#include "il2cpp_string.h"
 #include <cstring>
 
 namespace il2cpp {
+
+// nb9 D13: the parameter name of the most recently thrown exception, captured
+// from the message suffix at throw time so get_ParamName can answer it from
+// the catch carrier without re-parsing a nested expression.
+thread_local char g_il2cpp_last_param_name[128] = {0};
+
+namespace {
+void CaptureParamName(const char* message)
+{
+    g_il2cpp_last_param_name[0] = 0;
+    if (message == nullptr) return;
+    const char* const zh = "\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20";
+    const char* p = std::strstr(message, zh);
+    const char* marker = "Parameter name:";
+    if (p == nullptr)
+    {
+        p = std::strstr(message, marker);
+        if (p == nullptr) return;
+        p += std::strlen(marker);
+    }
+    else
+    {
+        p += std::strlen(zh);
+    }
+    while (*p == ' ') ++p;
+    const char* end = p;
+    while (*end != 0 && *end != '\r' && *end != '\n') ++end;
+    size_t n = static_cast<size_t>(end - p);
+    if (n >= sizeof(g_il2cpp_last_param_name)) n = sizeof(g_il2cpp_last_param_name) - 1;
+    std::memcpy(g_il2cpp_last_param_name, p, n);
+    g_il2cpp_last_param_name[n] = 0;
+}
+} // namespace
 
 //------------------------------------------------------------------------------
 // il2cpp_throw_new -- throw a typed managed exception (see header).
 //------------------------------------------------------------------------------
 void il2cpp_throw_new(const char* typeName, const char* message)
 {
+    CaptureParamName(message);
     throw DotNetException(typeName, message);
+}
+
+// nb9 D13: get_ParamName for a catch carrier -- returns the parameter name
+// captured by the most recent throw (null when the throw supplied none).
+Il2CppString* icall_exception_param_name_current()
+{
+    if (g_il2cpp_last_param_name[0] == 0) return nullptr;
+    return il2cpp_string_new_from_utf8(g_il2cpp_last_param_name);
 }
 
 //------------------------------------------------------------------------------
