@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // test_streamio.cpp -- System.IO stream icall runtime unit tests (FileStream
 // / StreamReader / StreamWriter / MemoryStream subset). See streamio.h for
 // the icall contract under test.
@@ -1171,8 +1171,12 @@ int main()
         Expect(il2cpp_stream_close(pbr) == 0, "pushback update handle closes");
 
         // (a3) truncation (set_length) with a byte still in the pushback ring:
-        // the ring survives the resize and the next line is exactly that byte,
-        // clamped by the new length.
+        // the ring survives the resize and the next line is exactly that byte.
+        // NOTE: this pins the CURRENT behaviour, including the known
+        // pre-existing gap documented at the set_length resize site in
+        // streamio.cpp (the ring is not discarded, so Position can go
+        // negative when truncating below the pushed-back byte count). It is an
+        // expected pin of existing behaviour, not an endorsement of it.
         il2cpp_stream_t trc = il2cpp_stream_file_open(Cs("st_tmp/pbtrunc.txt"), 1);
         Expect(trc != nullptr && il2cpp_stream_write(trc, "ab\rcd\nef", 8) == 8,
                "truncation fixture writes 8 bytes");
@@ -1220,8 +1224,13 @@ int main()
         std::memset(bbuf, 0x5A, sizeof(bbuf));
         Expect(il2cpp_stream_read(bulk, bbuf, 12) == 0,
                "bulk read immediately after a write (no seek) returns 0 at EOF");
-        Expect(bbuf[0] == 0x5A && bbuf[11] == 0x5A,
-               "the zero-length read leaves the caller buffer untouched");
+        bool untouched = true;
+        for (int i = 0; i < 16; ++i)
+        {
+            untouched = untouched && (bbuf[i] == 0x5A);
+        }
+        Expect(untouched,
+               "the zero-length read leaves all 16 caller buffer bytes untouched");
         Expect(il2cpp_stream_seek(bulk, 0, 0) == 0, "bulk seek back to 0");
         std::memset(bbuf, 0, sizeof(bbuf));
         Expect(il2cpp_stream_read(bulk, bbuf, 12) == 12, "bulk read returns 12 bytes");
@@ -1312,7 +1321,7 @@ int main()
 
         // (1) A plain ReadLine pass issues ZERO identity seeks. The pre-change
         // backend issued one per byte, so the same counter read 4,000,001 on
-        // the 4 MB fixture (see .opencode/tmp/perf-exec-4-raw.txt).
+        // the 4 MB fixture (see tests/runtime/README-perf4-redgreen.md).
         il2cpp_stream_t rd = il2cpp_stream_file_open(Cs("st_tmp/biglines.txt"), 0);
         Expect(rd != nullptr, "big fixture reopens for reading");
         g_streamioIdentitySeeks = 0;

@@ -373,6 +373,15 @@ int FilePrepareRead(StreamState* s)
 // Throw the IOException a read raises when its pending stdio mode reset could
 // not be performed (C11 7.21.5.3 would otherwise be violated). Defined below
 // next to kStreamIOExceptionChain, which the write/seek paths share.
+//
+// net48 has NO such exception: a Win32 handle lets WriteFile/ReadFile alternate
+// freely, and an unseekable stream raises NotSupportedException from
+// Seek/Position, never from Read. This IOException therefore signals a
+// BACKEND-side failure, not modelled net48 behaviour. It is also
+// production-unreachable as the layer stands: the only FILE* created here
+// comes from _wfopen/fopen (no popen/fdopen/_fdopen in this file), so the
+// target is always a seekable regular file; the tests reach the branch through
+// g_streamioForceSeekFailure.
 [[noreturn]] void FileThrowReadResetFailed();
 
 // Record that the FILE* moved to the write side (C11 7.21.5.3 reset pending).
@@ -740,6 +749,7 @@ const char kStreamIOExceptionChain[] =
 namespace {
 // Definition of the read-reset failure thrower declared next to
 // FilePrepareRead (C11 7.21.5.3 would be violated if the read proceeded).
+// net48 counterpart: none -- see the declaration comment above.
 [[noreturn]] void FileThrowReadResetFailed()
 {
     il2cpp_throw_new(kStreamIOExceptionChain,

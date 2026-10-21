@@ -31,8 +31,21 @@
 //         position, length (bytes written) and capacity. The buffer grows
 //         by doubling and is freed by close.
 //
-// Result conventions (M3 runtime: failures are return values, never C++
-// throws -- aligned with il2cpp_io.h):
+// Result conventions (M3 runtime: failures are return values, not C++
+// throws -- aligned with il2cpp_io.h). The ONE exception is a backend
+// reposition failure on the read path (see FilePrepareRead in streamio.cpp):
+// no return channel can express "the FILE* could not be put back into a legal
+// read mode", so it raises IOException. net48 has no counterpart for that
+// condition -- a Win32 handle lets WriteFile/ReadFile alternate freely, and an
+// unseekable stream raises NotSupportedException from Seek/Position, never
+// from Read -- so the IOException is an implementation-side failure signal,
+// not modelled net48 behaviour.
+//   * Concretely: a reposition failure (a backend I/O error, not a capability
+//     check) raises IOException (kStreamIOExceptionChain); the normal paths
+//     never throw. That branch is also production-unreachable today -- the
+//     only FILE* this layer creates comes from _wfopen/fopen (there is no
+//     popen/fdopen/_fdopen anywhere in the file), i.e. always a seekable
+//     regular file, so the forced-failure path exists only for the tests.
 //   * Open functions return nullptr on failure (unopenable path, null path,
 //     invalid mode).
 //   * Read/write functions return the number of bytes transferred; 0 means
