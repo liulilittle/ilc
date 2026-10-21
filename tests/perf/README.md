@@ -127,9 +127,9 @@ host** -- no MSVC run is committed. Treat `-Compiler msvc` as untested.
 
 | file | what it is |
 |---|---|
-| `array-mingw-2026-10-21.csv` / `.raw.txt` | the `array` case, MinGW, 5 runs, `-AllowEnvCv`, commit `ce83e39b` (clean), load 99% -> 100% -> `RATIO_OK_CV_OVER_LIMIT` (exit 3). Ratio 7.39, ratio envelope 6.45-10.32, CV 0.1160/0.0755 |
-| `array-mingw-2026-10-21-redproof.csv` / `.raw.txt` | same case, `-RedProof` (Release + `-O0`) -> **`FAIL:ratio+cv`** (not `FAIL:ratio` alone), ratio 0.56, exit 1 |
-| `array-mingw-2026-10-21-jitter.csv` / `.raw.txt` | `PERF_JITTER_MS=150` -> `FAIL:cv`, CV 0.1074/0.3338, exit 1. The ratio did **not** stay put: 7.39 -> 13.31 (ilc 176 -> 94 ms). Injected jitter is absolute, added to both clock readings, so a reading pair can move the elapsed time *down* as well as up -- the median ratio therefore shifts too. This artifact proves the CV gate detects injected jitter; it says nothing about sensitivity to a codegen regression. |
+| `array-mingw-2026-10-21.csv` / `.raw.txt` | the `array` case, MinGW, 5 runs, `-AllowEnvCv`, commit `c2ca8ade` (clean), load 73% -> 100% -> `RATIO_OK_CV_OVER_LIMIT` (exit 3). Ratio 6.19, envelope 5.02-7.99, CV 0.0774/0.1320 |
+| `array-mingw-2026-10-21-redproof.csv` / `.raw.txt` | same case, `-RedProof` (Release + `-O0`), commit `c2ca8ade` (clean) -> **`FAIL:ratio+cv`** (not `FAIL:ratio` alone), ratio 0.49, exit 1 |
+| `array-mingw-2026-10-21-jitter.csv` / `.raw.txt` | `PERF_JITTER_MS=150`, commit `c2ca8ade` (clean) -> `FAIL:cv`, CV 0.0950/0.3470, exit 1. The ratio did **not** stay put: 6.19 -> 12.94 (ilc 145 -> 89 ms). Injected jitter is absolute, added to both clock readings, so a reading pair can move the elapsed time *down* as well as up -- the median ratio therefore shifts too. This artifact proves the CV gate detects injected jitter; it says nothing about sensitivity to a codegen regression. |
 | `rejected-sort/` | the `sort` case that was **rejected**, plus its source snapshot and raw run (ratio 1.04, CV 0.17/0.14). Captured on a **dirty** tree (`753f0128`, 3 modified files) -> `UNVERIFIED (dirty tree)`, not reproducible from history |
 
 The directory holds **three `array` runs (6 files) plus one `rejected-sort` run
@@ -231,4 +231,4 @@ dirty tree (`commit 753f0128 (dirty 3 files)`), so it cannot be rebuilt exactly
 from history -- treat it as `UNVERIFIED (dirty tree)` evidence for the
 rejection decision, not as a reproducible baseline.** The shipped `array`
 artifacts are the reproducible ones (all captured on the clean tree of
-`ce83e39b`).
+`c2ca8ade`).

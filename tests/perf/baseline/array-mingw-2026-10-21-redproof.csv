@@ -1,2 +1,2 @@
-﻿name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,verdict
-array,1251,2219,0.56,0.35,0.68,0.1850,0.0668,5,FAIL:ratio+cv
+﻿name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,smoke,verdict
+array,1074,2205,0.49,0.39,0.55,0.1085,0.0148,5,false,FAIL:ratio+cv
