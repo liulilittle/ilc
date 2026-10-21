@@ -15,6 +15,14 @@
 //     every other function. The handle is owned by the caller and MUST be
 //     released with il2cpp_stream_close exactly once -- after close the
 //     handle is dangling and must not be used again.
+//   * THREADING: a handle (and the StreamState behind it, which a
+//     StreamReader/StreamWriter wrapper SHARES with its underlying stream) is
+//     NOT thread-safe. There is no lock and no atomic in the backend -- the
+//     pushback ring, the decoder stash and the stdio mode bookkeeping are
+//     plain fields. Concurrent use of one handle from several threads is a
+//     data race; callers must serialize access (one owner thread, or an
+//     external lock covering the whole handle). Distinct handles over the
+//     same file are independent (each owns its own FILE*).
 //   * The handle wraps one of two backends:
 //       - File: a FILE* opened with _wfopen (Windows, UTF-16 path taken
 //         directly from the managed string) or fopen (other platforms,

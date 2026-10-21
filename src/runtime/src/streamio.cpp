@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // streamio.cpp -- System.IO stream icall implementations (see streamio.h for
 // the contract and result conventions).
 //
@@ -75,6 +75,12 @@ std::string NormalizePosixSlash(const std::string& path)
 
 //------------------------------------------------------------------------------
 // Stream backend state (opaque to callers; see streamio.h).
+//
+// THREADING: this struct is deliberately lock-free and is NOT thread-safe.
+// net48 FileStream/StreamReader/StreamWriter instances are documented as not
+// thread-safe either, and the runtime's wrappers SHARE one StreamState between
+// a reader/writer and its underlying stream, so a lock here would have to
+// cover the whole wrapper chain. Callers must serialize per handle.
 //------------------------------------------------------------------------------
 
 struct StreamState
@@ -306,6 +312,32 @@ bool MemoryEnsure(StreamState* s, int64_t need)
     return true;
 }
 
+// Counted identity seek (fseek(fp, 0, SEEK_CUR)). The test build defines
+// IL2CPP_STREAMIO_FSEEK_PROBE (tests/runtime/CMakeLists.txt) to expose the
+// call counter to the regression probe; production builds compile the counter
+// away. The definitions are plain C symbols so a test translation unit can
+// read them without any runtime header change.
+#if defined(IL2CPP_STREAMIO_FSEEK_PROBE)
+extern "C" {
+long long g_streamioIdentitySeeks = 0;
+// Test seam: force the identity seek to fail so the probe can prove the
+// "keep the pending reset on failure" contract. Never set outside tests.
+int g_streamioForceSeekFailure = 0;
+}
+#endif
+
+int FileIdentitySeek(StreamState* s)
+{
+#if defined(IL2CPP_STREAMIO_FSEEK_PROBE)
+    ++g_streamioIdentitySeeks;
+    if (g_streamioForceSeekFailure != 0)
+    {
+        return -1;
+    }
+#endif
+    return STREAM_FSEEK(s->fp, 0, SEEK_CUR);
+}
+
 // Prepare the FILE* for the next read. Two jobs used to be done by an identity
 // fseek (fseek(fp,0,SEEK_CUR)) before EVERY byte:
 //   * C11 7.21.5.3 -- a read must not directly follow a write on an update
@@ -314,13 +346,19 @@ bool MemoryEnsure(StreamState* s, int64_t need)
 //     handle after a read reached end-of-stream, so the indicator must be
 //     cleared before retrying. Only done when EOF was actually observed, so
 //     the steady-state read path issues no fseek at all.
+// A FAILED seek leaves both flags set: the reset is still pending, so the next
+// read retries it instead of silently reading in an illegal stdio mode. That
+// matters for non-seekable targets (pipe-backed FILE*, ...) where the seek
+// fails but the read must still not be lost.
 void FilePrepareRead(StreamState* s)
 {
     if (s->fileReadAfterWrite || s->fileAtEof)
     {
-        (void)STREAM_FSEEK(s->fp, 0, SEEK_CUR);
-        s->fileReadAfterWrite = false;
-        s->fileAtEof = false;
+        if (FileIdentitySeek(s) == 0)
+        {
+            s->fileReadAfterWrite = false;
+            s->fileAtEof = false;
+        }
     }
 }
 
@@ -1335,6 +1373,14 @@ int32_t il2cpp_stream_set_length(il2cpp_stream_t stream, int64_t value)
     }
     // File backend: 64-bit truncate/extend on the CRT surface. The fd-level
     // resize must see every buffered stdio write, so flush BEFORE the resize.
+    //
+    // KNOWN GAP (pre-existing, deliberately not changed here): the pushback
+    // ring (pendingCount/pendingChar) is NOT discarded by a resize, so
+    // get_position() (= ftell - pendingCount) can report a negative value when
+    // the stream is truncated below the number of pushed-back bytes. The
+    // reader-buffer survival itself matches net48 (a StreamReader keeps its
+    // buffered chars across a FileStream.SetLength), so the fix is to clamp or
+    // model the ring explicitly -- tracked as a separate follow-up.
     const int64_t saved = static_cast<int64_t>(STREAM_FTELL(s->fp));
     if (saved < 0 || std::fflush(s->fp) != 0)
     {

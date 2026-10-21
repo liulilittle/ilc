@@ -31,6 +31,14 @@ find_package(Threads REQUIRED)
 
 add_subdirectory(../../src/runtime ${CMAKE_BINARY_DIR}/runtime)
 
+# P0 ReadLine probe: expose the streamio identity-seek counter to the test
+# binaries (g_streamioIdentitySeeks / g_streamioForceSeekFailure). Test-only --
+# the runtime CMakeLists used by generated projects does not define it, so
+# production builds compile the counter away.
+if(TARGET il2cpp_runtime)
+    target_compile_definitions(il2cpp_runtime PRIVATE IL2CPP_STREAMIO_FSEEK_PROBE)
+endif()
+
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS test_*.cpp)
 foreach(TEST_SRC ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SRC} NAME_WE)
