@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // streamio.cpp -- System.IO stream icall implementations (see streamio.h for
 // the contract and result conventions).
 //
@@ -321,12 +321,14 @@ bool MemoryEnsure(StreamState* s, int64_t need)
 extern "C" {
 long long g_streamioIdentitySeeks = 0;
 // Test seam: force the identity seek to fail so the probe can prove the
-// "keep the pending reset on failure" contract. Never set outside tests.
+// "failed reset is surfaced, never read in an illegal stdio mode" contract.
+// Never set outside tests.
 int g_streamioForceSeekFailure = 0;
 }
 #endif
 
-int FileIdentitySeek(StreamState* s)
+// File-local (internal linkage): the only caller is FilePrepareRead below.
+static int FileIdentitySeek(StreamState* s)
 {
 #if defined(IL2CPP_STREAMIO_FSEEK_PROBE)
     ++g_streamioIdentitySeeks;
@@ -346,21 +348,32 @@ int FileIdentitySeek(StreamState* s)
 //     handle after a read reached end-of-stream, so the indicator must be
 //     cleared before retrying. Only done when EOF was actually observed, so
 //     the steady-state read path issues no fseek at all.
-// A FAILED seek leaves both flags set: the reset is still pending, so the next
-// read retries it instead of silently reading in an illegal stdio mode. That
-// matters for non-seekable targets (pipe-backed FILE*, ...) where the seek
-// fails but the read must still not be lost.
-void FilePrepareRead(StreamState* s)
+//
+// If the reset CANNOT be performed the read must not proceed: C11 7.21.5.3
+// makes a read straight after a write undefined, so continuing would return
+// arbitrary bytes. The failure is raised as an IOException (the same shape the
+// handle layer already uses for the append-mode guard), and the pending flags
+// stay set so an explicit seek -- a real reposition that clears them --
+// recovers the handle. The steady state costs no syscall.
+int FilePrepareRead(StreamState* s)
 {
-    if (s->fileReadAfterWrite || s->fileAtEof)
+    if (!s->fileReadAfterWrite && !s->fileAtEof)
     {
-        if (FileIdentitySeek(s) == 0)
-        {
-            s->fileReadAfterWrite = false;
-            s->fileAtEof = false;
-        }
+        return 0; // steady state: no reset pending, no syscall
     }
+    if (FileIdentitySeek(s) != 0)
+    {
+        return -1;
+    }
+    s->fileReadAfterWrite = false;
+    s->fileAtEof = false;
+    return 0;
 }
+
+// Throw the IOException a read raises when its pending stdio mode reset could
+// not be performed (C11 7.21.5.3 would otherwise be violated). Defined below
+// next to kStreamIOExceptionChain, which the write/seek paths share.
+[[noreturn]] void FileThrowReadResetFailed();
 
 // Record that the FILE* moved to the write side (C11 7.21.5.3 reset pending).
 void FileMarkWrite(StreamState* s)
@@ -385,7 +398,10 @@ int StreamGetByte(StreamState* s)
     }
     if (s->kind == StreamState::kFile)
     {
-        FilePrepareRead(s);
+        if (FilePrepareRead(s) != 0)
+        {
+            FileThrowReadResetFailed(); // never read in an illegal stdio mode
+        }
         const int c = std::getc(s->fp); // EOF -> -1
         if (c < 0)
         {
@@ -691,7 +707,10 @@ int32_t il2cpp_stream_read(il2cpp_stream_t stream, void* buffer, int32_t count)
         // ReadByte/WriteByte freely (Win32 handles), so the stdio backend must
         // reset the mode with an identity seek before a file write. The reset
         // is per CALL (bulk read), never per byte.
-        FilePrepareRead(s);
+        if (FilePrepareRead(s) != 0)
+        {
+            FileThrowReadResetFailed(); // never read in an illegal stdio mode
+        }
         const size_t got = std::fread(out + drained, 1, static_cast<size_t>(remaining), s->fp);
         if (got < static_cast<size_t>(remaining))
         {
@@ -714,8 +733,19 @@ int32_t il2cpp_stream_read(il2cpp_stream_t stream, void* buffer, int32_t count)
 // net48 append-mode write guard chain (IO_SeekAppendOverwrite): FileStream
 // opened with FileMode.Append rejects a WRITE at a position before the
 // open-time EOF; Seek itself is allowed (the guard lives in the write path).
+// Also used by FileThrowReadResetFailed above.
 const char kStreamIOExceptionChain[] =
     "System.IO.IOException,System.IO.IOException,System.SystemException,System.Exception";
+
+namespace {
+// Definition of the read-reset failure thrower declared next to
+// FilePrepareRead (C11 7.21.5.3 would be violated if the read proceeded).
+[[noreturn]] void FileThrowReadResetFailed()
+{
+    il2cpp_throw_new(kStreamIOExceptionChain,
+        "The stream could not be repositioned for reading.");
+}
+} // namespace
 
 int32_t il2cpp_stream_write(il2cpp_stream_t stream, const void* buffer, int32_t count)
 {
@@ -1167,7 +1197,10 @@ Il2CppObject* il2cpp_stream_read_to_end(il2cpp_stream_t stream)
     if (s->kind == StreamState::kFile)
     {
         char buf[4096];
-        FilePrepareRead(s); // C11 mode reset + sticky-EOF clear, once per call
+        if (FilePrepareRead(s) != 0)
+        {
+            FileThrowReadResetFailed(); // never read in an illegal stdio mode
+        }
         for (;;)
         {
             const size_t n = std::fread(buf, 1, sizeof(buf), s->fp);

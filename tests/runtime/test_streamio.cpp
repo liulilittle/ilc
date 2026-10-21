@@ -49,6 +49,18 @@ namespace {
 
 static_assert(sizeof(void*) == 8, "streamio test fixture assumes 8-byte pointers");
 
+// P0 ReadLine probe symbols, defined by the runtime TU under
+// IL2CPP_STREAMIO_FSEEK_PROBE (tests/runtime/CMakeLists.txt defines the macro
+// for BOTH the runtime and every test target, so the section that asserts the
+// seek count is never compiled out). Linkage specifications must sit at
+// namespace scope, hence these declarations here rather than inside main().
+#if defined(IL2CPP_STREAMIO_FSEEK_PROBE)
+extern "C" {
+extern long long g_streamioIdentitySeeks; // defined in the runtime TU
+extern int g_streamioForceSeekFailure;    // test seam, same TU
+}
+#endif
+
 int g_failures = 0;
 
 void Expect(bool condition, const char* what)
@@ -1127,9 +1139,7 @@ int main()
         Expect(il2cpp_stream_write(upd, "Z", 1) == 1,
                "update handle writes without an intervening seek");
         // The write lands at position 3 (the 'B' slot), so the remaining bytes
-        // are "\r\n". The read after the write is only legal because of the
-        // C11 mode reset; with it the reader returns the empty line, without
-        // it stdio would report EOF / stale data.
+        // are "\r\n": the next line is empty, then end-of-stream.
         Il2CppObject* afterWrite = il2cpp_stream_read_line(upd);
         Expect(afterWrite != nullptr && StrEquals(afterWrite, ""),
                "read_line after a write returns the empty line at offset 3 (mode reset took effect)");
@@ -1198,30 +1208,41 @@ int main()
         }
         Expect(il2cpp_stream_close(il) == 0, "interleave handle closes");
 
-        // (a5) bulk read (il2cpp_stream_read) directly after a write, and
-        // read_to_end directly after a write: both must return the exact bytes
-        // written (the seek back to 0 is the caller's own reposition, which is
-        // what net48 code does after writing).
+        // (a5) bulk read (il2cpp_stream_read) with NO intervening seek after a
+        // write: the write leaves the position at EOF, so the immediate read
+        // must run the C11 mode reset path (FilePrepareRead) and return 0 bytes
+        // at end-of-stream -- not garbage, not a bogus count. A rewind then
+        // makes the same handle deliver the exact bytes.
         il2cpp_stream_t bulk = il2cpp_stream_file_open(Cs("st_tmp/bulkwrite.txt"), 3);
         Expect(bulk != nullptr, "bulk update handle opens");
         Expect(il2cpp_stream_write(bulk, "hello\nworld\n", 12) == 12, "bulk write of 12 bytes");
-        Expect(il2cpp_stream_seek(bulk, 0, 0) == 0, "bulk seek back to 0");
         char bbuf[16];
+        std::memset(bbuf, 0x5A, sizeof(bbuf));
+        Expect(il2cpp_stream_read(bulk, bbuf, 12) == 0,
+               "bulk read immediately after a write (no seek) returns 0 at EOF");
+        Expect(bbuf[0] == 0x5A && bbuf[11] == 0x5A,
+               "the zero-length read leaves the caller buffer untouched");
+        Expect(il2cpp_stream_seek(bulk, 0, 0) == 0, "bulk seek back to 0");
         std::memset(bbuf, 0, sizeof(bbuf));
         Expect(il2cpp_stream_read(bulk, bbuf, 12) == 12, "bulk read returns 12 bytes");
         Expect(std::memcmp(bbuf, "hello\nworld\n", 12) == 0,
-               "bulk read after write returns the exact written bytes");
+               "bulk read returns the exact written bytes");
         Expect(il2cpp_stream_close(bulk) == 0, "bulk update handle closes");
 
+        // (a6) read_to_end with NO intervening seek after a write: the position
+        // is at EOF, so it returns the EMPTY string (net48: "" not null). After
+        // a rewind it returns the exact content.
         il2cpp_stream_t rte = il2cpp_stream_file_open(Cs("st_tmp/rtwrite.txt"), 3);
         Expect(rte != nullptr, "read_to_end update handle opens");
         Expect(il2cpp_stream_write(rte, "line1\nline2\n", 12) == 12, "rte write of 12 bytes");
+        Il2CppObject* rteAtEof = il2cpp_stream_read_to_end(rte);
+        Expect(rteAtEof != nullptr && StrEquals(rteAtEof, ""),
+               "read_to_end immediately after a write (no seek) returns \"\" at EOF");
         Expect(il2cpp_stream_seek(rte, 0, 0) == 0, "rte seek back to 0");
         Il2CppObject* rteAll = il2cpp_stream_read_to_end(rte);
         Expect(rteAll != nullptr && StrEquals(rteAll, "line1\nline2\n"),
-               "read_to_end after write returns the exact written bytes");
+               "read_to_end after the rewind returns the exact written bytes");
         Expect(il2cpp_stream_close(rte) == 0, "read_to_end update handle closes");
-
         // (b) EOF flag must be re-checked so an external append is visible.
         il2cpp_stream_t eofr = il2cpp_stream_file_open(Cs("st_tmp/eofgrow.txt"), 1);
         Expect(eofr != nullptr && il2cpp_stream_write(eofr, "L1\n", 3) == 3,
@@ -1266,16 +1287,13 @@ int main()
     }
 
     // --- 13h. Identity-seek accounting + failure contract (P0) --------------
-    // The counter is compiled in only for the test build
-    // (IL2CPP_STREAMIO_FSEEK_PROBE, set by tests/runtime/CMakeLists.txt), so a
-    // plain ReadLine pass can be asserted to issue ZERO identity seeks. The
-    // pre-change code issued one per byte (4,000,001 for the 4 MB fixture).
+    // The counter and the failure seam exist only in the probe build; both the
+    // runtime TU and THIS TU get IL2CPP_STREAMIO_FSEEK_PROBE from
+    // tests/runtime/CMakeLists.txt (without it this whole section would be
+    // compiled out and silently prove nothing).
 #if defined(IL2CPP_STREAMIO_FSEEK_PROBE)
     {
-        extern "C" long long g_streamioIdentitySeeks;
-        extern "C" int g_streamioForceSeekFailure;
-
-        // Build a 100,000-line / 4,000,000-byte fixture and read it back.
+        // 100,000 lines x 40 bytes = 4,000,000 bytes.
         il2cpp_stream_t big = il2cpp_stream_file_open(Cs("st_tmp/biglines.txt"), 1);
         Expect(big != nullptr, "big fixture opens for writing");
         char line[40];
@@ -1292,6 +1310,9 @@ int main()
         Expect(wroteAll, "big fixture writes all 100,000 lines");
         Expect(il2cpp_stream_close(big) == 0, "big fixture closes");
 
+        // (1) A plain ReadLine pass issues ZERO identity seeks. The pre-change
+        // backend issued one per byte, so the same counter read 4,000,001 on
+        // the 4 MB fixture (see .opencode/tmp/perf-exec-4-raw.txt).
         il2cpp_stream_t rd = il2cpp_stream_file_open(Cs("st_tmp/biglines.txt"), 0);
         Expect(rd != nullptr, "big fixture reopens for reading");
         g_streamioIdentitySeeks = 0;
@@ -1317,36 +1338,62 @@ int main()
                "big fixture reader ends at the 4,000,000-byte file length");
         Expect(il2cpp_stream_close(rd) == 0, "big fixture reader closes");
 
-        // The EOF retry path costs exactly one identity seek, not one per byte.
+        // (2) The EOF path costs at most ONE identity seek per probe -- never
+        // one per byte. The explicit seek to End clears the pending flags, so
+        // the FIRST probe reaches EOF with zero seeks and only arms the
+        // indicator; the SECOND probe pays exactly one seek to clear it.
         il2cpp_stream_t eofs = il2cpp_stream_file_open(Cs("st_tmp/biglines.txt"), 0);
         Expect(eofs != nullptr, "eof-seek fixture opens");
-        (void)il2cpp_stream_seek(eofs, 0, 2); // SeekOrigin.End
+        Expect(il2cpp_stream_seek(eofs, 0, 2) == 4000000, "eof-seek fixture seeks to End");
         g_streamioIdentitySeeks = 0;
         Expect(il2cpp_stream_read_line(eofs) == nullptr, "read at EOF returns null");
-        const long long eofSeeks = g_streamioIdentitySeeks;
-        Expect(eofSeeks <= 1, "a single EOF probe costs at most one identity seek");
+        Expect(g_streamioIdentitySeeks == 0,
+               "the first EOF probe costs no seek (the explicit seek cleared the flags)");
+        g_streamioIdentitySeeks = 0;
+        Expect(il2cpp_stream_read_line(eofs) == nullptr, "second read at EOF returns null");
+        Expect(g_streamioIdentitySeeks == 1,
+               "a repeated EOF probe costs exactly one identity seek (indicator re-armed)");
         Expect(il2cpp_stream_close(eofs) == 0, "eof-seek fixture closes");
 
-        // Failure contract: when the identity seek fails, the pending mode
-        // reset must NOT be dropped -- the next read retries it. A forced
-        // failure therefore costs exactly one seek per read attempt, and the
-        // bytes are still delivered.
+        // (3) Failure contract: a failed mode reset must NOT be followed by a
+        // read (C11 7.21.5.3 undefined). The read raises IOException and the
+        // handle recovers after an explicit seek.
         il2cpp_stream_t ff = il2cpp_stream_file_open(Cs("st_tmp/seekfail.txt"), 3);
         Expect(ff != nullptr, "seek-failure fixture opens");
+        // No explicit seek after the write: the read must attempt the pending
+        // mode reset itself (that is the call we force to fail).
         Expect(il2cpp_stream_write(ff, "AB\r\n", 4) == 4, "seek-failure fixture writes 4 bytes");
-        Expect(il2cpp_stream_seek(ff, 0, 0) == 0, "seek-failure fixture seeks to 0");
         g_streamioIdentitySeeks = 0;
         g_streamioForceSeekFailure = 1;
-        Il2CppObject* ffLine = il2cpp_stream_read_line(ff);
+        bool threwIo = false;
+        try
+        {
+            (void)il2cpp_stream_read_line(ff);
+        }
+        catch (const il2cpp::DotNetException& e)
+        {
+            threwIo = (std::strcmp(e.type_name(), kIOExceptionChain) == 0);
+        }
+        catch (...)
+        {
+            threwIo = false;
+        }
         g_streamioForceSeekFailure = 0;
+        Expect(threwIo, "a failed mode reset makes the read raise IOException (no UB read)");
+        Expect(g_streamioIdentitySeeks == 1,
+               "the failed reset attempted exactly one identity seek");
+        // Recovery: the explicit seek repositions the FILE* for real and clears
+        // the pending flags, so the next read delivers the bytes.
+        Expect(il2cpp_stream_seek(ff, 0, 0) == 0, "explicit seek recovers the handle");
+        g_streamioIdentitySeeks = 0;
+        Il2CppObject* ffLine = il2cpp_stream_read_line(ff);
         Expect(ffLine != nullptr && StrEquals(ffLine, "AB"),
-               "read still delivers the correct bytes when the identity seek fails");
-        Expect(g_streamioIdentitySeeks >= 1,
-               "a failed identity seek is retried rather than silently dropped");
+               "read after the recovering seek returns the exact bytes");
+        Expect(g_streamioIdentitySeeks == 0,
+               "the recovering seek leaves no pending reset (zero seeks on the read)");
         Expect(il2cpp_stream_close(ff) == 0, "seek-failure fixture closes");
     }
 #endif
-
     // --- Cleanup: remove the files + the created directory chain --------------
     (void)il2cpp_stream_close(il2cpp_stream_file_open(Cs("st_tmp/data.bin"), 1));
     icall_file_delete(Cs("st_tmp/data.bin"));

@@ -1,4 +1,4 @@
-#------------------------------------------------------------------------------
+﻿#------------------------------------------------------------------------------
 # tests/runtime -- C++ unit tests for the runtime static library.
 #
 # Builds plain executables (no test framework dependency): every assertion is
@@ -48,6 +48,9 @@ foreach(TEST_SRC ${TEST_SOURCES})
     )
     target_link_libraries(${TEST_NAME} PRIVATE il2cpp_runtime Threads::Threads)
     target_compile_features(${TEST_NAME} PRIVATE cxx_std_17)
+    # The test TU needs the same probe macro as the runtime TU, otherwise the
+    # section that asserts the seek count is compiled out of the test itself.
+    target_compile_definitions(${TEST_NAME} PRIVATE IL2CPP_STREAMIO_FSEEK_PROBE)
     if(NOT MSVC)
         # POSIX dlopen/dlsym needs -ldl (WSL/GCC baseline)
         target_link_libraries(${TEST_NAME} PRIVATE ${CMAKE_DL_LIBS})
@@ -56,7 +59,7 @@ foreach(TEST_SRC ${TEST_SOURCES})
         # /utf-8: sources are UTF-8 without BOM (including non-ASCII comments); MSVC defaults to code page 936 and garbles them, swallowing later declarations
         target_compile_options(${TEST_NAME} PRIVATE /W4 /EHsc /bigobj /utf-8)
     else()
-        # -Wall -Wextra: CI quality gate, zero warnings on both compilers (style spec §7), PUBLIC propagates to linked generated code
+        # -Wall -Wextra: CI quality gate, zero warnings on both compilers (style spec 搂7), PUBLIC propagates to linked generated code
         target_compile_options(${TEST_NAME} PRIVATE -Wall -Wextra -fexceptions)
     endif()
 endforeach()
