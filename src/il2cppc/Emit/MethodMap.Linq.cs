@@ -646,7 +646,11 @@ public static partial class MethodRefResolver
                 // the runtime cannot bucket correctly must NOT be let through
                 // (that mismatch is what produced silent wrong buckets).
                 // long (0x0A) is deliberately NOT here: the int32 bucket would
-                // truncate 64-bit keys (registered known gap -> LOUD).
+                // truncate 64-bit keys. Every rejection is a TRANSPILE-TIME
+                // LOUD, and the complete list of deliberately-rejected shapes
+                // (long/ulong/decimal/DateTime/Guid/any 0x11 key, non-int32
+                // source arrays) with the required ABI change surface lives in
+                // docs/audit/b4-gaps.md -- never widen this gate without it.
                 int keyKind = genArgs is { Length: >= 2 } ? KeyKindFor(genArgs[1]) : -1;
                 if (genArgs is not { Length: >= 2 } || keyKind < 0)
                 {
@@ -666,7 +670,8 @@ public static partial class MethodRefResolver
                         $"Enumerable.GroupBy<{elemArgType},{keyArgType}> not wired: " +
                         "the stage-1 runtime grouping surface is int32 (0x08) elements AND an integer " +
                         "key that fits the int32 bucket (int/bool/char/sbyte/byte/short/ushort/uint); " +
-                        $"a 64-bit (0x0A long / 0x0B ulong) or value-type ({keyArgType}) key has no runtime key carrier yet");
+                        $"{DescribeRejectedKey(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0, keyArgType)} " +
+                        "has no runtime key carrier yet (see docs/audit/b4-gaps.md)");
                 }
                 {
                     var gbParams = LinqEncodedParamTypes(md, sigHandle);
@@ -1103,6 +1108,19 @@ public static partial class MethodRefResolver
         0x09 => 5, // uint (bit pattern; equality only)
         0x02 => 6, // bool
         _ => -1,   // long/ulong/decimal/DateTime/Guid/reference: LOUD
+    };
+
+    // D6: the rejected GroupBy KEY described in the LOUD message. The old
+    // template called every non-integer key a "value-type", so a ulong key was
+    // reported as "value-type (0x0B)" -- misleading, since 0x0B is a 64-bit
+    // integer. Split the two cases so the message names the real family.
+    private static string DescribeRejectedKey(byte keyByte, string keyArgType) => keyByte switch
+    {
+        0x0A => $"a 64-bit integer (0x0A long / {keyArgType}) key",
+        0x0B => $"a 64-bit unsigned integer (0x0B ulong / {keyArgType}) key",
+        0x11 => $"a value-type ({keyArgType}) key",
+        0x0E => $"a reference ({keyArgType}) key",
+        _ => $"a non-integer ({keyArgType}) key",
     };
 
     private static string GenericDefNameOf(string encoded)

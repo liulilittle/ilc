@@ -57,7 +57,7 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -1497,27 +1497,95 @@ bool IsDefaultIntComparer(Il2CppObject* cmp)
     return cmp == il2cpp_equality_comparer_default_int() || cmp == il2cpp_comparer_default_int();
 }
 
-// ComparerKeyEquals -- IEqualityComparer<int>.Equals(key, existingKey).
+// ComparerKeyEquals -- IEqualityComparer<TKey>.Equals(key, existingKey).
 //   * nullptr                       -> int32 equality (the default contract)
 //   * the default singletons        -> int32 equality
-//   * a user comparer               -> the reflected virtual Equals(int,int)
-// The reflected lookup uses the signature-matched slot so an
-// Equals(object)/IEquatable overload is never called through the (i,i) ABI.
-bool ComparerKeyEquals(Il2CppObject* cmp, int32_t key, int32_t existing)
+//   * a user comparer               -> the reflected virtual Equals(TKey,TKey)
+//
+// B4-1 r2 (D5): the reflected slot is selected by the DECLARED TKey width, not
+// by the int32 bucket slot. A user IEqualityComparer<byte> reflects
+// Equals(byte,byte) whose encoded signature is "(u1,u1)" -- probing "(i,i)"
+// found nothing and threw at RUN time (the pre-B4-1 gate rejected the shape at
+// transpile time instead). The fragments below are the MethodSignatureCoder
+// EncodeType leaves (src/il2cppc/Emit/MethodSignatureCoder.cs:334-354,
+// mirrored by typeinfo.cpp kLeaf):
+//   0 int32  -> "i"   1 byte -> "u1"   2 sbyte -> "i1"   3 uint16/char -> "u2"/"c"
+//   4 short  -> "i2"  5 uint -> "i"    6 bool  -> "b"
+// keyKind 3 covers BOTH System.UInt16 and System.Char (same narrowing), so the
+// lookup tries "(u2,u2)" then "(c,c)".
+//
+// The CALL ABI stays int32_t for every narrow family: the transpiler emits
+// narrow-parameter methods with int32_t slots (the M1 32-bit integer contract),
+// e.g. `int32_t ByteCmp_Equals(Il2CppObject*, int32_t, int32_t)`. Only the
+// reflected SIGNATURE metadata carries the narrow leaf code.
+namespace {
+
+const char* const* KeyComparerFragments(int32_t keyKind, int32_t& count)
+{
+    static const char* const kInt[] = { "(i,i)" };                  // int32 / uint32
+    static const char* const kByte[] = { "(u1,u1)" };               // byte
+    static const char* const kSByte[] = { "(i1,i1)" };              // sbyte
+    static const char* const kU16OrChar[] = { "(u2,u2)", "(c,c)" }; // ushort / char
+    static const char* const kI16[] = { "(i2,i2)" };                // short
+    static const char* const kBool[] = { "(b,b)" };                 // bool
+    switch (keyKind)
+    {
+        case 1: count = 1; return kByte;
+        case 2: count = 1; return kSByte;
+        case 3: count = 2; return kU16OrChar;
+        case 4: count = 1; return kI16;
+        case 6: count = 1; return kBool;
+        case 0:
+        case 5:
+        default: count = 1; return kInt;
+    }
+}
+
+// The key family name for the LOUD message (the reflected slot is missing).
+const char* KeyComparerTypeName(int32_t keyKind)
+{
+    switch (keyKind)
+    {
+        case 1: return "byte";
+        case 2: return "sbyte";
+        case 3: return "ushort/char";
+        case 4: return "short";
+        case 5: return "uint";
+        case 6: return "bool";
+        default: return "int";
+    }
+}
+
+} // namespace
+
+bool ComparerKeyEquals(Il2CppObject* cmp, int32_t key, int32_t existing,
+                       int32_t keyKind)
 {
     if (cmp == nullptr || IsDefaultIntComparer(cmp))
     {
         return key == existing;
     }
-    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", "(i,i)");
+    // B4-1 r2 (D5): the reflected slot is keyed by the DECLARED TKey width.
+    int32_t fragmentCount = 0;
+    const char* const* fragments = KeyComparerFragments(keyKind, fragmentCount);
+    int32_t slot = -1;
+    for (int32_t fi = 0; fi < fragmentCount && slot < 0; ++fi)
+    {
+        slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", fragments[fi]);
+    }
     if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
         slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
     {
-        il2cpp_throw_not_supported_exception(
-            "IEqualityComparer<int>.Equals dispatch: the comparer type has no reflected "
-            "virtual Equals(int,int) slot.");
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "IEqualityComparer<%s>.Equals dispatch: the comparer type has no "
+                      "reflected virtual Equals(%s,%s) slot.",
+                      KeyComparerTypeName(keyKind), KeyComparerTypeName(keyKind),
+                      KeyComparerTypeName(keyKind));
+        il2cpp_throw_not_supported_exception(message);
         return false; // unreachable (the factory throws)
     }
+    // Every narrow family rides int32_t parameter slots (M1 contract).
     typedef bool (*EqualsFn)(Il2CppObject*, int32_t, int32_t);
     return reinterpret_cast<EqualsFn>(cmp->klass->vtable[slot])(cmp, key, existing);
 }
@@ -1631,7 +1699,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         {
             Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
             Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
-            if (ComparerKeyEquals(cmp, key, AsGrouping(slots[j])->key))
+            if (ComparerKeyEquals(cmp, key, AsGrouping(slots[j])->key, keyKind))
             {
                 found = j;
                 break;

@@ -59,6 +59,21 @@ public static class TypeKindResolver
 
     public static string? ResolveExprKind(Ir.Expr e, IReadOnlyDictionary<string, string> locKind)
     {
+        return ResolveExprKindCore(e, locKind) ?? "val";
+    }
+
+    // B4-1 (D9): the strict variant -- the SAME classification, but an
+    // expression the cases below do not identify stays "unknown" instead of the
+    // historical "val" fallback. ResolveExprKind keeps "val" (many call sites
+    // rely on "not ref" meaning "int32-ish"), but IsValueSlotArg must never
+    // treat an unrecognized shape as a PROVEN value slot, so it reads this one.
+    public static string? ResolveExprKindStrict(Ir.Expr e, IReadOnlyDictionary<string, string> locKind)
+    {
+        return ResolveExprKindCore(e, locKind) ?? "unknown";
+    }
+
+    private static string? ResolveExprKindCore(Ir.Expr e, IReadOnlyDictionary<string, string> locKind)
+    {
         return e switch
         {
             Ir.StringConstExpr => "ref",
@@ -92,7 +107,7 @@ public static class TypeKindResolver
             Ir.FieldExpr f when f.IsRefField => "ref",
             Ir.StaticFieldExpr sf => StaticFieldExprKind(sf.FieldName),
             Ir.LocExpr l when locKind.TryGetValue(l.Name, out var k) => k,
-            _ => "val",
+            _ => null,
         };
 
         static string StaticFieldExprKind(string fieldName)
