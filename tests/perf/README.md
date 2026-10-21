@@ -1,4 +1,4 @@
-﻿# tests/perf -- repeated-sample performance gate
+# tests/perf -- repeated-sample performance gate
 
 Multi-run sibling of `tests/bench` (which stays single-shot and unchanged).
 The perf suite turns "is the transpiled output fast enough?" into a mechanical
@@ -77,7 +77,7 @@ see "Committed baseline" below.
 | `FAIL:...` | 1 | a real gate miss: `ratio`, `cv`, `zero-ms`, or a combination (`+`) |
 | `SMOKE` | 4 | `Runs < 5`: numbers are printed and saved, but this is **never an acceptance run** |
 | `RATIO_OK_CV_OVER_LIMIT` | 3 | only with the explicit `-AllowEnvCv` switch **and** host load > 70%: ratio and zero-ms gates met, CV over 5%. Not a pass, not a code verdict. |
-| red proof | 1 | `-RedProof` and `FAIL:ratio` observed (expected) |
+| red proof | 1 | `-RedProof` and a `ratio` reason observed (in practice `FAIL:ratio+cv`) |
 | red proof | 2 | `-RedProof` but the gate still passed (the red proof is not wired: harness bug) |
 | red proof | 5 | `-RedProof` failed, but **not** on ratio (inconclusive: the ratio red proof did not fire) |
 
@@ -93,10 +93,10 @@ numbers as acceptance evidence.
 
 | file | what it is |
 |---|---|
-| `array-mingw-<date>.csv` / `.raw.txt` | the `array` case, MinGW, 5 runs, `-AllowEnvCv`, load > 70% -> `RATIO_OK_CV_OVER_LIMIT` (exit 3) |
-| `array-mingw-<date>-redproof.csv` / `.raw.txt` | the same case with `-RedProof` (Release + `-O0`) -> `FAIL:ratio` |
-| `array-mingw-<date>-jitter.csv` / `.raw.txt` | `PERF_JITTER_MS=150` (CV red proof) -> `FAIL:cv` |
-| `rejected-sort/` | the `sort` case that was **rejected**, plus its source snapshot and raw run |
+| `array-mingw-2026-10-21.csv` / `.raw.txt` | the `array` case, MinGW, 5 runs, `-AllowEnvCv`, commit `ce83e39b` (clean), load 99% -> 100% -> `RATIO_OK_CV_OVER_LIMIT` (exit 3). Ratio 7.39, ratio envelope 6.45-10.32, CV 0.1160/0.0755 |
+| `array-mingw-2026-10-21-redproof.csv` / `.raw.txt` | same case, `-RedProof` (Release + `-O0`) -> **`FAIL:ratio+cv`** (not `FAIL:ratio` alone), ratio 0.56, exit 1 |
+| `array-mingw-2026-10-21-jitter.csv` / `.raw.txt` | `PERF_JITTER_MS=150` -> `FAIL:cv`, ratio 13.31 (median unmoved), CV 0.1074/0.3338, exit 1 |
+| `rejected-sort/` | the `sort` case that was **rejected**, plus its source snapshot and raw run (ratio 1.04, CV 0.17/0.14) |
 
 **There is no clean `PASS` on this host yet.** Every acceptance run recorded so
 far has CPU load above 70% (other agents compiling in parallel), so the CV gate
@@ -188,3 +188,7 @@ measured ratio 1.04 with CV 0.17/0.14. Both are honest `FAIL:ratio` (or
 `FAIL:ratio+cv`) results -- the transpiled output does not win this case, so it
 is not shipped as a gate case. Its source snapshot and raw run are kept in
 `tests/perf/baseline/rejected-sort/` so the decision can be re-checked.
+
+(For the record, an even earlier exploratory `sort` measurement gave
+net48 5034 ms vs transpiled 5379 ms on a different host load; only the runs
+stored under `baseline/` are reproducible evidence.)

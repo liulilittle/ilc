@@ -1,0 +1,43 @@
+﻿# run-perf mingw runs=5 redproof=False stamp=2026-10-21_122132
+# command F:\il2cpp\.worktrees\nb-perf3\scripts\run-perf.ps1 -Compiler mingw -Runs 5
+# commit ce83e39b876f539286bbaecf3abf0b2ae6115419 (clean)
+# compiler g++.exe (Rev5, Built by MSYS2 project) 16.1.0
+# cmake cmake version 3.22.1-g37088a8-dirty
+# cpu AMD Ryzen 9 7945HX with Radeon Graphics         cores=16 logical=32
+# os Microsoft Windows NT 10.0.26200.0
+# process_affinity 4294967295
+# jitter_ms 150
+# cpu_load_percent_before 93
+== net48 run 1 ==
+array
+1261
+== net48 run 2 ==
+array
+1251
+== net48 run 3 ==
+array
+1219
+== net48 run 4 ==
+array
+985
+== net48 run 5 ==
+array
+1321
+== ilc run 1 ==
+array
+106
+== ilc run 2 ==
+array
+123
+== ilc run 3 ==
+array
+53
+== ilc run 4 ==
+array
+63
+== ilc run 5 ==
+array
+94
+# verdicts array=FAIL:cv
+# cpu_load_percent_after 90
+# host_isolated False (load must be <= 70% before AND after; env-cv attribution requires -AllowEnvCv)

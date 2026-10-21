@@ -1,0 +1,2 @@
+﻿name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,verdict
+array,1301,176,7.39,6.45,10.32,0.1160,0.0755,5,RATIO_OK_CV_OVER_LIMIT
