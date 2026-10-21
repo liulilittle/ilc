@@ -2349,17 +2349,15 @@ void SortIComparerCore(Il2CppArray** pa, int32_t lo, int32_t hi,
     }
 }
 
+// Only null / System.Collections.Comparer.Default / the StringComparer
+// singletons are special-cased here. The generic Comparer<T> /
+// EqualityComparer<T> default singletons keep the Dispatch arm: they reach the
+// same ComparerCompareCore through that arm's POINTER-IDENTITY default branch
+// (il2cpp_icomparer_compare_family, nb16), so the int32 default sort stays on
+// the direct numeric path with no boxing.
 RefComparerMode ClassifyComparer(Il2CppObject* comparer)
 {
-    // nb16 (b16low): every DEFAULT-comparer singleton (the non-generic
-    // System.Collections.Comparer.Default plus the generic Comparer<T> /
-    // EqualityComparer<T> defaults) routes to the builtin default order by
-    // POINTER IDENTITY. A user comparer carrying a BCL-looking name is no
-    // longer mistaken for the default.
-    return comparer == nullptr ||
-                   comparer == &System_Collections_Comparer_singleton ||
-                   il2cpp_is_default_comparer_singleton(comparer) ||
-                   il2cpp_is_default_equality_comparer_singleton(comparer)
+    return comparer == nullptr || comparer == &System_Collections_Comparer_singleton
         ? RefComparerMode::Default
         : comparer == &System_StringComparer_Ordinal_singleton
               ? RefComparerMode::Ordinal

@@ -57,15 +57,6 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace il2cpp {
-
-// nb16 (b16low): the non-generic System.Collections.Comparer::Default
-// singleton (DEFINED in arraysort.cpp, namespace il2cpp). IsDefaultComparerObject
-// identifies it by pointer identity now -- the klass-name strcmp arm is gone.
-extern Il2CppObject System_Collections_Comparer_singleton;
-
-} // namespace il2cpp
-
 //------------------------------------------------------------------------------
 // The System.Collections.SortedList runtime descriptor. GLOBAL scope (external
 // linkage, OUTSIDE namespace il2cpp): the transpiler emits
