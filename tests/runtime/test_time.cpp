@@ -43,6 +43,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_object.h"
 #include "il2cpp_string.h"
+#include "timezone.h" // il2cpp_timezone_get_utc_offset_at (FileTime offset oracle)
 
 #include <cmath>
 #include <cstdint>
@@ -524,6 +525,302 @@ int main()
     Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_is_leap_year(10000); },
                           "System.ArgumentOutOfRangeException"),
            "IsLeapYear(10000) throws ArgumentOutOfRangeException");
+
+    // --- 12. The FILETIME bridge (diffdt001b) ---
+    //
+    // Structure: the machine-independent INVARIANTS run everywhere; the exact
+    // net48 numbers are hardcoded (measured 2026-10-20, see
+    // .opencode/tmp/dt-fix.md) and only asserted when the host zone matches
+    // the oracle zone -- otherwise an explicit SKIP line is printed. Nothing
+    // here derives an expectation from the same function under test.
+    constexpr int64_t kFileTimeEpoch = 504911232000000000LL;
+    constexpr int64_t kTicksPerSecondLocal = 10000000LL;
+
+    const il2cpp::runtime::Il2CppDateTime utcValue(637185764967890000LL, 1 /* Utc */);
+    const il2cpp::runtime::Il2CppDateTime unsValue(637185764967890000LL, 0 /* Unspecified */);
+    const il2cpp::runtime::Il2CppDateTime localValue(637185764967890000LL, 2 /* Local */);
+
+    // --- 12a. Kind-independent epoch arithmetic (invariants) ---
+    Expect(il2cpp::runtime::icall_datetime_to_file_time_utc(utcValue) == 132274532967890000LL,
+           "ToFileTimeUtc(Utc) is the plain 1601-epoch shift (net48 132274532967890000)");
+    Expect(il2cpp::runtime::icall_datetime_to_file_time(utcValue) == 132274532967890000LL,
+           "ToFileTime(Utc) is the plain 1601-epoch shift");
+    // net48 ToFileTimeUtc on an Unspecified value keeps the ticks (net48
+    // 132274532967890000), while ToFileTime routes through ToUniversalTime.
+    Expect(il2cpp::runtime::icall_datetime_to_file_time_utc(unsValue) == unsValue.ticks - kFileTimeEpoch,
+           "ToFileTimeUtc(Unspecified) keeps the ticks (net48)");
+    // ToFileTime and ToFileTimeUtc agree on a Local value (net48 measured
+    // 132274244967890000 on UTC+8); the Kind=Local branch must convert.
+    Expect(il2cpp::runtime::icall_datetime_to_file_time(localValue)
+               == il2cpp::runtime::icall_datetime_to_file_time_utc(localValue),
+           "ToFileTime(Local) == ToFileTimeUtc(Local) (net48)");
+    Expect(il2cpp::runtime::icall_datetime_to_file_time(localValue) != localValue.ticks - kFileTimeEpoch
+               || il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(
+                      il2cpp::runtime::Il2CppDateTime(localValue.ticks, 0)) == 0,
+           "ToFileTime(Local) applies the offset unless the zone is UTC");
+
+    // --- 12b. FromFileTimeUtc: epoch shift, Kind, range contract ---
+    const il2cpp::runtime::Il2CppDateTime fromUtc = il2cpp::runtime::icall_datetime_from_file_time_utc(132223104000000000LL);
+    Expect(fromUtc.ticks == 637134336000000000LL, "FromFileTimeUtc(132223104000000000) == 637134336000000000");
+    Expect(fromUtc.kind == 1, "FromFileTimeUtc returns Kind=Utc");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time_utc(-1); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTimeUtc(-1) throws ArgumentOutOfRangeException");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time_utc(2650467744000000000LL); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTimeUtc(max + 1) throws ArgumentOutOfRangeException");
+
+    // --- 12c. FromFileTime: Kind=Local + the range/edge contract ---
+    Expect(il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL).kind == 2,
+           "FromFileTime returns Kind=Local");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time(-1); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTime(-1) throws ArgumentOutOfRangeException");
+    Expect(ThrowsWithType([]() { il2cpp::runtime::icall_datetime_from_file_time(2650467744000000000LL); },
+                          "System.ArgumentOutOfRangeException"),
+           "FromFileTime(max + 1) throws ArgumentOutOfRangeException");
+    // FromFileTime(max) must stay inside the DateTime range (net48 CLAMPS;
+    // it never throws and never wraps).
+    const il2cpp::runtime::Il2CppDateTime fromMax = il2cpp::runtime::icall_datetime_from_file_time(2650467743999999999LL);
+    Expect(fromMax.ticks >= 0 && fromMax.ticks <= 3155378975999999999LL,
+           "FromFileTime(max) stays inside [MinValue, MaxValue]");
+    // Pre-1601 values throw on both ToFileTime forms (Kind=Utc so the assertion
+    // does not depend on the machine zone's sign).
+    const il2cpp::runtime::Il2CppDateTime preEpoch(504911231999999999LL, 1 /* Utc */);
+    Expect(ThrowsWithType([&]() { il2cpp::runtime::icall_datetime_to_file_time(preEpoch); },
+                          "System.ArgumentOutOfRangeException"),
+           "ToFileTime(pre-1601) throws ArgumentOutOfRangeException");
+    Expect(ThrowsWithType([&]() { il2cpp::runtime::icall_datetime_to_file_time_utc(preEpoch); },
+                          "System.ArgumentOutOfRangeException"),
+           "ToFileTimeUtc(pre-1601) throws ArgumentOutOfRangeException");
+
+    // --- 12d. Round trips in BOTH directions ---
+    // (a) fileTime -> FromFileTime -> ToFileTime must give the original
+    //     FILETIME back: the wall value carries Kind=Local, so ToFileTime
+    //     converts it through the same zone data.
+    const int64_t roundTripFileTimes[] = { 132223104000000000LL, 132358752000000000LL, 132224256000000000LL };
+    for (int i = 0; i < 3; ++i)
+    {
+        const int64_t fileTime = roundTripFileTimes[i];
+        Expect(il2cpp::runtime::icall_datetime_to_file_time(
+                   il2cpp::runtime::icall_datetime_from_file_time(fileTime)) == fileTime,
+               "FromFileTime -> ToFileTime round-trips the FILETIME");
+    }
+    // (b) Local DateTime -> ToFileTime -> FromFileTime must give the ticks back.
+    Expect(il2cpp::runtime::icall_datetime_from_file_time(
+               il2cpp::runtime::icall_datetime_to_file_time(localValue)).ticks == localValue.ticks,
+           "ToFileTime -> FromFileTime round-trips the Local ticks");
+
+    // --- 12e. The pre-1900 branch really is the STANDARD-offset branch ---
+    //
+    // Every expectation below comes from a DIFFERENT code path than the value
+    // under test:
+    //   * the CRT itself (localtime_r/gmtime_r on the same time_t) for the
+    //     zone's per-instant offsets -- note that timezone.cpp's
+    //     il2cpp_timezone_get_utc_offset_at is a POSIX APPROXIMATION (it feeds
+    //     the civil face through the current bias and mis-classifies the
+    //     2000-04-01 season), so it cannot serve as the reference here;
+    //   * a DIFFERENT instant's FileTime result for the standard-offset value.
+    // They do NOT claim net48 equality: net48 still reports DST below 1900
+    // (measured: Eastern 1899/1900-07 -> -14400, Lord Howe 1899/1900-01 ->
+    // +39600), while this bridge deliberately normalises pre-1900 instants to
+    // the standard offset (see kHistoricalFloorTicks and section 7 of
+    // .opencode/tmp/dt-fix.md).
+    const int64_t kUnixEpochTicksLocal = 621355968000000000LL;
+    auto crtOffsetTicksAt = [&](int64_t utcTicks) {
+        // TICKS, straight from the CRT's tzdata at that instant.
+        const std::time_t instant = static_cast<std::time_t>((utcTicks - kUnixEpochTicksLocal) / kTicksPerSecondLocal);
+        std::tm localTm = {};
+#if defined(_WIN32)
+        // MinGW-w64 does not declare localtime_r without _POSIX_THREAD_SAFE_FUNCTIONS;
+        // the _s variant is unconditional (same CRT zone data).
+        if (_localtime64_s(&localTm, &instant) != 0)
+        {
+            return int64_t(0);
+        }
+#else
+        if (localtime_r(&instant, &localTm) == nullptr)
+        {
+            return int64_t(0);
+        }
+#endif
+        // "Local wall clock interpreted as UTC" minus the instant = the offset.
+        // _mkgmtime (MSVC/MinGW) and timegm (glibc) are the same function.
+#if defined(_WIN32)
+        const std::time_t asIfUtc = _mkgmtime(&localTm);
+#else
+        const std::time_t asIfUtc = timegm(&localTm);
+#endif
+        if (asIfUtc == static_cast<std::time_t>(-1))
+        {
+            return int64_t(0);
+        }
+        return (static_cast<int64_t>(asIfUtc) - static_cast<int64_t>(instant)) * kTicksPerSecondLocal;
+    };
+    auto ftOffsetAt = [](int64_t utcTicks) {
+        // TICKS, from the bridge under test.
+        return il2cpp::runtime::icall_datetime_from_file_time(utcTicks - kFileTimeEpoch).ticks - utcTicks;
+    };
+    // The four 2000 season samples, classified by the CRT.
+    const int64_t kSeasonSamples[4] = {
+        630822816000000000LL, 630901440000000000LL, 630980064000000000LL, 631059552000000000LL
+    };
+    int64_t crtSeasons[4];
+    int minIdx = 0;
+    int maxIdx = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        crtSeasons[i] = crtOffsetTicksAt(kSeasonSamples[i]);
+        if (crtSeasons[i] < crtSeasons[minIdx]) minIdx = i;
+        if (crtSeasons[i] > crtSeasons[maxIdx]) maxIdx = i;
+    }
+    const bool hostHasDst = crtSeasons[minIdx] != crtSeasons[maxIdx];
+
+    const int64_t jan1601Offset = ftOffsetAt(kFileTimeEpoch);
+    const int64_t jul1601Offset = ftOffsetAt(505067616000000000LL);
+
+    // (a) The pre-floor value is the zone's STANDARD offset: it equals the
+    //     CRT's minimum season and (on a DST host) differs from the CRT's
+    //     daylight season. The second half is the discriminating part.
+    Expect(jan1601Offset == crtSeasons[minIdx],
+           "pre-1900 offset == the CRT's standard (min) season offset");
+    if (hostHasDst)
+    {
+        Expect(jan1601Offset != crtSeasons[maxIdx],
+               "pre-1900 offset is NOT the DST-side offset (no rule lookup)");
+    }
+    // (b) ... and that offset is minute-aligned (never tzdata local mean time).
+    Expect(jan1601Offset % (60 * kTicksPerSecondLocal) == 0,
+           "pre-1900 offset is minute-aligned (never tzdata local mean time)");
+    // (c) Expected value built from a DIFFERENT INSTANT: the FileTime offset at
+    //     the 2000 sample the CRT classified as the standard season.
+    const int64_t standardSeasonFileTimeOffset = ftOffsetAt(kSeasonSamples[minIdx]);
+    Expect(jan1601Offset == standardSeasonFileTimeOffset,
+           "pre-1900 offset == the FileTime offset of the CRT's standard 2000 season");
+    //     Both pre-floor instants (six months apart) must land on that same
+    //     constant; a rule lookup would separate them on a DST host.
+    Expect(jul1601Offset == standardSeasonFileTimeOffset,
+           "pre-1900 July also uses the standard-season constant");
+    if (hostHasDst)
+    {
+        // The DST-season FileTime offset must be the CRT's daylight value and
+        // must differ from the pre-floor constant.
+        Expect(ftOffsetAt(kSeasonSamples[maxIdx]) == crtSeasons[maxIdx],
+               "post-floor DST-season FileTime offset == the CRT's daylight offset");
+        Expect(jan1601Offset != crtSeasons[maxIdx],
+               "pre-1900 constant differs from the CRT's daylight offset");
+    }
+    // (d) Post-floor rule branch: the FileTime offsets at 2020-01/2020-07 must
+    //     match the CRT at the SAME instants, and their DIFFERENCE must equal
+    //     the CRT's DST delta. Delta-vs-delta, so it is not the vacuous
+    //     "one constant != two values" shape.
+    const int64_t jan2020 = ftOffsetAt(637134336000000000LL);
+    const int64_t jul2020 = ftOffsetAt(637269984000000000LL);
+    Expect(jan2020 == crtOffsetTicksAt(637134336000000000LL),
+           "post-floor January offset agrees with the CRT at that instant");
+    Expect(jul2020 == crtOffsetTicksAt(637269984000000000LL),
+           "post-floor July offset agrees with the CRT at that instant");
+    if (hostHasDst)
+    {
+        const int64_t crtDstDelta = crtSeasons[maxIdx] - crtSeasons[minIdx];
+        const int64_t observedDelta = jul2020 > jan2020 ? jul2020 - jan2020 : jan2020 - jul2020;
+        Expect(observedDelta == crtDstDelta,
+               "post-floor Jan/Jul offset difference equals the CRT's DST delta");
+    }
+    // --- 12f. Hardcoded net48 oracle, asserted only in the matching zone ---
+    //
+    // The expected numbers below are net48 measurements, NOT values computed by
+    // this runtime. They are asserted when the host zone matches the oracle
+    // zone and skipped (with an explicit line) otherwise, so CI on any zone
+    // prints a visible SKIP instead of silently passing.
+    const int64_t janInstantOffset =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(637134336000000000LL, 1));
+    const int64_t julInstantOffset =
+        il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(il2cpp::runtime::Il2CppDateTime(637269984000000000LL, 1));
+
+    auto oracleSkip = [](const char* what) {
+        std::printf("SKIP: %s (host zone does not match the net48 oracle zone)\n", what);
+    };
+
+    if (janInstantOffset == 28800 && julInstantOffset == 28800)
+    {
+        std::printf("ORACLE: net48 China Standard Time (+08:00, no DST)\n");
+        // net48 China Standard Time (measured).
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL).ticks == 637134624000000000LL,
+               "net48 China: FromFileTime(2020-01-01Z) == 637134624000000000");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks == 637270272000000000LL,
+               "net48 China: FromFileTime(2020-07-01Z) == 637270272000000000");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(0).ticks == 504911520000000000LL,
+               "net48 China: FromFileTime(0) == 504911520000000000");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(2650467743999999999LL).ticks == 3155378975999999999LL,
+               "net48 China: FromFileTime(max) clamps to MaxValue");
+        Expect(il2cpp::runtime::icall_datetime_to_file_time(unsValue) == 132274244967890000LL,
+               "net48 China: ToFileTime(Unspecified) == 132274244967890000");
+        Expect(il2cpp::runtime::icall_datetime_to_file_time(localValue) == 132274244967890000LL,
+               "net48 China: ToFileTime(Local) == 132274244967890000");
+    }
+    else if (janInstantOffset == -18000 && julInstantOffset == -14400)
+    {
+        std::printf("ORACLE: net48 Eastern Standard Time (-05:00 / -04:00 DST)\n");
+        // net48 Eastern Standard Time (measured).
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL).ticks == 637134156000000000LL,
+               "net48 EST: FromFileTime(2020-01-01Z) == 637134156000000000");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks == 637269840000000000LL,
+               "net48 EST: FromFileTime(2020-07-01Z) == 637269840000000000 (DST)");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(0).ticks == 504911052000000000LL,
+               "net48 EST: FromFileTime(0) == 504911052000000000");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(2650467743999999999LL).ticks == 3155378795999999999LL,
+               "net48 EST: FromFileTime(max) == 3155378795999999999");
+        // The DST season must be distinguished from the winter offset (the
+        // old current-offset code used one offset for both). 2020 is inside
+        // the verified 1918-1970+ window.
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks
+                   != 637269984000000000LL + janInstantOffset * kTicksPerSecondLocal,
+               "net48 EST: FromFileTime(Jul) does NOT use the January offset");
+        // Ambiguous wall clock (2020-11-01 01:30, the repeated fall-back hour):
+        // net48 resolves it to the STANDARD offset -> ToFileTime
+        // 132486858000000000 (asserted through the icall under test).
+        Expect(il2cpp::runtime::icall_datetime_to_file_time(
+                   il2cpp::runtime::Il2CppDateTime(637397910000000000LL, 2)) == 132486858000000000LL,
+               "net48 EST: ToFileTime(wall 2020-11-01 01:30, ambiguous) == 132486858000000000");
+        // Invalid wall clock (2020-03-08 02:30, the skipped spring-forward
+        // hour): net48 also resolves to the standard offset -> 132281262000000000.
+        Expect(il2cpp::runtime::icall_datetime_to_file_time(
+                   il2cpp::runtime::Il2CppDateTime(637192314000000000LL, 2)) == 132281262000000000LL,
+               "net48 EST: ToFileTime(wall 2020-03-08 02:30, invalid) == 132281262000000000");
+        // Pre-1970 REAL history: only the 1918-1970 window is verified against
+        // net48 (see the kHistoricalFloorTicks note in time.cpp). net48 reports
+        // the 1969 DST season, so FromFileTime shifts by -4 h in July and -5 h
+        // in January (expected ticks are the net48 UTC ticks minus the offset).
+        //
+        // NOT asserted here (known divergence, documented in
+        // .opencode/tmp/dt-fix.md section 7):
+        //   * 1900-1917 New York -- glibc -0500 all year vs net48 -0400 in July
+        //   * pre-1900 (incl. 1899) -- net48 still applies DST; this bridge
+        //     deliberately uses the standard offset
+        std::printf("SKIP: 1900-1917 / pre-1900 New York net48 equality (known POSIX-vs-net48 rule-source divergence)\n");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(621196992000000000LL - 504911232000000000LL).ticks
+                   == 621196848000000000LL,
+               "net48 EST: FromFileTime(1969-07-01Z) == 621196848000000000 (-4 h, pre-1970 DST)");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(621040608000000000LL - 504911232000000000LL).ticks
+                   == 621040428000000000LL,
+               "net48 EST: FromFileTime(1969-01-01Z) == 621040428000000000 (-5 h, pre-1970 standard)");
+    }
+    else if (janInstantOffset == 0 && julInstantOffset == 0)
+    {
+        std::printf("ORACLE: net48 UTC (no offset)\n");
+        // net48 UTC (measured): no offset anywhere.
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL).ticks == 637134336000000000LL,
+               "net48 UTC: FromFileTime(2020-01-01Z) == 637134336000000000");
+        Expect(il2cpp::runtime::icall_datetime_from_file_time(0).ticks == 504911232000000000LL,
+               "net48 UTC: FromFileTime(0) == 504911232000000000");
+        Expect(il2cpp::runtime::icall_datetime_to_file_time(localValue) == 132274532967890000LL,
+               "net48 UTC: ToFileTime(Local) == 132274532967890000");
+    }
+    else
+    {
+        oracleSkip("exact FileTime numbers (host zone has no recorded net48 oracle)");
+    }
 
     // --- Report ---
     if (g_failures != 0)

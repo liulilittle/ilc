@@ -34,6 +34,7 @@
 #include "il2cpp_string.h"
 #include "il2cpp_time_ext.h"        // icall_datetime_to_string_format (saudit5 "G")
 #include "il2cpp_value_semantics.h" // icall_int64_get_hash_code (TimeSpan.GetHashCode)
+#include "timezone.h"               // per-date (DST-aware) offset for the FileTime bridge
 
 #include <chrono>
 #include <cmath>
@@ -267,6 +268,244 @@ int64_t LocalUtcOffsetSeconds()
     return localSeconds - utcSeconds;
 }
 
+#if !defined(_WIN32)
+// Wall-clock seconds of a broken-down tm, counted from the .NET epoch. The
+// DST flag is deliberately ignored: both sides of the subtraction below are
+// read from the same tz database, so only the field difference survives.
+int64_t TmWallSeconds(const std::tm& tm)
+{
+    const int64_t days = DaysFromNetEpoch(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+    return days * 86400 + tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+}
+
+// The same wall clock counted from the Unix epoch -- the unit time_t and the
+// localtime/mktime family speak (the .NET epoch is 62135596800 s earlier).
+int64_t TmUnixSeconds(const std::tm& tm)
+{
+    return TmWallSeconds(tm) - kUnixEpochTicks / kTicksPerSecond;
+}
+
+bool SameWallClock(const std::tm& a, const std::tm& b)
+{
+    return a.tm_year == b.tm_year && a.tm_mon == b.tm_mon && a.tm_mday == b.tm_mday
+        && a.tm_hour == b.tm_hour && a.tm_min == b.tm_min && a.tm_sec == b.tm_sec;
+}
+
+// tzdata reports LOCAL MEAN TIME (the pre-first-rule era) as an offset that is
+// not a whole number of minutes -- e.g. Asia/Shanghai +8:05:43, New York
+// -4:56:02. Every real adjustment rule is minute-aligned, so this is a safe
+// marker for "the CRT has no rule for this instant".
+bool LooksLikeLocalMeanTime(int64_t offsetSeconds)
+{
+    return offsetSeconds % 60 != 0;
+}
+
+// POSIX offset at a UTC instant, straight from the CRT's tzdata -- real
+// history INCLUDING the 1918-1970 DST seasons (net48 agrees there: measured
+// New York 1969-07-01 UTC -> -14400 on both). Returns false when the CRT
+// cannot resolve the instant.
+bool CrtOffsetAtInstant(int64_t utcTicks, int64_t& offsetSeconds)
+{
+    const std::time_t instant = static_cast<std::time_t>((utcTicks - kUnixEpochTicks) / kTicksPerSecond);
+    std::tm localTm = {};
+    std::tm utcTm = {};
+    if (localtime_r(&instant, &localTm) == nullptr || gmtime_r(&instant, &utcTm) == nullptr)
+    {
+        return false;
+    }
+    offsetSeconds = TmWallSeconds(localTm) - TmWallSeconds(utcTm);
+    return true;
+}
+
+// POSIX wall-clock -> UTC offset (net48 TimeZoneInfo.GetUtcOffset(wall)
+// semantics): the two candidate offsets around the wall clock are sampled
+// 30 h apart (a DST window is at most a few hours wide, so the samples
+// always straddle both rules), then each candidate is validated by mapping
+// its UTC instant back through localtime and requiring the SAME wall clock.
+// One valid candidate -> that offset; two (the repeated fall-back hour) or
+// none (the skipped spring-forward hour) -> the STANDARD (smaller) offset,
+// which is exactly net48's measured choice.
+bool CrtOffsetAtWall(int64_t wallTicks, int64_t& offsetSeconds)
+{
+    const CivilTime c = GetCivilTime(Il2CppDateTime(wallTicks));
+    // time_t speaks Unix seconds; the DateTime tick count is .NET-epoch based.
+    const int64_t wallSeconds = wallTicks / kTicksPerSecond - kUnixEpochTicks / kTicksPerSecond;
+    std::tm wallTm = {};
+    wallTm.tm_year = c.year - 1900;
+    wallTm.tm_mon = c.month - 1;
+    wallTm.tm_mday = c.day;
+    wallTm.tm_hour = c.hour;
+    wallTm.tm_min = c.minute;
+    wallTm.tm_sec = c.second;
+
+    int64_t candidates[2] = { 0, 0 };
+    int candidateCount = 0;
+    for (int k = 0; k < 2; ++k)
+    {
+        const std::time_t probe = static_cast<std::time_t>(wallSeconds + (k == 0 ? -30 : 30) * 3600);
+        std::tm probeTm = {};
+        if (localtime_r(&probe, &probeTm) == nullptr)
+        {
+            continue;
+        }
+        const int64_t candidate = TmUnixSeconds(probeTm) - static_cast<int64_t>(probe);
+        bool duplicate = false;
+        for (int i = 0; i < candidateCount; ++i)
+        {
+            if (candidates[i] == candidate) duplicate = true;
+        }
+        if (!duplicate && candidateCount < 2)
+        {
+            candidates[candidateCount++] = candidate;
+        }
+    }
+    if (candidateCount == 0)
+    {
+        return false;
+    }
+
+    int validCount = 0;
+    int64_t validOffset = 0;
+    for (int i = 0; i < candidateCount; ++i)
+    {
+        const std::time_t instant = static_cast<std::time_t>(wallSeconds - candidates[i]);
+        std::tm backTm = {};
+        if (localtime_r(&instant, &backTm) == nullptr)
+        {
+            continue;
+        }
+        if (SameWallClock(backTm, wallTm))
+        {
+            validOffset = candidates[i];
+            ++validCount;
+        }
+    }
+    if (validCount == 1)
+    {
+        offsetSeconds = validOffset;
+        return true;
+    }
+    if (candidateCount == 1)
+    {
+        offsetSeconds = candidates[0];
+        return true;
+    }
+    // Ambiguous or invalid wall clock: net48 resolves both to the standard
+    // offset, i.e. the smaller of the two candidate values.
+    offsetSeconds = candidates[0] < candidates[1] ? candidates[0] : candidates[1];
+    return true;
+}
+#endif // !defined(_WIN32)
+
+// The zone's STANDARD (non-DST) offset in seconds: the minimum of four season
+// samples of 2000 (Jan/Apr/Jul/Oct 1st, 00:00 UTC), each resolved by the
+// platform's own zone data. 2000 is inside every modern rule set, and the
+// minimum removes the daylight hour for positive-DST zones, so the result is
+// the base offset (Lord Howe: min(+11:00, +10:30) = +10:30; Ireland:
+// min(0, +01:00) = 0).
+int64_t StandardOffsetSeconds()
+{
+    // 2000-01-01 / 04-01 / 07-01 / 10-01 UTC in .NET ticks (630822816000000000
+    // is the pinned 2000-01-01 constant; +91/+182/+274 days).
+    static const int64_t kSamples[4] = {
+        630822816000000000LL, 630901440000000000LL, 630980064000000000LL, 631059552000000000LL
+    };
+    int64_t best = 0;
+    bool have = false;
+    for (int i = 0; i < 4; ++i)
+    {
+        int64_t candidate = 0;
+#if defined(_WIN32)
+        candidate = il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(kSamples[i], 1 /* Utc */));
+#else
+        if (!CrtOffsetAtInstant(kSamples[i], candidate))
+        {
+            continue;
+        }
+#endif
+        if (!have || candidate < best)
+        {
+            best = candidate;
+            have = true;
+        }
+    }
+    return have ? best : 0;
+}
+
+// The historical floor for the FileTime bridge: 1900-01-01T00:00:00Z in
+// .NET ticks. Below it both paths use the zone's STANDARD offset. This is a
+// deliberate SIMPLIFICATION, not a net48 match: net48 extrapolates the zone's
+// first adjustment rule across all earlier dates, so it still reports DST
+// below 1900 (measured: Eastern 1899/1900/1901-07 -> -14400; Lord Howe
+// 1899/1900-01 -> +39600), and tzdata only carries LOCAL MEAN TIME there
+// (Asia/Shanghai +8:05:43, New York -4:56:02). Neither artefact is
+// reproducible from the other source, so the bridge normalises to the
+// standard offset instead of guessing. Only a no-DST zone coincides with
+// net48 there (measured: China 1601 -> +28800, pinned by diffdt001d).
+//
+// KNOWN LIMITS (measured 2026-10-21, see .opencode/tmp/dt-fix.md section 7):
+//   * 1918-1970 New York: net48 and glibc AGREE (-14400 in July, -18000 in
+//     January) -- this is the only historically verified window.
+//   * 1900-1917 New York: glibc says -0500 all year; net48 still reports
+//     -0400 in July. The two rule sources diverge by 1 h.
+//   * Lord Howe before 1981: glibc reports +1000 (and +1130 from 1982-01);
+//     net48 reports +1100/+1030 (a 30-60 min divergence). The zone adopted
+//     the 30-minute DST rule later than the registry data says.
+//   * pre-1900: see above (standard offset, deliberate simplification).
+// The bridge does NOT claim net48 equality in any of these ranges.
+constexpr int64_t kHistoricalFloorTicks = 599266080000000000LL; // 1900-01-01Z
+
+// Per-date local UTC offset (seconds, local - UTC) at a UTC INSTANT.
+// Windows: the registry rule model timezone.cpp shares with the .NET
+// Framework (net48's own data source). POSIX: the CRT's tzdata at that
+// instant (real history, DST-aware). The two sources agree for New York in
+// 1918-1970 and disagree elsewhere before 1970 (see kHistoricalFloorTicks).
+int64_t LocalOffsetAtUtcInstant(int64_t utcTicks)
+{
+#if defined(_WIN32)
+    if (utcTicks < kHistoricalFloorTicks)
+    {
+        return StandardOffsetSeconds();
+    }
+    return il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(utcTicks, 1 /* Utc */));
+#else
+    if (utcTicks >= kHistoricalFloorTicks)
+    {
+        int64_t offset = 0;
+        if (CrtOffsetAtInstant(utcTicks, offset) && !LooksLikeLocalMeanTime(offset))
+        {
+            return offset;
+        }
+    }
+    return StandardOffsetSeconds();
+#endif
+}
+
+// Per-date local UTC offset (seconds, local - UTC) for a LOCAL WALL value
+// (net48 GetUtcOffset(wall): the DST window is read on the wall face; the
+// repeated fall-back hour and the skipped spring-forward hour both resolve
+// to the standard offset).
+int64_t LocalOffsetAtWall(int64_t wallTicks)
+{
+#if defined(_WIN32)
+    if (wallTicks < kHistoricalFloorTicks)
+    {
+        return StandardOffsetSeconds();
+    }
+    return il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(wallTicks, 0 /* Unspecified */));
+#else
+    if (wallTicks >= kHistoricalFloorTicks)
+    {
+        int64_t offset = 0;
+        if (CrtOffsetAtWall(wallTicks, offset) && !LooksLikeLocalMeanTime(offset))
+        {
+            return offset;
+        }
+    }
+    return StandardOffsetSeconds();
+#endif
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -427,22 +666,40 @@ int64_t icall_datetime_get_ticks(Il2CppDateTime dt)
 }
 
 //------------------------------------------------------------------------------
-// ToFileTimeUtc / FromFileTimeUtc -- the Windows FILETIME bridge. FILETIME
-// counts 100 ns ticks since 1601-01-01; DateTime ticks count since
-// 0001-01-01, so the conversion is a fixed offset of exactly
-// 599,266,080,000,000,000 ticks (DateTime(1601,1,1).Ticks). The single-zone
-// runtime has no Kind bits, so Utc and Local forms coincide (the UTC-host
-// doctrine). Out-of-range results throw ArgumentOutOfRangeException per the
-// net48 contract.
+// ToFileTime / ToFileTimeUtc / FromFileTime / FromFileTimeUtc -- the Windows
+// FILETIME bridge. FILETIME counts 100 ns ticks since 1601-01-01 UTC; DateTime
+// ticks count since 0001-01-01, so the epoch distance is exactly
+// 504,911,232,000,000,000 ticks (DateTime(1601,1,1).Ticks).
+//
+// The Utc pair is the plain epoch shift. The Local pair is NOT the same
+// operation: net48's FromFileTime takes the UTC instant of the FILETIME,
+// converts it to the machine zone's LOCAL time (per-date, DST-aware) and
+// returns Kind=Local; ToFileTime on a Local value converts the wall clock
+// back to UTC first, so it is only the epoch shift when the value is already
+// Utc/Unspecified. The single-zone "Utc and Local coincide" assumption this
+// code used to make was the diffdt001b defect (an 8 h error on a UTC+8 host).
+//
+// Oracle (net48, China Standard Time / Eastern Standard Time, 2026-10-20):
+//   FromFileTime(132223104000000000) -> 637134624000000000 (+8 h) /
+//     637134156000000000 (-5 h); FromFileTimeUtc -> 637134336000000000 both.
+//   ToFileTime(Local 637134624000000000) -> 132223104000000000 (China).
+//   FromFileTime(0) -> 504911520000000000 (China) / 504911052000000000 (EST).
+//   FromFileTime(max) clamps at DateTime.MaxValue (net48 does not throw).
 //------------------------------------------------------------------------------
 constexpr int64_t kFileTimeEpochOffset = 504911232000000000LL;
 
 int64_t icall_datetime_to_file_time_utc(Il2CppDateTime dt)
 {
-    // FILETIME counts from 1601-01-01, DateTime ticks from 0001-01-01: the
-    // FILETIME value is the SMALLER count (subtract the 1601 epoch's .NET
-    // ticks). A negative result (pre-1601 date) throws per net48.
-    const int64_t fileTime = dt.ticks - kFileTimeEpochOffset;
+    // net48 ToFileTimeUtc: Kind=Utc keeps the ticks; Kind=Local converts the
+    // wall clock to UTC; Kind=Unspecified is taken as UTC as-is (measured:
+    // Unspecified 637185764967890000 -> 132274532967890000, Local -> the
+    // same value shifted by the offset).
+    int64_t utcTicks = dt.ticks;
+    if (dt.kind == 2 /* DateTimeKind.Local */)
+    {
+        utcTicks = dt.ticks - LocalOffsetAtWall(dt.ticks) * kTicksPerSecond;
+    }
+    const int64_t fileTime = utcTicks - kFileTimeEpochOffset;
     if (fileTime < 0)
     {
         ThrowArgOutOfRange();
@@ -461,7 +718,55 @@ Il2CppDateTime icall_datetime_from_file_time_utc(int64_t fileTime)
     {
         il2cpp_throw_argument_out_of_range_exception("fileTime", nullptr);
     }
-    return Il2CppDateTime(ticks);
+    return Il2CppDateTime(ticks, 1 /* Utc */);
+}
+
+int64_t icall_datetime_to_file_time(Il2CppDateTime dt)
+{
+    // net48 ToFileTime == ToUniversalTime().ToFileTimeUtc(), and
+    // ToUniversalTime treats BOTH Local and Unspecified as local wall clock
+    // (only Kind=Utc is already an instant). Measured on UTC+8:
+    // Utc 637185764967890000 -> 132274532967890000, Unspecified ->
+    // 132274244967890000, Local -> 132274244967890000.
+    int64_t utcTicks = dt.ticks;
+    if (dt.kind != 1 /* DateTimeKind.Utc */)
+    {
+        utcTicks = dt.ticks - LocalOffsetAtWall(dt.ticks) * kTicksPerSecond;
+    }
+    const int64_t fileTime = utcTicks - kFileTimeEpochOffset;
+    if (fileTime < 0)
+    {
+        ThrowArgOutOfRange();
+    }
+    return fileTime;
+}
+
+Il2CppDateTime icall_datetime_from_file_time(int64_t fileTime)
+{
+    if (fileTime < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("fileTime", nullptr);
+    }
+    const int64_t utcTicks = fileTime + kFileTimeEpochOffset;
+    if (utcTicks > kMaxDateTimeTicks)
+    {
+        il2cpp_throw_argument_out_of_range_exception("fileTime", nullptr);
+    }
+    // The local face = the UTC instant + the offset in force AT THAT INSTANT
+    // (DST-aware; not the current offset). net48 CLAMPS the shifted result
+    // into [MinValue, MaxValue] instead of throwing -- measured:
+    // FromFileTime(2650467743999999999) on UTC+8 -> 3155378975999999999.
+    const int64_t offset = LocalOffsetAtUtcInstant(utcTicks);
+    int64_t localTicks = utcTicks + offset * kTicksPerSecond;
+    if (localTicks < 0)
+    {
+        localTicks = 0;
+    }
+    if (localTicks > kMaxDateTimeTicks)
+    {
+        localTicks = kMaxDateTimeTicks;
+    }
+    return Il2CppDateTime(localTicks, 2 /* Local */);
 }
 
 //------------------------------------------------------------------------------

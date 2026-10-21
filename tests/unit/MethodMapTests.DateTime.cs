@@ -5,17 +5,29 @@ using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Model;
 using Xunit;
 
-// MethodMap.DateTime FileTime dispatch tests (B3 diffdt001b): the Local
-// forms ride the Utc icalls -- the single-zone runtime has no Kind bits
-// so Utc and Local coincide (the UTC-host doctrine, time.cpp + the
-// ToFileTimeUtc arm comment).
+// MethodMap.DateTime FileTime dispatch tests (B3 diffdt001b): the Utc and
+// Local forms are DISTINCT icalls -- FromFileTime/ToFileTime convert through
+// the machine zone's per-date offset (net48 semantics), FromFileTimeUtc/
+// ToFileTimeUtc only shift the 1601 epoch.
 public class MethodMapTestsDateTimeFileTime
 {
     [Fact]
-    public void Resolve_DateTime_ToFileTime_MapsToUtcIcall()
+    public void Resolve_DateTime_ToFileTime_MapsToLocalIcall()
     {
         // instance long ToFileTime(): header + 0 params + ret int64 (0x0A).
         var resolved = ResolveMember(Synthesize("System", "DateTime", "ToFileTime", Sig(0x0A)), "ToFileTime");
+
+        Assert.Equal("il2cpp::runtime::icall_datetime_to_file_time", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal(new[] { "deref:dt" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DateTime_ToFileTimeUtc_MapsToUtcIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "DateTime", "ToFileTimeUtc", Sig(0x0A)), "ToFileTimeUtc");
 
         Assert.Equal("il2cpp::runtime::icall_datetime_to_file_time_utc", resolved.CppName);
         Assert.True(resolved.IsInstance);
@@ -25,12 +37,24 @@ public class MethodMapTestsDateTimeFileTime
     }
 
     [Fact]
-    public void Resolve_DateTime_FromFileTime_MapsToUtcIcall()
+    public void Resolve_DateTime_FromFileTime_MapsToLocalIcall()
     {
         // static DateTime FromFileTime(long): ret VALUETYPE (0x11) +
         // TypeDefOrRef coded index (DateTime TypeRef row 1 -> 0x05).
         var resolved = ResolveMember(SynthesizeWithDateTimeRef("System", "DateTime", "FromFileTime",
             new byte[] { 0x00, 0x01, 0x11, 0x05, 0x0A }), "FromFileTime");
+
+        Assert.Equal("il2cpp::runtime::icall_datetime_from_file_time", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "l" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DateTime_FromFileTimeUtc_MapsToUtcIcall()
+    {
+        var resolved = ResolveMember(SynthesizeWithDateTimeRef("System", "DateTime", "FromFileTimeUtc",
+            new byte[] { 0x00, 0x01, 0x11, 0x05, 0x0A }), "FromFileTimeUtc");
 
         Assert.Equal("il2cpp::runtime::icall_datetime_from_file_time_utc", resolved.CppName);
         Assert.False(resolved.IsInstance);

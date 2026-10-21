@@ -94,12 +94,31 @@ Il2CppDateTime icall_datetime_from_ticks(int64_t ticks);
 // (kind validation as the ymdhms kind ctor above).
 Il2CppDateTime icall_datetime_from_ticks_kind(int64_t ticks, int32_t kind);
 
-// ToFileTimeUtc: ticks + the 1601-epoch offset (see time.cpp); a result
-// below zero throws ArgumentOutOfRangeException.
-int64_t icall_datetime_to_file_time_utc(Il2CppDateTime dt);
-// FromFileTimeUtc: the inverse conversion; out-of-range input throws
+//------------------------------------------------------------------------------
+// The FILETIME bridge (100 ns ticks since 1601-01-01 UTC). The Utc pair is
+// the plain 1601-epoch shift; the Local pair converts through the machine
+// zone's PER-DATE (DST-aware) offset, matching net48's measured contract:
+//   FromFileTime      : UTC instant -> local wall clock, Kind = Local;
+//                       the shifted result CLAMPS to [MinValue, MaxValue].
+//   ToFileTime        : net48 is ToUniversalTime().ToFileTimeUtc(), and
+//                       ToUniversalTime treats BOTH Local and Unspecified as
+//                       local wall clock, so both are converted to UTC first;
+//                       only Kind=Utc keeps its ticks.
+//   ToFileTimeUtc     : Kind=Local is converted to UTC first (net48's
+//                       ToFileTimeUtc is NOT the identity on Local values).
+// A negative FILETIME input or a pre-1601 result throws
+// ArgumentOutOfRangeException (paramName "fileTime" for the From forms).
+//------------------------------------------------------------------------------
+// ToFileTimeUtc: Kind-aware (see above); a result below zero throws
 // ArgumentOutOfRangeException.
+int64_t icall_datetime_to_file_time_utc(Il2CppDateTime dt);
+// FromFileTimeUtc: the inverse conversion (Kind = Utc); out-of-range input
+// throws ArgumentOutOfRangeException.
 Il2CppDateTime icall_datetime_from_file_time_utc(int64_t fileTime);
+// ToFileTime: the LOCAL-flavoured form (Kind=Local -> UTC -> epoch shift).
+int64_t icall_datetime_to_file_time(Il2CppDateTime dt);
+// FromFileTime: the LOCAL-flavoured inverse (Kind = Local).
+Il2CppDateTime icall_datetime_from_file_time(int64_t fileTime);
 
 // DateTime.GetHashCode (D1 diffdt001 dt.hash): net48 ticks-fold --
 // unchecked((int)ticks) ^ (int)(ticks >> 32) (referencesource
