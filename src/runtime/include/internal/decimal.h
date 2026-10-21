@@ -96,6 +96,18 @@ bool icall_decimal_equals(const Il2CppDecimal* d1, const Il2CppDecimal* d2);
 // Unary minus: result = -a (flags ^= SignMask, Decimal.cs:961).
 void icall_decimal_negate(Il2CppDecimal* result, const Il2CppDecimal* a);
 
+// Math.Abs(decimal) / Math.Max(decimal,decimal) / Math.Min(decimal,decimal) /
+// Math.Sign(decimal) (LOUD P0-19). Abs clears the sign flag; Max/Min return
+// the winning OPERAND unchanged (scale preserved -- net48's
+// `val1 < val2 ? val2 : val1` / `val1 < val2 ? val1 : val2`: a numeric tie
+// yields the FIRST operand for Max and the SECOND for Min, oracle-verified);
+// Sign returns -1/0/+1 off the sign flag and mantissa zero (a signed zero
+// still yields 0).
+void icall_decimal_abs(Il2CppDecimal* result, const Il2CppDecimal* a);
+void icall_decimal_max(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2CppDecimal* b);
+void icall_decimal_min(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2CppDecimal* b);
+int32_t icall_decimal_sign(const Il2CppDecimal* a);
+
 // --- T1: rounding -----------------------------------------------------------
 // Result-slot-first shape (T3 contract): result receives the rounded value;
 // d is const. 'mode' is the net48 decimal.Round MidpointRounding pair only:

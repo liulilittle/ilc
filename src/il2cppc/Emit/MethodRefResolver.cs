@@ -1033,6 +1033,23 @@ public static partial class MethodRefResolver
         var dtoParamTypes = owner == "System.DateTimeOffset"
             ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
             : null;
+        // LOUD P0-19: System.Math's decimal overloads. A decimal PARAMETER
+        // (ldarg) is not tracked by StackFold's objTypes, so arg0Type stays
+        // null and the 0x11 signature byte alone cannot name the type
+        // (DateTime/enum/user structs share it). The DECODED parameter text
+        // ("V:System.Decimal") is the authoritative signature key: fill the
+        // hint for value-type parameters only, leaving primitive params
+        // untracked (their maps never consult it).
+        if (owner == "System.Math")
+        {
+            var mathParams = MethodSignatureCoder.Decode(md, sigHandle).ParamTypes.Split(',');
+            if (arg0Type == null && mathParams.Length >= 1
+                && mathParams[0].StartsWith("V:", StringComparison.Ordinal))
+                arg0Type = mathParams[0][2..];
+            if (arg1Type == null && mathParams.Length >= 2
+                && mathParams[1].StartsWith("V:", StringComparison.Ordinal))
+                arg1Type = mathParams[1][2..];
+        }
         // nb9 H-B3: System.Array.Sort<T>(T[], IComparer<T>) and
         // Sort<T>(T[], Comparison<T>) share the same GENERICINST parameter
         // bytes; the decoded second-parameter DEFINITION name disambiguates.

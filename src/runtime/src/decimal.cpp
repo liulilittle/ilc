@@ -2238,6 +2238,54 @@ void icall_decimal_negate(Il2CppDecimal* result, const Il2CppDecimal* a)
     Store(result, x);
 }
 
+// LOUD P0-19: System.Math's decimal overloads (Abs/Max/Min/Sign). Abs is the
+// net48 Decimal.Abs (sign flag cleared, scale/mantissa untouched). Max/Min
+// follow net48's `val1 < val2 ? val2 : val1` / `val1 < val2 ? val1 : val2`
+// exactly: the winner's SCALE is preserved, so a NUMERIC tie still has an
+// observable representation -- Max returns the FIRST operand, Min the second
+// (probe-verified against the net48 oracle: Max(1.0m,1.00m)=1.0m,
+// Max(1.00m,1.0m)=1.00m, Min(1.0m,1.00m)=1.00m, Min(1.00m,1.0m)=1.0m).
+void icall_decimal_abs(Il2CppDecimal* result, const Il2CppDecimal* a)
+{
+    DecCalc x;
+    Load(x, a);
+    x.uflags &= ~kSignMask;
+    Store(result, x);
+}
+
+void icall_decimal_max(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2CppDecimal* b)
+{
+    DecCalc x, y;
+    Load(x, a);
+    Load(y, b);
+    if (VarDecCmp(x, y) >= 0)
+        Store(result, x);
+    else
+        Store(result, y);
+}
+
+void icall_decimal_min(Il2CppDecimal* result, const Il2CppDecimal* a, const Il2CppDecimal* b)
+{
+    DecCalc x, y;
+    Load(x, a);
+    Load(y, b);
+    if (VarDecCmp(x, y) < 0)
+        Store(result, x);
+    else
+        Store(result, y);
+}
+
+// Math.Sign(decimal): 0 for a zero mantissa (signed zero included), else the
+// sign flag's -1/+1.
+int32_t icall_decimal_sign(const Il2CppDecimal* a)
+{
+    DecCalc x;
+    Load(x, a);
+    if ((x.Low64() | x.uhi) == 0)
+        return 0;
+    return ((int32_t)x.uflags >> 31) | 1;
+}
+
 void icall_decimal_round(Il2CppDecimal* result, const Il2CppDecimal* d, int32_t decimals, int32_t mode)
 {
     DecCalc v;
