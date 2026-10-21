@@ -738,8 +738,12 @@ int main()
         il2cpp::Il2CppArray* dup = NewInt32Array(5);
         const int32_t dvals[5] = { 1, 3, 3, 3, 7 };
         FillInt32(dup, dvals, 5);
-        ExpectI32(il2cpp::il2cpp_array_binary_search_int32(dup, 3), 1,
-                  "binary_search_int32 with duplicates returns the first match");
+        // net48 Array.BinarySearch returns the FIRST PROBED midpoint, not the
+        // first element of an equal run: for {1,3,3,3,7} searching 3 the probe
+        // lands on index 2 (net48 oracle probe: bs3=2). The old expectation
+        // (1) predates the net48-midpoint fix and was stale.
+        ExpectI32(il2cpp::il2cpp_array_binary_search_int32(dup, 3), 2,
+                  "binary_search_int32 with duplicates returns the probed midpoint");
         il2cpp::Il2CppArray* empty = NewInt32Array(0);
         ExpectI32(il2cpp::il2cpp_array_binary_search_int32(empty, 1), -1,
                   "binary_search_int32 of an empty array is -1");

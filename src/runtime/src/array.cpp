@@ -200,14 +200,14 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
     arr->isRefElem = isRefElement;
     // nb9 D10: record the primitive element kind from the descriptor the
     // transpiler passes for value-element arrays (int32/int64/single/double).
-    arr->elemKind = 0;
+    arr->elemKind = kElemKindNone;
     if (!isRefElement)
     {
-        if (elemClass == &System_Int32_class) arr->elemKind = 1;
-        else if (elemClass == &System_Int64_class) arr->elemKind = 2;
-        else if (elemClass == &System_Single_class) arr->elemKind = 3;
-        else if (elemClass == &System_Double_class) arr->elemKind = 4;
-        else if (elemClass == &System_UInt32_class) arr->elemKind = 5;
+        if (elemClass == &System_Int32_class) arr->elemKind = kElemKindI4;
+        else if (elemClass == &System_Int64_class) arr->elemKind = kElemKindI8;
+        else if (elemClass == &System_Single_class) arr->elemKind = kElemKindF;
+        else if (elemClass == &System_Double_class) arr->elemKind = kElemKindD;
+        else if (elemClass == &System_UInt32_class) arr->elemKind = kElemKindU4;
     }
     arr->rank = 1; // one-dimensional scope; multi-dimensional support is future work
     arr->dims[0] = length; // single-dim fills dims[0] (rank-aware GetLength/GetUpperBound parity)

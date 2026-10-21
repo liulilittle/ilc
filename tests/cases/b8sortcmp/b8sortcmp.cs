@@ -26,7 +26,10 @@
 //       void il2cpp_array_sort_uint64(Il2CppArray*);
 //       void il2cpp_array_sort_uint64_comparison(Il2CppArray*, Il2CppObject*);
 //       void il2cpp_array_sort_icomparer_uint64(Il2CppArray*, Il2CppObject*);
-//       enum: kComparerFamilyU8 (fragment "(q,q)", uint64 default order);
+//       enum: kComparerFamilyU8 (fragment "(l,l)" -- the int64 carrier; the
+//         slot match is a SIGNATURE-STRING fragment and the emit side maps
+//         ulong onto int64, so "(q,q)" would never match a user
+//         IComparer<ulong>.Compare(ulong,ulong) slot);
 //       plus elemKind 8 stamped for System.UInt64 newarr.
 //   * decimal (0x11) -- same: LOUD at transpile time ("0x11 with N arg(s) not
 //     wired in M5"). No decimal sort kernel exists. Needed kernel (B8-2, shares
@@ -41,6 +44,23 @@
 //       plus RequireAnySortableStride accepting elemKind 8/16-byte decimal.
 //   * Comparer<TClass>.Default: the transpiler emits no user-class default
 //     singleton (a compile-time gap independent of Array.Sort).
+//
+// FIXED in this batch (were silent wrong orders, all reproduced on the
+// pre-fix runtime and now covered by records above):
+//   * J1 Array.Sort<uint>(a,i,len,Comparer<uint>.Create(rev)) dropped the
+//     wrapped delegate -- the "Comparer`1" klass-name shortcut mistook the
+//     created comparer for the default singleton, so [u_range_create] came
+//     back ascending. The created-comparer test now runs FIRST (the
+//     sortedlist.cpp order).
+//   * J2 non-generic Array.Sort(keys, items, Comparer.Default) ordered uint
+//     KEYS signed ([ng_keys_uint]).
+//   * J3 non-generic Array.Sort(Array,i,len,IComparer) / BinarySearch(Array,
+//     obj, IComparer) ordered uint signed ([ng_range_uint],
+//     [ng_bsearch_uint]).
+//   * J4 Array.Sort((Array)float[], Comparer.Default) compared the float BITS
+//     as int32 ([ng_float]). This one was PRE-EXISTING (identical on the
+//     parent commit), not introduced by the uint work; fixed here because the
+//     4-byte branch now dispatches on elemKind (float -> float order).
 //------------------------------------------------------------------------------
 using System;
 using System.Collections.Generic;
@@ -133,6 +153,45 @@ public static class Program
         { IComparer<uint> c = Comparer<uint>.Default; var a = new uint[] { 4000000000u, 1u, 3000000000u }; Array.Sort(a, c); Console.WriteLine("[u_def_iface]=" + Ju3(a)); }
         { var a = new uint[] { 9u, 4000000000u, 1u, 3000000000u, 2u }; Array.Sort(a, 1, 3, new RevUint()); Console.WriteLine("[u_range]=" + Ju5(a)); }
         { var a = new uint[] { 9u, 4000000000u, 1u, 3000000000u, 2u }; Array.Sort(a, 1, 3, (IComparer<uint>)null); Console.WriteLine("[u_range_def]=" + Ju5(a)); }
+
+        // uint through a Comparer<uint>.Create behind an INTERFACE local
+        { IComparer<uint> c = Comparer<uint>.Create((x, y) => y.CompareTo(x)); var a = new uint[] { 4000000000u, 1u, 3000000000u }; Array.Sort(a, c); Console.WriteLine("[u_create_iface]=" + Ju3(a)); }
+        // uint range + Create: the wrapped delegate MUST run (a default-order
+        // shortcut here silently drops it and returns ascending)
+        { var a = new uint[] { 9u, 4000000000u, 1u, 3000000000u, 2u }; Array.Sort(a, 1, 3, Comparer<uint>.Create((x, y) => y.CompareTo(x))); Console.WriteLine("[u_range_create]=" + Ju5(a)); }
+        // uint comparator result extremes (int.MinValue / int.MaxValue)
+        {
+            var a = new uint[] { 4000000000u, 1u, 3000000000u };
+            Array.Sort(a, (Comparison<uint>)((x, y) => x == y ? 0 : (x < y ? int.MinValue : int.MaxValue)));
+            Console.WriteLine("[u_minmax]=" + Ju3(a));
+        }
+
+        //========== non-generic Array surface over uint cells ==========
+        // Sort(keys, items, Comparer.Default): the uint KEY order is unsigned
+        {
+            var keys = new uint[] { 4000000000u, 1u, 3000000000u };
+            var items = new string[] { "big", "one", "mid" };
+            Array.Sort((Array)keys, (Array)items, System.Collections.Comparer.Default);
+            Console.WriteLine("[ng_keys_uint]=" + Ju3(keys) + "|" + items[0] + items[1] + items[2]);
+        }
+        // Sort(Array, index, length, IComparer) over uint
+        {
+            var a = new uint[] { 9u, 4000000000u, 1u, 3000000000u, 2u };
+            Array.Sort((Array)a, 1, 3, System.Collections.Comparer.Default);
+            Console.WriteLine("[ng_range_uint]=" + Ju5(a));
+        }
+        // BinarySearch(Array, object, IComparer) over uint
+        {
+            var a = new uint[] { 1u, 3000000000u, 4000000000u };
+            Console.WriteLine("[ng_bsearch_uint]=" + Array.BinarySearch((Array)a, 3000000000u, System.Collections.Comparer.Default));
+        }
+        // J4 (pre-existing): float[] through the non-generic comparer sort must
+        // order by FLOAT value, not by the int32 image of the bits
+        {
+            var a = new float[] { 3.5f, -7.5f, 2.5f, -1.5f };
+            Array.Sort((Array)a, System.Collections.Comparer.Default);
+            Console.WriteLine("[ng_float]=" + a[0] + "," + a[1] + "," + a[2] + "," + a[3]);
+        }
 
         //========== long: same boundary above int.MaxValue ==========
         { var a = new long[] { 4000000000L, 1L, 3000000000L }; Array.Sort(a); Console.WriteLine("[l_default]=" + Jl3(a)); }

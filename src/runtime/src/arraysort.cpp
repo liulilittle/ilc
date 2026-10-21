@@ -207,7 +207,7 @@ Il2CppArray* RequireValueArraySort(Il2CppArray* arr, int32_t elemSize)
 void RequireAnySortableStride(const Il2CppArray* a, bool allowDateTime = false)
 {
     if (a->isRefElem) return;
-    if (a->elemKind == 6 || a->elemKind == 7)
+    if (a->elemKind == kElemKindDateTime || a->elemKind == kElemKindTimeSpan)
     {
         // DateTime/TimeSpan cells order by ticks for the DEFAULT sort. A user
         // IComparer<T> would need the T call ABI (not the int64 carrier), so
@@ -219,7 +219,7 @@ void RequireAnySortableStride(const Il2CppArray* a, bool allowDateTime = false)
             "wired (its comparer slot ABI is not emitted); the default "
             "comparer sort is supported.");
     }
-    if (a->elemKind != 0) return;
+    if (a->elemKind != kElemKindNone) return;
     if (a->elemSize == 4) return;
     if (a->elemSize == 8)
     {
@@ -1052,9 +1052,14 @@ int32_t il2cpp_array_binary_search_icomparer_uint32(Il2CppArray* arr, int32_t va
     RequireValueArraySort(a, sizeof(uint32_t));
     const uint32_t* data = reinterpret_cast<const uint32_t*>(a->data);
     const uint32_t needle = static_cast<uint32_t>(value);
+    // B8-1 audit J1 (same defect as U32ComparerCompare): a Comparer<uint>.Create
+    // wrapper's klass name CONTAINS "Comparer`1", so the created-comparer test
+    // must come FIRST or the wrapped delegate is dropped and the default
+    // unsigned order is used instead.
     const bool byDefault =
         comparer == nullptr ||
-        (comparer->klass != nullptr && comparer->klass->name != nullptr &&
+        (!runtime::il2cpp_is_created_comparer(comparer) &&
+         comparer->klass != nullptr && comparer->klass->name != nullptr &&
          std::strstr(comparer->klass->name, "Comparer`1") != nullptr);
     int32_t lo = 0;
     int32_t hi = a->length - 1;
@@ -1065,7 +1070,7 @@ int32_t il2cpp_array_binary_search_icomparer_uint32(Il2CppArray* arr, int32_t va
         if (byDefault)
             c = data[mid] < needle ? -1 : (data[mid] > needle ? 1 : 0);
         else
-            c = il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &data[mid], &needle);
+            c = il2cpp_icomparer_compare_family(comparer, kComparerFamilyU4, &data[mid], &needle);
         if (c == 0) return mid;
         if (c < 0) lo = mid + 1;
         else hi = mid - 1;
@@ -2092,6 +2097,11 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
                 // B8-1: uint32[] default order is UNSIGNED (net48
                 // Comparer<uint>.Default). The raw bits are the same int32
                 // cell; only the comparison differs.
+                // Reached by the non-generic surface (CompareKeyPair /
+                // CompareAnyElement pass Comparer.Default here) and by
+                // Comparer<uint>.Default through SortIComparerCore's dispatch
+                // path; SortIComparerCore's OWN default mode compares locally
+                // in I4ComparerCompare and never arrives here.
                 const uint32_t x = static_cast<uint32_t>(*static_cast<const int32_t*>(a));
                 const uint32_t y = static_cast<uint32_t>(*static_cast<const int32_t*>(b));
                 return x < y ? -1 : (x > y ? 1 : 0);
@@ -2289,16 +2299,35 @@ void SortIComparerCore(Il2CppArray** pa, int32_t lo, int32_t hi,
     }
     else if (a->elemSize == sizeof(int32_t))
     {
+        // B8-1 audit J4: a float[] cell has the SAME 4-byte stride as an
+        // int32[] cell, so the stride alone cannot pick the comparison. Order
+        // by the recorded element kind: single -> float (total order, widened
+        // to double like every other float sort), uint32 -> UNSIGNED default,
+        // everything else (int32, and an unrecorded kind which keeps the
+        // historical int32 fallback) -> int32.
+        if (a->elemKind == kElemKindF)
+        {
+            try
+            {
+                FComparerCompare cmp(comparerSlot);
+                QuickSortValArray<float>(pa, lo, hi, cmp);
+            }
+            catch (const DotNetException&)
+            {
+                il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+            }
+            return;
+        }
         try
         {
             // The StringComparer singletons cannot compare int32 elements in
             // net48 either; the dispatch path reports NotSupported (the
             // singleton klass has no Compare slot). Unchanged behavior.
-            // B8-1: elemKind 5 marks a uint32[] -- the DEFAULT comparer must
+            // B8-1: kElemKindU4 marks a uint32[] -- the DEFAULT comparer must
             // order it UNSIGNED (net48 Comparer<uint>.Default), while a user
             // IComparer<uint> applies its own order to the same raw bits.
             I4ComparerCompare cmp(comparerSlot, mode == RefComparerMode::Default,
-                                  a->elemKind == 5);
+                                  a->elemKind == kElemKindU4);
             QuickSortI4Array(pa, lo, hi, cmp);
         }
         catch (const DotNetException&)
@@ -2410,10 +2439,18 @@ struct U32ComparerCompare
     int32_t operator()(uint32_t x, uint32_t y) const
     {
         if (*slot == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+        // B8-1 audit J1: a Comparer<uint>.Create wrapper's klass name is
+        // "System.Collections.Generic.Comparer`1_created_int", which CONTAINS
+        // "Comparer`1" -- it must not be mistaken for the default singleton or
+        // the wrapped delegate never runs (silent ascending order). Same guard
+        // order as sortedlist.cpp (created-comparer check BEFORE the name
+        // test).
+        if (runtime::il2cpp_is_created_comparer(*slot))
+            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyU4, &x, &y);
         if ((*slot)->klass != nullptr && (*slot)->klass->name != nullptr &&
             std::strstr((*slot)->klass->name, "Comparer`1") != nullptr)
             return x < y ? -1 : (x > y ? 1 : 0);
-        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyU4, &x, &y);
     }
 };
 } // namespace
@@ -3423,19 +3460,19 @@ bool AnyElementEquals(Il2CppArray* a, int32_t idx, Il2CppObject* value)
     }
     const AnyValueKind k = ClassifyAnyValue(value);
     const int32_t kind = a->elemKind;
-    if (kind == 1)
+    if (kind == kElemKindI4)
     {
         return k == AnyI4 &&
                *reinterpret_cast<const int32_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
                    runtime::icall_unbox_int32(value);
     }
-    if (kind == 2)
+    if (kind == kElemKindI8)
     {
         return k == AnyI8 &&
                *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
                    runtime::icall_unbox_long(value);
     }
-    if (kind == 3)
+    if (kind == kElemKindF)
     {
         return k == AnyF &&
                DoubleEqualsNet(
@@ -3443,14 +3480,14 @@ bool AnyElementEquals(Il2CppArray* a, int32_t idx, Il2CppObject* value)
                        il2cpp_array_get_elem_ptr(a, idx))),
                    runtime::icall_unbox_float(value));
     }
-    if (kind == 4)
+    if (kind == kElemKindD)
     {
         return k == AnyD &&
                DoubleEqualsNet(
                    *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(a, idx)),
                    runtime::icall_unbox_double(value));
     }
-    if (kind == 5)
+    if (kind == kElemKindU4)
     {
         return k == AnyU4 &&
                *reinterpret_cast<const uint32_t*>(il2cpp_array_get_elem_ptr(a, idx)) ==
@@ -3561,21 +3598,21 @@ int32_t CompareAnyElement(Il2CppArray* a, int32_t index, Il2CppObject* value,
     // the conservative stride heuristic.
     const AnyValueKind k = ClassifyAnyValue(value);
     const int32_t kind = a->elemKind;
-    if (kind == 1 && k == AnyI4)
+    if (kind == kElemKindI4 && k == AnyI4)
     {
         const int32_t elem = *reinterpret_cast<const int32_t*>(il2cpp_array_get_elem_ptr(a, index));
         const int32_t needle = runtime::icall_unbox_int32(value);
         if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &elem, &needle);
     }
-    if (kind == 2 && k == AnyI8)
+    if (kind == kElemKindI8 && k == AnyI8)
     {
         const int64_t elem = *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(a, index));
         const int64_t needle = runtime::icall_unbox_long(value);
         if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI8, &elem, &needle);
     }
-    if (kind == 3 && k == AnyF)
+    if (kind == kElemKindF && k == AnyF)
     {
         const double elem = static_cast<double>(
             *reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(a, index)));
@@ -3583,21 +3620,24 @@ int32_t CompareAnyElement(Il2CppArray* a, int32_t index, Il2CppObject* value,
         if (comparer == nullptr) return DoubleCompareTotal(elem, needle);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &elem, &needle);
     }
-    if (kind == 4 && k == AnyD)
+    if (kind == kElemKindD && k == AnyD)
     {
         const double elem = *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(a, index));
         const double needle = runtime::icall_unbox_double(value);
         if (comparer == nullptr) return DoubleCompareTotal(elem, needle);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &elem, &needle);
     }
-    if (kind == 5 && k == AnyU4)
+    if (kind == kElemKindU4 && k == AnyU4)
     {
         const uint32_t elem = *reinterpret_cast<const uint32_t*>(il2cpp_array_get_elem_ptr(a, index));
         const uint32_t needle = static_cast<uint32_t>(runtime::icall_unbox_uint(value));
         if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
-        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &elem, &needle);
+        // B8-1 audit J3: a uint cell orders UNSIGNED by default (Comparer.Default
+        // and a null comparer alike); a user IComparer<uint> keeps its own order
+        // through the same "(i,i)" slot.
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyU4, &elem, &needle);
     }
-    if (kind == 0)
+    if (kind == kElemKindNone)
     {
         if (a->elemSize == sizeof(int32_t) && k == AnyI4)
         {
@@ -3721,7 +3761,7 @@ namespace {
 int32_t ReadAnyCompareKind(const Il2CppArray* a)
 {
     if (a->isRefElem) return 0;
-    if (a->elemKind != 0) return a->elemKind;
+    if (a->elemKind != kElemKindNone) return a->elemKind;
     // LOUD P0-01 follow-up (audit B, bool + IComparer probe): the old
     // fallback guessed "int32 for anything that is not 8 bytes", so a 1-byte
     // Boolean[] cell (also a 2-byte char[] or a 16-byte Decimal[]/Guid[]) was
@@ -3765,32 +3805,32 @@ void SwapValueCells(Il2CppArray* a, int32_t i, int32_t j)
 int32_t CompareAnyDefault(Il2CppArray* a, int32_t i, int32_t j)
 {
     const int32_t kind = ReadAnyCompareKind(a);
-    if (kind == 0)
+    if (kind == kElemKindNone)
     {
         Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
         return ComparerCompareCore(slots[i], slots[j]);
     }
-    if (kind == 1)
+    if (kind == kElemKindI4)
     {
         const int32_t* d = reinterpret_cast<const int32_t*>(a->data);
         return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
     }
-    if (kind == 3)
+    if (kind == kElemKindF)
     {
         const float* d = reinterpret_cast<const float*>(a->data);
         return DoubleCompareTotal(static_cast<double>(d[i]), static_cast<double>(d[j]));
     }
-    if (kind == 4)
+    if (kind == kElemKindD)
     {
         const double* d = reinterpret_cast<const double*>(a->data);
         return DoubleCompareTotal(d[i], d[j]);
     }
-    if (kind == 5)
+    if (kind == kElemKindU4)
     {
         const uint32_t* d = reinterpret_cast<const uint32_t*>(a->data);
         return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
     }
-    if (kind == 6)
+    if (kind == kElemKindDateTime)
     {
         // DateTime cell = kind<<62|ticks. net48 DateTime.CompareTo compares
         // Ticks ONLY (DateTimeKind is ignored), so the packed kind bits are
@@ -3843,36 +3883,38 @@ struct AnyComparerCompare
     int32_t operator()(Il2CppArray* a, int32_t i, int32_t j) const
     {
         const int32_t kind = ReadAnyCompareKind(a);
-        if (kind == 0)
+        if (kind == kElemKindNone)
         {
             Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
             return il2cpp_icomparer_compare_family(*slot, kComparerFamilyRef, slots[i], slots[j]);
         }
-        if (kind == 1)
+        if (kind == kElemKindI4)
         {
             const int32_t* d = reinterpret_cast<const int32_t*>(a->data);
             int32_t x = d[i], y = d[j];
             return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
         }
-        if (kind == 3)
+        if (kind == kElemKindF)
         {
             const float* d = reinterpret_cast<const float*>(a->data);
             double x = static_cast<double>(d[i]), y = static_cast<double>(d[j]);
             return il2cpp_icomparer_compare_family(*slot, kComparerFamilyF, &x, &y);
         }
-        if (kind == 4)
+        if (kind == kElemKindD)
         {
             const double* d = reinterpret_cast<const double*>(a->data);
             double x = d[i], y = d[j];
             return il2cpp_icomparer_compare_family(*slot, kComparerFamilyD, &x, &y);
         }
-    if (kind == 5)
+    if (kind == kElemKindU4)
     {
         const uint32_t* d5 = reinterpret_cast<const uint32_t*>(a->data);
         uint32_t x = d5[i], y = d5[j];
-        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
+        // B8-1 audit J3: UNSIGNED default order for a uint cell (net48
+        // Comparer.Default); a user IComparer<uint> supplies its own order.
+        return il2cpp_icomparer_compare_family(*slot, kComparerFamilyU4, &x, &y);
     }
-    if (kind == 6)
+    if (kind == kElemKindDateTime)
     {
         // A DateTime cell reaches the comparer as its TICKS (the packed kind
         // bits are stripped -- net48 DateTime.CompareTo ignores Kind).
@@ -3891,7 +3933,7 @@ struct AnyComparerCompare
 int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* comparer)
 {
     const int32_t kind = ReadAnyCompareKind(keys);
-    if (kind == 0)
+    if (kind == kElemKindNone)
     {
         Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(keys->data);
         if (comparer == nullptr) return ComparerCompareCore(slots[i], slots[j]);
@@ -3904,35 +3946,38 @@ int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* co
             return CompareStringOrdinalElement(slots[i], slots[j], true);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyRef, slots[i], slots[j]);
     }
-    if (kind == 1)
+    if (kind == kElemKindI4)
     {
         const int32_t* d = reinterpret_cast<const int32_t*>(keys->data);
         int32_t x = d[i], y = d[j];
         if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &x, &y);
     }
-    if (kind == 3)
+    if (kind == kElemKindF)
     {
         const float* d = reinterpret_cast<const float*>(keys->data);
         double x = static_cast<double>(d[i]), y = static_cast<double>(d[j]);
         if (comparer == nullptr) return DoubleCompareTotal(x, y);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyF, &x, &y);
     }
-    if (kind == 4)
+    if (kind == kElemKindD)
     {
         const double* d = reinterpret_cast<const double*>(keys->data);
         double x = d[i], y = d[j];
         if (comparer == nullptr) return DoubleCompareTotal(x, y);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyD, &x, &y);
     }
-    if (kind == 5)
+    if (kind == kElemKindU4)
     {
         const uint32_t* d5 = reinterpret_cast<const uint32_t*>(keys->data);
         uint32_t x = d5[i], y = d5[j];
         if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
-        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &x, &y);
+        // B8-1 audit J2: the uint KEY order is UNSIGNED for the default
+        // comparer; a user IComparer<uint> keeps its own order (same "(i,i)"
+        // slot).
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyU4, &x, &y);
     }
-    if (kind == 6)
+    if (kind == kElemKindDateTime)
     {
         // DateTime keys order by TICKS (packed kind bits stripped), the same
         // contract as CompareAnyDefault / net48 DateTime.CompareTo.
