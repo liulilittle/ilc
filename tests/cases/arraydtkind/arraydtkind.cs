@@ -17,7 +17,9 @@ using System;
 // .Kind per element; BinarySearch asserts the -2 (middle) and -3/-4 (tail)
 // complements so a "miss always -1" implementation cannot pass.
 //
-// GAPS recorded here (not fixed in this batch):
+// GAPS recorded here (not fixed in this batch). Every entry below is a
+// TRANSPILE-TIME LOUD rejection (the fold is skipped and the method becomes a
+// `not transpiled` stub) -- NEVER a silent wrong value.
 //   * the NON-generic Array.IndexOf(Array, object)/BinarySearch(Array, object)
 //     overloads over DateTime[]/TimeSpan[] stay LOUD -- this runtime has no
 //     DateTime/TimeSpan box helper, so a boxed comparand cannot exist. Needed
@@ -26,6 +28,27 @@ using System;
 //     "System.DateTime"/"System.TimeSpan" box classes, a CodeGenerator box
 //     dispatch arm for both types, and the element-kind 6/7 comparison arms
 //     in AnyElementEquals/CompareAnyElement (removed here as unreachable).
+//   * the generic overloads that still have no runtime entry for
+//     DateTime/TimeSpan (measured: each one logs
+//     "method fold failed -> skipped (... generic argument 0x11 ...)"):
+//       - Array.IndexOf<T>(T[], T, int)               (3-arg startIndex form)
+//       - Array.LastIndexOf<T>(T[])                   (2-arg)
+//       - Array.LastIndexOf<T>(T[], T, int)           (3-arg startIndex form)
+//       - Array.LastIndexOf<T>(T[], T, int, int)      (4-arg range form)
+//       - Array.BinarySearch<T>(T[], T, IComparer<T>) (3-arg comparer form)
+//       - Array.Sort<T>(T[], int, int)                (3-arg range sort)
+//       - Array.Sort<T>(T[], IComparer<T>)            (2-arg comparer sort)
+//     The mapped/supported generic set is: IndexOf<T>(T[], T) and
+//     IndexOf<T>(T[], T, int, int), BinarySearch<T>(T[], T) and
+//     BinarySearch<T>(T[], int, int, T), for System.DateTime and
+//     System.TimeSpan. The Sort<T> comparer/range shapes additionally need a
+//     comparer-call ABI for these element types (see
+//     RequireAnySortableStride's allowDateTime note).
+//
+// DEPENDENCY: this file's C1 fix relies on the `genArgNames` plumbing added by
+// commit 81ba17fd (the actual parent of 9213c629). The two must land together;
+// cherry-picking 9213c629 alone onto 9e1035f5 does NOT compile. See
+// docs/audit/wpa-depends-on-b4-1.md.
 class Q
 {
     static readonly DateTime SfDt = new DateTime(2019, 3, 4);
