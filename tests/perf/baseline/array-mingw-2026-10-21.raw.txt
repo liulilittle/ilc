@@ -1,53 +1,53 @@
-﻿# run-perf mingw runs=5 redproof=False stamp=2026-10-21_134345
+﻿# run-perf mingw runs=5 redproof=False stamp=2026-10-21_143929
 # command F:\il2cpp\.worktrees\nb-perf3\scripts\run-perf.ps1 -Compiler mingw -Runs 5 -AllowEnvCv
-# commit bc0382df8ad3e574d1624ca31e55fb226a1ce6f3 (clean)
+# commit e12603503b5d2319ac4d738bdaa8065089faef9a (clean)
 # compiler g++.exe (Rev5, Built by MSYS2 project) 16.1.0
 # cmake cmake version 3.22.1-g37088a8-dirty
 # dotnet_sdk 9.0.318
-# il2cppc_version il2cppc 1.0.0+bc0382df8ad3e574d1624ca31e55fb226a1ce6f3 (clean)
+# il2cppc_version il2cppc 1.0.0+e12603503b5d2319ac4d738bdaa8065089faef9a (clean)
 # cpu AMD Ryzen 9 7945HX with Radeon Graphics         cores=16 logical=32
 # os Microsoft Windows NT 10.0.26200.0
 # process_affinity 4294967295
 # jitter_ms 0
-# cpu_load_percent_before 94
+# cpu_load_percent_before 88
 == net48 run 1 ==
 array
-1313
+1118
 == net48 run 2 ==
 array
-1263
+1020
 == net48 run 3 ==
 array
-1416
+1268
 == net48 run 4 ==
 array
-1594
+1209
 == net48 run 5 ==
 array
-1472
+964
 # cmake_cache_flags CMAKE_BUILD_TYPE:STRING=Release | CMAKE_CXX_COMPILER:FILEPATH=D:/Program Files/mingw/msys2/mingw64/bin/g++.exe | CMAKE_CXX_FLAGS:STRING= | CMAKE_CXX_FLAGS_DEBUG:STRING=-g | CMAKE_CXX_FLAGS_MINSIZEREL:STRING=-Os -DNDEBUG | CMAKE_CXX_FLAGS_RELEASE:STRING=-O3 -DNDEBUG | CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
 # redproof_flags n/a (Release: -O3 / /O2)
 # clean_build False
 # sha256 perf.cs 51EE8ED762CBCA96FAC4A9C3FD8DE7768E4822C9D63243B97AFA27B260582E84
 # sha256 Perf_Perf.cpp 870DC7FE76759BA1A42C8691DD38A45591865E058C542ADC427C8AD357F0C79E
-# sha256 il2cpp_gen_exe.exe C45D4A6BF60DF2036F651CE0788D1CECB51624231EBBFE7848BBC7B2343F2728
-# sha256 perf.exe 0013189CE3CE5D7371681B5AE2F1900C346CB6FCBFCD51781109D3F4412BB8CD
-# sha256 benchlib.dll 41B2C7E1D0C95AE1B39655A3DE4320B1D393CE8E40674D6A8C2CA9A6AC115F1A
+# sha256 il2cpp_gen_exe.exe 8D6CCBDE2AD827D33BA357315AA383C23E03A7E3DCCC156B75ECAB5F6B72D742
+# sha256 perf.exe 5177989BEC7C08F0477B75A85219FB74270DF8AD21A195E47E237D58DC124B1B
+# sha256 benchlib.dll 3C26CE204ACAC86DA56D0687A7EC7C32E0EB136E1BADF973A56FD1C0A27D0FB3
 == ilc run 1 ==
 array
-157
+176
 == ilc run 2 ==
 array
-137
+199
 == ilc run 3 ==
 array
-166
+195
 == ilc run 4 ==
 array
-146
+207
 == ilc run 5 ==
 array
-141
+195
 # verdicts array=RATIO_OK_CV_OVER_LIMIT
 # cpu_load_percent_after 100
 # host_isolated False (load must be <= 70% before AND after; env-cv attribution requires -AllowEnvCv)
