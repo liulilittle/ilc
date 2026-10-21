@@ -309,7 +309,7 @@ if ($Compiler -eq "mingw") {
 # the two binaries. Hashes let an auditor prove the numbers came from these
 # files (and a clean-build marker says whether the build dir was fresh).
 $cacheFlags = @(Get-Content "$BuildDir/CMakeCache.txt" -ErrorAction SilentlyContinue |
-    Where-Object { $_ -match '^CMAKE_(BUILD_TYPE|CXX_FLAGS|CXX_COMPILER):' } | ForEach-Object { $_.Trim() })
+    Where-Object { $_ -match '^CMAKE_(BUILD_TYPE|CXX_FLAGS(_[A-Z]+)?|CXX_COMPILER):' } | ForEach-Object { $_.Trim() })
 Add-Raw "# cmake_cache_flags $($cacheFlags -join ' | ')"
 Add-Raw "# redproof_flags $(if ($FlagsArg) { $FlagsArg } elseif ($RedProof) { 'none (Release flags kept -- harness self-test)' } else { 'n/a (Release: -O3 / /O2)' })"
 Add-Raw "# clean_build $cleanBuild"
