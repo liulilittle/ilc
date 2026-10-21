@@ -56,6 +56,30 @@ class P
         decimal r5 = Math.Round(1.245m, 2);
         Console.WriteLine("[p0-19] round=" + F(r1) + "," + F(r2) + "," + F(r3) + "," + F(r4) + "," + F(r5));
 
+        // MidpointRounding overloads (2-arg decimals=0 and 3-arg digits).
+        decimal half15 = 1.5m;
+        decimal half25 = 2.5m;
+        decimal third = 1.005m;
+        decimal away15 = Math.Round(half15, MidpointRounding.AwayFromZero);
+        decimal away25 = Math.Round(half25, MidpointRounding.AwayFromZero);
+        decimal even15 = Math.Round(half15, MidpointRounding.ToEven);
+        decimal even25 = Math.Round(half25, MidpointRounding.ToEven);
+        decimal away2 = Math.Round(third, 2, MidpointRounding.AwayFromZero);
+        decimal even2 = Math.Round(third, 2, MidpointRounding.ToEven);
+        Console.WriteLine("[p0-19] roundmode=" + F(away15) + "," + F(away25) + "," + F(even15) + ","
+            + F(even25) + "," + F(away2) + "," + F(even2));
+
+        // Invalid enum value must throw ArgumentException on both sides.
+        try
+        {
+            decimal bad = Math.Round(half15, (MidpointRounding)5);
+            Console.WriteLine("[p0-19] mode5=no-throw:" + F(bad));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("[p0-19] mode5=" + ex.GetType().Name);
+        }
+
         decimal t1 = Math.Truncate(neg);
         decimal t2 = Math.Truncate(pos);
         Console.WriteLine("[p0-19] trunc=" + F(t1) + "," + F(t2));

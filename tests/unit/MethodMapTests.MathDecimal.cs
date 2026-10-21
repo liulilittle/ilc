@@ -124,6 +124,31 @@ public class MethodMapTestsMathDecimal
         Assert.Equal(new[] { "0" }, resolved.AppendLiterals);
     }
 
+    [Fact]
+    public void Resolve_Math_RoundDecimalMode_MapsToDecimalRoundMode()
+    {
+        var resolved = ResolveMember(Synthesize("Math", "Round",
+            new byte[] { 0x00, 0x02, 0x11, 0x05, 0x11, 0x05, 0x11, 0x05 }), "Round", Dec,
+            "System.MidpointRounding");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_round_mode", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(new[] { "dec", "i" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_Math_RoundDecimalDigitsMode_MapsToDecimalRound()
+    {
+        var resolved = ResolveMember(Synthesize("Math", "Round",
+            new byte[] { 0x00, 0x03, 0x11, 0x05, 0x11, 0x05, 0x08, 0x11, 0x05 }), "Round", Dec);
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_round", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(new[] { "dec", "i", "i" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.AppendLiterals);
+    }
+
     //--------------------------------------------------------------------------
     // No-misfire: the primitives keep their original icalls. A valuetype byte
     // WITHOUT the tracked decimal type (e.g. DateTime 0x11) must NOT take the
@@ -212,6 +237,26 @@ public class MethodMapTestsMathDecimal
         var resolved = ResolveMember(Synthesize("Math", "Round", Sig(0x0D, 0x0D)), "Round", null);
 
         Assert.Equal("il2cpp::runtime::icall_math_round_d", resolved.CppName);
+        Assert.Equal("d", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_Math_RoundDoubleMode_StaysDouble()
+    {
+        var resolved = ResolveMember(Synthesize("Math", "Round",
+            new byte[] { 0x00, 0x02, 0x0D, 0x0D, 0x11, 0x05 }), "Round", null, "System.MidpointRounding");
+
+        Assert.Equal("il2cpp::runtime::icall_math_round_mode_d", resolved.CppName);
+        Assert.Equal("d", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_Math_RoundDoubleDigitsMode_StaysDouble()
+    {
+        var resolved = ResolveMember(Synthesize("Math", "Round",
+            new byte[] { 0x00, 0x03, 0x0D, 0x0D, 0x08, 0x11, 0x05 }), "Round", null, "System.MidpointRounding");
+
+        Assert.Equal("il2cpp::runtime::icall_math_round_digits_mode_d", resolved.CppName);
         Assert.Equal("d", resolved.ResultKind);
     }
 

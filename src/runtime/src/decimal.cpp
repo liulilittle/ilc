@@ -2294,6 +2294,17 @@ void icall_decimal_round(Il2CppDecimal* result, const Il2CppDecimal* d, int32_t 
     Store(result, v);
 }
 
+// Math.Round(decimal, MidpointRounding): decimals defaults to 0 (net48
+// Math.Round forwards decimal.Round(d, 0, mode)). RoundCore keeps the mode
+// contract: 0 ToEven / 1 AwayFromZero, anything else ArgumentException.
+void icall_decimal_round_mode(Il2CppDecimal* result, const Il2CppDecimal* d, int32_t mode)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, mode);
+    Store(result, v);
+}
+
 void icall_decimal_truncate(Il2CppDecimal* result, const Il2CppDecimal* d)
 {
     DecCalc v;

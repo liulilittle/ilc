@@ -118,6 +118,10 @@ int32_t icall_decimal_sign(const Il2CppDecimal* a);
 // remain reachable only via Truncate/Floor/Ceiling, which call
 // DecCalc.InternalRound directly (Decimal.cs:888-893).
 void icall_decimal_round(Il2CppDecimal* result, const Il2CppDecimal* d, int32_t decimals, int32_t mode);
+// Math.Round(decimal, MidpointRounding) -- the 2-arg C# shape has no digits
+// slot, so it maps to this decimals=0 wrapper (same RoundCore validation:
+// mode outside 0..1 -> ArgumentException).
+void icall_decimal_round_mode(Il2CppDecimal* result, const Il2CppDecimal* d, int32_t mode);
 void icall_decimal_truncate(Il2CppDecimal* result, const Il2CppDecimal* d);
 void icall_decimal_floor(Il2CppDecimal* result, const Il2CppDecimal* d);
 void icall_decimal_ceiling(Il2CppDecimal* result, const Il2CppDecimal* d);

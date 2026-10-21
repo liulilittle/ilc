@@ -74,6 +74,17 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && IsMathDecimalParam(ps, 0, arg0Type) && ps[1] == 0x08)
                     return I("il2cpp::runtime::icall_decimal_round", 2, true, false, false, new[] { "dec", "i" }, "dec",
                         appendLiterals: new[] { "0" });
+                // Math.Round(decimal, MidpointRounding): the enum is a value
+                // type (0x11) riding the int32 slot; decimals is fixed at 0,
+                // so the dedicated 3-arg icall carries (result, d, mode).
+                if (ps.Length == 2 && IsMathDecimalParam(ps, 0, arg0Type) && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_round_mode", 2, true, false, false,
+                        new[] { "dec", "i" }, "dec");
+                // Math.Round(decimal, int, MidpointRounding): the existing
+                // 4-arg icall already matches (result, d, decimals, mode).
+                if (ps.Length == 3 && IsMathDecimalParam(ps, 0, arg0Type) && ps[1] == 0x08 && ps[2] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_round", 3, true, false, false,
+                        new[] { "dec", "i", "i" }, "dec");
                 if (ps.Length == 1)
                     return I("il2cpp::runtime::icall_math_round_d", 1, true, false, false, null, "d");
                 // Round(double, int digits): the 2-param overload MUST resolve
