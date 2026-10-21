@@ -1151,6 +1151,10 @@ Il2CppArray* il2cpp_linq_to_array(Il2CppArray* src)
     roots.Add(reinterpret_cast<void**>(&src));
 
     Il2CppArray* out = il2cpp_array_new(src->elemClass, src->elemSize, src->isRefElem, src->length);
+    // A3/B3: propagate the source element kind (the same clone contract as
+    // il2cpp_linq_to_array_family -- int64/double formatting and the
+    // element-kind Array scans depend on it).
+    out->elemKind = src->elemKind;
     if (src->length > 0)
     {
         const size_t bytes = static_cast<size_t>(src->length) * static_cast<size_t>(src->elemSize);

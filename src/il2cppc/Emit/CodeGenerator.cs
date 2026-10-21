@@ -9187,6 +9187,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 : types.Any(t => t.MatchesFullName(elemName))
                 ? ArrayElementClassCpp(elemName)
                 : $"il2cpp::il2cpp_class_by_name(\"{elemName}\")";
+            // A3: DateTime[]/TimeSpan[] cells are 8-byte CLR values whose
+            // ordering is by TICKS (DateTime packs its 2-bit kind into the
+            // top of the word). Stamp the array with its element kind so the
+            // element-kind Array scans can compare them correctly instead of
+            // reading the raw word (il2cpp_array_new_typed records the kind).
+            if (!isRefElem && elemName is "System.DateTime" or "System.TimeSpan")
+            {
+                var dtKind = elemName == "System.DateTime" ? 6 : 7;
+                return $"reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new_typed({elemSize}, {dtKind}, static_cast<int32_t>({EmitExpr(c.Args[0], md, types)})))";
+            }
             return $"reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_array_new({elemClassCpp}, {elemSize}, {(isRefElem ? "true" : "false")}, static_cast<int32_t>({EmitExpr(c.Args[0], md, types)})))";
         }
         // G1 (C1): a multidim ARRAY allocation (`new int[2,2]` -> the

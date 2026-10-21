@@ -190,28 +190,41 @@ Il2CppArray* RequireValueArraySort(Il2CppArray* arr, int32_t elemSize)
     return arr;
 }
 
-// LOUD P0-01 follow-up (audit B/A2): the element-kind driven sorts read 4- and
-// 8-byte value cells, and the 8-byte cell must carry a RECORDED primitive kind
-// (int64/uint64/double). A value array with no recorded kind (elemKind == 0)
-// only gets the historical int32 fallback for a 4-byte stride; an 8-byte cell
-// with no kind is AMBIGUOUS -- int64/double (runtime-built arrays) vs
-// DateTime (packed kind<<62|ticks) vs a user struct -- and comparing it as a
-// raw int64 silently mis-orders DateTime (a Local kind sets the sign bit).
-// Reject those, plus any stride that is neither 4 nor 8 bytes. Reference
-// arrays always pass. Callers invoke this ONLY when they will actually touch
-// elements (length > 1), so a 0/1-element array stays a no-op like net48.
-void RequireAnySortableStride(const Il2CppArray* a)
+// LOUD P0-01 follow-up (audit B/A2/A3): the element-kind driven sorts read 4-
+// and 8-byte value cells. A value array with no recorded kind (elemKind == 0)
+// only keeps the historical int32 fallback for a 4-byte stride:
+//   * an 8-byte cell with no kind is a USER VALUE TYPE -- net48 Array.Sort
+//     raises InvalidOperationException ("At least one object must implement
+//     IComparable"), so reject it with the SAME exception type;
+//   * any other stride (bool[]/char[]/decimal[]/Guid[]) has no ordering here
+//     -- a recorded gap, rejected loudly (never a 4-byte over-read).
+// DateTime[]/TimeSpan[] are NOT in this group: the transpiler stamps their
+// arrays with elemKind 6/7 (see il2cpp_array_new_kinded) and the comparison
+// below orders them by ticks, exactly like DateTime.CompareTo (which ignores
+// DateTimeKind). Reference arrays always pass. Callers invoke this ONLY when
+// they will actually touch elements (length > 1), so a 0/1-element array stays
+// a no-op like net48.
+void RequireAnySortableStride(const Il2CppArray* a, bool allowDateTime = false)
 {
     if (a->isRefElem) return;
+    if (a->elemKind == 6 || a->elemKind == 7)
+    {
+        // DateTime/TimeSpan cells order by ticks for the DEFAULT sort. A user
+        // IComparer<T> would need the T call ABI (not the int64 carrier), so
+        // the comparer-driven sorts stay a recorded LOUD gap rather than
+        // silently comparing the packed word.
+        if (allowDateTime) return;
+        il2cpp_throw_not_supported_exception(
+            "Array.Sort with an IComparer over DateTime[]/TimeSpan[] is not "
+            "wired (its comparer slot ABI is not emitted); the default "
+            "comparer sort is supported.");
+    }
     if (a->elemKind != 0) return;
     if (a->elemSize == 4) return;
     if (a->elemSize == 8)
     {
-        il2cpp_throw_not_supported_exception(
-            "Array.Sort over an 8-byte value-element array without a recorded "
-            "primitive element kind: the element is a DateTime/user struct "
-            "(no raw int64 ordering exists -- DateTime packs its kind into the "
-            "top bits). int64/uint64/double arrays carry their kind and sort.");
+        il2cpp_throw_invalid_operation_exception(
+            "Failed to compare two elements in the array.");
     }
     il2cpp_throw_not_supported_exception(
         "Array.Sort over a value-element array is supported only for 4-byte "
@@ -3653,6 +3666,12 @@ int32_t il2cpp_array_binary_search_any_icomparer_range(
 
 namespace {
 
+// Element kinds recorded on Il2CppArray (array.cpp) and consumed here:
+//   0 unrecorded | 1 int32 | 2 int64 | 3 single | 4 double | 5 uint32
+//   6 DateTime   | 7 TimeSpan -- both 8-byte CLR cells, ordered by TICKS
+// (net48 DateTime.CompareTo compares Ticks only and IGNORES DateTimeKind;
+// the stored cell is the packed kind<<62|ticks image, so the comparison must
+// shift the kind bits out instead of comparing the raw word).
 int32_t ReadAnyCompareKind(const Il2CppArray* a)
 {
     if (a->isRefElem) return 0;
@@ -3725,6 +3744,17 @@ int32_t CompareAnyDefault(Il2CppArray* a, int32_t i, int32_t j)
         const uint32_t* d = reinterpret_cast<const uint32_t*>(a->data);
         return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
     }
+    if (kind == 6)
+    {
+        // DateTime cell = kind<<62|ticks. net48 DateTime.CompareTo compares
+        // Ticks ONLY (DateTimeKind is ignored), so the packed kind bits are
+        // shifted out before the compare -- a raw int64 word compare would
+        // sort a Local value (bit 63 set) as a huge negative.
+        const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+        const int64_t x = static_cast<int64_t>(static_cast<uint64_t>(d[i]) >> 2);
+        const int64_t y = static_cast<int64_t>(static_cast<uint64_t>(d[j]) >> 2);
+        return x < y ? -1 : (x > y ? 1 : 0);
+    }
     const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
     return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
 }
@@ -3796,10 +3826,19 @@ struct AnyComparerCompare
         uint32_t x = d5[i], y = d5[j];
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
     }
-        const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
-        int64_t x = d[i], y = d[j];
+    if (kind == 6)
+    {
+        // A DateTime cell reaches the comparer as its TICKS (the packed kind
+        // bits are stripped -- net48 DateTime.CompareTo ignores Kind).
+        const int64_t* dc = reinterpret_cast<const int64_t*>(a->data);
+        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) >> 2);
+        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) >> 2);
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
     }
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    int64_t x = d[i], y = d[j];
+    return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
+}
 };
 
 // keys/items paired key comparison and swap.
@@ -3846,6 +3885,16 @@ int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* co
         uint32_t x = d5[i], y = d5[j];
         if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &x, &y);
+    }
+    if (kind == 6)
+    {
+        // DateTime keys order by TICKS (packed kind bits stripped), the same
+        // contract as CompareAnyDefault / net48 DateTime.CompareTo.
+        const int64_t* dc = reinterpret_cast<const int64_t*>(keys->data);
+        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) >> 2);
+        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) >> 2);
+        if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI8, &x, &y);
     }
     const int64_t* d = reinterpret_cast<const int64_t*>(keys->data);
     int64_t x = d[i], y = d[j];
@@ -3906,8 +3955,9 @@ void il2cpp_array_sort_any(Il2CppArray* arr)
     if (a->length > 1)
     {
         // A2 (1): the stride guard runs only when elements are actually
-        // touched -- a 0/1-element array stays the net48 no-op.
-        RequireAnySortableStride(a);
+        // touched -- a 0/1-element array stays the net48 no-op. A3: the
+        // DEFAULT comparer orders DateTime[]/TimeSpan[] by ticks.
+        RequireAnySortableStride(a, /*allowDateTime*/ true);
         try
         {
             QuickSortAnyIndices(&a, 0, a->length - 1, CompareAnyDefault);
@@ -3953,7 +4003,8 @@ void il2cpp_array_sort_any_range(Il2CppArray* arr, int32_t index, int32_t length
     if (length > 1)
     {
         // A2 (1): guard after the range validation, only when sorting.
-        RequireAnySortableStride(a);
+        // A3: the default comparer orders DateTime[]/TimeSpan[] by ticks.
+        RequireAnySortableStride(a, /*allowDateTime*/ true);
         try
         {
             QuickSortAnyIndices(&a, index, index + length - 1, CompareAnyDefault);

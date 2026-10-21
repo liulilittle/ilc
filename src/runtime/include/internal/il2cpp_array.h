@@ -81,7 +81,8 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
 // Value-element array allocation for the runtime's own builders (List<T>.ToArray,
 // LINQ materializers, Queue/Stack snapshots). Identical to il2cpp_array_new with
 // the element descriptor nullptr, but it ALSO records arr->elemKind from the
-// passed kind (1 int32, 2 int64, 3 single, 4 double, 5 uint32). Without the kind
+// passed kind (1 int32, 2 int64, 3 single, 4 double, 5 uint32, 6 DateTime,
+// 7 TimeSpan). Without the kind
 // the non-generic Array scans cannot tell an int64[] from a DateTime[]/struct[]
 // cell (both 8 bytes) and the element-kind sorts must reject the array.
 Il2CppArray* il2cpp_array_new_typed(int32_t elemSize, int32_t elemKind, int32_t length);
