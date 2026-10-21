@@ -165,29 +165,31 @@ Il2CppDelegate* RequireCallback(Il2CppObject* cb, const char* paramName)
 class RootScope
 {
 public:
-    RootScope() : m_count(0) {}
+    RootScope() {}
     ~RootScope()
     {
-        while (m_count > 0)
-        {
-            il2cpp_gc_remove_static_root(m_slots[m_count - 1]);
-            --m_count;
-        }
+        for (size_t i = m_slots.size(); i > 0; --i)
+            il2cpp_gc_remove_static_root(m_slots[i - 1]);
     }
     void Add(void** slot)
     {
-        // nb9 H-B1: guard the fixed slot table (an overflow corrupts m_count).
-        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        // The slot table grows on demand (the GroupBy result-selector path
+        // roots 6); a fixed table with an std::abort() overflow check would
+        // turn a rooting-count mistake into a silent process exit.
+        try
         {
-            std::abort();
+            m_slots.push_back(slot);
+        }
+        catch (...)
+        {
+            il2cpp_throw_not_supported_exception(
+                "LINQ: out of memory while rooting GC references");
         }
         il2cpp_gc_add_static_root(slot);
-        m_slots[m_count++] = slot;
     }
 
 private:
-    void** m_slots[8]; // nb9: the GroupBy result-selector path roots 6
-    int32_t m_count;
+    std::vector<void**> m_slots; // the GroupBy result-selector path roots 6
 };
 
 //------------------------------------------------------------------------------
@@ -913,6 +915,51 @@ Il2CppObject* il2cpp_linq_first_or_default_ref(Il2CppArray* src)
     RequireArray(src);
     RequireRefFamily(src);
     return src->length != 0 ? RefAt(src, 0) : nullptr;
+}
+
+//------------------------------------------------------------------------------
+// Last(predicate) over a reference source (see linq_map.h): walk BACKWARD and
+// return the LAST matching element (net48 short-circuits from the end). The
+// predicate may allocate, so both the delegate and the source are rooted and
+// re-read through their slots on every iteration; the element is passed by
+// value (an Il2CppObject* slot copy), so no managed address is held across the
+// callback.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_last_pred_ref(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    for (int32_t i = src->length - 1; i >= 0; --i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        if (InvokePredRef(d, elem)) return elem;
+    }
+    il2cpp_throw_invalid_operation_exception("Sequence contains no matching element");
+    return nullptr; // unreachable (the factory throws)
+}
+
+Il2CppObject* il2cpp_linq_last_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    for (int32_t i = src->length - 1; i >= 0; --i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        if (InvokePredRef(d, elem)) return elem;
+    }
+    return nullptr;
 }
 
 int32_t il2cpp_linq_first_or_default_predicate(Il2CppArray* src, Il2CppObject* pred)

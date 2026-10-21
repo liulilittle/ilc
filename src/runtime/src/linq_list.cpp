@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace il2cpp {
 
@@ -49,31 +50,39 @@ Il2CppObject* RequireList(Il2CppObject* list)
     return list;
 }
 
+// The callback may allocate, so every managed reference the entry holds across
+// a callback must be a registered static root. The slot COUNT is dynamic: an
+// entry can legitimately need more than a handful (except() holds list, source
+// snapshot, second, result and the exact-size trim = 5). A fixed array with an
+// overflow check turned the common "result got shorter" path of
+// List<T>.Except into a silent process abort (exit 3, no message, no managed
+// exception). The storage grows on demand and an allocation failure surfaces as
+// a real managed exception, never a silent exit.
 class RootScope
 {
 public:
-    RootScope() : m_count(0) {}
+    RootScope() {}
     ~RootScope()
     {
-        while (m_count > 0)
-        {
-            il2cpp_gc_remove_static_root(m_slots[m_count - 1]);
-            --m_count;
-        }
+        for (size_t i = m_slots.size(); i > 0; --i)
+            il2cpp_gc_remove_static_root(m_slots[i - 1]);
     }
     void Add(void** slot)
     {
-        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        try
         {
-            std::abort();
+            m_slots.push_back(slot);
+        }
+        catch (...)
+        {
+            il2cpp_throw_not_supported_exception(
+                "LINQ over List<T>: out of memory while rooting GC references");
         }
         il2cpp_gc_add_static_root(slot);
-        m_slots[m_count++] = slot;
     }
 
 private:
-    void** m_slots[4];
-    int32_t m_count;
+    std::vector<void**> m_slots;
 };
 
 //------------------------------------------------------------------------------
@@ -1222,6 +1231,40 @@ Il2CppArray* il2cpp_linq_list_order_by_key_desc_i4(Il2CppObject* list, Il2CppObj
             "OrderByDescending over a List of a non-int32 element family is not wired.");
     }
     return il2cpp_linq_order_by_key_desc_i4(snap, keySel);
+}
+
+// OrderBy over a REFERENCE-element list: the snapshot is a reference array, so
+// the array reference key-selector entry runs on it unchanged.
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_i4(Il2CppObject* list, Il2CppObject* keySel,
+                                                  int32_t desc, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_order_by_key_ref_i4(snap, keySel, desc);
+}
+
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_i8(Il2CppObject* list, Il2CppObject* keySel,
+                                                  int32_t desc, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_order_by_key_ref_i8(snap, keySel, desc);
+}
+
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_d(Il2CppObject* list, Il2CppObject* keySel,
+                                                 int32_t desc, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_order_by_key_ref_d(snap, keySel, desc);
+}
+
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_ref(Il2CppObject* list, Il2CppObject* keySel,
+                                                   int32_t desc, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_order_by_key_ref_ref(snap, keySel, desc);
 }
 
 Il2CppArray* il2cpp_linq_list_then_by_key_i4(Il2CppObject* list, Il2CppObject* k1,

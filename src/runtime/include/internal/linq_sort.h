@@ -109,4 +109,30 @@ Il2CppArray* il2cpp_linq_then_by_key_i4(Il2CppArray* src, Il2CppObject* k1Sel,
 Il2CppArray* il2cpp_linq_then_by_key_desc_i4(Il2CppArray* src, Il2CppObject* k1Sel,
                                              Il2CppObject* k2Sel);
 
+// Enumerable.OrderBy / OrderByDescending over a REFERENCE-element array with a
+// KEY SELECTOR (Func<TSource,TKey>) -- the reference-source counterpart of
+// il2cpp_linq_order_by_key_i4. Enumerable.OrderBy passes a 1-arg selector, so
+// it must NOT go through il2cpp_linq_order_by_ref/string (those take a 2-arg
+// Comparison<T>; calling a 1-arg function with 2 args is UB).
+//
+// The key family decides the entry suffix:
+//   _i4  TKey is a 32-bit integral (bool/char/sbyte/byte/short/ushort/int/uint)
+//        -- the selector's return is read from the int32 slot;
+//   _i8  TKey is int64/uint64;
+//   _d   TKey is float/double (the F-stack carrier);
+//   _ref TKey is a reference: strings compare ORDINAL (Comparer<string>.Default
+//        -- the arraysort ordinal contract), any other reference type defers to
+//        IComparable.CompareTo on the first key (Comparer<T>.Default).
+// Keys are cached EXACTLY ONCE per element (net48 EnumerableSorter). The
+// result is a NEW reference array; the source is never modified. `desc`
+// non-zero flips the order.
+Il2CppArray* il2cpp_linq_order_by_key_ref_i4(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_i8(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keySel,
+                                            int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* keySel,
+                                              int32_t desc);
+
 } // namespace il2cpp

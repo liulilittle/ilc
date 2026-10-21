@@ -39,8 +39,11 @@
 #include "linq_sort.h"
 
 #include "il2cpp_exception.h"
+#include "arraysort.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
+#include "il2cpp_string.h"
+#include "string_compare.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -62,6 +65,9 @@ const char kMulticastDelegateName[] = "System.MulticastDelegate";
 // The single-cast delegate class name (delegate.cpp descriptor).
 const char kDelegateClass[] = "System.Delegate";
 
+// The System.String descriptor name (string.cpp registration).
+const char kStringTypeName[] = "System.String";
+
 // Comparator callback shapes per element family.
 using CompareI4Fn = int32_t (*)(int32_t left, int32_t right);
 using CompareRefFn = int32_t (*)(Il2CppObject* left, Il2CppObject* right);
@@ -74,6 +80,47 @@ using CompareRefFn = int32_t (*)(Il2CppObject* left, Il2CppObject* right);
 // dispatch, linq.cpp precedent).
 using KeyI4Fn = int32_t (*)(int32_t value);
 using KeyI4ThisFn = int32_t (*)(Il2CppObject* self, int32_t value);
+
+// Key-selector callback shapes for a REFERENCE source element (the
+// Func<TRef,TKey> ABI: the element crosses as Il2CppObject*).
+using KeyI4RefFn = int32_t (*)(Il2CppObject* elem);
+using KeyI4RefThisFn = int32_t (*)(Il2CppObject* self, Il2CppObject* elem);
+using KeyI8RefFn = int64_t (*)(Il2CppObject* elem);
+using KeyI8RefThisFn = int64_t (*)(Il2CppObject* self, Il2CppObject* elem);
+using KeyDRefFn = double (*)(Il2CppObject* elem);
+using KeyDRefThisFn = double (*)(Il2CppObject* self, Il2CppObject* elem);
+using KeyRefRefFn = Il2CppObject* (*)(Il2CppObject* elem);
+using KeyRefRefThisFn = Il2CppObject* (*)(Il2CppObject* self, Il2CppObject* elem);
+
+// Per-binding dispatch for the reference-source key selectors (target in the
+// `this` slot for an instance-bound leaf -- the linqib mode).
+int32_t InvokeKeyRefI4(Il2CppDelegate* d, Il2CppObject* elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI4RefThisFn>(d->methodPtr)(d->target, elem)
+        : reinterpret_cast<KeyI4RefFn>(d->methodPtr)(elem);
+}
+
+int64_t InvokeKeyRefI8(Il2CppDelegate* d, Il2CppObject* elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI8RefThisFn>(d->methodPtr)(d->target, elem)
+        : reinterpret_cast<KeyI8RefFn>(d->methodPtr)(elem);
+}
+
+double InvokeKeyRefD(Il2CppDelegate* d, Il2CppObject* elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyDRefThisFn>(d->methodPtr)(d->target, elem)
+        : reinterpret_cast<KeyDRefFn>(d->methodPtr)(elem);
+}
+
+Il2CppObject* InvokeKeyRefRef(Il2CppDelegate* d, Il2CppObject* elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyRefRefThisFn>(d->methodPtr)(d->target, elem)
+        : reinterpret_cast<KeyRefRefFn>(d->methodPtr)(elem);
+}
 
 // Per-binding dispatch. The target is re-read through the ROOTED delegate
 // slot (every key-selector entry roots the delegate) so a compaction between
@@ -96,29 +143,32 @@ int32_t InvokeKeyI4(Il2CppDelegate* d, int32_t value)
 class RootScope
 {
 public:
-    RootScope() : m_count(0) {}
+    RootScope() {}
     ~RootScope()
     {
-        while (m_count > 0)
-        {
-            il2cpp_gc_remove_static_root(m_slots[m_count - 1]);
-            --m_count;
-        }
+        for (size_t i = m_slots.size(); i > 0; --i)
+            il2cpp_gc_remove_static_root(m_slots[i - 1]);
     }
     void Add(void** slot)
     {
-        // nb9 H-B1: guard the fixed slot table (an overflow corrupts m_count).
-        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        // The slot table grows on demand: a fixed table with an std::abort()
+        // overflow check would turn a rooting-count mistake into a silent
+        // process exit (exit 3, no message, no managed exception). An
+        // allocation failure now surfaces as a real managed exception.
+        try
         {
-            std::abort();
+            m_slots.push_back(slot);
+        }
+        catch (...)
+        {
+            il2cpp_throw_not_supported_exception(
+                "LINQ ordering: out of memory while rooting GC references");
         }
         il2cpp_gc_add_static_root(slot);
-        m_slots[m_count++] = slot;
     }
 
 private:
-    void** m_slots[4]; // source + result (+ then-by selectors)
-    int32_t m_count;
+    std::vector<void**> m_slots; // source + result (+ then-by selectors)
 };
 
 // Reference element at 'index', read through the (rooted, hence fresh) array.
@@ -605,6 +655,128 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i4(Il2CppArray* src, Il2CppObject* k1S
     Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
     Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
     return SortInt32TwoKeysCopy(s, d1, d2, true);
+}
+
+//------------------------------------------------------------------------------
+// OrderBy over a REFERENCE source with a KEY SELECTOR (see linq_sort.h).
+//
+// SortRefsKeyCopy<TKey> caches each element's key EXACTLY ONCE (net48
+// EnumerableSorter -- a side-effecting selector is never re-invoked), orders
+// native INDEX slots by the cached keys with a stable merge sort, then
+// materializes the result from the rooted source by index. No raw element
+// address is held across a selector call: the element is read through the
+// rooted array each time, and the result is allocated only after the last
+// selector call.
+//------------------------------------------------------------------------------
+template <typename TKey, typename InvokeKey, typename Cmp>
+Il2CppArray* SortRefsKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc,
+                             InvokeKey invokeKey, Cmp cmp)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n == 0)
+    {
+        return il2cpp_array_new(src->elemClass, sizeof(void*), true, 0);
+    }
+
+    std::vector<TKey> keys(static_cast<size_t>(n));
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        order[i] = i;
+        keys[i] = invokeKey(keySel, RefSlot(src, i));
+    }
+
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        const int32_t c = cmp(keys[a], keys[b]);
+                        return desc ? -c : c;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new(src->elemClass, sizeof(void*), true, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(result, i));
+        *slot = RefSlot(src, order[i]);
+    }
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(result->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[i]), slots[i]);
+    }
+    return result;
+}
+
+// Ordering of two reference KEYS: strings compare ORDINAL (Comparer<string>
+// .Default); any other reference type defers to IComparable.CompareTo on the
+// first key (Comparer<T>.Default), null-first.
+int32_t CompareRefKeys(Il2CppObject* a, Il2CppObject* b)
+{
+    if (a == b) return 0;
+    if (a == nullptr) return -1;
+    if (b == nullptr) return 1;
+    if (a->klass != nullptr && a->klass->name != nullptr &&
+        std::strcmp(a->klass->name, kStringTypeName) == 0)
+    {
+        const int v = il2cpp_string_compare_ordinal(
+            reinterpret_cast<const Il2CppString*>(a),
+            reinterpret_cast<const Il2CppString*>(b));
+        return (v < 0) ? -1 : (v > 0) ? 1 : 0;
+    }
+    return il2cpp_icomparable_compare_to(a, b);
+}
+
+template <typename T>
+int32_t CmpKeyValue(T a, T b)
+{
+    return (a > b) ? 1 : ((a < b) ? -1 : 0);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_ref_i4(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<int32_t>(s, d, desc != 0, InvokeKeyRefI4,
+        CmpKeyValue<int32_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_ref_i8(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<int64_t>(s, d, desc != 0, InvokeKeyRefI8,
+        CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keySel,
+                                            int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<double>(s, d, desc != 0, InvokeKeyRefD,
+        CmpKeyValue<double>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* keySel,
+                                              int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<Il2CppObject*>(s, d, desc != 0, InvokeKeyRefRef,
+        CompareRefKeys);
 }
 
 } // namespace il2cpp

@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace il2cpp {
 
@@ -135,33 +136,33 @@ bool InvokePredRef(Il2CppDelegate* d, Il2CppObject* o)
 class RootScope
 {
 public:
-    RootScope() : m_count(0) {}
+    RootScope() {}
     ~RootScope()
     {
-        while (m_count > 0)
-        {
-            il2cpp_gc_remove_static_root(m_slots[m_count - 1]);
-            --m_count;
-        }
+        for (size_t i = m_slots.size(); i > 0; --i)
+            il2cpp_gc_remove_static_root(m_slots[i - 1]);
     }
     void Add(void** slot)
     {
-        // nb9 H-B1: FoldRef roots THREE slots (delegate + source + seed); the
-        // old [2] capacity wrote past the array into m_count and corrupted the
-        // root table (a ref-accumulator Aggregate could crash). The capacity
-        // must always cover the Add count -- and an overflow is a programming
-        // error that must abort, never silently corrupt the count.
-        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        // The slot table grows on demand. A fixed table with an std::abort()
+        // overflow check turns a rooting-count mistake into a silent process
+        // exit (exit 3, no message, no managed exception) -- List<T>.Except hit
+        // exactly that. An allocation failure now surfaces as a managed
+        // exception instead.
+        try
         {
-            std::abort();
+            m_slots.push_back(slot);
+        }
+        catch (...)
+        {
+            il2cpp_throw_not_supported_exception(
+                "LINQ: out of memory while rooting GC references");
         }
         il2cpp_gc_add_static_root(slot);
-        m_slots[m_count++] = slot;
     }
 
 private:
-    void** m_slots[4]; // delegate + source array + seed (FoldRef) + spare
-    int32_t m_count;
+    std::vector<void**> m_slots; // delegate + source array + seed (FoldRef)
 };
 
 } // namespace

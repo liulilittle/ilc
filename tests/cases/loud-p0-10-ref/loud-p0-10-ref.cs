@@ -19,6 +19,7 @@ namespace Cases
         public bool IsLong(string s) { return s.Length > 2; }
         public bool NonEmpty(string s) { return s.Length > 0; }
         public string Bang(string s) { return s + "!"; }
+        public bool Never(string s) { return false; }
         public bool IsLongWidget(Widget w) { return w.V > 1; }
         public Widget Wrap(Widget w) { return new Widget(w.V * 10); }
     }
@@ -89,6 +90,32 @@ namespace Cases
             try
             {
                 new string[0].Last();
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return true;
+            }
+        }
+
+        static bool ThrowsLastPredNoMatch()
+        {
+            try
+            {
+                new string[] { "a" }.Last(new RefOps().Never);
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return true;
+            }
+        }
+
+        static bool ThrowsLastPredEmpty()
+        {
+            try
+            {
+                new string[0].Last(new RefOps().IsLong);
                 return false;
             }
             catch (InvalidOperationException)
@@ -194,6 +221,46 @@ namespace Cases
             Console.WriteLine("[p0-10-class-fod-null]=" + (new Widget[0].FirstOrDefault() == null));
             Console.WriteLine("[p0-10-class-last]=" + widgets.Last().V);
             Console.WriteLine("[p0-10-class-lastod-null]=" + (new Widget[0].LastOrDefault() == null));
+
+            // ===== Last(predicate) / LastOrDefault(predicate) over ref =====
+            // (B5-R2: these kernels did not exist; Last(pred) used to be LOUD.)
+            Console.WriteLine("[p0-10-lastp]=" + words.Last(isLong));
+            Console.WriteLine("[p0-10-lastp-none-throws]=" + ThrowsLastPredNoMatch());
+            Console.WriteLine("[p0-10-lastp-empty-throws]=" + ThrowsLastPredEmpty());
+            Console.WriteLine("[p0-10-lastodp]=" + words.LastOrDefault(isLong));
+            Console.WriteLine("[p0-10-lastodp-none-null]=" + (words.LastOrDefault(ops.Never) == null));
+            Console.WriteLine("[p0-10-lastodp-empty-null]=" + (empty.LastOrDefault(isLong) == null));
+            Console.WriteLine("[p0-10-class-lastp]=" + widgets.Last(isLongWidget).V);
+
+            // ===== List<string>.Except (B5-R2: used to abort the process) =====
+            // "result got shorter" is the common case and used to overflow the
+            // fixed root table -> std::abort (exit 3, no output, no exception).
+            System.Collections.Generic.List<string> excA =
+                new System.Collections.Generic.List<string> { "a", "b", "a", "C" };
+            System.Collections.Generic.List<string> excB =
+                new System.Collections.Generic.List<string> { "a" };
+            string[] exc = excA.Except(excB).ToArray();
+            Console.WriteLine("[p0-10-list-except-len]=" + exc.Length);
+            Console.WriteLine("[p0-10-list-except-vals]=" + string.Join(",", exc));
+            Console.WriteLine("[p0-10-list-except-src-unchanged]=" +
+                excA.Count + ":" + string.Join(",", excA.ToArray()));
+            Console.WriteLine("[p0-10-list-except-nochange]=" +
+                string.Join(",", new System.Collections.Generic.List<string> { "a", "b" }
+                    .Except(new System.Collections.Generic.List<string>()).ToArray()));
+            Console.WriteLine("[p0-10-list-except-array-second]=" +
+                string.Join(",", excA.Except(new string[] { "a" }).ToArray()));
+            Console.WriteLine("[p0-10-list-except-empty-second]=" +
+                string.Join(",", excA.Except(new System.Collections.Generic.List<string>()).ToArray()));
+
+            // List<long> / List<int> Except (value families)
+            System.Collections.Generic.List<long> excLong =
+                new System.Collections.Generic.List<long> { 4294967297L, 3L, 1L };
+            Console.WriteLine("[p0-10-list-except-long]=" + string.Join(",",
+                excLong.Except(new System.Collections.Generic.List<long> { 1L }).ToArray()));
+            System.Collections.Generic.List<int> excInt =
+                new System.Collections.Generic.List<int> { 1, 2, 3, 1 };
+            Console.WriteLine("[p0-10-list-except-int]=" + string.Join(",",
+                excInt.Except(new System.Collections.Generic.List<int> { 2 }).ToArray()));
         }
     }
 }

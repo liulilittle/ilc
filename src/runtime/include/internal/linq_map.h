@@ -127,6 +127,19 @@ Il2CppObject* il2cpp_linq_first_or_default_ref(Il2CppArray* src);
 //          above: null -> ArgumentNullException)
 int32_t       il2cpp_linq_first_or_default_predicate(Il2CppArray* src, Il2CppObject* pred);
 
+// Last(predicate) over a REFERENCE-element array -- the reference counterpart
+// of il2cpp_linq_last_predicate. Walks the array BACKWARD and returns the LAST
+// element satisfying the predicate (net48 short-circuits from the end). No
+// match, or an empty source -> InvalidOperationException.
+//   src  : reference-element source array (null -> ArgumentNullException)
+//   pred : delegate wrapping bool(*)(Il2CppObject*); null -> ArgumentNullException
+Il2CppObject* il2cpp_linq_last_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+
+// LastOrDefault(predicate) over a REFERENCE-element array: the LAST matching
+// element, or nullptr when no element matches / the source is empty (never
+// throws for those). Same walk direction and callback ABI as last_pred_ref.
+Il2CppObject* il2cpp_linq_last_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+
 // Take -- the first `count` elements (net48 semantics, probe-verified):
 //   count <= 0      -> an EMPTY int32[] (net48's deferred TakeIterator only
 //                      walks while `count > 0`, so a NEGATIVE count yields an

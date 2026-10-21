@@ -161,6 +161,19 @@ Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
                                   Il2CppObject* sel, int32_t kind);
 bool        il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* second, int32_t kind);
 
+// Ordering over a REFERENCE-element list (List<string>/List<object>/...): the
+// snapshot is a reference array, so the reference key-selector surface runs on
+// it. The suffix is the KEY family (i4 / i8 / d / ref) exactly like the array
+// entries; `desc` non-zero flips the order.
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_i4(Il2CppObject* list, Il2CppObject* keySel,
+                                                  int32_t desc, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_i8(Il2CppObject* list, Il2CppObject* keySel,
+                                                  int32_t desc, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_d(Il2CppObject* list, Il2CppObject* keySel,
+                                                 int32_t desc, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_ref(Il2CppObject* list, Il2CppObject* keySel,
+                                                   int32_t desc, int32_t kind);
+
 // Ordering (int32 element + int32 key family: the array key-selector surface).
 Il2CppArray* il2cpp_linq_list_order_by_key_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_desc_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);

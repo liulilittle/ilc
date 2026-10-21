@@ -388,9 +388,43 @@ public static partial class MethodRefResolver
                 case "Last" when count < 2:
                     return I("il2cpp::il2cpp_linq_last_ref", 1, true, true, false, OneArg,
                         returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                case "Last" when count >= 2:
+                    return I("il2cpp::il2cpp_linq_last_pred_ref", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
                 case "LastOrDefault" when count < 2:
                     return I("il2cpp::il2cpp_linq_last_or_default_ref", 1, true, true, false, OneArg,
                         returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                case "LastOrDefault" when count >= 2:
+                    return I("il2cpp::il2cpp_linq_last_or_default_pred_ref", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                // B5-R2: OrderBy / OrderByDescending over a REFERENCE source.
+                // Enumerable.OrderBy passes a 1-arg key selector, so it must NOT
+                // go through il2cpp_linq_order_by_ref/string (2-arg Comparison<T>
+                // -- calling a 1-arg function with 2 args is UB). The TKey family
+                // picks the entry suffix; the result is a NEW reference array of
+                // the same element type.
+                case "OrderBy" when count >= 2:
+                case "OrderByDescending" when count >= 2:
+                {
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                        throw new NotSupportedException(
+                            "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
+                            "source is not wired (the runtime has no index key-selector entry)");
+                    string keySuffix = LinqKeyFamilySuffix(genArgs[1]);
+                    if (keySuffix.Length == 0)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                            "not wired: the reference-source key-selector surface covers int32/int64/" +
+                            "double/float and reference keys only");
+                    // The desc flag is an APPENDED literal (0/1), never a
+                    // consumed IL argument -- ParamCount stays the IL arity.
+                    return I($"il2cpp::il2cpp_linq_order_by_key_ref_{keySuffix}", 2, true, true, false,
+                        TwoArg,
+                        returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { name == "OrderBy" ? "0" : "1" });
+                }
                 default:
                     break;
             }
@@ -1237,6 +1271,19 @@ public static partial class MethodRefResolver
 
     // The narrow CELL kind code (linq.h IL2CPP_LINQ_NARROW_*) of a generic
     // argument byte; null when the byte is not a narrow integral family.
+    // The KEY-family suffix of the reference-source OrderBy entries
+    // (il2cpp_linq_order_by_key_ref_<suffix>): "" when the key family has no
+    // kernel. int32-slot primitives (incl. the narrow ones and bool/char) ride
+    // the i4 entry, float/double ride the d entry (the F-stack carrier).
+    private static string LinqKeyFamilySuffix(byte b) => b switch
+    {
+        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+        0x0A or 0x0B => "i8",
+        0x0C or 0x0D => "d",
+        0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "ref",
+        _ => "",
+    };
+
     private static string? LinqNarrowCode(byte b) => b switch
     {
         0x04 => "0", // sbyte
@@ -1468,11 +1515,37 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_list_sequence_equal", 2, true, false, false,
                     new[] { "", "" }, appendLiterals: new[] { K });
             case "OrderBy":
-                return I("il2cpp::il2cpp_linq_list_order_by_key_i4", 2, true, true, false,
-                    L2, returnTypeName: "System.Int32[]", appendLiterals: new[] { K });
             case "OrderByDescending":
-                return I("il2cpp::il2cpp_linq_list_order_by_key_desc_i4", 2, true, true, false,
-                    L2, returnTypeName: "System.Int32[]", appendLiterals: new[] { K });
+            {
+                // A List<int> rides the int32 key-selector surface. A
+                // REFERENCE-element list snapshots to a reference array and
+                // rides the reference key-selector surface (the list entry
+                // takes the desc flag as an appended literal).
+                bool desc = name == "OrderByDescending";
+                if (K == "0")
+                {
+                    return I(desc
+                            ? "il2cpp::il2cpp_linq_list_order_by_key_desc_i4"
+                            : "il2cpp::il2cpp_linq_list_order_by_key_i4",
+                        2, true, true, false, L2,
+                        returnTypeName: "System.Int32[]", appendLiterals: new[] { K });
+                }
+                if (K != "1")
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a List of the element family kind {K} is not wired " +
+                        "(the list key-selector surface covers int32 and reference elements)");
+                if (genArgs is not { Length: >= 2 })
+                    return null;
+                string keySuffix = LinqKeyFamilySuffix(genArgs[1]);
+                if (keySuffix.Length == 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                        "not wired: the reference-source key-selector surface covers int32/int64/" +
+                        "double/float and reference keys only");
+                return I($"il2cpp::il2cpp_linq_list_order_by_key_ref_{keySuffix}", 2, true, true, false,
+                    L2, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                    appendLiterals: new[] { desc ? "1" : "0", K });
+            }
             case "Sum" or "Min" or "Max" or "Average":
             {
                 string shortName = name.ToLowerInvariant();
