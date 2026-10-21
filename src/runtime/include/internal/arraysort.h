@@ -81,6 +81,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_array.h"
+#include "il2cpp_time.h" // A3: Il2CppDateTime/Il2CppTimeSpan by-value entries
 
 #include <cstdint>
 
@@ -417,6 +418,25 @@ int32_t il2cpp_array_binary_search_any(Il2CppArray* arr, Il2CppObject* value);
 int32_t il2cpp_array_binary_search_any_icomparer(Il2CppArray* arr, Il2CppObject* value, Il2CppObject* comparer);
 int32_t il2cpp_array_binary_search_any_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value);
 int32_t il2cpp_array_binary_search_any_icomparer_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value, Il2CppObject* comparer);
+
+// A3: Array.IndexOf<DateTime>/BinarySearch<DateTime> (the by-VALUE generic
+// instantiation -- no boxing needed). Cells are the CLR 8-byte images
+// (kind<<62|ticks); comparison uses TICKS only, matching DateTime.CompareTo
+// (DateTimeKind is not part of ordering or equality).
+int32_t il2cpp_array_index_of_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value);
+int32_t il2cpp_array_binary_search_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value);
+int32_t il2cpp_array_index_of_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value);
+int32_t il2cpp_array_binary_search_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value);
+// The range forms: IndexOf<T>(T[], T, int startIndex, int count) and
+// BinarySearch<T>(T[], int index, int length, T).
+int32_t il2cpp_array_index_of_datetime_range(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                             int32_t startIndex, int32_t count);
+int32_t il2cpp_array_binary_search_datetime_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                  runtime::Il2CppDateTime value);
+int32_t il2cpp_array_index_of_timespan_range(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                             int32_t startIndex, int32_t count);
+int32_t il2cpp_array_binary_search_timespan_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                  runtime::Il2CppTimeSpan value);
 
 // Array.BinarySearch<T>(T[], int, int, T) -- the range search (no comparer).
 int32_t il2cpp_array_binary_search_int32_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t value);

@@ -69,7 +69,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapLinq(MetadataReader md, BlobHandle sigHandle, string owner, string name,
-        byte[] ps, int count, byte[]? genArgs, string? receiverType, bool receiverIsAddress,
+        byte[] ps, int count, byte[]? genArgs, string[]? genArgNames, string? receiverType, bool receiverIsAddress,
         string? arg0Type, string? arg1Type)
     {
         // [0] the source array, [1] the predicate/selector delegate.
@@ -637,16 +637,41 @@ public static partial class MethodRefResolver
                 //   GroupBy<TSource,TKey,TElement,TResult>  -> genArgs[3] = TResult
                 // Everything is served by il2cpp_linq_group_by_full with the
                 // two family codes as trailing literals.
-                if (genArgs is not { Length: >= 2 } || genArgs[1] != 0x08)
+                // B4-1 (P0-04): the runtime bucket key is an int32 slot
+                // (linq_map.h:249/400), so the wireable key families are the
+                // ones whose VALUE fits that slot AND whose callback result can
+                // be narrowed back to the declared TKey width (KeyKindFor):
+                // int/bool/char/sbyte/byte/short/ushort/uint. The gate below is
+                // kept EXACTLY equal to KeyKindFor's supported set -- a family
+                // the runtime cannot bucket correctly must NOT be let through
+                // (that mismatch is what produced silent wrong buckets).
+                // long (0x0A) is deliberately NOT here: the int32 bucket would
+                // truncate 64-bit keys. Every rejection is a TRANSPILE-TIME
+                // LOUD, and the complete list of deliberately-rejected shapes
+                // (long/ulong/decimal/DateTime/Guid/any 0x11 key, non-int32
+                // source arrays) with the required ABI change surface lives in
+                // docs/audit/b4-gaps.md -- never widen this gate without it.
+                int keyKind = genArgs is { Length: >= 2 } ? KeyKindFor(genArgs[1]) : -1;
+                if (genArgs is not { Length: >= 2 } || keyKind < 0)
                 {
+                    // The FULL type name (GenericArgFullNames) is the only way to
+                    // tell the 0x11 value-type keys apart -- every struct/enum
+                    // key byte is 0x11, so the byte alone cannot say whether the
+                    // rejected key is System.Decimal, System.DateTime or a user
+                    // struct. Use the name when the slot has one.
                     string elemArgType = genArgs is { Length: >= 1 }
                         ? GenericArgTypeName(genArgs[0]) : "?";
                     string keyArgType = genArgs is { Length: >= 2 }
-                        ? GenericArgTypeName(genArgs[1]) : "?";
+                        ? (genArgNames is { Length: >= 2 } && genArgNames[1] != "?"
+                            ? genArgNames[1]
+                            : GenericArgTypeName(genArgs[1]))
+                        : "?";
                     throw new NotSupportedException(
                         $"Enumerable.GroupBy<{elemArgType},{keyArgType}> not wired: " +
-                        "the stage-1 runtime grouping surface is int32 (0x08) " +
-                        "elements AND int32 (0x08) keys only -- the runtime buckets by int32 keys");
+                        "the stage-1 runtime grouping surface is int32 (0x08) elements AND an integer " +
+                        "key that fits the int32 bucket (int/bool/char/sbyte/byte/short/ushort/uint); " +
+                        $"{DescribeRejectedKey(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0, keyArgType)} " +
+                        "has no runtime key carrier yet (see docs/audit/b4-gaps.md)");
                 }
                 {
                     var gbParams = LinqEncodedParamTypes(md, sigHandle);
@@ -714,7 +739,9 @@ public static partial class MethodRefResolver
                     int resIdx = resArg >= 0 ? resArg : -1;
                     var argOrder = new[] { 0, 1, elemIdx, cmpIdx, resIdx };
                     var casts = new[] { "a", "", "", "", "" };
-                    var literals = new[] { ek, rk };
+                    // B4-1 (P0-04): the THIRD literal is the key family the
+                    // runtime narrows the callback result to (KeyKindFor).
+                    var literals = new[] { ek, rk, keyKind.ToString(System.Globalization.CultureInfo.InvariantCulture) };
                     var retType = rk == "0"
                         ? "System.Linq.IGroupingResult"
                         : rk == "1" ? "System.Int32[]"
@@ -724,7 +751,7 @@ public static partial class MethodRefResolver
                     // The result is ALWAYS a managed reference (a grouping
                     // result object or a result array), so the result temp is
                     // the Il2CppObject* slot (rv=true, rr=true).
-                    return I("il2cpp::il2cpp_linq_group_by_full", count, true, true, false, casts,
+                    return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, casts,
                         returnTypeName: retType, appendLiterals: literals,
                         argOrder: argOrder);
                 }
@@ -837,6 +864,10 @@ public static partial class MethodRefResolver
                         0x08 => "i4",
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "i4",
                         0x0A => "i8",
+                        // B4-1 (P0-06): ulong TAccumulate rides the SAME int64
+                        // accumulator slot as long (the value bit pattern is
+                        // width-identical; net48's ulong fold is unchecked).
+                        0x0B => "i8",
                         // nb9 fix P0-1: float is its OWN accumulator family.
                         // The old code folded 0x0C into "d", so the float
                         // return was read back as a double (upper 32 bits
@@ -852,6 +883,13 @@ public static partial class MethodRefResolver
                             $"Enumerable.Aggregate TAccumulate '{GenericArgTypeName(accByte)}' is not a supported accumulator family");
                     }
                     var srcFam = LinqElementFamily(genArgs, receiverType, arg0Type);
+                    // B4-1 (P0-06): a ulong accumulator is CARRIED as int64
+                    // (same width/bit pattern), so its tracked result type is
+                    // Int64 -- the raw UInt64 tracked type is not a known
+                    // value slot downstream (the root-clear pass cleared the
+                    // int64 temp as if it were a GC root). Values above
+                    // long.MaxValue keep their bit pattern but print signed.
+                    string? i8Track = accByte == 0x0B ? "System.Int64" : null;
                     if (count == 3)
                     {
                         return acc switch
@@ -860,9 +898,9 @@ public static partial class MethodRefResolver
                                 new[] { "a", "i", "" }),
                             "i8" => srcFam == "i8"
                                 ? I("il2cpp::il2cpp_linq_aggregate_seed_i8_i8", 3, true, false, false,
-                                    new[] { "a", "l", "" }, resultKind: "l")
+                                    new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track)
                                 : I("il2cpp::il2cpp_linq_aggregate_seed_i8", 3, true, false, false,
-                                    new[] { "a", "l", "" }, resultKind: "l"),
+                                    new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track),
                             "f" => srcFam is "f" or "d"
                                 ? I("il2cpp::il2cpp_linq_aggregate_seed_f_d", 3, true, false, false,
                                     new[] { "a", "d", "" }, resultKind: "d")
@@ -880,9 +918,10 @@ public static partial class MethodRefResolver
                                 3, true, true, false, new[] { "a", "", "" }),
                         };
                     }
-                    // count == 4: TResult decides the result carrier.
+                    // count == 4: TResult decides the result carrier. 0x0B
+                    // (ulong) rides the int64 carrier like 0x0A (B4-1/P0-06).
                     bool resRef = resByte is not (0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06
-                        or 0x07 or 0x09 or 0x0A or 0x0C or 0x0D);
+                        or 0x07 or 0x09 or 0x0A or 0x0B or 0x0C or 0x0D);
                     string seedCast = acc switch
                     {
                         "i4" => "i",
@@ -896,7 +935,7 @@ public static partial class MethodRefResolver
                     // the int32 projector, truncating long TResult and reading
                     // a float TResult's C++ float return as an integer.
                     string resSuffix = resRef ? "_rs_ref"
-                        : resByte == 0x0A ? "_rs_i8"
+                        : resByte is 0x0A or 0x0B ? "_rs_i8"
                         : resByte == 0x0C ? "_rs_f"
                         : resByte == 0x0D ? "_rs_d"
                         : "_rs_i4";
@@ -911,8 +950,9 @@ public static partial class MethodRefResolver
                     return I(cppBase + resSuffix, 4, true, resRef, false,
                         new[] { "a", seedCast, "", "" },
                         resultKind: resRef ? null
-                            : (resByte == 0x0A ? "l"
-                               : resByte is 0x0C or 0x0D ? "d" : null));
+                            : (resByte is 0x0A or 0x0B ? "l"
+                               : resByte is 0x0C or 0x0D ? "d" : null),
+                        returnTypeName: resByte == 0x0B ? "System.Int64" : null);
                 }
                 return null;
             case "LongCount":
@@ -1046,6 +1086,42 @@ public static partial class MethodRefResolver
         var pt = MethodSignatureCoder.Decode(md, sigHandle).ParamTypes;
         return pt.Length == 0 ? Array.Empty<string>() : CodeGenerator.SplitTopLevel(pt).ToArray();
     }
+
+    //--------------------------------------------------------------------------
+    // B4-1 (P0-04): KeyKindFor -- the GroupBy KEY family code the runtime uses
+    // to narrow a narrow-TKey selector result back to its declared width
+    // (linq_map.cpp NarrowKey). MUST stay in lockstep with the runtime switch
+    // and with the GroupBy gate: a family without a correct narrowing rule has
+    // no key carrier and must be LOUD, never bucketed from a raw register read.
+    //   -1 unsupported (LOUD) | 0 int32 | 1 uint8 | 2 int8 | 3 uint16 |
+    //    4 int16 | 5 uint32 | 6 bool
+    // char (0x03) is a 16-bit unsigned value in an int32 slot -> uint16 rule.
+    //--------------------------------------------------------------------------
+    private static int KeyKindFor(byte keyByte) => keyByte switch
+    {
+        0x08 => 0, // int32   (identity)
+        0x05 => 1, // byte
+        0x04 => 2, // sbyte
+        0x07 => 3, // ushort
+        0x03 => 3, // char -> uint16 narrowing
+        0x06 => 4, // short
+        0x09 => 5, // uint (bit pattern; equality only)
+        0x02 => 6, // bool
+        _ => -1,   // long/ulong/decimal/DateTime/Guid/reference: LOUD
+    };
+
+    // D6: the rejected GroupBy KEY described in the LOUD message. The old
+    // template called every non-integer key a "value-type", so a ulong key was
+    // reported as "value-type (0x0B)" -- misleading, since 0x0B is a 64-bit
+    // integer. Split the two cases so the message names the real family.
+    private static string DescribeRejectedKey(byte keyByte, string keyArgType) => keyByte switch
+    {
+        0x0A => $"a 64-bit integer (0x0A long / {keyArgType}) key",
+        0x0B => $"a 64-bit unsigned integer (0x0B ulong / {keyArgType}) key",
+        0x11 => $"a value-type ({keyArgType}) key",
+        0x0E => $"a reference ({keyArgType}) key",
+        _ => $"a non-integer ({keyArgType}) key",
+    };
 
     private static string GenericDefNameOf(string encoded)
     {

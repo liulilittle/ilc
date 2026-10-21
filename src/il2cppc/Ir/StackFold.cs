@@ -6557,6 +6557,23 @@ public static class StackFold
         // gets the "p" (void*) carrier -- the call result temp must hold the
         // full-width raw function pointer (the old null collapsed to int32_t,
         // truncating the x64 address before the calli could cast it).
+        // A3: a VALUETYPE (0x11) return whose type is System.DateTime /
+        // System.TimeSpan gets the runtime struct slot kinds "dt"/"ts" -- the
+        // old null declared the temp int32_t, so passing a helper's DateTime
+        // result to a typed runtime entry failed to compile.
+        if (ret == 0x11)
+        {
+            var vtHandle = sig.ReadTypeHandle();
+            var vtName = vtHandle.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)vtHandle),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)vtHandle),
+                _ => null,
+            };
+            if (vtName == "System.DateTime") return "dt";
+            if (vtName == "System.TimeSpan") return "ts";
+            return null;
+        }
         return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : ret is 0x1B ? "p" : null;
     }
 

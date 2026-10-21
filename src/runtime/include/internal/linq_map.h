@@ -319,6 +319,26 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
                                         Il2CppObject* resSel, int32_t elemKind, int32_t rsKind);
 
 //------------------------------------------------------------------------------
+// B4-1 (P0-04): the integer KEY FAMILY of the same entry.
+//
+// The bucket key is an int32 slot, but a NARROW key selector (`x => (byte)x`)
+// returns its value in a register whose upper bits are NOT defined by the C++
+// return type (uint8_t/int8_t/uint16_t/int16_t) while the callback ABI reads
+// the result as int32_t. Reading that register raw produced a key such as 300
+// where net48's key is 44 -- a WRONG bucket (split/merged groups), not a
+// display artifact. keyKind makes the runtime NARROW the callback result back
+// to the declared TKey width before bucketing:
+//   0 int32 (identity) | 1 uint8 | 2 int8 | 3 uint16 | 4 int16 |
+//   5 uint32 (bit pattern, equality only) | 6 bool (0/1)
+// The element/result families and every other argument are identical to
+// il2cpp_linq_group_by_full (which forwards keyKind = 0).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* elemSel, Il2CppObject* cmp,
+                                            Il2CppObject* resSel, int32_t elemKind,
+                                            int32_t rsKind, int32_t keyKind);
+
+//------------------------------------------------------------------------------
 // nb9 FIX BATCH -- Enumerable operators over an IGrouping bucket / the whole
 // GroupBy result. Each entry materializes the grouping's EXACT-SIZE element
 // snapshot (il2cpp_linq_grouping_get_elements) and then reuses the int32 array

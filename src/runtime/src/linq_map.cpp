@@ -57,7 +57,7 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -1497,27 +1497,95 @@ bool IsDefaultIntComparer(Il2CppObject* cmp)
     return cmp == il2cpp_equality_comparer_default_int() || cmp == il2cpp_comparer_default_int();
 }
 
-// ComparerKeyEquals -- IEqualityComparer<int>.Equals(key, existingKey).
+// ComparerKeyEquals -- IEqualityComparer<TKey>.Equals(key, existingKey).
 //   * nullptr                       -> int32 equality (the default contract)
 //   * the default singletons        -> int32 equality
-//   * a user comparer               -> the reflected virtual Equals(int,int)
-// The reflected lookup uses the signature-matched slot so an
-// Equals(object)/IEquatable overload is never called through the (i,i) ABI.
-bool ComparerKeyEquals(Il2CppObject* cmp, int32_t key, int32_t existing)
+//   * a user comparer               -> the reflected virtual Equals(TKey,TKey)
+//
+// B4-1 r2 (D5): the reflected slot is selected by the DECLARED TKey width, not
+// by the int32 bucket slot. A user IEqualityComparer<byte> reflects
+// Equals(byte,byte) whose encoded signature is "(u1,u1)" -- probing "(i,i)"
+// found nothing and threw at RUN time (the pre-B4-1 gate rejected the shape at
+// transpile time instead). The fragments below are the MethodSignatureCoder
+// EncodeType leaves (src/il2cppc/Emit/MethodSignatureCoder.cs:334-354,
+// mirrored by typeinfo.cpp kLeaf):
+//   0 int32  -> "i"   1 byte -> "u1"   2 sbyte -> "i1"   3 uint16/char -> "u2"/"c"
+//   4 short  -> "i2"  5 uint -> "i"    6 bool  -> "b"
+// keyKind 3 covers BOTH System.UInt16 and System.Char (same narrowing), so the
+// lookup tries "(u2,u2)" then "(c,c)".
+//
+// The CALL ABI stays int32_t for every narrow family: the transpiler emits
+// narrow-parameter methods with int32_t slots (the M1 32-bit integer contract),
+// e.g. `int32_t ByteCmp_Equals(Il2CppObject*, int32_t, int32_t)`. Only the
+// reflected SIGNATURE metadata carries the narrow leaf code.
+namespace {
+
+const char* const* KeyComparerFragments(int32_t keyKind, int32_t& count)
+{
+    static const char* const kInt[] = { "(i,i)" };                  // int32 / uint32
+    static const char* const kByte[] = { "(u1,u1)" };               // byte
+    static const char* const kSByte[] = { "(i1,i1)" };              // sbyte
+    static const char* const kU16OrChar[] = { "(u2,u2)", "(c,c)" }; // ushort / char
+    static const char* const kI16[] = { "(i2,i2)" };                // short
+    static const char* const kBool[] = { "(b,b)" };                 // bool
+    switch (keyKind)
+    {
+        case 1: count = 1; return kByte;
+        case 2: count = 1; return kSByte;
+        case 3: count = 2; return kU16OrChar;
+        case 4: count = 1; return kI16;
+        case 6: count = 1; return kBool;
+        case 0:
+        case 5:
+        default: count = 1; return kInt;
+    }
+}
+
+// The key family name for the LOUD message (the reflected slot is missing).
+const char* KeyComparerTypeName(int32_t keyKind)
+{
+    switch (keyKind)
+    {
+        case 1: return "byte";
+        case 2: return "sbyte";
+        case 3: return "ushort/char";
+        case 4: return "short";
+        case 5: return "uint";
+        case 6: return "bool";
+        default: return "int";
+    }
+}
+
+} // namespace
+
+bool ComparerKeyEquals(Il2CppObject* cmp, int32_t key, int32_t existing,
+                       int32_t keyKind)
 {
     if (cmp == nullptr || IsDefaultIntComparer(cmp))
     {
         return key == existing;
     }
-    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", "(i,i)");
+    // B4-1 r2 (D5): the reflected slot is keyed by the DECLARED TKey width.
+    int32_t fragmentCount = 0;
+    const char* const* fragments = KeyComparerFragments(keyKind, fragmentCount);
+    int32_t slot = -1;
+    for (int32_t fi = 0; fi < fragmentCount && slot < 0; ++fi)
+    {
+        slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", fragments[fi]);
+    }
     if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
         slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
     {
-        il2cpp_throw_not_supported_exception(
-            "IEqualityComparer<int>.Equals dispatch: the comparer type has no reflected "
-            "virtual Equals(int,int) slot.");
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "IEqualityComparer<%s>.Equals dispatch: the comparer type has no "
+                      "reflected virtual Equals(%s,%s) slot.",
+                      KeyComparerTypeName(keyKind), KeyComparerTypeName(keyKind),
+                      KeyComparerTypeName(keyKind));
+        il2cpp_throw_not_supported_exception(message);
         return false; // unreachable (the factory throws)
     }
+    // Every narrow family rides int32_t parameter slots (M1 contract).
     typedef bool (*EqualsFn)(Il2CppObject*, int32_t, int32_t);
     return reinterpret_cast<EqualsFn>(cmp->klass->vtable[slot])(cmp, key, existing);
 }
@@ -1530,9 +1598,28 @@ Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
         : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
 }
 
+// B4-1 (P0-04): narrow the raw int32 read of a narrow-TKey selector result
+// back to the DECLARED key width. The callback's C++ return type is
+// uint8_t/int8_t/uint16_t/int16_t, but the ABI call reads int32_t, so the
+// register's upper bits are not defined by the callee. Without this narrowing
+// a byte key of 44 whose register held 300 split the net48 bucket.
+int32_t NarrowKey(int32_t raw, int32_t keyKind)
+{
+    switch (keyKind)
+    {
+        case 1: return static_cast<int32_t>(static_cast<uint8_t>(raw));
+        case 2: return static_cast<int32_t>(static_cast<int8_t>(raw));
+        case 3: return static_cast<int32_t>(static_cast<uint16_t>(raw));
+        case 4: return static_cast<int32_t>(static_cast<int16_t>(raw));
+        case 5: return raw; // uint32: the int32 slot keeps the bit pattern
+        case 6: return raw != 0 ? 1 : 0; // bool
+        default: return raw; // 0 int32 identity
+    }
+}
+
 // BuildGroups -- the shared bucketing pass (see the block comment).
 Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel,
-                          GroupElemKind kind, Il2CppObject* cmp)
+                          GroupElemKind kind, Il2CppObject* cmp, int32_t keyKind = 0)
 {
     RequireArray(src);
     Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
@@ -1575,7 +1662,8 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     for (int32_t i = 0; i < src->length; ++i)
     {
         const int32_t v = I4At(src, i);
-        const int32_t key = InvokeSelI4I4(kd, v); // may allocate -> collect
+        // B4-1 (P0-04): narrow the selector result to the declared TKey width.
+        const int32_t key = NarrowKey(InvokeSelI4I4(kd, v), keyKind); // may allocate -> collect
 
         // The projected element (only for the element-selector overloads).
         // Boxed families are NOT boxed yet: the growth allocation below could
@@ -1611,7 +1699,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         {
             Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
             Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
-            if (ComparerKeyEquals(cmp, key, AsGrouping(slots[j])->key))
+            if (ComparerKeyEquals(cmp, key, AsGrouping(slots[j])->key, keyKind))
             {
                 found = j;
                 break;
@@ -1824,9 +1912,10 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int
 // rsKind:   0 no result selector | 1 int32 TResult | 2 reference TResult |
 //           3 int64 TResult | 4 double TResult | 5 float TResult (nb9 H-F4)
 //------------------------------------------------------------------------------
-Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
-                                        Il2CppObject* elemSel, Il2CppObject* cmp,
-                                        Il2CppObject* resSel, int32_t elemKind, int32_t rsKind)
+Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* elemSel, Il2CppObject* cmp,
+                                            Il2CppObject* resSel, int32_t elemKind,
+                                            int32_t rsKind, int32_t keyKind)
 {
     if (cmp == nullptr)
     {
@@ -1846,7 +1935,7 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
-    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp);
+    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind);
     if (rsKind == 0)
     {
         return result;
@@ -1857,6 +1946,15 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
     }
     return reinterpret_cast<Il2CppObject*>(
         ApplyResultSelector(result, resSel, rsKind));
+}
+
+// B4-1 (P0-04): the identity-key entry every pre-existing caller keeps using.
+Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, Il2CppObject* cmp,
+                                        Il2CppObject* resSel, int32_t elemKind, int32_t rsKind)
+{
+    return il2cpp_linq_group_by_full_key(src, keySel, elemSel, cmp, resSel,
+                                         elemKind, rsKind, /*keyKind=*/0);
 }
 
 int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping)

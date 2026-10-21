@@ -1155,6 +1155,74 @@ int main()
                    "null IComparer on a reference array sorts with the default comparer");
     }
 
+    // --- A3: DateTime[]/TimeSpan[] element-kind entry points ---
+    // The runtime stores a DateTime cell as kind<<62|ticks; every comparison
+    // and equality below must use the TICK count only (net48 CompareTo/Equals
+    // ignore DateTimeKind).
+    {
+        auto* dt = il2cpp::il2cpp_array_new_typed(8, 6, 3);
+        int64_t* cells = reinterpret_cast<int64_t*>(dt->data);
+        const int64_t t2019 = 636820416000000000LL;
+        const int64_t t2020 = 636856608000000000LL;
+        // 2019 Unspecified, 2020 Local (kind bits 10 -> 0x8000...), 2020 Utc (01)
+        cells[0] = t2019;
+        cells[1] = static_cast<int64_t>(static_cast<uint64_t>(t2020) | (2ULL << 62));
+        cells[2] = static_cast<int64_t>(static_cast<uint64_t>(t2020) | (1ULL << 62));
+        il2cpp::il2cpp_array_sort_any(dt);
+        cells = reinterpret_cast<int64_t*>(dt->data);
+        Expect((cells[0] & il2cpp::runtime::kDateTimeArrayTickMask) == t2019 &&
+                   (cells[1] & il2cpp::runtime::kDateTimeArrayTickMask) == t2020 &&
+                   (cells[2] & il2cpp::runtime::kDateTimeArrayTickMask) == t2020,
+               "sort_any orders DateTime[] by ticks and keeps the kind bits");
+
+        ExpectI32(il2cpp::il2cpp_array_index_of_datetime(dt, il2cpp::runtime::Il2CppDateTime(t2019, 2)),
+                  0, "IndexOf<DateTime> compares ticks (Kind ignored)");
+        ExpectI32(il2cpp::il2cpp_array_index_of_datetime(dt, il2cpp::runtime::Il2CppDateTime(12345)),
+                  -1, "IndexOf<DateTime> misses an absent tick");
+        ExpectI32(il2cpp::il2cpp_array_binary_search_datetime(
+                      dt, il2cpp::runtime::Il2CppDateTime(t2020, 0)),
+                  1, "BinarySearch<DateTime> finds by ticks with a different Kind");
+        ExpectI32(il2cpp::il2cpp_array_binary_search_datetime(
+                      dt, il2cpp::runtime::Il2CppDateTime(t2020 + 1000)),
+                  -4, "BinarySearch<DateTime> returns the tail complement");
+        ExpectI32(il2cpp::il2cpp_array_index_of_datetime_range(
+                      dt, il2cpp::runtime::Il2CppDateTime(t2019), 1, 2),
+                  -1, "IndexOf<DateTime> range excludes the head element");
+        ExpectI32(il2cpp::il2cpp_array_binary_search_datetime_range(
+                      dt, 1, 2, il2cpp::runtime::Il2CppDateTime(t2020, 1)),
+                  1, "BinarySearch<DateTime> range searches only [1,3)");
+
+        auto* ts = il2cpp::il2cpp_array_new_typed(8, 7, 3);
+        int64_t* tcells = reinterpret_cast<int64_t*>(ts->data);
+        tcells[0] = -30000000;
+        tcells[1] = 0;
+        tcells[2] = 864000000000LL;
+        il2cpp::il2cpp_array_sort_any(ts);
+        tcells = reinterpret_cast<int64_t*>(ts->data);
+        Expect(tcells[0] == -30000000 && tcells[1] == 0 && tcells[2] == 864000000000LL,
+               "sort_any orders TimeSpan[] by raw ticks (negative first)");
+        ExpectI32(il2cpp::il2cpp_array_index_of_timespan(ts, il2cpp::runtime::Il2CppTimeSpan(0)),
+                  1, "IndexOf<TimeSpan> compares raw ticks");
+        ExpectI32(il2cpp::il2cpp_array_binary_search_timespan(
+                      ts, il2cpp::runtime::Il2CppTimeSpan(864000000000LL)),
+                  2, "BinarySearch<TimeSpan> finds the last element");
+        ExpectI32(il2cpp::il2cpp_array_index_of_timespan_range(
+                      ts, il2cpp::runtime::Il2CppTimeSpan(-30000000), 1, 2),
+                  -1, "IndexOf<TimeSpan> range excludes the head element");
+        ExpectI32(il2cpp::il2cpp_array_binary_search_timespan_range(
+                      ts, 0, 2, il2cpp::runtime::Il2CppTimeSpan(0)),
+                  1, "BinarySearch<TimeSpan> range searches only [0,2)");
+
+        // C2: the NON-generic (object needle) scans are LOUD -- no DateTime
+        // box helper exists in this runtime, so a silent -1 is never returned.
+        ExpectThrows(kNotSupportedType,
+                     "IndexOf(Array, object) over a DateTime[] is LOUD",
+                     [&] { il2cpp::il2cpp_array_index_of_any_start(dt, nullptr, 0); });
+        ExpectThrows(kNotSupportedType,
+                     "BinarySearch(Array, object) over a DateTime[] is LOUD",
+                     [&] { il2cpp::il2cpp_array_binary_search_any(dt, nullptr); });
+    }
+
     // --- Report ---
     if (g_failures != 0)
     {

@@ -45,6 +45,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
+#include "il2cpp_time.h" // A3: DateTime[]/TimeSpan[] tick mask + values
 #include "linq_map.h" // nb9: GroupBy result/bucket enumerator dispatch
 #include "string_compare.h" // a5reds: ordinal / ordinal-ignore-case helpers
 #include "sortedlist.h" // P25d: array snapshot enumerator re-use
@@ -3362,6 +3363,24 @@ AnyValueKind ClassifyAnyValue(Il2CppObject* value)
     return AnyRef;
 }
 
+// A3 (C2): the NON-GENERIC Array.IndexOf/BinarySearch(Array, object) overloads
+// need a BOXED needle, and this runtime has no DateTime/TimeSpan box helper
+// (no icall_box_datetime/icall_box_timespan, no box class registration -- the
+// transpiler rejects `(object)new DateTime(...)` loudly). Rather than carry a
+// branch no program can reach, the element-kind 6/7 scans REJECT the array
+// explicitly: LOUD and honest, never a silent -1. The by-value generic forms
+// (IndexOf<DateTime>/BinarySearch<DateTime>) are the supported path.
+[[noreturn]] void ThrowNoBoxedDateTimeScan()
+{
+    il2cpp_throw_not_supported_exception(
+        "Array.IndexOf/BinarySearch over DateTime[]/TimeSpan[] with an object "
+        "needle is not wired: this runtime has no DateTime/TimeSpan boxing "
+        "helper (no boxed box class exists), so the comparand cannot be "
+        "carried. Use the generic IndexOf<DateTime>/BinarySearch<DateTime> "
+        "overloads.");
+}
+
+
 // nb9 D9/D10: value-family-aware equality for the non-generic scans. The
 // ARRAY's recorded element kind decides the read; the boxed value must belong
 // to the same family, otherwise it is simply "not equal" (net48 IndexOf
@@ -3377,6 +3396,13 @@ bool AnyElementEquals(Il2CppArray* a, int32_t idx, Il2CppObject* value)
     }
     const AnyValueKind k = ClassifyAnyValue(value);
     const int32_t kind = a->elemKind;
+    // A3 (C2): DateTime[]/TimeSpan[] cannot be scanned with an OBJECT needle
+    // here -- no boxing helper exists, so this path is unreachable by
+    // construction. Reject loudly instead of answering a silent -1.
+    if (kind == 6 || kind == 7)
+    {
+        ThrowNoBoxedDateTimeScan();
+    }
     if (kind == 1)
     {
         return k == AnyI4 &&
@@ -3459,6 +3485,114 @@ int32_t il2cpp_array_index_of_any_range(Il2CppArray* arr, Il2CppObject* value,
         if (AnyElementEquals(a, i, value)) return i;
     }
     return -1;
+}
+
+// A3: Array.IndexOf<DateTime>/<TimeSpan> -- the by-VALUE generic instantiation
+// (no box). Cells are the CLR 8-byte images; comparison uses the TICKS only
+// (DateTimeKind is not part of equality/ordering).
+int32_t il2cpp_array_index_of_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    const int64_t needle =
+        static_cast<int64_t>(static_cast<uint64_t>(runtime::il2cpp_datetime_to_array_bits(value)) &
+                             static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        if (static_cast<int64_t>(static_cast<uint64_t>(d[i]) &
+                                 static_cast<uint64_t>(runtime::kDateTimeArrayTickMask)) == needle)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t il2cpp_array_index_of_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        if (d[i] == value.ticks) return i;
+    }
+    return -1;
+}
+
+int32_t il2cpp_array_index_of_datetime_range(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                             int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateIndexOfRange(a, startIndex, count);
+    const int64_t needle =
+        static_cast<int64_t>(static_cast<uint64_t>(runtime::il2cpp_datetime_to_array_bits(value)) &
+                             static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    const int32_t end = startIndex + count;
+    for (int32_t i = startIndex; i < end; ++i)
+    {
+        if (static_cast<int64_t>(static_cast<uint64_t>(d[i]) &
+                                 static_cast<uint64_t>(runtime::kDateTimeArrayTickMask)) == needle)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t il2cpp_array_index_of_timespan_range(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                             int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateIndexOfRange(a, startIndex, count);
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    const int32_t end = startIndex + count;
+    for (int32_t i = startIndex; i < end; ++i)
+    {
+        if (d[i] == value.ticks) return i;
+    }
+    return -1;
+}
+
+int32_t il2cpp_array_binary_search_datetime_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                  runtime::Il2CppDateTime value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    const int64_t needle =
+        static_cast<int64_t>(static_cast<uint64_t>(runtime::il2cpp_datetime_to_array_bits(value)) &
+                             static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    int32_t lo = index;
+    int32_t hi = index + length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        const int64_t cell = static_cast<int64_t>(
+            static_cast<uint64_t>(d[mid]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+        if (cell == needle) return mid;
+        if (cell < needle) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
+}
+
+int32_t il2cpp_array_binary_search_timespan_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                  runtime::Il2CppTimeSpan value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    int32_t lo = index;
+    int32_t hi = index + length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        if (d[mid] == value.ticks) return mid;
+        if (d[mid] < value.ticks) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
 }
 
 int32_t il2cpp_array_last_index_of_any(Il2CppArray* arr, Il2CppObject* value)
@@ -3551,6 +3685,13 @@ int32_t CompareAnyElement(Il2CppArray* a, int32_t index, Il2CppObject* value,
         if (comparer == nullptr) return elem < needle ? -1 : (elem > needle ? 1 : 0);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &elem, &needle);
     }
+    // A3 (C2): same as AnyElementEquals -- the non-generic BinarySearch
+    // (Array, object) overload would need a BOXED DateTime/TimeSpan needle,
+    // which this runtime cannot produce. LOUD instead of a dead branch.
+    if (kind == 6 || kind == 7)
+    {
+        ThrowNoBoxedDateTimeScan();
+    }
     if (kind == 0)
     {
         if (a->elemSize == sizeof(int32_t) && k == AnyI4)
@@ -3597,8 +3738,47 @@ int32_t il2cpp_array_binary_search_any(Il2CppArray* arr, Il2CppObject* value)
     return ~lo;
 }
 
-int32_t il2cpp_array_binary_search_any_icomparer(Il2CppArray* arr, Il2CppObject* value,
-                                                 Il2CppObject* comparer)
+// A3: Array.BinarySearch<DateTime>/<TimeSpan> (by-value generic form). The
+// complementary-insertion-point contract matches the other BinarySearch
+// entries; equal elements compare by ticks (DateTimeKind ignored).
+int32_t il2cpp_array_binary_search_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    const int64_t needle =
+        static_cast<int64_t>(static_cast<uint64_t>(runtime::il2cpp_datetime_to_array_bits(value)) &
+                             static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        const int64_t cell = static_cast<int64_t>(
+            static_cast<uint64_t>(d[mid]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+        if (cell == needle) return mid;
+        if (cell < needle) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
+}
+
+int32_t il2cpp_array_binary_search_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    int32_t lo = 0;
+    int32_t hi = a->length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        if (d[mid] == value.ticks) return mid;
+        if (d[mid] < value.ticks) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
+}
+
+int32_t il2cpp_array_binary_search_any_icomparer(Il2CppArray* arr, Il2CppObject* value,                                                 Il2CppObject* comparer)
 {
     Il2CppArray* a = RequireArraySort(arr);
     RootScopeSort roots;
@@ -3671,7 +3851,8 @@ namespace {
 //   6 DateTime   | 7 TimeSpan -- both 8-byte CLR cells, ordered by TICKS
 // (net48 DateTime.CompareTo compares Ticks only and IGNORES DateTimeKind;
 // the stored cell is the packed kind<<62|ticks image, so the comparison must
-// shift the kind bits out instead of comparing the raw word).
+// MASK the kind bits off (runtime::kDateTimeArrayTickMask) instead of
+// comparing the raw word).
 int32_t ReadAnyCompareKind(const Il2CppArray* a)
 {
     if (a->isRefElem) return 0;
@@ -3748,11 +3929,12 @@ int32_t CompareAnyDefault(Il2CppArray* a, int32_t i, int32_t j)
     {
         // DateTime cell = kind<<62|ticks. net48 DateTime.CompareTo compares
         // Ticks ONLY (DateTimeKind is ignored), so the packed kind bits are
-        // shifted out before the compare -- a raw int64 word compare would
-        // sort a Local value (bit 63 set) as a huge negative.
+        // MASKED OFF (runtime::kDateTimeArrayTickMask) before the compare -- a
+        // raw int64 word compare would sort a Local value (bit 63 set) as a
+        // huge negative.
         const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
-        const int64_t x = static_cast<int64_t>(static_cast<uint64_t>(d[i]) >> 2);
-        const int64_t y = static_cast<int64_t>(static_cast<uint64_t>(d[j]) >> 2);
+        const int64_t x = static_cast<int64_t>(static_cast<uint64_t>(d[i]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+        const int64_t y = static_cast<int64_t>(static_cast<uint64_t>(d[j]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
         return x < y ? -1 : (x > y ? 1 : 0);
     }
     const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
@@ -3831,8 +4013,8 @@ struct AnyComparerCompare
         // A DateTime cell reaches the comparer as its TICKS (the packed kind
         // bits are stripped -- net48 DateTime.CompareTo ignores Kind).
         const int64_t* dc = reinterpret_cast<const int64_t*>(a->data);
-        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) >> 2);
-        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) >> 2);
+        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
     }
     const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
@@ -3891,8 +4073,8 @@ int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* co
         // DateTime keys order by TICKS (packed kind bits stripped), the same
         // contract as CompareAnyDefault / net48 DateTime.CompareTo.
         const int64_t* dc = reinterpret_cast<const int64_t*>(keys->data);
-        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) >> 2);
-        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) >> 2);
+        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) & static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
         if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI8, &x, &y);
     }
@@ -4066,7 +4248,11 @@ void il2cpp_array_sort_keys_items_range(Il2CppArray* keys, Il2CppArray* items,
     }
     Il2CppArray* it = RequireArraySort(items);
     RequireRangeSort(k, index, length);
-    if (it->length < k->length)
+    // A4 (5): net48 requires items.Length >= index + length for the RANGE
+    // overload (the full-array overload below still requires the full keys
+    // length). Checking only items.Length < keys.Length wrongly rejected
+    // Sort(keys5, items2, 0, 2).
+    if (it->length - index < length)
     {
         il2cpp_throw_argument_exception(
             "The destination array was not long enough.");
