@@ -1052,15 +1052,16 @@ int32_t il2cpp_array_binary_search_icomparer_uint32(Il2CppArray* arr, int32_t va
     RequireValueArraySort(a, sizeof(uint32_t));
     const uint32_t* data = reinterpret_cast<const uint32_t*>(a->data);
     const uint32_t needle = static_cast<uint32_t>(value);
-    // B8-1 audit J1 (same defect as U32ComparerCompare): a Comparer<uint>.Create
-    // wrapper's klass name CONTAINS "Comparer`1", so the created-comparer test
-    // must come FIRST or the wrapped delegate is dropped and the default
-    // unsigned order is used instead.
-    const bool byDefault =
-        comparer == nullptr ||
-        (!runtime::il2cpp_is_created_comparer(comparer) &&
-         comparer->klass != nullptr && comparer->klass->name != nullptr &&
-         std::strstr(comparer->klass->name, "Comparer`1") != nullptr);
+    // B8-1 audit R2: only a NULL comparer means "default order". A klass-NAME
+    // probe is NOT a reliable singleton test -- the transpiler names a user
+    // generic comparer after the C# type, so ReverseComparer<T> emits
+    // "ReverseComparer`1" and FooComparer<T> emits "FooComparer`1", both of
+    // which CONTAIN "Comparer`1" and were mistaken for the default singleton,
+    // silently dropping the user's Compare. Every non-null comparer now goes
+    // through il2cpp_icomparer_compare_family, whose default arm recognizes
+    // the real singletons by FULLY QUALIFIED name and whose created-comparer
+    // arm runs a Comparer<uint>.Create delegate.
+    const bool byDefault = comparer == nullptr;
     int32_t lo = 0;
     int32_t hi = a->length - 1;
     while (lo <= hi)
@@ -2439,17 +2440,15 @@ struct U32ComparerCompare
     int32_t operator()(uint32_t x, uint32_t y) const
     {
         if (*slot == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
-        // B8-1 audit J1: a Comparer<uint>.Create wrapper's klass name is
-        // "System.Collections.Generic.Comparer`1_created_int", which CONTAINS
-        // "Comparer`1" -- it must not be mistaken for the default singleton or
-        // the wrapped delegate never runs (silent ascending order). Same guard
-        // order as sortedlist.cpp (created-comparer check BEFORE the name
-        // test).
-        if (runtime::il2cpp_is_created_comparer(*slot))
-            return il2cpp_icomparer_compare_family(*slot, kComparerFamilyU4, &x, &y);
-        if ((*slot)->klass != nullptr && (*slot)->klass->name != nullptr &&
-            std::strstr((*slot)->klass->name, "Comparer`1") != nullptr)
-            return x < y ? -1 : (x > y ? 1 : 0);
+        // B8-1 audit R2: NO klass-name shortcut here. A name probe cannot tell
+        // the default singleton from a user comparer: the transpiler names a
+        // user generic comparer after the C# type, so ReverseComparer<T>
+        // emits "ReverseComparer`1" (CONTAINS "Comparer`1") and its Compare
+        // was silently dropped in favour of the default unsigned order.
+        // il2cpp_icomparer_compare_family covers BOTH cases correctly: its
+        // default arm matches the real singletons by FULLY QUALIFIED name
+        // (the sortedlist.cpp precedent), and its created-comparer arm runs a
+        // Comparer<uint>.Create delegate.
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyU4, &x, &y);
     }
 };
