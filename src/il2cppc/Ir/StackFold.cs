@@ -6557,11 +6557,11 @@ public static class StackFold
         // gets the "p" (void*) carrier -- the call result temp must hold the
         // full-width raw function pointer (the old null collapsed to int32_t,
         // truncating the x64 address before the calli could cast it).
-        // VALUETYPE returns (0x11): System.Guid / System.Decimal are 16-byte
-        // value structs -- the result temp must be declared as that struct
-        // ("guid"/"dec"), not int32_t (a 4-byte slot truncates the value and
-        // rejects the assignment outright). The owner is decoded from the
-        // signature's TypeDefOrRef coded index.
+        // VALUETYPE returns (0x11): the BCL value structs the emitter models
+        // (Guid / Decimal / DateTime / TimeSpan / DateTimeOffset / BigInteger)
+        // need their OWN result-slot kind -- a 4-byte int32 slot truncates the
+        // value and rejects the assignment outright. The owner is decoded from
+        // the signature's TypeDefOrRef coded index.
         if (ret == 0x11)
         {
             var vtOwner = sig.ReadTypeHandle();
@@ -6575,6 +6575,10 @@ public static class StackFold
             {
                 "System.Guid" => "guid",
                 "System.Decimal" => "dec",
+                "System.DateTime" => "dt",
+                "System.TimeSpan" => "ts",
+                "System.DateTimeOffset" => "dto",
+                "System.Numerics.BigInteger" => "bi",
                 _ => null,
             };
         }

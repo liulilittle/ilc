@@ -4157,7 +4157,11 @@ public static class CodeGenerator
                     // the kind here. Local override only: ResolveExprKind's
                     // public classification is untouched.
                     if (r.Value is StaticFieldExpr sfe)
-                        retKind = StaticFieldExprIsReference(md, types, sfe.FieldName) ? "ref" : "val";
+                        retKind = retKind is "guid" or "dec" or "dt" or "ts" or "dto" or "bi"
+                            ? retKind
+                            : StaticFieldExprIsReference(md, types, sfe.FieldName) ? "ref" : "val";
+                    else if (r.Value is FieldExpr feRet && IsGuidField(feRet, types))
+                        retKind = "guid";
                     // Return type bridge: method signature return type differs from expression kind.
                     // Case 1: returns Il2CppObject* (ref) but expression is int/val -> reinterpret_cast through intptr_t.
                     // Case 2: returns int32_t but expression is ref/ptr -> static_cast<int32_t> narrow (lossy but preserves slot-reuse semantics).
@@ -4190,7 +4194,12 @@ public static class CodeGenerator
                     {
                         // Enum val types (System_TypeCode etc.) must be boxed to Il2CppObject* --
                         // reinterpret_cast through intptr_t is UB (enum is not a pointer).
-                        retExpr = $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({retExpr}))";
+                        // AUDIT-NB18: a VALUETYPE (0x11) return already has a struct C++
+                        // type (_curStructReturnCpp) -- boxing it would static_cast a
+                        // struct to int32_t (D1/D4).
+                        retExpr = _curStructReturnCpp != null
+                            ? retExpr
+                            : $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({retExpr}))";
                     }
                     else if (!ReturnTypeIsRef(_curReturnType) && retKind is "ref" or "ptr")
                         retExpr = IntPtrBridge(ReturnTypeCpp(_curReturnType), retExpr);
@@ -10006,9 +10015,19 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     private static bool IsGuidField(FieldExpr f, IReadOnlyList<TypeDef> types)
-        => types.FirstOrDefault(x => x.FullName == f.OwnerFullName)?.InstanceFields
-            .Any(fd => fd.TypeKind == FieldTypeKind.Guid
-                       && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
+    {
+        var owner = types.FirstOrDefault(x => x.FullName == f.OwnerFullName);
+        if (owner == null)
+        {
+            // A GENERIC INSTANCE owner ("Gen`1_int", the StackFold
+            // GenericInstantiationName shape) never equals the definition's
+            // FullName ("Gen`1") -- fall back to the definition prefix.
+            owner = types.FirstOrDefault(x => x.GenericArity > 0
+                                              && f.OwnerFullName.StartsWith(x.FullName + "_", StringComparison.Ordinal));
+        }
+        return owner?.InstanceFields.Any(fd => fd.TypeKind == FieldTypeKind.Guid
+                                               && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
+    }
 
     // B3: the guid.h byte-slot argument for a Guid VALUE expression. An
     // lvalue slot takes its address directly; a non-lvalue Guid expression
