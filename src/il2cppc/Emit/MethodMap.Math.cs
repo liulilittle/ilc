@@ -17,6 +17,11 @@ public static partial class MethodRefResolver
         switch (name)
         {
             case "Abs":
+                // LOUD P0-19: Math.Abs(decimal) -- decimal is a 16-byte value
+                // (raw Il2CppDecimal* slots, "dec" result). The old default
+                // double fallback cast the decimal slot to double (C2664).
+                if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
+                    return I("il2cpp::runtime::icall_decimal_abs", 1, true, false, false, new[] { "dec" }, "dec");
                 return ps.Length == 1 && ps[0] == 0x08 ? I("il2cpp::runtime::icall_math_abs_i", 1, true, false, false)
                     : ps[0] == 0x0A ? I("il2cpp::runtime::icall_math_abs_l", 1, true, false, false, null, "l")
                     : I("il2cpp::runtime::icall_math_abs_d", 1, true, false, false, null, "d");
@@ -24,6 +29,9 @@ public static partial class MethodRefResolver
             case "Min":
             {
                 var stem = name == "Max" ? "max" : "min";
+                if (ps.Length == 2 && IsMathDecimalParam(ps, 0, arg0Type) && IsMathDecimalParam(ps, 1, arg1Type))
+                    return I($"il2cpp::runtime::icall_decimal_{stem}", 2, true, false, false,
+                        new[] { "dec", "dec" }, "dec");
                 return ps[0] switch
                 {
                     0x08 => I($"il2cpp::runtime::icall_math_{stem}_i", 2, true, false, false),
@@ -32,6 +40,10 @@ public static partial class MethodRefResolver
                 };
             }
             case "Sign":
+                // Math.Sign(decimal) -> int32 sign icall (the decimal is an
+                // address arg; the result rides the plain int32 slot).
+                if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
+                    return I("il2cpp::runtime::icall_decimal_sign", 1, true, false, false, new[] { "dec" });
                 return ps[0] == 0x08
                     ? I("il2cpp::runtime::icall_math_sign_i", 1, true, false, false)
                     // net9/10 E2E campaign (math sweep): R4/R8 must test the
@@ -43,9 +55,36 @@ public static partial class MethodRefResolver
                     : I("il2cpp::runtime::icall_math_sign_l", 1, true, false, false, null, "l");
             case "Sqrt": return I("il2cpp::runtime::icall_math_sqrt_d", 1, true, false, false, null, "d");
             case "Pow": return I("il2cpp::runtime::icall_math_pow_d", 2, true, false, false, null, "d");
-            case "Floor": return I("il2cpp::runtime::icall_math_floor_d", 1, true, false, false, null, "d");
-            case "Ceiling": return I("il2cpp::runtime::icall_math_ceiling_d", 1, true, false, false, null, "d");
+            case "Floor":
+                if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
+                    return I("il2cpp::runtime::icall_decimal_floor", 1, true, false, false, new[] { "dec" }, "dec");
+                return I("il2cpp::runtime::icall_math_floor_d", 1, true, false, false, null, "d");
+            case "Ceiling":
+                if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
+                    return I("il2cpp::runtime::icall_decimal_ceiling", 1, true, false, false, new[] { "dec" }, "dec");
+                return I("il2cpp::runtime::icall_math_ceiling_d", 1, true, false, false, null, "d");
             case "Round":
+                // Math.Round(decimal) / Math.Round(decimal, int digits): the
+                // decimal.Round ToEven path (mode 0) with the missing
+                // decimals/mode slots appended as literal 0s -- the same
+                // shape MethodMap.Decimal.cs uses for Decimal.Round.
+                if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
+                    return I("il2cpp::runtime::icall_decimal_round", 1, true, false, false, new[] { "dec" }, "dec",
+                        appendLiterals: new[] { "0", "0" });
+                if (ps.Length == 2 && IsMathDecimalParam(ps, 0, arg0Type) && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_decimal_round", 2, true, false, false, new[] { "dec", "i" }, "dec",
+                        appendLiterals: new[] { "0" });
+                // Math.Round(decimal, MidpointRounding): the enum is a value
+                // type (0x11) riding the int32 slot; decimals is fixed at 0,
+                // so the dedicated 3-arg icall carries (result, d, mode).
+                if (ps.Length == 2 && IsMathDecimalParam(ps, 0, arg0Type) && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_round_mode", 2, true, false, false,
+                        new[] { "dec", "i" }, "dec");
+                // Math.Round(decimal, int, MidpointRounding): the existing
+                // 4-arg icall already matches (result, d, decimals, mode).
+                if (ps.Length == 3 && IsMathDecimalParam(ps, 0, arg0Type) && ps[1] == 0x08 && ps[2] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_round", 3, true, false, false,
+                        new[] { "dec", "i", "i" }, "dec");
                 if (ps.Length == 1)
                     return I("il2cpp::runtime::icall_math_round_d", 1, true, false, false, null, "d");
                 // Round(double, int digits): the 2-param overload MUST resolve
@@ -68,7 +107,10 @@ public static partial class MethodRefResolver
                         new[] { "d", "i", "i" }, "d");
                 throw new NotSupportedException(
                     $"Math.Round overload (arity {ps.Length}) not wired: only Round(double), Round(double, int), Round(double, MidpointRounding) and Round(double, int, MidpointRounding) have runtime icalls");
-            case "Truncate": return I("il2cpp::runtime::icall_math_truncate_d", 1, true, false, false, null, "d");
+            case "Truncate":
+                if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
+                    return I("il2cpp::runtime::icall_decimal_truncate", 1, true, false, false, new[] { "dec" }, "dec");
+                return I("il2cpp::runtime::icall_math_truncate_d", 1, true, false, false, null, "d");
             case "Sin": return I("il2cpp::runtime::icall_math_sin_d", 1, true, false, false, null, "d");
             case "Cos": return I("il2cpp::runtime::icall_math_cos_d", 1, true, false, false, null, "d");
             case "Tan": return I("il2cpp::runtime::icall_math_tan_d", 1, true, false, false, null, "d");
@@ -107,6 +149,20 @@ public static partial class MethodRefResolver
             default: return null;
         }
     }
+
+    //--------------------------------------------------------------------------
+    // LOUD P0-19: is the parameter at 'index' the DECIMAL overload?
+    //
+    // The managed type hint (arg0Type/arg1Type) is the dispatch key: a
+    // decimal local/temp tracks as "System.Decimal", and the dispatcher also
+    // fills it from the DECODED signature ("V:System.Decimal") when a decimal
+    // arrives as an untracked ldarg parameter. 0x11 ALONE is never enough --
+    // DateTime/TimeSpan/user structs/enums share the VALUETYPE byte -- so the
+    // 0x11 byte is only a necessary gate and any non-decimal hint vetoes the
+    // decimal arm.
+    //--------------------------------------------------------------------------
+    private static bool IsMathDecimalParam(byte[] ps, int index, string? hint)
+        => index < ps.Length && ps[index] == 0x11 && hint == "System.Decimal";
 
     //--------------------------------------------------------------------------
     // MethodMap.Double -- System.Double STATIC predicate domain
