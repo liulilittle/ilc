@@ -35,10 +35,19 @@ namespace Cases { public static class Prog {
         ManualResetEvent release = new ManualResetEvent(false);
         Thread t = new Thread(new ThreadStart(delegate { entered.Set(); release.WaitOne(); }));
         t.Start();
-        entered.WaitOne();
+        if (!entered.WaitOne(TimeSpan.FromSeconds(10))) {
+            Console.WriteLine("[timeout] th.new.alive.entered");
+            Environment.ExitCode = 1;
+            release.Set();
+            return 0;
+        }
         bool during = t.IsAlive;
         release.Set();
-        t.Join();
+        if (!t.Join(10000)) {
+            Console.WriteLine("[timeout] th.new.alive.join");
+            Environment.ExitCode = 1;
+            return 0;
+        }
         bool after = t.IsAlive;
         return (during && !after) ? 1 : 0;
     }

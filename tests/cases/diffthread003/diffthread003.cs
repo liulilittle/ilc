@@ -21,10 +21,19 @@ namespace Cases { public static class Prog {
         Console.WriteLine("[newthread3.isbackground.set] ok");
         t.Start();
         Console.WriteLine("[newthread3.start] ok");
-        entered.WaitOne();
+        if (!entered.WaitOne(TimeSpan.FromSeconds(10))) {
+            Console.WriteLine("[timeout] newthread3.entered");
+            Environment.ExitCode = 1;
+            release.Set();
+            return;
+        }
         Console.WriteLine("[newthread3.alive.during] " + (t.IsAlive ? 1 : 0));
         release.Set();
-        t.Join();
+        if (!t.Join(10000)) {
+            Console.WriteLine("[timeout] newthread3.join");
+            Environment.ExitCode = 1;
+            return;
+        }
         Console.WriteLine("[newthread3.join] ok");
         Console.WriteLine("[newthread3.alive.after] " + (t.IsAlive ? 0 : 1));
         Console.WriteLine("[newthread3.hits] " + hits);
