@@ -51,6 +51,9 @@ public static class TypeKindResolver
         "System.Single" => (FieldTypeKind.Float, fullName, "float"),
         "System.Double" => (FieldTypeKind.Double, fullName, "double"),
         "System.IntPtr" or "System.UIntPtr" => (FieldTypeKind.NativeInt, fullName, "intptr_t"),
+        // B3: System.Guid keeps the 16-byte value shape (guid.h Il2CppGuid),
+        // never a GC reference / int32 slot.
+        "System.Guid" => (FieldTypeKind.Guid, fullName, "il2cpp::Il2CppGuid"),
         "System.Boolean" or "System.Byte" or "System.SByte" or "System.Char" or "System.Int16" or "System.UInt16" or "System.Int32" or "System.UInt32" => (FieldTypeKind.Int32, fullName, "int32_t"),
         _ when fullName is "System.String" or "System.Object" => (FieldTypeKind.Reference, fullName, "Il2CppObject*"),
         _ when fullName.EndsWith("[]", StringComparison.Ordinal) => (FieldTypeKind.Reference, "System.Array", "Il2CppObject*"),

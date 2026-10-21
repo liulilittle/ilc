@@ -953,9 +953,18 @@ public static class MetadataLoader
             case 0x1B:
                 return (FieldTypeKind.NativeInt, "");
             case 0x11:
+            {
+                var vtName = ResolveTypeName(md, sig.ReadTypeHandle());
+                // B3 (LOUD P0-05/06/08/09): System.Guid is a 16-byte VALUE
+                // (guid.h Il2CppGuid) -- a user struct field must keep value
+                // semantics (never Il2CppObject*, never a 4-byte int32 slot).
+                // Other value-type instance fields stay rejected at load time.
+                if (vtName == "System.Guid")
+                    return (FieldTypeKind.Guid, vtName);
                 if (!extended)
                     throw new NotSupportedException("value-type instance fields not supported in M2");
-                return (FieldTypeKind.Int32, ResolveTypeName(md, sig.ReadTypeHandle()));
+                return (FieldTypeKind.Int32, vtName);
+            }
             // M5 BCL wiring: generic instantiations (delegate Func`N fields) and
             // arrays are managed references (GC-pointer storage slots).
             case 0x15:

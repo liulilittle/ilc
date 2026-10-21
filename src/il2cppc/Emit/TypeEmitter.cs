@@ -361,7 +361,7 @@ public static class TypeEmitter
             0x1D or 0x14 => (FieldTypeKind.Reference, "System.Array"),
             0x13 => (FieldTypeKind.Int32, ""),
             0x15 => (FieldTypeKind.Reference, GenericNestedInstantiationName(md, ref sig)),
-            0x11 => (FieldTypeKind.Int32, ResolveNestedTypeName(md, sig.ReadTypeHandle())),
+            0x11 => GuidOrInt32NestedField(md, sig.ReadTypeHandle()),
             // GN-18 B1 (fnptr fields): a `delegate*` (0x1B) NESTED-type field
             // rides the same full-width void* pointer carrier as top-level
             // fields (NativeInt kind + empty TypeName marker -- see
@@ -370,6 +370,17 @@ public static class TypeEmitter
             // Primitive and exotic field types not covered above: treat as Int32.
             var b => (FieldTypeKind.Int32, ""),
         };
+    }
+
+    // B3: a nested value-type field of System.Guid keeps the 16-byte value
+    // layout (guid.h Il2CppGuid); every other value type keeps the historical
+    // int32 slot.
+    private static (FieldTypeKind Kind, string TypeName) GuidOrInt32NestedField(MetadataReader md, EntityHandle handle)
+    {
+        var name = ResolveNestedTypeName(md, handle);
+        return name == "System.Guid"
+            ? (FieldTypeKind.Guid, name)
+            : (FieldTypeKind.Int32, name);
     }
 
     private static string ResolveNestedTypeName(MetadataReader md, EntityHandle handle) =>
@@ -818,7 +829,12 @@ public static class TypeEmitter
                 bitmap |= 1u << slot;
                 ++refCount;
             }
-            ++slot;
+            // B3: a 16-byte Guid occupies multiple pointer-size slots, so the
+            // emitted C++ member (Il2CppGuid) and the metadata offsets stay in
+            // lockstep for the following fields.
+            slot += f.TypeKind == FieldTypeKind.Guid
+                ? (16 + t.PointerSize - 1) / t.PointerSize
+                : 1;
         }
         t.RefFieldBitmap = bitmap;
         t.RefFieldCount = refCount;
@@ -908,6 +924,8 @@ public static class TypeEmitter
             FieldTypeKind.UInt64 => (8, 8),
             FieldTypeKind.Double => (8, 8),
             FieldTypeKind.NativeInt => (pointerSize, pointerSize),
+            // B3: net48 Guid alignment is 4 (Data1 int32 first); size 16.
+            FieldTypeKind.Guid => (16, 4),
             FieldTypeKind.Reference => (pointerSize, pointerSize),
             _ => (pointerSize, pointerSize),
         };
@@ -1025,6 +1043,8 @@ public static class TypeEmitter
                 // EMPTY FieldTypeName (IntPtr fields carry "System.IntPtr").
                 FieldTypeKind.NativeInt when string.IsNullOrEmpty(f.FieldTypeName) => "void*",
                 FieldTypeKind.NativeInt => "intptr_t",
+                // B3: System.Guid is the 16-byte guid.h value struct.
+                FieldTypeKind.Guid => "il2cpp::Il2CppGuid",
                 FieldTypeKind.Reference => ReferenceCppType(f.FieldTypeName, allTypes),
                 _ => throw new NotSupportedException($"field kind {f.TypeKind} not supported in M2"),
             };

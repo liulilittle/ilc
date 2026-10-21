@@ -346,4 +346,45 @@ public class TypeEmitterTests
         Assert.Contains("\"F14\", \"System.Int32\", 56,", code);
         Assert.DoesNotContain("\"F1\", \"System.Int32\", 8,", code);
     }
+
+    // B3 (LOUD P0-05/06/08/09): System.Guid is a 16-byte VALUE (guid.h
+    // Il2CppGuid), never Il2CppObject* and never a 4-byte int slot. The
+    // emitted member keeps the value shape and the following field keeps the
+    // net48 offset (16).
+    [Fact]
+    public void EmitClassStruct_GuidValueField_UsesIl2CppGuid()
+    {
+        var t = new TypeDef { Name = "GuidHolder", Namespace = "Cases", IsValueType = true };
+        t.InstanceFields.Add(new FieldDef
+        {
+            Name = "G", Owner = t, TypeKind = FieldTypeKind.Guid, FieldTypeName = "System.Guid",
+        });
+        t.InstanceFields.Add(new FieldDef { Name = "N", Owner = t, TypeKind = FieldTypeKind.Int32 });
+        TypeEmitter.LayoutInstanceFields(t);
+        Assert.Equal(0, t.InstanceFields[0].ByteOffset);
+        Assert.Equal(16, t.InstanceFields[1].ByteOffset);
+        Assert.Equal(20, t.InstanceSize);
+        Assert.Equal(0u, t.RefFieldBitmap); // a Guid is NOT a GC reference
+        var code = TypeEmitter.EmitClassStruct(t);
+        Assert.Contains("il2cpp::Il2CppGuid G;", code);
+        Assert.Contains("int32_t N;", code);
+        Assert.DoesNotContain("Il2CppObject* G;", code);
+    }
+
+    // A reference-type Guid field occupies TWO pointer-size slots (16 bytes on
+    // the x64 slot grid), so the next field's slot must follow the value.
+    [Fact]
+    public void Layout_RefTypeGuidField_AdvancesTwoSlots()
+    {
+        var t = new TypeDef { Name = "Holder", Namespace = "Cases" };
+        t.InstanceFields.Add(new FieldDef
+        {
+            Name = "G", Owner = t, TypeKind = FieldTypeKind.Guid, FieldTypeName = "System.Guid",
+        });
+        t.InstanceFields.Add(new FieldDef { Name = "N", Owner = t, TypeKind = FieldTypeKind.Int32 });
+        TypeEmitter.LayoutInstanceFields(t);
+        Assert.Equal(1, t.InstanceFields[0].SlotIndex);
+        Assert.Equal(3, t.InstanceFields[1].SlotIndex);
+        Assert.Equal(4 * IntPtr.Size, t.InstanceSize);
+    }
 }

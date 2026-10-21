@@ -113,5 +113,6 @@ public enum FieldTypeKind
     Float,    // 32-bit floating point
     Double,   // 64-bit floating point
     NativeInt, // native int (IntPtr/UIntPtr -- 0x18/0x19 ELEMENT_TYPE_I/U): full-width pointer carrier
+    Guid,      // 16-byte System.Guid value (guid.h Il2CppGuid; value semantics, never a GC reference)
     Reference // managed GC reference
 }
