@@ -151,5 +151,93 @@ class Program
         catch (InvalidCastException) { Console.WriteLine(true); }
         try { int x = (int)(object)null; Console.WriteLine(false); }
         catch (NullReferenceException) { Console.WriteLine(true); }
+
+        // ============ 8. FULL primitive box family ============
+        // Regression for the duplicate-descriptor defect (box_long_is): every
+        // primitive box must be ONE descriptor, so `is`, `as`, GetType,
+        // Equals and GetHashCode agree with net48 for the whole family --
+        // including the box-only primitives the transpiler resolves by name.
+        object byt = (byte)255;
+        Console.WriteLine("fam_byte_is=" + (byt is byte));
+        Console.WriteLine("fam_byte_is_int=" + (byt is int == false));
+        Console.WriteLine("fam_byte_name=" + (byt.GetType().Name == "Byte"));
+        Console.WriteLine("fam_byte_eq=" + byt.Equals((object)(byte)255));
+        Console.WriteLine("fam_byte_hash=" + (byt.GetHashCode() == 255));
+        Console.WriteLine("fam_byte_as_ic=" + ((byt as IConvertible) != null));
+        Console.WriteLine("fam_byte_as_str=" + ((byt as string) == null));
+
+        object sby = (sbyte)-5;
+        Console.WriteLine("fam_sbyte_is=" + (sby is sbyte));
+        Console.WriteLine("fam_sbyte_name=" + (sby.GetType().Name == "SByte"));
+        Console.WriteLine("fam_sbyte_eq=" + sby.Equals((object)(sbyte)-5));
+        Console.WriteLine("fam_sbyte_hash=" + (sby.GetHashCode() == 1275));
+        Console.WriteLine("fam_sbyte_as_ic=" + ((sby as IComparable) != null));
+
+        object sht = (short)-12;
+        Console.WriteLine("fam_short_is=" + (sht is short));
+        Console.WriteLine("fam_short_name=" + (sht.GetType().Name == "Int16"));
+        Console.WriteLine("fam_short_eq=" + sht.Equals((object)(short)-12));
+        Console.WriteLine("fam_short_hash=" + (sht.GetHashCode() == -720908));
+
+        object ush = (ushort)65535;
+        Console.WriteLine("fam_ushort_is=" + (ush is ushort));
+        Console.WriteLine("fam_ushort_name=" + (ush.GetType().Name == "UInt16"));
+        Console.WriteLine("fam_ushort_eq=" + ush.Equals((object)(ushort)65535));
+        Console.WriteLine("fam_ushort_hash=" + (ush.GetHashCode() == 65535));
+
+        object ulg = 9876543210UL;
+        Console.WriteLine("fam_ulong_is=" + (ulg is ulong));
+        Console.WriteLine("fam_ulong_is_long=" + (ulg is long == false));
+        Console.WriteLine("fam_ulong_name=" + (ulg.GetType().Name == "UInt64"));
+        Console.WriteLine("fam_ulong_eq=" + ulg.Equals((object)9876543210UL));
+        Console.WriteLine("fam_ulong_unbox=" + ((ulong)ulg == 9876543210UL));
+        Console.WriteLine("fam_ulong_hash=" + (ulg.GetHashCode() == unchecked((int)9876543210UL ^ (int)(9876543210UL >> 32))));
+
+        object sgl = 1.5f;
+        Console.WriteLine("fam_single_is=" + (sgl is float));
+        Console.WriteLine("fam_single_is_double=" + (sgl is double == false));
+        Console.WriteLine("fam_single_name=" + (sgl.GetType().Name == "Single"));
+        Console.WriteLine("fam_single_eq=" + sgl.Equals((object)1.5f));
+        Console.WriteLine("fam_single_unbox=" + ((float)sgl == 1.5f));
+        Console.WriteLine("fam_single_hash=" + (sgl.GetHashCode() == 1069547520));
+
+        object dec = 1.5m;
+        Console.WriteLine("fam_decimal_is=" + (dec is decimal));
+        Console.WriteLine("fam_decimal_is_double=" + (dec is double == false));
+        Console.WriteLine("fam_decimal_name=" + (dec.GetType().Name == "Decimal"));
+        Console.WriteLine("fam_decimal_eq=" + dec.Equals((object)1.5m));
+        Console.WriteLine("fam_decimal_unbox=" + ((decimal)dec == 1.5m));
+        // decimal hash: ABSOLUTE net48 values are a documented PRE-EXISTING
+        // deviation (decimal.cpp "KNOWN DEVIATION (GetHashCode)" -- net48 uses
+        // oleaut VarR8FromDec, the runtime ports DecCalc.GetHashCode;
+        // decimaldeep2.cs:48 records the same gap). net48 probe:
+        // ((object)1.5m).GetHashCode() == 1073217536, runtime == 65551. Only
+        // the shared CONTRACT is asserted here (scale-canonical + zero -> 0),
+        // exactly like the string-hash consistency probes (D-OBJ-1).
+        Console.WriteLine("fam_decimal_hash_scale=" + (dec.GetHashCode() == ((object)1.50m).GetHashCode()));
+        Console.WriteLine("fam_decimal_hash_zero=" + (((object)0m).GetHashCode() == 0));
+        Console.WriteLine("fam_decimal_as_ic=" + ((dec as IFormattable) != null));
+
+        // Cross-type `is` over the whole family stays False (pointer identity).
+        Console.WriteLine("fam_cross_long_int=" + (bl is int == false));
+        Console.WriteLine("fam_cross_uint_int=" + (bu is int == false));
+        Console.WriteLine("fam_cross_double_single=" + (bd is float == false));
+        Console.WriteLine("fam_cross_single_double=" + (sgl is double == false));
+        Console.WriteLine("fam_cross_ulong_long=" + (ulg is long == false));
+
+        // ============ 9. IntPtr/UIntPtr identity probes ============
+        // The transpiler's default descriptor arm emits &System_IntPtr_class /
+        // &System_UIntPtr_class for `is IntPtr` / `is UIntPtr`, so those
+        // symbols must exist at link time (they did not before). net48: only a
+        // BOXED IntPtr is an IntPtr instance, so every non-null boxed
+        // primitive and null are False. (Boxing an IntPtr is a transpiler
+        // reject, so the True direction is not reachable here.)
+        object nil = null;
+        Console.WriteLine("ip_null_is=" + (nil is IntPtr));
+        Console.WriteLine("ip_int_is=" + (bx is IntPtr == false));
+        Console.WriteLine("ip_long_is=" + (bl is IntPtr == false));
+        Console.WriteLine("ip_str_is=" + (((object)"abc") is IntPtr == false));
+        Console.WriteLine("uip_null_is=" + (nil is UIntPtr));
+        Console.WriteLine("uip_int_is=" + (bx is UIntPtr == false));
     }
 }

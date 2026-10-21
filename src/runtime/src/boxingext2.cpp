@@ -19,8 +19,9 @@
 // numerics: IConvertible/IComparable/IFormattable -- the same set as
 // metadata.cpp's builtin System_Int32_class / System_Double_class) and the
 // System.Object baseClass, so `boxed byte is IConvertible` / `boxed long is
-// object` resolve exactly as net48. Identical shape to g_int32BoxClass
-// (boxing.cpp) and the bool/char/double descriptors (boxingext.cpp).
+// object` resolve exactly as net48. The descriptors THEMSELVES live in
+// metadata.cpp (one per .NET primitive; g_*BoxClass here are references to
+// them) -- see the box-identity note further down.
 //
 // Payload-width decisions (see il2cpp_boxing_ext2.h for the full rationale):
 //   - byte/sbyte/short/ushort: UNIFORM int32 storage of the zero-extended low
@@ -59,8 +60,8 @@
 #include "il2cpp_exception.h"
 #include "il2cpp_metadata.h"
 #include "il2cpp_object.h"
-#include "il2cpp_runtime.h" // il2cpp_class_register / il2cpp_class_by_name /
-                            // il2cpp_is_instance / il2cpp_gc_alloc
+#include "il2cpp_runtime.h" // il2cpp_class_by_name / il2cpp_is_instance /
+                            // il2cpp_gc_alloc / il2cpp_gc_alloc_size
 #include "typeinfo.h"       // il2cpp_typeinfo_lookup / Il2CppMethodInfo (the
                             // user-override Equals(object) vtable dispatch)
 #include "versionuri.h"     // System_Uri_class / icall_uri_equals (URI-FIX
@@ -80,160 +81,42 @@ namespace {
 // other).
 constexpr int32_t kBoxPayloadOffset = 8;
 
-// Numeric box interface table: IConvertible + IComparable + IFormattable, the
-// net48 numeric box set (identical to metadata.cpp's kBoxNumericInterfaces --
-// boxed byte/short/... implement exactly what boxed Int32 does). Shared
-// unwired slot map: dispatch on boxed primitives is unwired (vtableSize 0),
-// any dispatch attempt aborts loudly; isinst/as only compares interfaces[i].
-//iface (metadata.cpp:134), so the tables make `od is IConvertible` etc. true.
-static int32_t kBox2UnwiredSlotMap[] = { 0 };
-static InterfaceMapEntry kBox2NumericInterfaces[] = {
-    { &System_IConvertible_class, kBox2UnwiredSlotMap },
-    { &System_IComparable_class,  kBox2UnwiredSlotMap },
-    { &System_IFormattable_class, kBox2UnwiredSlotMap },
-};
-
-// The runtime's built-in box class descriptors for the remaining primitives.
-// Same shape as boxing.cpp's g_int32BoxClass and boxingext.cpp's descriptors:
-// instanceSize 16 (header + one aligned payload slot), no reference fields,
-// no vtable. Each numeric box carries the .NET interface table (IConvertible /
-// IComparable / IFormattable) and the System.Object baseClass, matching
-// metadata.cpp's builtin System_Int32_class / System_Double_class -- so a
-// boxed byte IS-A System.Object and `boxed byte is IConvertible` etc. resolve
-// exactly as net48 (the boxdeep/boxdeep2 e2e interface probes).
-Il2CppClass g_byteBoxClass = {
-    "System.Byte", // name (box class identity -- the .NET full name, NOT the
-                   // C++ storage width)
-    16,            // instanceSize: header + aligned 8-byte value slot
-    0u,            // refFieldBitmap: no reference fields
-    0,             // refFieldCount
-    &System_Object_class,     // baseClass (a boxed byte IS-A object, net48)
-    nullptr,       // vtable
-    0,             // vtableSize
-    kBox2NumericInterfaces,   // interfaces (IConvertible/IComparable/IFormattable)
-    3,             // interfaceCount
-};
-
-Il2CppClass g_sbyteBoxClass = {
-    "System.SByte", // name (box class identity)
-    16,             // instanceSize: header + aligned 8-byte value slot
-    0u,             // refFieldBitmap: no reference fields
-    0,              // refFieldCount
-    &System_Object_class,     // baseClass
-    nullptr,        // vtable
-    0,              // vtableSize
-    kBox2NumericInterfaces,   // interfaces
-    3,              // interfaceCount
-};
-
-Il2CppClass g_shortBoxClass = {
-    "System.Int16", // name (box class identity)
-    16,             // instanceSize: header + aligned 8-byte value slot
-    0u,             // refFieldBitmap: no reference fields
-    0,              // refFieldCount
-    &System_Object_class,     // baseClass
-    nullptr,        // vtable
-    0,              // vtableSize
-    kBox2NumericInterfaces,   // interfaces
-    3,              // interfaceCount
-};
-
-Il2CppClass g_ushortBoxClass = {
-    "System.UInt16", // name (box class identity)
-    16,              // instanceSize: header + aligned 8-byte value slot
-    0u,              // refFieldBitmap: no reference fields
-    0,               // refFieldCount
-    &System_Object_class,     // baseClass
-    nullptr,         // vtable
-    0,               // vtableSize
-    kBox2NumericInterfaces,   // interfaces
-    3,               // interfaceCount
-};
+// Box class descriptors: ONE descriptor per .NET primitive, owned by
+// metadata.cpp and exposed through il2cpp_metadata.h. boxingext2.cpp only
+// ALIASES them (g_*BoxClass below) -- it must never define a second
+// descriptor with the same name.
+//
+// Why (box-identity / objectops `box_long_is=False`): generated `is`/`as` on a
+// box-only primitive is il2cpp_is_instance(obj, il2cpp_class_by_name(name))
+// (CodeGenerator.BoxClassDescriptorCpp) and il2cpp_is_instance is a POINTER
+// compare. File-local duplicates (g_longBoxClass / g_floatBoxClass) carried
+// the same names as metadata.cpp's System_Int64_class / System_Single_class,
+// so class_by_name returned the metadata descriptor while the box stamped the
+// file-local one -> `boxed long is long` was False.
+//
+// The UInt32 alias below is the pre-existing precedent for this pattern.
+Il2CppClass& g_byteBoxClass = System_Byte_class;
+Il2CppClass& g_sbyteBoxClass = System_SByte_class;
+Il2CppClass& g_shortBoxClass = System_Int16_class;
+Il2CppClass& g_ushortBoxClass = System_UInt16_class;
 
 // The UInt32 box class descriptor is the GLOBAL builtin System_UInt32_class
 // (metadata.cpp; extern in il2cpp_metadata.h) -- the SAME descriptor generated
 // isinst/castclass code and il2cpp_class_by_name("System.UInt32") resolve to.
-// Boxing/unboxing references it (not owns a copy) so pointer identity holds: a
-// boxed uint's klass IS &System_UInt32_class. net48 semantics (the
-// System.Object baseClass chain and the IConvertible/IComparable/IFormattable
-// interface table) come from the global definition in metadata.cpp.
 Il2CppClass& g_uintBoxClass = System_UInt32_class;
 
-Il2CppClass g_longBoxClass = {
-    "System.Int64", // name (box class identity)
-    16,             // instanceSize: header + aligned 8-byte value slot (the
-                    // int64 payload occupies the whole slot)
-    0u,             // refFieldBitmap: no reference fields
-    0,              // refFieldCount
-    &System_Object_class,     // baseClass
-    nullptr,        // vtable
-    0,              // vtableSize
-    kBox2NumericInterfaces,   // interfaces
-    3,              // interfaceCount
-};
+Il2CppClass& g_longBoxClass = System_Int64_class;
+Il2CppClass& g_ulongBoxClass = System_UInt64_class;
+Il2CppClass& g_floatBoxClass = System_Single_class;
+Il2CppClass& g_decimalBoxClass = System_Decimal_class;
 
-Il2CppClass g_ulongBoxClass = {
-    "System.UInt64", // name (box class identity)
-    16,              // instanceSize: header + aligned 8-byte value slot
-    0u,              // refFieldBitmap: no reference fields
-    0,               // refFieldCount
-    &System_Object_class,     // baseClass
-    nullptr,         // vtable
-    0,               // vtableSize
-    kBox2NumericInterfaces,   // interfaces
-    3,               // interfaceCount
-};
-
-Il2CppClass g_floatBoxClass = {
-    "System.Single", // name (box class identity)
-    16,              // instanceSize: header + aligned 8-byte value slot (the
-                     // double payload occupies the whole slot)
-    0u,              // refFieldBitmap: no reference fields
-    0,               // refFieldCount
-    &System_Object_class,     // baseClass
-    nullptr,         // vtable
-    0,               // vtableSize
-    kBox2NumericInterfaces,   // interfaces
-    3,               // interfaceCount
-};
-
-// The 16-byte decimal box: instanceSize 32 (header + a 16-byte payload slot,
-// rounded to the allocation alignment -- the byte image at offset 8..23 is
-// exactly sizeof(Il2CppDecimal), byte-identical to .NET). Numeric interfaces
-// (IConvertible/IComparable/IFormattable) + Object baseClass, matching the
-// other box classes.
-Il2CppClass g_decimalBoxClass = {
-    "System.Decimal", // name (box class identity)
-    32,               // instanceSize: header + aligned 16-byte value slot
-    0u,               // refFieldBitmap: no reference fields
-    0,                // refFieldCount
-    &System_Object_class,     // baseClass
-    nullptr,          // vtable
-    0,                // vtableSize
-    kBox2NumericInterfaces,   // interfaces
-    3,                // interfaceCount
-};
-
-bool g_box2ClassesRegistered = false;
-
-// Register the remaining box classes once (idempotent; the registry dedupes).
+// Register the builtin box classes once (idempotent; the registry dedupes).
 // Called before every box/unbox so class_by_name and isinst always resolve.
+// All primitive box descriptors live in metadata.cpp now, so this is the
+// shared builtin registration (no boxingext2-owned descriptors to add).
 void EnsureBox2ClassesRegistered()
 {
-    if (g_box2ClassesRegistered)
-    {
-        return;
-    }
-    il2cpp_class_register(&g_byteBoxClass);
-    il2cpp_class_register(&g_sbyteBoxClass);
-    il2cpp_class_register(&g_shortBoxClass);
-    il2cpp_class_register(&g_ushortBoxClass);
-    il2cpp_class_register(&g_uintBoxClass);
-    il2cpp_class_register(&g_longBoxClass);
-    il2cpp_class_register(&g_ulongBoxClass);
-    il2cpp_class_register(&g_floatBoxClass);
-    il2cpp_class_register(&g_decimalBoxClass);
-    g_box2ClassesRegistered = true;
+    il2cpp_ensure_builtin_system_classes();
 }
 
 // .NET unbox failure semantics (mirrors boxingext.cpp): null is

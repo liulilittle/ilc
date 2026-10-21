@@ -94,20 +94,23 @@ void il2cpp_ensure_builtin_system_classes();
 //   System.String     -- the System.String descriptor (string.cpp allocates
 //                        through it; il2cpp_string_class() returns it).
 //   System.Int32 / System.UInt32 / System.Boolean / System.Char / System.Double
-//                      -- the box class descriptors (boxing.cpp / boxingext.cpp
-//                        / boxingext2.cpp allocate through them). Each carries
-//                        an interface table so isinst/as against IConvertible &
-//                        co. hit.
+//   System.Int64 / System.Single / System.Byte / System.SByte / System.Int16 /
+//   System.UInt16 / System.UInt64 / System.Decimal
+//                      -- the box class descriptors (metadata.cpp defines them;
+//                        boxing.cpp / boxingext.cpp / boxingext2.cpp allocate
+//                        through them). Each carries an interface table so
+//                        isinst/as against IConvertible & co. hit.
 //   System.IConvertible / System.IComparable / System.IFormattable
 //                      -- interface descriptors (instanceSize 0, never
 //                        allocated); box classes reference them in their
 //                        interfaces tables.
 //
-// NOTE: value types other than Int32/UInt32/Boolean/Char/Double (Int64, Byte,
-// ...) have NO builtin GLOBAL descriptors -- their boxes live in boxingext2.cpp
-// as file-local descriptors, each carrying the net48 interface table
-// (IConvertible/IComparable/IFormattable) and the System.Object baseClass, so
-// `is IConvertible` / `is object` on those boxed values hit (box2 audit).
+// NOTE: EVERY primitive box descriptor is defined in metadata.cpp and exposed
+// above -- there are no file-local duplicates. The transpiler resolves the
+// box-only primitives (Byte/SByte/Int16/UInt16/Int64/UInt64/Single/Decimal)
+// through il2cpp_class_by_name because their GLOBAL symbols are not part of
+// the generated extern set; identity holds because the box icalls stamp the
+// SAME metadata.cpp descriptor class_by_name returns.
 //------------------------------------------------------------------------------
 extern il2cpp::Il2CppClass System_Object_class;
 extern il2cpp::Il2CppClass System_ValueType_class;
@@ -119,6 +122,21 @@ extern il2cpp::Il2CppClass System_Char_class;
 extern il2cpp::Il2CppClass System_Double_class;
 extern il2cpp::Il2CppClass System_Int64_class;   // nb9 D10: primitive array kind
 extern il2cpp::Il2CppClass System_Single_class;  // nb9 D10: primitive array kind
+// box-identity: the remaining primitive box descriptors. ONE descriptor per
+// .NET primitive -- the box icalls and generated isinst/castclass share these
+// (a file-local duplicate makes class_by_name miss the box's klass).
+extern il2cpp::Il2CppClass System_Byte_class;
+extern il2cpp::Il2CppClass System_SByte_class;
+extern il2cpp::Il2CppClass System_Int16_class;
+extern il2cpp::Il2CppClass System_UInt16_class;
+extern il2cpp::Il2CppClass System_UInt64_class;
+extern il2cpp::Il2CppClass System_Decimal_class;
+// Identity-only descriptors: generated `is IntPtr` / `is UIntPtr` reference
+// these symbols (the transpiler's default descriptor arm). Boxing IntPtr is a
+// transpiler reject, so no object ever carries them -> `is` is always False
+// (net48: a boxed IntPtr is the only True source).
+extern il2cpp::Il2CppClass System_IntPtr_class;
+extern il2cpp::Il2CppClass System_UIntPtr_class;
 extern il2cpp::Il2CppClass System_IConvertible_class;
 extern il2cpp::Il2CppClass System_IComparable_class;
 extern il2cpp::Il2CppClass System_IFormattable_class;
