@@ -613,55 +613,119 @@ int main()
 
     // --- 12e. The pre-1900 branch really is the STANDARD-offset branch ---
     //
-    // These assertions are DISCRIMINATING: they fail if the pre-1900 instants
-    // leak into the platform rule path. They do NOT claim net48 equality --
-    // net48 still reports DST below 1900 (measured: Eastern 1899/1900-07 ->
-    // -14400, Lord Howe 1899/1900-01 -> +39600), while this bridge
-    // deliberately normalises pre-1900 instants to the standard offset (see
-    // kHistoricalFloorTicks and section 7 of .opencode/tmp/dt-fix.md).
-    //
-    // (a) Two pre-floor instants must get the SAME offset. This is the actual
-    //     branch property: the floor branch ignores the date entirely. It has
-    //     real discriminating power against a rule lookup, because the two
-    //     instants are 6 months apart and every DST zone differs between them
-    //     (the net48 oracle above is exactly that: -18000 vs -14400).
-    const int64_t jan1601Offset = il2cpp::runtime::icall_datetime_from_file_time(0).ticks - kFileTimeEpoch;
-    const int64_t jul1601Offset =
-        il2cpp::runtime::icall_datetime_from_file_time(505067616000000000LL - kFileTimeEpoch).ticks - 505067616000000000LL;
-    Expect(jan1601Offset == jul1601Offset,
-           "pre-1900: January and July get the SAME offset (standard-offset branch, no rule lookup)");
+    // Every expectation below comes from a DIFFERENT code path than the value
+    // under test:
+    //   * the CRT itself (localtime_r/gmtime_r on the same time_t) for the
+    //     zone's per-instant offsets -- note that timezone.cpp's
+    //     il2cpp_timezone_get_utc_offset_at is a POSIX APPROXIMATION (it feeds
+    //     the civil face through the current bias and mis-classifies the
+    //     2000-04-01 season), so it cannot serve as the reference here;
+    //   * a DIFFERENT instant's FileTime result for the standard-offset value.
+    // They do NOT claim net48 equality: net48 still reports DST below 1900
+    // (measured: Eastern 1899/1900-07 -> -14400, Lord Howe 1899/1900-01 ->
+    // +39600), while this bridge deliberately normalises pre-1900 instants to
+    // the standard offset (see kHistoricalFloorTicks and section 7 of
+    // .opencode/tmp/dt-fix.md).
+    const int64_t kUnixEpochTicksLocal = 621355968000000000LL;
+    auto crtOffsetTicksAt = [&](int64_t utcTicks) {
+        // TICKS, straight from the CRT's tzdata at that instant.
+        const std::time_t instant = static_cast<std::time_t>((utcTicks - kUnixEpochTicksLocal) / kTicksPerSecondLocal);
+        std::tm localTm = {};
+#if defined(_WIN32)
+        // MinGW-w64 does not declare localtime_r without _POSIX_THREAD_SAFE_FUNCTIONS;
+        // the _s variant is unconditional (same CRT zone data).
+        if (_localtime64_s(&localTm, &instant) != 0)
+        {
+            return int64_t(0);
+        }
+#else
+        if (localtime_r(&instant, &localTm) == nullptr)
+        {
+            return int64_t(0);
+        }
+#endif
+        // "Local wall clock interpreted as UTC" minus the instant = the offset.
+        // _mkgmtime (MSVC/MinGW) and timegm (glibc) are the same function.
+#if defined(_WIN32)
+        const std::time_t asIfUtc = _mkgmtime(&localTm);
+#else
+        const std::time_t asIfUtc = timegm(&localTm);
+#endif
+        if (asIfUtc == static_cast<std::time_t>(-1))
+        {
+            return int64_t(0);
+        }
+        return (static_cast<int64_t>(asIfUtc) - static_cast<int64_t>(instant)) * kTicksPerSecondLocal;
+    };
+    auto ftOffsetAt = [](int64_t utcTicks) {
+        // TICKS, from the bridge under test.
+        return il2cpp::runtime::icall_datetime_from_file_time(utcTicks - kFileTimeEpoch).ticks - utcTicks;
+    };
+    // The four 2000 season samples, classified by the CRT.
+    const int64_t kSeasonSamples[4] = {
+        630822816000000000LL, 630901440000000000LL, 630980064000000000LL, 631059552000000000LL
+    };
+    int64_t crtSeasons[4];
+    int minIdx = 0;
+    int maxIdx = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        crtSeasons[i] = crtOffsetTicksAt(kSeasonSamples[i]);
+        if (crtSeasons[i] < crtSeasons[minIdx]) minIdx = i;
+        if (crtSeasons[i] > crtSeasons[maxIdx]) maxIdx = i;
+    }
+    const bool hostHasDst = crtSeasons[minIdx] != crtSeasons[maxIdx];
+
+    const int64_t jan1601Offset = ftOffsetAt(kFileTimeEpoch);
+    const int64_t jul1601Offset = ftOffsetAt(505067616000000000LL);
+
+    // (a) The pre-floor value is the zone's STANDARD offset: it equals the
+    //     CRT's minimum season and (on a DST host) differs from the CRT's
+    //     daylight season. The second half is the discriminating part.
+    Expect(jan1601Offset == crtSeasons[minIdx],
+           "pre-1900 offset == the CRT's standard (min) season offset");
+    if (hostHasDst)
+    {
+        Expect(jan1601Offset != crtSeasons[maxIdx],
+               "pre-1900 offset is NOT the DST-side offset (no rule lookup)");
+    }
     // (b) ... and that offset is minute-aligned (never tzdata local mean time).
     Expect(jan1601Offset % (60 * kTicksPerSecondLocal) == 0,
            "pre-1900 offset is minute-aligned (never tzdata local mean time)");
-    // (c) The floor branch is the ONE the standard offset comes from: the
-    //     pre-floor offset must equal the offset at a post-floor instant that
-    //     is outside every DST window (2000-01-01Z is winter in both
-    //     hemispheres' modern rules -- for a southern zone it is the DST
-    //     season, so compare against the MINIMUM of the four 2000 samples
-    //     instead, which is exactly what the runtime calls the standard
-    //     offset). Expressed through observable icall results only.
-    const int64_t seasonOffsets[4] = {
-        il2cpp::runtime::icall_datetime_from_file_time(630822816000000000LL - kFileTimeEpoch).ticks - 630822816000000000LL,
-        il2cpp::runtime::icall_datetime_from_file_time(630901440000000000LL - kFileTimeEpoch).ticks - 630901440000000000LL,
-        il2cpp::runtime::icall_datetime_from_file_time(630980064000000000LL - kFileTimeEpoch).ticks - 630980064000000000LL,
-        il2cpp::runtime::icall_datetime_from_file_time(631059552000000000LL - kFileTimeEpoch).ticks - 631059552000000000LL
-    };
-    int64_t seasonMin = seasonOffsets[0];
-    for (int i = 1; i < 4; ++i)
+    // (c) Expected value built from a DIFFERENT INSTANT: the FileTime offset at
+    //     the 2000 sample the CRT classified as the standard season.
+    const int64_t standardSeasonFileTimeOffset = ftOffsetAt(kSeasonSamples[minIdx]);
+    Expect(jan1601Offset == standardSeasonFileTimeOffset,
+           "pre-1900 offset == the FileTime offset of the CRT's standard 2000 season");
+    //     Both pre-floor instants (six months apart) must land on that same
+    //     constant; a rule lookup would separate them on a DST host.
+    Expect(jul1601Offset == standardSeasonFileTimeOffset,
+           "pre-1900 July also uses the standard-season constant");
+    if (hostHasDst)
     {
-        if (seasonOffsets[i] < seasonMin) seasonMin = seasonOffsets[i];
+        // The DST-season FileTime offset must be the CRT's daylight value and
+        // must differ from the pre-floor constant.
+        Expect(ftOffsetAt(kSeasonSamples[maxIdx]) == crtSeasons[maxIdx],
+               "post-floor DST-season FileTime offset == the CRT's daylight offset");
+        Expect(jan1601Offset != crtSeasons[maxIdx],
+               "pre-1900 constant differs from the CRT's daylight offset");
     }
-    Expect(jan1601Offset == seasonMin,
-           "pre-1900 offset equals the standard (min-of-seasons) offset, not a rule value");
-    // (d) Above the floor the rule branch is really used: a DST zone must
-    //     report DIFFERENT offsets for January and July 2020. This is the
-    //     complementary discriminating check (on a no-DST host it is a no-op).
-    const int64_t jan2020 = il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL).ticks - 637134336000000000LL;
-    const int64_t jul2020 = il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks - 637269984000000000LL;
-    if (jan2020 != jul2020)
+    // (d) Post-floor rule branch: the FileTime offsets at 2020-01/2020-07 must
+    //     match the CRT at the SAME instants, and their DIFFERENCE must equal
+    //     the CRT's DST delta. Delta-vs-delta, so it is not the vacuous
+    //     "one constant != two values" shape.
+    const int64_t jan2020 = ftOffsetAt(637134336000000000LL);
+    const int64_t jul2020 = ftOffsetAt(637269984000000000LL);
+    Expect(jan2020 == crtOffsetTicksAt(637134336000000000LL),
+           "post-floor January offset agrees with the CRT at that instant");
+    Expect(jul2020 == crtOffsetTicksAt(637269984000000000LL),
+           "post-floor July offset agrees with the CRT at that instant");
+    if (hostHasDst)
     {
-        Expect(jan2020 != jan1601Offset || jul2020 != jan1601Offset,
-               "post-floor instants use the rule branch, not the pre-1900 constant");
+        const int64_t crtDstDelta = crtSeasons[maxIdx] - crtSeasons[minIdx];
+        const int64_t observedDelta = jul2020 > jan2020 ? jul2020 - jan2020 : jan2020 - jul2020;
+        Expect(observedDelta == crtDstDelta,
+               "post-floor Jan/Jul offset difference equals the CRT's DST delta");
     }
     // --- 12f. Hardcoded net48 oracle, asserted only in the matching zone ---
     //
