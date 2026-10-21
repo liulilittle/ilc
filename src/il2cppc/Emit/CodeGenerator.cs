@@ -905,6 +905,9 @@ public static class CodeGenerator
         // (base-first slots, override replacement) BEFORE any emission so the
         // descriptor/vtable/body generation all see the final slot layout.
         VTablePlanner.PlanAll(types);
+        // B0 (audit B-2): the vtable planner's unresolved interface slots are a
+        // silent skip; seed the report with them before any method is emitted.
+        var notTranspiled = new List<string>(VTablePlanner.MissingImplementations);
 
         // GN-N5: resolve C++-name collisions AFTER all clones are created
         // (Sanitize maps '.' and '_' both to '_', so e.g. "Cases.A_B" and the
@@ -1015,10 +1018,6 @@ public static class CodeGenerator
         // abstract/folded-accessor skips above are shared).
         var foldedCount = 0;
         var methodCount = 0;
-        // B0: every NOT TRANSPILED stub emitted in this run, as "Type::Method"
-        // (deduped, emission order). Program.cs turns this into --stub-report
-        // and --strict-stubs; the generator itself never changes the exit code.
-        var notTranspiled = new List<string>();
 
         // r78 fix: two-pass forward declaration strategy.
         // Pass 0: collect field-referenced types NOT in the types list (BCL internal types
@@ -1146,6 +1145,19 @@ public static class CodeGenerator
             generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
         }
 
+        // B0 (audit A-2): one report line per METHOD IDENTITY, deduped by the
+        // metadata token (not by "Type::Method" text -- overloads share that).
+        // Arg count + token distinguish overloads; the token also keeps nested
+        // types apart when MetadataLoader's FullName loses the outer name.
+        var stubKeys = new HashSet<string>(StringComparer.Ordinal);
+        string StubReportLine(TypeDef tt, MethodDef mm, int argc, string? reason)
+        {
+            var handle = FindMethodHandle(md, mm);
+            var token = handle.HasValue ? MetadataTokens.GetToken(handle.Value) : 0;
+            var line = $"{tt.FullName}::{mm.Name}/{argc}#0x{token:X8}";
+            return reason == null ? line : line + $" skip-reason={reason}";
+        }
+
         // G6 skip-stub: a fold-rejected body would otherwise leave `entry.cpp`
         // and the typeinfo table referencing a symbol that is never defined
         // ("use of undeclared identifier" -- caudit2/dtaudit2). Emit a typed
@@ -1158,7 +1170,8 @@ public static class CodeGenerator
             var paramNames = Enumerable.Range(0, info.ArgCount).Select(i => $"arg{i}").ToArray();
             var paramTypes = ParamTypesCpp(m, info);
             var stubId = $"{t.FullName}::{m.Name}";
-            if (!notTranspiled.Contains(stubId)) notTranspiled.Add(stubId);
+            var reportLine = StubReportLine(t, m, info.ArgCount, null);
+            if (stubKeys.Add(reportLine)) notTranspiled.Add(reportLine);
             // B0: a runtime-visible diagnostic BEFORE the managed throw -- the
             // throw reaches the managed handler (or aborts), while stderr is
             // the only trace that survives everywhere. std::fprintf needs
@@ -1562,7 +1575,18 @@ public static class CodeGenerator
                 }
                 MethodBodyInfo bodyInfo;
                 try { bodyInfo = MethodBodyReader.Read(pe, md, t, m); }
-                catch (Exception) { Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped (no stub: no body info for the signature)"); continue; }
+                catch (Exception)
+                {
+                    Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped (no stub: no body info for the signature)");
+                    // B0 (audit B-2): a silent skip would make an empty stub
+                    // report look clean. Record the reason.
+                    var skipLine = StubReportLine(t, m, m.ParamCount, "body-read-failed");
+                    if (stubKeys.Add(skipLine)) notTranspiled.Add(skipLine);
+                    continue;
+                }
+                // Accessor bodies are folded into the property/event accessor
+                // path by design (not a stub, not a gap); documented as a
+                // non-entry in --help's blind-spot list.
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
                 var managedRetStruct = ManagedReturnStructName(md, m);

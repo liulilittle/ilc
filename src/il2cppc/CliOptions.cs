@@ -82,9 +82,14 @@ OPTIONS
   --ui-access                    set uiAccess=""true"" in the generated manifest
                                  (requires --requested-execution-level).
   --stub-report <path>           write the machine-readable list of methods
-                                 that were NOT transpiled (one Type::Method
-                                 per line). Written on every successful run,
-                                 including the default exit-0 path.
+                                 that were NOT transpiled, one identity per
+                                 line: Type::Method/<argc>#0x<token>
+                                 (deduped by metadata token, so overloads and
+                                 nested types stay distinct). Non-stub skips
+                                 append ""skip-reason=<reason>"". On a failed
+                                 transpile the file contains ""status=error""
+                                 instead. A write failure makes the run exit
+                                 non-zero; the old file is deleted first.
   --strict-stubs                 CI opt-in: if any method was not transpiled,
                                  list every stub on stderr and exit 3.
                                  Without this flag the run stays exit 0
@@ -118,10 +123,12 @@ EXIT CODES
   1  command-line usage error (bad option / arch value / granularity, missing
      manifest, --quiet with --verbose, big-endian target, audit without an
      assembly, unopenable --log path).
-  2  transpile failure (metadata load / decode / emission) or an audit run
-     whose assembly cannot be read.
+  2  transpile failure (metadata load / decode / emission), an audit run
+     whose assembly cannot be read, or a --stub-report that could not be
+     written (without --strict-stubs).
   3  --strict-stubs was given and at least one method was not transpiled
-     (the stubs are listed on stderr and in --stub-report).
+     (the stubs are listed on stderr and in --stub-report), or --strict-stubs
+     was given and the report could not be written.
 
 NOT TRANSPILED STUBS
   A method whose body the transpiler cannot translate is emitted as a stub
@@ -132,10 +139,20 @@ NOT TRANSPILED STUBS
     1. default: warn + runtime stub, exit 0 (a stub never fails a build);
     2. --strict-stubs: CI gate -- any stub makes the run exit 3 and every
        stub is listed on stderr;
-    3. acceptance gate: read --stub-report and require ZERO entries. A build
-       whose only signal is a warning is NOT fixed: the stub will throw
-       NotSupportedException when that method is called.
+    3. acceptance gate (ALL THREE): exit code == 0 AND --stub-report exists
+       AND it has ZERO non-empty lines. The RC term is mandatory: a failed
+       transpile writes ""status=error"", and a report write failure exits
+       non-zero -- a stale file alone must never be read as ""0 stubs"".
+       A build whose only signal is a warning is NOT fixed: the stub will
+       throw NotSupportedException when that method is called.
   N = 0 -> no summary line and an empty stub report.
+  Report coverage: fold-rejected stubs, body-read failures
+  (""skip-reason=body-read-failed"") and unresolved interface slots
+  (""skip-reason=vtable-missing""). Property/event accessor skips are by
+  design and are NOT entries. Strict over the full case set will also flag
+  methods that legitimately throw NotSupportedException (candidates:
+  g4dicturistr, p-gn11mdimalloc, iosymprobe); a formal exclusion list is
+  NOT established yet.
 
 EXAMPLES
   il2cppc app.dll gen
