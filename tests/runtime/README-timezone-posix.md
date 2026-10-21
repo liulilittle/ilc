@@ -99,6 +99,24 @@ Australia/Lord_Howe  Sat Aug 26 15:30:00 2000 UT = Sun Aug 27 02:30:00 2000 +11 
 `test_timezone_posix.cpp` pins these cells explicitly (`IsTzdataOnlyCell`)
 so the divergence stays visible instead of being silently skipped.
 
+### Coverage limits of this test
+
+* POSIX only. On Windows `main` returns 0 immediately (a green no-op). The
+  Windows per-date path reads the registry instead and never reaches the
+  function under test, so there is nothing to cover there.
+* It requires a readable `/usr/share/zoneinfo`. `SelectZone()` verifies each
+  zone actually took effect (two seasonal samples, so a +0-in-winter zone
+  like Europe/Dublin is not mistaken for a missing entry) and prints an
+  explicit `SKIP` when the database is absent, rather than turning the whole
+  table red for an environment reason.
+* The original `TZ` is restored at exit (`RestoreTz()`).
+* Dublin's negative-DST encoding is verified only on glibc; musl/BSD remain
+  untested (the code reads `tm_isdst` and field differences, not the
+  encoding, so the exposure is small).
+* `tm_isdst == -1` (unknown) is treated as standard, matching the
+  standard-offset tie-break policy; `localtime_r` does not produce it for
+  real zone data.
+
 ## 2. Pre-fix vs post-fix on the same 64 rows
 
 The pre-fix file is captured with
@@ -208,6 +226,30 @@ sources cannot agree:
 `tests/runtime/test_time.cpp` (nb-dt) already normalises the pre-1900
 FileTime bridge to the zone STANDARD offset via `kHistoricalFloorTicks`;
 reconciling the two surfaces is a separate task.
+
+### Large offset jumps (beyond the 30 h sampling reach?)
+
+The wall resolution samples the two candidate offsets 30 h either side of the
+wall clock, so an offset change larger than 30 h across the window could in
+principle be missed. The largest real 1970+ jump is the 2011 `Pacific/Apia`
+date-line change (-11:00 -> +13:00, 24 h). Measured against independent
+candidate validation -- all 7 probes match:
+
+```
+2011-12-29 12:00 wall  api= -36000  truth= -36000  ok
+2011-12-29 23:00 wall  api= -36000  truth= -36000  ok
+2011-12-30 00:00 wall  api= -36000  truth= -36000  ok
+2011-12-30 12:00 wall  api= -36000  truth= -36000  ok
+2011-12-31 00:00 wall  api=  50400  truth=  50400  ok
+2011-12-31 12:00 wall  api=  50400  truth=  50400  ok
+2012-01-01 12:00 wall  api=  50400  truth=  50400  ok
+```
+
+(net48 answers -36000 for 2011-12-31 as well: its registry rule does not
+model the jump, so this is another tzdata-vs-registry data divergence.)
+
+A 32-bit `time_t` build is NOT guarded: the epoch-floor check tests the .NET
+tick count, not `sizeof(time_t)`.
 
 ## 5. Suite baseline: the "same 9 failures" claim
 
