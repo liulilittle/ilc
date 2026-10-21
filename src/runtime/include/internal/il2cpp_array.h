@@ -54,6 +54,22 @@ namespace il2cpp {
 // field small while leaving room beyond the probe's 2/3-rank scope).
 constexpr int32_t IL2CPP_MAX_ARRAY_RANK = 8;
 
+// Il2CppArray::elemKind -- the primitive element kind recorded at allocation
+// (array.cpp) and consumed by the element-kind-driven Array scans
+// (arraysort.cpp). Named so no consumer repeats the numeric contract.
+enum ArrayElemKind : int32_t
+{
+    kElemKindNone = 0,     // unrecorded (reference arrays, or a value array
+                           // built without a descriptor)
+    kElemKindI4 = 1,       // System.Int32
+    kElemKindI8 = 2,       // System.Int64
+    kElemKindF = 3,        // System.Single
+    kElemKindD = 4,        // System.Double
+    kElemKindU4 = 5,       // System.UInt32 -- signedness differs from I4
+    kElemKindDateTime = 6, // System.DateTime (packed kind<<62|ticks cell)
+    kElemKindTimeSpan = 7  // System.TimeSpan (ticks)
+};
+
 // Managed array: object header + length + element metadata + payload.
 struct Il2CppArray
 {

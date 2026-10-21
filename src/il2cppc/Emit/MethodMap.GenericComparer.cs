@@ -132,6 +132,13 @@ public static partial class MethodRefResolver
                     {
                         "int" => I("il2cpp::runtime::il2cpp_comparer_create_int", 1, true, true, false,
                             new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_int"),
+                        // B8-1: uint rides the int32 slot ABI (same bits, the
+                        // wrapped delegate applies its own unsigned order). It
+                        // MUST NOT fall to the ref carrier -- a ref created
+                        // comparer would be invoked with the raw element word
+                        // reinterpreted as an Il2CppObject*.
+                        "uint" => I("il2cpp::runtime::il2cpp_comparer_create_int", 1, true, true, false,
+                            new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_uint"),
                         "long" => I("il2cpp::runtime::il2cpp_comparer_create_long", 1, true, true, false,
                             new[] { "" }, returnTypeName: "System.Collections.Generic.Comparer`1_long"),
                         "double" => I("il2cpp::runtime::il2cpp_comparer_create_double", 1, true, true, false,
