@@ -14,7 +14,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // consumes the SAME pool the emitter used (D1 single writer -- the pool
 // built by Generate's in-loop fold->collect; ScanAssembly is a separate
 // diagnostic API and never feeds emission).
-public sealed record GenerateResult(StringPool Pool, int Folded, int Methods);
+public sealed record GenerateResult(StringPool Pool, int Folded, int Methods, IReadOnlyList<string> NotTranspiled);
 
 public static class CodeGenerator
 {
@@ -1015,6 +1015,10 @@ public static class CodeGenerator
         // abstract/folded-accessor skips above are shared).
         var foldedCount = 0;
         var methodCount = 0;
+        // B0: every NOT TRANSPILED stub emitted in this run, as "Type::Method"
+        // (deduped, emission order). Program.cs turns this into --stub-report
+        // and --strict-stubs; the generator itself never changes the exit code.
+        var notTranspiled = new List<string>();
 
         // r78 fix: two-pass forward declaration strategy.
         // Pass 0: collect field-referenced types NOT in the types list (BCL internal types
@@ -1153,7 +1157,14 @@ public static class CodeGenerator
             var cppMethodName = MethodCppName(t, m);
             var paramNames = Enumerable.Range(0, info.ArgCount).Select(i => $"arg{i}").ToArray();
             var paramTypes = ParamTypesCpp(m, info);
-            var body = "    il2cpp_throw_new(\"System.NotSupportedException,System.Exception\", " +
+            var stubId = $"{t.FullName}::{m.Name}";
+            if (!notTranspiled.Contains(stubId)) notTranspiled.Add(stubId);
+            // B0: a runtime-visible diagnostic BEFORE the managed throw -- the
+            // throw reaches the managed handler (or aborts), while stderr is
+            // the only trace that survives everywhere. std::fprintf needs
+            // <cstdio>, included in every emitted TU below.
+            var body = $"    std::fprintf(stderr, \"il2cpp: not transpiled: {EscapeC(stubId)}\\n\");\n" +
+                       "    il2cpp_throw_new(\"System.NotSupportedException,System.Exception\", " +
                        $"\"this method was not transpiled (M5 mapping gap): {t.FullName}::{m.Name} -- see the transpile log\");\n";
             if (ret != "void")
                 body += "    return {}; // unreachable (the throw above never returns)\n";
@@ -1192,6 +1203,8 @@ public static class CodeGenerator
             w.Line();
             // Method declarations all go in generated.h: cross-method/cross-type forward references (Main emitted before Add can still see Add's declaration).
             w.Line("#include \"generated.h\"");
+            // B0: NOT TRANSPILED stubs print their identity to stderr (std::fprintf).
+            w.Line("#include <cstdio>");
             w.Line();
 
             // Static-constructor guard (Task 6, beforefieldinit lazy semantics): the type's first use
@@ -1950,7 +1963,7 @@ public static class CodeGenerator
         EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath),
             PointerSize, options?.TargetArch);
         EmitCmake(outDir, allSrc, assemblyPath, types, options);
-        return new GenerateResult(_pool, foldedCount, methodCount);
+        return new GenerateResult(_pool, foldedCount, methodCount, notTranspiled);
     }
 
     // IR->C++ statement emission. body is emitted one indent level deep (end-of-line comments align

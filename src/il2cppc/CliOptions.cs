@@ -42,7 +42,7 @@ public sealed class CliOptions
     // Program.cs. The "usage:" keyword is kept verbatim (existing error text
     // stays byte-stable).
     public const string Usage =
-        "usage: il2cppc [--arch x86|x64|arm32|arm64] [--reflection-list <manifest>] [--reflection-granularity all|members] [--manifest <file>] [--requested-execution-level asInvoker|highestAvailable|requireAdministrator] [--ui-access] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
+        "usage: il2cppc [--arch x86|x64|arm32|arm64] [--reflection-list <manifest>] [--reflection-granularity all|members] [--manifest <file>] [--requested-execution-level asInvoker|highestAvailable|requireAdministrator] [--ui-access] [--stub-report <path>] [--strict-stubs] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>";
     public const string AuditUsage = "usage: il2cppc audit-internalcalls <assembly>";
 
     // GN-19 (GL): multi-section English help. The first line keeps the
@@ -50,7 +50,7 @@ public sealed class CliOptions
     // the single-line Usage/AuditUsage constants above remain the parse-error
     // echo (CliOptions.cs parse paths + Program.cs audit-missing-arg).
     public const string HelpText =
-@"usage: il2cppc [--arch <arch>] [--reflection-list <manifest>] [--reflection-granularity all|members] [--manifest <file>] [--requested-execution-level <level>] [--ui-access] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
+@"usage: il2cppc [--arch <arch>] [--reflection-list <manifest>] [--reflection-granularity all|members] [--manifest <file>] [--requested-execution-level <level>] [--ui-access] [--stub-report <path>] [--strict-stubs] [--log <file>] [--quiet] [--verbose] <input-assembly> <output-dir>
 usage: il2cppc audit-internalcalls <assembly>
        il2cppc --version | --help | -h
 
@@ -81,6 +81,14 @@ OPTIONS
                                  manifest with that requestedExecutionLevel.
   --ui-access                    set uiAccess=""true"" in the generated manifest
                                  (requires --requested-execution-level).
+  --stub-report <path>           write the machine-readable list of methods
+                                 that were NOT transpiled (one Type::Method
+                                 per line). Written on every successful run,
+                                 including the default exit-0 path.
+  --strict-stubs                 CI opt-in: if any method was not transpiled,
+                                 list every stub on stderr and exit 3.
+                                 Without this flag the run stays exit 0
+                                 (warning + runtime-throwing stub).
   --log <file>                   tee a copy of stdout + stderr into <file>.
   --quiet                        suppress the stdout diagnostics (errors and
                                  warnings on stderr are unaffected).
@@ -112,6 +120,22 @@ EXIT CODES
      assembly, unopenable --log path).
   2  transpile failure (metadata load / decode / emission) or an audit run
      whose assembly cannot be read.
+  3  --strict-stubs was given and at least one method was not transpiled
+     (the stubs are listed on stderr and in --stub-report).
+
+NOT TRANSPILED STUBS
+  A method whose body the transpiler cannot translate is emitted as a stub
+  that prints ""il2cpp: not transpiled: <Type>::<Method>"" to stderr and then
+  raises System.NotSupportedException at run time. The run still completes
+  and the generated project is linkable, so the remaining methods stay
+  usable. Three contracts govern this surface:
+    1. default: warn + runtime stub, exit 0 (a stub never fails a build);
+    2. --strict-stubs: CI gate -- any stub makes the run exit 3 and every
+       stub is listed on stderr;
+    3. acceptance gate: read --stub-report and require ZERO entries. A build
+       whose only signal is a warning is NOT fixed: the stub will throw
+       NotSupportedException when that method is called.
+  N = 0 -> no summary line and an empty stub report.
 
 EXAMPLES
   il2cppc app.dll gen
@@ -186,6 +210,14 @@ NOTES
     public string RequestedExecutionLevel { get; init; } = "";
     public bool UiAccess { get; init; }
 
+    // B0 (stub traceability): --stub-report <path> writes one Type::Method
+    // line per NOT TRANSPILED stub ("" = no report requested). --strict-stubs
+    // is the explicit CI opt-in that turns a non-empty stub set into exit 3;
+    // without it a stub stays a warning + exit 0 (difftest.ps1 must never see
+    // a failure for a case whose stubbed method is simply not executed).
+    public string StubReportPath { get; init; } = "";
+    public bool StrictStubs { get; init; }
+
     // nb10 (HIGH-1): the EXACT bytes to embed for a file-sourced manifest,
     // already normalized to a form Windows can parse. An XML declaration's
     // encoding attribute is authoritative for the reader, so a file that is
@@ -211,6 +243,8 @@ public static class CliParser
         string requestedExecutionLevel = "";
         var uiAccess = false;
         var granularity = ReflectionGranularity.Members;
+        var stubReportPath = "";
+        var strictStubs = false;
         string logPath = "";
         var quiet = false;
         var verbose = false;
@@ -243,6 +277,14 @@ public static class CliParser
                     break;
                 case "--ui-access":
                     uiAccess = true;
+                    break;
+                case "--stub-report":
+                    if (i + 1 >= args.Length || string.IsNullOrWhiteSpace(args[i + 1]))
+                        throw new CliParseException("option --stub-report requires a file path");
+                    stubReportPath = args[++i];
+                    break;
+                case "--strict-stubs":
+                    strictStubs = true;
                     break;
                 case "--reflection-granularity":
                     if (i + 1 >= args.Length)
@@ -334,6 +376,8 @@ public static class CliParser
             ManifestIsGenerated = requestedExecutionLevel.Length > 0,
             RequestedExecutionLevel = requestedExecutionLevel,
             UiAccess = uiAccess,
+            StubReportPath = stubReportPath,
+            StrictStubs = strictStubs,
             // G1: TargetArch == "" when --arch is absent -> null (host width);
             // PointerSize = normalized target width (4|8), host IntPtr.Size default.
             // GN-19: 11-arch PointerSize table (aliases already normalized by

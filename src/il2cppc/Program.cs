@@ -158,6 +158,7 @@ public static class Program
             if (opts.Quiet)
                 Console.SetOut(TextWriter.Null);
 
+            var stubReportWritten = false;
             try
             {
                 var types = MetadataLoader.LoadAssembly(opts.InputAssembly);
@@ -192,11 +193,25 @@ public static class Program
                 WriteLicmReport(types, opts.InputAssembly);
                 WriteInlineReport(types, opts.InputAssembly);
                 WriteTempSlotReport(types, opts.InputAssembly);
+                // B0: the stub surface is reported BEFORE the exit decision.
+                // The report is written on both the default (exit 0) and the
+                // --strict-stubs (exit 3) path; only --strict-stubs changes
+                // the exit code (defaults MUST stay 0 for difftest.ps1).
+                if (!string.IsNullOrEmpty(opts.StubReportPath))
+                {
+                    WriteStubReport(opts.StubReportPath, result.NotTranspiled);
+                    stubReportWritten = true;
+                }
+                WriteStubDiagnostics(result.NotTranspiled, opts.StrictStubs);
                 Console.WriteLine($"generated {types.Count} type(s) -> {opts.OutputDir}");
-                return 0;
+                return opts.StrictStubs && result.NotTranspiled.Count > 0 ? 3 : 0;
             }
             catch (Exception ex)
             {
+                // "Regardless of RC" contract: the report file exists even when
+                // the run fails before/while emitting (empty = no stubs known).
+                if (!stubReportWritten && !string.IsNullOrEmpty(opts.StubReportPath))
+                    WriteStubReport(opts.StubReportPath, Array.Empty<string>());
                 Console.Error.WriteLine($"il2cppc error: {ex.Message}");
                 // S4: the inner exception's stack trace preserves the original
                 // throw-point line (MethodContextException re-wrapping moved the
@@ -385,6 +400,36 @@ public static class Program
         {
             Console.Error.WriteLine($"il2cppc warning: inline pre-scan skipped: {ex.Message}");
         }
+    }
+
+    // B0: --stub-report <path> -- one "Type::Method" line per NOT TRANSPILED
+    // stub (machine-readable; no header). An empty list writes an EMPTY file
+    // (the acceptance gate is "file exists and has zero lines"). A reporting
+    // failure is a warning, never a transpile failure.
+    private static void WriteStubReport(string path, IReadOnlyList<string> stubs)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllLines(path, stubs);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"il2cppc warning: cannot write stub report '{path}': {ex.Message}");
+        }
+    }
+
+    // B0: stderr diagnostics. The summary is printed whenever N > 0 (default
+    // and strict); --strict-stubs additionally lists every stub so CI logs are
+    // actionable without opening the report. N == 0 prints nothing.
+    private static void WriteStubDiagnostics(IReadOnlyList<string> stubs, bool strict)
+    {
+        if (stubs.Count == 0) return;
+        Console.Error.WriteLine($"warning: {stubs.Count} method(s) were not transpiled (see --stub-report)");
+        if (!strict) return;
+        foreach (var stub in stubs)
+            Console.Error.WriteLine($"il2cppc: not transpiled: {stub}");
     }
 
     // Temp slot reuse (stackframe-audit P1-1, see the TempSlotPass.cs header comment):
