@@ -35,7 +35,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapArraySort(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string[]? genArgNames, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
         switch (name)
         {
@@ -84,12 +84,28 @@ public static partial class MethodRefResolver
                 // A3: DateTime/TimeSpan generic instantiations (0x11 VALUETYPE).
                 // The value parameter is the runtime 8-byte struct -- no box is
                 // needed, so the element-kind scans compare ticks directly.
-                if (genArgs.Length == 1 && genArgs[0] == 0x11 && count == 2)
+                // The element type comes from the MethodSpec generic argument
+                // NAME (the only authoritative source): the StackFold
+                // arg0Type/arg1Type hints exist only for temporaries carrying
+                // an objTypes entry, so a plain local/parameter/field needle
+                // used to fall through to the NotSupported arm below.
+                if (genArgs.Length == 1 && genArgs[0] == 0x11
+                    && genArgNames is { Length: >= 1 })
                 {
-                    if (arg0Type == "System.DateTime" || arg1Type == "System.DateTime")
-                        return I("il2cpp::il2cpp_array_index_of_datetime", 2, true, false, false, new[] { "a", "" });
-                    if (arg0Type == "System.TimeSpan" || arg1Type == "System.TimeSpan")
-                        return I("il2cpp::il2cpp_array_index_of_timespan", 2, true, false, false, new[] { "a", "" });
+                    if (genArgNames[0] == "System.DateTime")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_index_of_datetime", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_index_of_datetime_range", 4, true, false, false, new[] { "a", "", "i", "i" });
+                    }
+                    if (genArgNames[0] == "System.TimeSpan")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_index_of_timespan", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_index_of_timespan_range", 4, true, false, false, new[] { "a", "", "i", "i" });
+                    }
                 }
                 return genArgs[0] switch
                 {
@@ -150,13 +166,25 @@ public static partial class MethodRefResolver
             case "BinarySearch":
                 if (genArgs == null) return null;
                 // A3: DateTime/TimeSpan generic instantiations (0x11 VALUETYPE),
-                // by value -- the search compares ticks (Kind ignored).
-                if (genArgs.Length == 1 && genArgs[0] == 0x11 && count == 2)
+                // by value -- the search compares ticks (Kind ignored). Same
+                // genArgNames authority as IndexOf above.
+                if (genArgs.Length == 1 && genArgs[0] == 0x11
+                    && genArgNames is { Length: >= 1 })
                 {
-                    if (arg0Type == "System.DateTime" || arg1Type == "System.DateTime")
-                        return I("il2cpp::il2cpp_array_binary_search_datetime", 2, true, false, false, new[] { "a", "" });
-                    if (arg0Type == "System.TimeSpan" || arg1Type == "System.TimeSpan")
-                        return I("il2cpp::il2cpp_array_binary_search_timespan", 2, true, false, false, new[] { "a", "" });
+                    if (genArgNames[0] == "System.DateTime")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_binary_search_datetime", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_binary_search_datetime_range", 4, true, false, false, new[] { "a", "i", "i", "" });
+                    }
+                    if (genArgNames[0] == "System.TimeSpan")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_binary_search_timespan", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_binary_search_timespan_range", 4, true, false, false, new[] { "a", "i", "i", "" });
+                    }
                 }
                 return genArgs[0] switch
                 {

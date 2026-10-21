@@ -1329,6 +1329,17 @@ public static class TypeEmitter
                 case StaticFieldSemantic.UInt64:
                     w.Line($"uint64_t {name} = 0; // 64-bit unsigned value");
                     break;
+                // DateTime/TimeSpan static fields are the 8-byte runtime value
+                // structs (StaticFieldCppType names the same C++ type for the
+                // generated.h extern). int32_t storage truncated the ticks and
+                // made the extern/definition pair type-conflict. Zero-init; the
+                // .cctor assigns the value.
+                case StaticFieldSemantic.DateTime:
+                    w.Line($"il2cpp::runtime::Il2CppDateTime {name} = il2cpp::runtime::Il2CppDateTime(0); // 8-byte DateTime value");
+                    break;
+                case StaticFieldSemantic.TimeSpan:
+                    w.Line($"il2cpp::runtime::Il2CppTimeSpan {name} = il2cpp::runtime::Il2CppTimeSpan(0); // 8-byte TimeSpan value");
+                    break;
                 default:
                     w.Line($"int32_t {name} = {f.ConstantValue ?? "0"};");
                     break;
@@ -1385,6 +1396,12 @@ public static class TypeEmitter
         // runtime's Il2CppDateTime zero value (il2cpp_time.h).
         w.Line("// System.DateTime::MinValue BCL static storage (8-byte Il2CppDateTime, inline variable)");
         w.Line("inline il2cpp::runtime::Il2CppDateTime System_DateTime_sf_MinValue = il2cpp::runtime::Il2CppDateTime(0);");
+        // A3 (arraydtneedle): System.DateTime::MaxValue -- the ticks of
+        // 9999-12-31T23:59:59.9999999 (DateTime.MaxTicks), the same value the
+        // DateTimeOffset MaxValue storage above uses. Without this definition
+        // a `DateTime.MaxValue` read is an undeclared identifier.
+        w.Line("// System.DateTime::MaxValue BCL static storage (8-byte Il2CppDateTime, inline variable)");
+        w.Line("inline il2cpp::runtime::Il2CppDateTime System_DateTime_sf_MaxValue = il2cpp::runtime::Il2CppDateTime(3155378975999999999LL);");
         // B4 (dtoprobe): System.DateTimeOffset::MinValue / ::MaxValue --
         // mscorlib static readonly VALUETYPE fields (net8: NOT const, so
         // Roslyn cannot fold the ldsfld -- the read references
