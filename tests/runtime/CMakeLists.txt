@@ -24,6 +24,14 @@
 cmake_minimum_required(VERSION 3.10)
 project(il2cpp_runtime_tests CXX)
 
+# CTest registration. Every test_*.cpp executable below is added to CTest, so
+# `ctest` in this build directory runs the same suites the sweep scripts run by
+# hand. NOTE: a test's own main() decides whether it has anything to check --
+# e.g. test_timezone_posix is POSIX-only and returns 0 immediately on Windows,
+# so on Windows it is a no-op, NOT coverage. On POSIX it exits 77 when its
+# tzdata is unusable, which SKIP_RETURN_CODE turns into a ctest "Skipped".
+enable_testing()
+
 # monitor.cpp (il2cpp_runtime) uses pthread_mutex_* directly on POSIX --
 # Linux/WSL linking needs -pthread. On Windows/MinGW the Threads module resolves
 # to an empty/system thread target with no side effects.
@@ -59,10 +67,23 @@ foreach(TEST_SRC ${TEST_SOURCES})
         # /utf-8: sources are UTF-8 without BOM (including non-ASCII comments); MSVC defaults to code page 936 and garbles them, swallowing later declarations
         target_compile_options(${TEST_NAME} PRIVATE /W4 /EHsc /bigobj /utf-8)
     else()
-        # -Wall -Wextra: CI quality gate, zero warnings on both compilers (style spec 搂7), PUBLIC propagates to linked generated code
+        # -Wall -Wextra: CI quality gate, zero warnings on both compilers (style spec §7); PUBLIC propagates to linked generated code
         target_compile_options(${TEST_NAME} PRIVATE -Wall -Wextra -fexceptions)
     endif()
+    add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+    # Several suites print multi-KB failure dumps; keep ctest's log readable
+    # and the timeout generous (test_com links a large generated fixture).
+    set_tests_properties(${TEST_NAME} PROPERTIES TIMEOUT 300)
+    # test_timezone_posix exits 77 when its tzdata is unusable (every zone
+    # skipped). Declaring that code for THAT test only makes ctest report
+    # "Skipped" instead of a pass, so a machine without zoneinfo cannot show a
+    # false green. Scoped to the one test so no other suite's exit code is
+    # reinterpreted.
+    if(TEST_NAME STREQUAL "test_timezone_posix")
+        set_tests_properties(${TEST_NAME} PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
 endforeach()
+
 
 # COM stage 17 batch 1/2/3: link the committed com17type transpiled output
 # (gen_v3 -- batch 3 adds the IDataObject Data field + the 4-arg DragEventArgs
