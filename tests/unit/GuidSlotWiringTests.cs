@@ -11,11 +11,14 @@ using Xunit;
 // Guid value-slot wiring: System.Guid's icalls WRITE through their output
 // buffer (void il2cpp_guid_new_guid(uint8_t bytes[16]) /
 // il2cpp_guid_parse_strict(Il2CppString*, uint8_t bytes[16]) -- guid.h has
-// no struct wrapper, the slot IS the raw 16 bytes). The emitter must:
-//   * declare Guid locals as uint8_t[16] (the "guid" kind from ExprKind)
-//   * emit `t = NewGuid()` as the statement form `il2cpp_guid_new_guid(t);`
-//     (the icall takes the slot, it cannot appear as an assignment RHS)
-//   * emit Guid value copies as memcpy (C++ arrays are not assignable)
+// no struct wrapper for the icall ABI, the buffer IS the raw 16 bytes). The
+// emitter must:
+//   * declare Guid locals as the 16-byte il2cpp::Il2CppGuid VALUE struct
+//     (the same type the method signature / fields name)
+//   * emit `t = NewGuid()` as the statement form
+//     `il2cpp_guid_new_guid(reinterpret_cast<uint8_t*>(&t));` (the icall takes
+//     the slot ADDRESS, it cannot appear as an assignment RHS)
+//   * emit Guid value copies as plain struct assignments (Il2CppGuid is POD)
 //   * include guid.h in generated.h
 // A "guid"-kind call reaching an EXPRESSION position (the fold inlined the
 // single-use temp into e.g. `return Guid.Parse(s)`) must reject LOUDLY.
@@ -36,20 +39,18 @@ public class GuidSlotWiringTests
             CodeGenerator.Generate(types, dir, tmp);
             var generated = File.ReadAllText(Path.Combine(dir, "src", "Cases_GenGuid.cpp"));
 
-            // Guid locals are declared as raw 16-byte value slots.
-            Assert.Contains("uint8_t loc0[16];", generated);
-            Assert.Contains("uint8_t loc1[16];", generated);
-            // NewGuid/Parse emit as STATEMENT calls with the slot as the
-            // output buffer (never `t = fn(...)` -- the icalls return void).
-            Assert.Contains("il2cpp::il2cpp_guid_new_guid(loc0);", generated);
+            // Guid locals are declared as the 16-byte Il2CppGuid value struct
+            // (the same type the method signature and field slots name).
+            Assert.Contains("il2cpp::Il2CppGuid loc0;", generated);
+            Assert.Contains("il2cpp::Il2CppGuid loc1;", generated);
+            // NewGuid/Parse emit as STATEMENT calls with the slot ADDRESS as the
+            // output buffer (never `t = fn(...)` -- the icalls return void and
+            // take raw uint8_t*).
+            Assert.Contains("il2cpp::il2cpp_guid_new_guid(reinterpret_cast<uint8_t*>(&loc0));", generated);
             // The "x" user string rides the StringPool T3 static table
             // (il2cpp::g_strPool[0] -- the single-load pooled form, not the
             // pre-pooling per-use il2cpp_string_intern_literal call).
-            Assert.Contains("il2cpp::il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[0]), loc1);", generated);
-            // The slot declarations must NOT be int32 (the pre-wiring shape
-            // silently truncated the 16-byte value).
-            Assert.DoesNotContain("int32_t loc0", generated);
-            Assert.DoesNotContain("int32_t loc1", generated);
+            Assert.Contains("il2cpp::il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(il2cpp::g_strPool[0]), reinterpret_cast<uint8_t*>(&loc1));", generated);
             // The slot declarations must NOT be int32 (the pre-wiring shape
             // silently truncated the 16-byte value).
             Assert.DoesNotContain("int32_t loc0", generated);
@@ -73,26 +74,27 @@ public class GuidSlotWiringTests
         // single-use temp inlining used to sink the NewGuid call into the
         // return statement, where the void pointer-writing icall could not
         // compile (the emitter rejected LOUDLY at the expression position).
-        // DEC-GAP (batch 106): the OptimizeTemps rule-3 inlining now SKIPS
-        // value-slot icalls (dec/guid/ip4 ResultKinds), so the call no
-        // longer reaches the expression position. The generated method is
-        // now skipped at the F2 RETURN-TYPE gate: a by-value Guid RETURN
-        // has no carrier (Guid values are uint8_t[16] slots written through
-        // void icalls / fields). The skip is the contract -- a warning is
-        // written to stderr and the method is not emitted.
+        // DEC-GAP (batch 106): the OptimizeTemps rule-3 inlining SKIPS
+        // value-slot icalls (dec/guid/ip4 ResultKinds), so the call stays in
+        // its assignment statement and the method returns the resulting
+        // Il2CppGuid value slot. A by-value Guid return IS supported: the
+        // signature names il2cpp::Il2CppGuid (TypeCppName) and the body
+        // returns the value struct.
         var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_guid_" + Guid.NewGuid().ToString("N") + ".dll");
         File.WriteAllBytes(tmp, Synthesize(new byte[] { 0x00, 0x00, 0x11, 0x05 }, returnCall: true).ToArray());
         var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
         try
         {
             var types = MetadataLoader.LoadAssembly(tmp);
-            // No exception is thrown; the method is skipped with a warning.
-            // A table-only TU may still be emitted for typeinfo registration,
-            // so the contract is that the Guid call is never emitted.
             CodeGenerator.Generate(types, dir, tmp);
             var cppPath = Path.Combine(dir, "src", "Cases_GenGuidRet.cpp");
-            if (File.Exists(cppPath))
-                Assert.DoesNotContain("il2cpp_guid_new_guid", File.ReadAllText(cppPath));
+            Assert.True(File.Exists(cppPath), "the Guid-returning method must be emitted (no stub skip)");
+            var cpp = File.ReadAllText(cppPath);
+            // The method is transpiled, not a NotSupportedException stub.
+            Assert.DoesNotContain("not transpiled", cpp);
+            Assert.Contains("il2cpp::Il2CppGuid Cases_GenGuidRet_M_", cpp);
+            // NewGuid writes through the slot ADDRESS (raw uint8_t* ABI).
+            Assert.Contains("il2cpp::il2cpp_guid_new_guid(reinterpret_cast<uint8_t*>(&", cpp);
         }
         finally
         {

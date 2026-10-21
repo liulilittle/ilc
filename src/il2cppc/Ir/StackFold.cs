@@ -6557,6 +6557,27 @@ public static class StackFold
         // gets the "p" (void*) carrier -- the call result temp must hold the
         // full-width raw function pointer (the old null collapsed to int32_t,
         // truncating the x64 address before the calli could cast it).
+        // VALUETYPE returns (0x11): System.Guid / System.Decimal are 16-byte
+        // value structs -- the result temp must be declared as that struct
+        // ("guid"/"dec"), not int32_t (a 4-byte slot truncates the value and
+        // rejects the assignment outright). The owner is decoded from the
+        // signature's TypeDefOrRef coded index.
+        if (ret == 0x11)
+        {
+            var vtOwner = sig.ReadTypeHandle();
+            var vtName = vtOwner.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)vtOwner),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)vtOwner),
+                _ => null,
+            };
+            return vtName switch
+            {
+                "System.Guid" => "guid",
+                "System.Decimal" => "dec",
+                _ => null,
+            };
+        }
         return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : ret is 0x1B ? "p" : null;
     }
 

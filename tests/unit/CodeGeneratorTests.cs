@@ -1582,13 +1582,12 @@ public class CodeGeneratorTests
     //--------------------------------------------------------------------------
     // cast narrowing (R-A1, interlockedcase/valuetypes regression root cause):
     // commit b59c6d9 blanket-cast every ""-cast LocAddrExpr arg to
-    // (uint8_t*) because Guid value slots (uint8_t[16] arrays) have
-    // pointer-to-array addresses that do NOT decay -- and broke every other
-    // address-taking domain (Interlocked int32_t*/int64_t* locations,
-    // value-type ctor Point* receivers). The emitter now carries the Guid
-    // byte-slot cast EXPLICITLY via the "g" cast code (MethodMap.Guid.cs --
-    // rendered (uint8_t*)(...)) while "" stays a pure passthrough. Fixture:
-    // the real net48 csc-built e2e case exes (same CaseExePath convention as
+    // (uint8_t*) because Guid value slots needed a byte pointer -- and broke
+    // every other address-taking domain (Interlocked int32_t*/int64_t*
+    // locations, value-type ctor Point* receivers). The emitter now carries
+    // the Guid byte-slot cast EXPLICITLY via the "g" cast code
+    // (MethodMap.Guid.cs) while "" stays a pure passthrough. Fixture: the real
+    // net48 csc-built e2e case exes (same CaseExePath convention as
     // Generate_DoubleNaN_PreservesNet48CanonicalBits).
     //--------------------------------------------------------------------------
     [Fact]
@@ -1601,11 +1600,13 @@ public class CodeGeneratorTests
         {
             CodeGenerator.Generate(types, dir, exe);
             var cpp = File.ReadAllText(Path.Combine(dir, "src", "Cases_GuidCase.cpp"));
-            // the receiver ADDRESS of a uint8_t[16] slot must still reach the
-            // guid.h const uint8_t* param with the explicit byte-pointer cast
-            // (pointer-to-array does not decay)
+            // the receiver ADDRESS of a Guid slot must reach the guid.h
+            // const uint8_t* param with the explicit byte-pointer cast
             Assert.Contains("il2cpp::il2cpp_guid_to_string(reinterpret_cast<uint8_t*>((&loc", cpp);
             Assert.Contains("il2cpp::il2cpp_guid_equals(reinterpret_cast<uint8_t*>((&loc", cpp);
+            // the slot itself is the Il2CppGuid value struct, never an array
+            Assert.Contains("il2cpp::Il2CppGuid loc", cpp);
+            Assert.DoesNotContain("uint8_t loc", cpp);
         }
         finally
         {

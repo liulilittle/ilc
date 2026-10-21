@@ -1605,16 +1605,11 @@ public static class CodeGenerator
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
                 var managedRetStruct = ManagedReturnStructName(md, m);
-                // VERIFY-FIX (2.7): returnType is computed BEFORE the Guid skip --
-                // the stub needs the method's real return type, and the patch's
-                // original order referenced the yet-undeclared local (CS0841).
+                // A by-value System.Guid return IS supported now: the C++
+                // signature names il2cpp::Il2CppGuid (TypeCppName) and the
+                // body returns the value struct, exactly like decimal. No
+                // skip/stub for it.
                 var returnType = managedRetStruct != null ? TypeCppName(managedRetStruct) : ReturnTypeCpp(bodyInfo.ReturnType);
-                if (managedRetStruct == "System.Guid")
-                {
-                    Console.Error.WriteLine($"warning: {t.FullName}::{m.Name} returns Guid -> skipped");
-                    EmitNotTranspiledStub(w, t, m, bodyInfo, returnType);
-                    continue;
-                }
                 // R2b P2: a VAR return in a reference instantiation renders as
                 // the managed reference (Il2CppObject*).
                 // D5 (arity-0 def): a SHARED method-level generic definition's
@@ -2423,6 +2418,12 @@ public static class CodeGenerator
                 locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "p";
             else if (parts[i].StartsWith("r:", StringComparison.Ordinal))
                 locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "ref";
+            // A System.Guid value parameter is the Il2CppGuid 16-byte struct.
+            // Seeding "guid" lets a copy (`inl0 = arg0`) declare the same
+            // struct slot and lets the "g" cast ADDRESS the argument (a
+            // value-typed parameter is an lvalue, `&arg0` is well-formed).
+            else if (parts[i].StartsWith("V:System.Guid", StringComparison.Ordinal))
+                locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "guid";
         }
         // Instance method `this` (arg0) is always a managed reference -- the
         // inline pass rewrites it into fresh temps (`inl0 = arg0`) and copies
@@ -2448,6 +2449,12 @@ public static class CodeGenerator
             if (!reachable[i] || stmts[i] is not AssignStmt asf) continue;
             if (asf.Value is StaticFieldExpr sf && StaticFieldExprIsReference(md, types, sf.FieldName))
                 locKind[asf.Target] = "ref";
+            // System.Guid.Empty is the shared 16-byte zero slot -- a "guid"
+            // value (Il2CppGuid). The generic loop below SKIPS StaticFieldExpr
+            // ("already classified above"), so the kind must be seeded here or
+            // the target falls to the int32 default.
+            else if (asf.Value is StaticFieldExpr sg && sg.FieldName == "System.Guid.Empty")
+                locKind[asf.Target] = "guid";
         }
         // R7-C4244 (winforms1): a static IntPtr/UIntPtr read (storage
         // intptr_t/uintptr_t) assigned to a temp/local must keep the full
@@ -2542,6 +2549,18 @@ public static class CodeGenerator
             if (fieldDefI != null && fieldDefI.TypeKind == FieldTypeKind.NativeInt && string.IsNullOrEmpty(fieldDefI.FieldTypeName))
                 locKind[aif.Target] = "p";
         }
+        // A callvirt returning System.Guid / System.Decimal needs the 16-byte
+        // value-struct slot. ExprKind(VirtualCallExpr) only knows ReturnsRef
+        // (else "val" -> int32_t), so the generic loop above declared the
+        // result int32_t and the value assignment failed to compile. Seed the
+        // decoded return type AFTER that loop so it wins.
+        for (var i = 0; i < stmts.Count; i++)
+        {
+            if (!reachable[i] || stmts[i] is not AssignStmt avc) continue;
+            if (avc.Value is not VirtualCallExpr vcRet) continue;
+            if (VirtualReturnResultKind(md, vcRet.MethodToken) is { } vcKind)
+                locKind[avc.Target] = vcKind;
+        }
         // M5 wiring: IL-declared int64/double locals are authoritative -- a
         // copy (`long b = a;`) must propagate the 64-bit kind even when the
         // fold only saw an int32-typed constant source.
@@ -2601,8 +2620,11 @@ public static class CodeGenerator
             if (vtType == "il2cpp::Il2CppGuid")
             {
                 // B3: a Guid local initialized in place by a value-type ctor
-                // keeps the raw 16-byte slot the guid.h icalls consume.
-                w.Line($"uint8_t {d}[16];");
+                // is the 16-byte Il2CppGuid VALUE struct (POD, assignable) --
+                // the same type the method signature/field slots name. The
+                // guid.h icalls still take byte pointers, so every consumer
+                // ADDRESSES the slot (`&loc` / `reinterpret_cast<uint8_t*>`).
+                w.Line($"{MuPrefix(d)}il2cpp::Il2CppGuid {d};");
                 locKind[d] = "guid";
                 continue;
             }
@@ -2833,16 +2855,16 @@ public static class CodeGenerator
                     continue;
                 }
                 // guidcase (M7R2): a System.Guid IL-declared local is the
-                // 16-byte VALUE SLOT (uint8_t[16]) -- the guid.h icalls write
-                // through raw byte pointers (the "g" cast; there is NO
-                // System_Guid struct -- System.Guid is a BCL type with no
-                // TypeDef). The generic TypeCppName arm would emit
-                // `System_Guid loc;` (unknown type name -> cmake build FAIL).
+                // 16-byte Il2CppGuid VALUE struct (the same type the signature
+                // and field slots use). The guid.h icalls write through raw
+                // byte pointers, so consumers ADDRESS the slot ("g" cast).
+                // The generic TypeCppName arm would emit `System_Guid loc;`
+                // (unknown type name -> cmake build FAIL).
                 if (ilKind[2..] == "System.Guid")
                 {
-                    w.Line($"uint8_t {d}[16];");
+                    w.Line($"{MuPrefix(d)}il2cpp::Il2CppGuid {d};");
                     // Register the slot kind so the Guid value-copy / Empty
-                    // memcpy paths recognize assignments to this local (the
+                    // paths recognize assignments to this local (the
                     // declaration alone does not seed locKind).
                     locKind[d] = "guid";
                     continue;
@@ -3014,15 +3036,13 @@ public static class CodeGenerator
                 w.Line($"{MuPrefix(d)}il2cpp::Il2CppPinvokeMsg {d};");
                 continue;
             }
-            // Guid value slots: guid.h operates on RAW 16 bytes -- the
-            // helpers take uint8_t[16] pointers (no struct wrapper exists),
-            // so the slot is a plain uint8_t[16] array. C++ arrays are not
-            // assignable, so value copies emit memcpy (see the AssignStmt
-            // emitter); ldloca addresses are cast to the byte pointer at
-            // the call sites (see EmitIcallCallArgs).
+            // Guid value slots: the slot is the 16-byte Il2CppGuid VALUE
+            // struct (POD, assignable) -- the same type the signature/field
+            // slots use. guid.h still takes raw byte pointers, so call sites
+            // address the slot (`&x` through the "g" cast).
             if (kind == "guid")
             {
-                w.Line($"uint8_t {d}[16];");
+                w.Line($"{MuPrefix(d)}il2cpp::Il2CppGuid {d};");
                 continue;
             }
             // M7 CG-FIX (netcase): the IPAddress.Parse "ip4" value slot -- the
@@ -3958,12 +3978,27 @@ public static class CodeGenerator
                         w.LineAligned($"{gres.CppName}((&{EmitTarget(a.Target)}){(garg.Length > 0 ? ", " + garg : "")});",
                             $"IL {At(a.SourceOpName, a.SourceOffset)} -- write BigInteger value into (&{EmitTarget(a.Target)}) (8-byte value slot)");
                     }
+                    else if (gres.ResultKind == "guid")
+                    {
+                        // Guid: the result slot is the Il2CppGuid VALUE struct
+                        // (assignable, unlike the old uint8_t[16] array), but
+                        // the guid.h icalls still take `uint8_t*` output
+                        // buffers -- so the slot is ADDRESSED and cast to the
+                        // byte pointer: `il2cpp_guid_new_guid((uint8_t*)(&t))`.
+                        w.LineAligned(garg.Length > 0
+                                ? $"{gres.CppName}({garg}, reinterpret_cast<uint8_t*>(&{EmitTarget(a.Target)}));"
+                                : $"{gres.CppName}(reinterpret_cast<uint8_t*>(&{EmitTarget(a.Target)}));",
+                            $"IL {At(a.SourceOpName, a.SourceOffset)} -- write Guid value into {EmitTarget(a.Target)} (16-byte value struct)");
+                    }
                     else
                     {
+                        // ip4: the IPAddress.Parse slot is still a raw
+                        // uint8_t[4] array (ipaddr.h write-through contract),
+                        // so the array name decays to the byte pointer.
                         w.LineAligned(garg.Length > 0
                                 ? $"{gres.CppName}({garg}, {EmitTarget(a.Target)});"
                                 : $"{gres.CppName}({EmitTarget(a.Target)});",
-                            $"IL {At(a.SourceOpName, a.SourceOffset)} -- write Guid value into {EmitTarget(a.Target)} (16-byte value slot)");
+                            $"IL {At(a.SourceOpName, a.SourceOffset)} -- write value into {EmitTarget(a.Target)} (byte-slot)");
                     }
                     break;
                 }
@@ -3992,60 +4027,20 @@ public static class CodeGenerator
                 if (a.Value is ValueTypeNewExpr { TypeFullName: "System.Guid" }
                     && locKind.TryGetValue(a.Target, out var gnewKind) && gnewKind == "guid")
                 {
-                    w.LineAligned($"/* {a.Target}: 16-byte Guid value slot (initialized in place by the ctor) */",
+                    w.LineAligned($"/* {a.Target}: 16-byte Guid value struct (initialized in place by the ctor) */",
                         $"IL {At(a.SourceOpName, a.SourceOffset)} -- Guid value-type newobj definition");
                     break;
                 }
-                // LOUD P0-02/03: `g[i]` with a Guid element (ldelem token form)
-                // yields the 16-byte element image. C++ arrays are not
-                // assignable, so the store into the "guid" slot is a memcpy
-                // from the element pointer (the ldelem_guid expression renders
-                // that pointer).
-                if (a.Value is CallExpr { Function: "ldelem_guid" } gleg)
-                {
-                    if (!locKind.TryGetValue(a.Target, out var gldKind) || gldKind != "guid")
-                        throw new NotSupportedException(
-                            $"ldelem System.Guid into non-Guid slot {a.Target}: the 16-byte value needs a uint8_t[16] Guid slot");
-                    w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, {EmitExpr(gleg, md, types)}, 16);",
-                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- copy Guid array element (16 bytes) into {a.Target}");
-                    break;
-                }
-                // Guid value copies: the slot is uint8_t[16] -- C++ arrays are
-                // NOT assignable, so a value copy emits a 16-byte memcpy
-                // (exact .NET Guid copy semantics).
-                if (a.Value is LocExpr srcLoc && locKind.TryGetValue(a.Target, out var tk) && tk == "guid"
-                    && locKind.TryGetValue(srcLoc.Name, out var sk) && sk == "guid")
-                {
-                    if (a.Target.Contains('.'))
-                        throw new NotSupportedException("Guid static-field copy not wired: TypeEmitter static storage is int32_t");
-                    w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, {srcLoc.Name}, 16);",
-                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- copy Guid value (16-byte value slot)");
-                    break;
-                }
-                // B3: a Guid FIELD read into a Guid slot (`Guid x = h.G`) --
-                // the C++ member is the 16-byte Il2CppGuid value struct, so
-                // the copy is a 16-byte memcpy from its address (arrays and
-                // structs are not assignable; exact value semantics).
-                if (a.Value is FieldExpr gfield && locKind.TryGetValue(a.Target, out var gftk) && gftk == "guid")
-                {
-                    if (a.Target.Contains('.'))
-                        throw new NotSupportedException("Guid field-to-static-field copy not wired: static storage is not a Guid slot");
-                    w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, &({EmitExpr(gfield, md, types)}), 16);",
-                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- copy Guid field (16-byte value) into {a.Target}");
-                    break;
-                }
-                // Guid.Empty read into a Guid slot: the shared all-zero
-                // constant copied with the same 16-byte memcpy discipline.
-                if (a.Value is StaticFieldExpr gEmpty && gEmpty.FieldName == "System.Guid.Empty"
-                    && locKind.TryGetValue(a.Target, out var gek) && gek == "guid")
-                {
-                    if (a.Target.Contains('.'))
-                        throw new NotSupportedException("Guid.Empty store to a static field not wired: TypeEmitter static storage is int32_t");
-                    _guidEmptyNeeded = true;
-                    w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, il2cpp_guid_empty_bytes, 16);",
-                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- Guid.Empty into {EmitTarget(a.Target)} (16-byte zero copy)");
-                    break;
-                }
+                // Guid value slots are the assignable Il2CppGuid POD struct, so
+                // `g[i]` (ldelem_guid renders the element VALUE), a Guid local
+                // copy, a Guid field read and Guid.Empty all fall through to
+                // the plain assignment below (exact .NET value-copy semantics).
+                // Guid.Empty's static-field store is the only shape whose
+                // storage does not exist: TypeEmitter static storage has no
+                // Guid arm (a 16-byte Guid write would overrun the int32_t
+                // slot), so keep rejecting it LOUDLY.
+                if (a.Target.Contains('.') && locKind.TryGetValue(a.Target, out var gstk) && gstk == "guid")
+                    throw new NotSupportedException("Guid static-field store not wired: TypeEmitter static storage has no 16-byte Guid slot");
                 var assignCode = $"{EmitTarget(a.Target)} = {EmitExpr(a.Value, md, types)};";
                 if (a.Value is CallExpr)
                     w.LineAligned(assignCode, $"IL {At(a.SourceOpName, a.SourceOffset)} -- store call result into {EmitTarget(a.Target)}");
@@ -4096,19 +4091,20 @@ public static class CodeGenerator
                         ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
                         : NullSafePtrCast(faValueCpp, EmitExpr(fa.Value, md, types)));
                 var faTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject, _curLocKinds);
-                // B3: a System.Guid field store is a 16-byte value copy (the
-                // member is the guid.h Il2CppGuid POD, never a pointer/int32).
-                // Source shapes: a Guid local slot (raw uint8_t[16], decays to
-                // the pointer) or another value expression (take its address).
+                // B3: a System.Guid field store is a plain value assignment --
+                // the member is the guid.h Il2CppGuid POD struct, the same
+                // type every Guid slot names. An ADDRESS source (ldloca/ldflda
+                // feeding stfld) is dereferenced first (stfld copies the
+                // value, not the pointer).
                 if (fa.RefTargetFullName == "System.Guid"
                     || types.FirstOrDefault(x => x.FullName == fa.OwnerFullName)?.InstanceFields
                         .Any(f => f.TypeKind == FieldTypeKind.Guid && TypeEmitter.Sanitize(f.Name) == fa.FieldCppName) == true)
                 {
-                    var guidSrc = fa.Value is LocExpr gloc && locKind.TryGetValue(gloc.Name, out var glk) && glk == "guid"
-                        ? gloc.Name
-                        : $"&({EmitExpr(fa.Value, md, types)})";
-                    w.LineAligned($"std::memcpy(&{faTarget}, {guidSrc}, 16);",
-                        $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- store Guid value (16 bytes) into {fa.OwnerFullName}.{fa.FieldCppName}");
+                    var guidVal = fa.Value is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                        ? $"(*{EmitExpr(fa.Value, md, types)})"
+                        : EmitExpr(fa.Value, md, types);
+                    w.LineAligned($"{faTarget} = {guidVal};",
+                        $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- store Guid value into {fa.OwnerFullName}.{fa.FieldCppName}");
                     break;
                 }
                 if (fa.IsRefField && !fa.IsValueTypeObject)
@@ -4287,6 +4283,12 @@ public static class CodeGenerator
                         || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_biginteger", StringComparison.Ordinal)
                         || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_dtoffset", StringComparison.Ordinal))
                         thisCode = $"(&{thisCode})";
+                    // Guid ctors (il2cpp_guid_ctor_string) take the 16-byte
+                    // output slot as a raw `uint8_t bytes[16]` -- the receiver
+                    // is the Il2CppGuid VALUE slot, so it must be ADDRESSED and
+                    // re-typed to the byte pointer.
+                    else if (resolvedVc.CppName.StartsWith("il2cpp::il2cpp_guid_ctor", StringComparison.Ordinal))
+                        thisCode = GuidValueBytePtr(thisCode);
                     // GN-N4 stage-2 (Id<Pt> by-value MVAR): a USER value-type
                     // ctor (`Cases_Pt__ctor_...` -- NOT an il2cpp:: runtime
                     // icall) declares its receiver `this` as `{T}*` (the
@@ -4893,23 +4895,28 @@ public static class CodeGenerator
                 return $"(&{la.Name})";
             case StaticFieldExpr f:
                 // System.Guid.Empty: no TypeDef storage exists -- the read is
-                // the shared all-zero 16-byte slot (the Guid value form).
+                // the shared all-zero 16-byte slot, dereferenced as the
+                // Il2CppGuid VALUE (the slot type every Guid expression uses).
+                // The shared slot is deliberately NON-const (the guid.h ABI
+                // passes mutable uint8_t*), so the view is a plain
+                // reinterpret_cast -- a const view would force a
+                // cast-away-qualifiers on every "g"-cast receiver.
                 if (f.FieldName == "System.Guid.Empty")
                 {
                     _guidEmptyNeeded = true;
-                    return "il2cpp_guid_empty_bytes";
+                    return "(*reinterpret_cast<il2cpp::Il2CppGuid*>(il2cpp_guid_empty_bytes))";
                 }
                 return FieldStorageName(f.FieldName);
             case StaticFieldAddrExpr sa:
                 // ldsflda (ECMA 0x7F): address of a static field -- &<storage>.
                 // The deref:* receiver cast then loads the field VALUE.
                 // System.Guid.Empty: no TypeDef storage -- the shared all-zero
-                // 16-byte slot (the array name decays to the uint8_t* the
-                // "g"-cast receivers expect).
+                // 16-byte slot, viewed as an Il2CppGuid* (the Guid value slot
+                // type the "g" cast and ldobj expect).
                 if (sa.FieldName == "System.Guid.Empty")
                 {
                     _guidEmptyNeeded = true;
-                    return "il2cpp_guid_empty_bytes";
+                    return "reinterpret_cast<il2cpp::Il2CppGuid*>(il2cpp_guid_empty_bytes)";
                 }
                 return $"(&{FieldStorageName(sa.FieldName)})";
             case BinaryExpr b:
@@ -5419,6 +5426,9 @@ public static class CodeGenerator
         // sf_Zero/One descriptors are 16-byte runtime structs, and casting
         // them to int32_t truncates (decimalcase 9 build errors).
         StaticFieldExpr f when f.FieldName.StartsWith("System.Decimal.", StringComparison.Ordinal) => "dec",
+        // System.Guid.Empty is the shared 16-byte zero slot -- a "guid" slot
+        // (Il2CppGuid), never the int32 default.
+        StaticFieldExpr f when f.FieldName == "System.Guid.Empty" => "guid",
         _ => "val",
     };
 
@@ -6528,6 +6538,28 @@ default: return false;                           // primitives/VAR(handled by ca
         var mr = md.GetMemberReference((MemberReferenceHandle)handle);
         var (_, retMr, _, _) = MethodSignatureCoder.Decode(md, mr.Signature);
         return ReturnTypeCpp(retMr);
+    }
+
+    // A callvirt whose target returns a 16-byte VALUE STRUCT needs the result
+    // slot declared as that struct, not int32_t. System.Guid/System.Decimal are
+    // the two BCL value structs the emitter models ("guid"/"dec" kinds); the
+    // MethodSignatureCoder's ReturnTypeName carries the resolved full name.
+    private static string? VirtualReturnResultKind(MetadataReader md, int token)
+    {
+        var handle = MetadataTokens.Handle(token);
+        string? retName;
+        if (handle.Kind == HandleKind.MethodDefinition)
+            retName = MethodSignatureCoder.Decode(md, md.GetMethodDefinition((MethodDefinitionHandle)handle).Signature).ReturnTypeName;
+        else if (handle.Kind == HandleKind.MemberReference)
+            retName = MethodSignatureCoder.Decode(md, md.GetMemberReference((MemberReferenceHandle)handle).Signature).ReturnTypeName;
+        else
+            return null;
+        return retName switch
+        {
+            "V:System.Guid" => "guid",
+            "V:System.Decimal" => "dec",
+            _ => null,
+        };
     }
 
     // M7 CG-FIX (lockcase finally duplication): clone a finally-handler
@@ -9378,7 +9410,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // assignment memcpys from it).
                 "dt" => $"il2cpp::runtime::il2cpp_datetime_from_array_bits(*reinterpret_cast<int64_t*>({ldelemPtr}))",
                 "ts" => $"il2cpp::runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>({ldelemPtr}))",
-                "guid" => $"reinterpret_cast<const uint8_t*>({ldelemPtr})",
+                "guid" => $"(*reinterpret_cast<const il2cpp::Il2CppGuid*>({ldelemPtr}))",
                 _ => $"(*reinterpret_cast<int32_t*>({ldelemPtr}))",
             };
         }
@@ -9412,15 +9444,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // LOUD P0-02/03: the 8/16-byte value-element stores. A
                 // DateTime[] cell is the CLR packed 8-byte image (kind in the
                 // top 2 bits, never silently dropped); TimeSpan[] is ticks;
-                // Guid[] is a raw 16-byte memcpy from the value slot (array
-                // expressions decay; ldloca addresses pass as pointers too).
+                // Guid[] is the 16-byte Il2CppGuid value struct (a plain
+                // struct assignment -- an ldloca/ldflda ADDRESS source is
+                // dereferenced first, since stelem stores the VALUE).
                 "dt" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
                     ? $"(*reinterpret_cast<int64_t*>({stelemPtr}) = il2cpp::runtime::il2cpp_datetime_to_array_bits(*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>({EmitExpr(c.Args[2], md, types)})))"
                     : $"(*reinterpret_cast<int64_t*>({stelemPtr}) = il2cpp::runtime::il2cpp_datetime_to_array_bits({EmitExpr(c.Args[2], md, types)}))",
                 "ts" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
                     ? $"(*reinterpret_cast<int64_t*>({stelemPtr}) = (*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>({EmitExpr(c.Args[2], md, types)})).ticks)"
                     : $"(*reinterpret_cast<int64_t*>({stelemPtr}) = ({EmitExpr(c.Args[2], md, types)}).ticks)",
-                "guid" => $"std::memcpy({stelemPtr}, {EmitExpr(c.Args[2], md, types)}, 16)",
+                "guid" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*reinterpret_cast<il2cpp::Il2CppGuid*>({stelemPtr}) = *reinterpret_cast<const il2cpp::Il2CppGuid*>({EmitExpr(c.Args[2], md, types)}))"
+                    : $"(*reinterpret_cast<il2cpp::Il2CppGuid*>({stelemPtr}) = {EmitExpr(c.Args[2], md, types)})",
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
                 // write -- the full 16-byte struct. An ADDRESS value (the
                 // newobj ctor's ldloca temp) is dereferenced first.
@@ -9481,15 +9516,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "System.TimeSpan" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>({ldobjAddr}))",
                 "System.DateTimeOffset" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTimeOffset*>({ldobjAddr}))",
                 "System.Numerics.BigInteger" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppBigInteger*>({ldobjAddr}))",
-                // LOUD P0-02 follow-up (audit A ②): System.Guid has NO wrapper
-                // struct -- its value form is a raw uint8_t[16] slot whose
-                // copies are memcpy (the "guid" loc kind). `ldobj System.Guid`
-                // has no value expression in this model (an array assignment
-                // would need a non-assignable C++ array), so reject it with a
-                // precise message instead of emitting the undeclared
-                // `System_Guid` type name.
-                "System.Guid" => throw new NotSupportedException(
-                    "ldobj System.Guid not wired: a Guid value is a uint8_t[16] slot (memcpy discipline, the guid.h ABI), not a C++ struct -- there is no value expression for it (use ldelema/stelem or the Guid icalls)"),
+                // System.Guid is the Il2CppGuid value struct (POD) -- ldobj
+                // reads the 16-byte value through the address like every other
+                // value type.
+                "System.Guid" => $"(*reinterpret_cast<const il2cpp::Il2CppGuid*>({ldobjAddr}))",
                 _ => $"(*reinterpret_cast<{TypeCppName(ldobjName)}*>({ldobjAddr}))",
             };
         }
@@ -9934,16 +9964,60 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             : $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({fn}, {args})";
     }
 
-    // B3: is this expression the LVALUE of a 16-byte Guid field of a
-    // translated struct (GuidHolder.G)? The "g" cast then needs its ADDRESS:
-    // EmitExpr renders the Il2CppGuid value (`((&x)->G)`), and a
-    // reinterpret_cast<uint8_t*> of a struct value is ill-formed -- the
-    // guid.h byte-slot ABI wants `&((&x)->G)`.
-    private static bool IsGuidFieldLValue(Expr e, IReadOnlyList<TypeDef> types)
-        => e is FieldExpr f
-           && types.FirstOrDefault(x => x.FullName == f.OwnerFullName)?.InstanceFields
-               .Any(fd => fd.TypeKind == FieldTypeKind.Guid
-                          && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
+    // B3: is this expression an ADDRESS expression (ldloca / ldflda /
+    // ldsflda)? The "g" cast then passes the address straight through (only
+    // re-typing it to uint8_t*).
+    private static bool IsAddressExpr(Expr e) =>
+        e is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr;
+
+    // B3: does this "g"-cast operand denote a System.Guid 16-byte VALUE slot?
+    // The same cast code also serves IntPtr carriers (MethodMap.Marshal.cs) and
+    // IPAddress byte slots (MethodMap.Net.cs) -- those are plain integers /
+    // uint8_t[4] arrays whose VALUE already IS the byte pointer, so they keep
+    // the direct reinterpret. A Guid operand is the Il2CppGuid POD struct and
+    // must be ADDRESSED instead (a reinterpret of the struct value is
+    // ill-formed).
+    private static bool IsGuidOperand(Expr e, IReadOnlyList<TypeDef> types)
+    {
+        switch (e)
+        {
+            case LocExpr l:
+                return _curLocKinds.TryGetValue(l.Name, out var k) && k == "guid";
+            case LocAddrExpr la:
+                return _curLocKinds.TryGetValue(la.Name, out var ka) && ka == "guid";
+            case FieldExpr f:
+                return IsGuidField(f, types);
+            case FieldAddrExpr fa:
+                return IsGuidField(new FieldExpr
+                {
+                    Object = fa.Object,
+                    OwnerFullName = fa.OwnerFullName,
+                    FieldCppName = fa.FieldCppName,
+                    IsRefField = false,
+                    IsValueTypeObject = fa.IsValueTypeObject,
+                }, types);
+            case StaticFieldExpr sf:
+                return sf.FieldName == "System.Guid.Empty";
+            case StaticFieldAddrExpr sa:
+                return sa.FieldName == "System.Guid.Empty";
+            default:
+                return false;
+        }
+    }
+
+    private static bool IsGuidField(FieldExpr f, IReadOnlyList<TypeDef> types)
+        => types.FirstOrDefault(x => x.FullName == f.OwnerFullName)?.InstanceFields
+            .Any(fd => fd.TypeKind == FieldTypeKind.Guid
+                       && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
+
+    // B3: the guid.h byte-slot argument for a Guid VALUE expression. An
+    // lvalue slot takes its address directly; a non-lvalue Guid expression
+    // (a call result that the fold did not materialize -- normally excluded
+    // from inlining) binds a const reference, whose temporary lives for the
+    // full call expression, and the const is cast away because the byte-slot
+    // ABI is declared mutable uint8_t*.
+    private static string GuidValueBytePtr(string code) =>
+        $"reinterpret_cast<uint8_t*>(&({code}))";
 
     private static string? EmitIcallCallArgs(ResolvedMethod r, List<Expr> args, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
@@ -10108,16 +10182,19 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // of the caller's Il2CppObject* local reinterprets as
                 // Il2CppObject** (the runtime writes the referent through it).
                 "addr:o" => NullSafePtrCast("Il2CppObject**", code),
-                // "g" -- a Guid value-slot byte pointer: the slot is
-                // `uint8_t loc[16]` and its ldloca ADDRESS is a
-                // pointer-to-array that does NOT decay to uint8_t*, so the
-                // guid.h icalls (const uint8_t[16] params) need the explicit
-                // byte-pointer cast. Carried by EVERY byte-slot param of the
-                // System.Guid mappings (MethodMap.Guid.cs) -- the ONLY domain
-                // whose ""-cast addresses the b59c6d9 blanket used to cast
-                // (see the "" passthrough above for the regression note).
-                "g" => IsGuidFieldLValue(args[srcIdx], types)
-                    ? $"reinterpret_cast<uint8_t*>(&({code}))"
+                // "g" -- a byte-slot pointer. Two operand families share this
+                // code:
+                //  * System.Guid: the slot is the Il2CppGuid VALUE struct, so
+                //    the guid.h icalls need its ADDRESS. An ldloca/ldflda/
+                //    ldsflda operand is already an address (only re-typed); a
+                //    value operand takes `&(value)` (a reinterpret_cast of the
+                //    struct value itself is ill-formed C++).
+                //  * IntPtr carriers / IPAddress byte slots (MethodMap.Marshal,
+                //    MethodMap.Net): the value already IS the byte pointer (or
+                //    a uint8_t[4] array that decays), so the direct reinterpret
+                //    stays.
+                "g" => IsGuidOperand(args[srcIdx], types)
+                    ? (IsAddressExpr(args[srcIdx]) ? NullSafePtrCast("uint8_t*", code) : GuidValueBytePtr(code))
                     : NullSafePtrCast("uint8_t*", code),
                 // P/Invoke string params (sprint worklist #28/#29 next-gap):
                 // the P/Invoke branch of MethodRefResolver carries the RAW
