@@ -16,6 +16,11 @@ using Xunit;
 //   * return the VAR/MVAR placeholder codes (0x13/0x1E) instead of pretending
 //     they are a concrete element family;
 //   * end EXACTLY at the blob end (surplus bytes -> no hint).
+//
+// REACHABILITY: Roslyn always emits a MethodSpec for the selector forms, so
+// their genArgs is non-null and the decoder is not invoked for them. The
+// generic-header branch is defensive hardening; these Resolver-level blobs are
+// its only coverage (no e2e case produces that MemberRef shape today).
 public class MethodRefResolverLinqAggregateTests
 {
     // 0x10 = GENERIC header, 0x01 = GenericParamCount, 0x01 = param count,

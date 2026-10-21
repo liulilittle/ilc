@@ -2214,12 +2214,20 @@ var userRecvLike = receiverType ?? arg0Type;
     // (Sum(this IEnumerable<int32>), Min/Max likewise -- no MethodSpec, so
     // the generic-argument array is null at dispatch). The i4 aggregate gate
     // in TryMapLinq needs the ELEMENT byte; it lives inside the first
-    // parameter's GENERICINST signature. Decode: skip the signature header
-    // (including the GENERIC method-header's GenericParamCount) + param count
-    // + return type, then read the first param -- a GenericInst (0x15) with the
+    // parameter's GENERICINST signature. Decode the header + param count +
+    // return type, then read the first param -- a GenericInst (0x15) with the
     // CLASS/VALUETYPE marker + TypeDefOrRef + arg count + one element per
     // argument. Returns the first argument's element byte (int32 for the i4
     // family), or null when the signature does not have that shape.
+    //
+    // REACHABILITY (B1 review): Roslyn emits a MethodSpec for every
+    // generic-instantiated LINQ aggregate, so genArgs is non-null for the
+    // selector forms and this decoder never sees them. What actually reaches
+    // it are the non-generic (header 0x00) Sum/Min/Max/Average MemberRefs.
+    // The generic-header handling below is defensive hardening for
+    // definition-shaped MemberRefs; no e2e case in this tree produces that
+    // shape. It is covered by tests/unit/MethodRefResolverLinqAggregateTests.cs
+    // (generic header + VALUETYPE/VAR/MVAR/GENERICINST + exact-end asserts).
     private static byte[]? LinqAggregateElementByte(MetadataReader md, BlobHandle sigHandle)
     {
         var sig = md.GetBlobReader(sigHandle);
@@ -2232,10 +2240,11 @@ var userRecvLike = receiverType ?? arg0Type;
     {
         var hdr = sig.ReadSignatureHeader();
         // ECMA-335 II.23.2.1: a GENERIC method-definition signature carries the
-        // GenericParamCount right after the header. net48's selector aggregates
-        // (Average<TSource>(IEnumerable<TSource>, Func<...>)) have it; without
-        // consuming it, count/return/first-param reads drift by one byte and the
-        // GenericInst source is never seen (genArgs==null -> Average<?>).
+        // GenericParamCount right after the header. Defensive only (see the
+        // REACHABILITY note above): Roslyn call sites carry a MethodSpec, so
+        // this shape is exercised by the resolver-level unit tests, not e2e.
+        // Without consuming it, count/return/first-param reads drift by one
+        // byte and the GenericInst source is never seen.
         if (hdr.IsGeneric) _ = sig.ReadCompressedInteger();
         var count = sig.ReadCompressedInteger();
         if (count < 1) return null;
