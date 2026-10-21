@@ -317,6 +317,12 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
 // type). Idempotent; the same pointer is returned every call.
 Il2CppObject* il2cpp_comparer_default(void);
 
+// nb16 (b16low): the non-generic default comparer SINGLETON OBJECT itself
+// (DEFINED in arraysort.cpp). The default-comparer classification now tests
+// pointer identity against this address (the klass-name substring probe was
+// removed); sortedlist.cpp's IsDefaultComparerObject shares it.
+extern Il2CppObject System_Collections_Comparer_singleton;
+
 // a5reds (strsort_ordinal): System.StringComparer::get_Ordinal /
 // get_OrdinalIgnoreCase -- the runtime's ordinal-string-comparer SINGLETONS
 // (klass names "System.StringComparer.Ordinal" / ".OrdinalIgnoreCase").

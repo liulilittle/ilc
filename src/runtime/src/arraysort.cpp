@@ -1060,7 +1060,7 @@ int32_t il2cpp_array_binary_search_icomparer_uint32(Il2CppArray* arr, int32_t va
     // which CONTAIN "Comparer`1" and were mistaken for the default singleton,
     // silently dropping the user's Compare. Every non-null comparer now goes
     // through il2cpp_icomparer_compare_family, whose default arm recognizes
-    // the real singletons by FULLY QUALIFIED name and whose created-comparer
+    // the real singletons by POINTER IDENTITY (nb16) and whose created-comparer
     // arm runs a Comparer<uint>.Create delegate.
     const bool byDefault = comparer == nullptr;
     int32_t lo = 0;
@@ -2081,10 +2081,14 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
     // singletons carry no reflected Compare slot: compare by the element
     // family's builtin order (this is what made BinarySearch(..,
     // Comparer<int>.Default) throw NotSupported before).
-    if (comparer->klass != nullptr && comparer->klass->name != nullptr &&
-        (std::strstr(comparer->klass->name, "System.Collections.Generic.Comparer`1") != nullptr ||
-         std::strstr(comparer->klass->name, "System.Collections.Generic.EqualityComparer`1") != nullptr ||
-         std::strcmp(comparer->klass->name, "System.Collections.Comparer") == 0))
+    // nb16 (b16low): POINTER IDENTITY, never a klass-name probe. The old
+    // std::strstr(name, "System.Collections.Generic.Comparer`1") was a
+    // SUBSTRING test, so a USER comparer named e.g.
+    // "My.System.Collections.Generic.Comparer`1" was silently treated as the
+    // default singleton and its Compare was dropped (wrong order).
+    if (comparer == &System_Collections_Comparer_singleton ||
+        il2cpp_is_default_comparer_singleton(comparer) ||
+        il2cpp_is_default_equality_comparer_singleton(comparer))
     {
         switch (family)
         {
@@ -2345,6 +2349,12 @@ void SortIComparerCore(Il2CppArray** pa, int32_t lo, int32_t hi,
     }
 }
 
+// Only null / System.Collections.Comparer.Default / the StringComparer
+// singletons are special-cased here. The generic Comparer<T> /
+// EqualityComparer<T> default singletons keep the Dispatch arm: they reach the
+// same ComparerCompareCore through that arm's POINTER-IDENTITY default branch
+// (il2cpp_icomparer_compare_family, nb16), so the int32 default sort stays on
+// the direct numeric path with no boxing.
 RefComparerMode ClassifyComparer(Il2CppObject* comparer)
 {
     return comparer == nullptr || comparer == &System_Collections_Comparer_singleton
@@ -2447,9 +2457,8 @@ struct U32ComparerCompare
         // emits "ReverseComparer`1" (CONTAINS "Comparer`1") and its Compare
         // was silently dropped in favour of the default unsigned order.
         // il2cpp_icomparer_compare_family covers BOTH cases correctly: its
-        // default arm matches the real singletons by FULLY QUALIFIED name
-        // (the sortedlist.cpp precedent), and its created-comparer arm runs a
-        // Comparer<uint>.Create delegate.
+        // default arm matches the real singletons by POINTER IDENTITY (nb16),
+        // and its created-comparer arm runs a Comparer<uint>.Create delegate.
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyU4, &x, &y);
     }
 };
