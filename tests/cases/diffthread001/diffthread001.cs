@@ -31,9 +31,13 @@ namespace Cases { public static class Prog {
         return ok;
     }
     static int NewThreadAliveAfter() {
-        Thread t = new Thread(new ThreadStart(delegate { }));
+        ManualResetEvent entered = new ManualResetEvent(false);
+        ManualResetEvent release = new ManualResetEvent(false);
+        Thread t = new Thread(new ThreadStart(delegate { entered.Set(); release.WaitOne(); }));
         t.Start();
+        entered.WaitOne();
         bool during = t.IsAlive;
+        release.Set();
         t.Join();
         bool after = t.IsAlive;
         return (during && !after) ? 1 : 0;
