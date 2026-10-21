@@ -2598,6 +2598,14 @@ public static class CodeGenerator
                     }
                 }
             }
+            if (vtType == "il2cpp::Il2CppGuid")
+            {
+                // B3: a Guid local initialized in place by a value-type ctor
+                // keeps the raw 16-byte slot the guid.h icalls consume.
+                w.Line($"uint8_t {d}[16];");
+                locKind[d] = "guid";
+                continue;
+            }
             if (vtType != null)
             {
                 w.Line($"{MuPrefix(d)}{vtType} {d};");
@@ -4014,6 +4022,18 @@ public static class CodeGenerator
                         $"IL {At(a.SourceOpName, a.SourceOffset)} -- copy Guid value (16-byte value slot)");
                     break;
                 }
+                // B3: a Guid FIELD read into a Guid slot (`Guid x = h.G`) --
+                // the C++ member is the 16-byte Il2CppGuid value struct, so
+                // the copy is a 16-byte memcpy from its address (arrays and
+                // structs are not assignable; exact value semantics).
+                if (a.Value is FieldExpr gfield && locKind.TryGetValue(a.Target, out var gftk) && gftk == "guid")
+                {
+                    if (a.Target.Contains('.'))
+                        throw new NotSupportedException("Guid field-to-static-field copy not wired: static storage is not a Guid slot");
+                    w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, &({EmitExpr(gfield, md, types)}), 16);",
+                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- copy Guid field (16-byte value) into {a.Target}");
+                    break;
+                }
                 // Guid.Empty read into a Guid slot: the shared all-zero
                 // constant copied with the same 16-byte memcpy discipline.
                 if (a.Value is StaticFieldExpr gEmpty && gEmpty.FieldName == "System.Guid.Empty"
@@ -4076,6 +4096,21 @@ public static class CodeGenerator
                         ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
                         : NullSafePtrCast(faValueCpp, EmitExpr(fa.Value, md, types)));
                 var faTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject, _curLocKinds);
+                // B3: a System.Guid field store is a 16-byte value copy (the
+                // member is the guid.h Il2CppGuid POD, never a pointer/int32).
+                // Source shapes: a Guid local slot (raw uint8_t[16], decays to
+                // the pointer) or another value expression (take its address).
+                if (fa.RefTargetFullName == "System.Guid"
+                    || types.FirstOrDefault(x => x.FullName == fa.OwnerFullName)?.InstanceFields
+                        .Any(f => f.TypeKind == FieldTypeKind.Guid && TypeEmitter.Sanitize(f.Name) == fa.FieldCppName) == true)
+                {
+                    var guidSrc = fa.Value is LocExpr gloc && locKind.TryGetValue(gloc.Name, out var glk) && glk == "guid"
+                        ? gloc.Name
+                        : $"&({EmitExpr(fa.Value, md, types)})";
+                    w.LineAligned($"std::memcpy(&{faTarget}, {guidSrc}, 16);",
+                        $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- store Guid value (16 bytes) into {fa.OwnerFullName}.{fa.FieldCppName}");
+                    break;
+                }
                 if (fa.IsRefField && !fa.IsValueTypeObject)
                 {
                     // Reference field: write barrier first (record old-generation writes -> card table), then assign.
@@ -8505,6 +8540,9 @@ default: return false;                           // primitives/VAR(handled by ca
         "System.String" => "Il2CppObject",
         "System.DateTime" => "il2cpp::runtime::Il2CppDateTime",
         "System.TimeSpan" => "il2cpp::runtime::Il2CppTimeSpan",
+        // B3 (LOUD P0-05/06/08/09): System.Guid is the 16-byte guid.h value
+        // struct -- a value type, NEVER Il2CppObject* (value semantics).
+        "System.Guid" => "il2cpp::Il2CppGuid",
         // P13 dtoffset: the 16-byte runtime value struct (il2cpp_dtoffset.h).
         "System.DateTimeOffset" => "il2cpp::runtime::Il2CppDateTimeOffset",
         // P17 biginteger: the 8-byte runtime value struct (il2cpp_biginteger.h).
@@ -9896,6 +9934,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             : $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({fn}, {args})";
     }
 
+    // B3: is this expression the LVALUE of a 16-byte Guid field of a
+    // translated struct (GuidHolder.G)? The "g" cast then needs its ADDRESS:
+    // EmitExpr renders the Il2CppGuid value (`((&x)->G)`), and a
+    // reinterpret_cast<uint8_t*> of a struct value is ill-formed -- the
+    // guid.h byte-slot ABI wants `&((&x)->G)`.
+    private static bool IsGuidFieldLValue(Expr e, IReadOnlyList<TypeDef> types)
+        => e is FieldExpr f
+           && types.FirstOrDefault(x => x.FullName == f.OwnerFullName)?.InstanceFields
+               .Any(fd => fd.TypeKind == FieldTypeKind.Guid
+                          && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
+
     private static string? EmitIcallCallArgs(ResolvedMethod r, List<Expr> args, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         if (r.CppName == "il2cpp::runtime::il2cpp_object_ctor_nop")
@@ -10067,7 +10116,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // System.Guid mappings (MethodMap.Guid.cs) -- the ONLY domain
                 // whose ""-cast addresses the b59c6d9 blanket used to cast
                 // (see the "" passthrough above for the regression note).
-                "g" => NullSafePtrCast("uint8_t*", code),
+                "g" => IsGuidFieldLValue(args[srcIdx], types)
+                    ? $"reinterpret_cast<uint8_t*>(&({code}))"
+                    : NullSafePtrCast("uint8_t*", code),
                 // P/Invoke string params (sprint worklist #28/#29 next-gap):
                 // the P/Invoke branch of MethodRefResolver carries the RAW
                 // signature encodings as cast codes -- they double as the

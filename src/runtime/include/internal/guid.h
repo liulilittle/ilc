@@ -48,6 +48,16 @@
 
 namespace il2cpp {
 
+// The 16-byte System.Guid VALUE image (the guid.h ABI: every helper above
+// takes uint8_t[16]). A POD wrapper is what generated C++ declarations name
+// for System.Guid fields/locals/signatures; the byte layout is identical to
+// the raw arrays the icalls use. alignas(4) matches the net48 field
+// alignment (Data1 int32 / Data2+Data3 int16 / Data4 byte[8]).
+struct alignas(4) Il2CppGuid
+{
+    uint8_t b[16];
+};
+
 // NewGuid(): write a fresh GUID's 16 bytes to 'bytes'. All 16 bytes come
 // from the OS CSPRNG through il2cpp::runtime::il2cpp_rng_fill (rng.h -- the
 // same hardened source that backs System.Security.Cryptography's RNG; it
@@ -83,6 +93,16 @@ void il2cpp_guid_parse_strict(Il2CppString* s, uint8_t bytes[16]);
 // new Guid(string): the managed ctor is Guid.Parse (strict); this wrapper
 // puts the 16-byte output slot FIRST to match the transpiler's in-place
 // value-type ctor call shape `il2cpp_guid_ctor_string(slot, string)`.
+inline void il2cpp_guid_ctor_string(uint8_t bytes[16], Il2CppString* s)
+{
+    // The transpiler's "s" cast renders the managed string as Il2CppString*;
+    // the strict parse wrapper takes the same pointer.
+    il2cpp_guid_parse_strict(s, bytes);
+}
+
+// Same value-type ctor call shape where the IR argument is the generic
+// managed-string slot type (string-pool entries are Il2CppObject*): keep the
+// historical object-typed overload so both emission forms compile.
 inline void il2cpp_guid_ctor_string(uint8_t bytes[16], Il2CppObject* s)
 {
     il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(s), bytes);
