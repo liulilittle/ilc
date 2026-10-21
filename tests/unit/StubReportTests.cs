@@ -128,6 +128,49 @@ public class StubReportTests
     }
 
     [Fact]
+    public void BodyReadFailed_IsReportedWithSkipReason_AndGateRejects()
+    {
+        // A bodyless, non-P/Invoke, non-BCL method: MethodBodyReader.Read throws
+        // (RVA=0), which used to be a silent skip. It must appear in the report.
+        var run = Run(Shape.BodyReadFail);
+
+        var line = Assert.Single(run.ReportLines.Where(l => l.Contains("Cases.NoBody::NoBody", StringComparison.Ordinal)));
+        Assert.Contains("skip-reason=body-read-failed", line);
+        Assert.Contains("warning: 1 method(s) were not transpiled", run.Log);
+        // Gate: the report is non-empty, so it can never be read as "0 stubs".
+        Assert.NotEmpty(run.ReportLines.Where(l => l.Length > 0));
+    }
+
+    [Fact]
+    public void VtableMissing_IsReportedWithSkipReason_AndGateRejects()
+    {
+        // Cases.Impl declares IFoo but has no matching vtable slot: the planner
+        // used to only warn. It must appear in the report.
+        var run = Run(Shape.VtableMissing);
+
+        var line = Assert.Single(run.ReportLines.Where(l => l.Contains("skip-reason=vtable-missing", StringComparison.Ordinal)));
+        Assert.Contains("Cases.Impl::<interface", line);
+        Assert.Contains("warning: 1 method(s) were not transpiled", run.Log);
+    }
+
+    [Fact]
+    public void NestedTypes_SameShortName_StayDistinctByToken()
+    {
+        // O1+Inner and O2+Inner share the model FullName "Inner" (nested types
+        // are un-nested under their short metadata name), so a name-keyed
+        // report merged them into one row with token 0.
+        var run = Run(Shape.NestedOverloads);
+
+        var inner = run.ReportLines.Where(l => l.Contains("::U/0#0x", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(2, inner.Length);
+        Assert.Contains(inner, l => l.StartsWith("Cases.O1+Inner::U/0#0x", StringComparison.Ordinal));
+        Assert.Contains(inner, l => l.StartsWith("Cases.O2+Inner::U/0#0x", StringComparison.Ordinal));
+        Assert.DoesNotContain(inner, l => l.EndsWith("#0x00000000", StringComparison.Ordinal));
+        Assert.Equal(2, inner.Select(l => l[l.IndexOf('#')..]).Distinct().Count());
+        Assert.Contains("warning: 2 method(s) were not transpiled", run.Log);
+    }
+
+    [Fact]
     public void StubReport_MissingValue_IsParseError()
     {
         var ex = Assert.Throws<CliParseException>(() =>
@@ -176,6 +219,9 @@ public class StubReportTests
         NoStub,
         SingleStub,
         Overloads,
+        BodyReadFail,
+        VtableMissing,
+        NestedOverloads,
     }
 
     //--------------------------------------------------------------------------
@@ -199,6 +245,65 @@ public class StubReportTests
 
         var ilStream = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(ilStream);
+
+        if (shape == Shape.BodyReadFail)
+        {
+            // RVA=0 on a non-abstract, non-P/Invoke, non-BCL method: the body
+            // read throws -> the old code skipped it silently.
+            mdb.AddMethodDefinition(MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL, mdb.GetOrAddString("NoBody"), voidSig, -1, default(ParameterHandle));
+            mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.Abstract,
+                mdb.GetOrAddString("Cases"), mdb.GetOrAddString("NoBody"), objRef,
+                MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+            return Serialize(mdb, ilStream);
+        }
+
+        if (shape == Shape.VtableMissing)
+        {
+            // Cases.Impl : Cases.IFoo, but no M() slot -> planner warns today.
+            var ifaceM = mdb.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Abstract
+                    | MethodAttributes.HideBySig | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL, mdb.GetOrAddString("M"), voidSig, -1, default(ParameterHandle));
+            var iface = mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                mdb.GetOrAddString("Cases"), mdb.GetOrAddString("IFoo"), objRef,
+                MetadataTokens.FieldDefinitionHandle(1), ifaceM);
+            var impl = mdb.AddTypeDefinition(TypeAttributes.Public,
+                mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Impl"), objRef,
+                MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(2));
+            mdb.AddInterfaceImplementation(impl, iface);
+            return Serialize(mdb, ilStream);
+        }
+
+        if (shape == Shape.NestedOverloads)
+        {
+            // O1+Inner and O2+Inner both declare U(): the model FullName of each
+            // is the SHORT name "Inner", so only the token keeps them apart.
+            var u1 = AddBody(bodyEncoder, ArglistBody);
+            var u2 = AddBody(bodyEncoder, ArglistBody);
+            var inner1 = mdb.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL, mdb.GetOrAddString("U"), voidSig, u1, default(ParameterHandle));
+            var inner2 = mdb.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL, mdb.GetOrAddString("U"), voidSig, u2, default(ParameterHandle));
+            var o1 = mdb.AddTypeDefinition(TypeAttributes.Public,
+                mdb.GetOrAddString("Cases"), mdb.GetOrAddString("O1"), objRef,
+                MetadataTokens.FieldDefinitionHandle(1), inner1);
+            var n1 = mdb.AddTypeDefinition(TypeAttributes.NestedPublic,
+                default(StringHandle), mdb.GetOrAddString("Inner"), objRef,
+                MetadataTokens.FieldDefinitionHandle(1), inner1);
+            mdb.AddNestedType(n1, o1);
+            var o2 = mdb.AddTypeDefinition(TypeAttributes.Public,
+                mdb.GetOrAddString("Cases"), mdb.GetOrAddString("O2"), objRef,
+                MetadataTokens.FieldDefinitionHandle(1), inner2);
+            var n2 = mdb.AddTypeDefinition(TypeAttributes.NestedPublic,
+                default(StringHandle), mdb.GetOrAddString("Inner"), objRef,
+                MetadataTokens.FieldDefinitionHandle(1), inner2);
+            mdb.AddNestedType(n2, o2);
+            return Serialize(mdb, ilStream);
+        }
 
         if (shape == Shape.Overloads)
         {

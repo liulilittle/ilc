@@ -1,4 +1,4 @@
-using Il2Cpp.Transpiler.Model;
+﻿using Il2Cpp.Transpiler.Model;
 
 namespace Il2Cpp.Transpiler.Emit;
 
@@ -36,12 +36,12 @@ public static class VTablePlanner
     // B0 (audit B-2): interface slots the planner could not resolve are a
     // SILENT skip today (warning only). Record them so Generate can put them in
     // --stub-report; otherwise "0 stubs" would not mean "nothing was skipped".
-    // Single-writer under CodeGenerator._poolLock (PlanAll is called there).
-    public static readonly List<string> MissingImplementations = new();
-
-    public static void PlanAll(IReadOnlyList<TypeDef> types)
+    // Thread-safety: PlanAll RETURNS the list and the caller owns it, so two
+    // concurrent Generate runs (xUnit parallel classes) cannot see each other's
+    // entries. Never read this as ambient state.
+    public static List<string> PlanAll(IReadOnlyList<TypeDef> types)
     {
-        MissingImplementations.Clear();
+        var missingImplementations = new List<string>();
         // Topological order: bases before deriveds (stable by FullName for
         // determinism -- generation must be reproducible). R2b: the dedup key
         // is InstantiationKey (FullName of the DEFINITION + "|" + suffix for
@@ -57,7 +57,7 @@ public static class VTablePlanner
         // A type's vtable must CONTAIN the interface methods (interface impls
         // are virtuals added by Plan via signature matching or append).
         foreach (var t in types.Where(t => !t.IsInterface))
-            BuildInterfaceMaps(t);
+            BuildInterfaceMaps(t, missingImplementations);
 
         // Devirt S1 (G3, closed-world sealing): derived-count pass -- every
         // type's DerivedCount = the number of translated types whose base chain
@@ -89,6 +89,7 @@ public static class VTablePlanner
             iface.InterfaceImplementerCount = types.Count(t => !t.IsInterface
                 && t.InterfaceSlotMaps.ContainsKey(iface));
         }
+        return missingImplementations;
     }
 
     //--------------------------------------------------------------------------
@@ -102,7 +103,7 @@ public static class VTablePlanner
     //   implementation of a non-virtual public method), Plan must have made
     //   the class method a virtual slot; the map then points at it.
     //--------------------------------------------------------------------------
-    private static void BuildInterfaceMaps(TypeDef t)
+    private static void BuildInterfaceMaps(TypeDef t, List<string> missingImplementations)
     {
         // Audit H7: a derived type INHERITS its base's interfaces even when it
         // does not re-declare them (C# `class D : Base {}` where Base : IFoo).
@@ -129,7 +130,7 @@ public static class VTablePlanner
                 if (slot < 0)
                 {
                     Console.Error.WriteLine($"warning: interface {iface.FullName}::{sig} not implemented by {t.FullName} vtable -- skipping");
-                    MissingImplementations.Add(
+                    missingImplementations.Add(
                         $"{t.FullName}::<interface {iface.FullName}::{sig}> skip-reason=vtable-missing");
                     slotMap[islot] = -1;
                     continue;

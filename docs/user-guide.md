@@ -243,8 +243,21 @@ A soft-skipped method is emitted as a stub that prints
    is mandatory: a failed transpile writes `status=error`, and an unwritable
    report exits non-zero, so a stale file can never be read as "0 stubs".
 
-Report coverage (each line is `Type::Method/<argc>#0x<token>`, deduped by
-metadata token):
+Report coverage (deduped by metadata token). Two line shapes exist:
+
+| Line shape | Meaning |
+|---|---|
+| `<Owner>::<Method>/<argc>#0x<token>` | a NOT TRANSPILED stub (fold rejected the body) |
+| `<Owner>::<Method>/<argc>#0x<token> skip-reason=body-read-failed` | the method body could not be read |
+| `<Owner>::<Interface>::<sig> skip-reason=vtable-missing` | an interface slot has no vtable implementation (this shape carries no `/<argc>#token` -- there is no method identity to name) |
+
+`<Owner>` is `Namespace.Type` for a top-level type and `Namespace.Outer+Inner`
+for a nested one (a nested type's model name is the short name, so the
+declaring chain is printed to keep same-named nested types apart). `<argc>` is
+the C++ argument count: the declared parameters plus the hidden `this` for an
+instance method. The token comes from the method's own metadata row; when a
+method cannot be resolved to a row (generic clones), the token is `0x00000000`
+and `<argc>` + `<Owner>` are what keep entries apart.
 
 | Situation | Recorded |
 |---|---|
@@ -258,6 +271,23 @@ run over the full case set also flags methods that legitimately throw
 `NotSupportedException` (candidates: `g4dicturistr`, `p-gn11mdimalloc`,
 `iosymprobe`); a formal exclusion list is **not** established yet, so a
 full-set strict gate needs one first.
+
+**Report write failure attribution (risk, read before wiring into CI).** A
+report that cannot be written (transient file lock, antivirus scan) exits 2 --
+or 3 under `--strict-stubs`. `scripts/difftest.ps1` does not pass
+`--stub-report`, so it is unaffected today; once a CI script does pass it, a
+transient write failure would surface as difftest's generic
+"transpile failed/L3-loud-reject" message and be misattributed to a real
+transpile defect. Two recommended integrations, in order of preference:
+
+1. **Dedicated RC 4** for "report write failed" (distinct from the transpile
+   RC 2), so a driver can retry the write instead of failing the case.
+2. **Read the report before judging the RC**: the driver checks the file's
+   content first (`status=error` / non-empty -> fail with the report path), and
+   only then treats a non-zero RC as a transpile failure.
+
+Until one of those lands, keep `--stub-report` out of `difftest.ps1` and use it
+only from a dedicated gate step.
 
 The manifest file must exist at parse time; `--reflection-list` without a
 path, or a bad granularity value, is a parse error (exit 1).

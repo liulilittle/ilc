@@ -83,13 +83,18 @@ OPTIONS
                                  (requires --requested-execution-level).
   --stub-report <path>           write the machine-readable list of methods
                                  that were NOT transpiled, one identity per
-                                 line: Type::Method/<argc>#0x<token>
-                                 (deduped by metadata token, so overloads and
-                                 nested types stay distinct). Non-stub skips
-                                 append ""skip-reason=<reason>"". On a failed
-                                 transpile the file contains ""status=error""
-                                 instead. A write failure makes the run exit
-                                 non-zero; the old file is deleted first.
+                                 line: <Owner>::<Method>/<argc>#0x<token>
+                                 (<Owner> is ""Ns.Type"" or ""Ns.Outer+Inner""
+                                 for a nested type; <argc> counts the hidden
+                                 ""this""; entries are deduped by metadata
+                                 token, so overloads and same-named nested
+                                 types stay distinct). Non-stub skips append
+                                 ""skip-reason=<reason>""; a vtable-missing row
+                                 is <Owner>::<Interface>::<sig> (no method
+                                 identity). On a failed transpile the file
+                                 contains ""status=error"" instead. A write
+                                 failure makes the run exit non-zero; the old
+                                 file is deleted first.
   --strict-stubs                 CI opt-in: if any method was not transpiled,
                                  list every stub on stderr and exit 3.
                                  Without this flag the run stays exit 0
@@ -153,6 +158,11 @@ NOT TRANSPILED STUBS
   methods that legitimately throw NotSupportedException (candidates:
   g4dicturistr, p-gn11mdimalloc, iosymprobe); a formal exclusion list is
   NOT established yet.
+  CAUTION (CI wiring): a report WRITE failure (transient lock / AV scan)
+  exits 2, or 3 under --strict-stubs, which a driver would misread as a
+  transpile failure. difftest.ps1 does not pass --stub-report today, so it is
+  unaffected; when wiring it in, either read the report BEFORE judging the RC
+  or use a dedicated exit code (recommended: 4 = report write failure).
 
 EXAMPLES
   il2cppc app.dll gen

@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
@@ -904,10 +904,11 @@ public static class CodeGenerator
         // Task 7: virtual-slot planning pass -- computes every type's vtable
         // (base-first slots, override replacement) BEFORE any emission so the
         // descriptor/vtable/body generation all see the final slot layout.
-        VTablePlanner.PlanAll(types);
-        // B0 (audit B-2): the vtable planner's unresolved interface slots are a
-        // silent skip; seed the report with them before any method is emitted.
-        var notTranspiled = new List<string>(VTablePlanner.MissingImplementations);
+        // B0 (audit B-2/A-8): the vtable planner's unresolved interface slots
+        // are a silent skip; seed the report with them before any method is
+        // emitted. The list is RETURNED (not ambient static state), so parallel
+        // Generate runs cannot observe each other's entries.
+        var notTranspiled = VTablePlanner.PlanAll(types);
 
         // GN-N5: resolve C++-name collisions AFTER all clones are created
         // (Sanitize maps '.' and '_' both to '_', so e.g. "Cases.A_B" and the
@@ -1145,16 +1146,30 @@ public static class CodeGenerator
             generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
         }
 
-        // B0 (audit A-2): one report line per METHOD IDENTITY, deduped by the
-        // metadata token (not by "Type::Method" text -- overloads share that).
-        // Arg count + token distinguish overloads; the token also keeps nested
-        // types apart when MetadataLoader's FullName loses the outer name.
+        // B0 (audit A-2/A-7): one report line per METHOD IDENTITY, deduped by
+        // the metadata token (not by "Type::Method" text -- overloads share
+        // that). Arg count + token distinguish overloads. A NESTED type prints
+        // its declaring chain ("Outer+Inner"): its model FullName is the SHORT
+        // name (that is what every reference point resolves), so the bare name
+        // would merge O1+Inner and O2+Inner into one entry.
         var stubKeys = new HashSet<string>(StringComparer.Ordinal);
-        string StubReportLine(TypeDef tt, MethodDef mm, int argc, string? reason)
+        string StubOwnerName(TypeDef tt) =>
+            tt.IsNested && tt.DeclaringTypeName.Length > 0
+                ? tt.DeclaringTypeName + "+" + tt.Name
+                : tt.FullName;
+        // argc = the C++ argument count (parameters PLUS the hidden `this` for
+        // an instance method) -- the same number MethodBodyReader reports as
+        // ArgCount. One definition for every report row, so a stub and a
+        // body-read failure of the same method agree.
+        int StubArgCount(MethodDef mm, int? bodyArgCount) =>
+            bodyArgCount ?? (mm.ParamCount + (mm.IsStatic ? 0 : 1));
+        string StubReportLine(TypeDef tt, MethodDef mm, int? bodyArgCount, string? reason)
         {
-            var handle = FindMethodHandle(md, mm);
-            var token = handle.HasValue ? MetadataTokens.GetToken(handle.Value) : 0;
-            var line = $"{tt.FullName}::{mm.Name}/{argc}#0x{token:X8}";
+            // Token from the OWNER-AWARE handle lookup: for a nested type the
+            // model FullName is the short name, so a plain name compare would
+            // never match (token 0) and O1+Inner/O2+Inner would collide.
+            var token = FindMethodHandle(md, mm) is { } h ? MetadataTokens.GetToken(h) : 0;
+            var line = $"{StubOwnerName(tt)}::{mm.Name}/{StubArgCount(mm, bodyArgCount)}#0x{token:X8}";
             return reason == null ? line : line + $" skip-reason={reason}";
         }
 
@@ -1580,7 +1595,7 @@ public static class CodeGenerator
                     Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped (no stub: no body info for the signature)");
                     // B0 (audit B-2): a silent skip would make an empty stub
                     // report look clean. Record the reason.
-                    var skipLine = StubReportLine(t, m, m.ParamCount, "body-read-failed");
+                    var skipLine = StubReportLine(t, m, null, "body-read-failed");
                     if (stubKeys.Add(skipLine)) notTranspiled.Add(skipLine);
                     continue;
                 }
@@ -8242,7 +8257,11 @@ default: return false;                           // primitives/VAR(handled by ca
         foreach (var tdh in md.TypeDefinitions)
         {
             var td = md.GetTypeDefinition(tdh);
-            if (md.GetFullName(tdh) != m.Owner.FullName) continue;
+            // B0 (audit A-7): a NESTED type's model FullName is the SHORT name
+            // ("Inner"), while metadata renders "O1+Inner" -- a bare equality
+            // test never matched, so every nested method resolved to token 0
+            // and O1+Inner / O2+Inner collapsed onto one report row.
+            if (!m.Owner.MatchesFullName(md.GetFullName(tdh))) continue;
             foreach (var mh in td.GetMethods())
             {
                 var mi = md.GetMethodDefinition(mh);
@@ -11222,7 +11241,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
-    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section ②
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section 鈶?
     // RF-N6): construct the MEMBER-level custom attribute instances (methods /
     // fields / properties) and register each annotated member's array in the
     // RF-N6 member registry (attribute.h) under the "FullName::memberName"
@@ -11627,7 +11646,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         h.Open();
         h.Line("return il2cpp::il2cpp_report_unhandled_exception(__il2cpp_unhandled.message_text());");
         h.Close();
-        // GN-17 (方案乙): a native std::exception or any other C++ escape that
+        // GN-17 (鏂规涔?: a native std::exception or any other C++ escape that
         // slips past the P/Invoke boundary wrap (il2cpp_pinvoke_call) must NOT
         // reach std::terminate/abort -- report and exit non-zero (the .NET
         // process contract: an uncaught native exception is a reported,
