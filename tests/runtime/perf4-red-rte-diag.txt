@@ -1,0 +1,4 @@
+write=12
+read_to_end_after_write len=4084 pos=4096
+seek0=0
+read_to_end_after_rewind len=4096 pos=4096
