@@ -927,7 +927,7 @@ Il2CppArray* icall_array_convert_all_i4_i8(Il2CppArray* arr, Il2CppObject* conve
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&a));
 
-    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(int64_t), false, a->length);
+    Il2CppArray* out = il2cpp_array_new_typed(sizeof(int64_t), 2, a->length);
     roots.Add(reinterpret_cast<void**>(&out));
 
     for (int32_t i = 0; i < a->length; ++i)
@@ -1084,12 +1084,12 @@ Il2CppObject* icall_array_empty_object()
 // W7: the long/double empty factories (elemSize 8, non-reference).
 Il2CppObject* icall_array_empty_long()
 {
-    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(int64_t), false, 0));
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new_typed(sizeof(int64_t), 2, 0));
 }
 
 Il2CppObject* icall_array_empty_double()
 {
-    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(double), false, 0));
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new_typed(sizeof(double), 4, 0));
 }
 
 } // namespace runtime

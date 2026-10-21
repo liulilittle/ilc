@@ -762,7 +762,7 @@ Il2CppArray* il2cpp_linq_select_i4_i8(Il2CppArray* src, Il2CppObject* sel)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int64_t)), false, src->length);
+    Il2CppArray* out = il2cpp_array_new_typed(static_cast<int32_t>(sizeof(int64_t)), 2, src->length);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < src->length; ++i)
     {
@@ -780,7 +780,7 @@ Il2CppArray* il2cpp_linq_select_i4_d(Il2CppArray* src, Il2CppObject* sel)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(double)), false, src->length);
+    Il2CppArray* out = il2cpp_array_new_typed(static_cast<int32_t>(sizeof(double)), 4, src->length);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < src->length; ++i)
     {
@@ -819,7 +819,7 @@ Il2CppArray* il2cpp_linq_select_idx_i4_i8(Il2CppArray* src, Il2CppObject* sel)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int64_t)), false, src->length);
+    Il2CppArray* out = il2cpp_array_new_typed(static_cast<int32_t>(sizeof(int64_t)), 2, src->length);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < src->length; ++i)
     {
@@ -837,7 +837,7 @@ Il2CppArray* il2cpp_linq_select_idx_i4_d(Il2CppArray* src, Il2CppObject* sel)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(double)), false, src->length);
+    Il2CppArray* out = il2cpp_array_new_typed(static_cast<int32_t>(sizeof(double)), 4, src->length);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < src->length; ++i)
     {
@@ -1757,7 +1757,9 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int
         case 5: rsElemSize = static_cast<int32_t>(sizeof(double)); break;
         default: break;
     }
-    Il2CppArray* out = il2cpp_array_new(nullptr, rsElemSize, refResult, n);
+    Il2CppArray* out = refResult
+        ? il2cpp_array_new(nullptr, rsElemSize, true, n)
+        : il2cpp_array_new_typed(rsElemSize, rsKind == 3 ? 2 : (rsKind == 4 || rsKind == 5) ? 4 : 1, n);
     roots.Add(reinterpret_cast<void**>(&out));
 
     for (int32_t i = 0; i < n; ++i)
@@ -2390,7 +2392,7 @@ Il2CppArray* il2cpp_linq_select_i4_f(Il2CppArray* src, Il2CppObject* sel)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(double)), false, src->length);
+    Il2CppArray* out = il2cpp_array_new_typed(static_cast<int32_t>(sizeof(double)), 4, src->length);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < src->length; ++i)
     {
@@ -2408,7 +2410,7 @@ Il2CppArray* il2cpp_linq_select_idx_i4_f(Il2CppArray* src, Il2CppObject* sel)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(double)), false, src->length);
+    Il2CppArray* out = il2cpp_array_new_typed(static_cast<int32_t>(sizeof(double)), 4, src->length);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < src->length; ++i)
     {
