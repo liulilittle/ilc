@@ -174,7 +174,13 @@ $ilcProj = "$Root/src/il2cppc/il2cppc.csproj"
 $ilcVersion = Get-FirstLine (& dotnet run --project $ilcProj -- --version 2>&1)
 $ilcDirty = @(git -C $Root status --porcelain -- src/il2cppc 2>$null | Where-Object { $_ -ne "" })
 $ilcDirtyState = if ($ilcDirty.Count -eq 0) { "clean" } else { "dirty($($ilcDirty.Count) files)" }
-$cmdLine = "$($MyInvocation.InvocationName) -Compiler $Compiler -Runs $Runs" + $(if ($RedProof) { " -RedProof" } else { "" }) + $(if ($AllowEnvCv) { " -AllowEnvCv" } else { "" })
+# The command line is recorded so the run can be replayed verbatim, so every
+# switch that changes the measurement must be present -- including
+# -RedProofFlags (its value can contain spaces, hence the quotes).
+$cmdLine = "$($MyInvocation.InvocationName) -Compiler $Compiler -Runs $Runs" +
+    $(if ($RedProof) { " -RedProof" } else { "" }) +
+    $(if ($AllowEnvCv) { " -AllowEnvCv" } else { "" }) +
+    $(if ($RedProof -and $RedProofFlags -ne "") { " -RedProofFlags `"$RedProofFlags`"" } else { "" })
 
 $stamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
 New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
