@@ -45,6 +45,14 @@ bool icall_com_is_com_object(Il2CppObject* obj);
 #include <cstdlib>
 #include <cstring>
 
+#if !defined(_WIN32)
+    // MSVC spells the ordinal ASCII case-insensitive compare _stricmp; glibc
+    // and the BSDs spell it strcasecmp (<strings.h>). The comparison here is
+    // ASCII-only either way, so the two are interchangeable.
+    #include <strings.h>
+    #define _stricmp strcasecmp
+#endif
+
 namespace il2cpp {
 
 namespace {

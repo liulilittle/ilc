@@ -560,39 +560,209 @@ int64_t CurrentOffsetFallback()
 
 #if !defined(_WIN32)
 #include <ctime>
-// POSIX per-date offset: localtime_r/gmtime_r at the UTC instant that
-// corresponds to the DateTime's civil face approximated by the CURRENT
-// offset -- the system tzdata applies the real per-date DST rules, so
-// converting the civil wall through the current bias and reading the field
-// difference reproduces the zone's offset that day. Out-of-time_t-range
-// dates fall back to the current offset.
-int64_t PerDateOffsetPosix(Il2CppDateTime dt)
+namespace {
+
+// The broken-down tm's civil fields counted as Unix seconds (the unit time_t
+// and the localtime/mktime family speak). Both sides of an offset subtraction
+// use this same function, so only the field difference survives.
+int64_t TmUnixSeconds(const std::tm& tm)
 {
-    if (dt.ticks < kUnixEpochTicks)
-    {
-        return CurrentOffsetFallback();
-    }
-    const int64_t current = CurrentOffsetFallback();
-    int64_t utcTicks = dt.ticks - current * kTicksPerSecond;
-    if (utcTicks < 0)
-    {
-        utcTicks = 0;
-    }
-    const std::time_t t = static_cast<std::time_t>(utcTicks / kTicksPerSecond);
+    return DaysFromCivil(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday) * 86400
+         + tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+}
+
+bool SameWallClock(const std::tm& a, const std::tm& b)
+{
+    return a.tm_year == b.tm_year && a.tm_mon == b.tm_mon && a.tm_mday == b.tm_mday
+        && a.tm_hour == b.tm_hour && a.tm_min == b.tm_min && a.tm_sec == b.tm_sec;
+}
+
+// POSIX offset at a UTC INSTANT: localtime_r / gmtime_r on the SAME time_t --
+// the field difference IS the offset at that instant (no mktime, so no DST
+// ambiguity), and tm_isdst is the zone's own daylight flag there.
+bool CrtOffsetAtInstant(int64_t utcTicks, int64_t& offsetSeconds, bool& isDst)
+{
+    const std::time_t instant =
+        static_cast<std::time_t>((utcTicks - kUnixEpochTicks) / kTicksPerSecond);
     std::tm localTm = {};
     std::tm utcTm = {};
-    if (localtime_r(&t, &localTm) == nullptr || gmtime_r(&t, &utcTm) == nullptr)
+    if (localtime_r(&instant, &localTm) == nullptr || gmtime_r(&instant, &utcTm) == nullptr)
     {
-        return current;
+        return false;
     }
-    const int64_t localDays = DaysFromCivil(localTm.tm_year + 1900, localTm.tm_mon + 1, localTm.tm_mday);
-    const int64_t utcDays = DaysFromCivil(utcTm.tm_year + 1900, utcTm.tm_mon + 1, utcTm.tm_mday);
-    const int64_t localSeconds = localDays * 86400 + localTm.tm_hour * 3600
-                               + localTm.tm_min * 60 + localTm.tm_sec;
-    const int64_t utcSeconds = utcDays * 86400 + utcTm.tm_hour * 3600
-                             + utcTm.tm_min * 60 + utcTm.tm_sec;
-    return localSeconds - utcSeconds;
+    offsetSeconds = TmUnixSeconds(localTm) - TmUnixSeconds(utcTm);
+    isDst = localTm.tm_isdst > 0;
+    return true;
 }
+
+// POSIX offset at a WALL clock (net48 GetUtcOffset(wall) semantics). The wall
+// value is NOT an instant: it must be resolved against the zone's rules. The
+// old implementation subtracted the CURRENT offset to invent an instant,
+// which lands in the neighbouring DST period whenever the requested date is
+// on the other side of a transition (measured: Pacific/Auckland 2000-04-01
+// reported +13:00 instead of +12:00).
+//
+// Resolution: sample the two possible offsets 30 h either side of the wall
+// clock (a DST window is at most a few hours wide, so the samples always
+// straddle both rules), then validate each candidate by mapping its UTC
+// instant back through localtime_r and requiring the SAME wall clock. One
+// valid candidate -> that offset and its tm_isdst. Two (the repeated
+// fall-back hour) or none (the skipped spring-forward hour) -> the STANDARD
+// candidate, which is net48's measured choice (Auckland 2000-03-19 02:00 and
+// 2000-10-01 02:00 both report +12:00 with daylight = false).
+bool CrtOffsetAtWall(int64_t wallTicks, int64_t& offsetSeconds, bool& isDst)
+{
+    const int64_t wallSeconds = wallTicks / kTicksPerSecond - kUnixEpochTicks / kTicksPerSecond;
+    const std::time_t wallInstant = static_cast<std::time_t>(wallSeconds);
+    std::tm wallTm = {};
+    if (gmtime_r(&wallInstant, &wallTm) == nullptr)
+    {
+        return false;
+    }
+
+    int64_t candidates[2] = { 0, 0 };
+    bool candidateIsDst[2] = { false, false };
+    int candidateCount = 0;
+    for (int k = 0; k < 2; ++k)
+    {
+        const std::time_t probe = static_cast<std::time_t>(
+            wallSeconds + (k == 0 ? -30 : 30) * 3600);
+        std::tm probeTm = {};
+        if (localtime_r(&probe, &probeTm) == nullptr)
+        {
+            continue;
+        }
+        const int64_t candidate = TmUnixSeconds(probeTm) - static_cast<int64_t>(probe);
+        bool duplicate = false;
+        for (int i = 0; i < candidateCount; ++i)
+        {
+            if (candidates[i] == candidate) duplicate = true;
+        }
+        if (!duplicate && candidateCount < 2)
+        {
+            candidates[candidateCount] = candidate;
+            candidateIsDst[candidateCount] = probeTm.tm_isdst > 0;
+            ++candidateCount;
+        }
+    }
+    if (candidateCount == 0)
+    {
+        return false;
+    }
+
+    int validCount = 0;
+    int64_t validOffset = 0;
+    bool validIsDst = false;
+    for (int i = 0; i < candidateCount; ++i)
+    {
+        const std::time_t instant = static_cast<std::time_t>(wallSeconds - candidates[i]);
+        std::tm backTm = {};
+        if (localtime_r(&instant, &backTm) == nullptr)
+        {
+            continue;
+        }
+        if (SameWallClock(backTm, wallTm))
+        {
+            validOffset = candidates[i];
+            validIsDst = backTm.tm_isdst > 0;
+            ++validCount;
+        }
+    }
+    if (validCount == 1)
+    {
+        offsetSeconds = validOffset;
+        isDst = validIsDst;
+        return true;
+    }
+
+    // Ambiguous (repeated) or invalid (skipped) wall clock: the standard
+    // period, i.e. the candidate whose own localtime_r said isdst == 0.
+    for (int i = 0; i < candidateCount; ++i)
+    {
+        if (!candidateIsDst[i])
+        {
+            offsetSeconds = candidates[i];
+            isDst = false;
+            return true;
+        }
+    }
+    offsetSeconds = candidates[0];
+    isDst = candidateIsDst[0];
+    return true;
+}
+
+// POSIX per-date offset for either input face. Out-of-time_t-range dates fall
+// back to the current offset.
+//
+// Kind dispatch (net48 measured):
+//   * Kind=Utc (1): the ticks ARE a UTC instant -> read the offset there.
+//   * Kind=Local (2): net48 does NOT read the receiver zone as a wall clock.
+//     It converts through the MACHINE zone (TimeZoneInfo.Local) to a UTC
+//     instant and then reads the receiver at that instant. Measured on a
+//     UTC+8 host with a custom receiver (base +12:00, DST +13:00 over
+//     [2000-06-01T00:00Z, 04:00Z)): local wall 08:00/10:00 -> +13h and
+//     12:00/14:00 -> +12h, which is the machine-conversion model, not the
+//     receiver-wall model (that would have given +12h for 08:00/10:00).
+//     In this runtime every reachable receiver is the machine zone itself
+//     (TimeZoneInfo.Local / TimeZone.CurrentTimeZone; TimeZoneInfo.Utc is
+//     folded to a literal zero and FindSystemTimeZoneById only feeds
+//     ConvertTimeFromUtc UTC instants), so the composition below is the
+//     faithful model: resolve the wall, subtract it to get the instant, then
+//     read the offset AT that instant. The two steps differ only inside the
+//     skipped spring-forward hour (wall resolution says standard, the instant
+//     lands in daylight), which is exactly net48's measured behaviour.
+//   * Kind=Unspecified (0): the civil face is a wall clock of the receiver.
+//
+// KNOWN LIMITATION: pre-1970 input falls back to the current offset (same
+// defect class as the 1970+ bug this file fixes); there is no historical DST
+// resolution below the Unix epoch. The guard is a deliberate, dated decision:
+//   * 1900-1969 real DST history IS present in tzdata (New York 1918-07 ->
+//     -14400, matching net48), so the fallback discards usable data;
+//   * pre-1900 tzdata carries LOCAL MEAN TIME (Asia/Shanghai +8:05:43,
+//     New York -4:56:02) while net48 extrapolates its FIRST adjustment rule
+//     backwards (Eastern 1899-07 -> -14400, Lord Howe 1899-01 -> +39600);
+//     the two sources are not reconcilable, so neither can be "the" answer;
+//   * on 32-bit time_t the pre-epoch instants are not even representable.
+// time.cpp owns the per-date FileTime bridge and already normalises this
+// range to the zone's STANDARD offset (kHistoricalFloorTicks); reconciling
+// the two is a separate task. Until then this function must not claim
+// historical accuracy.
+int64_t PerDateOffsetPosix(Il2CppDateTime dt, bool& isDst)
+{
+    isDst = false;
+    if (dt.ticks < kUnixEpochTicks)
+    {
+        return CurrentOffsetFallback(); // KNOWN LIMITATION (see above)
+    }
+    int64_t offset = 0;
+    bool ok = false;
+    if (dt.kind == 1 /* DateTimeKind.Utc */)
+    {
+        ok = CrtOffsetAtInstant(dt.ticks, offset, isDst);
+    }
+    else if (dt.kind == 2 /* DateTimeKind.Local */)
+    {
+        // net48's machine-zone conversion: wall -> instant via the wall
+        // resolution, then re-read at that instant.
+        int64_t wallOffset = 0;
+        bool wallIsDst = false;
+        if (CrtOffsetAtWall(dt.ticks, wallOffset, wallIsDst))
+        {
+            const int64_t instant = dt.ticks - wallOffset * kTicksPerSecond;
+            if (instant >= kUnixEpochTicks)
+            {
+                ok = CrtOffsetAtInstant(instant, offset, isDst);
+            }
+        }
+    }
+    else
+    {
+        ok = CrtOffsetAtWall(dt.ticks, offset, isDst);
+    }
+    return ok ? offset : CurrentOffsetFallback();
+}
+
+} // namespace
 #endif // !defined(_WIN32)
 
 // The matching rule for a civil date + the per-date offset evaluation.
@@ -664,7 +834,8 @@ int64_t il2cpp_timezone_get_utc_offset_at(Il2CppDateTime dt)
 #if defined(_WIN32)
     return CurrentOffsetFallback();
 #else
-    return PerDateOffsetPosix(dt);
+    bool isDst = false;
+    return PerDateOffsetPosix(dt, isDst);
 #endif
 }
 
@@ -685,7 +856,8 @@ int64_t il2cpp_timezone_get_utc_offset_legacy(Il2CppDateTime dt)
 #if defined(_WIN32)
     return CurrentOffsetFallback();
 #else
-    return PerDateOffsetPosix(dt);
+    bool isDst = false;
+    return PerDateOffsetPosix(dt, isDst);
 #endif
 }
 
@@ -701,18 +873,12 @@ int32_t il2cpp_timezone_get_is_daylight_saving_at(Il2CppDateTime dt)
     }
     return 0;
 #else
-    // POSIX: the CRT's tm_isdst at the instant (the same data the offset
-    // path uses).
-    if (dt.ticks >= kUnixEpochTicks)
-    {
-        const std::time_t t = static_cast<std::time_t>((dt.ticks - kUnixEpochTicks) / kTicksPerSecond);
-        std::tm localTm = {};
-        if (localtime_r(&t, &localTm) != nullptr)
-        {
-            return localTm.tm_isdst > 0 ? 1 : 0;
-        }
-    }
-    return 0;
+    // POSIX: the same resolution the offset path uses, so the daylight flag
+    // can never disagree with the reported offset (a wall clock in the
+    // repeated or skipped hour resolves to standard, exactly like net48).
+    bool isDst = false;
+    PerDateOffsetPosix(dt, isDst);
+    return isDst ? 1 : 0;
 #endif
 }
 

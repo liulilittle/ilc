@@ -63,7 +63,16 @@ int64_t il2cpp_timezone_get_utc_offset();
 // all years from the static TZI. The evaluator replicates that model, so a
 // DST-zone machine reproduces net48 byte-for-byte (verified against the
 // Eastern Standard Time registry data with the net48-measured oracle).
-// POSIX: localtime_r/gmtime_r at the instant (system tzdata, DST-aware).
+// POSIX: the system tzdata. A Kind=Utc input reads the offset AT that instant
+// (localtime_r/gmtime_r field difference). A wall input is resolved against
+// the zone's rules by sampling the two candidate offsets 30 h either side of
+// the wall clock and validating each by mapping its instant back through
+// localtime_r (no mktime, so no environment-dependent guessing); the
+// repeated fall-back hour and the skipped spring-forward hour both resolve
+// to the standard offset, matching net48's measured choice. The previous
+// implementation subtracted the CURRENT offset to invent an instant, which
+// reported the neighbouring period's offset for any date across a DST
+// transition (fixed in nb-tz; see tests/runtime/test_timezone_posix.cpp).
 //
 // The WALL-vs-UTC semantics encode net48's measured contract:
 //   * Unspecified/Local input (the DateTime's CIVIL face is a local wall
