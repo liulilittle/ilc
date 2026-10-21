@@ -110,7 +110,7 @@ A CV above 1000% is reported as `cv-infra` (broken measurement, e.g. a killed
 process or clock wrap), never as an environmental near-miss.
 
 `-RedProofFlags <value>` overrides the flags `-RedProof` applies (`-O0` / `/Od`
-by default); `-RedProofFlags none` keeps the Release flags. That is a harness
+by default); `-RedProofFlags none` explicitly passes the normal Release flags (`-O3 -DNDEBUG` / `/O2 /Ob2 /DNDEBUG`) -- explicit because omitting the argument would let an already-configured `-O0` build directory keep its cached flags. That is a harness
 self-test hook: with `none` the red proof cannot change the code, so the script
 must report "not wired" (exit 2) or "inconclusive" (exit 5) -- never claim a
 pass. It is what proves the `-RedProof -AllowEnvCv` combination can no longer

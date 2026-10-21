@@ -277,7 +277,14 @@ if ($RedProof) {
     }
     elseif ($Compiler -eq "msvc") { "/Od /DNDEBUG" }
     else { "-O0" }
-    if ($flagValue -ne "none") { $FlagsArg = "-DCMAKE_CXX_FLAGS_RELEASE=$flagValue" }
+    # `none` must be passed EXPLICITLY (as the normal Release flags): leaving
+    # the argument out would let a previously configured -O0 build directory
+    # keep its cached flags, so the "no code change" self-test would silently
+    # still run unoptimized code.
+    if ($flagValue -eq "none") {
+        $FlagsArg = if ($Compiler -eq "msvc") { "-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG" } else { "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG" }
+    }
+    else { $FlagsArg = "-DCMAKE_CXX_FLAGS_RELEASE=$flagValue" }
 }
 if ($Compiler -eq "msvc") {
     $cfgArgs = @($CapilliArg, "-G", "Visual Studio 17 2022")
@@ -311,7 +318,7 @@ if ($Compiler -eq "mingw") {
 $cacheFlags = @(Get-Content "$BuildDir/CMakeCache.txt" -ErrorAction SilentlyContinue |
     Where-Object { $_ -match '^CMAKE_(BUILD_TYPE|CXX_FLAGS(_[A-Z]+)?|CXX_COMPILER):' } | ForEach-Object { $_.Trim() })
 Add-Raw "# cmake_cache_flags $($cacheFlags -join ' | ')"
-Add-Raw "# redproof_flags $(if ($FlagsArg) { $FlagsArg } elseif ($RedProof) { 'none (Release flags kept -- harness self-test)' } else { 'n/a (Release: -O3 / /O2)' })"
+Add-Raw "# redproof_flags $(if ($FlagsArg) { $FlagsArg } else { 'n/a (Release: -O3 / /O2)' })"
 Add-Raw "# clean_build $cleanBuild"
 foreach ($f in @("$Perf/perf.cs", "$Gen/src/Perf_Perf.cpp", "$IlcExe", "$Out/perf.exe", "$Out/benchlib.dll")) {
     if (Test-Path $f) {
