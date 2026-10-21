@@ -2214,20 +2214,34 @@ var userRecvLike = receiverType ?? arg0Type;
     // (Sum(this IEnumerable<int32>), Min/Max likewise -- no MethodSpec, so
     // the generic-argument array is null at dispatch). The i4 aggregate gate
     // in TryMapLinq needs the ELEMENT byte; it lives inside the first
-    // parameter's GENERICINST signature. Decode: skip header + param count +
-    // return type, then read the first param -- a GenericInst (0x15) with the
-    // CLASS/VALUETYPE marker + TypeDefOrRef + arg count + one element byte
-    // per argument. Returns the first argument's element byte (int32 for the
-    // i4 family), or null when the signature does not have that shape.
+    // parameter's GENERICINST signature. Decode: skip the signature header
+    // (including the GENERIC method-header's GenericParamCount) + param count
+    // + return type, then read the first param -- a GenericInst (0x15) with the
+    // CLASS/VALUETYPE marker + TypeDefOrRef + arg count + one element per
+    // argument. Returns the first argument's element byte (int32 for the i4
+    // family), or null when the signature does not have that shape.
     private static byte[]? LinqAggregateElementByte(MetadataReader md, BlobHandle sigHandle)
     {
         var sig = md.GetBlobReader(sigHandle);
-        sig.ReadSignatureHeader();
+        return DecodeLinqAggregateElementByte(md, ref sig);
+    }
+
+    // Test seam for the consumption contract: the caller owns the BlobReader so
+    // it can assert the exact cursor position after decoding.
+    internal static byte[]? DecodeLinqAggregateElementByte(MetadataReader md, ref BlobReader sig)
+    {
+        var hdr = sig.ReadSignatureHeader();
+        // ECMA-335 II.23.2.1: a GENERIC method-definition signature carries the
+        // GenericParamCount right after the header. net48's selector aggregates
+        // (Average<TSource>(IEnumerable<TSource>, Func<...>)) have it; without
+        // consuming it, count/return/first-param reads drift by one byte and the
+        // GenericInst source is never seen (genArgs==null -> Average<?>).
+        if (hdr.IsGeneric) _ = sig.ReadCompressedInteger();
         var count = sig.ReadCompressedInteger();
         if (count < 1) return null;
-        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
-        if (ret is 0x11 or 0x12 or 0x40) _ = sig.ReadTypeHandle();
-        else if (ret is 0x1D) _ = ReadParamByte(md, ref sig);
+        // Return type: consume its whole payload with the ECMA-335 table
+        // (GENERICINST/SZARRAY/VAR/MVAR/...), not only its leading byte.
+        _ = ReadParamByte(md, ref sig);
         var first = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         if (first != 0x15) return null; // not a GenericInst source parameter
         var marker = sig.ReadByte();    // 0x12 CLASS / 0x11 VALUETYPE
@@ -2235,7 +2249,17 @@ var userRecvLike = receiverType ?? arg0Type;
         _ = sig.ReadTypeHandle();
         var argc = sig.ReadCompressedInteger();
         if (argc < 1) return null;
-        var elem = sig.ReadByte();
+        // Element: ReadParamByte consumes the trailing payload of VAR/MVAR
+        // (index), GENERICINST (marker+handle+args), SZARRAY, ... and returns
+        // the dispatch code -- VAR/MVAR stay the 0x13/0x1E placeholders, never
+        // a concrete element family.
+        var elem = ReadParamByte(md, ref sig);
+        for (var i = 1; i < argc; i++) _ = ReadParamByte(md, ref sig);
+        // Walk every remaining METHOD parameter too, then require the cursor to
+        // sit exactly at the blob end: a surplus/short read means the decoder
+        // drifted and no hint may be returned.
+        for (var i = 1; i < count; i++) _ = ReadParamByte(md, ref sig);
+        if (sig.RemainingBytes != 0) return null;
         return new[] { elem };
     }
 
