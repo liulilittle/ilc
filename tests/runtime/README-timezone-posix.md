@@ -104,7 +104,7 @@ so the divergence stays visible instead of being silently skipped.
 * POSIX only. On Windows `main` prints a not-applicable line and returns 0.
   The Windows per-date path reads the registry instead and never reaches the
   function under test, so there is nothing to cover there -- this is a no-op,
-  NOT coverage. (Stated in three in-tree places: `CMakeLists.txt:30-31`, the
+  NOT coverage. (Stated in three in-tree places: `CMakeLists.txt:30-32`, the
   test's `main` comment, and this section -- plus the commit body.)
 * It requires a readable `/usr/share/zoneinfo`. `SelectZone()` verifies each
   zone actually took effect (two seasonal samples, so a +0-in-winter zone
