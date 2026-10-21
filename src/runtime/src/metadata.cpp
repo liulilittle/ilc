@@ -244,6 +244,95 @@ Il2CppClass System_Single_class = {
     3,
 };
 
+//------------------------------------------------------------------------------
+// box-identity (box_long_is / objectops): the REMAINING primitive boxes live
+// here too, NOT as file-local duplicates in boxingext2.cpp.
+//
+// Root cause this closes: the transpiler emits `is`/`as` on a box-only
+// primitive as il2cpp_is_instance(obj, il2cpp_class_by_name("<full name>"))
+// (CodeGenerator.BoxClassDescriptorCpp), and il2cpp_is_instance is a POINTER
+// compare. A second descriptor with the same .NET name made class_by_name
+// return the metadata one while the box icall stamped the boxingext2 one, so
+// `boxed long is long` answered False. ONE descriptor per .NET type is the
+// invariant: boxingext2.cpp now aliases these (g_*BoxClass references) and
+// registers nothing of its own, so box stamps == class_by_name result.
+//
+// Shape is identical to the Int32/Double boxes (header + aligned payload slot;
+// Decimal carries a 16-byte slot, instanceSize 32). Boolean/Char already use
+// the narrower kBoxComparableInterfaces table above.
+//------------------------------------------------------------------------------
+Il2CppClass System_Byte_class = {
+    "System.Byte",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
+Il2CppClass System_SByte_class = {
+    "System.SByte",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
+Il2CppClass System_Int16_class = {
+    "System.Int16",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
+Il2CppClass System_UInt16_class = {
+    "System.UInt16",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
+Il2CppClass System_UInt64_class = {
+    "System.UInt64",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
+Il2CppClass System_Decimal_class = {
+    "System.Decimal",
+    32, // header + aligned 16-byte payload slot (Il2CppDecimal)
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    kBoxNumericInterfaces,
+    3,
+};
+
 // Boxed UInt32: identical shape to the Int32 box (header + aligned 8-byte
 // payload slot, the full 32-bit pattern -- see boxingext2.cpp), plus the .NET
 // interface table. net48 semantics: a boxed UInt32 IS-A System.Object (base
@@ -481,6 +570,15 @@ void il2cpp_ensure_builtin_system_classes()
     // nb9 D10: the primitive element-kind descriptors for long[]/float[].
     il2cpp_class_register(&System_Int64_class);
     il2cpp_class_register(&System_Single_class);
+        // box-identity: the remaining primitive box descriptors (registered
+        // BEFORE any box can be allocated, so class_by_name always answers the
+        // descriptor the box icalls stamp -- no first-use ordering hazard).
+        il2cpp_class_register(&System_Byte_class);
+        il2cpp_class_register(&System_SByte_class);
+        il2cpp_class_register(&System_Int16_class);
+        il2cpp_class_register(&System_UInt16_class);
+        il2cpp_class_register(&System_UInt64_class);
+        il2cpp_class_register(&System_Decimal_class);
         il2cpp_class_register(&System_IConvertible_class);
         il2cpp_class_register(&System_IComparable_class);
         il2cpp_class_register(&System_IFormattable_class);

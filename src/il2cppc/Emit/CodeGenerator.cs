@@ -8371,16 +8371,18 @@ default: return false;                           // primitives/VAR(handled by ca
         return $"(({(ownerCpp == "Il2CppObject" ? "static_cast" : "reinterpret_cast")}<{ownerCpp}*>(il2cpp_null_check(static_cast<Il2CppObject*>({objCode})))))->{fieldCppName}";
     }
 
-    // M7 CG-FIX (boxdeep2 cmake FAIL): the class-descriptor expression for
-    // isinst/castclass. The runtime exposes GLOBAL descriptors only for
-    // Int32/Boolean/Char/Double (metadata.cpp System_*_class) plus Object/
-    // String/interfaces; the other box primitives (UInt32/Int64/UInt64/Byte/
-    // SByte/Int16/UInt16/Single/Decimal) are file-local g_*BoxClass in
-    // boxingext2.cpp, lazily registered on first box. `&System_UInt32_class`
-    // is an undefined symbol, so those types resolve through
-    // il2cpp_class_by_name (registered by the time any boxed value of that
-    // type exists -- isinst compares pointer identity). Every other type uses
-    // the mangled global descriptor symbol.
+    // The class-descriptor expression for isinst/castclass. EVERY primitive
+    // box descriptor is a GLOBAL metadata.cpp symbol (il2cpp_metadata.h), so
+    // generated type checks reference it directly -- pointer identity with the
+    // box icalls is then a link-time fact, not a registry-order one.
+    //
+    // box-identity (objectops `box_long_is=False`): this used to route the
+    // box-only primitives through il2cpp_class_by_name because their
+    // descriptors were file-local g_*BoxClass duplicates in boxingext2.cpp.
+    // That lookup hit metadata.cpp's System_Int64_class while icall_box_long
+    // stamped the boxingext2 duplicate -> `boxed long is long` was False.
+    // The duplicates are gone (boxingext2 aliases the metadata descriptors),
+    // so the direct symbol is the correct and cheaper form.
     private static string BoxClassDescriptorCpp(string typeName) => typeName switch
     {
         "System.Int32" => "&System_Int32_class",
@@ -8389,15 +8391,15 @@ default: return false;                           // primitives/VAR(handled by ca
         "System.Double" => "&System_Double_class",
         "System.Object" => "&System_Object_class",
         "System.String" => "&System_String_class",
-        "System.UInt32" => "il2cpp::il2cpp_class_by_name(\"System.UInt32\")",
-        "System.Int64" => "il2cpp::il2cpp_class_by_name(\"System.Int64\")",
-        "System.UInt64" => "il2cpp::il2cpp_class_by_name(\"System.UInt64\")",
-        "System.Byte" => "il2cpp::il2cpp_class_by_name(\"System.Byte\")",
-        "System.SByte" => "il2cpp::il2cpp_class_by_name(\"System.SByte\")",
-        "System.Int16" => "il2cpp::il2cpp_class_by_name(\"System.Int16\")",
-        "System.UInt16" => "il2cpp::il2cpp_class_by_name(\"System.UInt16\")",
-        "System.Single" => "il2cpp::il2cpp_class_by_name(\"System.Single\")",
-        "System.Decimal" => "il2cpp::il2cpp_class_by_name(\"System.Decimal\")",
+        "System.UInt32" => "&System_UInt32_class",
+        "System.Int64" => "&System_Int64_class",
+        "System.UInt64" => "&System_UInt64_class",
+        "System.Byte" => "&System_Byte_class",
+        "System.SByte" => "&System_SByte_class",
+        "System.Int16" => "&System_Int16_class",
+        "System.UInt16" => "&System_UInt16_class",
+        "System.Single" => "&System_Single_class",
+        "System.Decimal" => "&System_Decimal_class",
         // batch 162 (eventcase): BCL delegates (System.EventHandler /
         // EventHandler`1 -- event backing fields, isinst on the Raise
         // receiver) resolve to the runtime System.Delegate descriptor; the

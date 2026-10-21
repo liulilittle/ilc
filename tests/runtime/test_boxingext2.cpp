@@ -375,6 +375,73 @@ int main()
     Expect(!il2cpp_is_instance(lBig, il2cpp_class_by_name("System.Byte")),
            "boxed long is NOT a System.Byte instance (cross-type)");
 
+    // --- 15. GENERATED-CODE isinst identity (box_long_is regression) ---
+    // The transpiler emits `is`/`as` on a box-only primitive as
+    //   il2cpp_is_instance(obj, il2cpp_class_by_name("<full name>"))
+    // (CodeGenerator.BoxClassDescriptorCpp) and il2cpp_is_instance is a
+    // POINTER compare. Every box class therefore MUST be the descriptor
+    // class_by_name resolves to -- one descriptor per .NET type, no
+    // file-local duplicate with the same name. net48: boxed long `is long`
+    // is True; the pre-fix runtime answered False because class_by_name hit
+    // metadata.cpp's System_Int64_class while icall_box_long stamped
+    // boxingext2.cpp's g_longBoxClass.
+    // Builtins are already registered here (section 1 boxed an int32 first),
+    // which is exactly the generated-startup order (il2cpp_runtime_init ->
+    // il2cpp_ensure_builtin_system_classes before Main runs).
+    {
+        struct TypeIdentityProbe
+        {
+            Il2CppObject* boxed;
+            const char* name;
+        };
+        const TypeIdentityProbe identityProbes[] = {
+            { il2cpp_box_int32(nullptr, 42), "System.Int32" },
+            { icall_box_long(42), "System.Int64" },
+            { icall_box_double(3.25), "System.Double" },
+            { icall_box_float(1.5), "System.Single" },
+            { icall_box_bool(true), "System.Boolean" },
+            { icall_box_char('A'), "System.Char" },
+            { icall_box_uint(-1), "System.UInt32" },
+            { icall_box_byte(255), "System.Byte" },
+            { icall_box_sbyte(-1), "System.SByte" },
+            { icall_box_short(-1), "System.Int16" },
+            { icall_box_ushort(65535), "System.UInt16" },
+            { icall_box_ulong(uint64Max), "System.UInt64" },
+        };
+        for (const TypeIdentityProbe& p : identityProbes)
+        {
+            Il2CppClass* byName = il2cpp_class_by_name(p.name);
+            Expect(byName == p.boxed->klass,
+                   "class_by_name(<primitive>) IS the box's klass (single descriptor per type)");
+            Expect(il2cpp_is_instance(p.boxed, byName),
+                   "generated `boxed is <primitive>` passes (class_by_name pointer identity)");
+        }
+        // The typed descriptors the transpiler emits for Int32/Boolean/Char/
+        // Double are the same objects class_by_name answers.
+        Expect(il2cpp_class_by_name("System.Int32") == &System_Int32_class,
+               "System.Int32 resolves to the canonical descriptor");
+        Expect(il2cpp_class_by_name("System.Int64") == &System_Int64_class,
+               "System.Int64 resolves to the canonical descriptor");
+        Expect(il2cpp_class_by_name("System.Single") == &System_Single_class,
+               "System.Single resolves to the canonical descriptor");
+        Expect(il2cpp_class_by_name("System.Double") == &System_Double_class,
+               "System.Double resolves to the canonical descriptor");
+        Expect(il2cpp_class_by_name("System.Boolean") == &System_Boolean_class,
+               "System.Boolean resolves to the canonical descriptor");
+        Expect(il2cpp_class_by_name("System.Char") == &System_Char_class,
+               "System.Char resolves to the canonical descriptor");
+        Expect(il2cpp_class_by_name("System.UInt32") == &System_UInt32_class,
+               "System.UInt32 resolves to the canonical descriptor");
+        // Negative direction: a boxed long is not a boxed int through the
+        // same by-name path (`bl is int` must stay False).
+        Expect(!il2cpp_is_instance(icall_box_long(42), il2cpp_class_by_name("System.Int32")),
+               "boxed long is NOT a System.Int32 (by-name cross-type)");
+        Expect(!il2cpp_is_instance(icall_box_double(3.25), il2cpp_class_by_name("System.Single")),
+               "boxed double is NOT a System.Single (by-name cross-type)");
+        Expect(!il2cpp_is_instance(icall_box_float(1.5), il2cpp_class_by_name("System.Double")),
+               "boxed Single is NOT a System.Double (by-name cross-type)");
+    }
+
     // --- P25b: user struct box/unbox (icall_box_user_struct /
     // il2cpp_unbox_user_struct) ---
     // A USER value type descriptor (a plain C++ struct payload, baseClass

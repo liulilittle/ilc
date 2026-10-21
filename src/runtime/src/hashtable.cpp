@@ -169,11 +169,10 @@ int32_t BucketIndex(int32_t hash, int32_t bucketCount)
 //------------------------------------------------------------------------------
 // Key classification (drives the hash + equality contract).
 // The runtime's own descriptors own these names ("System.String" from
-// string.cpp; "System.Int32"/"System.Double"/"System.Char"/"System.Boolean"
-// from metadata.cpp; "System.Single" from boxingext2.cpp), so klass-name
-// comparison is stable for every managed string / boxed primitive the runtime
-// produces; the transpiled BCL's descriptors for the same types carry the
-// same names.
+// string.cpp; every boxed primitive -- Int32/Double/Char/Boolean/Single and
+// the rest of the family -- from metadata.cpp), so klass-name comparison is
+// stable for every managed string / boxed primitive the runtime produces;
+// the transpiled BCL's descriptors for the same types carry the same names.
 //------------------------------------------------------------------------------
 
 bool IsStringKey(const Il2CppObject* key)
