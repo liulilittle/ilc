@@ -51,7 +51,9 @@ compiled against it. Nothing is hand-edited into the expected results.
 # 1. pristine baseline tree (27404191)
 git archive 27404191 | tar -x -C <red-tree>
 
-# 2. apply the probe patch (tests/runtime/perf4-red-baseline.patch)
+# 2. apply the probe patch from the repository root:
+#    git apply tests/runtime/perf4-red-baseline.patch
+#    (paths are src/runtime/src/streamio.cpp; verified with git apply --check)
 #    -> defines g_streamioIdentitySeeks / g_streamioForceSeekFailure and
 #       increments the counter before the per-byte identity fseek
 
