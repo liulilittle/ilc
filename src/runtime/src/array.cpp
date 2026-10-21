@@ -52,6 +52,38 @@ Il2CppClass g_int32ArrayClass = {
     0,                            // interfaceCount
 };
 
+// A3: DateTime[]/TimeSpan[] keep their OWN array class descriptor (name
+// "[System.DateTime" / "[System.TimeSpan"). The compiler-emitted castclass
+// for `(DateTime[])o` resolves the target class by that name, so the allocator
+// must stamp exactly this class -- degrading to the int32 array class would
+// make a valid downcast throw InvalidCastException while `(int[])o` passed.
+// Only the NAME is needed here: ArrayClassForElement synthesizes (and
+// registers) "[System.DateTime" from it; the element descriptor itself never
+// enters the registry (no boxed DateTime exists in this runtime).
+Il2CppClass g_datetimeElemClass = {
+    "System.DateTime",
+    16,
+    0u,
+    0,
+    nullptr,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
+Il2CppClass g_timespanElemClass = {
+    "System.TimeSpan",
+    16,
+    0u,
+    0,
+    nullptr,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
 // The OBJECT array class descriptor (reference elements): the payload is
 // scanned as GC references by the collector.
 Il2CppClass g_objectArrayClass = {
@@ -216,14 +248,19 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
 
 //------------------------------------------------------------------------------
 // il2cpp_array_new_typed -- the runtime's own value-array builders (List<T>
-// ToArray, LINQ materializers, Queue/Stack snapshots). Same allocation as
-// il2cpp_array_new with a null element descriptor, plus the caller-supplied
-// element kind: without it an 8-byte cell is ambiguous (int64/double vs a
-// DateTime/user struct) and the element-kind Array scans have to reject it.
+// ToArray, LINQ materializers, Queue/Stack snapshots) and the transpiler's
+// DateTime[]/TimeSpan[] newarr. Same allocation as il2cpp_array_new, plus the
+// caller-supplied element kind: without it an 8-byte cell is ambiguous
+// (int64/double vs a DateTime/user struct) and the element-kind Array scans
+// have to reject it. Kind 6/7 also supplies the element NAME so the array
+// keeps its "[System.DateTime"/"[System.TimeSpan" class identity.
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_array_new_typed(int32_t elemSize, int32_t elemKind, int32_t length)
 {
-    Il2CppArray* arr = il2cpp_array_new(nullptr, elemSize, false, length);
+    Il2CppClass* elemClass = elemKind == 6 ? &g_datetimeElemClass
+                          : elemKind == 7 ? &g_timespanElemClass
+                                          : nullptr;
+    Il2CppArray* arr = il2cpp_array_new(elemClass, elemSize, false, length);
     arr->elemKind = elemKind;
     return arr;
 }

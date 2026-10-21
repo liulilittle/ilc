@@ -1,0 +1,17 @@
+1,3 [1] long_toarray_sort ok
+1.5,3.5 [2] double_toarray_sort ok
+[3] double_toarray_join 3.5,1.5,2.5
+[4] float_toarray_join 1.5,2.25
+2019,2020 [5] datetime_sort ok
+1,3 [6] timespan_sort ok
+[7] struct8_sort EX:InvalidOperationException
+2019,2020 [8] dt_mixed_sort ok
+2019,2020,2020 [9] dt_mixed3_sort ok
+asc[10] dt_tick1_sort ok
+True,True,True[11] dt_dupkind_sort ok
+[12] dt_array_type DateTime[] True True
+[13] dt_join 2020/1/2 0:00:00|2019/3/4 0:00:00
+[14] dt_indexof 1,-1
+1 [15] dt_binsearch ok
+2020,2021 [17] dt_kind_vs_ticks ok
+1,3 ab [18] keys_items_range ok

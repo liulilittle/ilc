@@ -81,6 +81,16 @@ public static partial class MethodRefResolver
             // Every entry takes the arguments in exactly the runtime order.
             case "IndexOf":
                 if (genArgs == null) return null;
+                // A3: DateTime/TimeSpan generic instantiations (0x11 VALUETYPE).
+                // The value parameter is the runtime 8-byte struct -- no box is
+                // needed, so the element-kind scans compare ticks directly.
+                if (genArgs.Length == 1 && genArgs[0] == 0x11 && count == 2)
+                {
+                    if (arg0Type == "System.DateTime" || arg1Type == "System.DateTime")
+                        return I("il2cpp::il2cpp_array_index_of_datetime", 2, true, false, false, new[] { "a", "" });
+                    if (arg0Type == "System.TimeSpan" || arg1Type == "System.TimeSpan")
+                        return I("il2cpp::il2cpp_array_index_of_timespan", 2, true, false, false, new[] { "a", "" });
+                }
                 return genArgs[0] switch
                 {
                     // int32 is claimed by the icall-layer domain (2-arg only);
@@ -139,6 +149,15 @@ public static partial class MethodRefResolver
                 };
             case "BinarySearch":
                 if (genArgs == null) return null;
+                // A3: DateTime/TimeSpan generic instantiations (0x11 VALUETYPE),
+                // by value -- the search compares ticks (Kind ignored).
+                if (genArgs.Length == 1 && genArgs[0] == 0x11 && count == 2)
+                {
+                    if (arg0Type == "System.DateTime" || arg1Type == "System.DateTime")
+                        return I("il2cpp::il2cpp_array_binary_search_datetime", 2, true, false, false, new[] { "a", "" });
+                    if (arg0Type == "System.TimeSpan" || arg1Type == "System.TimeSpan")
+                        return I("il2cpp::il2cpp_array_binary_search_timespan", 2, true, false, false, new[] { "a", "" });
+                }
                 return genArgs[0] switch
                 {
                     0x08 when count == 2 => I("il2cpp::il2cpp_array_binary_search_int32", 2, true, false, false, new[] { "a", "i" }),

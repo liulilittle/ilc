@@ -29,6 +29,7 @@
 #include "il2cpp_exception.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_format.h"
+#include "il2cpp_time.h" // A3: DateTime[]/TimeSpan[] Join formatting
 #include "il2cpp_string_intern.h"
 #include "il2cpp_value_semantics.h"
 #include "il2cpp_gc.h"
@@ -112,6 +113,14 @@ Il2CppString* ValueArrayElement(Il2CppArray* array, int32_t index)
         return icall_double_to_string(*reinterpret_cast<const double*>(base));
     case 5:
         return icall_uint32_to_string(*reinterpret_cast<const uint32_t*>(base));
+    case 6:
+        // DateTime[] Join: format the TICKS. The cell packs Kind in the top
+        // two bits; the unpack helper preserves Kind for the formatter.
+        return reinterpret_cast<Il2CppString*>(icall_datetime_to_string(
+            il2cpp_datetime_from_array_bits(*reinterpret_cast<const int64_t*>(base))));
+    case 7:
+        return reinterpret_cast<Il2CppString*>(icall_timespan_to_string(
+            Il2CppTimeSpan(*reinterpret_cast<const int64_t*>(base))));
     default:
         break;
     }
