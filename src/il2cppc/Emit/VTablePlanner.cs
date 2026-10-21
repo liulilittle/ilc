@@ -1,4 +1,4 @@
-﻿using Il2Cpp.Transpiler.Model;
+using Il2Cpp.Transpiler.Model;
 
 namespace Il2Cpp.Transpiler.Emit;
 
