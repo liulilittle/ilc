@@ -75,6 +75,12 @@ std::string NormalizePosixSlash(const std::string& path)
 
 //------------------------------------------------------------------------------
 // Stream backend state (opaque to callers; see streamio.h).
+//
+// THREADING: this struct is deliberately lock-free and is NOT thread-safe.
+// net48 FileStream/StreamReader/StreamWriter instances are documented as not
+// thread-safe either, and the runtime's wrappers SHARE one StreamState between
+// a reader/writer and its underlying stream, so a lock here would have to
+// cover the whole wrapper chain. Callers must serialize per handle.
 //------------------------------------------------------------------------------
 
 struct StreamState
@@ -119,6 +125,18 @@ struct StreamState
     // here for the next ReadChar (-1 = empty). Cleared by every seek
     // (repositioning invalidates decoder state, like the pushback ring).
     int32_t        pendingChar;
+    // kFile stdio state that used to be refreshed by an identity fseek
+    // (fseek(fp,0,SEEK_CUR)) before EVERY byte read:
+    //   * readAfterWrite -- C11 7.21.5.3 forbids a read directly after a
+    //     write on an update stream; the mode reset must run once, before the
+    //     next read, not once per byte.
+    //   * atEof -- the EOF indicator is sticky; net48 exposes bytes appended
+    //     by another handle after a read reached end-of-stream, so the next
+    //     read has to clear the indicator (an identity seek does that).
+    // Any explicit seek / truncate already performs a real fseek, so it
+    // clears both flags.
+    bool           fileReadAfterWrite;
+    bool           fileAtEof;
 };
 
 namespace {
@@ -294,6 +312,85 @@ bool MemoryEnsure(StreamState* s, int64_t need)
     return true;
 }
 
+// Counted identity seek (fseek(fp, 0, SEEK_CUR)). The test build defines
+// IL2CPP_STREAMIO_FSEEK_PROBE (tests/runtime/CMakeLists.txt) to expose the
+// call counter to the regression probe; production builds compile the counter
+// away. The definitions are plain C symbols so a test translation unit can
+// read them without any runtime header change.
+#if defined(IL2CPP_STREAMIO_FSEEK_PROBE)
+extern "C" {
+long long g_streamioIdentitySeeks = 0;
+// Test seam: force the identity seek to fail so the probe can prove the
+// "failed reset is surfaced, never read in an illegal stdio mode" contract.
+// Never set outside tests.
+int g_streamioForceSeekFailure = 0;
+}
+#endif
+
+// File-local (internal linkage): the only caller is FilePrepareRead below.
+static int FileIdentitySeek(StreamState* s)
+{
+#if defined(IL2CPP_STREAMIO_FSEEK_PROBE)
+    ++g_streamioIdentitySeeks;
+    if (g_streamioForceSeekFailure != 0)
+    {
+        return -1;
+    }
+#endif
+    return STREAM_FSEEK(s->fp, 0, SEEK_CUR);
+}
+
+// Prepare the FILE* for the next read. Two jobs used to be done by an identity
+// fseek (fseek(fp,0,SEEK_CUR)) before EVERY byte:
+//   * C11 7.21.5.3 -- a read must not directly follow a write on an update
+//     stream. The mode reset is needed ONCE after a write, not per byte.
+//   * the EOF indicator is sticky -- net48 exposes bytes appended by another
+//     handle after a read reached end-of-stream, so the indicator must be
+//     cleared before retrying. Only done when EOF was actually observed, so
+//     the steady-state read path issues no fseek at all.
+//
+// If the reset CANNOT be performed the read must not proceed: C11 7.21.5.3
+// makes a read straight after a write undefined, so continuing would return
+// arbitrary bytes. The failure is raised as an IOException (the same shape the
+// handle layer already uses for the append-mode guard), and the pending flags
+// stay set so an explicit seek -- a real reposition that clears them --
+// recovers the handle. The steady state costs no syscall.
+int FilePrepareRead(StreamState* s)
+{
+    if (!s->fileReadAfterWrite && !s->fileAtEof)
+    {
+        return 0; // steady state: no reset pending, no syscall
+    }
+    if (FileIdentitySeek(s) != 0)
+    {
+        return -1;
+    }
+    s->fileReadAfterWrite = false;
+    s->fileAtEof = false;
+    return 0;
+}
+
+// Throw the IOException a read raises when its pending stdio mode reset could
+// not be performed (C11 7.21.5.3 would otherwise be violated). Defined below
+// next to kStreamIOExceptionChain, which the write/seek paths share.
+//
+// net48 has NO such exception: a Win32 handle lets WriteFile/ReadFile alternate
+// freely, and an unseekable stream raises NotSupportedException from
+// Seek/Position, never from Read. This IOException therefore signals a
+// BACKEND-side failure, not modelled net48 behaviour. It is also
+// production-unreachable as the layer stands: the only FILE* created here
+// comes from _wfopen/fopen (no popen/fdopen/_fdopen in this file), so the
+// target is always a seekable regular file; the tests reach the branch through
+// g_streamioForceSeekFailure.
+[[noreturn]] void FileThrowReadResetFailed();
+
+// Record that the FILE* moved to the write side (C11 7.21.5.3 reset pending).
+void FileMarkWrite(StreamState* s)
+{
+    s->fileReadAfterWrite = true;
+    s->fileAtEof = false;
+}
+
 // Next byte from the stream (-1 at end-of-stream). Dispatches on the
 // backend so read_line is shared between file and memory streams.
 int StreamGetByte(StreamState* s)
@@ -310,9 +407,16 @@ int StreamGetByte(StreamState* s)
     }
     if (s->kind == StreamState::kFile)
     {
-        // Write->read mode reset (C11 7.21.5.3) -- see il2cpp_stream_read.
-        (void)STREAM_FSEEK(s->fp, 0, SEEK_CUR);
-        return std::getc(s->fp); // EOF -> -1
+        if (FilePrepareRead(s) != 0)
+        {
+            FileThrowReadResetFailed(); // never read in an illegal stdio mode
+        }
+        const int c = std::getc(s->fp); // EOF -> -1
+        if (c < 0)
+        {
+            s->fileAtEof = true;
+        }
+        return c;
     }
 #if defined(_WIN32)
     if (s->kind == StreamState::kCom)
@@ -546,6 +650,8 @@ il2cpp_stream_t il2cpp_stream_file_open(Il2CppObject* path, int32_t mode)
     s->writerEncoding = 0;
     s->writerBomPending = false;
     s->pendingChar = -1; // T4b: ReadChar astral stash starts empty
+    s->fileReadAfterWrite = false;
+    s->fileAtEof = false;
     return s;
 }
 
@@ -608,10 +714,18 @@ int32_t il2cpp_stream_read(il2cpp_stream_t stream, void* buffer, int32_t count)
         // C11 7.21.5.3: on an update-mode stream a READ must not be directly
         // followed by a WRITE without an intervening fseek. net48 mixes
         // ReadByte/WriteByte freely (Win32 handles), so the stdio backend must
-        // reset the mode with an identity seek before every file write.
-        (void)STREAM_FSEEK(s->fp, 0, SEEK_CUR);
-        return drained + static_cast<int32_t>(
-            std::fread(out + drained, 1, static_cast<size_t>(remaining), s->fp));
+        // reset the mode with an identity seek before a file write. The reset
+        // is per CALL (bulk read), never per byte.
+        if (FilePrepareRead(s) != 0)
+        {
+            FileThrowReadResetFailed(); // never read in an illegal stdio mode
+        }
+        const size_t got = std::fread(out + drained, 1, static_cast<size_t>(remaining), s->fp);
+        if (got < static_cast<size_t>(remaining))
+        {
+            s->fileAtEof = true; // short read: the EOF indicator is now set
+        }
+        return drained + static_cast<int32_t>(got);
     }
     if (s->pos >= s->length)
     {
@@ -628,8 +742,20 @@ int32_t il2cpp_stream_read(il2cpp_stream_t stream, void* buffer, int32_t count)
 // net48 append-mode write guard chain (IO_SeekAppendOverwrite): FileStream
 // opened with FileMode.Append rejects a WRITE at a position before the
 // open-time EOF; Seek itself is allowed (the guard lives in the write path).
+// Also used by FileThrowReadResetFailed above.
 const char kStreamIOExceptionChain[] =
     "System.IO.IOException,System.IO.IOException,System.SystemException,System.Exception";
+
+namespace {
+// Definition of the read-reset failure thrower declared next to
+// FilePrepareRead (C11 7.21.5.3 would be violated if the read proceeded).
+// net48 counterpart: none -- see the declaration comment above.
+[[noreturn]] void FileThrowReadResetFailed()
+{
+    il2cpp_throw_new(kStreamIOExceptionChain,
+        "The stream could not be repositioned for reading.");
+}
+} // namespace
 
 int32_t il2cpp_stream_write(il2cpp_stream_t stream, const void* buffer, int32_t count)
 {
@@ -671,7 +797,10 @@ int32_t il2cpp_stream_write(il2cpp_stream_t stream, const void* buffer, int32_t 
                 "Unable to overwrite data that existed at open time.");
         }
         // Read->write mode reset (C11 7.21.5.3) -- see il2cpp_stream_read.
+        // One identity seek per write call (never per byte), and the state
+        // flags keep the next byte read from repeating it.
         (void)STREAM_FSEEK(s->fp, 0, SEEK_CUR);
+        FileMarkWrite(s);
         return static_cast<int32_t>(std::fwrite(buffer, 1, static_cast<size_t>(count), s->fp));
     }
     const int64_t end = s->pos + static_cast<int64_t>(count);
@@ -792,6 +921,8 @@ int32_t il2cpp_stream_set_position(il2cpp_stream_t stream, int64_t position)
     }
     s->pendingCount = 0;
     s->pendingChar = -1;
+    s->fileReadAfterWrite = false; // a real seek is a legal mode reset
+    s->fileAtEof = false;          // ... and it clears the EOF indicator
     return 0;
 }
 
@@ -1076,11 +1207,16 @@ Il2CppObject* il2cpp_stream_read_to_end(il2cpp_stream_t stream)
     if (s->kind == StreamState::kFile)
     {
         char buf[4096];
+        if (FilePrepareRead(s) != 0)
+        {
+            FileThrowReadResetFailed(); // never read in an illegal stdio mode
+        }
         for (;;)
         {
             const size_t n = std::fread(buf, 1, sizeof(buf), s->fp);
             if (n == 0)
             {
+                s->fileAtEof = true;
                 break; // end-of-stream
             }
             bytes.insert(bytes.end(), buf, buf + n);
@@ -1129,6 +1265,10 @@ int64_t il2cpp_stream_get_length(il2cpp_stream_t stream)
     }
     const int64_t length = static_cast<int64_t>(STREAM_FTELL(s->fp));
     (void)STREAM_FSEEK(s->fp, saved, SEEK_SET); // restore; best effort
+    // The probes above moved the FILE* with real seeks, so both the pending
+    // C11 mode reset and the sticky EOF indicator are already cleared.
+    s->fileReadAfterWrite = false;
+    s->fileAtEof = false;
     return (length < 0) ? -1 : length;
 }
 
@@ -1223,6 +1363,8 @@ int64_t il2cpp_stream_seek(il2cpp_stream_t stream, int64_t offset, int32_t origi
     }
     s->pendingCount = 0;
     s->pendingChar = -1;
+    s->fileReadAfterWrite = false; // a real seek is a legal mode reset
+    s->fileAtEof = false;          // ... and it clears the EOF indicator
     return newPos;
 }
 
@@ -1274,6 +1416,14 @@ int32_t il2cpp_stream_set_length(il2cpp_stream_t stream, int64_t value)
     }
     // File backend: 64-bit truncate/extend on the CRT surface. The fd-level
     // resize must see every buffered stdio write, so flush BEFORE the resize.
+    //
+    // KNOWN GAP (pre-existing, deliberately not changed here): the pushback
+    // ring (pendingCount/pendingChar) is NOT discarded by a resize, so
+    // get_position() (= ftell - pendingCount) can report a negative value when
+    // the stream is truncated below the number of pushed-back bytes. The
+    // reader-buffer survival itself matches net48 (a StreamReader keeps its
+    // buffered chars across a FileStream.SetLength), so the fix is to clamp or
+    // model the ring explicitly -- tracked as a separate follow-up.
     const int64_t saved = static_cast<int64_t>(STREAM_FTELL(s->fp));
     if (saved < 0 || std::fflush(s->fp) != 0)
     {
@@ -1297,6 +1447,8 @@ int32_t il2cpp_stream_set_length(il2cpp_stream_t stream, int64_t value)
     {
         (void)STREAM_FSEEK(s->fp, saved, SEEK_SET); // restore; best effort
     }
+    s->fileReadAfterWrite = false; // the resize seek is a legal mode reset
+    s->fileAtEof = false;
     return 0;
 }
 
@@ -1325,6 +1477,8 @@ il2cpp_stream_t il2cpp_stream_memory_create(void)
     s->writerEncoding = 0;
     s->writerBomPending = false;
     s->pendingChar = -1; // T4b: ReadChar astral stash starts empty
+    s->fileReadAfterWrite = false;
+    s->fileAtEof = false;
     return s;
 }
 
@@ -1936,6 +2090,8 @@ Il2CppObject* il2cpp_stream_com_create(intptr_t iStream, int32_t deleteOnRelease
     s->textEncoding = 0;
     s->appendMode = false;
     s->appendStart = 0;
+    s->fileReadAfterWrite = false;
+    s->fileAtEof = false;
     Il2CppStreamObject* obj = reinterpret_cast<Il2CppStreamObject*>(
         il2cpp_object_new(ComStreamClass()));
     obj->handle = StreamHandleAlloc(s);

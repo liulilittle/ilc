@@ -15,6 +15,14 @@
 //     every other function. The handle is owned by the caller and MUST be
 //     released with il2cpp_stream_close exactly once -- after close the
 //     handle is dangling and must not be used again.
+//   * THREADING: a handle (and the StreamState behind it, which a
+//     StreamReader/StreamWriter wrapper SHARES with its underlying stream) is
+//     NOT thread-safe. There is no lock and no atomic in the backend -- the
+//     pushback ring, the decoder stash and the stdio mode bookkeeping are
+//     plain fields. Concurrent use of one handle from several threads is a
+//     data race; callers must serialize access (one owner thread, or an
+//     external lock covering the whole handle). Distinct handles over the
+//     same file are independent (each owns its own FILE*).
 //   * The handle wraps one of two backends:
 //       - File: a FILE* opened with _wfopen (Windows, UTF-16 path taken
 //         directly from the managed string) or fopen (other platforms,
@@ -23,8 +31,21 @@
 //         position, length (bytes written) and capacity. The buffer grows
 //         by doubling and is freed by close.
 //
-// Result conventions (M3 runtime: failures are return values, never C++
-// throws -- aligned with il2cpp_io.h):
+// Result conventions (M3 runtime: failures are return values, not C++
+// throws -- aligned with il2cpp_io.h). The ONE exception is a backend
+// reposition failure on the read path (see FilePrepareRead in streamio.cpp):
+// no return channel can express "the FILE* could not be put back into a legal
+// read mode", so it raises IOException. net48 has no counterpart for that
+// condition -- a Win32 handle lets WriteFile/ReadFile alternate freely, and an
+// unseekable stream raises NotSupportedException from Seek/Position, never
+// from Read -- so the IOException is an implementation-side failure signal,
+// not modelled net48 behaviour.
+//   * Concretely: a reposition failure (a backend I/O error, not a capability
+//     check) raises IOException (kStreamIOExceptionChain); the normal paths
+//     never throw. That branch is also production-unreachable today -- the
+//     only FILE* this layer creates comes from _wfopen/fopen (there is no
+//     popen/fdopen/_fdopen anywhere in the file), i.e. always a seekable
+//     regular file, so the forced-failure path exists only for the tests.
 //   * Open functions return nullptr on failure (unopenable path, null path,
 //     invalid mode).
 //   * Read/write functions return the number of bytes transferred; 0 means

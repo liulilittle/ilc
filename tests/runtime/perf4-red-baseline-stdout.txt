@@ -1,0 +1,7 @@
+FAIL: read_to_end immediately after a write (no seek) returns "" at EOF
+FAIL: read_to_end after the rewind returns the exact written bytes
+FAIL: a plain ReadLine pass over 4 MB issues ZERO identity seeks (was 4,000,001)
+FAIL: the first EOF probe costs no seek (the explicit seek cleared the flags)
+FAIL: a failed mode reset makes the read raise IOException (no UB read)
+FAIL: the recovering seek leaves no pending reset (zero seeks on the read)
+6 streamio assertion(s) failed

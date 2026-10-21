@@ -1,0 +1,20 @@
+diff --git a/src/runtime/src/streamio.cpp b/src/runtime/src/streamio.cpp
+index 9ebb6b6..c6cb0ee 100644
+--- a/src/runtime/src/streamio.cpp
++++ b/src/runtime/src/streamio.cpp
+@@ -36,6 +36,7 @@
+ #include "il2cpp_encoding.h"      // P2(5) A1: the Encoding object (page/emitBom)
+ #include "il2cpp_string.h"
+ 
++extern "C" { long long g_streamioIdentitySeeks = 0; int g_streamioForceSeekFailure = 0; }
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -312,6 +313,7 @@ int StreamGetByte(StreamState* s)
+     {
+         // Write->read mode reset (C11 7.21.5.3) -- see il2cpp_stream_read.
+         (void)STREAM_FSEEK(s->fp, 0, SEEK_CUR);
++        ++g_streamioIdentitySeeks;
+         return std::getc(s->fp); // EOF -> -1
+     }
+ #if defined(_WIN32)
