@@ -1097,6 +1097,82 @@ int main()
                         kArgNullExceptionChain),
            "2-arg null path throws ArgumentNullException");
 
+    // --- 13g. ReadLine byte-loop contract (P0: no per-byte fseek) ------------
+    // The file backend used to issue fseek(fp,0,SEEK_CUR) before every byte.
+    // That identity seek has two observable jobs and BOTH must survive the
+    // removal of the per-byte call:
+    //   (a) C11 7.21.5.3 write->read mode reset on an update stream (a write
+    //       must not be followed directly by a read);
+    //   (b) clearing the sticky EOF indicator so bytes appended by ANOTHER
+    //       handle after a read reached end-of-stream are visible again.
+    // Plus the incremental read + pushback semantics (CR lookahead) and the
+    // Position arithmetic (physical position - pendingCount).
+    {
+        // (a) write -> read_line on the same update handle.
+        il2cpp_stream_t w2r = il2cpp_stream_file_open(Cs("st_tmp/w2r.txt"), 1);
+        Expect(w2r != nullptr, "w2r fixture opens for writing");
+        Expect(il2cpp_stream_write(w2r, "A\r\nB\r\n", 6) == 6, "w2r fixture writes 6 bytes");
+        Expect(il2cpp_stream_close(w2r) == 0, "w2r fixture closes");
+        il2cpp_stream_t upd = il2cpp_stream_file_open(Cs("st_tmp/w2r.txt"), 3);
+        Expect(upd != nullptr, "update-mode handle opens");
+        Expect(il2cpp_stream_read_line(upd) != nullptr, "update handle reads the first line");
+        const int64_t afterFirst = il2cpp_stream_get_position(upd);
+        Expect(afterFirst == 3, "update handle position is 3 after the first line");
+        Expect(il2cpp_stream_write(upd, "Z", 1) == 1,
+               "update handle writes without an intervening seek");
+        // The write lands at position 3, so the second line becomes "Z\r" + ...:
+        // what matters here is that the read AFTER the write is a legal C11
+        // sequence and still sees the remaining bytes rather than failing.
+        Il2CppObject* afterWrite = il2cpp_stream_read_line(upd);
+        Expect(afterWrite != nullptr,
+               "read_line after a write on the same update handle succeeds (C11 mode reset)");
+        Expect(il2cpp_stream_get_position(upd) == 6,
+               "position after write+read_line is 6 (no per-byte position drift)");
+        Expect(il2cpp_stream_close(upd) == 0, "update-mode handle closes");
+
+        // (b) EOF flag must be re-checked so an external append is visible.
+        il2cpp_stream_t eofr = il2cpp_stream_file_open(Cs("st_tmp/eofgrow.txt"), 1);
+        Expect(eofr != nullptr && il2cpp_stream_write(eofr, "L1\n", 3) == 3,
+               "eof-grow fixture writes its first line");
+        Expect(il2cpp_stream_close(eofr) == 0, "eof-grow fixture closes");
+        il2cpp_stream_t eg = il2cpp_stream_file_open(Cs("st_tmp/eofgrow.txt"), 0);
+        Expect(eg != nullptr, "eof-grow reader opens");
+        Il2CppObject* eg1 = il2cpp_stream_read_line(eg);
+        Expect(eg1 != nullptr && StrEquals(eg1, "L1"), "eof-grow reader reads the first line");
+        Expect(il2cpp_stream_read_line(eg) == nullptr,
+               "eof-grow reader reports end-of-stream");
+        il2cpp_stream_t ap = il2cpp_stream_file_open(Cs("st_tmp/eofgrow.txt"), 2); // append
+        Expect(ap != nullptr && il2cpp_stream_write(ap, "L2\n", 3) == 3,
+               "second handle appends a line after the reader hit EOF");
+        Expect(il2cpp_stream_close(ap) == 0, "appender closes");
+        Il2CppObject* eg2 = il2cpp_stream_read_line(eg);
+        Expect(eg2 != nullptr && StrEquals(eg2, "L2"),
+               "read_line after EOF sees bytes appended by another handle (sticky EOF cleared)");
+        Expect(il2cpp_stream_get_position(eg) == 6, "eof-grow reader ends at position 6");
+        Expect(il2cpp_stream_close(eg) == 0, "eof-grow reader closes");
+
+        // Incremental read + CR pushback: "ab\rcd\nef" yields ab / cd / ef and
+        // the position after each line follows the pushback arithmetic.
+        il2cpp_stream_t cr = il2cpp_stream_file_open(Cs("st_tmp/crlf.txt"), 1);
+        Expect(cr != nullptr && il2cpp_stream_write(cr, "ab\rcd\nef", 8) == 8,
+               "CR-lookahead fixture writes 8 bytes");
+        Expect(il2cpp_stream_close(cr) == 0, "CR-lookahead fixture closes");
+        il2cpp_stream_t crr = il2cpp_stream_file_open(Cs("st_tmp/crlf.txt"), 0);
+        Expect(crr != nullptr, "CR-lookahead reader opens");
+        Il2CppObject* cr1 = il2cpp_stream_read_line(crr);
+        Expect(cr1 != nullptr && StrEquals(cr1, "ab"), "CR-lookahead line 1 is ab");
+        Expect(il2cpp_stream_get_position(crr) == 3,
+               "position is 3 after the CR lookahead pushed a byte back");
+        Il2CppObject* cr2 = il2cpp_stream_read_line(crr);
+        Expect(cr2 != nullptr && StrEquals(cr2, "cd"), "CR-lookahead line 2 is cd");
+        Expect(il2cpp_stream_get_position(crr) == 6, "position is 6 after the second line");
+        Il2CppObject* cr3 = il2cpp_stream_read_line(crr);
+        Expect(cr3 != nullptr && StrEquals(cr3, "ef"), "CR-lookahead line 3 is ef");
+        Expect(il2cpp_stream_get_position(crr) == 8, "position is 8 at end-of-file");
+        Expect(il2cpp_stream_read_line(crr) == nullptr, "CR-lookahead reader reports EOF");
+        Expect(il2cpp_stream_close(crr) == 0, "CR-lookahead reader closes");
+    }
+
     // --- Cleanup: remove the files + the created directory chain --------------
     (void)il2cpp_stream_close(il2cpp_stream_file_open(Cs("st_tmp/data.bin"), 1));
     icall_file_delete(Cs("st_tmp/data.bin"));
@@ -1114,6 +1190,9 @@ int main()
     icall_file_delete(Cs("st_tmp/obj_rwbyte.bin"));
     icall_file_delete(Cs("st_tmp/obj_rwe.bin"));
     icall_file_delete(Cs("st_tmp/obj2.bin"));
+    icall_file_delete(Cs("st_tmp/w2r.txt"));
+    icall_file_delete(Cs("st_tmp/eofgrow.txt"));
+    icall_file_delete(Cs("st_tmp/crlf.txt"));
     (void)IL2CPP_TEST_RMDIR("st_tmp");
     Expect(icall_directory_exists(Cs("st_tmp")) == 0,
            "test directory is fully removed after cleanup");
