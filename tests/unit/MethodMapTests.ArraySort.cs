@@ -320,6 +320,79 @@ public class MethodMapArraySortTests
         Assert.Equal("il2cpp::il2cpp_array_sort_int32_comparison", resolved.CppName);
     }
 
+    //--------------------------------------------------------------------------
+    // B8-1: uint (0x09) count==2 -- both arms.
+    //
+    // uint[] shares the int32 stride and the int32 carrier ABI, so the
+    // overload discriminator is STILL the second parameter's decoded
+    // MemberRef generic definition: an IComparer`1 routes to the comparer
+    // sort, a Comparison`1 (or anything else) to the delegate sort. These
+    // tests pin the FORWARD identification (only a positively identified
+    // IComparer`1 takes the comparer route) -- a regression here is the
+    // reported crash where an IComparer object was invoked as a delegate.
+    // The unsigned DEFAULT order is a RUNTIME concern (elemKind 5 ->
+    // kComparerFamilyU4), pinned by the b8sortcmp e2e case.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Array_SortUIntWithIComparer_MapsToIComparerSort()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "Sort",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, 0x09, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x09 }, "System.Collections.Generic.IComparer`1"));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_icomparer", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_SortUIntWithComparison_MapsToInt32Comparison()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "Sort",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, 0x09, 0x15, 0x12, 0x0D, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x09 }, "System.Comparison`1"));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_int32_comparison", resolved.CppName);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // B8-1: the wide value families' count==2 Comparison arms (i8/f/d) --
+    // wired since nb9 E6/D17, pinned here so the count==2 switch rewrite does
+    // not silently drop them.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(0x0A, "il2cpp::il2cpp_array_sort_int64_comparison")]
+    [InlineData(0x0C, "il2cpp::il2cpp_array_sort_float_comparison")]
+    [InlineData(0x0D, "il2cpp::il2cpp_array_sort_double_comparison")]
+    public void Resolve_Array_SortWideValueWithComparison_MapsToFamilyComparison(
+        byte elemByte, string expectedCpp)
+    {
+        // The delegate parameter is a Comparison`1 GENERICINST (row 3 -> 0x0D).
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "Sort",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, elemByte, 0x15, 0x12, 0x0D, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, elemByte }, "System.Comparison`1"));
+
+        Assert.Equal(expectedCpp, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(0x0A, "il2cpp::il2cpp_array_sort_icomparer_int64")]
+    [InlineData(0x0C, "il2cpp::il2cpp_array_sort_icomparer_float")]
+    [InlineData(0x0D, "il2cpp::il2cpp_array_sort_icomparer_double")]
+    public void Resolve_Array_SortWideValueWithIComparer_MapsToFamilyIComparer(
+        byte elemByte, string expectedCpp)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericComparer("System", "Array", "Sort",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, elemByte, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            new byte[] { 0x0A, 0x01, elemByte }, "System.Collections.Generic.IComparer`1"));
+
+        Assert.Equal(expectedCpp, resolved.CppName);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
     [Fact]
     public void Resolve_Array_BinarySearchInt32WithIComparer_MapsToIComparerSearch()
     {

@@ -280,6 +280,13 @@ int32_t il2cpp_icomparer_compare(Il2CppObject* comparer, Il2CppObject* a, Il2Cpp
 //   kComparerFamilyD   : float/double elements -- "(d,d)", a/b -> double
 //   kComparerFamilyRef : string/object/class elements -- "(r:", a/b ARE the
 //                        element object pointers
+//   kComparerFamilyU4  : uint32 elements -- the SAME "(i,i)" slot fragment and
+//                        raw-int32 ABI as I4, but the DEFAULT comparer orders
+//                        UNSIGNED. A uint[] shares the int32 stride AND
+//                        Comparer<uint>.Default rides the Comparer`1_int
+//                        singleton (its klass name cannot tell the two apart),
+//                        so the signedness must come from the ARRAY's elemKind
+//                        -- B8-1: without this, 4000000000 sorted below 1.
 // A Comparer<T>.Create wrapper runs its wrapped delegate. When no family slot
 // exists the non-generic IComparer.Compare(object, object) slot (the
 // Array.Sort(Array, IComparer) / SortedSet-with-non-generic-comparer shape)
@@ -295,6 +302,9 @@ enum ComparerValueFamily : int32_t
     // signature is "(f,f)" while the C++ ABI carries the values widened to
     // double, exactly like the D family.
     kComparerFamilyF = 4,
+    // B8-1: uint32 elements -- the "(i,i)" slot + raw-int32 ABI of I4 with an
+    // UNSIGNED default order (see the contract above).
+    kComparerFamilyU4 = 5,
 };
 
 int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,

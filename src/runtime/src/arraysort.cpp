@@ -1734,25 +1734,41 @@ struct I4ComparerCompare
 {
     Il2CppObject** comparerSlot; // the ROOTED comparer local
     bool           isDefault;
+    // B8-1: a uint[] cell shares the int32 stride but orders UNSIGNED. The
+    // default comparer path boxes the cell as System.Int32, so without this
+    // flag 4000000000 sorts BELOW 1 (net48 Comparer<uint>.Default is
+    // unsigned). The USER comparer path resolves the same "(i,i)" slot and
+    // applies its own order to the same raw bits -- so only the DEFAULT path
+    // needs the family switch (kComparerFamilyU4).
+    bool           isUnsigned;
 
-    I4ComparerCompare(Il2CppObject** slot, bool def)
-        : comparerSlot(slot), isDefault(def)
+    I4ComparerCompare(Il2CppObject** slot, bool def, bool unsig = false)
+        : comparerSlot(slot), isDefault(def), isUnsigned(unsig)
     {
     }
 
     int32_t operator()(int32_t x, int32_t y) const
     {
-        RootedI4Boxes boxes;
-        boxes.set_a(il2cpp_box_int32(&System_Int32_class, x));
-        boxes.set_b(il2cpp_box_int32(&System_Int32_class, y));
         if (isDefault)
         {
+            if (isUnsigned)
+            {
+                // net48 UInt32.CompareTo: unsigned order (no boxing needed).
+                const uint32_t ux = static_cast<uint32_t>(x);
+                const uint32_t uy = static_cast<uint32_t>(y);
+                return ux < uy ? -1 : (ux > uy ? 1 : 0);
+            }
+            RootedI4Boxes boxes;
+            boxes.set_a(il2cpp_box_int32(&System_Int32_class, x));
+            boxes.set_b(il2cpp_box_int32(&System_Int32_class, y));
             return ComparerCompareCore(boxes.a(), boxes.b());
         }
         // nb9 H-B3: dispatch through the element family -- a user IComparer<int>
-        // exposes Compare(int,int), not Compare(object,object).
+        // exposes Compare(int,int), not Compare(object,object). B8-1: a user
+        // IComparer<uint> uses the U4 family (same "(i,i)" slot).
         return il2cpp_icomparer_compare_family(
-            *comparerSlot, kComparerFamilyI4, &x, &y);
+            *comparerSlot, isUnsigned ? kComparerFamilyU4 : kComparerFamilyI4,
+            &x, &y);
     }
 };
 
@@ -2031,6 +2047,10 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
         switch (family)
         {
             case kComparerFamilyI4:
+            case kComparerFamilyU4:
+                // B8-1: a Comparer<uint>.Create wrapper is created through the
+                // int32 carrier (same raw-bit ABI); the wrapped delegate owns
+                // the unsigned order, so the two families share this arm.
                 return runtime::il2cpp_created_comparer_compare_int(
                     comparer, *static_cast<const int32_t*>(a),
                     *static_cast<const int32_t*>(b));
@@ -2067,6 +2087,15 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
                 const int32_t y = *static_cast<const int32_t*>(b);
                 return x < y ? -1 : (x > y ? 1 : 0);
             }
+            case kComparerFamilyU4:
+            {
+                // B8-1: uint32[] default order is UNSIGNED (net48
+                // Comparer<uint>.Default). The raw bits are the same int32
+                // cell; only the comparison differs.
+                const uint32_t x = static_cast<uint32_t>(*static_cast<const int32_t*>(a));
+                const uint32_t y = static_cast<uint32_t>(*static_cast<const int32_t*>(b));
+                return x < y ? -1 : (x > y ? 1 : 0);
+            }
             case kComparerFamilyI8:
             {
                 const int64_t x = *static_cast<const int64_t*>(a);
@@ -2086,6 +2115,10 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
 
     const char* const fragment =
         family == kComparerFamilyI4 ? "(i,i)"
+        // B8-1: a user IComparer<uint> is emitted with the real "(i,i)" slot
+        // signature (uint shares the int32 ABI), so U4 resolves the SAME slot
+        // as I4 -- only the DEFAULT (singleton) order above differs.
+        : family == kComparerFamilyU4 ? "(i,i)"
         : family == kComparerFamilyI8 ? "(l,l)"
         : family == kComparerFamilyD ? "(d,d)"
         : family == kComparerFamilyF ? "(f,f)"
@@ -2099,6 +2132,9 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
         switch (family)
         {
             case kComparerFamilyI4:
+            case kComparerFamilyU4:
+                // B8-1: the user Compare(uint,uint) slot receives the raw bits
+                // through the same int32 ABI as I4.
                 return reinterpret_cast<IComparerI4Fn>(fn)(
                     comparer, *static_cast<const int32_t*>(a),
                     *static_cast<const int32_t*>(b));
@@ -2145,6 +2181,12 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
                                              *static_cast<const int32_t*>(a)));
                 boxes.set_b(il2cpp_box_int32(&System_Int32_class,
                                              *static_cast<const int32_t*>(b)));
+                break;
+            case kComparerFamilyU4:
+                // B8-1: box as System.UInt32, not System.Int32, so the object
+                // ABI sees the unsigned type (the same bits in the slot).
+                boxes.set_a(runtime::icall_box_uint(*static_cast<const int32_t*>(a)));
+                boxes.set_b(runtime::icall_box_uint(*static_cast<const int32_t*>(b)));
                 break;
             case kComparerFamilyI8:
                 boxes.set_a(runtime::icall_box_long(*static_cast<const int64_t*>(a)));
@@ -2252,7 +2294,11 @@ void SortIComparerCore(Il2CppArray** pa, int32_t lo, int32_t hi,
             // The StringComparer singletons cannot compare int32 elements in
             // net48 either; the dispatch path reports NotSupported (the
             // singleton klass has no Compare slot). Unchanged behavior.
-            I4ComparerCompare cmp(comparerSlot, mode == RefComparerMode::Default);
+            // B8-1: elemKind 5 marks a uint32[] -- the DEFAULT comparer must
+            // order it UNSIGNED (net48 Comparer<uint>.Default), while a user
+            // IComparer<uint> applies its own order to the same raw bits.
+            I4ComparerCompare cmp(comparerSlot, mode == RefComparerMode::Default,
+                                  a->elemKind == 5);
             QuickSortI4Array(pa, lo, hi, cmp);
         }
         catch (const DotNetException&)

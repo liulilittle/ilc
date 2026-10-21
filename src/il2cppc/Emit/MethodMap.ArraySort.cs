@@ -29,8 +29,11 @@ namespace Il2Cpp.Transpiler.Emit;
 // il2cpp_delegate_new single-cast static methodPtr ABI as Predicate/
 // Converter), so the delegate form routes through MethodMap.Array.cs to the
 // runtime delegate-sort entries (arraysort.h il2cpp_array_sort_int32_comparison
-// / _ref_comparison, tested in test_arraysort). Value-element comparer sorts
-// without a runtime entry (uint32/int64) stay LOUD here.
+// / _ref_comparison / the wide _int64/_double/_float_comparison family,
+// tested in test_arraysort). B8-1: the count==2 arm is now claimed by
+// MethodMap.Array.cs for EVERY wired family (i4/u4/i8/f/d/string/object/class),
+// so this file's count==2 throw is unreachable for them -- it remains only as
+// a defensive LOUD guard for a shape the icall layer did not claim.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -62,10 +65,17 @@ public static partial class MethodRefResolver
                 }
                 if (count == 2)
                 {
-                    // Array.Sort<T>(T[], Comparison<T>) -- unwireable, see the
-                    // file header (delegate-to-function-pointer ABI absent).
+                    // Array.Sort<T>(T[], Comparison<T> | IComparer<T>): CLAIMED
+                    // by MethodMap.Array.cs for every wired element family (the
+                    // count==2 arms dispatch on the second parameter's decoded
+                    // MemberRef signature: System.Collections.Generic.IComparer`1
+                    // -> the comparer sort, everything else -> the delegate
+                    // sort). This throw is a DEFENSIVE guard only: reaching it
+                    // means the icall layer yielded a count==2 shape it does not
+                    // know, and a silent fall-through would emit a bogus
+                    // generated-name call.
                     throw new NotSupportedException(
-                        "Array.Sort<T>(T[], Comparison<T>) is not wired: the runtime callback sort takes a plain function pointer (ArrayCompareFn) but the transpiler has no delegate-to-function-pointer ABI; value-element comparer sorts have no runtime entry");
+                        "Array.Sort<T> with 2 args reached the ArraySort direct-call domain: the icall layer (MethodMap.Array.cs) claims every wired Comparison<T>/IComparer<T> family; this shape is unwired");
                 }
                 return null;
             case "CopyTo":
