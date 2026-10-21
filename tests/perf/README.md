@@ -8,7 +8,7 @@ least 5 runs per side.
 ```powershell
 # acceptance run (the only mode that can return PASS):
 pwsh -NoProfile -File scripts/run-perf.ps1 -Compiler mingw -Runs 5
-# MSVC:
+# MSVC (UNVERIFIED: msvc path not exercised on this host -- see below):
 pwsh -NoProfile -File scripts/run-perf.ps1 -Compiler msvc  -Runs 5
 ```
 
@@ -40,7 +40,7 @@ same `benchlib` clock statically, so the only difference is the runtime.
 column separator and `.` the decimal point regardless of the OS locale):
 
 ```
-name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,verdict
+name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,smoke,verdict
 ```
 
 | column | meaning |
@@ -54,6 +54,7 @@ name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,verdict
 | `net48_cv` | sample stdev / mean (n-1 denominator) |
 | `ilc_cv` | same for the transpiled side |
 | `runs` | number of valid runs (a failed parse aborts the whole case) |
+| `smoke` | `true` when `Runs < 5` -- that row is not acceptance evidence |
 | `verdict` | see the table below |
 
 `ratio_lo`/`ratio_hi` are a conservative envelope over the sampled extremes,
@@ -61,9 +62,14 @@ name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,verdict
 
 `tests/perf/results/raw-<stamp>-<compiler>.txt` records, per run: the exact
 command line, the git commit **and dirty state**, the compiler version, the
-cmake version, the CPU model and core counts, the OS version, the process
-affinity mask, the `PERF_JITTER_MS` value, every raw name/ms pair, the CPU load
-before and after, and whether the host qualified as isolated (load <= 70%).
+cmake version, the dotnet SDK version, the il2cppc version **and its dirty
+state**, the CPU model and core counts, the OS version, the process affinity
+mask, the `PERF_JITTER_MS` value, the CMake cache flags actually used
+(build type + CXX flags, so `-O0`/`/Od` is visible), whether the build
+directory was fresh (`clean_build`), SHA256 of `perf.cs`, the generated
+`Perf_Perf.cpp`, the transpiled exe and both net48 binaries, every raw name/ms
+pair, the CPU load before and after, and whether the host qualified as isolated
+(load <= 70%).
 
 **`tests/perf/results/` is local run output and is gitignored** (the repo-wide
 `results/` rule). Committed evidence lives in **`tests/perf/baseline/`** --
@@ -87,7 +93,35 @@ pretending it is a pass, and it refuses the attribution when the load readings
 say the host was actually idle. Nothing here ever turns a CV miss into exit 0.
 
 `-Runs 3` is a smoke test (exit 4). Use it while editing code; never quote its
-numbers as acceptance evidence.
+numbers as acceptance evidence. The minimum accepted value is 3
+(`ValidateRange(3, 51)`); 2 or less is rejected outright. Smoke rows carry
+`smoke=true` in the CSV so a saved file can never be mistaken for acceptance.
+
+`SMOKE` is evaluated **before** the red-proof branch: `-RedProof -Runs 3` exits
+4, not 1/2/5.
+
+`-RedProof` combined with `-AllowEnvCv` is judged on the verdict, not on a
+partial "did something fail" flag: if the ratio gate still passes (`-O0` did not
+move it) the run is **inconclusive** (exit 5) even when the CV gate missed.
+Only a genuine ratio miss returns exit 1; a fully passing gate returns exit 2
+(the red proof is not wired).
+
+A CV above 1000% is reported as `cv-infra` (broken measurement, e.g. a killed
+process or clock wrap), never as an environmental near-miss.
+
+`-RedProofFlags <value>` overrides the flags `-RedProof` applies (`-O0` / `/Od`
+by default); `-RedProofFlags none` keeps the Release flags. That is a harness
+self-test hook: with `none` the red proof cannot change the code, so the script
+must report "not wired" (exit 2) or "inconclusive" (exit 5) -- never claim a
+pass. It is what proves the `-RedProof -AllowEnvCv` combination can no longer
+produce the old false "the gate PASSED" message.
+
+### MSVC status: UNVERIFIED
+
+The MSVC branch (build `benchlib.dll` with `cl /LD`, configure with the VS17
+generator, `-DCMAKE_CXX_FLAGS_RELEASE=/Od /DNDEBUG` for the red proof, read the
+`cl` banner for the version) is implemented but **was not exercised on this
+host** -- no MSVC run is committed. Treat `-Compiler msvc` as untested.
 
 ## Committed baseline (`tests/perf/baseline/`)
 
@@ -95,8 +129,11 @@ numbers as acceptance evidence.
 |---|---|
 | `array-mingw-2026-10-21.csv` / `.raw.txt` | the `array` case, MinGW, 5 runs, `-AllowEnvCv`, commit `ce83e39b` (clean), load 99% -> 100% -> `RATIO_OK_CV_OVER_LIMIT` (exit 3). Ratio 7.39, ratio envelope 6.45-10.32, CV 0.1160/0.0755 |
 | `array-mingw-2026-10-21-redproof.csv` / `.raw.txt` | same case, `-RedProof` (Release + `-O0`) -> **`FAIL:ratio+cv`** (not `FAIL:ratio` alone), ratio 0.56, exit 1 |
-| `array-mingw-2026-10-21-jitter.csv` / `.raw.txt` | `PERF_JITTER_MS=150` -> `FAIL:cv`, ratio 13.31 (median unmoved), CV 0.1074/0.3338, exit 1 |
-| `rejected-sort/` | the `sort` case that was **rejected**, plus its source snapshot and raw run (ratio 1.04, CV 0.17/0.14) |
+| `array-mingw-2026-10-21-jitter.csv` / `.raw.txt` | `PERF_JITTER_MS=150` -> `FAIL:cv`, CV 0.1074/0.3338, exit 1. The ratio did **not** stay put: 7.39 -> 13.31 (ilc 176 -> 94 ms). Injected jitter is absolute, added to both clock readings, so a reading pair can move the elapsed time *down* as well as up -- the median ratio therefore shifts too. This artifact proves the CV gate detects injected jitter; it says nothing about sensitivity to a codegen regression. |
+| `rejected-sort/` | the `sort` case that was **rejected**, plus its source snapshot and raw run (ratio 1.04, CV 0.17/0.14). Captured on a **dirty** tree (`753f0128`, 3 modified files) -> `UNVERIFIED (dirty tree)`, not reproducible from history |
+
+The directory holds **three `array` runs (6 files) plus one `rejected-sort` run
+(3 files)** -- not four array groups.
 
 **There is no clean `PASS` on this host yet.** Every acceptance run recorded so
 far has CPU load above 70% (other agents compiling in parallel), so the CV gate
@@ -111,11 +148,11 @@ ad-hoc `ratio 7.20`) are **not** evidence and must not be used.
 ## Red proofs (all executed; artifacts in `tests/perf/baseline/`)
 
 **A -- ratio gate** (`-RedProof`): the generated side keeps the Release
-configuration but gets `-DCMAKE_CXX_FLAGS_RELEASE=-O0`, i.e. the "optimizer
-absent" condition the bench CMakeLists warns about. This proves the ratio
-threshold comparison and the failure path are wired. It does **not** prove
-sensitivity to a same-flags regression -- that needs a codegen change, not a
-build-flag change.
+configuration but gets `-DCMAKE_CXX_FLAGS_RELEASE=-O0` (`/Od` under MSVC), i.e.
+the "optimizer absent" condition the bench CMakeLists warns about. Scope: this
+proves **the threshold comparison and the failure path are wired**. It does
+**not** prove sensitivity to a regression at the same optimization level --
+that needs a codegen change, not a build-flag change.
 
 ```powershell
 pwsh -NoProfile -File scripts/run-perf.ps1 -Compiler mingw -Runs 5 -RedProof
@@ -183,12 +220,15 @@ the 5 per-process minima.
 ## The case that was rejected
 
 A `sort` case (heapsort, 4 KB x 120,000) was measured first and **rejected**:
-net48 5034 ms vs transpiled 5379 ms (ratio 0.93), and a later 5-run pass
-measured ratio 1.04 with CV 0.17/0.14. Both are honest `FAIL:ratio` (or
-`FAIL:ratio+cv`) results -- the transpiled output does not win this case, so it
-is not shipped as a gate case. Its source snapshot and raw run are kept in
-`tests/perf/baseline/rejected-sort/` so the decision can be re-checked.
+net48 5034 ms vs transpiled 5379 ms (ratio 0.93) in an early exploratory run,
+and a later 5-run pass measured ratio 1.04 with CV 0.17/0.14. Both are honest
+`FAIL:ratio` (or `FAIL:ratio+cv`) results -- the transpiled output does not win
+this case, so it is not shipped as a gate case.
 
-(For the record, an even earlier exploratory `sort` measurement gave
-net48 5034 ms vs transpiled 5379 ms on a different host load; only the runs
-stored under `baseline/` are reproducible evidence.)
+Its source snapshot and raw run are kept in
+`tests/perf/baseline/rejected-sort/`. **Caveat: that raw run was captured on a
+dirty tree (`commit 753f0128 (dirty 3 files)`), so it cannot be rebuilt exactly
+from history -- treat it as `UNVERIFIED (dirty tree)` evidence for the
+rejection decision, not as a reproducible baseline.** The shipped `array`
+artifacts are the reproducible ones (all captured on the clean tree of
+`ce83e39b`).

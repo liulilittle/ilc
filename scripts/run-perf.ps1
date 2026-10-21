@@ -4,7 +4,13 @@ param(
     [ValidateRange(3, 51)]
     [int]$Runs = 5,
     [switch]$RedProof,
-    [switch]$AllowEnvCv
+    [switch]$AllowEnvCv,
+    # Overrides the flags -RedProof applies to the generated side. Defaults to
+    # -O0 (MinGW) / /Od (MSVC). `none` keeps the Release flags, which is how
+    # the harness itself is tested: a red proof that cannot change the code
+    # must be reported as inconclusive (exit 5) or "not wired" (exit 2), never
+    # as a false PASS claim.
+    [string]$RedProofFlags = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,22 +82,22 @@ function Resolve-ToolDir([string[]]$Candidates, [string]$Exe) {
     foreach ($c in $Candidates) { if ($c -and (Test-Path (Join-Path $c $Exe))) { return $c } }
     return $null
 }
+$cmakeDir = Resolve-ToolDir @('D:\android\sdk\cmake\3.22.1\bin',
+    'C:\Program Files\CMake\bin', 'C:\msys64\mingw64\bin') 'cmake.exe'
+if ($cmakeDir -and ($env:PATH -notlike "*$cmakeDir*")) { $env:PATH = "$cmakeDir;$env:PATH" }
 if ($Compiler -eq "mingw") {
-    $cmakeDir = Resolve-ToolDir @('D:\android\sdk\cmake\3.22.1\bin',
-        'C:\Program Files\CMake\bin', 'C:\msys64\mingw64\bin') 'cmake.exe'
+    # MinGW needs g++ (benchlib.dll + the generated project's compiler).
     $mingwDir = Resolve-ToolDir @('D:\Program Files\mingw\msys2\mingw64\bin',
         'C:\msys64\mingw64\bin', 'C:\mingw64\bin', 'D:\mingw64\bin') 'g++.exe'
     if (-not $mingwDir) { throw "g++ not found (checked the MinGW candidates)" }
-    foreach ($d in @($cmakeDir, $mingwDir)) {
-        if ($d -and ($env:PATH -notlike "*$d*")) { $env:PATH = "$d;$env:PATH" }
-    }
-    if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) { throw "cmake not found" }
+    if ($env:PATH -notlike "*$mingwDir*") { $env:PATH = "$mingwDir;$env:PATH" }
 }
 else {
+    # MSVC path: cl.exe comes from the VS developer environment, not from g++.
     . "$PSScriptRoot/vcvars.ps1"
-    $cmakeDir = Resolve-ToolDir @('C:\Program Files\CMake\bin') 'cmake.exe'
-    if ($cmakeDir -and ($env:PATH -notlike "*$cmakeDir*")) { $env:PATH = "$cmakeDir;$env:PATH" }
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) { throw "cl.exe not found after vcvars" }
 }
+if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) { throw "cmake not found" }
 
 # --- expected case list ------------------------------------------------------
 if (-not (Test-Path $ExpectedPath)) { throw "missing $ExpectedPath" }
@@ -153,9 +159,21 @@ if ($Compiler -eq "mingw") {
     $ccVersion = Get-FirstLine (& g++ --version 2>&1)
 }
 else {
-    $ccVersion = Get-FirstLine (& cl.exe 2>&1)
+    # cl.exe has no --version: it prints a banner on stderr and exits non-zero.
+    # Redirect through cmd so the banner can be read without tripping
+    # $ErrorActionPreference = "Stop" (native stderr -> NativeCommandError).
+    $clBanner = Join-Path $env:TEMP "perf-cl-banner-$PID.txt"
+    cmd /c "cl 2>&1 > `"$clBanner`"" | Out-Null
+    $ccVersion = if (Test-Path $clBanner) { Get-FirstLine (Get-Content $clBanner) } else { "(cl banner unavailable)" }
+    Remove-Item $clBanner -Force -ErrorAction SilentlyContinue
 }
 $cmakeVersion = Get-FirstLine (& cmake --version 2>&1)
+$dotnetVersion = Get-FirstLine (& dotnet --version 2>&1)
+# il2cppc version + its dirty state (the transpiler is the thing under test).
+$ilcProj = "$Root/src/il2cppc/il2cppc.csproj"
+$ilcVersion = Get-FirstLine (& dotnet run --project $ilcProj -- --version 2>&1)
+$ilcDirty = @(git -C $Root status --porcelain -- src/il2cppc 2>$null | Where-Object { $_ -ne "" })
+$ilcDirtyState = if ($ilcDirty.Count -eq 0) { "clean" } else { "dirty($($ilcDirty.Count) files)" }
 $cmdLine = "$($MyInvocation.InvocationName) -Compiler $Compiler -Runs $Runs" + $(if ($RedProof) { " -RedProof" } else { "" }) + $(if ($AllowEnvCv) { " -AllowEnvCv" } else { "" })
 
 $stamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
@@ -169,6 +187,8 @@ Add-Raw "# command $cmdLine"
 Add-Raw "# commit $commit ($dirtyState)"
 Add-Raw "# compiler $ccVersion"
 Add-Raw "# cmake $cmakeVersion"
+Add-Raw "# dotnet_sdk $dotnetVersion"
+Add-Raw "# il2cppc_version $ilcVersion ($ilcDirtyState)"
 Add-Raw "# cpu $($cpu.Name) cores=$($cpu.NumberOfCores) logical=$($cpu.NumberOfLogicalProcessors)"
 Add-Raw "# os $([Environment]::OSVersion.VersionString)"
 Add-Raw "# process_affinity $affinity"
@@ -236,6 +256,9 @@ if ($genCmake -notmatch 'add_subdirectory\([^)]*benchlib') {
 # Release + -O0 override is the same "optimizer absent" condition the bench
 # CMakeLists warns about and it builds cleanly.
 $BuildDir = if ($RedProof) { "$Root/build/perf_$Compiler-redproof" } else { "$Root/build/perf_$Compiler" }
+# clean_build: true when this invocation had to configure from scratch (no
+# prior build directory), false when an incremental build directory was reused.
+$cleanBuild = -not (Test-Path "$BuildDir/CMakeCache.txt")
 $Config = "Release"
 # NOTE: the -D arguments MUST be pre-built as quoted strings. Passing
 # `-DCMAKE_BUILD_TYPE=$Config` as a bare token makes PowerShell hand cmake the
@@ -244,9 +267,22 @@ $Config = "Release"
 # a "Release" run). Quoting the whole argument keeps the expansion.
 $CapilliArg = "-DCAPILLIB_DIR=$Gen"
 $ConfigArg = "-DCMAKE_BUILD_TYPE=$Config"
-$FlagsArg = if ($RedProof) { "-DCMAKE_CXX_FLAGS_RELEASE=-O0" } else { $null }
+# The red proof must disable the optimizer on BOTH toolchains: -O0 for MinGW,
+# /Od for MSVC (its Release default is /O2 /Ob2 /DNDEBUG). Forgetting the MSVC
+# branch made -RedProof silently measure optimized code there.
+$FlagsArg = $null
+if ($RedProof) {
+    $flagValue = if ($RedProofFlags -ne "") {
+        $RedProofFlags
+    }
+    elseif ($Compiler -eq "msvc") { "/Od /DNDEBUG" }
+    else { "-O0" }
+    if ($flagValue -ne "none") { $FlagsArg = "-DCMAKE_CXX_FLAGS_RELEASE=$flagValue" }
+}
 if ($Compiler -eq "msvc") {
-    cmake -S $Perf -B $BuildDir "$CapilliArg" -G "Visual Studio 17 2022"
+    $cfgArgs = @($CapilliArg, "-G", "Visual Studio 17 2022")
+    if ($FlagsArg) { $cfgArgs += $FlagsArg }
+    cmake -S $Perf -B $BuildDir @cfgArgs
     if ($LASTEXITCODE -ne 0) { throw "perf configure failed" }
     cmake --build $BuildDir --config $Config
     if ($LASTEXITCODE -ne 0) { throw "perf C++ build failed" }
@@ -269,6 +305,22 @@ if ($Compiler -eq "mingw") {
     if ($cacheType -notmatch "=$Config$") { throw "CMAKE_BUILD_TYPE mismatch in ${BuildDir}: '$cacheType' (expected $Config)" }
 }
 
+# Build provenance: the exact CMake cache flags, the transpiled sources, and
+# the two binaries. Hashes let an auditor prove the numbers came from these
+# files (and a clean-build marker says whether the build dir was fresh).
+$cacheFlags = @(Get-Content "$BuildDir/CMakeCache.txt" -ErrorAction SilentlyContinue |
+    Where-Object { $_ -match '^CMAKE_(BUILD_TYPE|CXX_FLAGS|CXX_COMPILER):' } | ForEach-Object { $_.Trim() })
+Add-Raw "# cmake_cache_flags $($cacheFlags -join ' | ')"
+Add-Raw "# redproof_flags $(if ($FlagsArg) { $FlagsArg } elseif ($RedProof) { 'none (Release flags kept -- harness self-test)' } else { 'n/a (Release: -O3 / /O2)' })"
+Add-Raw "# clean_build $cleanBuild"
+foreach ($f in @("$Perf/perf.cs", "$Gen/src/Perf_Perf.cpp", "$IlcExe", "$Out/perf.exe", "$Out/benchlib.dll")) {
+    if (Test-Path $f) {
+        $h = (Get-FileHash -Algorithm SHA256 -Path $f).Hash
+        Add-Raw "# sha256 $(Split-Path -Leaf $f) $h"
+    }
+    else { Add-Raw "# sha256 $(Split-Path -Leaf $f) (missing)" }
+}
+
 # --- 6. transpiled runs ------------------------------------------------------
 $ilcSamples = @{}
 foreach ($n in $Expected) { $ilcSamples[$n] = New-Object System.Collections.Generic.List[int] }
@@ -282,7 +334,10 @@ for ($r = 1; $r -le $Runs; $r++) {
 }
 
 # --- 7. statistics + gate + CSV ---------------------------------------------
-"name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,verdict" | Set-Content -Path $csvPath -Encoding utf8
+# smoke is its own CSV column so a saved row can never be mistaken for an
+# acceptance sample later (runs=3 + verdict=FAIL:cv was ambiguous).
+$smoke = $Runs -lt 5
+"name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,smoke,verdict" | Set-Content -Path $csvPath -Encoding utf8
 Write-Host ""
 Write-Host "=== perf results ($Compiler, $Config, $Runs runs, median) ==="
 Write-Host ("{0,-10} {1,10} {2,10} {3,8} {4,8} {5,8} {6,9} {7,9} {8,6} {9}" -f "benchmark", "net48_ms", "ilc_ms", "ratio", "ratio_lo", "ratio_hi", "net48_cv", "ilc_cv", "runs", "verdict")
@@ -316,6 +371,10 @@ foreach ($name in $Expected) {
     if ($nMed -le 0.0 -or $iMed -le 0.0) { $reasons += "zero-ms" }
     if (-not ($nMed -gt 0.0 -and $iMed -gt 0.0) -or $ratio -lt 1.20) { $reasons += "ratio" }
     if ([Math]::Max($nCv, $iCv) -ge 0.05) { $reasons += "cv" }
+    # P3 guard: a CV above 1000% is not a "noisy benchmark", it is a broken
+    # measurement (process killed, clock wrap, runaway jitter). Report it as
+    # its own reason so it can never be read as an environmental near-miss.
+    if ([Math]::Max($nCv, $iCv) -ge 10.0) { $reasons += "cv-infra" }
     # A CV-only miss on a machine that is demonstrably NOT isolated (load above
     # 70% before or after the run) is not evidence about the transpiled code:
     # PROTOCOL G2 requires an isolated host for a CV claim. It gets its own
@@ -337,14 +396,14 @@ foreach ($name in $Expected) {
         [string]::Format($Inv, "{0:0.0000}", $nCv),
         [string]::Format($Inv, "{0:0.0000}", $iCv),
         $Runs, $verdict)
-    $csvLine = [string]::Format($Inv, "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}",
+    $csvLine = [string]::Format($Inv, "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10}",
         $name,
         [string]::Format($Inv, "{0:0.###}", $nMed),
         [string]::Format($Inv, "{0:0.###}", $iMed),
         $ratioText, $loText, $hiText,
         [string]::Format($Inv, "{0:0.0000}", $nCv),
         [string]::Format($Inv, "{0:0.0000}", $iCv),
-        $Runs, $verdict)
+        $Runs, $smoke.ToString().ToLowerInvariant(), $verdict)
     Add-Content -Path $csvPath -Value $csvLine -Encoding utf8
 }
 Add-Raw "# verdicts $(($Expected | ForEach-Object { "$_=$($verdicts[$_])" }) -join ' ')"
@@ -356,24 +415,34 @@ Write-Host "raw samples written to $rawPath"
 Write-Host "note: ratio = net48_ms / ilc_ms; ratio > 1 means the transpiled build is faster."
 Write-Host "gate: ratio >= 1.20 and max(cv) < 0.05 and both medians > 0 (requires -Runs >= 5 for acceptance)."
 
-if ($RedProof) {
-    if ($anyRatioFail) {
-        Write-Host "PERF GATE (red proof): FAIL:ratio observed as expected (exit 1) -- this proves the ratio threshold and failure path are wired; it does not prove sensitivity to a same-flags regression."
-        exit 1
-    }
-    if ($anyRealFail) {
-        Write-Host "PERF GATE (red proof): inconclusive -- the gate failed, but NOT on ratio, so the ratio red proof did not fire (exit 5)"
-        exit 5
-    }
-    Write-Host "PERF GATE (red proof): the gate PASSED -- the red proof is not wired (exit 2)"
-    exit 2
-}
+# SMOKE is decided FIRST: a smoke run is never evidence of anything, including
+# of the red proof, so it must not fall through into the red-proof branch
+# (previously `-RedProof -Runs 3` could never return exit 4).
 if ($Runs -lt 5) {
     Write-Host "PERF GATE: SMOKE (Runs=$Runs < 5 -- never an acceptance run; rerun with -Runs 5)"
     exit 4
 }
 if ($AllowEnvCv -and $hostIsolated) {
     Write-Host "PERF GATE (env-cv): -AllowEnvCv was given but the host load was <= 70% before AND after the run -- environmental attribution is not justified; the gate result stands."
+}
+if ($RedProof) {
+    if ($anyRatioFail) {
+        Write-Host "PERF GATE (red proof): FAIL:ratio observed as expected (exit 1) -- this proves the ratio threshold comparison and failure path are wired; it does NOT prove sensitivity to a same-flags regression."
+        exit 1
+    }
+    # Any other non-PASS verdict means the red proof did not fire on ratio:
+    # FAIL:cv / FAIL:zero-ms, and ALSO RATIO_OK_CV_OVER_LIMIT (with
+    # -AllowEnvCv the ratio gate passed, so the -O0 change did not move it).
+    # The previous code tested only `anyRealFail`, so a high-load CV-only run
+    # with -AllowEnvCv fell through to "the gate PASSED" and exit 2 -- a false
+    # claim that the red proof was wired. Judge on the verdict, not on a
+    # partial flag.
+    if (-not $allPass) {
+        Write-Host "PERF GATE (red proof): inconclusive -- the gate did not pass, but NOT on ratio ($($verdicts.Values -join ',')), so the ratio red proof did not fire (exit 5)"
+        exit 5
+    }
+    Write-Host "PERF GATE (red proof): the gate PASSED -- the red proof is not wired (exit 2)"
+    exit 2
 }
 if ($allPass) {
     Write-Host "PERF GATE: PASS"
