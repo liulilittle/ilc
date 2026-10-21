@@ -7019,6 +7019,19 @@ default: return false;                           // primitives/VAR(handled by ca
     private static bool IsInt32Slot(string name) =>
         !_curLocKinds.TryGetValue(name, out var k) || k is "val" or "i" or "int";
 
+    // B4-1 (D2): does this call argument hold a VALUE (never a boxed object)?
+    // Used by the "unbox:*" cast codes to read a raw int32/int64 slot instead
+    // of emitting `static_cast<Il2CppObject*>(<value>)`. Only PROVEN value
+    // shapes qualify: numeric/temp locals, integer/float constants, and
+    // value-typed calls. Unknown/ref shapes keep the unbox path (never guess).
+    private static bool IsValueSlotArg(Ir.Expr e)
+    {
+        var kind = TypeKindResolver.ResolveExprKind(e, _curLocKinds);
+        if (kind is "l" or "d" or "val" or "i" or "int" or "float" or "ptr") return true;
+        return e is Ir.LocExpr le && _curLocKinds.TryGetValue(le.Name, out var lk)
+            && lk is "l" or "d" or "val" or "i" or "int" or "float" or "ptr";
+    }
+
     //--------------------------------------------------------------------------
     // P0-1 (hotpath-audit-2): the array-element fast path. When the array is
     // a local PROVABLY holding a fresh constant-length newarr (see the
@@ -10291,8 +10304,21 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     : args[srcIdx] is LocExpr leEnum && IsInt32Slot(leEnum.Name)
                     ? $"reinterpret_cast<int64_t*>((&({code})))"
                     : $"reinterpret_cast<int64_t*>((&(({code}).value__)))",
-                "unbox:i" => $"il2cpp::il2cpp_unbox_int32(static_cast<Il2CppObject*>({code}))",
-                "unbox:l" => $"il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))",
+                // B4-1 (D2): the "unbox:*" codes are chosen by the RESOLVER from
+                // the receiver's tracked type, but a value-type receiver that
+                // arrives BY VALUE (a raw int32/int64 slot -- e.g. an Aggregate
+                // result temp the tracked-type lookup missed) is NOT a boxed
+                // object. Emitting the unbox helper then produced
+                // `static_cast<Il2CppObject*>(<int64_t>)` -- a C++ compile error
+                // for a legal `Aggregate(ulong.MaxValue, ..).ToString()`.
+                // Read the value slot directly in that case; a real boxed
+                // receiver (kind "ref") keeps the unbox path unchanged.
+                "unbox:i" => IsValueSlotArg(args[srcIdx])
+                    ? $"static_cast<int32_t>({code})"
+                    : $"il2cpp::il2cpp_unbox_int32(static_cast<Il2CppObject*>({code}))",
+                "unbox:l" => IsValueSlotArg(args[srcIdx])
+                    ? $"static_cast<int64_t>({code})"
+                    : $"il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))",
                 // cast-3 fix: box:i - when icall expects Il2CppObject* but gets int32, box it
                 "box:i" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
                     ? code
@@ -10319,8 +10345,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // the unsigned unboxers (icall_unbox_uint/ulong) keep the
                 // unsigned type so a uint32_t/uint64_t icall param gets NO
                 // implicit int->unsigned conversion (MSVC C4245).
-                "unbox:ui" => $"il2cpp::runtime::icall_unbox_uint(static_cast<Il2CppObject*>({code}))",
-                "unbox:ul" => $"il2cpp::runtime::icall_unbox_ulong(static_cast<Il2CppObject*>({code}))",
+                "unbox:ui" => IsValueSlotArg(args[srcIdx])
+                    ? $"static_cast<uint32_t>({code})"
+                    : $"il2cpp::runtime::icall_unbox_uint(static_cast<Il2CppObject*>({code}))",
+                "unbox:ul" => IsValueSlotArg(args[srcIdx])
+                    ? $"static_cast<uint64_t>({code})"
+                    : $"il2cpp::runtime::icall_unbox_ulong(static_cast<Il2CppObject*>({code}))",
                 "unbox:d" => $"il2cpp::runtime::icall_unbox_double(static_cast<Il2CppObject*>({code}))",
                 "unbox:b" => $"il2cpp::runtime::icall_unbox_bool(static_cast<Il2CppObject*>({code}))",
                 "unbox:c" => $"il2cpp::runtime::icall_unbox_char(static_cast<Il2CppObject*>({code}))",

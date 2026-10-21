@@ -72,38 +72,55 @@ public class MethodMapTestsB4
         Assert.IsType<NotSupportedException>(InvokeCatches(md, ms.Signature, new byte[] { 0x08 }));
     }
 
-    // The runtime groups by an int32 key bucket; every integer key family that
-    // rides that slot resolves to the full entry (0x0A = long is the int64
-    // member of the same integer family; 0x0B ulong and 0x11 value types do
-    // NOT belong to this batch).
+    // D1: every key family the runtime can narrow is wired AND carries the
+    // matching key-family literal (the runtime narrows the callback result to
+    // the declared TKey width; a raw register read split/merged net48 buckets).
+    // The third appended literal is the KeyKindFor code:
+    //   bool=6 char=3(uint16) sbyte=2 byte=1 short=4 ushort=3 uint=5 int=0
     [Theory]
-    [InlineData(0x02)] // bool
-    [InlineData(0x03)] // char
-    [InlineData(0x04)] // sbyte
-    [InlineData(0x05)] // byte
-    [InlineData(0x06)] // short
-    [InlineData(0x07)] // ushort
-    [InlineData(0x08)] // int
-    [InlineData(0x09)] // uint
-    [InlineData(0x0A)] // long
-    public void GroupBy_IntegerKeyFamilies_MapToFullEntry(byte keyByte)
+    [InlineData(0x02, "6")] // bool
+    [InlineData(0x03, "3")] // char  -> uint16 narrowing
+    [InlineData(0x04, "2")] // sbyte
+    [InlineData(0x05, "1")] // byte
+    [InlineData(0x06, "4")] // short
+    [InlineData(0x07, "3")] // ushort
+    [InlineData(0x08, "0")] // int (identity)
+    [InlineData(0x09, "5")] // uint
+    public void GroupBy_NarrowableKeyFamilies_MapWithKeyKind(byte keyByte, string keyKind)
     {
         var resolved = ResolveMethodSpec(SynthesizeMethod("GroupBy", GroupByKeyOnlySignature,
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte }));
 
-        Assert.Equal("il2cpp::il2cpp_linq_group_by_full", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
-        Assert.Equal(new[] { "0", "0" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "0", "0", keyKind }, resolved.AppendLiterals);
     }
 
-    [Fact]
-    public void GroupBy_DecimalKey_StaysLoud()
+    // D1: long (0x0A) is a REGISTERED known gap -- the int32 bucket would
+    // truncate 64-bit keys (three distinct net48 keys collapsed to one), so it
+    // must stay LOUD rather than silently mis-bucket. Same for ulong (0x0B).
+    [Theory]
+    [InlineData(0x0A)] // long
+    [InlineData(0x0B)] // ulong
+    public void GroupBy_64BitKeys_StayLoud(byte keyByte)
     {
         var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeMethod("GroupBy",
             GroupByKeyOnlySignature,
-            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x11, 0x09 })));
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte })));
 
-        Assert.Contains("int32", ex.Message);
+        Assert.Contains("no runtime key carrier", ex.Message);
+    }
+
+    // D3: genArgNames is a REAL consumer -- the LOUD message for a 0x11 key
+    // (every struct/enum key byte is 0x11) names the concrete type from the
+    // MethodSpec name table instead of the opaque "value type".
+    [Fact]
+    public void GroupBy_DecimalKey_StaysLoud_AndNamesDecimal()
+    {
+        var ex = Assert.Throws<NotSupportedException>(
+            () => ResolveMethodSpec(SynthesizeGroupByNamedKey("System", "Decimal")));
+
+        Assert.Contains("System.Decimal", ex.Message);
     }
 
     // RED pre-fix: ulong TAccumulate hit the empty "unsupported accumulator
@@ -199,6 +216,32 @@ public class MethodMapTestsB4
         var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
             mdb.GetOrAddBlob(signature));
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
+    }
+
+    // GroupBy<TSource,TKey> whose TKey is a 0x11 VALUETYPE resolving to a REAL
+    // TypeRef (ns.name) -- the only way to exercise the genArgNames consumer
+    // (every struct/enum key byte is 0x11, so the byte alone cannot name it).
+    private static MemoryStream SynthesizeGroupByNamedKey(string ns, string typeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        var keyRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var signature = GroupByKeyOnlySignature(mdb, asmRef);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("GroupBy"),
+            mdb.GetOrAddBlob(signature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x08);
+        spec.WriteByte(0x11); // VALUETYPE key
+        spec.WriteCompressedInteger((MetadataTokens.GetRowNumber(keyRef) << 2) | 1); // TypeRef coded
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec));
         return Serialize(mdb);
     }
 

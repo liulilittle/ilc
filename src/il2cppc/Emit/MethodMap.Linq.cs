@@ -638,22 +638,35 @@ public static partial class MethodRefResolver
                 // Everything is served by il2cpp_linq_group_by_full with the
                 // two family codes as trailing literals.
                 // B4-1 (P0-04): the runtime bucket key is an int32 slot
-                // (linq_map.h:249/400), so EVERY integer key family that the
-                // model carries in an int32 slot is wireable -- the narrow
-                // primitives (0x02 bool .. 0x09 uint) AND long (0x0A), whose
-                // key selector callback returns its int64 value in the same
-                // register slot. Unsupported here: ulong (0x0B) and value
-                // types (0x11: decimal/DateTime/Guid) -- no key carrier.
-                if (genArgs is not { Length: >= 2 } || genArgs[1] is < 0x02 or > 0x0A)
+                // (linq_map.h:249/400), so the wireable key families are the
+                // ones whose VALUE fits that slot AND whose callback result can
+                // be narrowed back to the declared TKey width (KeyKindFor):
+                // int/bool/char/sbyte/byte/short/ushort/uint. The gate below is
+                // kept EXACTLY equal to KeyKindFor's supported set -- a family
+                // the runtime cannot bucket correctly must NOT be let through
+                // (that mismatch is what produced silent wrong buckets).
+                // long (0x0A) is deliberately NOT here: the int32 bucket would
+                // truncate 64-bit keys (registered known gap -> LOUD).
+                int keyKind = genArgs is { Length: >= 2 } ? KeyKindFor(genArgs[1]) : -1;
+                if (genArgs is not { Length: >= 2 } || keyKind < 0)
                 {
+                    // The FULL type name (GenericArgFullNames) is the only way to
+                    // tell the 0x11 value-type keys apart -- every struct/enum
+                    // key byte is 0x11, so the byte alone cannot say whether the
+                    // rejected key is System.Decimal, System.DateTime or a user
+                    // struct. Use the name when the slot has one.
                     string elemArgType = genArgs is { Length: >= 1 }
                         ? GenericArgTypeName(genArgs[0]) : "?";
                     string keyArgType = genArgs is { Length: >= 2 }
-                        ? GenericArgTypeName(genArgs[1]) : "?";
+                        ? (genArgNames is { Length: >= 2 } && genArgNames[1] != "?"
+                            ? genArgNames[1]
+                            : GenericArgTypeName(genArgs[1]))
+                        : "?";
                     throw new NotSupportedException(
                         $"Enumerable.GroupBy<{elemArgType},{keyArgType}> not wired: " +
                         "the stage-1 runtime grouping surface is int32 (0x08) elements AND an integer " +
-                        "key that rides the int32 bucket (0x02..0x0A) only -- the runtime buckets by int32 keys");
+                        "key that fits the int32 bucket (int/bool/char/sbyte/byte/short/ushort/uint); " +
+                        $"a 64-bit (0x0A long / 0x0B ulong) or value-type ({keyArgType}) key has no runtime key carrier yet");
                 }
                 {
                     var gbParams = LinqEncodedParamTypes(md, sigHandle);
@@ -721,7 +734,9 @@ public static partial class MethodRefResolver
                     int resIdx = resArg >= 0 ? resArg : -1;
                     var argOrder = new[] { 0, 1, elemIdx, cmpIdx, resIdx };
                     var casts = new[] { "a", "", "", "", "" };
-                    var literals = new[] { ek, rk };
+                    // B4-1 (P0-04): the THIRD literal is the key family the
+                    // runtime narrows the callback result to (KeyKindFor).
+                    var literals = new[] { ek, rk, keyKind.ToString(System.Globalization.CultureInfo.InvariantCulture) };
                     var retType = rk == "0"
                         ? "System.Linq.IGroupingResult"
                         : rk == "1" ? "System.Int32[]"
@@ -731,7 +746,7 @@ public static partial class MethodRefResolver
                     // The result is ALWAYS a managed reference (a grouping
                     // result object or a result array), so the result temp is
                     // the Il2CppObject* slot (rv=true, rr=true).
-                    return I("il2cpp::il2cpp_linq_group_by_full", count, true, true, false, casts,
+                    return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, casts,
                         returnTypeName: retType, appendLiterals: literals,
                         argOrder: argOrder);
                 }
@@ -1066,6 +1081,29 @@ public static partial class MethodRefResolver
         var pt = MethodSignatureCoder.Decode(md, sigHandle).ParamTypes;
         return pt.Length == 0 ? Array.Empty<string>() : CodeGenerator.SplitTopLevel(pt).ToArray();
     }
+
+    //--------------------------------------------------------------------------
+    // B4-1 (P0-04): KeyKindFor -- the GroupBy KEY family code the runtime uses
+    // to narrow a narrow-TKey selector result back to its declared width
+    // (linq_map.cpp NarrowKey). MUST stay in lockstep with the runtime switch
+    // and with the GroupBy gate: a family without a correct narrowing rule has
+    // no key carrier and must be LOUD, never bucketed from a raw register read.
+    //   -1 unsupported (LOUD) | 0 int32 | 1 uint8 | 2 int8 | 3 uint16 |
+    //    4 int16 | 5 uint32 | 6 bool
+    // char (0x03) is a 16-bit unsigned value in an int32 slot -> uint16 rule.
+    //--------------------------------------------------------------------------
+    private static int KeyKindFor(byte keyByte) => keyByte switch
+    {
+        0x08 => 0, // int32   (identity)
+        0x05 => 1, // byte
+        0x04 => 2, // sbyte
+        0x07 => 3, // ushort
+        0x03 => 3, // char -> uint16 narrowing
+        0x06 => 4, // short
+        0x09 => 5, // uint (bit pattern; equality only)
+        0x02 => 6, // bool
+        _ => -1,   // long/ulong/decimal/DateTime/Guid/reference: LOUD
+    };
 
     private static string GenericDefNameOf(string encoded)
     {

@@ -1530,9 +1530,28 @@ Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
         : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
 }
 
+// B4-1 (P0-04): narrow the raw int32 read of a narrow-TKey selector result
+// back to the DECLARED key width. The callback's C++ return type is
+// uint8_t/int8_t/uint16_t/int16_t, but the ABI call reads int32_t, so the
+// register's upper bits are not defined by the callee. Without this narrowing
+// a byte key of 44 whose register held 300 split the net48 bucket.
+int32_t NarrowKey(int32_t raw, int32_t keyKind)
+{
+    switch (keyKind)
+    {
+        case 1: return static_cast<int32_t>(static_cast<uint8_t>(raw));
+        case 2: return static_cast<int32_t>(static_cast<int8_t>(raw));
+        case 3: return static_cast<int32_t>(static_cast<uint16_t>(raw));
+        case 4: return static_cast<int32_t>(static_cast<int16_t>(raw));
+        case 5: return raw; // uint32: the int32 slot keeps the bit pattern
+        case 6: return raw != 0 ? 1 : 0; // bool
+        default: return raw; // 0 int32 identity
+    }
+}
+
 // BuildGroups -- the shared bucketing pass (see the block comment).
 Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel,
-                          GroupElemKind kind, Il2CppObject* cmp)
+                          GroupElemKind kind, Il2CppObject* cmp, int32_t keyKind = 0)
 {
     RequireArray(src);
     Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
@@ -1575,7 +1594,8 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     for (int32_t i = 0; i < src->length; ++i)
     {
         const int32_t v = I4At(src, i);
-        const int32_t key = InvokeSelI4I4(kd, v); // may allocate -> collect
+        // B4-1 (P0-04): narrow the selector result to the declared TKey width.
+        const int32_t key = NarrowKey(InvokeSelI4I4(kd, v), keyKind); // may allocate -> collect
 
         // The projected element (only for the element-selector overloads).
         // Boxed families are NOT boxed yet: the growth allocation below could
@@ -1824,9 +1844,10 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int
 // rsKind:   0 no result selector | 1 int32 TResult | 2 reference TResult |
 //           3 int64 TResult | 4 double TResult | 5 float TResult (nb9 H-F4)
 //------------------------------------------------------------------------------
-Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
-                                        Il2CppObject* elemSel, Il2CppObject* cmp,
-                                        Il2CppObject* resSel, int32_t elemKind, int32_t rsKind)
+Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* elemSel, Il2CppObject* cmp,
+                                            Il2CppObject* resSel, int32_t elemKind,
+                                            int32_t rsKind, int32_t keyKind)
 {
     if (cmp == nullptr)
     {
@@ -1846,7 +1867,7 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
-    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp);
+    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind);
     if (rsKind == 0)
     {
         return result;
@@ -1857,6 +1878,15 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
     }
     return reinterpret_cast<Il2CppObject*>(
         ApplyResultSelector(result, resSel, rsKind));
+}
+
+// B4-1 (P0-04): the identity-key entry every pre-existing caller keeps using.
+Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, Il2CppObject* cmp,
+                                        Il2CppObject* resSel, int32_t elemKind, int32_t rsKind)
+{
+    return il2cpp_linq_group_by_full_key(src, keySel, elemSel, cmp, resSel,
+                                         elemKind, rsKind, /*keyKind=*/0);
 }
 
 int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping)
