@@ -207,7 +207,15 @@ class Program
         Console.WriteLine("fam_decimal_name=" + (dec.GetType().Name == "Decimal"));
         Console.WriteLine("fam_decimal_eq=" + dec.Equals((object)1.5m));
         Console.WriteLine("fam_decimal_unbox=" + ((decimal)dec == 1.5m));
-        Console.WriteLine("fam_decimal_hash=" + (dec.GetHashCode() == ((object)1.50m).GetHashCode()));
+        // decimal hash: ABSOLUTE net48 values are a documented PRE-EXISTING
+        // deviation (decimal.cpp "KNOWN DEVIATION (GetHashCode)" -- net48 uses
+        // oleaut VarR8FromDec, the runtime ports DecCalc.GetHashCode;
+        // decimaldeep2.cs:48 records the same gap). net48 probe:
+        // ((object)1.5m).GetHashCode() == 1073217536, runtime == 65551. Only
+        // the shared CONTRACT is asserted here (scale-canonical + zero -> 0),
+        // exactly like the string-hash consistency probes (D-OBJ-1).
+        Console.WriteLine("fam_decimal_hash_scale=" + (dec.GetHashCode() == ((object)1.50m).GetHashCode()));
+        Console.WriteLine("fam_decimal_hash_zero=" + (((object)0m).GetHashCode() == 0));
         Console.WriteLine("fam_decimal_as_ic=" + ((dec as IFormattable) != null));
 
         // Cross-type `is` over the whole family stays False (pointer identity).
@@ -216,5 +224,20 @@ class Program
         Console.WriteLine("fam_cross_double_single=" + (bd is float == false));
         Console.WriteLine("fam_cross_single_double=" + (sgl is double == false));
         Console.WriteLine("fam_cross_ulong_long=" + (ulg is long == false));
+
+        // ============ 9. IntPtr/UIntPtr identity probes ============
+        // The transpiler's default descriptor arm emits &System_IntPtr_class /
+        // &System_UIntPtr_class for `is IntPtr` / `is UIntPtr`, so those
+        // symbols must exist at link time (they did not before). net48: only a
+        // BOXED IntPtr is an IntPtr instance, so every non-null boxed
+        // primitive and null are False. (Boxing an IntPtr is a transpiler
+        // reject, so the True direction is not reachable here.)
+        object nil = null;
+        Console.WriteLine("ip_null_is=" + (nil is IntPtr));
+        Console.WriteLine("ip_int_is=" + (bx is IntPtr == false));
+        Console.WriteLine("ip_long_is=" + (bl is IntPtr == false));
+        Console.WriteLine("ip_str_is=" + (((object)"abc") is IntPtr == false));
+        Console.WriteLine("uip_null_is=" + (nil is UIntPtr));
+        Console.WriteLine("uip_int_is=" + (bx is UIntPtr == false));
     }
 }

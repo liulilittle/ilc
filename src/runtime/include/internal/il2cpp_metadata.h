@@ -131,6 +131,12 @@ extern il2cpp::Il2CppClass System_Int16_class;
 extern il2cpp::Il2CppClass System_UInt16_class;
 extern il2cpp::Il2CppClass System_UInt64_class;
 extern il2cpp::Il2CppClass System_Decimal_class;
+// Identity-only descriptors: generated `is IntPtr` / `is UIntPtr` reference
+// these symbols (the transpiler's default descriptor arm). Boxing IntPtr is a
+// transpiler reject, so no object ever carries them -> `is` is always False
+// (net48: a boxed IntPtr is the only True source).
+extern il2cpp::Il2CppClass System_IntPtr_class;
+extern il2cpp::Il2CppClass System_UIntPtr_class;
 extern il2cpp::Il2CppClass System_IConvertible_class;
 extern il2cpp::Il2CppClass System_IComparable_class;
 extern il2cpp::Il2CppClass System_IFormattable_class;

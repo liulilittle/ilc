@@ -333,6 +333,39 @@ Il2CppClass System_Decimal_class = {
     3,
 };
 
+// box-identity (audit A-c): the transpiler's default descriptor arm emits
+// `&System_<Name>_class` for every type without an explicit mapping, so
+// `obj is IntPtr` / `obj is UIntPtr` referenced these symbols -- which did not
+// exist (link/compile error, proven with a standalone probe). They are
+// identity-only descriptors here: the transpiler REJECTS boxing an IntPtr
+// ("box of System.IntPtr not supported"), so no box can ever carry them and
+// `is IntPtr` is False for every existing object, exactly like net48 (a
+// boxed IntPtr is the only way to make it True). Shape mirrors the box layout
+// (16 bytes, no reference fields) so a future IntPtr box needs no rework.
+Il2CppClass System_IntPtr_class = {
+    "System.IntPtr",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
+Il2CppClass System_UIntPtr_class = {
+    "System.UIntPtr",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
 // Boxed UInt32: identical shape to the Int32 box (header + aligned 8-byte
 // payload slot, the full 32-bit pattern -- see boxingext2.cpp), plus the .NET
 // interface table. net48 semantics: a boxed UInt32 IS-A System.Object (base
@@ -579,6 +612,11 @@ void il2cpp_ensure_builtin_system_classes()
         il2cpp_class_register(&System_UInt16_class);
         il2cpp_class_register(&System_UInt64_class);
         il2cpp_class_register(&System_Decimal_class);
+        // box-identity (audit A-c): identity-only IntPtr/UIntPtr descriptors
+        // (generated `is IntPtr` references the symbol; boxing IntPtr is a
+        // transpiler reject, so nothing ever carries them).
+        il2cpp_class_register(&System_IntPtr_class);
+        il2cpp_class_register(&System_UIntPtr_class);
         il2cpp_class_register(&System_IConvertible_class);
         il2cpp_class_register(&System_IComparable_class);
         il2cpp_class_register(&System_IFormattable_class);
