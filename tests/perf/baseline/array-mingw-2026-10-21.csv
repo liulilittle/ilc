@@ -1,0 +1,2 @@
+﻿name,net48_ms,ilc_ms,ratio,ratio_lo,ratio_hi,net48_cv,ilc_cv,runs,smoke,verdict
+array,1118,195,5.73,4.66,7.20,0.1134,0.0586,5,false,RATIO_OK_CV_OVER_LIMIT

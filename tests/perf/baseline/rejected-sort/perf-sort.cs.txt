@@ -1,0 +1,126 @@
+﻿using System;
+using System.Runtime.InteropServices;
+namespace Perf {
+//------------------------------------------------------------------------------
+// perf.cs -- fixed-workload perf benchmarks for the multi-run gate suite.
+//
+// Deliberately a SEPARATE, SMALLER program than tests/bench/bench.cs: the perf
+// suite answers "does the transpiled output stay within the ratio/CV gate?"
+// with repeated sampling, while tests/bench keeps the historical single-shot
+// baseline. Same transpilable subset and the same runtime constraints:
+//
+//   1. No Stopwatch/DateTime/TickCount icall wiring -- the clock is the
+//      P/Invoke now_us() (benchlib, microseconds wrapped to [0,2^31)).
+//   2. No string concatenation -- every result prints as TWO lines
+//      (name, then integer milliseconds); the harness pairs them and rejects
+//      any other shape.
+//   3. Array.Sort is not transpilable -- the sort below is user code, so the
+//      exact same algorithm runs on net48 and on the transpiled build.
+//   4. Every allocation fits one GC segment (Gen0 64 KB / LOH 1 MB): the
+//      sort array is 4 KB.
+//   5. Reference locals must be assigned before any allocation that can
+//      trigger a collection (the transpiler registers GC roots at entry).
+//      The single array is created first and reused for every round.
+//
+// METHODOLOGY: fixed work, variable time. The result feeds the static
+// 'checksum' sink (external linkage in the generated C++), so -O3 cannot
+// eliminate the loops.
+//
+// CASE: sort -- a 4 KB int array (1024 ints) is regenerated from a
+// deterministic xorshift32 and heapsorted 120,000 times (120,000 x 4 KB of data).
+// Heapsort instead of insertion sort: 120,000 rounds of O(n^2) would take
+// seconds. The workload is sized so the net48 reference sits far above the
+// integer-millisecond quantization (CV stays well under 5% on a quiet
+// machine), which is what makes the 5% CV gate meaningful.
+//------------------------------------------------------------------------------
+public static class Perf {
+    // P/Invoke clock (benchlib: steady_clock, microseconds, wrapped to [0,2^31)).
+    [DllImport("benchlib", EntryPoint = "now_us")]
+    public static extern int now_us();
+
+    // Sink: every benchmark folds its result into this static field.
+    public static int checksum;
+
+    // Deterministic xorshift32 state.
+    public static int rngState = 12345;
+
+    public static int NextRand() {
+        int s = rngState;
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        rngState = s;
+        return s & 0x7FFFFFFF;
+    }
+
+    // Sort: 1024 ints (4 KB), regenerated and heapsorted 120,000 times.
+    // Same algorithm on both runtimes -- the comparison is algorithm-pure.
+    public static int SortBench() {
+        const int N = 1024;
+        const int Rounds = 120000;
+        int[] a = new int[N];
+        int sum = 0;
+        for (int r = 0; r < Rounds; r++) {
+            for (int i = 0; i < N; i++) a[i] = NextRand();
+            // Heapsort: build max-heap, then repeatedly move the root to the
+            // tail and sift down. No recursion, no delegates, int-only.
+            for (int start = (N >> 1) - 1; start >= 0; start--) {
+                int root = start;
+                int val = a[root];
+                while (true) {
+                    int child = (root << 1) + 1;
+                    if (child >= N) break;
+                    if (child + 1 < N && a[child + 1] > a[child]) child++;
+                    if (a[child] <= val) break;
+                    a[root] = a[child];
+                    root = child;
+                }
+                a[root] = val;
+            }
+            for (int end = N - 1; end > 0; end--) {
+                int tmp = a[0];
+                a[0] = a[end];
+                a[end] = tmp;
+                int root = 0;
+                int val = a[0];
+                while (true) {
+                    int child = (root << 1) + 1;
+                    if (child >= end) break;
+                    if (child + 1 < end && a[child + 1] > a[child]) child++;
+                    if (a[child] <= val) break;
+                    a[root] = a[child];
+                    root = child;
+                }
+                a[root] = val;
+            }
+            sum += (a[0] & 0xFF) + (a[N - 1] & 0xFF);
+        }
+        return sum;
+    }
+
+    public static void Main() {
+        int t0, t1;
+
+        t0 = now_us();
+        checksum += SortBench();
+        t1 = now_us();
+        Console.WriteLine("sort");
+        Console.WriteLine((t1 - t0) / 1000);
+    }
+}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
