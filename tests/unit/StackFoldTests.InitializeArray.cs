@@ -135,6 +135,113 @@ public class StackFoldTestsInitializeArray
         }
     }
 
+    //--- LOUD P0-03: the 16-byte RVA element slice --------------------------
+
+    [Fact]
+    public void Fold_InitializeArray_Synth_Decimal16_SlicesOneElementPerUnit()
+    {
+        // 2 x System.Decimal (16 bytes each) behind a real RVA field: the fold
+        // must slice ONE 16-byte element per stelem_dec (never two 8-byte
+        // halves -- the flags/hi32 boundary at byte 12 is not 8-aligned). The
+        // values are 1.5m and 2.5m in the .NET decimal image (lo/mid/hi/flags).
+        using var pe = SynthDecimalRva(new byte[]
+        {
+            0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+        });
+        var md = pe.GetMetadataReader();
+        var body = MainBody(pe, md);
+        var stmts = Fold(pe, md, body, peArg: pe);
+
+        var stelems = stmts.OfType<CallStmt>().Where(s => s.Function == "stelem_dec").ToList();
+        Assert.Equal(2, stelems.Count);
+        AssertStelemDec(stelems[0], 0, flags: 0x00010000, hi32: 0, lo64: 15);
+        AssertStelemDec(stelems[1], 1, flags: 0x00010000, hi32: 0, lo64: 25);
+    }
+
+    private static void AssertStelemDec(CallStmt s, long index, int flags, uint hi32, ulong lo64)
+    {
+        Assert.StartsWith("t", Assert.IsType<LocExpr>(s.Args[0]).Name);
+        Assert.Equal(index, Assert.IsType<IntConstExpr>(s.Args[1]).Value);
+        var value = Assert.IsType<CallExpr>(s.Args[2]);
+        Assert.Equal("decimal_rva_value", value.Function);
+        Assert.Equal(flags, Assert.IsType<IntConstExpr>(value.Args[0]).Value);
+        Assert.Equal(unchecked((int)hi32), Assert.IsType<IntConstExpr>(value.Args[1]).Value);
+        Assert.Equal(unchecked((long)lo64), Assert.IsType<Int64ConstExpr>(value.Args[2]).Value);
+    }
+
+    // Synthetic PE with a REAL RVA field: ldc.i4.2; newarr Decimal; dup;
+    // ldtoken FIELD; call InitializeArray. The 32-byte blob is the two
+    // decimal element images above.
+    private static PEReader SynthDecimalRva(byte[] blob)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var mscorlib = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var objRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var arrRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Array"));
+        var rfthRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("RuntimeFieldHandle"));
+        var decimalRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var initSig = new BlobBuilder();
+        initSig.WriteByte(0x00);
+        initSig.WriteCompressedInteger(2);
+        initSig.WriteByte(0x01);
+        initSig.WriteByte(0x12);
+        initSig.WriteCompressedInteger(CodedIndex(arrRef));
+        initSig.WriteByte(0x11);
+        initSig.WriteCompressedInteger(CodedIndex(rfthRef));
+        var initializeArray = mdb.AddMemberReference(arrRef, mdb.GetOrAddString("InitializeArray"),
+            mdb.GetOrAddBlob(initSig));
+
+        // The field's declared type is the size-encoded blob value type (the
+        // real csc shape); the ELEMENT type comes from the newarr token.
+        var field = mdb.AddFieldDefinition(FieldAttributes.Private | FieldAttributes.Static,
+            mdb.GetOrAddString("s_data"), mdb.GetOrAddBlob(new byte[] { 0x06, 0x11 }));
+        mdb.AddFieldRelativeVirtualAddress(field, 0);
+
+        var ctor = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL, mdb.GetOrAddString("Nope"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x08 }), 0, default(ParameterHandle));
+        mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Class,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Base"), objRef, field, ctor);
+        var blobRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("Cases"), mdb.GetOrAddString("__Blob"));
+
+        var il = new BlobBuilder();
+        var encoder = new InstructionEncoder(il);
+        encoder.OpCode(ILOpCode.Ldc_i4_2);
+        encoder.OpCode(ILOpCode.Newarr);
+        encoder.Token(MetadataTokens.GetToken(decimalRef));
+        encoder.OpCode(ILOpCode.Dup);
+        LdToken(encoder, MetadataTokens.GetToken(field));
+        encoder.OpCode(ILOpCode.Call);
+        encoder.Token(MetadataTokens.GetToken(initializeArray));
+        encoder.OpCode(ILOpCode.Ret);
+        il.Align(4);
+        var stream = new MethodBodyStreamEncoder(il);
+        var bodyOffset = stream.AddMethodBody(encoder, 1, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        _ = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL, mdb.GetOrAddString("Main"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }), bodyOffset, default(ParameterHandle));
+        _ = blobRef;
+
+        var mapped = new BlobBuilder();
+        mapped.WriteBytes(blob);
+        var root = new MetadataRootBuilder(mdb, "v4.0.30319");
+        var peBuilder = new ManagedPEBuilder(new PEHeaderBuilder(
+                machine: Machine.I386,
+                imageCharacteristics: Characteristics.ExecutableImage | Characteristics.Dll),
+            root, il, mappedFieldData: mapped);
+        var peBlob = new BlobBuilder();
+        peBuilder.Serialize(peBlob);
+        return new PEReader(new MemoryStream(peBlob.ToArray()));
+    }
+
     [Fact]
     public void Fold_LdtokenField_NonInitializeArrayConsumer_ThrowsLoud()
     {

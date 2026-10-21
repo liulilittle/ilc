@@ -2,15 +2,18 @@
 //------------------------------------------------------------------------------
 // il2cpp_time.h -- System.DateTime / System.TimeSpan runtime support.
 //
-// DateTime is a .NET VALUE type. This runtime represents it as a plain 64-bit
-// tick count (100 ns units since 0001-01-01T00:00:00), exactly matching the
-// managed layout (the managed struct is { long ticks } -- blittable):
+// DateTime is a .NET VALUE type. This runtime keeps the tick count (100 ns
+// units since 0001-01-01T00:00:00) in a dedicated field plus the
+// DateTimeKind, so the struct is NOT the raw managed image -- the managed
+// 8-byte array image packs the 2-bit kind into the TOP bits of the same
+// 64-bit word (see the DateTime[] element helpers below):
 //
-//   struct Il2CppDateTime { int64_t ticks; };   // ticks since 0001-01-01
+//   struct Il2CppDateTime { int64_t ticks; int32_t kind; };
 //   struct Il2CppTimeSpan { int64_t ticks; };   // signed 100 ns units
 //
-// Both are 8-byte values passed BY VALUE (one register/stack slot on x64,
-// identical to the managed value-type ABI; no heap, no GC involvement).
+// Both are passed BY VALUE (the managed value-type ABI: one register/stack
+// slot for TimeSpan; DateTime rides two eightbyte slots because of the extra
+// kind member; no heap, no GC involvement).
 //
 // The icall set mirrors the transpiler's BCL mapping for System.DateTime /
 // System.TimeSpan: clock accessors (Now / UtcNow), construction, component
@@ -53,6 +56,33 @@ struct Il2CppTimeSpan
     constexpr Il2CppTimeSpan() : ticks(0) {}
     explicit constexpr Il2CppTimeSpan(int64_t value) : ticks(value) {}
 };
+
+//------------------------------------------------------------------------------
+// DateTime[] element image (LOUD P0-02).
+//
+// A DateTime ARRAY element is the CLR 8-byte value: 62 bits of ticks in the
+// low bits plus the 2-bit DateTimeKind in the top bits (the .NET _dateData
+// packing). The runtime value struct keeps kind in its own member, so the
+// transpiler's array accessor arms pack/unpack here. The mask keeps the
+// kind bits from leaking back into the tick count and the kind never gets
+// silently dropped on an array round-trip.
+//------------------------------------------------------------------------------
+constexpr int64_t kDateTimeArrayTickMask = 0x3FFFFFFFFFFFFFFFLL;
+
+inline int64_t il2cpp_datetime_to_array_bits(const Il2CppDateTime& value)
+{
+    return static_cast<int64_t>(
+        (static_cast<uint64_t>(value.ticks) & static_cast<uint64_t>(kDateTimeArrayTickMask))
+        | ((static_cast<uint64_t>(value.kind) & 0x3ULL) << 62));
+}
+
+inline Il2CppDateTime il2cpp_datetime_from_array_bits(int64_t bits)
+{
+    const uint64_t raw = static_cast<uint64_t>(bits);
+    return Il2CppDateTime(
+        static_cast<int64_t>(raw & static_cast<uint64_t>(kDateTimeArrayTickMask)),
+        static_cast<int32_t>((raw >> 62) & 0x3ULL));
+}
 
 //------------------------------------------------------------------------------
 // System.DateTime -- clock accessors.

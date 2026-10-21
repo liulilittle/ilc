@@ -1724,6 +1724,11 @@ Il2CppArray* il2cpp_linq_to_array_family(Il2CppArray* src)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&src));
     Il2CppArray* out = il2cpp_array_new(nullptr, src->elemSize, src->isRefElem, src->length);
+    // A3/B3: the clone must carry the SOURCE's recorded element kind. Without
+    // it an 8-byte cell becomes ambiguous again (long[]/double[] cloned by
+    // ToArray would lose their kind -> Array.Sort rejects them and string.Join
+    // falls back to the raw int64 formatting).
+    out->elemKind = src->elemKind;
     roots.Add(reinterpret_cast<void**>(&out));
     if (src->length == 0)
     {

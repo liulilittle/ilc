@@ -113,7 +113,7 @@ Il2CppObject* icall_queue_long_to_array(Il2CppObject* self)
     GcRoot<Il2CppObject*> root(snapshot, "queue_long_to_array");
     Il2CppArray* src = reinterpret_cast<Il2CppArray*>(snapshot);
     const int32_t length = src->length;
-    Il2CppArray* dst = il2cpp_array_new(nullptr, sizeof(int64_t), false, length);
+    Il2CppArray* dst = il2cpp_array_new_typed(sizeof(int64_t), 2, length);
     snapshot = root.Get();
     src = reinterpret_cast<Il2CppArray*>(snapshot);
     int64_t* out = reinterpret_cast<int64_t*>(dst->data);
@@ -170,7 +170,7 @@ Il2CppObject* icall_queue_double_to_array(Il2CppObject* self)
     GcRoot<Il2CppObject*> root(snapshot, "queue_double_to_array");
     Il2CppArray* src = reinterpret_cast<Il2CppArray*>(snapshot);
     const int32_t length = src->length;
-    Il2CppArray* dst = il2cpp_array_new(nullptr, sizeof(double), false, length);
+    Il2CppArray* dst = il2cpp_array_new_typed(sizeof(double), 4, length);
     snapshot = root.Get();
     src = reinterpret_cast<Il2CppArray*>(snapshot);
     double* out = reinterpret_cast<double*>(dst->data);

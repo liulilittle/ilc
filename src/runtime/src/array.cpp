@@ -215,6 +215,20 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_array_new_typed -- the runtime's own value-array builders (List<T>
+// ToArray, LINQ materializers, Queue/Stack snapshots). Same allocation as
+// il2cpp_array_new with a null element descriptor, plus the caller-supplied
+// element kind: without it an 8-byte cell is ambiguous (int64/double vs a
+// DateTime/user struct) and the element-kind Array scans have to reject it.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_array_new_typed(int32_t elemSize, int32_t elemKind, int32_t length)
+{
+    Il2CppArray* arr = il2cpp_array_new(nullptr, elemSize, false, length);
+    arr->elemKind = elemKind;
+    return arr;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_array_new_multi -- multi-dimensional array allocation (GN-3).
 // Per-dimension sizes are stored in the header (dims[0..rank-1]); the element
 // payload is ROW-MAJOR FLAT: element (i0, i1, ..., iN-1) sits at flat offset

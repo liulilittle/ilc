@@ -190,6 +190,48 @@ Il2CppArray* RequireValueArraySort(Il2CppArray* arr, int32_t elemSize)
     return arr;
 }
 
+// LOUD P0-01 follow-up (audit B/A2/A3): the element-kind driven sorts read 4-
+// and 8-byte value cells. A value array with no recorded kind (elemKind == 0)
+// only keeps the historical int32 fallback for a 4-byte stride:
+//   * an 8-byte cell with no kind is a USER VALUE TYPE -- net48 Array.Sort
+//     raises InvalidOperationException ("At least one object must implement
+//     IComparable"), so reject it with the SAME exception type;
+//   * any other stride (bool[]/char[]/decimal[]/Guid[]) has no ordering here
+//     -- a recorded gap, rejected loudly (never a 4-byte over-read).
+// DateTime[]/TimeSpan[] are NOT in this group: the transpiler stamps their
+// arrays with elemKind 6/7 (see il2cpp_array_new_kinded) and the comparison
+// below orders them by ticks, exactly like DateTime.CompareTo (which ignores
+// DateTimeKind). Reference arrays always pass. Callers invoke this ONLY when
+// they will actually touch elements (length > 1), so a 0/1-element array stays
+// a no-op like net48.
+void RequireAnySortableStride(const Il2CppArray* a, bool allowDateTime = false)
+{
+    if (a->isRefElem) return;
+    if (a->elemKind == 6 || a->elemKind == 7)
+    {
+        // DateTime/TimeSpan cells order by ticks for the DEFAULT sort. A user
+        // IComparer<T> would need the T call ABI (not the int64 carrier), so
+        // the comparer-driven sorts stay a recorded LOUD gap rather than
+        // silently comparing the packed word.
+        if (allowDateTime) return;
+        il2cpp_throw_not_supported_exception(
+            "Array.Sort with an IComparer over DateTime[]/TimeSpan[] is not "
+            "wired (its comparer slot ABI is not emitted); the default "
+            "comparer sort is supported.");
+    }
+    if (a->elemKind != 0) return;
+    if (a->elemSize == 4) return;
+    if (a->elemSize == 8)
+    {
+        il2cpp_throw_invalid_operation_exception(
+            "Failed to compare two elements in the array.");
+    }
+    il2cpp_throw_not_supported_exception(
+        "Array.Sort over a value-element array is supported only for 4-byte "
+        "(int32/uint32/single) or 8-byte (int64/uint64/double) elements; this "
+        "array's element stride is neither (bool[]/char[]/decimal[]/Guid[] "
+        "have no ordering here).");
+}
 //------------------------------------------------------------------------------
 // RequireRefArraySort -- reference-array-only domain contract (string /
 // object sorts and searches). The elements are Il2CppObject* slots; the
@@ -3394,6 +3436,10 @@ int32_t il2cpp_array_index_of_any_start(Il2CppArray* arr, Il2CppObject* value,
 {
     Il2CppArray* a = RequireArraySort(arr);
     ValidateIndexOfStartIndex(a, startIndex);
+    // A2 (3): NO stride guard on the IndexOf family. AnyElementEquals only
+    // compares when the array's recorded element kind matches the boxed
+    // value's family and answers "not equal" otherwise, so an unsupported
+    // stride keeps the net48 no-match result (-1) instead of throwing.
     for (int32_t i = startIndex; i < a->length; ++i)
     {
         if (AnyElementEquals(a, i, value)) return i;
@@ -3406,6 +3452,7 @@ int32_t il2cpp_array_index_of_any_range(Il2CppArray* arr, Il2CppObject* value,
 {
     Il2CppArray* a = RequireArraySort(arr);
     ValidateIndexOfRange(a, startIndex, count);
+    // A2 (3): same as the start-index form -- no stride guard (-1 on no match).
     const int32_t end = startIndex + count;
     for (int32_t i = startIndex; i < end; ++i)
     {
@@ -3619,11 +3666,33 @@ int32_t il2cpp_array_binary_search_any_icomparer_range(
 
 namespace {
 
+// Element kinds recorded on Il2CppArray (array.cpp) and consumed here:
+//   0 unrecorded | 1 int32 | 2 int64 | 3 single | 4 double | 5 uint32
+//   6 DateTime   | 7 TimeSpan -- both 8-byte CLR cells, ordered by TICKS
+// (net48 DateTime.CompareTo compares Ticks only and IGNORES DateTimeKind;
+// the stored cell is the packed kind<<62|ticks image, so the comparison must
+// shift the kind bits out instead of comparing the raw word).
 int32_t ReadAnyCompareKind(const Il2CppArray* a)
 {
     if (a->isRefElem) return 0;
     if (a->elemKind != 0) return a->elemKind;
-    return a->elemSize == 8 ? 2 : 1; // fallback: int64 for 8-byte, int32 for 4
+    // LOUD P0-01 follow-up (audit B, bool + IComparer probe): the old
+    // fallback guessed "int32 for anything that is not 8 bytes", so a 1-byte
+    // Boolean[] cell (also a 2-byte char[] or a 16-byte Decimal[]/Guid[]) was
+    // dereferenced as int32_t. Array.Sort((Array)bool[]) then produced a WRONG
+    // order instead of failing. These element-kind scans only know 4- and
+    // 8-byte cells, so any other stride is rejected loudly (net48 sorts
+    // bool[]/char[]; this runtime has no 1/2-byte kind yet -- a recorded gap,
+    // never silent corruption).
+    if (a->elemSize != 4 && a->elemSize != 8)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Array.Sort/IndexOf/BinarySearch over a value-element array is "
+            "supported only for 4-byte (int32/uint32/single) or 8-byte "
+            "(int64/uint64/double) elements; this array's element stride is "
+            "neither (bool[]/char[]/decimal[]/Guid[] are not sortable here).");
+    }
+    return a->elemSize == 8 ? 2 : 1;
 }
 
 void SwapValueCells(Il2CppArray* a, int32_t i, int32_t j)
@@ -3674,6 +3743,17 @@ int32_t CompareAnyDefault(Il2CppArray* a, int32_t i, int32_t j)
     {
         const uint32_t* d = reinterpret_cast<const uint32_t*>(a->data);
         return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
+    }
+    if (kind == 6)
+    {
+        // DateTime cell = kind<<62|ticks. net48 DateTime.CompareTo compares
+        // Ticks ONLY (DateTimeKind is ignored), so the packed kind bits are
+        // shifted out before the compare -- a raw int64 word compare would
+        // sort a Local value (bit 63 set) as a huge negative.
+        const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+        const int64_t x = static_cast<int64_t>(static_cast<uint64_t>(d[i]) >> 2);
+        const int64_t y = static_cast<int64_t>(static_cast<uint64_t>(d[j]) >> 2);
+        return x < y ? -1 : (x > y ? 1 : 0);
     }
     const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
     return d[i] < d[j] ? -1 : (d[i] > d[j] ? 1 : 0);
@@ -3746,10 +3826,19 @@ struct AnyComparerCompare
         uint32_t x = d5[i], y = d5[j];
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI4, &x, &y);
     }
-        const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
-        int64_t x = d[i], y = d[j];
+    if (kind == 6)
+    {
+        // A DateTime cell reaches the comparer as its TICKS (the packed kind
+        // bits are stripped -- net48 DateTime.CompareTo ignores Kind).
+        const int64_t* dc = reinterpret_cast<const int64_t*>(a->data);
+        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) >> 2);
+        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) >> 2);
         return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
     }
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    int64_t x = d[i], y = d[j];
+    return il2cpp_icomparer_compare_family(*slot, kComparerFamilyI8, &x, &y);
+}
 };
 
 // keys/items paired key comparison and swap.
@@ -3796,6 +3885,16 @@ int32_t CompareKeyPair(Il2CppArray* keys, int32_t i, int32_t j, Il2CppObject* co
         uint32_t x = d5[i], y = d5[j];
         if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
         return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI4, &x, &y);
+    }
+    if (kind == 6)
+    {
+        // DateTime keys order by TICKS (packed kind bits stripped), the same
+        // contract as CompareAnyDefault / net48 DateTime.CompareTo.
+        const int64_t* dc = reinterpret_cast<const int64_t*>(keys->data);
+        int64_t x = static_cast<int64_t>(static_cast<uint64_t>(dc[i]) >> 2);
+        int64_t y = static_cast<int64_t>(static_cast<uint64_t>(dc[j]) >> 2);
+        if (comparer == nullptr) return x < y ? -1 : (x > y ? 1 : 0);
+        return il2cpp_icomparer_compare_family(comparer, kComparerFamilyI8, &x, &y);
     }
     const int64_t* d = reinterpret_cast<const int64_t*>(keys->data);
     int64_t x = d[i], y = d[j];
@@ -3855,6 +3954,10 @@ void il2cpp_array_sort_any(Il2CppArray* arr)
     roots.Add(reinterpret_cast<void**>(&a));
     if (a->length > 1)
     {
+        // A2 (1): the stride guard runs only when elements are actually
+        // touched -- a 0/1-element array stays the net48 no-op. A3: the
+        // DEFAULT comparer orders DateTime[]/TimeSpan[] by ticks.
+        RequireAnySortableStride(a, /*allowDateTime*/ true);
         try
         {
             QuickSortAnyIndices(&a, 0, a->length - 1, CompareAnyDefault);
@@ -3876,6 +3979,9 @@ void il2cpp_array_sort_any_range_icomparer(Il2CppArray* arr, int32_t index,
     roots.Add(reinterpret_cast<void**>(&comparer));
     if (length > 1)
     {
+        // A2 (1): guard after the range validation and only when the sort
+        // actually touches elements.
+        RequireAnySortableStride(a);
         try
         {
             AnyComparerCompare cmp{&comparer};
@@ -3896,6 +4002,9 @@ void il2cpp_array_sort_any_range(Il2CppArray* arr, int32_t index, int32_t length
     roots.Add(reinterpret_cast<void**>(&a));
     if (length > 1)
     {
+        // A2 (1): guard after the range validation, only when sorting.
+        // A3: the default comparer orders DateTime[]/TimeSpan[] by ticks.
+        RequireAnySortableStride(a, /*allowDateTime*/ true);
         try
         {
             QuickSortAnyIndices(&a, index, index + length - 1, CompareAnyDefault);
@@ -3927,6 +4036,9 @@ void il2cpp_array_sort_keys_items(Il2CppArray* keys, Il2CppArray* items,
     roots.Add(reinterpret_cast<void**>(&comparer));
     if (k->length > 1)
     {
+        // A2 (2): guard AFTER the null/range validation and only when the
+        // sort touches elements (net48 exception order preserved).
+        RequireAnySortableStride(k);
         try
         {
             QuickSortKeyPairs(&k, &it, 0, k->length - 1, &comparer);
@@ -3965,6 +4077,8 @@ void il2cpp_array_sort_keys_items_range(Il2CppArray* keys, Il2CppArray* items,
     roots.Add(reinterpret_cast<void**>(&comparer));
     if (length > 1)
     {
+        // A2 (2): guard after null + range validation, only when sorting.
+        RequireAnySortableStride(k);
         try
         {
             QuickSortKeyPairs(&k, &it, index, index + length - 1, &comparer);
