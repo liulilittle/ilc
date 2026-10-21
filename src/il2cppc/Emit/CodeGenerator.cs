@@ -370,6 +370,9 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"linq.h\"");
         generatedHeader.Line("#include \"linq_map.h\"");
         generatedHeader.Line("#include \"linq_sort.h\"");
+        // nb15 B5 FIX: the List<T> receiver surface (a list object must never
+        // be cast to Il2CppArray*).
+        generatedHeader.Line("#include \"linq_list.h\"");
         // M6 wiring: the remaining wired-domain runtime headers -- every
         // il2cpp::runtime::* symbol the MethodMap domains can emit must be
         // declared in generated.h or the generated C++ fails to compile

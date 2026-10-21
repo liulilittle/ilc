@@ -315,25 +315,35 @@ public static partial class MethodRefResolver
         }
 
         //--------------------------------------------------------------------------
-        // P0-10 / P0-11: REFERENCE-ELEMENT SOURCE dispatch.
+        // P0-10 / P0-11 / B5-FIX: SOURCE-FAMILY dispatch.
         //
-        // The runtime already carries the ref-family entries (linq_map.h:66
-        // where_ref / :81 select_ref_ref / :104 first_ref / :118
-        // first_or_default_ref; linq.h:55 count_ref / :66 any_ref). The
-        // callback ABI is bool(*)(Il2CppObject*) / Il2CppObject*(*)
-        // (Il2CppObject*), produced by the same single-cast delegate methodPtr
-        // path every other LINQ operator uses (il2cpp_delegate_new -- the
-        // instance leaf puts `this` in the first slot, which the runtime
-        // dispatches per binding). A reference-element array IS the
-        // Il2CppObject* element family, so no new producer is needed here.
+        // The receiver (an extension method's first IL argument) can be:
+        //   * an ARRAY of any element family (int32 / int64 / float / double /
+        //     narrow integral / reference) -- dispatched to the array kernels;
+        //   * a LIST<T> OBJECT (List<int>, List<string>, List<long>, ...) --
+        //     NEVER cast to Il2CppArray* (that reads the items pointer as a
+        //     length: offsetof(Il2CppArray,length) == offsetof(Il2CppListI4,
+        //     items) == 8). The list domain (linq_list.h) snapshots the list
+        //     through its own ToArray accessor and runs the operation on the
+        //     snapshot.
         //
-        // Only entries that EXIST are wired. Everything else (All/Take/
-        // Skip/OrderBy/Last/... over a ref source) falls through to the LOUD
-        // gate below -- Last has no last_ref kernel (linq.h has last_i4 only),
-        // and Select over a ref source with a NON-reference TResult has no
-        // select_ref_* kernel (linq_map.h:81 is ref -> ref only).
+        // The element family comes from the MethodSpec generic argument (the
+        // authoritative metadata) and, for a tracked List receiver, from the
+        // AOT expansion suffix (List`1_int / List`1_string / List`1_long /
+        // List`1_double / List`1_byte / ...). A receiver hint is NEVER guessed
+        // from arg0Type alone (that is the delegate slot for arity >= 2).
         //--------------------------------------------------------------------------
-        if (LinqElementFamily(genArgs, srcType, null) == "ref")
+        var linqSrcFam = LinqSourceFamily(genArgs, receiverType, count >= 2 ? arg1Type : arg0Type);
+        var listKind = LinqListKind(srcType, genArgs, linqSrcFam);
+        if (listKind is { } lk)
+        {
+            var listDispatch = TryMapLinqList(md, sigHandle, name, count, genArgs, lk, linqSrcFam,
+                srcType, TwoArg, OneArg);
+            if (listDispatch != null) return listDispatch;
+        }
+
+        // Reference-element ARRAY source: the ref-family entries that exist.
+        if (linqSrcFam == "ref" && listKind == null)
         {
             switch (name)
             {
@@ -344,6 +354,8 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_linq_any_ref", 2, true, false, false, TwoArg);
                 case "Count" when count >= 2:
                     return I("il2cpp::il2cpp_linq_count_ref", 2, true, false, false, TwoArg);
+                case "All":
+                    return I("il2cpp::il2cpp_linq_all_ref", 2, true, false, false, TwoArg);
                 case "Where" when count >= 2:
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                         throw new NotSupportedException(
@@ -373,9 +385,26 @@ public static partial class MethodRefResolver
                 case "FirstOrDefault" when count < 2:
                     return I("il2cpp::il2cpp_linq_first_or_default_ref", 1, true, true, false, OneArg,
                         returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                case "Last" when count < 2:
+                    return I("il2cpp::il2cpp_linq_last_ref", 1, true, true, false, OneArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                case "LastOrDefault" when count < 2:
+                    return I("il2cpp::il2cpp_linq_last_or_default_ref", 1, true, true, false, OneArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
                 default:
                     break;
             }
+        }
+
+        // Wide / narrow VALUE-element ARRAY source (int64 / float / double /
+        // byte / sbyte / short / ushort / char / bool / uint). Each entry reads
+        // the cell at its REAL width; a narrow cell widens into the int32
+        // delegate slot (the CLR's parameter rule) -- never a 4-byte over-read.
+        if (listKind == null && LinqWideNarrowKind(linqSrcFam, genArgs) is { } wk)
+        {
+            var wideDispatch = TryMapLinqWide(md, sigHandle, name, count, genArgs, wk, linqSrcFam,
+                TwoArg, OneArg);
+            if (wideDispatch != null) return wideDispatch;
         }
 
         // The generic operators (Where/Select/Count/Any/All/First/FirstOr-
@@ -1163,6 +1192,446 @@ public static partial class MethodRefResolver
     // TSource, so TResult is NOT in genArgs -- it must come from the
     // parameter's own generic argument list.
     //--------------------------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // nb15 B5 FIX -- source-family / List carrier resolution.
+    //
+    // LinqSourceFamily is the AUTHORITATIVE element family:
+    //   i4 | narrow | i8 | f | d | ref
+    // "narrow" is the 1/2/4-byte integral family whose CLR parameter ABI is the
+    // int32 slot (byte/sbyte/short/ushort/char/bool/uint) -- the old code folded
+    // it into "i4" and read 4 bytes from a 1/2-byte cell (the D-1 over-read).
+    //--------------------------------------------------------------------------
+    private static string LinqSourceFamily(byte[]? genArgs, string? receiverType, string? arg0Type)
+    {
+        if (genArgs is { Length: >= 1 })
+        {
+            return genArgs[0] switch
+            {
+                0x08 => "i4",
+                0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "narrow",
+                0x0A or 0x0B => "i8",
+                0x0C => "f",
+                0x0D => "d",
+                _ => "ref",
+            };
+        }
+        var name = receiverType ?? arg0Type;
+        if (name != null)
+        {
+            if (name.EndsWith("System.Int32[]", StringComparison.Ordinal)) return "i4";
+            if (name.EndsWith("System.Int64[]", StringComparison.Ordinal)
+                || name.EndsWith("System.UInt64[]", StringComparison.Ordinal)) return "i8";
+            if (name.EndsWith("System.Single[]", StringComparison.Ordinal)) return "f";
+            if (name.EndsWith("System.Double[]", StringComparison.Ordinal)) return "d";
+            if (name.EndsWith("System.Byte[]", StringComparison.Ordinal)
+                || name.EndsWith("System.SByte[]", StringComparison.Ordinal)
+                || name.EndsWith("System.Int16[]", StringComparison.Ordinal)
+                || name.EndsWith("System.UInt16[]", StringComparison.Ordinal)
+                || name.EndsWith("System.Char[]", StringComparison.Ordinal)
+                || name.EndsWith("System.Boolean[]", StringComparison.Ordinal)
+                || name.EndsWith("System.UInt32[]", StringComparison.Ordinal)) return "narrow";
+            if (name.EndsWith("[]", StringComparison.Ordinal)) return "ref";
+        }
+        return "i4";
+    }
+
+    // The narrow CELL kind code (linq.h IL2CPP_LINQ_NARROW_*) of a generic
+    // argument byte; null when the byte is not a narrow integral family.
+    private static string? LinqNarrowCode(byte b) => b switch
+    {
+        0x04 => "0", // sbyte
+        0x05 => "1", // byte
+        0x02 => "2", // bool
+        0x06 => "3", // short
+        0x07 => "4", // ushort
+        0x03 => "5", // char
+        0x09 => "6", // uint
+        _ => null,
+    };
+
+    // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*), or
+    // null when the receiver is not a List<T>. The tracked List receiver names
+    // come from the newobj AOT expansion (List`1_int / List`1_string / ...) or
+    // from the ToList ReturnTypeName ("System.Collections.Generic.List`1").
+    private static string? LinqListKind(string? receiverType, byte[]? genArgs, string srcFam)
+    {
+        if (receiverType == null) return null;
+        if (!receiverType.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal))
+            return null;
+        var suffix = receiverType.Length > "System.Collections.Generic.List`1".Length
+            ? receiverType["System.Collections.Generic.List`1".Length..]
+            : "";
+        return suffix switch
+        {
+            "_int" => "0",
+            "_long" => "2",
+            "_float" => "3",
+            "_double" => "4",
+            "_sbyte" => "5",
+            "_byte" => "6",
+            "_bool" => "7",
+            "_short" => "8",
+            "_ushort" => "9",
+            "_char" => "10",
+            "_uint" => "11",
+            "_string" or "_class" or "_object" or "_array" => "1",
+            _ when suffix.Length > 1 => "1", // any nested generic element is a reference
+            // The unsuffixed pseudo-type (ToList's tracked result): the family
+            // comes from the call's own generic argument.
+            _ => srcFam switch
+            {
+                "ref" => "1",
+                "i8" => "2",
+                "f" => "3",
+                "d" => "4",
+                "narrow" => genArgs is { Length: >= 1 } ? LinqNarrowCode(genArgs[0]) ?? "0" : "0",
+                _ => "0",
+            },
+        };
+    }
+
+    // The tracked array type name for a source/result family byte (narrow
+    // families keep their real element type -- not System.Int32[]).
+    private static string LinqArrayTypeNameExact(byte b) => b switch
+    {
+        0x08 => "System.Int32[]",
+        0x09 => "System.UInt32[]",
+        0x02 => "System.Boolean[]",
+        0x03 => "System.Char[]",
+        0x04 => "System.SByte[]",
+        0x05 => "System.Byte[]",
+        0x06 => "System.Int16[]",
+        0x07 => "System.UInt16[]",
+        0x0A => "System.Int64[]",
+        0x0B => "System.UInt64[]",
+        0x0C => "System.Single[]",
+        0x0D => "System.Double[]",
+        0x0E => "System.String[]",
+        _ => "System.Object[]",
+    };
+
+    // The RESULT ABI suffix of the element-operator entries for a List kind.
+    private static string LinqListAbiSuffix(string listKind) => listKind switch
+    {
+        "1" => "ref",
+        "2" => "i8",
+        "3" or "4" => "d",
+        _ => "i4",
+    };
+
+    // The RESULT ABI suffix of the element-operator entries for an ARRAY
+    // source family ("narrow" rides the int32 slot).
+    private static string LinqArrayAbiSuffix(string srcFam) => srcFam switch
+    {
+        "ref" => "ref",
+        "i8" => "i8",
+        "f" or "d" => "d",
+        _ => "i4",
+    };
+
+    //--------------------------------------------------------------------------
+    // TryMapLinqList -- every operator over a List<T> receiver. The list object
+    // is passed through UNCAST (cast "") -- never as Il2CppArray* -- and the
+    // element-kind literal is appended after the IL arguments.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapLinqList(MetadataReader md, BlobHandle sigHandle, string name,
+        int count, byte[]? genArgs, string listKind, string srcFam, string? srcType,
+        string[] TwoArg, string[] OneArg)
+    {
+        string K = listKind;
+        string abi = LinqListAbiSuffix(K);
+        // A List<T> receiver is a LIST OBJECT: the slot is passed through
+        // UNCAST ("" -- never the "a" Il2CppArray* cast). Casting it would
+        // reinterpret the items pointer's low 32 bits as an array length.
+        var L1 = new[] { "" };
+        var L2 = new[] { "", "" };
+        var L3 = new[] { "", "", "" };
+        var elemTracked = genArgs is { Length: >= 1 } ? LinqArrayTypeNameExact(genArgs[0])
+            : (srcFam == "ref" ? "System.Object[]" : "System.Int32[]");
+        var elemScalar = genArgs is { Length: >= 1 } ? LinqArrayTypeNameExact(genArgs[0]).TrimEnd('[', ']')
+            : (srcFam == "ref" ? "System.Object" : "System.Int32");
+
+        switch (name)
+        {
+            case "Count" when count < 2:
+                return I("il2cpp::il2cpp_linq_list_count", 1, true, false, false, L1);
+            case "Count":
+                return I("il2cpp::il2cpp_linq_list_count_pred", 2, true, false, false,
+                    L2, appendLiterals: new[] { K });
+            case "Any" when count < 2:
+                return I("il2cpp::il2cpp_linq_list_any", 1, true, false, false, L1);
+            case "Any":
+                return I("il2cpp::il2cpp_linq_list_any_pred", 2, true, false, false,
+                    L2, appendLiterals: new[] { K });
+            case "All":
+                return I("il2cpp::il2cpp_linq_list_all_pred", 2, true, false, false,
+                    L2, appendLiterals: new[] { K });
+            case "Where":
+            {
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    throw new NotSupportedException(
+                        "Enumerable.Where with a (element, index) predicate over a List source is not wired " +
+                        "(the runtime has no list index-predicate entry)");
+                return I("il2cpp::il2cpp_linq_list_where", 2, true, true, false,
+                    L2, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            }
+            case "Select":
+            {
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    throw new NotSupportedException(
+                        "Enumerable.Select with a (element, index) selector over a List source is not wired " +
+                        "(the runtime has no list index-selector entry)");
+                byte tRes = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                string resKind = tRes switch
+                {
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
+                    0x0A or 0x0B => "2",
+                    0x0C => "3",
+                    0x0D => "4",
+                    _ => "1",
+                };
+                return I("il2cpp::il2cpp_linq_list_select", 2, true, true, false, L2,
+                    returnTypeName: LinqArrayTypeNameExact(tRes), appendLiterals: new[] { K, resKind });
+            }
+            case "First" when count < 2:
+                return I($"il2cpp::il2cpp_linq_list_first_{abi}", 1, true, abi == "ref", false,
+                    L1, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "FirstOrDefault" when count < 2:
+                return I($"il2cpp::il2cpp_linq_list_first_or_default_{abi}", 1, true, abi == "ref", false,
+                    L1, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "First":
+                return I($"il2cpp::il2cpp_linq_list_first_pred_{abi}", 2, true, abi == "ref", false,
+                    L2, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "FirstOrDefault":
+                return I($"il2cpp::il2cpp_linq_list_first_or_default_pred_{abi}", 2, true, abi == "ref", false,
+                    L2, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "Last" when count < 2:
+                return I($"il2cpp::il2cpp_linq_list_last_{abi}", 1, true, abi == "ref", false,
+                    L1, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "LastOrDefault" when count < 2:
+                return I($"il2cpp::il2cpp_linq_list_last_or_default_{abi}", 1, true, abi == "ref", false,
+                    L1, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "ToArray":
+                return I("il2cpp::il2cpp_linq_list_to_array", 1, true, true, false,
+                    L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "ToList":
+                return I("il2cpp::il2cpp_linq_list_to_list", 1, true, true, false,
+                    L1, returnTypeName: "System.Collections.Generic.List`1", appendLiterals: new[] { K });
+            case "LongCount":
+                return I("il2cpp::il2cpp_linq_list_long_count", 1, true, false, false,
+                    L1, resultKind: "l");
+            case "ElementAt":
+                return I($"il2cpp::il2cpp_linq_list_element_at_{abi}", 2, true, abi == "ref", false,
+                    new[] { "", "i" }, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "Contains":
+                return I($"il2cpp::il2cpp_linq_list_contains_{abi}", 2, true, false, false,
+                    new[] { "", abi == "ref" ? "" : abi == "i8" ? "l" : abi == "d" ? "d" : "i" },
+                    appendLiterals: new[] { K });
+            case "Reverse":
+                return I("il2cpp::il2cpp_linq_list_reverse", 1, true, true, false,
+                    L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "DefaultIfEmpty":
+                return I("il2cpp::il2cpp_linq_list_default_if_empty", 1, true, true, false,
+                    L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Take":
+                return I("il2cpp::il2cpp_linq_list_take", 2, true, true, false,
+                    new[] { "", "i" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Skip":
+                return I("il2cpp::il2cpp_linq_list_skip", 2, true, true, false,
+                    new[] { "", "i" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "TakeWhile":
+                return I("il2cpp::il2cpp_linq_list_take_while", 2, true, true, false,
+                    L2, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "SkipWhile":
+                return I("il2cpp::il2cpp_linq_list_skip_while", 2, true, true, false,
+                    L2, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Concat":
+                return I("il2cpp::il2cpp_linq_list_concat", 2, true, true, false,
+                    new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Distinct":
+                return I("il2cpp::il2cpp_linq_list_distinct", 1, true, true, false,
+                    L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Except":
+                return I("il2cpp::il2cpp_linq_list_except", 2, true, true, false,
+                    new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Zip":
+                return I("il2cpp::il2cpp_linq_list_zip", 3, true, true, false,
+                    new[] { "", "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "SequenceEqual":
+                return I("il2cpp::il2cpp_linq_list_sequence_equal", 2, true, false, false,
+                    new[] { "", "" }, appendLiterals: new[] { K });
+            case "OrderBy":
+                return I("il2cpp::il2cpp_linq_list_order_by_key_i4", 2, true, true, false,
+                    L2, returnTypeName: "System.Int32[]", appendLiterals: new[] { K });
+            case "OrderByDescending":
+                return I("il2cpp::il2cpp_linq_list_order_by_key_desc_i4", 2, true, true, false,
+                    L2, returnTypeName: "System.Int32[]", appendLiterals: new[] { K });
+            case "Sum" or "Min" or "Max" or "Average":
+            {
+                string shortName = name.ToLowerInvariant();
+                if (count < 2)
+                {
+                    // Source-only: the result family follows the list kind.
+                    string suffix = K switch
+                    {
+                        "2" => "i8",
+                        "3" => "f",
+                        "4" => "d",
+                        _ => "i4",
+                    };
+                    string? rk = name == "Average" ? "d" : suffix == "i8" ? "l" : suffix is "f" or "d" ? "d" : null;
+                    return I($"il2cpp::il2cpp_linq_list_{shortName}_{suffix}", 1, true, false, false,
+                        L1, resultKind: rk, appendLiterals: new[] { K });
+                }
+                // Selector form: the projection type decides the entry suffix.
+                var proj = LinqSelectorProjectionType(md, sigHandle);
+                string psuffix = proj switch
+                {
+                    "l" => "i8",
+                    "d" => "d",
+                    "f" => "f",
+                    "i" => "i4",
+                    _ => "",
+                };
+                if (psuffix.Length == 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} with selector projection '{proj}' over a List source is not wired " +
+                        "(the list selector-aggregate surface covers int32/int64/double/float projections)");
+                string? prk = name == "Average" ? "d" : psuffix == "i8" ? "l" : psuffix is "f" or "d" ? "d" : null;
+                return I($"il2cpp::il2cpp_linq_list_{shortName}_sel_{psuffix}", 2, true, false, false,
+                    L2, resultKind: prk, appendLiterals: new[] { K });
+            }
+            case "Aggregate":
+                // The seed/accumulator family decides the entry (no-seed reads
+                // the source element family).
+                if (count == 2)
+                {
+                    string suffix = K switch { "2" => "i8", "3" or "4" => "d", _ => "i4" };
+                    return I($"il2cpp::il2cpp_linq_list_aggregate_{suffix}", 2, true, false, false,
+                        L2, resultKind: suffix == "i8" ? "l" : suffix == "d" ? "d" : null,
+                        appendLiterals: new[] { K });
+                }
+                if (count >= 3)
+                {
+                    byte accByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                    string suffix = accByte switch
+                    {
+                        0x0A or 0x0B => "i8",
+                        0x0C or 0x0D => "d",
+                        _ => "i4",
+                    };
+                    string seedCast = suffix == "i8" ? "l" : suffix == "d" ? "d" : "i";
+                    return I($"il2cpp::il2cpp_linq_list_aggregate_seed_{suffix}", 3, true, false, false,
+                        new[] { "", seedCast, "" }, resultKind: suffix == "i8" ? "l" : suffix == "d" ? "d" : null,
+                        appendLiterals: new[] { K });
+                }
+                return null;
+            case "GroupBy":
+                return I("il2cpp::il2cpp_linq_list_group_by_full", count, true, true, false,
+                    new[] { "", "", "", "", "" },
+                    returnTypeName: "System.Linq.IGroupingResult");
+            default:
+                return null;
+        }
+    }
+
+    // The wide/narrow ARRAY family selector: null when the family is i4 or ref
+    // (those have their own paths), otherwise the runtime cell-kind literal for
+    // narrow sources or "" for i8/f/d.
+    private static string? LinqWideNarrowKind(string srcFam, byte[]? genArgs)
+    {
+        if (srcFam is "i8" or "f" or "d") return "";
+        if (srcFam != "narrow") return null;
+        if (genArgs is { Length: >= 1 } && LinqNarrowCode(genArgs[0]) is { } nc) return nc;
+        // Receiver-name fallback (a Select result of a narrow family).
+        return null;
+    }
+
+    //--------------------------------------------------------------------------
+    // TryMapLinqWide -- Any/Count/All/Where/Select/First/FirstOrDefault/Last/
+    // LastOrDefault over the int64/float/double/narrow ARRAY families. Each
+    // entry reads the element at its REAL cell width.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapLinqWide(MetadataReader md, BlobHandle sigHandle, string name,
+        int count, byte[]? genArgs, string kindCode, string srcFam, string[] TwoArg, string[] OneArg)
+    {
+        bool narrow = srcFam == "narrow";
+        string suffix = srcFam switch { "i8" => "i8", "f" => "f", "d" => "d", _ => "narrow" };
+        // The narrow cell-kind code is an APPENDED literal, never a consumed IL
+        // argument (ParamCount stays the IL arity -- a 3-slot ParamCount would
+        // desync the fold's stack).
+        var kindAppend = narrow ? new[] { kindCode } : null;
+        string abi = LinqArrayAbiSuffix(srcFam);
+        var elemTracked = genArgs is { Length: >= 1 } ? LinqArrayTypeNameExact(genArgs[0])
+            : srcFam switch
+            {
+                "i8" => "System.Int64[]",
+                "f" => "System.Single[]",
+                "d" => "System.Double[]",
+                _ => "System.Object[]",
+            };
+        var elemScalar = elemTracked.TrimEnd('[', ']');
+
+        switch (name)
+        {
+            case "Any" when count < 2:
+                // Family-agnostic: reads only the array header.
+                return I("il2cpp::il2cpp_linq_any", 1, true, false, false, OneArg);
+            case "Any":
+                return I($"il2cpp::il2cpp_linq_any_{suffix}", 2, true, false, false, TwoArg,
+                    appendLiterals: kindAppend);
+            case "Count" when count >= 2:
+                return I($"il2cpp::il2cpp_linq_count_{suffix}", 2, true, false, false, TwoArg,
+                    appendLiterals: kindAppend);
+            case "All":
+                return I($"il2cpp::il2cpp_linq_all_{suffix}", 2, true, false, false, TwoArg,
+                    appendLiterals: kindAppend);
+            case "Where":
+                return I($"il2cpp::il2cpp_linq_where_{suffix}", 2, true, true, false,
+                    TwoArg, returnTypeName: elemTracked, appendLiterals: kindAppend);
+            case "Select":
+            {
+                byte tRes = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                string resKind = tRes switch
+                {
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
+                    0x0A or 0x0B => "2",
+                    0x0C => "3",
+                    0x0D => "4",
+                    _ => "1",
+                };
+                string srcKind = srcFam switch { "i8" => "2", "f" => "3", "d" => "4", _ => kindCode };
+                return I("il2cpp::il2cpp_linq_select_wide", 2, true, true, false, TwoArg,
+                    returnTypeName: LinqArrayTypeNameExact(tRes),
+                    appendLiterals: new[] { srcKind, resKind });
+            }
+            case "First" when count < 2:
+                return I($"il2cpp::il2cpp_linq_first_{suffix}", 1, true, false, false,
+                    OneArg, appendLiterals: kindAppend,
+                    resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null);
+            case "FirstOrDefault" when count < 2:
+                return I($"il2cpp::il2cpp_linq_first_or_default_{suffix}", 1, true, false, false,
+                    OneArg, appendLiterals: kindAppend,
+                    resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null);
+            case "Last" when count < 2:
+                return I($"il2cpp::il2cpp_linq_last_{suffix}", 1, true, false, false,
+                    OneArg, appendLiterals: kindAppend,
+                    resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null);
+            case "LastOrDefault" when count < 2:
+                return I($"il2cpp::il2cpp_linq_last_or_default_{suffix}", 1, true, false, false,
+                    OneArg, appendLiterals: kindAppend,
+                    resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null);
+            default:
+                return null;
+        }
+    }
     private static string LinqSelectorProjectionType(MetadataReader md, BlobHandle sigHandle)
     {
         var parts = LinqEncodedParamTypes(md, sigHandle);

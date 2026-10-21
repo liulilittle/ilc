@@ -36,9 +36,9 @@
 // EMPTY-SEQUENCE SEMANTICS (net48 baseline): First on an empty array ->
 // InvalidOperationException; FirstOrDefault -> 0 (i4) / nullptr (ref).
 //
-// STAGE-1 DEVIATION (documented, accepted per design section 1.3): Where runs the
-// predicate TWICE per element (two passes: count matches, then fill an
-// exact-size result) -- observable only for side-effecting predicates.
+// WHERE PASSES: the predicate runs EXACTLY ONCE per element (a single pass
+// collects the matches into a growable buffer, then the exact-size result is
+// trimmed) -- see linq_map.cpp il2cpp_linq_where_ref and the [where-calls] probe.
 //
 // GC SAFETY (see linq_map.cpp): the callback may allocate (a collection may
 // move the source/result arrays), so the icalls root every array it holds

@@ -73,6 +73,96 @@ bool il2cpp_linq_all_i4(Il2CppArray* src, Il2CppObject* pred);
 // All(predicate) on reference-element arrays.
 bool il2cpp_linq_all_ref(Il2CppArray* src, Il2CppObject* pred);
 
+// Last / LastOrDefault on reference-element arrays (nb15 B5 FIX: net48
+// Last/LastOrDefault are generic, so a string[]/object[]/class[] source must
+// not be rejected; empty -> InvalidOperationException / nullptr).
+Il2CppObject* il2cpp_linq_last_ref(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_last_or_default_ref(Il2CppArray* src);
+
+//------------------------------------------------------------------------------
+// nb15 B5 FIX -- the WIDE / NARROW element families for the predicate
+// operators (Any/Count/All).
+//
+// The int32 entries above read every element as a 4-byte cell. An int64[] /
+// double[] / float[] / byte[] / sbyte[] / short[] / ushort[] / char[] / bool[]
+// source has a DIFFERENT cell width, so reusing an i4 entry reads garbage (and
+// a 1/2-byte array is read past its element). Each entry below reads the cell
+// at its REAL width and widens it to the delegate ABI slot:
+//   * _i8   int64_t(*)(int64_t)              (int64[]/uint64[])
+//   * _d    bool(*)(double)                  (double[]; float[] widened)
+//   * _f    bool(*)(double)                  (float[] -- F-stack carrier is
+//                                             double; a float leaf's C++
+//                                             return is float, so the result
+//                                             is read as float)
+//   * _narrow  bool(*)(int32_t)              (byte/sbyte/short/ushort/char/
+//                                             bool/uint -- the CLR widens
+//                                             narrow integral parameters to
+//                                             the int32 slot, zero/sign
+//                                             extending from the cell)
+//   * _ref  the reference family (already above)
+// Empty-sequence semantics match the int32 entries: Any -> false (predicate
+// never called), All -> true (vacuous truth), Count -> 0.
+//------------------------------------------------------------------------------
+bool    il2cpp_linq_any_i8(Il2CppArray* src, Il2CppObject* pred);
+bool    il2cpp_linq_any_d(Il2CppArray* src, Il2CppObject* pred);
+bool    il2cpp_linq_any_f(Il2CppArray* src, Il2CppObject* pred);
+bool    il2cpp_linq_any_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind);
+int32_t il2cpp_linq_count_i8(Il2CppArray* src, Il2CppObject* pred);
+int32_t il2cpp_linq_count_d(Il2CppArray* src, Il2CppObject* pred);
+int32_t il2cpp_linq_count_f(Il2CppArray* src, Il2CppObject* pred);
+int32_t il2cpp_linq_count_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind);
+bool    il2cpp_linq_all_i8(Il2CppArray* src, Il2CppObject* pred);
+bool    il2cpp_linq_all_d(Il2CppArray* src, Il2CppObject* pred);
+bool    il2cpp_linq_all_f(Il2CppArray* src, Il2CppObject* pred);
+bool    il2cpp_linq_all_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind);
+
+// The narrow element kind codes for the *_narrow entries above. They name the
+// CELL width and the widening rule (zero- vs sign-extension), so the runtime
+// never guesses from the array class alone (byte[] and bool[] are both 1-byte
+// cells but widen differently).
+//   0 = int8_t   (sbyte)   1 = uint8_t  (byte)    2 = bool (1 byte, 0/1)
+//   3 = int16_t  (short)   4 = uint16_t (ushort)  5 = char16_t (UTF-16)
+//   6 = uint32_t (uint -- 4 bytes, ZERO-extended into the int32 slot)
+constexpr int32_t IL2CPP_LINQ_NARROW_SBYTE  = 0;
+constexpr int32_t IL2CPP_LINQ_NARROW_BYTE   = 1;
+constexpr int32_t IL2CPP_LINQ_NARROW_BOOL   = 2;
+constexpr int32_t IL2CPP_LINQ_NARROW_SHORT  = 3;
+constexpr int32_t IL2CPP_LINQ_NARROW_USHORT = 4;
+constexpr int32_t IL2CPP_LINQ_NARROW_CHAR   = 5;
+constexpr int32_t IL2CPP_LINQ_NARROW_UINT   = 6;
+//------------------------------------------------------------------------------
+// nb15 B5 FIX -- the same WIDE / NARROW families for Where / First /
+// FirstOrDefault / Last / LastOrDefault. Each keeps the source element family
+// (Where returns a fresh array of the SAME cell width; the element operators
+// return the widened value through the family's result ABI).
+// Select over a wide/narrow source needs the full source x result matrix and
+// is NOT wired (documented in .opencode/tmp/b5-gaps.md).
+//------------------------------------------------------------------------------
+Il2CppArray*  il2cpp_linq_where_i8(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_where_d(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_where_f(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_where_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind);
+// Select over a wide / narrow source. resKind selects the result family
+// (0 int32 / 1 reference / 2 int64 / 3 float / 4 double); the selector
+// receives the widened source value (int32 slot for narrow, int64 for int64,
+// double for float/double).
+Il2CppArray*  il2cpp_linq_select_wide(Il2CppArray* src, Il2CppObject* sel,
+                                      int32_t kind, int32_t resKind);
+
+int64_t       il2cpp_linq_first_i8(Il2CppArray* src);
+int64_t       il2cpp_linq_first_or_default_i8(Il2CppArray* src);
+double        il2cpp_linq_first_d(Il2CppArray* src);
+double        il2cpp_linq_first_or_default_d(Il2CppArray* src);
+int32_t       il2cpp_linq_first_narrow(Il2CppArray* src, int32_t elemKind);
+int32_t       il2cpp_linq_first_or_default_narrow(Il2CppArray* src, int32_t elemKind);
+
+int64_t       il2cpp_linq_last_i8(Il2CppArray* src);
+int64_t       il2cpp_linq_last_or_default_i8(Il2CppArray* src);
+double        il2cpp_linq_last_d(Il2CppArray* src);
+double        il2cpp_linq_last_or_default_d(Il2CppArray* src);
+int32_t       il2cpp_linq_last_narrow(Il2CppArray* src, int32_t elemKind);
+int32_t       il2cpp_linq_last_or_default_narrow(Il2CppArray* src, int32_t elemKind);
+
 // Sum on int32[]: CHECKED int32 addition -- an overflowing sum throws
 // OverflowException (net48 Enumerable.Sum is checked, D-LINQ-3); empty -> 0.
 int32_t il2cpp_linq_sum_i4(Il2CppArray* src);
