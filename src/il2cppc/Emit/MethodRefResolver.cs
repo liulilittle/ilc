@@ -2214,20 +2214,43 @@ var userRecvLike = receiverType ?? arg0Type;
     // (Sum(this IEnumerable<int32>), Min/Max likewise -- no MethodSpec, so
     // the generic-argument array is null at dispatch). The i4 aggregate gate
     // in TryMapLinq needs the ELEMENT byte; it lives inside the first
-    // parameter's GENERICINST signature. Decode: skip header + param count +
+    // parameter's GENERICINST signature. Decode the header + param count +
     // return type, then read the first param -- a GenericInst (0x15) with the
-    // CLASS/VALUETYPE marker + TypeDefOrRef + arg count + one element byte
-    // per argument. Returns the first argument's element byte (int32 for the
-    // i4 family), or null when the signature does not have that shape.
+    // CLASS/VALUETYPE marker + TypeDefOrRef + arg count + one element per
+    // argument. Returns the first argument's element byte (int32 for the i4
+    // family), or null when the signature does not have that shape.
+    //
+    // REACHABILITY (B1 review): Roslyn emits a MethodSpec for every
+    // generic-instantiated LINQ aggregate, so genArgs is non-null for the
+    // selector forms and this decoder never sees them. What actually reaches
+    // it are the non-generic (header 0x00) Sum/Min/Max/Average MemberRefs.
+    // The generic-header handling below is defensive hardening for
+    // definition-shaped MemberRefs; no e2e case in this tree produces that
+    // shape. It is covered by tests/unit/MethodRefResolverLinqAggregateTests.cs
+    // (generic header + VALUETYPE/VAR/MVAR/GENERICINST + exact-end asserts).
     private static byte[]? LinqAggregateElementByte(MetadataReader md, BlobHandle sigHandle)
     {
         var sig = md.GetBlobReader(sigHandle);
-        sig.ReadSignatureHeader();
+        return DecodeLinqAggregateElementByte(md, ref sig);
+    }
+
+    // Test seam for the consumption contract: the caller owns the BlobReader so
+    // it can assert the exact cursor position after decoding.
+    internal static byte[]? DecodeLinqAggregateElementByte(MetadataReader md, ref BlobReader sig)
+    {
+        var hdr = sig.ReadSignatureHeader();
+        // ECMA-335 II.23.2.1: a GENERIC method-definition signature carries the
+        // GenericParamCount right after the header. Defensive only (see the
+        // REACHABILITY note above): Roslyn call sites carry a MethodSpec, so
+        // this shape is exercised by the resolver-level unit tests, not e2e.
+        // Without consuming it, count/return/first-param reads drift by one
+        // byte and the GenericInst source is never seen.
+        if (hdr.IsGeneric) _ = sig.ReadCompressedInteger();
         var count = sig.ReadCompressedInteger();
         if (count < 1) return null;
-        var ret = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
-        if (ret is 0x11 or 0x12 or 0x40) _ = sig.ReadTypeHandle();
-        else if (ret is 0x1D) _ = ReadParamByte(md, ref sig);
+        // Return type: consume its whole payload with the ECMA-335 table
+        // (GENERICINST/SZARRAY/VAR/MVAR/...), not only its leading byte.
+        _ = ReadParamByte(md, ref sig);
         var first = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
         if (first != 0x15) return null; // not a GenericInst source parameter
         var marker = sig.ReadByte();    // 0x12 CLASS / 0x11 VALUETYPE
@@ -2235,7 +2258,17 @@ var userRecvLike = receiverType ?? arg0Type;
         _ = sig.ReadTypeHandle();
         var argc = sig.ReadCompressedInteger();
         if (argc < 1) return null;
-        var elem = sig.ReadByte();
+        // Element: ReadParamByte consumes the trailing payload of VAR/MVAR
+        // (index), GENERICINST (marker+handle+args), SZARRAY, ... and returns
+        // the dispatch code -- VAR/MVAR stay the 0x13/0x1E placeholders, never
+        // a concrete element family.
+        var elem = ReadParamByte(md, ref sig);
+        for (var i = 1; i < argc; i++) _ = ReadParamByte(md, ref sig);
+        // Walk every remaining METHOD parameter too, then require the cursor to
+        // sit exactly at the blob end: a surplus/short read means the decoder
+        // drifted and no hint may be returned.
+        for (var i = 1; i < count; i++) _ = ReadParamByte(md, ref sig);
+        if (sig.RemainingBytes != 0) return null;
         return new[] { elem };
     }
 
