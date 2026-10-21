@@ -48,11 +48,15 @@ namespace Il2Cpp.Transpiler.Emit;
 //     (int32 elements AND int32 result only -- the 2-arg selector ABI
 //     int32_t(*)(int32_t, int32_t), linq_map.h).
 //   All gate on genArgs[0] == 0x08 (int32 element family) -- the ONLY family
-//   with predicate/selector icalls in the stage-1 runtime (linq.h / linq_map.h
-//   define the ref-family entries count_ref/any_ref/where_ref/select_*_ref,
-//   but no transpiler path constructs a reference-element LINQ chain today;
-//   newarr emits only int32[] and string[]/object[] -- the ref callback
-//   ABI bool(*)(Il2CppObject*) has no producer yet).
+//   with the full predicate/selector icall surface. The reference-element
+//   entries that DO exist (count_ref/any_ref/where_ref/select_ref_ref/
+//   first_ref/first_or_default_ref) are wired for their exact shapes in the
+//   ref-source block (P0-10/P0-11); every other ref-source operator stays
+//   LOUD. The delegate producer is shared: a reference parameter renders as
+//   Il2CppObject* (ParamTypesCpp), so il2cpp_delegate_new supplies the
+//   bool(*)(Il2CppObject*) / Il2CppObject*(*)(Il2CppObject*) methodPtr
+//   (instance leaves put `this` in the first slot, per the runtime
+//   per-binding dispatch).
 //
 //   ARG SHAPE (static extension calls): the receiver (the source int32[] the
 //   generated code holds for the enumerable) is the FIRST IL argument; the
@@ -310,6 +314,70 @@ public static partial class MethodRefResolver
             }
         }
 
+        //--------------------------------------------------------------------------
+        // P0-10 / P0-11: REFERENCE-ELEMENT SOURCE dispatch.
+        //
+        // The runtime already carries the ref-family entries (linq_map.h:66
+        // where_ref / :81 select_ref_ref / :104 first_ref / :118
+        // first_or_default_ref; linq.h:55 count_ref / :66 any_ref). The
+        // callback ABI is bool(*)(Il2CppObject*) / Il2CppObject*(*)
+        // (Il2CppObject*), produced by the same single-cast delegate methodPtr
+        // path every other LINQ operator uses (il2cpp_delegate_new -- the
+        // instance leaf puts `this` in the first slot, which the runtime
+        // dispatches per binding). A reference-element array IS the
+        // Il2CppObject* element family, so no new producer is needed here.
+        //
+        // Only entries that EXIST are wired. Everything else (All/Take/
+        // Skip/OrderBy/Last/... over a ref source) falls through to the LOUD
+        // gate below -- Last has no last_ref kernel (linq.h has last_i4 only),
+        // and Select over a ref source with a NON-reference TResult has no
+        // select_ref_* kernel (linq_map.h:81 is ref -> ref only).
+        //--------------------------------------------------------------------------
+        if (LinqElementFamily(genArgs, srcType, null) == "ref")
+        {
+            switch (name)
+            {
+                case "Any" when count < 2:
+                    // il2cpp_linq_any reads only the array header.
+                    return I("il2cpp::il2cpp_linq_any", 1, true, false, false, OneArg);
+                case "Any":
+                    return I("il2cpp::il2cpp_linq_any_ref", 2, true, false, false, TwoArg);
+                case "Count" when count >= 2:
+                    return I("il2cpp::il2cpp_linq_count_ref", 2, true, false, false, TwoArg);
+                case "Where" when count >= 2:
+                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                        throw new NotSupportedException(
+                            "Enumerable.Where with a (element, index) predicate over a reference-element " +
+                            "source is not wired: the runtime has no il2cpp_linq_where_idx_ref entry");
+                    return I("il2cpp::il2cpp_linq_where_ref", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqRefArrayTypeName(genArgs, srcType));
+                case "Select":
+                {
+                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                        throw new NotSupportedException(
+                            "Enumerable.Select with a (element, index) selector over a reference-element " +
+                            "source is not wired: the runtime has no il2cpp_linq_select_idx_ref_* entry");
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    if (!IsRefFamilyByte(genArgs[1]))
+                        throw new NotSupportedException(
+                            $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                            "not wired: the runtime reference-source select surface is ref -> ref only " +
+                            "(il2cpp_linq_select_ref_ref, linq_map.h:81)");
+                    return I("il2cpp::il2cpp_linq_select_ref_ref", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
+                }
+                case "First" when count < 2:
+                    return I("il2cpp::il2cpp_linq_first_ref", 1, true, true, false, OneArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                case "FirstOrDefault" when count < 2:
+                    return I("il2cpp::il2cpp_linq_first_or_default_ref", 1, true, true, false, OneArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                default:
+                    break;
+            }
+        }
+
         // The generic operators (Where/Select/Count/Any/All/First/FirstOr-
         // Default/ToArray/OrderBy) all carry a MethodSpec with the int32
         // element byte. A non-int32 generic argument (or a non-generic call)
@@ -322,8 +390,10 @@ public static partial class MethodRefResolver
         // elemSize/isRefElem, and the aggregate kernels have per-family
         // entries), so they are excluded from the int32-only gate and served
         // below. Everything else still rejects a non-int32 source.
+        // P0-11: Any() reads only the array header too -- element-family
+        // agnostic (the ref-source predicate form is dispatched above).
         bool familyAgnostic = name is "Count" or "ToArray" or "Sum" or "Min" or "Max"
-            or "Average" or "Aggregate";
+            or "Average" or "Aggregate" or "Any";
         if (!familyAgnostic && name != "ToList" &&
             (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08))
         {
@@ -337,8 +407,8 @@ public static partial class MethodRefResolver
                 "Count" or "Any" or "Where" or "Select" or "OrderBy" or "OrderByDescending" or "First" or "FirstOrDefault" or "ToArray" or "All" or "Take" or "Skip" or "TakeWhile" or "SkipWhile" or "Concat" or "Distinct" or "Except" or "Zip" or "Average" or "Reverse" or "Last" or "LastOrDefault" or "ElementAt" or "Contains" or "Aggregate" or "LongCount" or "SequenceEqual" or "DefaultIfEmpty" =>
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{argType}> not wired: " +
-                        "the stage-1 runtime LINQ surface is int32 (0x08) element-family only " +
-                        "(the ref-family icalls have no transpiler producer for their bool(*)(Il2CppObject*) callback ABI)"),
+                        "the stage-1 runtime LINQ surface is int32 (0x08) element-family for this operator " +
+                        "(the wired reference-source entries are Any/Count/Where/Select ref->ref/First/FirstOrDefault)"),
                 _ => null,
             };
         }
@@ -947,6 +1017,37 @@ public static partial class MethodRefResolver
         0x0E => "System.String[]",
         _ => "System.Object[]",
     };
+
+    //--------------------------------------------------------------------------
+    // P0-10: reference-element family predicates/tracked names. The runtime
+    // ref entries accept string[]/object[]/class[]/generic-instance[] as the
+    // Il2CppObject* element family (linq_map.h RequireRefFamily).
+    //--------------------------------------------------------------------------
+    private static bool IsRefFamilyByte(byte b) =>
+        b is 0x0E or 0x12 or 0x1C or 0x15 or 0x13 or 0x1E or 0x1D or 0x14 or 0x40;
+
+    private static string LinqRefArrayTypeName(byte[]? genArgs, string? srcType)
+    {
+        if (genArgs is { Length: >= 1 })
+        {
+            return genArgs[0] switch
+            {
+                0x0E => "System.String[]",
+                0x1C or 0x12 => "System.Object[]",
+                _ => "System.Object[]",
+            };
+        }
+        return srcType != null && srcType.EndsWith("[]", StringComparison.Ordinal)
+            ? srcType : "System.Object[]";
+    }
+
+    private static string LinqRefElementTypeName(byte[]? genArgs, string? srcType)
+    {
+        if (genArgs is { Length: >= 1 })
+            return genArgs[0] == 0x0E ? "System.String" : "System.Object";
+        return srcType != null && srcType.EndsWith("[]", StringComparison.Ordinal)
+            ? srcType[..^2] : "System.Object";
+    }
 
     //--------------------------------------------------------------------------
     // LinqElementFamily -- the SOURCE element family of an Enumerable operator.
