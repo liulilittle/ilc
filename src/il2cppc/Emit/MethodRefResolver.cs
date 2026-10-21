@@ -1860,13 +1860,15 @@ var userRecvLike = receiverType ?? arg0Type;
                 // LOUD-rejected by the gate.
                 if (name is "Sum" or "Min" or "Max" or "Average" && genArgs == null)
                     genArgs = LinqAggregateElementByte(md, sigHandle);
-                return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
+                    receiverType, receiverIsAddress, arg0Type, arg1Type);
             // D-LINQ-4 grouping instance surface: the REAL BCL owner of an
             // IGrouping<TKey,TElement> instance property call (gr.Key ->
             // get_Key). Routes to the same TryMapLinq grouping block; the
             // owner itself proves grouping-ness when no hint flows.
             case "System.Linq.IGrouping`2":
-                return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
+                    receiverType, receiverIsAddress, arg0Type, arg1Type);
             // Legacy LOUD family (MethodMap.Legacy.cs): System.Runtime.
             // Remoting.* / AppDomain / ArgIterator / ReaderWriterLock -- the
             // net48 audit section 3/section 6 LOUD rejection list (no runtime support).
@@ -2407,12 +2409,23 @@ var userRecvLike = receiverType ?? arg0Type;
         var sig = md.GetBlobReader(sigHandle);
         if (sig.ReadByte() != 0x0A) return null; // not GENERICINST(0x0A)
         var argc = sig.ReadCompressedInteger();
-        if (argc != genArgs.Length) return null;
+        // B4-1: the name table is indexed against the genArgs producer's
+        // array; a count drift is a broken contract, not a "no names" case.
+        if (argc != genArgs.Length)
+        {
+            throw new NotSupportedException(
+                $"GenericArgFullNames: MethodSpec arg count {argc} != genArgs.Length {genArgs.Length}");
+        }
         string?[] names = new string?[argc];
         var any = false;
         for (var i = 0; i < argc; i++)
         {
             var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            // B4-1: BYREF (0x10) / PTR (0x0F) dispatch on their ELEMENT in
+            // ReadParamByte, so the consumer-visible genArgs byte is the
+            // pointee's; consume with the same rule and compare against the
+            // producer's byte.
+            var canonical = b is 0x10 or 0x0F ? ReadParamByte(md, ref sig) : b;
             switch (b)
             {
                 case 0x11 or 0x12 or 0x40:
@@ -2448,6 +2461,22 @@ var userRecvLike = receiverType ?? arg0Type;
                     _ = sig.ReadCompressedInteger(); // VAR/MVAR: index follows
                     break;
             }
+            // B4-1: slot-parallel contract with the genArgs producer (both
+            // walk the same blob); a divergent byte means the consumer would
+            // index the wrong slot.
+            if (canonical != genArgs[i])
+            {
+                throw new NotSupportedException(
+                    $"GenericArgFullNames: slot {i} decodes 0x{canonical:X2} != genArgs 0x{genArgs[i]:X2} (name table / producer drift)");
+            }
+        }
+        // B4-1: both passes must consume the blob EXACTLY -- leftover bytes
+        // mean a type's trailing payload leaked and every later slot is
+        // suspect (the pre-fix silent-null behavior hid this).
+        if (sig.RemainingBytes != 0)
+        {
+            throw new NotSupportedException(
+                $"GenericArgFullNames: {sig.RemainingBytes} MethodSpec blob byte(s) unconsumed after {argc} generic argument(s)");
         }
         return any ? names.Select(n => n ?? "?").ToArray() : null;
     }

@@ -69,7 +69,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapLinq(MetadataReader md, BlobHandle sigHandle, string owner, string name,
-        byte[] ps, int count, byte[]? genArgs, string? receiverType, bool receiverIsAddress,
+        byte[] ps, int count, byte[]? genArgs, string[]? genArgNames, string? receiverType, bool receiverIsAddress,
         string? arg0Type, string? arg1Type)
     {
         // [0] the source array, [1] the predicate/selector delegate.
@@ -637,7 +637,14 @@ public static partial class MethodRefResolver
                 //   GroupBy<TSource,TKey,TElement,TResult>  -> genArgs[3] = TResult
                 // Everything is served by il2cpp_linq_group_by_full with the
                 // two family codes as trailing literals.
-                if (genArgs is not { Length: >= 2 } || genArgs[1] != 0x08)
+                // B4-1 (P0-04): the runtime bucket key is an int32 slot
+                // (linq_map.h:249/400), so EVERY integer key family that the
+                // model carries in an int32 slot is wireable -- the narrow
+                // primitives (0x02 bool .. 0x09 uint) AND long (0x0A), whose
+                // key selector callback returns its int64 value in the same
+                // register slot. Unsupported here: ulong (0x0B) and value
+                // types (0x11: decimal/DateTime/Guid) -- no key carrier.
+                if (genArgs is not { Length: >= 2 } || genArgs[1] is < 0x02 or > 0x0A)
                 {
                     string elemArgType = genArgs is { Length: >= 1 }
                         ? GenericArgTypeName(genArgs[0]) : "?";
@@ -645,8 +652,8 @@ public static partial class MethodRefResolver
                         ? GenericArgTypeName(genArgs[1]) : "?";
                     throw new NotSupportedException(
                         $"Enumerable.GroupBy<{elemArgType},{keyArgType}> not wired: " +
-                        "the stage-1 runtime grouping surface is int32 (0x08) " +
-                        "elements AND int32 (0x08) keys only -- the runtime buckets by int32 keys");
+                        "the stage-1 runtime grouping surface is int32 (0x08) elements AND an integer " +
+                        "key that rides the int32 bucket (0x02..0x0A) only -- the runtime buckets by int32 keys");
                 }
                 {
                     var gbParams = LinqEncodedParamTypes(md, sigHandle);
@@ -837,6 +844,10 @@ public static partial class MethodRefResolver
                         0x08 => "i4",
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "i4",
                         0x0A => "i8",
+                        // B4-1 (P0-06): ulong TAccumulate rides the SAME int64
+                        // accumulator slot as long (the value bit pattern is
+                        // width-identical; net48's ulong fold is unchecked).
+                        0x0B => "i8",
                         // nb9 fix P0-1: float is its OWN accumulator family.
                         // The old code folded 0x0C into "d", so the float
                         // return was read back as a double (upper 32 bits
@@ -852,6 +863,13 @@ public static partial class MethodRefResolver
                             $"Enumerable.Aggregate TAccumulate '{GenericArgTypeName(accByte)}' is not a supported accumulator family");
                     }
                     var srcFam = LinqElementFamily(genArgs, receiverType, arg0Type);
+                    // B4-1 (P0-06): a ulong accumulator is CARRIED as int64
+                    // (same width/bit pattern), so its tracked result type is
+                    // Int64 -- the raw UInt64 tracked type is not a known
+                    // value slot downstream (the root-clear pass cleared the
+                    // int64 temp as if it were a GC root). Values above
+                    // long.MaxValue keep their bit pattern but print signed.
+                    string? i8Track = accByte == 0x0B ? "System.Int64" : null;
                     if (count == 3)
                     {
                         return acc switch
@@ -860,9 +878,9 @@ public static partial class MethodRefResolver
                                 new[] { "a", "i", "" }),
                             "i8" => srcFam == "i8"
                                 ? I("il2cpp::il2cpp_linq_aggregate_seed_i8_i8", 3, true, false, false,
-                                    new[] { "a", "l", "" }, resultKind: "l")
+                                    new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track)
                                 : I("il2cpp::il2cpp_linq_aggregate_seed_i8", 3, true, false, false,
-                                    new[] { "a", "l", "" }, resultKind: "l"),
+                                    new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track),
                             "f" => srcFam is "f" or "d"
                                 ? I("il2cpp::il2cpp_linq_aggregate_seed_f_d", 3, true, false, false,
                                     new[] { "a", "d", "" }, resultKind: "d")
@@ -880,9 +898,10 @@ public static partial class MethodRefResolver
                                 3, true, true, false, new[] { "a", "", "" }),
                         };
                     }
-                    // count == 4: TResult decides the result carrier.
+                    // count == 4: TResult decides the result carrier. 0x0B
+                    // (ulong) rides the int64 carrier like 0x0A (B4-1/P0-06).
                     bool resRef = resByte is not (0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06
-                        or 0x07 or 0x09 or 0x0A or 0x0C or 0x0D);
+                        or 0x07 or 0x09 or 0x0A or 0x0B or 0x0C or 0x0D);
                     string seedCast = acc switch
                     {
                         "i4" => "i",
@@ -896,7 +915,7 @@ public static partial class MethodRefResolver
                     // the int32 projector, truncating long TResult and reading
                     // a float TResult's C++ float return as an integer.
                     string resSuffix = resRef ? "_rs_ref"
-                        : resByte == 0x0A ? "_rs_i8"
+                        : resByte is 0x0A or 0x0B ? "_rs_i8"
                         : resByte == 0x0C ? "_rs_f"
                         : resByte == 0x0D ? "_rs_d"
                         : "_rs_i4";
@@ -911,8 +930,9 @@ public static partial class MethodRefResolver
                     return I(cppBase + resSuffix, 4, true, resRef, false,
                         new[] { "a", seedCast, "", "" },
                         resultKind: resRef ? null
-                            : (resByte == 0x0A ? "l"
-                               : resByte is 0x0C or 0x0D ? "d" : null));
+                            : (resByte is 0x0A or 0x0B ? "l"
+                               : resByte is 0x0C or 0x0D ? "d" : null),
+                        returnTypeName: resByte == 0x0B ? "System.Int64" : null);
                 }
                 return null;
             case "LongCount":
