@@ -1,0 +1,2 @@
+﻿name,net48_ms,ilc_ms,ratio,net48_cv,ilc_cv,runs,verdict
+array,1097,2266,0.48,0.0856,0.0237,5,FAIL:ratio+cv
