@@ -150,6 +150,11 @@ Il2CppArray*  il2cpp_linq_select_wide(Il2CppArray* src, Il2CppObject* sel,
                                       int32_t kind, int32_t resKind);
 
 int64_t       il2cpp_linq_first_i8(Il2CppArray* src);
+// The float family shares the double RESULT ABI (a float parameter/return
+// crosses as double), so these return double like the _d entries; they stay
+// separate so the transpiler dispatches on the metadata family.
+double        il2cpp_linq_first_f(Il2CppArray* src);
+double        il2cpp_linq_first_or_default_f(Il2CppArray* src);
 int64_t       il2cpp_linq_first_or_default_i8(Il2CppArray* src);
 double        il2cpp_linq_first_d(Il2CppArray* src);
 double        il2cpp_linq_first_or_default_d(Il2CppArray* src);
@@ -157,11 +162,22 @@ int32_t       il2cpp_linq_first_narrow(Il2CppArray* src, int32_t elemKind);
 int32_t       il2cpp_linq_first_or_default_narrow(Il2CppArray* src, int32_t elemKind);
 
 int64_t       il2cpp_linq_last_i8(Il2CppArray* src);
+double        il2cpp_linq_last_f(Il2CppArray* src);
+double        il2cpp_linq_last_or_default_f(Il2CppArray* src);
 int64_t       il2cpp_linq_last_or_default_i8(Il2CppArray* src);
 double        il2cpp_linq_last_d(Il2CppArray* src);
 double        il2cpp_linq_last_or_default_d(Il2CppArray* src);
 int32_t       il2cpp_linq_last_narrow(Il2CppArray* src, int32_t elemKind);
 int32_t       il2cpp_linq_last_or_default_narrow(Il2CppArray* src, int32_t elemKind);
+
+// Zip over the WIDE / NARROW element families: pair the two sources to the
+// shorter length and project each pair through `sel`. `kind` selects the
+// element family of BOTH sources (and of the selector's element ABI):
+//   2 int64 / 3 float / 4 double / otherwise the narrow cell code
+//   (IL2CPP_LINQ_NARROW_*). The result is the selector's own return family
+// (the transpiler only emits this entry for an int32 or int64 projection).
+Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
+                                  Il2CppObject* sel, int32_t kind, int32_t resKind);
 
 // Sum on int32[]: CHECKED int32 addition -- an overflowing sum throws
 // OverflowException (net48 Enumerable.Sum is checked, D-LINQ-3); empty -> 0.

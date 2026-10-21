@@ -56,16 +56,24 @@ namespace il2cpp {
 // System.NotSupportedException.
 Il2CppArray* il2cpp_linq_order_by_i4(Il2CppArray* src, Il2CppObject* cmp);
 
-// Enumerable.OrderBy(object[]): stable order by 'cmp' over the reference
-// slots (Il2CppObject*), returned as a NEW reference array; the source is
-// never modified. Reference arrays only (isRefElem == true); the comparator
-// decides the null policy (null elements ARE passed to the callback, net48
-// OrderBy contract).
+// LOW-LEVEL comparison-ABI entry (NOT what Enumerable.OrderBy emits):
+// stable order by a 2-arg Comparison<T>-shaped delegate over the reference
+// slots (Il2CppObject*), returned as a NEW reference array; the source is never
+// modified. Reference arrays only (isRefElem == true); the comparator decides
+// the null policy (null elements ARE passed to the callback).
+//
+// Enumerable.OrderBy passes a 1-arg KEY SELECTOR, so the transpiler emits the
+// key-selector surface below (il2cpp_linq_order_by_key_ref_*), never this
+// entry. This one is the supported ABI for a caller that already HAS a
+// Comparison<T>; it is not dead, it is simply not on the Enumerable.OrderBy
+// path.
 Il2CppArray* il2cpp_linq_order_by_ref(Il2CppArray* src, Il2CppObject* cmp);
 
-// Enumerable.OrderBy(string[]): string-typed variant of il2cpp_linq_order_by_ref
-// (same ABI and stability contract; the caller supplies the string
-// comparator -- e.g. an ordinal comparison -- via the delegate).
+// String-typed variant of il2cpp_linq_order_by_ref: same ABI and stability
+// contract, kept for a caller whose comparison delegate is string-typed. Same
+// note as above -- the transpiler's Enumerable.OrderBy path uses the
+// key-selector surface, and a STRING KEY is rejected at transpile time (no
+// collation in this runtime).
 Il2CppArray* il2cpp_linq_order_by_string(Il2CppArray* src, Il2CppObject* cmp);
 
 // Enumerable.OrderBy(TSource[], Func<TSource,TKey>) -- the KEY-SELECTOR

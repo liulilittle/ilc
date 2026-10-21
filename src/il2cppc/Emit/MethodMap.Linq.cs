@@ -102,6 +102,18 @@ public static partial class MethodRefResolver
         if (name is "Sum" or "Min" or "Max" or "Average")
         {
             var aggRecv = srcType;
+            // A List<T> receiver is a LIST OBJECT, not an array: the
+            // source-only aggregates must go through the list domain. The old
+            // path emitted il2cpp_linq_sum_i4(reinterpret_cast<Il2CppArray*>
+            // (list)), reading the items pointer as an array header -> a wrong
+            // value or an index-out-of-range on a non-empty list.
+            var aggFam = LinqSourceFamily(genArgs, receiverType, count >= 2 ? arg1Type : arg0Type);
+            if (LinqListKind(srcType, genArgs, aggFam) is { } aggListKind)
+            {
+                var listAgg = TryMapLinqList(md, sigHandle, name, count, genArgs, aggListKind,
+                    aggFam, srcType, TwoArg, OneArg);
+                if (listAgg != null) return listAgg;
+            }
             if (aggRecv is "System.Linq.IGrouping" or "System.Linq.IGroupingResult")
             {
                 if (name == "Sum")
@@ -413,6 +425,12 @@ public static partial class MethodRefResolver
                             "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
                             "source is not wired (the runtime has no index key-selector entry)");
                     string keySuffix = LinqKeyFamilySuffix(genArgs[1]);
+                    if (genArgs[1] == 0x0E)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},System.String> not wired: " +
+                            "string key ordering requires culture-aware collation, which the runtime does not " +
+                            "implement (see docs/audit/b5-gaps.md); ordinal would silently misorder mixed-case " +
+                            "input (net48 Comparer<string>.Default sorts a before A)");
                     if (keySuffix.Length == 0)
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
@@ -909,13 +927,19 @@ public static partial class MethodRefResolver
                 // elements in reverse order (net48). Eager materialization.
                 return I("il2cpp::il2cpp_linq_reverse_i4", 1, true, true, false,
                     OneArg, returnTypeName: "System.Int32[]");
-            case "Last":
+            case "Last" when count < 2:
                 // Last() -> last_i4: the last element; empty ->
-                // InvalidOperationException. Last(source, predicate) is not
-                // wired in stage 1 (no runtime entry).
+                // InvalidOperationException.
                 return I("il2cpp::il2cpp_linq_last_i4", 1, true, false, false, OneArg);
-            case "LastOrDefault":
+            case "Last":
+                // Last(source, predicate): FORWARD full walk keeping the last
+                // match (net48 4.8 has no reverse optimization for this form,
+                // so the predicate runs once per element).
+                return I("il2cpp::il2cpp_linq_last_pred_i4", 2, true, false, false, TwoArg);
+            case "LastOrDefault" when count < 2:
                 return I("il2cpp::il2cpp_linq_last_or_default_i4", 1, true, false, false, OneArg);
+            case "LastOrDefault":
+                return I("il2cpp::il2cpp_linq_last_or_default_pred_i4", 2, true, false, false, TwoArg);
             case "ElementAt":
                 // ElementAt(source, index) -> il2cpp_linq_element_at_i4.
                 // index < 0 or >= length -> ArgumentOutOfRangeException.
@@ -1509,8 +1533,21 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_list_except", 2, true, true, false,
                     new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Zip":
+            {
+                // The selector's TResult family decides the result array (a
+                // double/float projection must not be written as int32).
+                byte tRes = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
+                string resKind = tRes switch
+                {
+                    0x0A or 0x0B => "2",
+                    0x0C => "3",
+                    0x0D => "4",
+                    _ => "0",
+                };
                 return I("il2cpp::il2cpp_linq_list_zip", 3, true, true, false,
-                    new[] { "", "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
+                    appendLiterals: new[] { K, resKind });
+            }
             case "SequenceEqual":
                 return I("il2cpp::il2cpp_linq_list_sequence_equal", 2, true, false, false,
                     new[] { "", "" }, appendLiterals: new[] { K });
@@ -1536,6 +1573,12 @@ public static partial class MethodRefResolver
                         "(the list key-selector surface covers int32 and reference elements)");
                 if (genArgs is not { Length: >= 2 })
                     return null;
+                if (genArgs[1] == 0x0E)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},System.String> over a List not wired: " +
+                        "string key ordering requires culture-aware collation, which the runtime does not " +
+                        "implement (see docs/audit/b5-gaps.md); ordinal would silently misorder mixed-case " +
+                        "input (net48 Comparer<string>.Default sorts a before A)");
                 string keySuffix = LinqKeyFamilySuffix(genArgs[1]);
                 if (keySuffix.Length == 0)
                     throw new NotSupportedException(

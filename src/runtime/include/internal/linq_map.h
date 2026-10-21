@@ -140,6 +140,12 @@ Il2CppObject* il2cpp_linq_last_pred_ref(Il2CppArray* src, Il2CppObject* pred);
 // throws for those). Same walk direction and callback ABI as last_pred_ref.
 Il2CppObject* il2cpp_linq_last_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred);
 
+// Last(predicate) / LastOrDefault(predicate) over the int32 family: FORWARD
+// full walk keeping the last match (net48 4.8 has no reverse optimization for
+// the predicate form, so the predicate runs once per element).
+int32_t il2cpp_linq_last_pred_i4(Il2CppArray* src, Il2CppObject* pred);
+int32_t il2cpp_linq_last_or_default_pred_i4(Il2CppArray* src, Il2CppObject* pred);
+
 // Take -- the first `count` elements (net48 semantics, probe-verified):
 //   count <= 0      -> an EMPTY int32[] (net48's deferred TakeIterator only
 //                      walks while `count > 0`, so a NEGATIVE count yields an

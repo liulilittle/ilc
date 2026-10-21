@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <vector>
 
 namespace il2cpp {
@@ -73,10 +74,11 @@ public:
         {
             m_slots.push_back(slot);
         }
-        catch (...)
+        catch (const std::bad_alloc&)
         {
-            il2cpp_throw_not_supported_exception(
-                "LINQ over List<T>: out of memory while rooting GC references");
+            il2cpp_throw_new(
+                "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                "Insufficient memory to continue the execution of the program.");
         }
         il2cpp_gc_add_static_root(slot);
     }
@@ -162,6 +164,35 @@ void CopyElem(Il2CppArray* dst, int32_t di, Il2CppArray* src, int32_t si)
 {
     std::memcpy(il2cpp_array_get_elem_ptr(dst, di), il2cpp_array_get_elem_ptr(src, si),
                 static_cast<size_t>(src->elemSize));
+}
+
+// The il2cpp_array_new_typed element kind for a LIST element family (1 int32,
+// 2 int64, 3 single, 4 double, 5 uint32). Without it the materialized array
+// carries elemKind 0, so an 8-byte cell is ambiguous and the non-generic array
+// scans (string.Join, the element-kind Array gates) read a double as int64 --
+// printing the raw IEEE754 bit pattern. Narrow families (1/2/4-byte cells) are
+// unambiguous from elemSize and keep kind 0.
+int32_t ValueElemKindFor(int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I4:   return 1;
+        case IL2CPP_LIST_KIND_I8:   return 2;
+        case IL2CPP_LIST_KIND_F:    return 3;
+        case IL2CPP_LIST_KIND_D:    return 4;
+        case IL2CPP_LIST_KIND_UINT: return 5;
+        default:                    return 0; // narrow families
+    }
+}
+
+// Materialize an output array with the SOURCE array's element layout AND the
+// source family's element kind. A reference array keeps the plain allocation
+// (it needs elemClass/isRefElem, not a primitive kind).
+Il2CppArray* AllocElemArray(Il2CppArray* proto, int32_t kind, int32_t length)
+{
+    if (proto->isRefElem)
+        return il2cpp_array_new(nullptr, proto->elemSize, true, length);
+    return il2cpp_array_new_typed(proto->elemSize, ValueElemKindFor(kind), length);
 }
 
 //------------------------------------------------------------------------------
@@ -402,7 +433,7 @@ Il2CppArray* il2cpp_linq_list_where(Il2CppObject* list, Il2CppObject* pred, int3
     if (kind == IL2CPP_LIST_KIND_I4) return il2cpp_linq_where_i4(snap, pred);
     if (kind == IL2CPP_LIST_KIND_REF) return il2cpp_linq_where_ref(snap, pred);
 
-    Il2CppArray* scratch = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, snap->length);
+    Il2CppArray* scratch = AllocElemArray(snap, kind, snap->length);
     roots.Add(reinterpret_cast<void**>(&scratch));
     int32_t w = 0;
     for (int32_t i = 0; i < snap->length; ++i)
@@ -412,7 +443,7 @@ Il2CppArray* il2cpp_linq_list_where(Il2CppObject* list, Il2CppObject* pred, int3
         ++w;
     }
     if (w == snap->length) return scratch;
-    Il2CppArray* out = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, w);
+    Il2CppArray* out = AllocElemArray(snap, kind, w);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < w; ++i) CopyElem(out, i, scratch, i);
     return out;
@@ -953,7 +984,7 @@ Il2CppArray* il2cpp_linq_list_reverse(Il2CppObject* list, int32_t kind)
     Il2CppArray* snap = SnapshotOf(list, kind);
     roots.Add(reinterpret_cast<void**>(&snap));
     if (kind == IL2CPP_LIST_KIND_I4) return il2cpp_linq_reverse_i4(snap);
-    Il2CppArray* out = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, snap->length);
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < snap->length; ++i)
     {
@@ -969,7 +1000,7 @@ Il2CppArray* il2cpp_linq_list_default_if_empty(Il2CppObject* list, int32_t kind)
     if (snap->length != 0) return snap;
     if (kind == IL2CPP_LIST_KIND_I4) return il2cpp_linq_default_if_empty_i4(snap);
     // One-element array holding the family default (zeroed storage).
-    return il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, 1);
+    return AllocElemArray(snap, kind, 1);
 }
 
 //------------------------------------------------------------------------------
@@ -985,7 +1016,7 @@ Il2CppArray* il2cpp_linq_list_take(Il2CppObject* list, int32_t count, int32_t ki
     if (kind == IL2CPP_LIST_KIND_I4) return il2cpp_linq_take_i4(snap, count);
     // net48 Take: count <= 0 -> empty, count >= length -> full copy.
     const int32_t n = count <= 0 ? 0 : (count >= snap->length ? snap->length : count);
-    Il2CppArray* out = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, n);
+    Il2CppArray* out = AllocElemArray(snap, kind, n);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < n; ++i) CopyElem(out, i, snap, i);
     return out;
@@ -1002,7 +1033,7 @@ Il2CppArray* il2cpp_linq_list_skip(Il2CppObject* list, int32_t count, int32_t ki
     // net48 Skip: count <= 0 -> full copy, count >= length -> empty.
     const int32_t start = count <= 0 ? 0 : (count >= snap->length ? snap->length : count);
     const int32_t n = snap->length - start;
-    Il2CppArray* out = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, n);
+    Il2CppArray* out = AllocElemArray(snap, kind, n);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < n; ++i) CopyElem(out, i, snap, start + i);
     return out;
@@ -1019,7 +1050,7 @@ Il2CppArray* il2cpp_linq_list_take_while(Il2CppObject* list, Il2CppObject* pred,
     if (kind == IL2CPP_LIST_KIND_I4) return il2cpp_linq_take_while_i4(snap, pred);
     int32_t w = 0;
     while (w < snap->length && PredicateOn(d, snap, w, kind)) ++w;
-    Il2CppArray* out = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, w);
+    Il2CppArray* out = AllocElemArray(snap, kind, w);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < w; ++i) CopyElem(out, i, snap, i);
     return out;
@@ -1037,7 +1068,7 @@ Il2CppArray* il2cpp_linq_list_skip_while(Il2CppObject* list, Il2CppObject* pred,
     int32_t start = 0;
     while (start < snap->length && PredicateOn(d, snap, start, kind)) ++start;
     const int32_t n = snap->length - start;
-    Il2CppArray* out = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, n);
+    Il2CppArray* out = AllocElemArray(snap, kind, n);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < n; ++i) CopyElem(out, i, snap, start + i);
     return out;
@@ -1064,7 +1095,7 @@ Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, i
         return il2cpp_linq_concat_i4(a, b);
     }
     const int32_t bn = b != nullptr ? b->length : 0;
-    Il2CppArray* out = il2cpp_array_new(nullptr, a->elemSize, a->isRefElem, a->length + bn);
+    Il2CppArray* out = AllocElemArray(a, kind, a->length + bn);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < a->length; ++i) CopyElem(out, i, a, i);
     for (int32_t i = 0; i < bn; ++i) CopyElem(out, a->length + i, b, i);
@@ -1082,7 +1113,7 @@ Il2CppArray* il2cpp_linq_list_distinct(Il2CppObject* list, int32_t kind)
     Il2CppArray* snap = SnapshotOf(list, kind);
     roots.Add(reinterpret_cast<void**>(&snap));
     if (kind == IL2CPP_LIST_KIND_I4) return il2cpp_linq_distinct_i4(snap);
-    Il2CppArray* out = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, snap->length);
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length);
     roots.Add(reinterpret_cast<void**>(&out));
     int32_t w = 0;
     for (int32_t i = 0; i < snap->length; ++i)
@@ -1094,7 +1125,7 @@ Il2CppArray* il2cpp_linq_list_distinct(Il2CppObject* list, int32_t kind)
         ++w;
     }
     if (w == snap->length) return out;
-    Il2CppArray* exact = il2cpp_array_new(nullptr, snap->elemSize, snap->isRefElem, w);
+    Il2CppArray* exact = AllocElemArray(snap, kind, w);
     roots.Add(reinterpret_cast<void**>(&exact));
     for (int32_t i = 0; i < w; ++i) CopyElem(exact, i, out, i);
     return exact;
@@ -1118,7 +1149,7 @@ Il2CppArray* il2cpp_linq_list_except(Il2CppObject* list, Il2CppObject* second, i
     {
         return il2cpp_linq_except_i4(a, b);
     }
-    Il2CppArray* out = il2cpp_array_new(nullptr, a->elemSize, a->isRefElem, a->length);
+    Il2CppArray* out = AllocElemArray(a, kind, a->length);
     roots.Add(reinterpret_cast<void**>(&out));
     int32_t w = 0;
     for (int32_t i = 0; i < a->length; ++i)
@@ -1134,14 +1165,14 @@ Il2CppArray* il2cpp_linq_list_except(Il2CppObject* list, Il2CppObject* second, i
         ++w;
     }
     if (w == a->length) return out;
-    Il2CppArray* exact = il2cpp_array_new(nullptr, a->elemSize, a->isRefElem, w);
+    Il2CppArray* exact = AllocElemArray(a, kind, w);
     roots.Add(reinterpret_cast<void**>(&exact));
     for (int32_t i = 0; i < w; ++i) CopyElem(exact, i, out, i);
     return exact;
 }
 
 Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
-                                  Il2CppObject* sel, int32_t kind)
+                                  Il2CppObject* sel, int32_t kind, int32_t resKind)
 {
     RequireList(list);
     Il2CppDelegate* d = RequireCallback(sel, "selector");
@@ -1161,14 +1192,11 @@ Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
     {
         return il2cpp_linq_zip_i4(a, b, sel);
     }
-    if (kind != IL2CPP_LIST_KIND_REF)
+    if (kind == IL2CPP_LIST_KIND_REF)
     {
-        il2cpp_throw_not_supported_exception(
-            "Zip over a List of a non-int32/non-reference element family is not wired.");
-    }
-    // Reference family: pair to the shorter length, result is a reference.
-    const int32_t n = a->length < b->length ? a->length : b->length;
-    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
+        // Reference family: pair to the shorter length, result is a reference.
+        const int32_t n = a->length < b->length ? a->length : b->length;
+        Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
     roots.Add(reinterpret_cast<void**>(&out));
     for (int32_t i = 0; i < n; ++i)
     {
@@ -1179,7 +1207,15 @@ Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
         il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
         *slot = r;
     }
-    return out;
+        return out;
+    }
+
+    // The WIDE families (int64/float/double) and the narrow families: pair to
+    // the shorter length and run the array zip on the two snapshots (the array
+    // entry owns the per-family ABI and the result layout/kind).
+    (void)d;
+    (void)roots;
+    return il2cpp_linq_zip_wide(a, b, sel, kind, resKind);
 }
 
 bool il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* second, int32_t kind)

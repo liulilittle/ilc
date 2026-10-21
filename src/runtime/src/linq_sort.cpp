@@ -48,6 +48,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <vector>
 
 namespace il2cpp {
@@ -159,10 +160,11 @@ public:
         {
             m_slots.push_back(slot);
         }
-        catch (...)
+        catch (const std::bad_alloc&)
         {
-            il2cpp_throw_not_supported_exception(
-                "LINQ ordering: out of memory while rooting GC references");
+            il2cpp_throw_new(
+                "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                "Insufficient memory to continue the execution of the program.");
         }
         il2cpp_gc_add_static_root(slot);
     }
@@ -714,9 +716,15 @@ Il2CppArray* SortRefsKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc
     return result;
 }
 
-// Ordering of two reference KEYS: strings compare ORDINAL (Comparer<string>
-// .Default); any other reference type defers to IComparable.CompareTo on the
-// first key (Comparer<T>.Default), null-first.
+// Ordering of two reference KEYS. A string key NEVER reaches here: the
+// transpiler rejects `OrderBy(x => stringKey)` with NotSupportedException
+// because net48's Comparer<string>.Default is culture-aware and this runtime
+// has no collation (see .opencode/tmp/b5-gaps.md section 2). The ordinal branch
+// below is therefore defensive only -- it exists so a hand-written C++ caller
+// cannot crash, not to define .NET ordering semantics.
+//
+// Every other reference type defers to IComparable.CompareTo on the first key
+// (Comparer<T>.Default), null-first.
 int32_t CompareRefKeys(Il2CppObject* a, Il2CppObject* b)
 {
     if (a == b) return 0;

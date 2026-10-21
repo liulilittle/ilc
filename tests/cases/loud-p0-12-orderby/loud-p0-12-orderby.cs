@@ -56,13 +56,14 @@ namespace Cases
             Console.WriteLine("[orderby-str]=" + Join(words.OrderBy(key).ToArray()));
             Console.WriteLine("[orderby-str-src-unchanged]=" + Join(words));
 
-            // A key selector that returns the element itself (string key).
-            // NOTE: single-case inputs only -- net48 Comparer<string>.Default is
-            // CULTURE-sensitive (it sorts "a" before "A"); this runtime's string
-            // ordering is ordinal (the documented ASCII-domain deviation, see
-            // .opencode/tmp/b5-gaps.md).
-            string[] mixed = { "d", "b", "a", "c" };
-            Console.WriteLine("[orderby-str-self]=" + Join(mixed.OrderBy(self).ToArray()));
+            // A STRING key is rejected at TRANSPILE time (net48's
+            // Comparer<string>.Default is culture-aware; the runtime has no
+            // collation, so an ordinal sort would silently misorder mixed-case
+            // input). The LOUD contract for string keys is covered by
+            // tests/cases/loud-p0-14-strkey-loud. See b5-gaps.md.
+            // NOTE: `self` (Func<string,string>) is deliberately NOT used as a
+            // key selector here -- that shape is the rejected one.
+            Console.WriteLine("[orderby-str-self-skipped]=" + (self != null));
 
             Console.WriteLine("[orderby-str-stable]=" +
                 Join(new string[] { "bb", "aa", "cc", "dd" }.OrderBy(key).ToArray()));

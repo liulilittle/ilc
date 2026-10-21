@@ -158,7 +158,7 @@ Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, i
 Il2CppArray* il2cpp_linq_list_distinct(Il2CppObject* list, int32_t kind);
 Il2CppArray* il2cpp_linq_list_except(Il2CppObject* list, Il2CppObject* second, int32_t kind);
 Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
-                                  Il2CppObject* sel, int32_t kind);
+                                  Il2CppObject* sel, int32_t kind, int32_t resKind);
 bool        il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* second, int32_t kind);
 
 // Ordering over a REFERENCE-element list (List<string>/List<object>/...): the
