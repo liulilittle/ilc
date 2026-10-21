@@ -2421,7 +2421,7 @@ public static class StackFold
                     $"InitializeArray at offset 0x{ins.Offset:X4}: non-positive array length {count1D} in the initializer pattern");
             var count = count1D;
             var elemName = TypeFullNameFromToken(md, elemToken);
-            var width = ElementWidth(elemName);
+            var width = RvaElementWidth(elemName);
             if (width == null)
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} not supported (the array-initializer fold supports byte/sbyte/bool, char/short, int/uint/float, long/ulong/double)");
@@ -4650,13 +4650,19 @@ public static class StackFold
             "System.Int16" or "System.UInt16" or "System.Char" => 2,
             "System.Int32" or "System.UInt32" or "System.Single" => 4,
             "System.Int64" or "System.UInt64" or "System.Double" => 8,
-            // LOUD P0-02/03: the BCL value-element widths. DateTime/TimeSpan
-            // are the CLR 8-byte image; Guid/Decimal are 16-byte values (the
-            // RVA initializer fold slices a full 16-byte element -- never two
-            // 8-byte halves).
+            _ => null,
+        };
+
+        // LOUD P0-02/03: the RVA-initializer element widths. These are the CLR
+        // array-cell strides (DateTime/TimeSpan 8, Guid/Decimal 16) that the
+        // InitializeArray fold must slice per element; kept SEPARATE from
+        // ElementWidth so `sizeof <T>` keeps its existing fold shape (the
+        // runtime struct size is emitted by the sizeof_{token} arm).
+        static int? RvaElementWidth(string typeName) => typeName switch
+        {
             "System.DateTime" or "System.TimeSpan" => 8,
             "System.Guid" or "System.Decimal" => 16,
-            _ => null,
+            _ => ElementWidth(typeName),
         };
 
         // IL gap batch b23: the temp width of an ldind.* read. int32-width

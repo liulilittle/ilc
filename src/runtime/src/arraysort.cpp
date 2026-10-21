@@ -190,6 +190,21 @@ Il2CppArray* RequireValueArraySort(Il2CppArray* arr, int32_t elemSize)
     return arr;
 }
 
+// LOUD P0-01 follow-up (audit B, bool + IComparer probe): the element-kind
+// driven sorts/searches read 4- and 8-byte value cells only. Reject any other
+// stride at the ENTRY POINT (the DotNetException -> InvalidOperationException
+// wrapper inside the sort bodies would otherwise hide the precise message).
+// Reference arrays and 4/8-byte value arrays pass.
+void RequireAnySortableStride(const Il2CppArray* a)
+{
+    if (a->isRefElem || a->elemKind != 0) return;
+    if (a->elemSize == 4 || a->elemSize == 8) return;
+    il2cpp_throw_not_supported_exception(
+        "Array.Sort/IndexOf/BinarySearch over a value-element array is "
+        "supported only for 4-byte (int32/uint32/single) or 8-byte "
+        "(int64/uint64/double) elements; this array's element stride is "
+        "neither (bool[]/char[]/decimal[]/Guid[] are not sortable here).");
+}
 //------------------------------------------------------------------------------
 // RequireRefArraySort -- reference-array-only domain contract (string /
 // object sorts and searches). The elements are Il2CppObject* slots; the
@@ -3394,6 +3409,7 @@ int32_t il2cpp_array_index_of_any_start(Il2CppArray* arr, Il2CppObject* value,
 {
     Il2CppArray* a = RequireArraySort(arr);
     ValidateIndexOfStartIndex(a, startIndex);
+    RequireAnySortableStride(a);
     for (int32_t i = startIndex; i < a->length; ++i)
     {
         if (AnyElementEquals(a, i, value)) return i;
@@ -3406,6 +3422,7 @@ int32_t il2cpp_array_index_of_any_range(Il2CppArray* arr, Il2CppObject* value,
 {
     Il2CppArray* a = RequireArraySort(arr);
     ValidateIndexOfRange(a, startIndex, count);
+    RequireAnySortableStride(a);
     const int32_t end = startIndex + count;
     for (int32_t i = startIndex; i < end; ++i)
     {
@@ -3623,7 +3640,23 @@ int32_t ReadAnyCompareKind(const Il2CppArray* a)
 {
     if (a->isRefElem) return 0;
     if (a->elemKind != 0) return a->elemKind;
-    return a->elemSize == 8 ? 2 : 1; // fallback: int64 for 8-byte, int32 for 4
+    // LOUD P0-01 follow-up (audit B, bool + IComparer probe): the old
+    // fallback guessed "int32 for anything that is not 8 bytes", so a 1-byte
+    // Boolean[] cell (also a 2-byte char[] or a 16-byte Decimal[]/Guid[]) was
+    // dereferenced as int32_t. Array.Sort((Array)bool[]) then produced a WRONG
+    // order instead of failing. These element-kind scans only know 4- and
+    // 8-byte cells, so any other stride is rejected loudly (net48 sorts
+    // bool[]/char[]; this runtime has no 1/2-byte kind yet -- a recorded gap,
+    // never silent corruption).
+    if (a->elemSize != 4 && a->elemSize != 8)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Array.Sort/IndexOf/BinarySearch over a value-element array is "
+            "supported only for 4-byte (int32/uint32/single) or 8-byte "
+            "(int64/uint64/double) elements; this array's element stride is "
+            "neither (bool[]/char[]/decimal[]/Guid[] are not sortable here).");
+    }
+    return a->elemSize == 8 ? 2 : 1;
 }
 
 void SwapValueCells(Il2CppArray* a, int32_t i, int32_t j)
@@ -3851,6 +3884,7 @@ void QuickSortKeyPairs(Il2CppArray** keys, Il2CppArray** items, int32_t lo, int3
 void il2cpp_array_sort_any(Il2CppArray* arr)
 {
     Il2CppArray* a = RequireArraySort(arr);
+    RequireAnySortableStride(a);
     RootScopeSort roots;
     roots.Add(reinterpret_cast<void**>(&a));
     if (a->length > 1)
@@ -3871,6 +3905,7 @@ void il2cpp_array_sort_any_range_icomparer(Il2CppArray* arr, int32_t index,
 {
     Il2CppArray* a = RequireArraySort(arr);
     RequireRangeSort(a, index, length);
+    RequireAnySortableStride(a);
     RootScopeSort roots;
     roots.Add(reinterpret_cast<void**>(&a));
     roots.Add(reinterpret_cast<void**>(&comparer));
@@ -3892,6 +3927,7 @@ void il2cpp_array_sort_any_range(Il2CppArray* arr, int32_t index, int32_t length
 {
     Il2CppArray* a = RequireArraySort(arr);
     RequireRangeSort(a, index, length);
+    RequireAnySortableStride(a);
     RootScopeSort roots;
     roots.Add(reinterpret_cast<void**>(&a));
     if (length > 1)
@@ -3911,6 +3947,7 @@ void il2cpp_array_sort_keys_items(Il2CppArray* keys, Il2CppArray* items,
                                   Il2CppObject* comparer)
 {
     Il2CppArray* k = RequireArraySort(keys);
+    RequireAnySortableStride(k);
     if (items == nullptr)
     {
         il2cpp_throw_argument_null_exception("items");
@@ -3948,6 +3985,7 @@ void il2cpp_array_sort_keys_items_range(Il2CppArray* keys, Il2CppArray* items,
                                         Il2CppObject* comparer)
 {
     Il2CppArray* k = RequireArraySort(keys);
+    RequireAnySortableStride(k);
     if (items == nullptr)
     {
         il2cpp_throw_argument_null_exception("items");

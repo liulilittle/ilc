@@ -9377,6 +9377,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "System.TimeSpan" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>({ldobjAddr}))",
                 "System.DateTimeOffset" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTimeOffset*>({ldobjAddr}))",
                 "System.Numerics.BigInteger" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppBigInteger*>({ldobjAddr}))",
+                // LOUD P0-02 follow-up (audit A ②): System.Guid has NO wrapper
+                // struct -- its value form is a raw uint8_t[16] slot whose
+                // copies are memcpy (the "guid" loc kind). `ldobj System.Guid`
+                // has no value expression in this model (an array assignment
+                // would need a non-assignable C++ array), so reject it with a
+                // precise message instead of emitting the undeclared
+                // `System_Guid` type name.
+                "System.Guid" => throw new NotSupportedException(
+                    "ldobj System.Guid not wired: a Guid value is a uint8_t[16] slot (memcpy discipline, the guid.h ABI), not a C++ struct -- there is no value expression for it (use ldelema/stelem or the Guid icalls)"),
                 _ => $"(*reinterpret_cast<{TypeCppName(ldobjName)}*>({ldobjAddr}))",
             };
         }

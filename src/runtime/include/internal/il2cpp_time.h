@@ -2,15 +2,18 @@
 //------------------------------------------------------------------------------
 // il2cpp_time.h -- System.DateTime / System.TimeSpan runtime support.
 //
-// DateTime is a .NET VALUE type. This runtime represents it as a plain 64-bit
-// tick count (100 ns units since 0001-01-01T00:00:00), exactly matching the
-// managed layout (the managed struct is { long ticks } -- blittable):
+// DateTime is a .NET VALUE type. This runtime keeps the tick count (100 ns
+// units since 0001-01-01T00:00:00) in a dedicated field plus the
+// DateTimeKind, so the struct is NOT the raw managed image -- the managed
+// 8-byte array image packs the 2-bit kind into the TOP bits of the same
+// 64-bit word (see the DateTime[] element helpers below):
 //
-//   struct Il2CppDateTime { int64_t ticks; };   // ticks since 0001-01-01
+//   struct Il2CppDateTime { int64_t ticks; int32_t kind; };
 //   struct Il2CppTimeSpan { int64_t ticks; };   // signed 100 ns units
 //
-// Both are 8-byte values passed BY VALUE (one register/stack slot on x64,
-// identical to the managed value-type ABI; no heap, no GC involvement).
+// Both are passed BY VALUE (the managed value-type ABI: one register/stack
+// slot for TimeSpan; DateTime rides two eightbyte slots because of the extra
+// kind member; no heap, no GC involvement).
 //
 // The icall set mirrors the transpiler's BCL mapping for System.DateTime /
 // System.TimeSpan: clock accessors (Now / UtcNow), construction, component
