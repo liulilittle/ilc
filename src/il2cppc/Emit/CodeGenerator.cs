@@ -14,7 +14,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // consumes the SAME pool the emitter used (D1 single writer -- the pool
 // built by Generate's in-loop fold->collect; ScanAssembly is a separate
 // diagnostic API and never feeds emission).
-public sealed record GenerateResult(StringPool Pool, int Folded, int Methods);
+public sealed record GenerateResult(StringPool Pool, int Folded, int Methods, IReadOnlyList<string> NotTranspiled);
 
 public static class CodeGenerator
 {
@@ -904,7 +904,11 @@ public static class CodeGenerator
         // Task 7: virtual-slot planning pass -- computes every type's vtable
         // (base-first slots, override replacement) BEFORE any emission so the
         // descriptor/vtable/body generation all see the final slot layout.
-        VTablePlanner.PlanAll(types);
+        // B0 (audit B-2/A-8): the vtable planner's unresolved interface slots
+        // are a silent skip; seed the report with them before any method is
+        // emitted. The list is RETURNED (not ambient static state), so parallel
+        // Generate runs cannot observe each other's entries.
+        var notTranspiled = VTablePlanner.PlanAll(types);
 
         // GN-N5: resolve C++-name collisions AFTER all clones are created
         // (Sanitize maps '.' and '_' both to '_', so e.g. "Cases.A_B" and the
@@ -1142,6 +1146,33 @@ public static class CodeGenerator
             generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
         }
 
+        // B0 (audit A-2/A-7): one report line per METHOD IDENTITY, deduped by
+        // the metadata token (not by "Type::Method" text -- overloads share
+        // that). Arg count + token distinguish overloads. A NESTED type prints
+        // its declaring chain ("Outer+Inner"): its model FullName is the SHORT
+        // name (that is what every reference point resolves), so the bare name
+        // would merge O1+Inner and O2+Inner into one entry.
+        var stubKeys = new HashSet<string>(StringComparer.Ordinal);
+        string StubOwnerName(TypeDef tt) =>
+            tt.IsNested && tt.DeclaringTypeName.Length > 0
+                ? tt.DeclaringTypeName + "+" + tt.Name
+                : tt.FullName;
+        // argc = the C++ argument count (parameters PLUS the hidden `this` for
+        // an instance method) -- the same number MethodBodyReader reports as
+        // ArgCount. One definition for every report row, so a stub and a
+        // body-read failure of the same method agree.
+        int StubArgCount(MethodDef mm, int? bodyArgCount) =>
+            bodyArgCount ?? (mm.ParamCount + (mm.IsStatic ? 0 : 1));
+        string StubReportLine(TypeDef tt, MethodDef mm, int? bodyArgCount, string? reason)
+        {
+            // Token from the OWNER-AWARE handle lookup: for a nested type the
+            // model FullName is the short name, so a plain name compare would
+            // never match (token 0) and O1+Inner/O2+Inner would collide.
+            var token = FindMethodHandle(md, mm) is { } h ? MetadataTokens.GetToken(h) : 0;
+            var line = $"{StubOwnerName(tt)}::{mm.Name}/{StubArgCount(mm, bodyArgCount)}#0x{token:X8}";
+            return reason == null ? line : line + $" skip-reason={reason}";
+        }
+
         // G6 skip-stub: a fold-rejected body would otherwise leave `entry.cpp`
         // and the typeinfo table referencing a symbol that is never defined
         // ("use of undeclared identifier" -- caudit2/dtaudit2). Emit a typed
@@ -1153,7 +1184,15 @@ public static class CodeGenerator
             var cppMethodName = MethodCppName(t, m);
             var paramNames = Enumerable.Range(0, info.ArgCount).Select(i => $"arg{i}").ToArray();
             var paramTypes = ParamTypesCpp(m, info);
-            var body = "    il2cpp_throw_new(\"System.NotSupportedException,System.Exception\", " +
+            var stubId = $"{t.FullName}::{m.Name}";
+            var reportLine = StubReportLine(t, m, info.ArgCount, null);
+            if (stubKeys.Add(reportLine)) notTranspiled.Add(reportLine);
+            // B0: a runtime-visible diagnostic BEFORE the managed throw -- the
+            // throw reaches the managed handler (or aborts), while stderr is
+            // the only trace that survives everywhere. std::fprintf needs
+            // <cstdio>, included in every emitted TU below.
+            var body = $"    std::fprintf(stderr, \"il2cpp: not transpiled: {EscapeC(stubId)}\\n\");\n" +
+                       "    il2cpp_throw_new(\"System.NotSupportedException,System.Exception\", " +
                        $"\"this method was not transpiled (M5 mapping gap): {t.FullName}::{m.Name} -- see the transpile log\");\n";
             if (ret != "void")
                 body += "    return {}; // unreachable (the throw above never returns)\n";
@@ -1192,6 +1231,8 @@ public static class CodeGenerator
             w.Line();
             // Method declarations all go in generated.h: cross-method/cross-type forward references (Main emitted before Add can still see Add's declaration).
             w.Line("#include \"generated.h\"");
+            // B0: NOT TRANSPILED stubs print their identity to stderr (std::fprintf).
+            w.Line("#include <cstdio>");
             w.Line();
 
             // Static-constructor guard (Task 6, beforefieldinit lazy semantics): the type's first use
@@ -1549,7 +1590,18 @@ public static class CodeGenerator
                 }
                 MethodBodyInfo bodyInfo;
                 try { bodyInfo = MethodBodyReader.Read(pe, md, t, m); }
-                catch (Exception) { Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped (no stub: no body info for the signature)"); continue; }
+                catch (Exception)
+                {
+                    Console.Error.WriteLine($"warning: method body read failed for {t.FullName}::{m.Name} -> skipped (no stub: no body info for the signature)");
+                    // B0 (audit B-2): a silent skip would make an empty stub
+                    // report look clean. Record the reason.
+                    var skipLine = StubReportLine(t, m, null, "body-read-failed");
+                    if (stubKeys.Add(skipLine)) notTranspiled.Add(skipLine);
+                    continue;
+                }
+                // Accessor bodies are folded into the property/event accessor
+                // path by design (not a stub, not a gap); documented as a
+                // non-entry in --help's blind-spot list.
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
                 var managedRetStruct = ManagedReturnStructName(md, m);
@@ -1950,7 +2002,7 @@ public static class CodeGenerator
         EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath),
             PointerSize, options?.TargetArch);
         EmitCmake(outDir, allSrc, assemblyPath, types, options);
-        return new GenerateResult(_pool, foldedCount, methodCount);
+        return new GenerateResult(_pool, foldedCount, methodCount, notTranspiled);
     }
 
     // IR->C++ statement emission. body is emitted one indent level deep (end-of-line comments align
@@ -8205,7 +8257,11 @@ default: return false;                           // primitives/VAR(handled by ca
         foreach (var tdh in md.TypeDefinitions)
         {
             var td = md.GetTypeDefinition(tdh);
-            if (md.GetFullName(tdh) != m.Owner.FullName) continue;
+            // B0 (audit A-7): a NESTED type's model FullName is the SHORT name
+            // ("Inner"), while metadata renders "O1+Inner" -- a bare equality
+            // test never matched, so every nested method resolved to token 0
+            // and O1+Inner / O2+Inner collapsed onto one report row.
+            if (!m.Owner.MatchesFullName(md.GetFullName(tdh))) continue;
             foreach (var mh in td.GetMethods())
             {
                 var mi = md.GetMethodDefinition(mh);

@@ -158,6 +158,7 @@ public static class Program
             if (opts.Quiet)
                 Console.SetOut(TextWriter.Null);
 
+            var stubReportWritten = false;
             try
             {
                 var types = MetadataLoader.LoadAssembly(opts.InputAssembly);
@@ -192,11 +193,32 @@ public static class Program
                 WriteLicmReport(types, opts.InputAssembly);
                 WriteInlineReport(types, opts.InputAssembly);
                 WriteTempSlotReport(types, opts.InputAssembly);
+                // B0: the stub surface is reported BEFORE the exit decision.
+                // The report is written on both the default (exit 0) and the
+                // --strict-stubs (exit 3) path; only --strict-stubs changes
+                // the exit code (defaults MUST stay 0 for difftest.ps1).
+                var reportOk = true;
+                if (!string.IsNullOrEmpty(opts.StubReportPath))
+                {
+                    stubReportWritten = true;
+                    reportOk = WriteStubReport(opts.StubReportPath, result.NotTranspiled);
+                }
+                WriteStubDiagnostics(result.NotTranspiled, opts.StrictStubs);
                 Console.WriteLine($"generated {types.Count} type(s) -> {opts.OutputDir}");
-                return 0;
+                // Audit A-1 / B-1: a requested report that could not be written
+                // must NEVER leave exit 0 -- a stale file would read as "0 stubs".
+                if (!reportOk)
+                    return opts.StrictStubs ? 3 : 2;
+                return opts.StrictStubs && result.NotTranspiled.Count > 0 ? 3 : 0;
             }
             catch (Exception ex)
             {
+                // Audit B-1: do NOT write an empty success-shaped report on a
+                // failed transpile (that reads as "0 stubs"). A failure marker
+                // is written instead; the gate is RC==0 && file present &&
+                // zero non-empty lines, so RC=2 can never pass anyway.
+                if (!stubReportWritten && !string.IsNullOrEmpty(opts.StubReportPath))
+                    WriteStubReport(opts.StubReportPath, new[] { "status=error" });
                 Console.Error.WriteLine($"il2cppc error: {ex.Message}");
                 // S4: the inner exception's stack trace preserves the original
                 // throw-point line (MethodContextException re-wrapping moved the
@@ -385,6 +407,51 @@ public static class Program
         {
             Console.Error.WriteLine($"il2cppc warning: inline pre-scan skipped: {ex.Message}");
         }
+    }
+
+    // B0: --stub-report <path> -- one line per NOT TRANSPILED method identity
+    // ("Type::Method/<argc>#0x<token>", plus " skip-reason=..." for non-stub
+    // skips). The old file is DELETED first and the stream is created fresh, so
+    // a failed write cannot leave stale evidence behind. Returns false when the
+    // report could not be written; the caller turns that into a non-zero exit
+    // (audit A-1: a stale report would make the acceptance gate falsely green).
+    private static bool WriteStubReport(string path, IReadOnlyList<string> lines)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var dir = Path.GetDirectoryName(full);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            // Delete before writing: truncation/removal must happen even if the
+            // subsequent write fails, so no previous run's list survives.
+            if (File.Exists(full)) File.Delete(full);
+            using var stream = new FileStream(full, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+            foreach (var line in lines) writer.WriteLine(line);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Never leave a stale success-shaped list behind: best-effort
+            // replace it with an error marker. If even that fails (read-only
+            // file / missing directory), the caller's non-zero exit is what
+            // protects the gate -- which is why the gate MUST check the RC.
+            try { File.WriteAllText(path, "status=error" + Environment.NewLine); } catch { /* RC is authoritative */ }
+            Console.Error.WriteLine($"il2cppc error: cannot write stub report '{path}': {ex.Message}");
+            return false;
+        }
+    }
+
+    // B0: stderr diagnostics. The summary is printed whenever N > 0 (default
+    // and strict); --strict-stubs additionally lists every stub so CI logs are
+    // actionable without opening the report. N == 0 prints nothing.
+    private static void WriteStubDiagnostics(IReadOnlyList<string> stubs, bool strict)
+    {
+        if (stubs.Count == 0) return;
+        Console.Error.WriteLine($"warning: {stubs.Count} method(s) were not transpiled (see --stub-report)");
+        if (!strict) return;
+        foreach (var stub in stubs)
+            Console.Error.WriteLine($"il2cppc: not transpiled: {stub}");
     }
 
     // Temp slot reuse (stackframe-audit P1-1, see the TempSlotPass.cs header comment):

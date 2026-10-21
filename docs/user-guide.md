@@ -195,6 +195,8 @@ across all arguments before parsing, so `--help` never falls through to a
 | `--arch <arch>` | option | host width | Target architecture. Accepted values and their pointer widths: `32-bit`: `x86`, `arm32`, `riscv32`, `mips`, `ppc` (aliases `mips32` == `mips`, `ppc32` == `ppc`); `64-bit`: `x64`, `arm64`, `riscv64`, `mips64`, `ppc64`, `s390x`. A bare `riscv` is rejected (ambiguous width); `wasm` is not a target. **Big-endian targets are not supported yet** (G12 little-endian contract): `s390x` (big-endian by design) and the explicit big-endian variants `mips-BE` / `ppc64-BE` are rejected with exit 1 before any code is generated — the transpiler never silently emits big-endian byte data. `--arch` normalizes to the target pointer width (4 or 8); when absent, PointerSize defaults to the host width (`IntPtr.Size`). |
 | `--reflection-list <manifest>` | option | off | Mode B reflection manifest: a text file, one full type name per line (see section 5.2). When provided, the tool also writes `reflection-manifest.txt` into the output dir. |
 | `--reflection-granularity all\|members` | option | `members` | Reflection detail granularity for the manifest. `members` = types plus their members; `all` = full detail. Values are case-insensitive. |
+| `--stub-report <path>` | option | off | Write the machine-readable list of methods that were NOT transpiled, one identity per line: `Type::Method/<argc>#0x<token>` (deduped by metadata token, so overloads and nested types stay distinct). Non-stub skips append ` skip-reason=<reason>`. The previous file is deleted before writing; a write failure exits non-zero; a failed transpile writes `status=error`. |
+| `--strict-stubs` | option | off | CI opt-in: any NOT TRANSPILED method makes the run exit 3 and lists every entry on stderr. Without it the run stays exit 0 (warning + runtime-throwing stub). |
 | `--log <file>` | option | off | Tee a copy of both stdout and stderr into `<file>` for the whole run. An unopenable path is reported after parse and exits 1. |
 | `--quiet` | option | off | Suppress the stdout diagnostics (symbols / pool reports / final summary); stderr errors and warnings are unaffected. |
 | `--verbose` | option | off | Print per-type progress lines to stdout while generating. Mutually exclusive with `--quiet` (exit 1). |
@@ -210,7 +212,8 @@ matching an option is treated as a positional.
 |---|---|
 | 0 | Success. `generated N type(s) -> <dir>` printed to stdout. Also `--help`/`-h`/`--version`, the `help` subcommand, and a successful `audit-internalcalls`. |
 | 1 | Command-line parse error (bad usage, missing manifest file, invalid granularity, invalid `--arch` value, big-endian target rejection, `--quiet`+`--verbose` together, `audit-internalcalls` without `<assembly>`, unopenable `--log` path). Message on stderr: `il2cppc error: ...`. |
-| 2 | Transpile failure (metadata load, decode, code generation, loud rejection of unsupported constructs). Message + stack trace on stderr. Also an `audit-internalcalls` run whose assembly cannot be read. |
+| 2 | Transpile failure (metadata load, decode, code generation, loud rejection of unsupported constructs). Message + stack trace on stderr. Also an `audit-internalcalls` run whose assembly cannot be read, and a `--stub-report` that could not be written (without `--strict-stubs`). |
+| 3 | `--strict-stubs` was given and at least one method was not transpiled (all entries listed on stderr and in `--stub-report`), or `--strict-stubs` was given and the report could not be written. |
 
 ### 3.3 Errors
 
@@ -223,6 +226,68 @@ The transpiler treats unsupported constructs on two tracks:
 - **Soft (warning + stub):** per-method body-read / fold failures and
   `Guid`-returning methods are downgraded to a stderr warning and skipped (a
   non-fatal stub) instead of failing the whole transpile.
+
+#### 3.3.1 NOT TRANSPILED stubs and the acceptance gate
+
+A soft-skipped method is emitted as a stub that prints
+`il2cpp: not transpiled: <Type>::<Method>` to stderr and then raises
+`System.NotSupportedException` at run time. Three contracts govern the surface:
+
+1. **Default: warn + stub, exit 0.** A stub never fails a build, and
+   `scripts/difftest.ps1` is unaffected (it throws on a non-zero transpile RC,
+   and a case may legitimately never execute the stubbed method).
+2. **`--strict-stubs` (CI):** any stub makes the run exit 3 and every entry is
+   listed on stderr.
+3. **Acceptance gate -- all three conditions:** `RC == 0` **and** the
+   `--stub-report` file exists **and** it has zero non-empty lines. The RC term
+   is mandatory: a failed transpile writes `status=error`, and an unwritable
+   report exits non-zero, so a stale file can never be read as "0 stubs".
+
+Report coverage (deduped by metadata token). Two line shapes exist:
+
+| Line shape | Meaning |
+|---|---|
+| `<Owner>::<Method>/<argc>#0x<token>` | a NOT TRANSPILED stub (fold rejected the body) |
+| `<Owner>::<Method>/<argc>#0x<token> skip-reason=body-read-failed` | the method body could not be read |
+| `<Owner>::<Interface>::<sig> skip-reason=vtable-missing` | an interface slot has no vtable implementation (this shape carries no `/<argc>#token` -- there is no method identity to name) |
+
+`<Owner>` is `Namespace.Type` for a top-level type and `Namespace.Outer+Inner`
+for a nested one (a nested type's model name is the short name, so the
+declaring chain is printed to keep same-named nested types apart). `<argc>` is
+the C++ argument count: the declared parameters plus the hidden `this` for an
+instance method. The token comes from the method's own metadata row; when a
+method cannot be resolved to a row (generic clones), the token is `0x00000000`
+and `<argc>` + `<Owner>` are what keep entries apart.
+
+| Situation | Recorded |
+|---|---|
+| fold rejected the body (NOT TRANSPILED stub) | yes |
+| method body read failed | yes, ` skip-reason=body-read-failed` |
+| interface slot missing from the vtable | yes, ` skip-reason=vtable-missing` |
+| property/event accessor skipped | no -- by design (accessors are folded into the property path) |
+
+Blind spots: the report covers only the three rows above. A `--strict-stubs`
+run over the full case set also flags methods that legitimately throw
+`NotSupportedException` (candidates: `g4dicturistr`, `p-gn11mdimalloc`,
+`iosymprobe`); a formal exclusion list is **not** established yet, so a
+full-set strict gate needs one first.
+
+**Report write failure attribution (risk, read before wiring into CI).** A
+report that cannot be written (transient file lock, antivirus scan) exits 2 --
+or 3 under `--strict-stubs`. `scripts/difftest.ps1` does not pass
+`--stub-report`, so it is unaffected today; once a CI script does pass it, a
+transient write failure would surface as difftest's generic
+"transpile failed/L3-loud-reject" message and be misattributed to a real
+transpile defect. Two recommended integrations, in order of preference:
+
+1. **Dedicated RC 4** for "report write failed" (distinct from the transpile
+   RC 2), so a driver can retry the write instead of failing the case.
+2. **Read the report before judging the RC**: the driver checks the file's
+   content first (`status=error` / non-empty -> fail with the report path), and
+   only then treats a non-zero RC as a transpile failure.
+
+Until one of those lands, keep `--stub-report` out of `difftest.ps1` and use it
+only from a dedicated gate step.
 
 The manifest file must exist at parse time; `--reflection-list` without a
 path, or a bad granularity value, is a parse error (exit 1).
