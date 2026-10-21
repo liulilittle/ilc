@@ -38,9 +38,12 @@
 namespace {
 
 int g_failures = 0;
+int g_checks = 0;
+int g_skips = 0;
 
 void Expect(bool condition, const char* what)
 {
+    ++g_checks;
     if (!condition)
     {
         std::printf("FAIL: %s\n", what);
@@ -48,11 +51,23 @@ void Expect(bool condition, const char* what)
     }
 }
 
+// A skipped zone is NOT a pass. Every skip is counted so main() can tell
+// "everything was skipped" (a broken/absent tzdata) apart from "everything
+// ran and passed", and report the former as a non-zero exit (77, the CTest
+// SKIP_RETURN_CODE). Without this an empty TZDIR produced 12 SKIP lines, 0
+// FAILs, exit 0 and "all checks passed" -- a false green in CI.
+void SkipZone(const char* tzid)
+{
+    std::printf("SKIP: zone '%s' is not available in this host's tzdata "
+                "(install tzdata / zoneinfo to run this check)\n", tzid);
+    ++g_skips;
+}
+
 // TZ switching for the matrix. setenv can "succeed" on a host without the
 // zoneinfo database (or with a stripped one) while tzset silently leaves the
 // process on UTC; that would turn the whole table red for an environment
 // reason instead of a code reason. SelectZone therefore VERIFIES the zone took
-// effect and the caller aborts with an explicit SKIP message.
+// effect and the caller reports a counted SKIP.
 #if !defined(_WIN32)
 char g_originalTz[256];
 bool g_haveOriginalTz = false;
@@ -203,9 +218,8 @@ void TestOracleMatrix()
         const Row& row = kOracle[r];
         if (!SelectZone(row.posixId))
         {
-            std::printf("SKIP: zone '%s' is not available in this host's tzdata "
-                        "(install tzdata / zoneinfo to run the matrix)\n", row.posixId);
-            return;
+            SkipZone(row.posixId);
+            continue;
         }
         for (int m = 0; m < 4; ++m)
         {
@@ -266,7 +280,7 @@ void TestWallClockEdges()
 {
     if (!SelectZone("Pacific/Auckland"))
     {
-        std::printf("SKIP: Pacific/Auckland unavailable (no tzdata)\n");
+        SkipZone("Pacific/Auckland");
         return;
     }
 
@@ -321,7 +335,7 @@ void TestSameCivilDateBothFaces()
 {
     if (!SelectZone("Pacific/Auckland"))
     {
-        std::printf("SKIP: Pacific/Auckland unavailable (no tzdata)\n");
+        SkipZone("Pacific/Auckland");
         return;
     }
     for (int m = 0; m < 4; ++m)
@@ -381,7 +395,7 @@ void TestKindLocalUsesMachineInstant()
     {
         if (!SelectZone(z.tz))
         {
-            std::printf("SKIP: %s unavailable (no tzdata)\n", z.tz);
+            SkipZone(z.tz);
             continue;
         }
         const int64_t ticks = DaysFromCivil(2000, z.month, z.day) * 86400LL * kTicksPerSecond
@@ -447,10 +461,19 @@ void TestKindLocalUsesMachineInstant()
 
 } // namespace
 
+// Exit codes:
+//   0  -- every check ran and passed (normal)
+//   1  -- at least one assertion failed
+//   77 -- nothing could run: every zone was skipped (missing/stripped tzdata).
+//         This is the CTest SKIP_RETURN_CODE, so ctest reports "Skipped"
+//         instead of a pass. Without it an empty TZDIR yielded 12 SKIP lines,
+//         0 FAILs and exit 0 -- a false green.
 int main()
 {
 #if defined(_WIN32)
-    std::printf("test_timezone_posix: POSIX-only, skipped on Windows\n");
+    // POSIX-only. Windows takes the registry branch and never reaches the
+    // function under test, so there is nothing to check here. Not coverage.
+    std::printf("test_timezone_posix: POSIX-only, not applicable on Windows\n");
     return 0;
 #else
     TestOracleMatrix();
@@ -458,12 +481,26 @@ int main()
     TestSameCivilDateBothFaces();
     TestKindLocalUsesMachineInstant();
     RestoreTz();
+
     if (g_failures != 0)
     {
-        std::printf("test_timezone_posix: %d failure(s)\n", g_failures);
+        std::printf("test_timezone_posix: %d failure(s) (%d checks, %d skipped zone(s))\n",
+                    g_failures, g_checks, g_skips);
         return 1;
     }
-    std::printf("test_timezone_posix: all checks passed\n");
+    if (g_skips != 0)
+    {
+        // The matrix needs all eight zones. A missing zone (e.g. TZDIR
+        // pointing at an empty directory -- "UTC" still resolves because the
+        // C library has it built in, so a plain checks==0 test would not
+        // catch this) means the table was NOT verified. Refuse to report a
+        // pass; 77 is the CTest SKIP_RETURN_CODE, so ctest shows "Skipped".
+        std::printf("test_timezone_posix: INCOMPLETE -- %d zone(s) skipped, "
+                    "matrix not verified (missing tzdata/zoneinfo?)\n", g_skips);
+        return 77;
+    }
+    std::printf("test_timezone_posix: all checks passed (%d checks, %d zone(s) skipped)\n",
+                g_checks, g_skips);
     return 0;
 #endif
 }

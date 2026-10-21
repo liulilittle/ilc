@@ -28,7 +28,8 @@ project(il2cpp_runtime_tests CXX)
 # `ctest` in this build directory runs the same suites the sweep scripts run by
 # hand. NOTE: a test's own main() decides whether it has anything to check --
 # e.g. test_timezone_posix is POSIX-only and returns 0 immediately on Windows,
-# so on Windows it is a green no-op, NOT coverage.
+# so on Windows it is a no-op, NOT coverage. On POSIX it exits 77 when its
+# tzdata is unusable, which SKIP_RETURN_CODE turns into a ctest "Skipped".
 enable_testing()
 
 # monitor.cpp (il2cpp_runtime) uses pthread_mutex_* directly on POSIX --
@@ -62,6 +63,14 @@ foreach(TEST_SRC ${TEST_SOURCES})
     # Several suites print multi-KB failure dumps; keep ctest's log readable
     # and the timeout generous (test_com links a large generated fixture).
     set_tests_properties(${TEST_NAME} PROPERTIES TIMEOUT 300)
+    # test_timezone_posix exits 77 when its tzdata is unusable (every zone
+    # skipped). Declaring that code for THAT test only makes ctest report
+    # "Skipped" instead of a pass, so a machine without zoneinfo cannot show a
+    # false green. Scoped to the one test so no other suite's exit code is
+    # reinterpreted.
+    if(TEST_NAME STREQUAL "test_timezone_posix")
+        set_tests_properties(${TEST_NAME} PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
 endforeach()
 
 

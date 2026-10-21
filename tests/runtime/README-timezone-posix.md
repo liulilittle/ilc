@@ -101,14 +101,33 @@ so the divergence stays visible instead of being silently skipped.
 
 ### Coverage limits of this test
 
-* POSIX only. On Windows `main` returns 0 immediately (a green no-op). The
-  Windows per-date path reads the registry instead and never reaches the
-  function under test, so there is nothing to cover there.
+* POSIX only. On Windows `main` prints a not-applicable line and returns 0.
+  The Windows per-date path reads the registry instead and never reaches the
+  function under test, so there is nothing to cover there -- this is a no-op,
+  NOT coverage. (Stated in three in-tree places: `CMakeLists.txt:30-31`, the
+  test's `main` comment, and this section -- plus the commit body.)
 * It requires a readable `/usr/share/zoneinfo`. `SelectZone()` verifies each
   zone actually took effect (two seasonal samples, so a +0-in-winter zone
-  like Europe/Dublin is not mistaken for a missing entry) and prints an
-  explicit `SKIP` when the database is absent, rather than turning the whole
-  table red for an environment reason.
+  like Europe/Dublin is not mistaken for a missing entry).
+* **A missing zone is a SKIP, and any skip makes the run non-passing.** The
+  first version printed `SKIP`, ran 0 checks and exited 0, so
+  `TZDIR=<empty dir>` produced `12 SKIP / 0 FAIL / exit 0 / "all checks
+  passed"` -- a false green. Now every skip is counted, and `main` returns
+  **77** whenever any zone was skipped (the matrix is unverified); CTest maps
+  77 via `SKIP_RETURN_CODE` to `***Skipped`. Measured:
+
+  ```
+  normal tzdata   : direct rc=0   ctest: Passed
+  TZDIR=<empty>   : direct rc=77  ctest: ***Skipped  ("The following tests did not run")
+  ```
+
+  The exact transcript (including the 178-check count on a healthy host and
+  the 18 skips under an empty `TZDIR`) is appended to
+  `docs/audit/tz-posix-suite-baseline.log` under "FALSE-GREEN GATE".
+
+  Note ctest's own process exit code stays 0 for a skipped test (CTest
+  semantics); what changes is that the test is no longer reported as Passed,
+  and a direct invocation exits 77.
 * The original `TZ` is restored at exit (`RestoreTz()`).
 * Dublin's negative-DST encoding is verified only on glibc; musl/BSD remain
   untested (the code reads `tm_isdst` and field differences, not the
@@ -251,7 +270,7 @@ model the jump, so this is another tzdata-vs-registry data divergence.)
 A 32-bit `time_t` build is NOT guarded: the epoch-floor check tests the .NET
 tick count, not `sizeof(time_t)`.
 
-## 5. Suite baseline: the "same 9 failures" claim
+## 5. Suite baseline: the "same 9 failures" claim (raw log committed)
 
 Both trees were configured with the identical command and built with
 gcc 13.3. The baseline tree additionally needs the POSIX `_stricmp` alias
@@ -260,17 +279,34 @@ compile on Linux at all), so the baseline build passes
 `-DCMAKE_CXX_FLAGS=-D_stricmp=strcasecmp`; the ONLY difference between the
 two runs is therefore the timezone change.
 
+**Raw output is committed**: `docs/audit/tz-posix-suite-baseline.log` holds the
+complete, unedited capture of both runs (host/toolchain/tzdata header, the base
+tree configure + build, the base per-executable sweep with each exit code, the
+head configure + build, and the full `ctest --output-on-failure` transcript).
+Verbatim excerpts:
+
 ```
-BASE (fe36e4fc):  TOTAL=186 FAIL=9
-  test_array_extra test_arraybounds test_arrayext test_arrayext2
-  test_arraysort test_com test_concat test_exceptionext test_listi4
-HEAD (fix):       TOTAL=187 FAIL=9
-  test_array_extra test_arraybounds test_arrayext test_arrayext2
-  test_arraysort test_com test_concat test_exceptionext test_listi4
+FAIL test_array_extra  rc=1
+FAIL test_arraybounds  rc=1
+FAIL test_arrayext  rc=1
+FAIL test_arrayext2  rc=1
+FAIL test_arraysort  rc=1
+FAIL test_com  rc=139
+FAIL test_concat  rc=134
+FAIL test_exceptionext  rc=1
+FAIL test_listi4  rc=1
+BASE TOTAL=186 FAIL=9
+
+95% tests passed, 9 tests failed out of 187
+The following tests FAILED:
+HEAD ctest rc=8
 ```
 
 The failure sets are identical; HEAD has one extra suite
-(`test_timezone_posix`, PASS). Reproduction:
+(`test_timezone_posix`, PASS). Note the base tree has no
+`enable_testing()`/`add_test()`, so `ctest` there runs nothing -- the base
+side of the comparison is the per-executable sweep, which is why the log
+records it that way. Reproduction:
 
 ```bash
 # head
