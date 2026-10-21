@@ -115,6 +115,12 @@ public static partial class MethodRefResolver
             case ".ctor":
                 if (ps.Length == 1 && ps[0] == 0x1D)
                     throw new NotSupportedException(".ctor(byte[]) not wired: guid.h has no from-bytes icall (the surface is new_guid/parse/to_string/equals/compare only)");
+                // LOUD P0-02/03: new Guid(string) is GUID.Parse semantics
+                // (ArgumentNullException on null, FormatException on invalid).
+                // The wrapper places the 16-byte output slot first to match the
+                // transpiler's in-place vctor call shape (slot, string).
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::il2cpp_guid_ctor_string", 1, true, false, true, new[] { "g", "s" });
                 // NOTE (icallwide): the 11-arg component ctor needs a Guid
                 // VALUE-SLOT newobj path (uint8_t[16] in-place init) that the
                 // emitter does not have yet -- fixtures construct via

@@ -80,6 +80,14 @@ bool il2cpp_guid_parse(Il2CppString* s, uint8_t bytes[16]);
 // verify-then-mutate leaves them untouched on failure).
 void il2cpp_guid_parse_strict(Il2CppString* s, uint8_t bytes[16]);
 
+// new Guid(string): the managed ctor is Guid.Parse (strict); this wrapper
+// puts the 16-byte output slot FIRST to match the transpiler's in-place
+// value-type ctor call shape `il2cpp_guid_ctor_string(slot, string)`.
+inline void il2cpp_guid_ctor_string(uint8_t bytes[16], Il2CppObject* s)
+{
+    il2cpp_guid_parse_strict(reinterpret_cast<Il2CppString*>(s), bytes);
+}
+
 // ToString("D"): the 36-char lowercase form above, as a managed string.
 Il2CppString* il2cpp_guid_to_string(const uint8_t bytes[16]);
 

@@ -3925,6 +3925,31 @@ public static class CodeGenerator
                         $"IL {At(a.SourceOpName, a.SourceOffset)} -- ValueTuple-return call ({trf.Length}-field tuple)");
                     break;
                 }
+                // LOUD P0-02/03: `new Guid(...)` is a value-type newobj -- the
+                // ctor statement writes the 16 bytes into the slot, exactly
+                // like the decimal in-place ctor. The declaration is the
+                // storage, so this definition assignment emits nothing.
+                if (a.Value is ValueTypeNewExpr { TypeFullName: "System.Guid" }
+                    && locKind.TryGetValue(a.Target, out var gnewKind) && gnewKind == "guid")
+                {
+                    w.LineAligned($"/* {a.Target}: 16-byte Guid value slot (initialized in place by the ctor) */",
+                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- Guid value-type newobj definition");
+                    break;
+                }
+                // LOUD P0-02/03: `g[i]` with a Guid element (ldelem token form)
+                // yields the 16-byte element image. C++ arrays are not
+                // assignable, so the store into the "guid" slot is a memcpy
+                // from the element pointer (the ldelem_guid expression renders
+                // that pointer).
+                if (a.Value is CallExpr { Function: "ldelem_guid" } gleg)
+                {
+                    if (!locKind.TryGetValue(a.Target, out var gldKind) || gldKind != "guid")
+                        throw new NotSupportedException(
+                            $"ldelem System.Guid into non-Guid slot {a.Target}: the 16-byte value needs a uint8_t[16] Guid slot");
+                    w.LineAligned($"std::memcpy({EmitTarget(a.Target)}, {EmitExpr(gleg, md, types)}, 16);",
+                        $"IL {At(a.SourceOpName, a.SourceOffset)} -- copy Guid array element (16 bytes) into {a.Target}");
+                    break;
+                }
                 // Guid value copies: the slot is uint8_t[16] -- C++ arrays are
                 // NOT assignable, so a value copy emits a 16-byte memcpy
                 // (exact .NET Guid copy semantics).
@@ -5259,6 +5284,11 @@ public static class CodeGenerator
         NewObjExpr => "ref",
         DelegateNewExpr => "ref",
         MarshalUtf8Expr m => m.Utf16 ? "cstr16" : "cstr", // const char16_t* / const char* (P/Invoke marshal buffer, audit H5)
+        // LOUD P0-02/03: a System.Guid value slot is the 16-byte uint8_t[16]
+        // raw image (guid.h ABI) -- there is no wrapper struct, so the temp
+        // declaration must use the "guid" arm (C++ arrays are not assignable;
+        // value copies/stores go through memcpy).
+        ValueTypeNewExpr v when v.TypeFullName == "System.Guid" => "guid",
         ValueTypeNewExpr v => TypeCppName(v.TypeFullName), // value-type temp: the C++ type name
         // M5 wiring: int64/double constants and kinds propagate to the temp/
         // local declarations (int64_t / double).
@@ -9108,6 +9138,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             }
             return $"(il2cpp::il2cpp_is_instance({objCode}, {klassExpr}) ? reinterpret_cast<Il2CppObject*>({objCode}) : nullptr)";
         }
+        // LOUD P0-03: a 16-byte RVA-initializer element folded by StackFold
+        // (decimal[] InitializeArray). The three arguments are the raw
+        // .NET decimal fields (flags, hi32, lo64); render the runtime struct
+        // as an aggregate literal so stelem_dec receives a full 16-byte value
+        // (never two 8-byte halves).
+        if (c.Function == "decimal_rva_value")
+            return $"il2cpp::runtime::Il2CppDecimal{{ static_cast<int32_t>({EmitExpr(c.Args[0], md, types)}), static_cast<uint32_t>({EmitExpr(c.Args[1], md, types)}), static_cast<uint64_t>({EmitExpr(c.Args[2], md, types)}) }}";
         // M3 arrays: newarr/ldlen/ldelem/stelem helpers.
         if (c.Function.StartsWith("newarr_", StringComparison.Ordinal)
             && int.TryParse(c.Function[7..], out var arrTok))
@@ -9231,6 +9268,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
                 // read -- the full 16-byte value struct.
                 "dec" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDecimal*>({ldelemPtr}))",
+                // LOUD P0-02/03: token ldelem of the 8/16-byte value elements.
+                // DateTime[] cells hold the CLR packed image; TimeSpan[] ticks;
+                // Guid[] the raw 16 bytes (an element POINTER -- a guid slot
+                // assignment memcpys from it).
+                "dt" => $"il2cpp::runtime::il2cpp_datetime_from_array_bits(*reinterpret_cast<int64_t*>({ldelemPtr}))",
+                "ts" => $"il2cpp::runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>({ldelemPtr}))",
+                "guid" => $"reinterpret_cast<const uint8_t*>({ldelemPtr})",
                 _ => $"(*reinterpret_cast<int32_t*>({ldelemPtr}))",
             };
         }
@@ -9261,6 +9305,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "fnptr" => $"(*reinterpret_cast<void**>({stelemPtr}) = {EmitExpr(c.Args[2], md, types)})",
                 "r4" => $"(*reinterpret_cast<float*>({stelemPtr}) = static_cast<float>({EmitExpr(c.Args[2], md, types)}))",
                 "r8" => $"(*reinterpret_cast<double*>({stelemPtr}) = static_cast<double>({EmitExpr(c.Args[2], md, types)}))",
+                // LOUD P0-02/03: the 8/16-byte value-element stores. A
+                // DateTime[] cell is the CLR packed 8-byte image (kind in the
+                // top 2 bits, never silently dropped); TimeSpan[] is ticks;
+                // Guid[] is a raw 16-byte memcpy from the value slot (array
+                // expressions decay; ldloca addresses pass as pointers too).
+                "dt" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*reinterpret_cast<int64_t*>({stelemPtr}) = il2cpp::runtime::il2cpp_datetime_to_array_bits(*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>({EmitExpr(c.Args[2], md, types)})))"
+                    : $"(*reinterpret_cast<int64_t*>({stelemPtr}) = il2cpp::runtime::il2cpp_datetime_to_array_bits({EmitExpr(c.Args[2], md, types)}))",
+                "ts" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*reinterpret_cast<int64_t*>({stelemPtr}) = (*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>({EmitExpr(c.Args[2], md, types)})).ticks)"
+                    : $"(*reinterpret_cast<int64_t*>({stelemPtr}) = ({EmitExpr(c.Args[2], md, types)}).ticks)",
+                "guid" => $"std::memcpy({stelemPtr}, {EmitExpr(c.Args[2], md, types)}, 16)",
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal[] element
                 // write -- the full 16-byte struct. An ADDRESS value (the
                 // newobj ctor's ldloca temp) is dereferenced first.
@@ -10015,6 +10071,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "deref:sf" => args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr
                     ? $"(*reinterpret_cast<double*>({code}))"
                     : $"static_cast<double>(*reinterpret_cast<float*>({code}))",
+                // LOUD P0-01: a bool ARRAY element is a 1-byte cell, while a
+                // bool LOCAL/FIELD is the 32-bit bool ABI slot. The ldelema
+                // receiver arrives as a "ptr" temp (receiverIsAddress), so
+                // read exactly one byte; the int32 read would over-read the
+                // neighboring elements (a[1]=false printed True).
+                "deref:b" when args[srcIdx] is LocExpr bref
+                    && _curLocKinds.TryGetValue(bref.Name, out var brk) && brk == "ptr"
+                    => $"static_cast<bool>(*reinterpret_cast<uint8_t*>({code}))",
                 "deref:b" => $"static_cast<bool>(*reinterpret_cast<int32_t*>({code}))",
                 // marshalrw (2026-09-13): "addr:v" -- pass the ADDRESS of a
                 // VALUE argument. StructureToPtr<T>'s T value reaches the
@@ -10057,6 +10121,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // M5 wiring: DateTime/TimeSpan value-type receivers -- the
                 // ldloca address points at the runtime struct; deref to the
                 // struct VALUE (the icall takes it by value).
+                // LOUD P0-02: a DateTime/TimeSpan ARRAY element is an 8-byte
+                // value cell (the ldelema receiver arrives as a "ptr" temp),
+                // so reconstruct the runtime struct from the widened CLR
+                // image. Local/field addresses keep the 16-byte struct deref.
+                "deref:dt" when args[srcIdx] is LocExpr dtref
+                    && _curLocKinds.TryGetValue(dtref.Name, out var dtrk) && dtrk == "ptr"
+                    => $"il2cpp::runtime::il2cpp_datetime_from_array_bits(*reinterpret_cast<int64_t*>({code}))",
+                "deref:ts" when args[srcIdx] is LocExpr tsref
+                    && _curLocKinds.TryGetValue(tsref.Name, out var tsrk) && tsrk == "ptr"
+                    => $"il2cpp::runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>({code}))",
                 "deref:dt" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>({code}))",
                 "deref:ts" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>({code}))",
                 // parity-T8: "ts_ticks" -- a TimeSpan VALUE reaching the
@@ -10088,6 +10162,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // render `(&x)` and must pass through UNCAST (address-of an
                 // address would be a double indirection). The cast code is
                 // SHAPE-AWARE on the arg.
+                // LOUD P0-03: a decimal[] element address (ldelem/ldelema
+                // token) arrives as a "ptr" temp -- it is ALREADY the element
+                // pointer, so pass it as the icall's const Il2CppDecimal*
+                // (the value-expression arm would take its address, yielding
+                // intptr_t*).
+                "dec" when args[srcIdx] is LocExpr dpref
+                    && _curLocKinds.TryGetValue(dpref.Name, out var dprk) && dprk == "ptr"
+                    => $"reinterpret_cast<const il2cpp::runtime::Il2CppDecimal*>({code})",
                 "dec" => args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr ? code : $"(&({code}))",
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal
                 // ToString(IFormatProvider) with an ADDRESS receiver. The
@@ -10456,6 +10538,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // 8-byte elements; the ldelem/stelem i8 width dispatch already exists
         // (ILOP-2 P9), so only the ALLOCATION stride was missing.
         if (typeName == "System.Int64" || typeName == "System.UInt64") return (8, false);
+        // LOUD P0-01/02: the BCL value-element arrays whose CLR strides were
+        // missing. Boolean[] is a 1-byte cell array (stelem.i1/ldelem.u1); the
+        // bool ABI elsewhere in this model is a 32-bit slot, so the array
+        // element readers must take the 1-byte shape (see the deref:b arm).
+        // DateTime/TimeSpan[] hold the CLR 8-byte value image (DateTime:
+        // 62-bit ticks + 2-bit kind, TimeSpan: ticks) -- the token ldelem/
+        // stelem arms pack/unpack the runtime structs. Guid[] is the 16-byte
+        // value (uint8_t[16], the guid.h ABI).
+        if (typeName == "System.Boolean") return (1, false);
+        if (typeName == "System.DateTime" || typeName == "System.TimeSpan") return (8, false);
+        if (typeName == "System.Guid") return (16, false);
         // batch 2026-10-05 (iopairprobe B_decimal): decimal[] -- 16-byte
         // non-reference elements (the 4x int32 decimal payload). The runtime
         // il2cpp_array_new stride 16; the ldelem_dec/stelem_dec width arms

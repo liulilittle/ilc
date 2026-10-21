@@ -55,6 +55,33 @@ struct Il2CppTimeSpan
 };
 
 //------------------------------------------------------------------------------
+// DateTime[] element image (LOUD P0-02).
+//
+// A DateTime ARRAY element is the CLR 8-byte value: 62 bits of ticks in the
+// low bits plus the 2-bit DateTimeKind in the top bits (the .NET _dateData
+// packing). The runtime value struct keeps kind in its own member, so the
+// transpiler's array accessor arms pack/unpack here. The mask keeps the
+// kind bits from leaking back into the tick count and the kind never gets
+// silently dropped on an array round-trip.
+//------------------------------------------------------------------------------
+constexpr int64_t kDateTimeArrayTickMask = 0x3FFFFFFFFFFFFFFFLL;
+
+inline int64_t il2cpp_datetime_to_array_bits(const Il2CppDateTime& value)
+{
+    return static_cast<int64_t>(
+        (static_cast<uint64_t>(value.ticks) & static_cast<uint64_t>(kDateTimeArrayTickMask))
+        | ((static_cast<uint64_t>(value.kind) & 0x3ULL) << 62));
+}
+
+inline Il2CppDateTime il2cpp_datetime_from_array_bits(int64_t bits)
+{
+    const uint64_t raw = static_cast<uint64_t>(bits);
+    return Il2CppDateTime(
+        static_cast<int64_t>(raw & static_cast<uint64_t>(kDateTimeArrayTickMask)),
+        static_cast<int32_t>((raw >> 62) & 0x3ULL));
+}
+
+//------------------------------------------------------------------------------
 // System.DateTime -- clock accessors.
 //------------------------------------------------------------------------------
 // DateTime.UtcNow: the current UTC instant (std::chrono::system_clock).

@@ -1666,6 +1666,34 @@ public static class StackFold
                             }, ins);
                             break;
                         }
+                        // LOUD P0-02/03: DateTime/TimeSpan 8-byte cells and Guid
+                        // 16-byte cells have no fixed-width opcode either.
+                        if (IsTokenElement(md, (int)ins.Operand, types, "System.Guid"))
+                        {
+                            var gIdx = stack.Pop();
+                            var gArr = stack.Pop();
+                            Push(new CallExpr
+                            {
+                                Function = "ldelem_guid",
+                                ResultKind = "guid",
+                                Args = { gArr, gIdx },
+                            }, ins);
+                            break;
+                        }
+                        if (IsTokenElement(md, (int)ins.Operand, types, "System.DateTime")
+                            || IsTokenElement(md, (int)ins.Operand, types, "System.TimeSpan"))
+                        {
+                            var isDt = IsTokenElement(md, (int)ins.Operand, types, "System.DateTime");
+                            var vIdx = stack.Pop();
+                            var vArr = stack.Pop();
+                            Push(new CallExpr
+                            {
+                                Function = isDt ? "ldelem_dt" : "ldelem_ts",
+                                ResultKind = isDt ? "dt" : "ts",
+                                Args = { vArr, vIdx },
+                            }, ins);
+                            break;
+                        }
                         var genericLdOp = MapGenericLdelemOp(md, (int)ins.Operand, types);
                         if (genericLdOp == null)
                             throw new NotSupportedException(
@@ -1700,6 +1728,36 @@ public static class StackFold
                             {
                                 Function = "stelem_dec",
                                 Args = { decArr, decIdx, decVal },
+                                SourceOffset = ins.Offset,
+                                SourceOpName = OpName(ins.OpCode),
+                            });
+                            break;
+                        }
+                        // LOUD P0-02/03: DateTime/TimeSpan 8-byte cells and Guid
+                        // 16-byte cells -- dedicated token writer arms.
+                        // DateTime[] uses the CLR packed image (ticks + kind);
+                        // Guid[] is the raw 16-byte memcpy.
+                        var vElemName = IsTokenElement(md, (int)ins.Operand, types, "System.Guid")
+                            ? "System.Guid"
+                            : IsTokenElement(md, (int)ins.Operand, types, "System.DateTime")
+                            ? "System.DateTime"
+                            : IsTokenElement(md, (int)ins.Operand, types, "System.TimeSpan")
+                            ? "System.TimeSpan"
+                            : null;
+                        if (vElemName != null)
+                        {
+                            var vVal = stack.Pop();
+                            var vIdx = stack.Pop();
+                            var vArr = stack.Pop();
+                            stmts.Add(new CallStmt
+                            {
+                                Function = vElemName switch
+                                {
+                                    "System.Guid" => "stelem_guid",
+                                    "System.DateTime" => "stelem_dt",
+                                    _ => "stelem_ts",
+                                },
+                                Args = { vArr, vIdx, vVal },
                                 SourceOffset = ins.Offset,
                                 SourceOpName = OpName(ins.OpCode),
                             });
@@ -2367,17 +2425,24 @@ public static class StackFold
             if (width == null)
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} not supported (the array-initializer fold supports byte/sbyte/bool, char/short, int/uint/float, long/ulong/double)");
-            var stelemOp = (width, elemName) switch
+            // LOUD P0-03: 16-byte elements (decimal) have no fixed-width
+            // ILOpCode -- EmitStelems handles them with the dedicated dec
+            // writer. The default value is unused on that path.
+            ILOpCode stelemOp = default;
+            if (width != 16)
             {
-                (1, _) => ILOpCode.Stelem_i1,
-                (2, _) => ILOpCode.Stelem_i2,
-                (4, "System.Single") => ILOpCode.Stelem_r4,
-                (4, _) => ILOpCode.Stelem_i4,
-                (8, "System.Double") => ILOpCode.Stelem_r8,
-                (8, _) => ILOpCode.Stelem_i8,
-                _ => throw new NotSupportedException(
-                    $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} (width {width}) not supported"),
-            };
+                stelemOp = (width, elemName) switch
+                {
+                    (1, _) => ILOpCode.Stelem_i1,
+                    (2, _) => ILOpCode.Stelem_i2,
+                    (4, "System.Single") => ILOpCode.Stelem_r4,
+                    (4, _) => ILOpCode.Stelem_i4,
+                    (8, "System.Double") => ILOpCode.Stelem_r8,
+                    (8, _) => ILOpCode.Stelem_i8,
+                    _ => throw new NotSupportedException(
+                        $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} (width {width}) not supported"),
+                };
+            }
             EmitStelems(stmts, ins, md, pe, rva, field, arrRef, width.GetValueOrDefault(), elemName, stelemOp, need: (int)(count * width.GetValueOrDefault()));
         }
 
@@ -2393,6 +2458,33 @@ public static class StackFold
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: cannot read {need} byte(s) of RVA data at 0x{rva:X8} (field {md.GetString(field.Name)})");
             var count = need / Math.Max(width, 1);
+            // LOUD P0-03: a 16-byte element is sliced as ONE unit -- the raw
+            // .NET decimal image (lo32/mid32/hi32/flags, little endian) is
+            // rebuilt into the runtime Il2CppDecimal aggregate. Never split
+            // it into two 8-byte pieces (the 12-byte flags/hi32 boundary is
+            // not 8-byte aligned).
+            if (width == 16)
+            {
+                if (elemName != "System.Decimal")
+                    throw new NotSupportedException(
+                        $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} (width 16) not supported (only System.Decimal has a 16-byte token writer)");
+                for (var i = 0; i < count; i++)
+                {
+                    var off = i * 16;
+                    var decVal = new CallExpr { Function = "decimal_rva_value", ResultKind = "dec" };
+                    decVal.Args.Add(new IntConstExpr { Value = BitConverter.ToInt32(bytes, off + 12) });          // flags
+                    decVal.Args.Add(new IntConstExpr { Value = unchecked((int)BitConverter.ToUInt32(bytes, off + 8)) }); // hi32
+                    decVal.Args.Add(new Int64ConstExpr { Value = unchecked((long)BitConverter.ToUInt64(bytes, off)) });   // lo64
+                    stmts.Add(new CallStmt
+                    {
+                        Function = "stelem_dec",
+                        Args = { arrRef, new IntConstExpr { Value = i }, decVal },
+                        SourceOffset = ins.Offset,
+                        SourceOpName = "InitializeArray",
+                    });
+                }
+                return;
+            }
             for (var i = 0; i < count; i++)
             {
                 Expr val = (width, elemName) switch
@@ -4179,6 +4271,10 @@ public static class StackFold
             // resolved to the runtime icall (ResultIsReceiver).
             var isValueTypeNewobj = (types?.FirstOrDefault(t => t.FullName == typeFullName && t.IsValueType) != null)
                 || typeFullName is "System.DateTime" or "System.TimeSpan" or "System.Decimal"
+                // LOUD P0-02/03: Guid is a 16-byte value (uint8_t[16] slot);
+                // the ctor writes the bytes in place (Guid.Parse ABI), not a
+                // reference allocation.
+                || typeFullName is "System.Guid"
                 // P14 dtoffset: System.DateTimeOffset is a BCL value type
                 // (Il2CppDateTimeOffset -- the same in-place path).
                 || typeFullName is "System.DateTimeOffset"
@@ -4554,6 +4650,12 @@ public static class StackFold
             "System.Int16" or "System.UInt16" or "System.Char" => 2,
             "System.Int32" or "System.UInt32" or "System.Single" => 4,
             "System.Int64" or "System.UInt64" or "System.Double" => 8,
+            // LOUD P0-02/03: the BCL value-element widths. DateTime/TimeSpan
+            // are the CLR 8-byte image; Guid/Decimal are 16-byte values (the
+            // RVA initializer fold slices a full 16-byte element -- never two
+            // 8-byte halves).
+            "System.DateTime" or "System.TimeSpan" => 8,
+            "System.Guid" or "System.Decimal" => 16,
             _ => null,
         };
 
@@ -4674,9 +4776,15 @@ public static class StackFold
         // caps at 8 bytes). These get the dedicated "dec" accessor arms
         // (ldelem_dec / stelem_dec) in the emitter.
         static bool IsDecimalElement(MetadataReader? md, int token, IReadOnlyList<TypeDef>? types)
+            => IsTokenElement(md, token, types, "System.Decimal");
+
+        // LOUD P0-02/03: the other value-element array tokens whose CLR stride
+        // has no fixed-width ILOpCode (DateTime/TimeSpan 8, Guid 16). They get
+        // dedicated token accessor arms in the emitter.
+        static bool IsTokenElement(MetadataReader? md, int token, IReadOnlyList<TypeDef>? types, string typeName)
         {
             var (_, _, name) = ElementAccessInfo(md, token, types);
-            return name == "System.Decimal";
+            return name == typeName;
         }
 
         // Token-based value-type ops (ldobj/stobj/initobj/sizeof): the operand
