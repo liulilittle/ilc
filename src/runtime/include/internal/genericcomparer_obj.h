@@ -40,6 +40,15 @@ Il2CppObject* il2cpp_comparer_default_string();
 Il2CppObject* il2cpp_comparer_default_long();
 Il2CppObject* il2cpp_comparer_default_object();
 
+// nb16 (b16low): POINTER-IDENTITY checks for the default comparer singletons
+// above (plus the System.Collections.Comparer singleton, which lives in
+// arraysort.cpp). Replaces the klass-name substring probes
+// (std::strstr(name, "System.Collections.Generic.Comparer`1")) that silently
+// misclassified a USER comparer whose full name ended with the BCL prefix as
+// the default singleton. Exact identity only; the statics are never moved.
+bool il2cpp_is_default_comparer_singleton(const Il2CppObject* comparer);
+bool il2cpp_is_default_equality_comparer_singleton(const Il2CppObject* comparer);
+
 namespace runtime {
 
 // EqualityComparer<int>.Default.Equals(int, int): value equality.

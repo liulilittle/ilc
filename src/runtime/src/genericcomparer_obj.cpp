@@ -91,6 +91,38 @@ W6_CMP_SINGLETON(Object, "System.Collections.Generic.Comparer`1_object")
 
 } // namespace
 
+//------------------------------------------------------------------------------
+// nb16 (b16low): POINTER-IDENTITY tests for the runtime's default comparer
+// singletons. The callers used to probe comparer->klass->name with std::strstr
+// ("System.Collections.Generic.Comparer`1"), a SUBSTRING test: a USER comparer
+// whose full type name merely ENDS with that text (e.g.
+// "My.System.Collections.Generic.Comparer`1") was classified as the BCL
+// default singleton, its Compare was never called and the builtin element
+// order was substituted -- a silent wrong order. Identity is exact (the
+// singletons are file-scope statics, never heap-allocated, never moved), and
+// a user object can never be one of them.
+//   The tests deliberately do NOT call il2cpp_class_register: the statics are
+//   already initialized and only their addresses are compared.
+//------------------------------------------------------------------------------
+bool il2cpp_is_default_comparer_singleton(const Il2CppObject* comparer)
+{
+    return comparer == &g_comparerIntSingleton ||
+           comparer == &g_comparerStringSingleton ||
+           comparer == &g_comparerLongSingleton ||
+           comparer == &g_comparerObjectSingleton ||
+           comparer == &g_comparerDoubleSingleton;
+}
+
+bool il2cpp_is_default_equality_comparer_singleton(const Il2CppObject* comparer)
+{
+    return comparer == &g_equalityComparerIntSingleton ||
+           comparer == &g_equalityComparerStringSingleton ||
+           comparer == &g_equalityComparerLongSingleton ||
+           comparer == &g_equalityComparerDoubleSingleton ||
+           comparer == &g_equalityComparerObjectSingleton ||
+           comparer == &g_equalityComparerClassSingleton;
+}
+
 Il2CppObject* il2cpp_equality_comparer_default_int()
 {
     il2cpp_class_register(&g_equalityComparerIntClass);

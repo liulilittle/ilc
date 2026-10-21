@@ -57,6 +57,15 @@
 #include <cstdlib>
 #include <cstring>
 
+namespace il2cpp {
+
+// nb16 (b16low): the non-generic System.Collections.Comparer::Default
+// singleton (DEFINED in arraysort.cpp, namespace il2cpp). IsDefaultComparerObject
+// identifies it by pointer identity now -- the klass-name strcmp arm is gone.
+extern Il2CppObject System_Collections_Comparer_singleton;
+
+} // namespace il2cpp
+
 //------------------------------------------------------------------------------
 // The System.Collections.SortedList runtime descriptor. GLOBAL scope (external
 // linkage, OUTSIDE namespace il2cpp): the transpiler emits
@@ -302,14 +311,15 @@ bool IsDefaultComparerObject(const Il2CppObject* comparer)
 {
     if (comparer == nullptr) return true;
     // nb9: a Comparer<T>.Create wrapper is NOT the default -- it must run its
-    // wrapped delegate (checked first, before the name-prefix test below).
+    // wrapped delegate (checked first).
     if (runtime::il2cpp_is_created_comparer(const_cast<Il2CppObject*>(comparer))) return false;
-    const char* name = comparer->klass != nullptr ? comparer->klass->name : nullptr;
-    if (name == nullptr) return true;
-    // "System.Collections.Generic.Comparer`1_<kind>" / "...EqualityComparer`1_<kind>"
-    return std::strstr(name, "System.Collections.Generic.Comparer`1") != nullptr ||
-           std::strstr(name, "System.Collections.Generic.EqualityComparer`1") != nullptr ||
-           std::strcmp(name, "System.Collections.Comparer") == 0;
+    // nb16 (b16low): POINTER IDENTITY for every default-comparer singleton.
+    // The old klass-name std::strstr was a SUBSTRING probe: a USER comparer
+    // whose full name ended with "System.Collections.Generic.Comparer`1" was
+    // classified as the default, so its Compare was dropped (wrong order).
+    if (comparer == &System_Collections_Comparer_singleton) return true;
+    return il2cpp_is_default_comparer_singleton(comparer) ||
+           il2cpp_is_default_equality_comparer_singleton(comparer);
 }
 
 int32_t CompareWithComparer(const Il2CppObject* comparer, const Il2CppObject* a, const Il2CppObject* b)
