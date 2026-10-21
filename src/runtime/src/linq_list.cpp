@@ -170,8 +170,15 @@ void CopyElem(Il2CppArray* dst, int32_t di, Il2CppArray* src, int32_t si)
 // 2 int64, 3 single, 4 double, 5 uint32). Without it the materialized array
 // carries elemKind 0, so an 8-byte cell is ambiguous and the non-generic array
 // scans (string.Join, the element-kind Array gates) read a double as int64 --
-// printing the raw IEEE754 bit pattern. Narrow families (1/2/4-byte cells) are
-// unambiguous from elemSize and keep kind 0.
+// printing the raw IEEE754 bit pattern.
+// The NARROW families (sbyte/byte/bool -> 1 byte, short/ushort/char -> 2 bytes)
+// keep kind 0: their elemSize alone is NOT sufficient to tell the families
+// apart (1 byte is sbyte, byte OR bool; 2 bytes is short, ushort OR char), so
+// the exact family travels as the element-kind LITERAL the transpiler appends.
+// Consequence registered in docs/audit/b5-gaps.md: a narrow-family result array
+// has elemKind 0, and string.Join over it hits the PRE-EXISTING shared
+// formatter limitation (stringext2.cpp ValueArrayElement has no signed/unsigned
+// narrow or bool entry).
 int32_t ValueElemKindFor(int32_t kind)
 {
     switch (kind)
@@ -1171,51 +1178,134 @@ Il2CppArray* il2cpp_linq_list_except(Il2CppObject* list, Il2CppObject* second, i
     return exact;
 }
 
-Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
-                                  Il2CppObject* sel, int32_t kind, int32_t resKind)
+// The ZIP SIDE descriptor (linq.h IL2CPP_LINQ_ZIP_*/IL2CPP_LINQ_NARROW_*) of a
+// LIST element family. IL2CPP_LIST_KIND_* and the zip side codes are different
+// enumerations that happen to share the values 0..6 with different meanings, so
+// every entry is named -- deriving one from the other numerically would turn
+// LIST_KIND SBYTE (5) into NARROW CHAR (5) / BYTE (6) into UINT (6).
+int32_t ZipSideOfListKind(int32_t kind)
 {
-    RequireList(list);
-    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I4:     return IL2CPP_LINQ_ZIP_I4;
+        case IL2CPP_LIST_KIND_I8:     return IL2CPP_LINQ_ZIP_I8;
+        case IL2CPP_LIST_KIND_F:      return IL2CPP_LINQ_ZIP_F;
+        case IL2CPP_LIST_KIND_D:      return IL2CPP_LINQ_ZIP_D;
+        case IL2CPP_LIST_KIND_SBYTE:  return IL2CPP_LINQ_NARROW_SBYTE;
+        case IL2CPP_LIST_KIND_BYTE:   return IL2CPP_LINQ_NARROW_BYTE;
+        case IL2CPP_LIST_KIND_BOOL:   return IL2CPP_LINQ_NARROW_BOOL;
+        case IL2CPP_LIST_KIND_SHORT:  return IL2CPP_LINQ_NARROW_SHORT;
+        case IL2CPP_LIST_KIND_USHORT: return IL2CPP_LINQ_NARROW_USHORT;
+        case IL2CPP_LIST_KIND_CHAR:   return IL2CPP_LINQ_NARROW_CHAR;
+        case IL2CPP_LIST_KIND_UINT:   return IL2CPP_LINQ_NARROW_UINT;
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Unsupported List element kind for Zip (IL2CPP_LIST_KIND_REF is handled "
+                "by the reference branch above).");
+            return 0;
+    }
+}
+// Defined below (the unified Zip entry); declared here because the List entry
+// is the thin wrapper that forwards to it.
+Il2CppArray* il2cpp_linq_zip_family(Il2CppObject* first, Il2CppObject* second,
+                                    Il2CppObject* sel, int32_t firstKind,
+                                    int32_t secondKind, int32_t resKind);
+
+Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
+                                  Il2CppObject* sel, int32_t kind, int32_t resKind,
+                                  int32_t secondKind)
+{
+    // Delegates to the UNIFIED entry: it tells a List object from an array at
+    // run time (see il2cpp_linq_zip_family), which the transpiler cannot do.
+    return il2cpp_linq_zip_family(list, second, sel, kind, secondKind, resKind);
+}
+
+// True when `o` is an ARRAY object (the array descriptor names start with '[').
+bool IsArrayObject(Il2CppObject* o)
+{
+    return o != nullptr && o->klass != nullptr && o->klass->name != nullptr &&
+           o->klass->name[0] == '[';
+}
+
+// The UNIFIED Zip entry (arrays AND lists, possibly different families).
+//
+// Why this exists: `Enumerable.Zip(first, second, selector)` has arity 3, so the
+// transpiler cannot see the RECEIVER's tracked type (the stack top is the
+// selector and the value below it is the SECOND source); and a `List<byte>`
+// local is tracked as `System.Int32[]` by the type-tracking layer. Neither
+// signal can tell a List object from an array, and guessing produced
+// `il2cpp_linq_zip_wide(ListObject*, ...)` -- a C++ type error at best, an
+// items-pointer-read-as-length at worst. The runtime CAN tell (the array
+// descriptor name starts with '['), so the decision lives here.
+//
+// `firstKind` / `secondKind` are IL2CPP_LIST_KIND_* codes derived from the
+// MethodSpec element bytes; `resKind` is the selector's return family.
+Il2CppArray* il2cpp_linq_zip_family(Il2CppObject* first, Il2CppObject* second,
+                                    Il2CppObject* sel, int32_t firstKind,
+                                    int32_t secondKind, int32_t resKind)
+{
+    RequireCallback(sel, "selector");
     RootScope roots;
-    roots.Add(reinterpret_cast<void**>(&list));
-    Il2CppArray* a = SnapshotOf(list, kind);
-    roots.Add(reinterpret_cast<void**>(&a));
-    Il2CppArray* b = reinterpret_cast<Il2CppArray*>(second);
-    if (b != nullptr && (b->obj.klass == nullptr || b->obj.klass->name == nullptr ||
-                         b->obj.klass->name[0] != '['))
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+
+    if (first == nullptr) il2cpp_throw_argument_null_exception("first");
+    if (second == nullptr) il2cpp_throw_argument_null_exception("second");
+
+    // Snapshot a LIST at its own family; an ARRAY is used as-is.
+    Il2CppArray* a;
+    if (IsArrayObject(first))
     {
+        a = reinterpret_cast<Il2CppArray*>(first);
+    }
+    else
+    {
+        a = SnapshotOf(first, firstKind);
+        roots.Add(reinterpret_cast<void**>(&a));
+    }
+    Il2CppArray* b;
+    if (IsArrayObject(second))
+    {
+        b = reinterpret_cast<Il2CppArray*>(second);
+    }
+    else
+    {
+        b = SnapshotOf(second, secondKind);
         roots.Add(reinterpret_cast<void**>(&b));
-        b = SnapshotOf(second, kind);
-    }
-    if (b == nullptr) il2cpp_throw_argument_null_exception("second");
-    if (kind == IL2CPP_LIST_KIND_I4 && b->elemSize == 4 && !b->isRefElem)
-    {
-        return il2cpp_linq_zip_i4(a, b, sel);
-    }
-    if (kind == IL2CPP_LIST_KIND_REF)
-    {
-        // Reference family: pair to the shorter length, result is a reference.
-        const int32_t n = a->length < b->length ? a->length : b->length;
-        Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
-    roots.Add(reinterpret_cast<void**>(&out));
-    for (int32_t i = 0; i < n; ++i)
-    {
-        Il2CppObject* r = d->target != nullptr
-            ? reinterpret_cast<ZipRefRefThisFn>(d->methodPtr)(d->target, ReadRef(a, i), ReadRef(b, i))
-            : reinterpret_cast<ZipRefRefFn>(d->methodPtr)(ReadRef(a, i), ReadRef(b, i));
-        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
-        il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
-        *slot = r;
-    }
-        return out;
     }
 
-    // The WIDE families (int64/float/double) and the narrow families: pair to
-    // the shorter length and run the array zip on the two snapshots (the array
-    // entry owns the per-family ABI and the result layout/kind).
-    (void)d;
-    (void)roots;
-    return il2cpp_linq_zip_wide(a, b, sel, kind, resKind);
+    if (firstKind == IL2CPP_LIST_KIND_REF || secondKind == IL2CPP_LIST_KIND_REF)
+    {
+        // Reference family: pair the reference slots to the shorter length.
+        // Both sides must actually be reference arrays -- a value family on
+        // either side has no reference slot, and writing one would store a
+        // value bit pattern as a GC pointer.
+        if (!a->isRefElem || !b->isRefElem)
+            il2cpp_throw_not_supported_exception(
+                "Enumerable.Zip: a reference-element source paired with a value-family source is "
+                "not wired (see docs/audit/b5-gaps.md).");
+        Il2CppDelegate* d = RequireCallback(sel, "selector");
+        roots.Add(reinterpret_cast<void**>(&d));
+        const int32_t n = a->length < b->length ? a->length : b->length;
+        Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
+        roots.Add(reinterpret_cast<void**>(&out));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            Il2CppObject* r = d->target != nullptr
+                ? reinterpret_cast<ZipRefRefThisFn>(d->methodPtr)(d->target, ReadRef(a, i), ReadRef(b, i))
+                : reinterpret_cast<ZipRefRefFn>(d->methodPtr)(ReadRef(a, i), ReadRef(b, i));
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+            *slot = r;
+        }
+        return out;
+    }
+    if (a->isRefElem || b->isRefElem)
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Zip: a reference-element source paired with a value-family source is not "
+            "wired (see docs/audit/b5-gaps.md).");
+    return il2cpp_linq_zip_wide(a, b, sel, ZipSideOfListKind(firstKind),
+                                ZipSideOfListKind(secondKind), resKind);
 }
 
 bool il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* second, int32_t kind)

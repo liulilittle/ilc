@@ -1662,7 +1662,7 @@ public static class CodeGenerator
                 var prevVarHintParts = MethodRefResolver.InstantiationSuffixHintParts;
                 MethodRefResolver.InstantiationSuffixHint = t.InstantiationSuffix;
                 MethodRefResolver.InstantiationSuffixHintParts = t.InstantiationSuffixParts;
-                try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}", CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null }, md, types, accessors, pe); }
+                try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}", CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null, IsStatic = m.IsStatic, ParamTypeNames = m.ParamTypes.Length == 0 ? null : SplitTopLevel(m.ParamTypes).ToArray() }, md, types, accessors, pe); }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"warning: method fold failed -> skipped ({t.FullName}::{m.Name}: {ex.Message})");

@@ -88,6 +88,14 @@ public static partial class MethodRefResolver
         // tracked type instead of the grouping and fell through to the array
         // icalls.
         string? srcType = receiverType ?? (count >= 2 ? arg1Type : arg0Type);
+        // Zip is the ONE operator whose FIRST argument is the source while the
+        // arity is >= 2 (the shape is Zip(first, second, selector)): the generic
+        // rule above would pick the SECOND sequence as the source and then
+        // dispatch a `List<byte>.Zip(byte[])` receiver into the ARRAY path --
+        // casting a List object to Il2CppArray* reads its items pointer as a
+        // length (the D-2 defect class).
+        if (name == "Zip")
+            srcType = receiverType ?? arg0Type;
 
         // Sum/Min/Max are special: net48 carries a CONCRETE non-generic
         // overload family Sum(this IEnumerable<int32>) / Min / Max (no
@@ -473,8 +481,13 @@ public static partial class MethodRefResolver
         // below. Everything else still rejects a non-int32 source.
         // P0-11: Any() reads only the array header too -- element-family
         // agnostic (the ref-source predicate form is dispatched above).
+        // B5-R5: Zip is family-agnostic as well -- both of its sources carry
+        // their OWN family (the wide/narrow arm reads each at its own width) and
+        // a reference source is rejected with a precise message there. The
+        // int32-only gate below would otherwise reject every narrow/wide Zip
+        // before that arm can run.
         bool familyAgnostic = name is "Count" or "ToArray" or "Sum" or "Min" or "Max"
-            or "Average" or "Aggregate" or "Any";
+            or "Average" or "Aggregate" or "Any" or "Zip";
         if (!familyAgnostic && name != "ToList" &&
             (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08))
         {
@@ -902,26 +915,30 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_except_i4", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: "System.Int32[]");
             case "Zip":
-                // Zip(source, second, resultSelector) -> il2cpp_linq_zip_i4
-                // (D-LINQZ-1): element-wise pairing to the SHORTER length
-                // (net48), the two-arg selector Func<TSource,TSecond,TResult>
-                // invoked exactly once per output element. The receiver and
-                // the second array ride the "a" cast; the selector delegate
-                // passes through as the managed ref slot. All three generic
-                // arguments must be int32 (the 2-arg selector ABI is
-                // int32_t(*)(int32_t, int32_t) -- linq_map.h).
-                if (genArgs is not { Length: >= 3 } || genArgs[1] != 0x08 || genArgs[2] != 0x08)
-                {
-                    string ts = genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
-                    string t2 = genArgs is { Length: >= 2 } ? GenericArgTypeName(genArgs[1]) : "?";
-                    string tr = genArgs is { Length: >= 3 } ? GenericArgTypeName(genArgs[2]) : "?";
+            {
+                // Zip over an int32 ARRAY source (the common case). The unified
+                // runtime entry takes IL2CPP_LIST_KIND_* codes for BOTH sides and
+                // decides List-vs-array from the object descriptor.
+                byte ztFirst = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
+                byte ztSecond = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                byte ztRes = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
+                string zFirstKind = IsRefFamilyByte(ztFirst) ? "1" : LinqListKindOfElemByte(ztFirst) ?? "";
+                string zSecondKind = IsRefFamilyByte(ztSecond) ? "1" : LinqListKindOfElemByte(ztSecond) ?? "";
+                if (zFirstKind.Length == 0 || zSecondKind.Length == 0)
                     throw new NotSupportedException(
-                        $"Enumerable.Zip<{ts},{t2},{tr}> not wired: " +
-                        "the stage-1 runtime zip surface (il2cpp_linq_zip_i4) is int32 (0x08) " +
-                        "elements AND an int32 (0x08) result -- the 2-arg selector ABI is int32(*)(int32_t, int32_t)");
-                }
-                return I("il2cpp::il2cpp_linq_zip_i4", 3, true, true, false,
-                    new[] { "a", "a", "" }, returnTypeName: "System.Int32[]");
+                        $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)},...> " +
+                        "not wired: an element family with no cell ABI (see docs/audit/b5-gaps.md)");
+                string? zResKind = LinqZipResKindOfElemByte(ztRes);
+                if (zResKind == null)
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)}," +
+                        $"{GenericArgTypeName(ztRes)}> not wired: the zip surface writes a 4- or 8-byte " +
+                        "result cell (int32/uint32/int64/double/float), so a 1/2-byte integral, " +
+                        "bool/char or reference TResult has no cell ABI (see docs/audit/b5-gaps.md)");
+                return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
+                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(ztRes),
+                    appendLiterals: new[] { zFirstKind, zSecondKind, zResKind });
+            }
             case "Reverse":
                 // Reverse(source) -> il2cpp_linq_reverse_i4: a NEW int32[] with
                 // elements in reverse order (net48). Eager materialization.
@@ -1320,6 +1337,46 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // The zip RESULT family code of an element type BYTE (0 int32 / 2 int64 /
+    // 3 float / 4 double / 5 uint32), or null when the result cell has no ABI
+    // (1/2-byte integral, bool/char, reference). A ulong result rides the int64
+    // family: the cell width and the write ABI are identical (documented
+    // deviation in docs/audit/b5-gaps.md section 3).
+    private static string? LinqZipResKindOfElemByte(byte b) => b switch
+    {
+        0x08 => "0",  // int32
+        0x09 => "5",  // uint32
+        0x0A or 0x0B => "2",  // int64 / uint64
+        0x0C => "3",  // float -> the 8-byte double carrier
+        0x0D => "4",  // double
+        _ => null,
+    };
+
+    // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*) of an
+    // element TYPE BYTE, or null when the byte is not a value family (a
+    // reference element has no cell ABI of its own). This is the ONLY mapping
+    // from a metadata element byte to IL2CPP_LIST_KIND_*: the narrow element
+    // bytes are 1/2-byte cells whose family cannot be recovered from the cell
+    // width, and IL2CPP_LIST_KIND_* is a DIFFERENT enumeration from the zip
+    // side codes -- LinqNarrowCode's 0..6 must never be reused as a list kind
+    // (byte -> "1" would be IL2CPP_LIST_KIND_REF, an 8-byte reference read of a
+    // 1-byte cell).
+    private static string? LinqListKindOfElemByte(byte b) => b switch
+    {
+        0x08 => "0",  // int32
+        0x0A or 0x0B => "2",  // int64 / uint64
+        0x0C => "3",  // float
+        0x0D => "4",  // double
+        0x04 => "5",  // sbyte
+        0x05 => "6",  // byte
+        0x02 => "7",  // bool
+        0x06 => "8",  // short
+        0x07 => "9",  // ushort
+        0x03 => "10", // char
+        0x09 => "11", // uint
+        _ => null,
+    };
+
     // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*), or
     // null when the receiver is not a List<T>. The tracked List receiver names
     // come from the newobj AOT expansion (List`1_int / List`1_string / ...) or
@@ -1329,6 +1386,19 @@ public static partial class MethodRefResolver
         if (receiverType == null) return null;
         if (!receiverType.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal))
             return null;
+        // ELEMENT AUTHORITY: the MethodSpec generic argument decides the
+        // element family. The tracked receiver NAME is only a heuristic --
+        // MEASURED: a `List<double>` receiver inside a method that also builds a
+        // List<int> was tracked as "System.Collections.Generic.List`1_int", and
+        // the zip then read the double cells as int32 (K=0). genArgs[0] is
+        // TSource/TSource-of-the-extension, i.e. the element type the runtime
+        // must read. The name suffix is used only when the call has no
+        // MethodSpec at all (and for the reference-element names below).
+        if (genArgs is { Length: >= 1 })
+        {
+            if (srcFam == "ref") return "1";
+            if (LinqListKindOfElemByte(genArgs[0]) is { } eleKind) return eleKind;
+        }
         var suffix = receiverType.Length > "System.Collections.Generic.List`1".Length
             ? receiverType["System.Collections.Generic.List`1".Length..]
             : "";
@@ -1348,14 +1418,22 @@ public static partial class MethodRefResolver
             "_string" or "_class" or "_object" or "_array" => "1",
             _ when suffix.Length > 1 => "1", // any nested generic element is a reference
             // The unsuffixed pseudo-type (ToList's tracked result): the family
-            // comes from the call's own generic argument.
+            // comes from the call's own generic argument. The LIST kind must be
+            // read from the element BYTE (LinqListKindOfElemByte) -- the narrow
+            // families cannot be folded into the srcFam text alone: "narrow"
+            // covers eight different LIST kinds, and the old LinqNarrowCode
+            // fallback below returned the NARROW code space as a LIST kind
+            // (byte -> "1" = IL2CPP_LIST_KIND_REF: an 8-byte reference read of a
+            // 1-byte cell).
+            _ when genArgs is { Length: >= 1 } => srcFam == "ref"
+                ? "1"
+                : LinqListKindOfElemByte(genArgs[0]) ?? "1",
             _ => srcFam switch
             {
                 "ref" => "1",
                 "i8" => "2",
                 "f" => "3",
                 "d" => "4",
-                "narrow" => genArgs is { Length: >= 1 } ? LinqNarrowCode(genArgs[0]) ?? "0" : "0",
                 _ => "0",
             },
         };
@@ -1535,18 +1613,58 @@ public static partial class MethodRefResolver
             case "Zip":
             {
                 // The selector's TResult family decides the result array (a
-                // double/float projection must not be written as int32).
+                // double/float projection must not be truncated to int32), and
+                // the SECOND source's family decides how its cells are read (the
+                // two sources may differ -- List<double>.Zip(int[])).
                 byte tRes = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
-                string resKind = tRes switch
+                byte tFirst = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
+                byte tSecond = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                if (K == "1")
                 {
-                    0x0A or 0x0B => "2",
-                    0x0C => "3",
-                    0x0D => "4",
-                    _ => "0",
+                    // Reference-element List: the runtime's reference branch
+                    // pairs the reference slots and returns a reference array.
+                    // A value family on either side has no reference slot there
+                    // (and a value TResult would be written as a reference --
+                    // a silent wrong value), so both are rejected here.
+                    if (!IsRefFamilyByte(tSecond))
+                        throw new NotSupportedException(
+                            $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
+                            "over a reference-element List not wired: both sources must be " +
+                            "reference-element sequences (the reference zip surface has no value-cell ABI)");
+                    if (!IsRefFamilyByte(tRes))
+                        throw new NotSupportedException(
+                            $"Enumerable.Zip<...,...,{GenericArgTypeName(tRes)}> over a reference-element " +
+                            "List not wired: the reference zip surface returns the paired reference " +
+                            "slots, so a value TResult would be stored as a reference (silent wrong value)");
+                    return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
+                        appendLiterals: new[] { "1", "1", "0" });
+                }
+                string? resKind = tRes switch
+                {
+                    0x08 => "0",        // int32
+                    0x09 => "5",        // uint32 (4-byte cell, elemKind 5)
+                    0x0A or 0x0B => "2", // int64 / uint64 (8-byte cell, elemKind 2)
+                    0x0C => "3",        // float -> the 8-byte double carrier
+                    0x0D => "4",        // double
+                    _ => null,
                 };
-                return I("il2cpp::il2cpp_linq_list_zip", 3, true, true, false,
+                if (resKind == null)
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
+                        $"{GenericArgTypeName(tRes)}> over a List not wired: the wide/narrow zip surface " +
+                        "writes a 4- or 8-byte result cell (int32/uint32/int64/double/float), so a " +
+                        "1/2-byte integral, bool/char or reference TResult has no cell ABI " +
+                        "(see docs/audit/b5-gaps.md)");
+                string? secondKind = LinqListKindOfElemByte(tSecond);
+                if (secondKind == null)
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
+                        "over a List not wired: the second source's element family has no value-cell ABI " +
+                        "(a reference-element second source cannot be paired with a value-family List)");
+                return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
                     new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
-                    appendLiterals: new[] { K, resKind });
+                    appendLiterals: new[] { K, secondKind, resKind });
             }
             case "SequenceEqual":
                 return I("il2cpp::il2cpp_linq_list_sequence_equal", 2, true, false, false,
@@ -1744,6 +1862,35 @@ public static partial class MethodRefResolver
                 return I($"il2cpp::il2cpp_linq_last_or_default_{suffix}", 1, true, false, false,
                     OneArg, appendLiterals: kindAppend,
                     resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null);
+            case "Zip":
+            {
+                // Zip over an ARRAY (or List) source. The unified runtime entry
+                // takes IL2CPP_LIST_KIND_* codes for BOTH sides (each side is
+                // materialized/read at its OWN family, so the two may differ)
+                // and decides List-vs-array from the object descriptor -- the
+                // transpiler cannot (Zip's arity puts the selector on top of the
+                // stack, and a List<T> local is tracked as its element array).
+                byte tFirst = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
+                byte tSecond = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                byte tRes = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
+                string firstKind = IsRefFamilyByte(tFirst) ? "1" : LinqListKindOfElemByte(tFirst) ?? "";
+                string secondKind = IsRefFamilyByte(tSecond) ? "1" : LinqListKindOfElemByte(tSecond) ?? "";
+                if (firstKind.Length == 0 || secondKind.Length == 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
+                        "not wired: an element family with no cell ABI (see docs/audit/b5-gaps.md)");
+                string? resKind = LinqZipResKindOfElemByte(tRes);
+                if (resKind == null)
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
+                        $"{GenericArgTypeName(tRes)}> not wired: the zip surface writes a 4- or 8-byte " +
+                        "result cell (int32/uint32/int64/double/float), so a 1/2-byte integral, " +
+                        "bool/char or value-result-over-reference-source has no cell ABI " +
+                        "(see docs/audit/b5-gaps.md)");
+                return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
+                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
+                    appendLiterals: new[] { firstKind, secondKind, resKind });
+            }
             default:
                 return null;
         }

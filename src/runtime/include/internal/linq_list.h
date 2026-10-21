@@ -157,8 +157,24 @@ Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, i
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_list_distinct(Il2CppObject* list, int32_t kind);
 Il2CppArray* il2cpp_linq_list_except(Il2CppObject* list, Il2CppObject* second, int32_t kind);
+// Zip: `kind` is the RECEIVER list's element kind and `secondKind` the SECOND
+// source's own element kind (IL2CPP_LIST_KIND_*) -- the two may DIFFER
+// (List<double>.Zip(int[])), so the runtime must not read the second source
+// with the receiver's family. `resKind` is the selector's return family
+// (0 int32 / 2 int64 / 3 float / 4 double / 5 uint32).
 Il2CppArray* il2cpp_linq_list_zip(Il2CppObject* list, Il2CppObject* second,
-                                  Il2CppObject* sel, int32_t kind, int32_t resKind);
+                                  Il2CppObject* sel, int32_t kind, int32_t resKind,
+                                  int32_t secondKind);
+
+// The UNIFIED Zip entry used by the transpiler for EVERY Zip call. A List
+// object and an array are indistinguishable at transpile time (Zip's arity puts
+// the selector on top of the stack, and the type tracker names a List<T> local
+// after its element array), so the List-vs-array decision is made HERE from the
+// object's own descriptor. Each side is materialized at ITS OWN element kind;
+// the two families may differ. Reference-element sources pair reference slots.
+Il2CppArray* il2cpp_linq_zip_family(Il2CppObject* first, Il2CppObject* second,
+                                    Il2CppObject* sel, int32_t firstKind,
+                                    int32_t secondKind, int32_t resKind);
 bool        il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* second, int32_t kind);
 
 // Ordering over a REFERENCE-element list (List<string>/List<object>/...): the

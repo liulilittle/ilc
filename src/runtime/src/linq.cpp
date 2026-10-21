@@ -654,25 +654,12 @@ typedef double (*SelRefDThisFn2)(Il2CppObject*, Il2CppObject*);
 typedef Il2CppObject* (*SelRefRefFn2)(Il2CppObject*);
 typedef Il2CppObject* (*SelRefRefThisFn2)(Il2CppObject*, Il2CppObject*);
 
-// 2-arg selector shapes for Zip over the wide/narrow families.
-typedef int32_t (*ZipI4I4Fn2)(int32_t, int32_t);
-typedef int32_t (*ZipI4I4ThisFn2)(Il2CppObject*, int32_t, int32_t);
-typedef int32_t (*ZipI8I8Fn)(int64_t, int64_t);
-typedef int32_t (*ZipI8I8ThisFn)(Il2CppObject*, int64_t, int64_t);
-typedef int32_t (*ZipDDFn)(double, double);
-typedef int32_t (*ZipDDThisFn)(Il2CppObject*, double, double);
-typedef int64_t (*ZipI4I4LFn)(int32_t, int32_t);
-typedef int64_t (*ZipI4I4LThisFn)(Il2CppObject*, int32_t, int32_t);
-typedef int64_t (*ZipI8I8LFn)(int64_t, int64_t);
-typedef int64_t (*ZipI8I8LThisFn)(Il2CppObject*, int64_t, int64_t);
-typedef int64_t (*ZipDDLFn)(double, double);
-typedef int64_t (*ZipDDLThisFn)(Il2CppObject*, double, double);
-typedef double (*ZipI4I4DFn)(int32_t, int32_t);
-typedef double (*ZipI4I4DThisFn)(Il2CppObject*, int32_t, int32_t);
-typedef double (*ZipI8I8DFn)(int64_t, int64_t);
-typedef double (*ZipI8I8DThisFn)(Il2CppObject*, int64_t, int64_t);
-typedef double (*ZipDDDThisFn)(Il2CppObject*, double, double);
-typedef double (*ZipDDDFn)(double, double);
+// (The Zip selector shapes are NOT typedef'd here: il2cpp_linq_zip_wide
+// instantiates the call through the ZipCall<Integer,Integer,Result> template so
+// the parameter ABI follows the selector's own statically declared types -- the
+// two sources may have different families, and a hand-written per-shape table
+// cannot express that. See ZipFill/ZipCall below.)
+
 
 int32_t NarrowElemAt(Il2CppArray* arr, int32_t index, int32_t elemKind)
 {
@@ -2523,12 +2510,142 @@ int32_t il2cpp_linq_last_or_default_narrow(Il2CppArray* src, int32_t elemKind)
 }
 
 //------------------------------------------------------------------------------
-// Zip over the WIDE / NARROW families (see linq.h). Both sources are the same
-// element family; the selector receives the two widened values and its return
-// is an int32 or int64 projection (the only shapes the transpiler emits).
+// Zip over the WIDE / NARROW families (see linq.h). The two sources may have
+// DIFFERENT families (List<double>.Zip(int[])), so each side is read at its OWN
+// width and the selector is called through the ABI of its STATICALLY DECLARED
+// parameter types. CodeGenerator maps a delegate parameter to int32_t for the
+// int32 slot and EVERY narrow family, to int64_t for i8, and to double for
+// float/double (the F-stack carrier) -- so a (double, int32_t) thunk called
+// through a double(*)(double, double) pointer would put the second argument in
+// XMM1 while the callee reads a GPR. That is the silent garbage this
+// per-combination table exists to prevent (measured before the fix:
+// List<double>.Zip(List<int>) returned 774904112,774904112 instead of
+// 11.5,22.5).
 //------------------------------------------------------------------------------
+int32_t ZipSideWidthCode(int32_t side)
+{
+    // 0 = int32 slot, 1 = int64, 2 = double carrier.
+    return side == IL2CPP_LINQ_ZIP_I8 ? 1
+         : (side == IL2CPP_LINQ_ZIP_F || side == IL2CPP_LINQ_ZIP_D) ? 2 : 0;
+}
+
+// Read element `i` as the int32 slot. The narrow codes (0..6) disambiguate the
+// 1/2-byte cells -- elemKind is 0 for every narrow family this runtime
+// materializes (ValueElemKindFor), so the DECLARED side is the only authority
+// there; a typed elemKind (the wide families) wins when present.
+int32_t ZipReadI4(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, i);
+    switch (arr->elemKind)
+    {
+        case 1: return *reinterpret_cast<int32_t*>(p);
+        case 2: return static_cast<int32_t>(*reinterpret_cast<int64_t*>(p));
+        case 3: return static_cast<int32_t>(*reinterpret_cast<float*>(p));
+        case 4: return static_cast<int32_t>(*reinterpret_cast<double*>(p));
+        case 5: return static_cast<int32_t>(*reinterpret_cast<uint32_t*>(p));
+        default: return NarrowElemAt(arr, i, side); // narrow codes or the I4 default
+    }
+}
+
+int64_t ZipReadI8(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, i);
+    switch (arr->elemKind)
+    {
+        case 2: case 6: case 7: return *reinterpret_cast<int64_t*>(p);
+        case 1: return static_cast<int64_t>(*reinterpret_cast<int32_t*>(p));
+        case 4: return static_cast<int64_t>(*reinterpret_cast<double*>(p));
+        case 3: return static_cast<int64_t>(*reinterpret_cast<float*>(p));
+        default: break;
+    }
+    if (arr->elemSize == 8) return *reinterpret_cast<int64_t*>(p);
+    return static_cast<int64_t>(NarrowElemAt(arr, i, side));
+}
+
+// Read element `i` as the double carrier. elemKind comes FIRST: a 4-byte
+// single cell and an 8-byte double cell are indistinguishable from the width
+// alone, and this runtime's own FLOAT-result arrays are 8-byte cells carrying
+// elemKind 3 with the float's bits in the low 4 bytes -- reading one of those
+// as a double would take the higher undefined bits as part of the value.
+double ZipReadD(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, i);
+    switch (arr->elemKind)
+    {
+        case 4: return *reinterpret_cast<double*>(p);
+        case 3: return static_cast<double>(*reinterpret_cast<float*>(p));
+        case 1: return static_cast<double>(*reinterpret_cast<int32_t*>(p));
+        case 2: case 6: case 7: return static_cast<double>(*reinterpret_cast<int64_t*>(p));
+        case 5: return static_cast<double>(*reinterpret_cast<uint32_t*>(p));
+        default: break;
+    }
+    if (arr->elemSize == 8) return *reinterpret_cast<double*>(p);
+    if (arr->elemSize == 4)
+        return side == IL2CPP_LINQ_ZIP_I4
+            ? static_cast<double>(*reinterpret_cast<int32_t*>(p))
+            : static_cast<double>(*reinterpret_cast<float*>(p));
+    return static_cast<double>(NarrowElemAt(arr, i, side));
+}
+
+template <typename T>
+T ZipReadAs(Il2CppArray* arr, int32_t i, int32_t side);
+
+template <>
+inline int32_t ZipReadAs<int32_t>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    return ZipReadI4(arr, i, side);
+}
+
+template <>
+inline int64_t ZipReadAs<int64_t>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    return ZipReadI8(arr, i, side);
+}
+
+template <>
+inline double ZipReadAs<double>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    return ZipReadD(arr, i, side);
+}
+
+// Call the selector through the C signature of its declared parameter types
+// (T1, T2) and the result carrier R.
+template <typename T1, typename T2, typename R>
+R ZipCall(Il2CppDelegate* d, T1 a, T2 b)
+{
+    if (d->target != nullptr)
+        return reinterpret_cast<R (*)(Il2CppObject*, T1, T2)>(d->methodPtr)(d->target, a, b);
+    return reinterpret_cast<R (*)(T1, T2)>(d->methodPtr)(a, b);
+}
+
+template <typename T1, typename T2>
+void ZipFill(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
+             int32_t firstSide, int32_t secondSide, int32_t resKind,
+             Il2CppArray* out, int32_t n)
+{
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const T1 a = ZipReadAs<T1>(first, i, firstSide);
+        const T2 b = ZipReadAs<T2>(second, i, secondSide);
+        if (resKind == 2)
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, int64_t>(d, a, b);
+        else if (resKind == 3 || resKind == 4)
+            // float rides the double carrier: an 8-byte cell whose low 4 bytes
+            // are the float's own bits (il2cpp_linq_select_wide, resKind 3).
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, double>(d, a, b);
+        else
+            // int32 and uint32 share the 4-byte cell (the caller typed it);
+            // the uint32 thunk returns uint32_t, ABI-identical to int32_t.
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, int32_t>(d, a, b);
+    }
+}
+
 Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
-                                  Il2CppObject* sel, int32_t kind, int32_t resKind)
+                                  Il2CppObject* sel, int32_t firstSide,
+                                  int32_t secondSide, int32_t resKind)
 {
     CheckSource(first);
     CheckSource(second);
@@ -2544,87 +2661,42 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
     switch (resKind)
     {
         case 2: resSize = 8; resElemKind = 2; break;
-        case 3: resSize = 8; resElemKind = 3; break;
+        case 3: resSize = 8; resElemKind = 3; break; // float -> double carrier
         case 4: resSize = 8; resElemKind = 4; break;
+        case 5: resSize = 4; resElemKind = 5; break; // uint32
         default: resSize = 4; resElemKind = 1; break;
     }
     Il2CppArray* out = il2cpp_array_new_typed(resSize, resElemKind, n);
     roots.Add(reinterpret_cast<void**>(&out));
-    for (int32_t i = 0; i < n; ++i)
+
+    const int32_t c1 = ZipSideWidthCode(firstSide);
+    const int32_t c2 = ZipSideWidthCode(secondSide);
+    if (c1 == 0)
     {
-        int32_t a = 0, b = 0;
-        int64_t a64 = 0, b64 = 0;
-        double ad = 0.0, bd = 0.0;
-        switch (kind)
-        {
-            case 2:
-                a64 = WideElemI8(first, i);
-                b64 = WideElemI8(second, i);
-                break;
-            case 3:
-            case 4:
-                ad = WideElemD(first, i);
-                bd = WideElemD(second, i);
-                break;
-            default:
-                a = NarrowElemAt(first, i, kind);
-                b = NarrowElemAt(second, i, kind);
-                break;
-        }
-        // The selector's RESULT family decides the write. A double/float
-        // projection must NOT be truncated to int32 (that was the "List<double>
-        // .Zip prints an integer" bug).
-        if (resKind == 2)
-        {
-            int64_t r;
-            if (kind == 2)
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipI8I8LThisFn>(d->methodPtr)(d->target, a64, b64)
-                    : reinterpret_cast<ZipI8I8LFn>(d->methodPtr)(a64, b64);
-            else if (kind == 3 || kind == 4)
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipDDLThisFn>(d->methodPtr)(d->target, ad, bd)
-                    : reinterpret_cast<ZipDDLFn>(d->methodPtr)(ad, bd);
-            else
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipI4I4LThisFn>(d->methodPtr)(d->target, a, b)
-                    : reinterpret_cast<ZipI4I4LFn>(d->methodPtr)(a, b);
-            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
-        }
-        else if (resKind == 3 || resKind == 4)
-        {
-            double r;
-            if (kind == 2)
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipI8I8DThisFn>(d->methodPtr)(d->target, a64, b64)
-                    : reinterpret_cast<ZipI8I8DFn>(d->methodPtr)(a64, b64);
-            else if (kind == 3 || kind == 4)
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipDDDThisFn>(d->methodPtr)(d->target, ad, bd)
-                    : reinterpret_cast<ZipDDDFn>(d->methodPtr)(ad, bd);
-            else
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipI4I4DThisFn>(d->methodPtr)(d->target, a, b)
-                    : reinterpret_cast<ZipI4I4DFn>(d->methodPtr)(a, b);
-            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = r;
-        }
+        if (c2 == 0)
+            ZipFill<int32_t, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 1)
+            ZipFill<int32_t, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
         else
-        {
-            int32_t r;
-            if (kind == 2)
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipI8I8ThisFn>(d->methodPtr)(d->target, a64, b64)
-                    : reinterpret_cast<ZipI8I8Fn>(d->methodPtr)(a64, b64);
-            else if (kind == 3 || kind == 4)
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipDDThisFn>(d->methodPtr)(d->target, ad, bd)
-                    : reinterpret_cast<ZipDDFn>(d->methodPtr)(ad, bd);
-            else
-                r = d->target != nullptr
-                    ? reinterpret_cast<ZipI4I4ThisFn2>(d->methodPtr)(d->target, a, b)
-                    : reinterpret_cast<ZipI4I4Fn2>(d->methodPtr)(a, b);
-            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
-        }
+            ZipFill<int32_t, double>(first, second, d, firstSide, secondSide, resKind, out, n);
+    }
+    else if (c1 == 1)
+    {
+        if (c2 == 0)
+            ZipFill<int64_t, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 1)
+            ZipFill<int64_t, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else
+            ZipFill<int64_t, double>(first, second, d, firstSide, secondSide, resKind, out, n);
+    }
+    else
+    {
+        if (c2 == 0)
+            ZipFill<double, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 1)
+            ZipFill<double, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else
+            ZipFill<double, double>(first, second, d, firstSide, secondSide, resKind, out, n);
     }
     return out;
 }

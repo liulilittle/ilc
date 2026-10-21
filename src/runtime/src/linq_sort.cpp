@@ -66,9 +66,6 @@ const char kMulticastDelegateName[] = "System.MulticastDelegate";
 // The single-cast delegate class name (delegate.cpp descriptor).
 const char kDelegateClass[] = "System.Delegate";
 
-// The System.String descriptor name (string.cpp registration).
-const char kStringTypeName[] = "System.String";
-
 // Comparator callback shapes per element family.
 using CompareI4Fn = int32_t (*)(int32_t left, int32_t right);
 using CompareRefFn = int32_t (*)(Il2CppObject* left, Il2CppObject* right);
@@ -716,28 +713,34 @@ Il2CppArray* SortRefsKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc
     return result;
 }
 
-// Ordering of two reference KEYS. A string key NEVER reaches here: the
-// transpiler rejects `OrderBy(x => stringKey)` with NotSupportedException
-// because net48's Comparer<string>.Default is culture-aware and this runtime
-// has no collation (see .opencode/tmp/b5-gaps.md section 2). The ordinal branch
-// below is therefore defensive only -- it exists so a hand-written C++ caller
-// cannot crash, not to define .NET ordering semantics.
+// Ordering of two reference KEYS.
+//
+// A string key is rejected OUT LOUD, never routed through an ordinal shortcut:
+// Enumerable.OrderBy compares keys with Comparer<TKey>.Default, and net48's
+// Comparer<string>.Default is CULTURE-aware (it sorts "a" before "A" and
+// applies OS-NLS collation weights). This runtime has no collation
+// infrastructure, so an ordinal comparison would SILENTLY MISORDER mixed-case
+// input -- a wrong value, not a documented deviation. The transpiler rejects a
+// STATICALLY string TKey (MethodMap.Linq.cs); an `object`/interface key cannot
+// be judged at compile time, so the runtime instance check below is the only
+// correct place for those.
 //
 // Every other reference type defers to IComparable.CompareTo on the first key
 // (Comparer<T>.Default), null-first.
 int32_t CompareRefKeys(Il2CppObject* a, Il2CppObject* b)
 {
     if (a == b) return 0;
+    if ((a != nullptr && a->klass == il2cpp_string_class()) ||
+        (b != nullptr && b->klass == il2cpp_string_class()))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.OrderBy: a System.String key requires culture-aware collation, "
+            "which the runtime does not implement (see docs/audit/b5-gaps.md); an ordinal "
+            "comparison would silently misorder mixed-case input (net48 "
+            "Comparer<string>.Default sorts a before A)");
+    }
     if (a == nullptr) return -1;
     if (b == nullptr) return 1;
-    if (a->klass != nullptr && a->klass->name != nullptr &&
-        std::strcmp(a->klass->name, kStringTypeName) == 0)
-    {
-        const int v = il2cpp_string_compare_ordinal(
-            reinterpret_cast<const Il2CppString*>(a),
-            reinterpret_cast<const Il2CppString*>(b));
-        return (v < 0) ? -1 : (v > 0) ? 1 : 0;
-    }
     return il2cpp_icomparable_compare_to(a, b);
 }
 

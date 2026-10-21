@@ -62,18 +62,19 @@ Il2CppArray* il2cpp_linq_order_by_i4(Il2CppArray* src, Il2CppObject* cmp);
 // modified. Reference arrays only (isRefElem == true); the comparator decides
 // the null policy (null elements ARE passed to the callback).
 //
-// Enumerable.OrderBy passes a 1-arg KEY SELECTOR, so the transpiler emits the
-// key-selector surface below (il2cpp_linq_order_by_key_ref_*), never this
-// entry. This one is the supported ABI for a caller that already HAS a
-// Comparison<T>; it is not dead, it is simply not on the Enumerable.OrderBy
-// path.
+// NO CALLER: the transpiler has no emission site for this entry (grep over
+// src/il2cppc finds only the explanatory comment in MethodMap.Linq.cs).
+// Enumerable.OrderBy passes a 1-arg KEY SELECTOR, and calling a 1-arg function
+// through a 2-arg signature is undefined behaviour, so this is kept only as the
+// declared ABI for a caller that already HAS a Comparison<T>. Registered as an
+// unreferenced legacy declaration in docs/audit/b5-gaps.md section 5c -- do NOT
+// describe it as "wired".
 Il2CppArray* il2cpp_linq_order_by_ref(Il2CppArray* src, Il2CppObject* cmp);
 
 // String-typed variant of il2cpp_linq_order_by_ref: same ABI and stability
-// contract, kept for a caller whose comparison delegate is string-typed. Same
-// note as above -- the transpiler's Enumerable.OrderBy path uses the
-// key-selector surface, and a STRING KEY is rejected at transpile time (no
-// collation in this runtime).
+// contract. NO CALLER as well (see above); the transpiler's Enumerable.OrderBy
+// path uses the key-selector surface, and a STRING KEY is rejected at transpile
+// time (no collation in this runtime).
 Il2CppArray* il2cpp_linq_order_by_string(Il2CppArray* src, Il2CppObject* cmp);
 
 // Enumerable.OrderBy(TSource[], Func<TSource,TKey>) -- the KEY-SELECTOR
