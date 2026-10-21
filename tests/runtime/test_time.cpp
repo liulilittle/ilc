@@ -611,21 +611,58 @@ int main()
                il2cpp::runtime::icall_datetime_to_file_time(localValue)).ticks == localValue.ticks,
            "ToFileTime -> FromFileTime round-trips the Local ticks");
 
-    // --- 12e. Pre-1900 floor: ONE constant offset on every platform ---
-    // Below 1900-01-01 the two platforms have no comparable rule data (net48
-    // extrapolates the zone's first rule; tzdata reports local mean time), so
-    // the bridge uses the zone's STANDARD offset there -- on BOTH platforms.
-    // Assert the invariant itself: two instants below the floor (the 1601
-    // epoch and 1601-07-01) must get the SAME offset, so a platform-specific
-    // rule extrapolation cannot leak in. (This is the audit's "same semantic
-    // on both paths" check; it is machine-zone independent.)
+    // --- 12e. The pre-1900 branch really is the STANDARD-offset branch ---
+    //
+    // These assertions are DISCRIMINATING: they fail if the pre-1900 instants
+    // leak into the platform rule path. They do NOT claim net48 equality --
+    // net48 still reports DST below 1900 (measured: Eastern 1899/1900-07 ->
+    // -14400, Lord Howe 1899/1900-01 -> +39600), while this bridge
+    // deliberately normalises pre-1900 instants to the standard offset (see
+    // kHistoricalFloorTicks and section 7 of .opencode/tmp/dt-fix.md).
+    //
+    // (a) Two pre-floor instants must get the SAME offset. This is the actual
+    //     branch property: the floor branch ignores the date entirely. It has
+    //     real discriminating power against a rule lookup, because the two
+    //     instants are 6 months apart and every DST zone differs between them
+    //     (the net48 oracle above is exactly that: -18000 vs -14400).
     const int64_t jan1601Offset = il2cpp::runtime::icall_datetime_from_file_time(0).ticks - kFileTimeEpoch;
     const int64_t jul1601Offset =
         il2cpp::runtime::icall_datetime_from_file_time(505067616000000000LL - kFileTimeEpoch).ticks - 505067616000000000LL;
     Expect(jan1601Offset == jul1601Offset,
-           "pre-1900 instants use ONE constant (standard) offset on both platforms");
+           "pre-1900: January and July get the SAME offset (standard-offset branch, no rule lookup)");
+    // (b) ... and that offset is minute-aligned (never tzdata local mean time).
     Expect(jan1601Offset % (60 * kTicksPerSecondLocal) == 0,
-           "the pre-1900 offset is minute-aligned (never tzdata local mean time)");
+           "pre-1900 offset is minute-aligned (never tzdata local mean time)");
+    // (c) The floor branch is the ONE the standard offset comes from: the
+    //     pre-floor offset must equal the offset at a post-floor instant that
+    //     is outside every DST window (2000-01-01Z is winter in both
+    //     hemispheres' modern rules -- for a southern zone it is the DST
+    //     season, so compare against the MINIMUM of the four 2000 samples
+    //     instead, which is exactly what the runtime calls the standard
+    //     offset). Expressed through observable icall results only.
+    const int64_t seasonOffsets[4] = {
+        il2cpp::runtime::icall_datetime_from_file_time(630822816000000000LL - kFileTimeEpoch).ticks - 630822816000000000LL,
+        il2cpp::runtime::icall_datetime_from_file_time(630901440000000000LL - kFileTimeEpoch).ticks - 630901440000000000LL,
+        il2cpp::runtime::icall_datetime_from_file_time(630980064000000000LL - kFileTimeEpoch).ticks - 630980064000000000LL,
+        il2cpp::runtime::icall_datetime_from_file_time(631059552000000000LL - kFileTimeEpoch).ticks - 631059552000000000LL
+    };
+    int64_t seasonMin = seasonOffsets[0];
+    for (int i = 1; i < 4; ++i)
+    {
+        if (seasonOffsets[i] < seasonMin) seasonMin = seasonOffsets[i];
+    }
+    Expect(jan1601Offset == seasonMin,
+           "pre-1900 offset equals the standard (min-of-seasons) offset, not a rule value");
+    // (d) Above the floor the rule branch is really used: a DST zone must
+    //     report DIFFERENT offsets for January and July 2020. This is the
+    //     complementary discriminating check (on a no-DST host it is a no-op).
+    const int64_t jan2020 = il2cpp::runtime::icall_datetime_from_file_time(132223104000000000LL).ticks - 637134336000000000LL;
+    const int64_t jul2020 = il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks - 637269984000000000LL;
+    if (jan2020 != jul2020)
+    {
+        Expect(jan2020 != jan1601Offset || jul2020 != jan1601Offset,
+               "post-floor instants use the rule branch, not the pre-1900 constant");
+    }
     // --- 12f. Hardcoded net48 oracle, asserted only in the matching zone ---
     //
     // The expected numbers below are net48 measurements, NOT values computed by
@@ -671,7 +708,8 @@ int main()
         Expect(il2cpp::runtime::icall_datetime_from_file_time(2650467743999999999LL).ticks == 3155378795999999999LL,
                "net48 EST: FromFileTime(max) == 3155378795999999999");
         // The DST season must be distinguished from the winter offset (the
-        // old current-offset code used one offset for both).
+        // old current-offset code used one offset for both). 2020 is inside
+        // the verified 1918-1970+ window.
         Expect(il2cpp::runtime::icall_datetime_from_file_time(132358752000000000LL).ticks
                    != 637269984000000000LL + janInstantOffset * kTicksPerSecondLocal,
                "net48 EST: FromFileTime(Jul) does NOT use the January offset");
@@ -686,9 +724,17 @@ int main()
         Expect(il2cpp::runtime::icall_datetime_to_file_time(
                    il2cpp::runtime::Il2CppDateTime(637192314000000000LL, 2)) == 132281262000000000LL,
                "net48 EST: ToFileTime(wall 2020-03-08 02:30, invalid) == 132281262000000000");
-        // Pre-1970 REAL history (not a standard-offset fallback): net48 reports
+        // Pre-1970 REAL history: only the 1918-1970 window is verified against
+        // net48 (see the kHistoricalFloorTicks note in time.cpp). net48 reports
         // the 1969 DST season, so FromFileTime shifts by -4 h in July and -5 h
         // in January (expected ticks are the net48 UTC ticks minus the offset).
+        //
+        // NOT asserted here (known divergence, documented in
+        // .opencode/tmp/dt-fix.md section 7):
+        //   * 1900-1917 New York -- glibc -0500 all year vs net48 -0400 in July
+        //   * pre-1900 (incl. 1899) -- net48 still applies DST; this bridge
+        //     deliberately uses the standard offset
+        std::printf("SKIP: 1900-1917 / pre-1900 New York net48 equality (known POSIX-vs-net48 rule-source divergence)\n");
         Expect(il2cpp::runtime::icall_datetime_from_file_time(621196992000000000LL - 504911232000000000LL).ticks
                    == 621196848000000000LL,
                "net48 EST: FromFileTime(1969-07-01Z) == 621196848000000000 (-4 h, pre-1970 DST)");

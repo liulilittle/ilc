@@ -433,21 +433,33 @@ int64_t StandardOffsetSeconds()
 }
 
 // The historical floor for the FileTime bridge: 1900-01-01T00:00:00Z in
-// .NET ticks. Below it the two platforms have no comparable rule data --
-// net48 extrapolates the zone's FIRST adjustment rule (measured: Eastern
-// 1601-07 -> DST -14400, AUS Eastern 1601-01 -> DST +39600) while tzdata only
-// carries LOCAL MEAN TIME (Asia/Shanghai +8:05:43, New York -4:56:02). Rather
-// than emulate either one's pre-1900 artefact, both paths use the zone's
-// standard offset there, which is what the net48 extrapolation yields for a
-// no-DST zone (measured: China 1601 -> +28800 on both platforms). From 1900 on
-// each platform reports its own REAL rules, including the 1918-1970 DST
-// seasons (measured: New York 1969-07-01Z -> -14400 on net48 AND glibc).
+// .NET ticks. Below it both paths use the zone's STANDARD offset. This is a
+// deliberate SIMPLIFICATION, not a net48 match: net48 extrapolates the zone's
+// first adjustment rule across all earlier dates, so it still reports DST
+// below 1900 (measured: Eastern 1899/1900/1901-07 -> -14400; Lord Howe
+// 1899/1900-01 -> +39600), and tzdata only carries LOCAL MEAN TIME there
+// (Asia/Shanghai +8:05:43, New York -4:56:02). Neither artefact is
+// reproducible from the other source, so the bridge normalises to the
+// standard offset instead of guessing. Only a no-DST zone coincides with
+// net48 there (measured: China 1601 -> +28800, pinned by diffdt001d).
+//
+// KNOWN LIMITS (measured 2026-10-21, see .opencode/tmp/dt-fix.md section 7):
+//   * 1918-1970 New York: net48 and glibc AGREE (-14400 in July, -18000 in
+//     January) -- this is the only historically verified window.
+//   * 1900-1917 New York: glibc says -0500 all year; net48 still reports
+//     -0400 in July. The two rule sources diverge by 1 h.
+//   * Lord Howe before 1981: glibc reports +1000 (and +1130 from 1982-01);
+//     net48 reports +1100/+1030 (a 30-60 min divergence). The zone adopted
+//     the 30-minute DST rule later than the registry data says.
+//   * pre-1900: see above (standard offset, deliberate simplification).
+// The bridge does NOT claim net48 equality in any of these ranges.
 constexpr int64_t kHistoricalFloorTicks = 599266080000000000LL; // 1900-01-01Z
 
 // Per-date local UTC offset (seconds, local - UTC) at a UTC INSTANT.
 // Windows: the registry rule model timezone.cpp shares with the .NET
-// Framework (net48's own data source, so historical years match too).
-// POSIX: the CRT's tzdata at that instant (real history, DST-aware).
+// Framework (net48's own data source). POSIX: the CRT's tzdata at that
+// instant (real history, DST-aware). The two sources agree for New York in
+// 1918-1970 and disagree elsewhere before 1970 (see kHistoricalFloorTicks).
 int64_t LocalOffsetAtUtcInstant(int64_t utcTicks)
 {
 #if defined(_WIN32)
