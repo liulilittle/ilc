@@ -13,8 +13,9 @@ using Xunit;
 // (MethodMap.ConvertExtra.cs -> TryMapConvertExtra): integer-source CHECKED
 // narrowings wire to the conv.ovf family (batch 152e/154b) -- while the
 // float/double sources (net48 rounds half-to-even; existing helpers
-// truncate) and ToDecimal (no decimal-target icall at all) stay LOUD --
-// never silently mapped to a wrong-semantics helper.
+// truncate) stay LOUD -- never silently mapped to a wrong-semantics helper.
+// p0conv2 wired ToDecimal (decimal ctor / identity / null-means-zero string /
+// char ICE), so its old LOUD assertion is now a mapping assertion.
 //
 // Same synthesis approach as MethodMapTests.Buffer: a real ECMA-335 PE
 // holding exactly one MemberReference (System.Convert::<member>) with a
@@ -171,17 +172,72 @@ public class MethodMapBase64Tests
     }
 
     //--------------------------------------------------------------------------
-    // ToDecimal: STILL LOUD -- no decimal-target runtime icall exists at all
-    // (ctor-based paths need the dec-result-slot protocol; see edit_convert.md).
+    // p0conv2 (D1): ToDecimal is now WIRED. Every integer source rides the
+    // decimal ctor icalls with the "dec" result-slot protocol (the
+    // MethodMap.Decimal.cs .ctor shape): sbyte/byte/short/ushort/int ->
+    // ctor_int32 ("i" widen), uint -> ctor_uint32, long -> ctor_int64,
+    // ulong -> ctor_uint64. Convert.ToDecimal(decimal) is the identity copy,
+    // string goes through the null-means-zero converter, char throws ICE.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(0x04, "icall_decimal_ctor_int32", "i")]
+    [InlineData(0x05, "icall_decimal_ctor_int32", "i")]
+    [InlineData(0x06, "icall_decimal_ctor_int32", "i")]
+    [InlineData(0x07, "icall_decimal_ctor_int32", "i")]
+    [InlineData(0x08, "icall_decimal_ctor_int32", "i")]
+    [InlineData(0x09, "icall_decimal_ctor_uint32", "i")]
+    [InlineData(0x0A, "icall_decimal_ctor_int64", "l")]
+    [InlineData(0x0B, "icall_decimal_ctor_uint64", "q")]
+    [InlineData(0x02, "icall_decimal_ctor_int32", "i")]
+    public void Resolve_Convert_ToDecimal_IntegerSources_WireToCtorIcall(
+        byte source, string icall, string cast)
+    {
+        var resolved = ResolveConvert("ToDecimal", new byte[] { 0x00, 0x01, 0x05, source });
+
+        Assert.Equal($"il2cpp::runtime::{icall}", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { cast }, resolved.ParamTypeNames);
+        // The "dec" ResultKind is what makes the emitter prepend the result
+        // slot (the T3 contract); without it the ctor call would be emitted as
+        // `t = void_call(...)`.
+        Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    //--------------------------------------------------------------------------
+    // p0conv2 (D1): the float/double/decimal/string/char sources.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(0x0C, "icall_decimal_ctor_float", "")]
+    [InlineData(0x0D, "icall_decimal_ctor_double", "")]
+    [InlineData(0x03, "icall_convert_to_decimal_char", "i")]
+    [InlineData(0x0E, "icall_convert_to_decimal_string", "s")]
+    public void Resolve_Convert_ToDecimal_OtherSources_Wire(
+        byte source, string icall, string cast)
+    {
+        var resolved = ResolveConvert("ToDecimal", new byte[] { 0x00, 0x01, 0x05, source });
+
+        Assert.Equal($"il2cpp::runtime::{icall}", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { cast }, resolved.ParamTypeNames);
+        Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    //--------------------------------------------------------------------------
+    // p0conv2 (D1): Convert.ToDecimal(decimal) is the identity copy (net48
+    // returns the operand unchanged -- scale preserved, never a re-parse).
+    // A VALUETYPE signature needs the TypeDefOrRef coded handle after 0x11.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Convert_ToDecimal_IntSource_ThrowsLoud()
+    public void Resolve_Convert_ToDecimal_DecimalSource_IsIdentityCopy()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveConvert("ToDecimal", new byte[] { 0x00, 0x01, 0x05, 0x08 }));
+        var resolved = ResolveConvert("ToDecimal", new byte[] { 0x00, 0x01, 0x05, 0x11, 0x05 });
 
-        Assert.Contains("System.Convert::ToDecimal", ex.Message);
-        Assert.Contains("no decimal-target runtime icalls", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_decimal_copy", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "dec" }, resolved.ParamTypeNames);
+        Assert.Equal("dec", resolved.ResultKind);
     }
 
     //--------------------------------------------------------------------------

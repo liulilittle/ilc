@@ -119,6 +119,48 @@ void RequireRefFamily(Il2CppArray* src)
     }
 }
 
+// P0LINQ1 (D1/D2): the non-int32 value families. Each entry accepts ONLY its
+// own cell width (the array is self-describing via isRefElem/elemSize), so a
+// mis-dispatched call is rejected instead of reading a narrower cell as a
+// wider one.
+void RequireI8Family(Il2CppArray* src)
+{
+    if (src->isRefElem || src->elemSize != 8)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Int64 arrays are supported.");
+    }
+}
+
+void RequireDoubleFamily(Il2CppArray* src)
+{
+    if (src->isRefElem || src->elemSize != 8)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Double arrays are supported.");
+    }
+}
+
+void RequireFloatFamily(Il2CppArray* src)
+{
+    if (src->isRefElem || src->elemSize != 4)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+}
+
+// decimal[] cells are 16 bytes (CodeGenerator ArrayElementType: System.Decimal
+// -> (16, false)).
+void RequireDecimalFamily(Il2CppArray* src)
+{
+    if (src->isRefElem || src->elemSize != static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Decimal arrays are supported.");
+    }
+}
+
 // RequireCallback -- validate the callback delegate (LINQ callback
 // contract, linq-domain.md section 2): null -> ArgumentNullException; a multicast
 // container -> InvalidOperationException (the multicast container is not a
@@ -1306,6 +1348,340 @@ Il2CppObject* il2cpp_linq_to_list(Il2CppArray* src)
         il2cpp_list_i4_add(list, I4At(src, i));
     }
     return list;
+}
+
+//------------------------------------------------------------------------------
+// P0LINQ1 (D1) -- ToList over the non-int32 element families.
+//
+// net48's Enumerable.ToList<TSource> is generic in TSource, so the transpiler
+// dispatches on the element family; the runtime carries each family through
+// the listobj domain (the SAME List<T> object the reference/value List
+// surface already uses, so Count/indexer/foreach keep resolving downstream).
+//
+// GC SAFETY (identical discipline to il2cpp_linq_to_list above): every add may
+// grow the internal items array, i.e. ALLOCATE, and such an allocation can
+// compact the heap -- the source array AND the list object are therefore
+// rooted and re-read through their slots. The element value is read through
+// the rooted source and passed BY VALUE (or, for a reference element, the
+// reference itself is handed to the add, which roots it internally before its
+// own allocation), so no managed pointer is held across an allocation.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_to_list_ref(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        il2cpp_list_obj_add(list, RefAt(src, i));
+    }
+    return list;
+}
+
+Il2CppObject* il2cpp_linq_to_list_i8(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireI8Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        il2cpp_list_obj_add_long(list, elem);
+    }
+    return list;
+}
+
+Il2CppObject* il2cpp_linq_to_list_d(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDoubleFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        il2cpp_list_obj_add_double(list, elem);
+    }
+    return list;
+}
+
+Il2CppObject* il2cpp_linq_to_list_f(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireFloatFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const float elem = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, i));
+        il2cpp_list_obj_add_float(list, static_cast<double>(elem));
+    }
+    return list;
+}
+
+//------------------------------------------------------------------------------
+// P0LINQ1 (D2) -- the SOURCE-ONLY decimal aggregates.
+//
+// decimal is a 16-byte value type (decimal.h), so every cell is read as the
+// Il2CppDecimal image and the arithmetic goes through the decimal kernel
+// (icall_decimal_add / icall_decimal_div / icall_decimal_compare -- the
+// line-by-line DecCalc port). net48 semantics, probe-verified against the
+// net48 oracle:
+//   * Sum     -- repeated Decimal.Add; overflow -> OverflowException; an empty
+//                source -> 0 (no addition runs).
+//   * Average -- Sum / count with DECIMAL division (the net48 overload returns
+//                decimal: {1.5,2.5} -> 2.0, not 2); empty ->
+//                InvalidOperationException.
+//   * Min/Max -- numeric comparison; the WINNING OPERAND is copied unchanged,
+//                so its scale survives ({1.50,1.5} -> both 1.50); empty ->
+//                InvalidOperationException.
+// All four take the result slot FIRST (the decimal T3 contract -- a 16-byte
+// value does not fit the return register). No callback and no allocation, so
+// no GC root is needed: the source is read through the caller's rooted slot.
+//------------------------------------------------------------------------------
+namespace {
+
+// The element cell of a decimal[] (bounds-checked element pointer).
+const runtime::Il2CppDecimal* DecAt(Il2CppArray* arr, int32_t index)
+{
+    return reinterpret_cast<const runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(arr, index));
+}
+
+} // namespace
+
+void il2cpp_linq_sum_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+
+    // 0m has flags 0 (sign 0, scale 0, mantissa 0) -- the net48 decimal zero.
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        // The kernel loads every input before writing the result slot, so
+        // result aliasing the accumulator is safe (the element lives in the
+        // source array and never aliases it).
+        runtime::icall_decimal_add(result, result, DecAt(src, i));
+    }
+}
+
+void il2cpp_linq_min_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    // Seed from the FIRST element (never a sentinel) and keep the WINNING
+    // OPERAND unchanged -- net48's Min returns the operand, scale included.
+    std::memcpy(result, DecAt(src, 0), sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal* elem = DecAt(src, i);
+        if (runtime::icall_decimal_compare(elem, result) < 0)
+        {
+            std::memcpy(result, elem, sizeof(runtime::Il2CppDecimal));
+        }
+    }
+}
+
+void il2cpp_linq_max_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    std::memcpy(result, DecAt(src, 0), sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal* elem = DecAt(src, i);
+        if (runtime::icall_decimal_compare(elem, result) > 0)
+        {
+            std::memcpy(result, elem, sizeof(runtime::Il2CppDecimal));
+        }
+    }
+}
+
+void il2cpp_linq_average_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        runtime::icall_decimal_add(result, result, DecAt(src, i));
+    }
+    // decimal / int32: the divisor is widened to decimal first (net48's
+    // Average does exactly this through Decimal.Divide(sum, count)).
+    runtime::Il2CppDecimal count;
+    std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
+    runtime::icall_decimal_ctor_int32(&count, src->length);
+    runtime::icall_decimal_div(result, result, &count);
+}
+
+//------------------------------------------------------------------------------
+// P0LINQ1 (D3) -- Select with TResult = System.Decimal.
+//
+// net48's Select is generic in TResult; decimal is a 16-byte value type, and
+// the generated decimal-returning method RETURNS the struct BY VALUE
+// (ParamTypesCpp / ReturnTypeCpp map System.Decimal to
+// il2cpp::runtime::Il2CppDecimal as a value return -- never a hidden result
+// pointer), so the callback signature is:
+//   Il2CppDecimal (*)(TSource value)                    (static leaf)
+//   Il2CppDecimal (*)(Il2CppObject* this, TSource value) (bound leaf)
+//
+// The SOURCE side may be any value family the transpiler can read: int32
+// (_i4), int64 (_i8), double (_d), float (_f, widened) or decimal (_dec,
+// 16-byte cell). Each entry validates its own source family.
+//
+// GC SAFETY: the selector may allocate, so the delegate and the source/result
+// arrays are rooted; the result cell address is computed AFTER the callback
+// returns (never cached across it).
+//------------------------------------------------------------------------------
+namespace {
+
+typedef runtime::Il2CppDecimal (*SelToDecFn)(int32_t v);
+typedef runtime::Il2CppDecimal (*SelToDecThisFn)(Il2CppObject* self, int32_t v);
+typedef runtime::Il2CppDecimal (*SelI8ToDecFn)(int64_t v);
+typedef runtime::Il2CppDecimal (*SelI8ToDecThisFn)(Il2CppObject* self, int64_t v);
+typedef runtime::Il2CppDecimal (*SelDToDecFn)(double v);
+typedef runtime::Il2CppDecimal (*SelDToDecThisFn)(Il2CppObject* self, double v);
+typedef runtime::Il2CppDecimal (*SelDecToDecFn)(runtime::Il2CppDecimal v);
+typedef runtime::Il2CppDecimal (*SelDecToDecThisFn)(Il2CppObject* self, runtime::Il2CppDecimal v);
+
+// One shared body: allocate the 16-byte-cell result array, then walk the
+// source at 'srcKind' and write each selector result into the array.
+//   srcKind: 0 int32 | 1 int64 | 2 double | 3 float | 4 decimal
+Il2CppArray* SelectToDecimal(Il2CppArray* src, Il2CppObject* sel, int32_t srcKind)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    switch (srcKind)
+    {
+        case 0: RequireInt32Family(src); break;
+        case 1: RequireI8Family(src); break;
+        case 2: RequireDoubleFamily(src); break;
+        case 3: RequireFloatFamily(src); break;
+        default: RequireDecimalFamily(src); break;
+    }
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        runtime::Il2CppDecimal slot;
+        switch (srcKind)
+        {
+            case 1:
+            {
+                const int64_t v = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+                slot = d->target != nullptr
+                    ? reinterpret_cast<SelI8ToDecThisFn>(d->methodPtr)(d->target, v)
+                    : reinterpret_cast<SelI8ToDecFn>(d->methodPtr)(v);
+                break;
+            }
+            case 2:
+            {
+                const double v = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+                slot = d->target != nullptr
+                    ? reinterpret_cast<SelDToDecThisFn>(d->methodPtr)(d->target, v)
+                    : reinterpret_cast<SelDToDecFn>(d->methodPtr)(v);
+                break;
+            }
+            case 3:
+            {
+                const double v = static_cast<double>(
+                    *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, i)));
+                slot = d->target != nullptr
+                    ? reinterpret_cast<SelDToDecThisFn>(d->methodPtr)(d->target, v)
+                    : reinterpret_cast<SelDToDecFn>(d->methodPtr)(v);
+                break;
+            }
+            case 4:
+            {
+                const runtime::Il2CppDecimal v = *DecAt(src, i);
+                slot = d->target != nullptr
+                    ? reinterpret_cast<SelDecToDecThisFn>(d->methodPtr)(d->target, v)
+                    : reinterpret_cast<SelDecToDecFn>(d->methodPtr)(v);
+                break;
+            }
+            default:
+            {
+                const int32_t v = I4At(src, i);
+                slot = d->target != nullptr
+                    ? reinterpret_cast<SelToDecThisFn>(d->methodPtr)(d->target, v)
+                    : reinterpret_cast<SelToDecFn>(d->methodPtr)(v);
+                break;
+            }
+        }
+        // The slot address is derived from the ROOTED result array only AFTER
+        // the callback returned (a compaction inside the callback can move it).
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot,
+                    sizeof(runtime::Il2CppDecimal));
+    }
+    return out;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_select_i4_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    return SelectToDecimal(src, sel, 0);
+}
+
+Il2CppArray* il2cpp_linq_select_i8_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    return SelectToDecimal(src, sel, 1);
+}
+
+Il2CppArray* il2cpp_linq_select_d_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    return SelectToDecimal(src, sel, 2);
+}
+
+Il2CppArray* il2cpp_linq_select_f_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    return SelectToDecimal(src, sel, 3);
+}
+
+Il2CppArray* il2cpp_linq_select_dec_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    return SelectToDecimal(src, sel, 4);
 }
 
 //------------------------------------------------------------------------------

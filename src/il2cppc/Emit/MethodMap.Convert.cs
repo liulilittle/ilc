@@ -50,6 +50,14 @@ public static partial class MethodRefResolver
                             return ps[0] switch
                             {
                                 0x0E => I("il2cpp::runtime::icall_convert_to_int32_string", 1, true, false, false, new[] { "s" }),
+                                // p0conv2 (D2): Convert.ToInt32(decimal) ROUNDS
+                                // half-to-even then range-checks (net48 probe:
+                                // ToInt32(3.5m)==4, ToInt32(12.9m)==13,
+                                // ToInt32(-0.9m)==-1, ToInt32(2147483647.6m)
+                                // -> OverflowException). The truncating
+                                // icall_decimal_to_int32 is the EXPLICIT-CAST
+                                // semantics and must NOT be used here.
+                                0x11 => I("il2cpp::runtime::icall_decimal_to_int32_round", 1, true, false, false, new[] { "dec" }),
                                 // Sweep: ALL int-family sources (sbyte/byte/short/
                                 // ushort/int/uint/long/ulong) through the checked
                                 // int64 helper. "l" sign-extends the slot value;
@@ -85,6 +93,13 @@ public static partial class MethodRefResolver
                             return ps[0] switch
                             {
                                 0x0E => I("il2cpp::runtime::icall_convert_to_int64_string", 1, true, false, false, new[] { "s" }, "l"),
+                                // p0conv2 (D2): Convert.ToInt64(decimal) ROUNDS
+                                // half-to-even then range-checks (net48 probe:
+                                // ToInt64(3.5m)==4, ToInt64(-3.5m)==-4,
+                                // ToInt64(9223372036854775807.6m)
+                                // -> OverflowException). NOT the truncating
+                                // explicit-cast icall_decimal_to_int64.
+                                0x11 => I("il2cpp::runtime::icall_decimal_to_int64_round", 1, true, false, false, new[] { "dec" }, "l"),
                                 // Sweep: sign-extension sources (int/sbyte/short):
                                 // icall_conv_i8_i4 widens exactly, never throws.
                                 0x04 or 0x06 or 0x08
@@ -117,6 +132,12 @@ public static partial class MethodRefResolver
                         {
                             0x0E => I("il2cpp::runtime::icall_convert_to_double_string", 1, true, false, false, new[] { "s" }, "d"),
                             0x08 => I("il2cpp::runtime::icall_convert_to_double_i4", 1, true, false, false, null, "d"),
+                            // p0conv2 (D2): Convert.ToDouble(decimal) is the exact
+                            // VarR8FromDec conversion -- net48 probe confirms it is
+                            // bit-identical to the explicit (double)decimal cast
+                            // (0.1m, 1m/3m, decimal.MaxValue all agree), so the
+                            // existing decimal->double icall serves it.
+                            0x11 => I("il2cpp::runtime::icall_decimal_to_double", 1, true, false, false, new[] { "dec" }, "d"),
                             // Sweep: exact widenings from the small signed/unsigned
                             // integers (never throw, always exact).
                             0x04 or 0x05 or 0x06 or 0x07
@@ -134,9 +155,8 @@ public static partial class MethodRefResolver
                             // NEEDS-NEW: uint needs a zero-extending _i4-input
                             // form (the existing d_u4 takes uint32_t and there is
                             // no unsigned VALUE cast code); float is an identity
-                            // widening of the double slot with no d->d helper;
-                            // decimal has no ->double converter. edit_convert.md.
-                            _ => throw new NotSupportedException($"Convert.ToDouble param type 0x{ps[0]:X2} not wired (uint/float/decimal on the edit_convert.md needs-new list)"),
+                            // widening of the double slot with no d->d helper.
+                            _ => throw new NotSupportedException($"Convert.ToDouble param type 0x{ps[0]:X2} not wired (uint/float on the edit_convert.md needs-new list)"),
                         };
                     case "ToString":
                         // M7 (convt2 audit): Convert.ToString(int, toBase) --

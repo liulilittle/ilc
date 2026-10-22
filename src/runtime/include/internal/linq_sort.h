@@ -144,4 +144,26 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keyS
 Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* keySel,
                                               int32_t desc);
 
+//------------------------------------------------------------------------------
+// p0conv2 (D3): Enumerable.OrderBy / OrderByDescending over an int64 (long[] /
+// ulong[]) SOURCE with a KEY SELECTOR.
+//
+// The int32-source entries above are value-family specific (they read 4-byte
+// cells and materialize an int32[] result). A long[] source needs its own
+// entry: the elements are 8-byte cells and the result MUST be an 8-byte
+// int64 array stamped with elemKind I8 (otherwise string.Join and the
+// element-kind Array scans read the low word as an int32).
+//
+// The key family decides the suffix, exactly like the reference-source family:
+//   _i8_i4  TKey is a 32-bit integral (the selector returns in the int32 slot);
+//   _i8_i8  TKey is int64/uint64.
+// Keys are cached EXACTLY ONCE per element (net48 EnumerableSorter), the sort
+// is STABLE, the source is never written and the result is a NEW int64 array.
+// `desc` non-zero flips the order.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_i8_i4(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i4(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_i8_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject* keySel);
+
 } // namespace il2cpp
