@@ -510,6 +510,25 @@ public static partial class MethodRefResolver
             var mr = md.GetMemberReference((MemberReferenceHandle)ms.Method);
             var owner = ResolveOwnerFullName(md, mr.Parent);
             var name = md.GetString(mr.Name);
+            // tuple1 (ValueTuple): the STATIC factory
+            // System.ValueTuple.Create<T1..TN>(...) -- the elements are the
+            // METHOD's generic arguments, so the closed instance name comes
+            // from the MethodSpec blob (the same table the local decode uses).
+            // It is the same field-initialization shape as the instance ctor.
+            if (name == "Create" && genArgs.Length > 0
+                && (ValueTupleSupport.IsValueTupleName(owner)
+                    || owner == "System.ValueTuple"))
+            {
+                var created = ValueTupleSupport.ClosedNameFromArgBytes(md, ms.Signature, genArgs.Length);
+                if (created != null)
+                {
+                    ValueTupleSupport.Require(created);
+                    return new ResolvedMethod(ValueTupleSupport.StructName(created) + "_ctor", genArgs.Length,
+                        false, true, false, Enumerable.Repeat(true, genArgs.Length).ToArray(), false,
+                        ParamTypeNames: Enumerable.Repeat("tupctor", genArgs.Length).ToArray(),
+                        ResultKind: "vt:" + created);
+                }
+            }
             // r77 fix: System.Tuple`N.get_Rest/get_Item* return Il2CppObject* (not int32_t)
             if (owner.StartsWith("System.Tuple`", StringComparison.Ordinal) &&
                 (name == "get_Rest" || name.StartsWith("get_Item", StringComparison.Ordinal)))
@@ -684,15 +703,21 @@ public static partial class MethodRefResolver
                 // can route static vs dynamic (see the record field).
                 PinvokeModule: importModuleName);
         }
+        // tuple1 (ValueTuple): a method DEFINITION returning a tuple (the
+        // same-assembly call shape) must carry the struct result kind, exactly
+        // like the MemberRef path above.
+        var vtRetDef = ValueTupleSupport.ReturnTupleName(md, m.Signature);
+        if (vtRetDef != null) ValueTupleSupport.Require(vtRetDef);
         return new ResolvedMethod(
             UserMethodCppName(ownerFullName, name, paramTypes),
             paramCount, false, returnType != SignatureTypeCode.Void,
-            IsRefType(returnType), ParamRefFlags(paramTypes), isInstance,
+            vtRetDef == null && IsRefType(returnType), ParamRefFlags(paramTypes), isInstance,
             // batch 177: a USER method returning IntPtr/UIntPtr must carry
             // "ptr" like the P/Invoke path (the caller temp is then declared
             // intptr_t -- a null ResultKind falls to the default int32_t and
             // truncates the 64-bit handle on x64).
-            ResultKind: returnType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
+            ResultKind: vtRetDef != null ? "vt:" + vtRetDef
+                : returnType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
             // P25c (enprobe): a USER GetEnumerator returning the generic
             // iterator interface must carry the receiver hint -- the caller
             // stores the result into a local and the foreach MOVENEXT then
@@ -862,6 +887,65 @@ public static partial class MethodRefResolver
             hashInput = owner2; // definition name (from ResolveOwnerFullName)
         }
 
+        // tuple1 (ValueTuple): System.ValueTuple`N has NO TypeDef in the
+        // translated assembly (a BCL TypeRef), so every member reference fell
+        // to the phantom generated-name fallback (undefined symbol at link).
+        // The struct + its member helpers are emitted by ValueTupleSupport, so
+        // the resolver maps the three member families to those helpers:
+        //   .ctor(args)                 -> struct field stores (emitter-side)
+        //   ToString()                  -> {T}_ToString(self)
+        //   GetHashCode()               -> {T}_GetHashCode(self)
+        //   Equals(ValueTuple`N)        -> {T}_Equals(self, other)
+        // Equals(object) stays on the Object path (boxing semantics).
+        //
+        // The STATIC factory ValueTuple.Create(...) arrives as a MethodSpec on
+        // the ValueTuple`N DEFINITION; it is the same field-initialization
+        // shape as the instance ctor, so it maps to the same helper.
+        if (ValueTupleSupport.IsValueTupleName(owner2) && mrName == "Create" && pc > 0)
+        {
+            // The non-MethodSpec shape (a direct call, no generic table) has no
+            // element names -- LOUD rather than a guessed struct.
+            throw new NotSupportedException(
+                "System.ValueTuple.Create requires a generic method instantiation (no element type table at this call site)");
+        }
+        if (mr2.Parent.Kind == HandleKind.TypeSpecification
+            && ValueTupleSupport.IsValueTupleName(cppPrefix))
+        {
+            ValueTupleSupport.Require(cppPrefix);
+            var isTupleInstance = md.GetBlobReader(mr2.Signature).ReadSignatureHeader().IsInstance;
+            // A user METHOD returning a tuple carries the struct as its result
+            // kind ("vt:<closedName>") so the call-site temp is declared with
+            // the struct type (not Il2CppObject*).
+            var vtResultKind = "vt:" + cppPrefix;
+            switch (mrName)
+            {
+                case "ToString" when pc == 0:
+                    return new ResolvedMethod(ValueTupleSupport.ToStringFn(cppPrefix), 0, false, true, true,
+                        new[] { true }, isTupleInstance, ParamTypeNames: new[] { "tupref" });
+                case "GetHashCode" when pc == 0:
+                    return new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(cppPrefix), 0, false, false, true,
+                        new[] { true }, isTupleInstance, ParamTypeNames: new[] { "tupref" });
+                case "Equals" when pc == 1:
+                    // The strongly-typed overload (the argument is the same
+                    // instantiation) is structural; the object overload is the
+                    // ValueType default (reference/box identity), which the
+                    // Object domain already answers.
+                    if (SignatureArgIsSameTuple(md, mr2.Signature, cppPrefix))
+                        return new ResolvedMethod(ValueTupleSupport.EqualsFn(cppPrefix), 1, false, true, false,
+                            new[] { true, true }, isTupleInstance, ParamTypeNames: new[] { "tupref", "tupref" });
+                    break;
+                case ".ctor":
+                    // The emitter lowers this to per-field stores (see
+                    // CodeGenerator's vctor_ ValueTuple arm). ParamCount must
+                    // stay the IL ctor's PARAMETER count -- the fold pops that
+                    // many values before the emitter sees the receiver.
+                    return new ResolvedMethod(ValueTupleSupport.StructName(cppPrefix) + "_ctor", pc, false, false,
+                        false, Enumerable.Repeat(true, pc).ToArray(), isTupleInstance,
+                        ParamTypeNames: Enumerable.Repeat("tupctor", pc).ToArray());
+            }
+            _ = vtResultKind;
+        }
+
         // M5 BCL wiring: the big mapping table (Console/Math/Convert/Int32/
         // String/StringBuilder/Hashtable/Random/Environment/IO/GC/Array/...)
         // -- dispatched per-domain by the MethodMap.* partial files (see the
@@ -927,13 +1011,21 @@ public static partial class MethodRefResolver
         var isInstanceMr = isStaticOverride is bool s
             ? !s
             : md.GetBlobReader(mr2.Signature).ReadSignatureHeader().IsInstance;
+        // tuple1 (ValueTuple): a USER method whose RETURN type is a tuple --
+        // the GENERICINST return is normally a managed reference, so the
+        // call-site temp would be Il2CppObject* and `return <struct>;` would
+        // not compile. Override ReturnsRef and carry the struct as the result
+        // kind ("vt:<closedName>", resolved by ExprKind / the declaration arm).
+        var vtRet = ValueTupleSupport.ReturnTupleName(md, mr2.Signature);
+        if (vtRet != null) ValueTupleSupport.Require(vtRet);
         return new ResolvedMethod(
             $"{Sanitize(cppPrefix)}_{Sanitize(mrName)}_{SigHash.Hash(hashInput + "." + mrName + "(" + pt + ")")}",
             pc, false, retType != SignatureTypeCode.Void,
-            IsRefType(retType), ParamRefFlags(pt), isInstanceMr,
+            vtRet == null && IsRefType(retType), ParamRefFlags(pt), isInstanceMr,
             // batch 177: same user-method IntPtr/UIntPtr result-kind fix as
             // ResolveMethodDefinition -- the caller temp must be intptr_t.
-            ResultKind: retType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
+            ResultKind: vtRet != null ? "vt:" + vtRet
+                : retType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
             // P26 (bcldeep/charconv): the MemberReference fallthrough for an
             // EXTERNAL BCL owner is a PHANTOM generated name -- flag it so
             // StackFold.EmitCall REJECTS it loudly at the FINAL resolution
@@ -2876,6 +2968,38 @@ var userRecvLike = receiverType ?? arg0Type;
         return ownerDef;
     }
 
+    // Whether the SINGLE parameter of a ValueTuple`N::Equals member reference
+    // is the same instantiation (the strongly-typed IEquatable overload) --
+    // the object overload keeps the ValueType default path.
+    private static bool SignatureArgIsSameTuple(MetadataReader md, BlobHandle sigHandle, string tupleInstanceName)
+    {
+        try
+        {
+            var sig = md.GetBlobReader(sigHandle);
+            sig.ReadSignatureHeader();
+            if (sig.ReadCompressedInteger() != 1) return false;
+            var retByte = sig.ReadByte();
+            if (retByte == 0x01) { } // void
+            else if (retByte is 0x11 or 0x12) _ = sig.ReadTypeHandle();
+            var pb = sig.ReadByte();
+            if (pb != 0x15) return false;
+            sig.ReadByte(); // CLASS/VALUETYPE marker
+            var defHandle = sig.ReadTypeHandle();
+            var defName = defHandle.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+                _ => null,
+            };
+            if (defName == null || !ValueTupleSupport.IsValueTupleName(defName)) return false;
+            // Compare the ARITY only: csc emits Equals(ValueTuple`N<...>) with
+            // the same instantiation, and the arity is what the helper shape
+            // depends on (both sides are the receiver's own struct type).
+            return ValueTupleSupport.Arity(defName) == ValueTupleSupport.Arity(tupleInstanceName);
+        }
+        catch { return false; }
+    }
+
     private static bool TupleItemIsReference(MetadataReader md, TypeSpecificationHandle parent, int itemK)
     {
         try
@@ -3278,7 +3402,13 @@ var userRecvLike = receiverType ?? arg0Type;
         return InstantiationVarSuffix(i) ?? InstantiationSuffixHint ?? "int";
     }
 
-    private static string Sanitize(string s) => string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']'));
+    // Same rule set as TypeEmitter.Sanitize EXCEPT the V_ prefix strip (this
+    // copy has never stripped it, and changing that would rename existing
+    // symbols). The whitelist tail step IS shared: a metadata name carrying
+    // any character outside [A-Za-z0-9_] (e.g. the '|' of a local function's
+    // "<Add>g__Local|1_0") must never reach a C++ identifier.
+    private static string Sanitize(string s)
+        => TypeEmitter.SanitizeIdentChars(string.Join("_", s.Split('.', '+', '`', '<', '>', ',', '[', ']')));
 
     // Dotted reference-element rule (A5/B1/B6 myIList/baudit2/
     // ilistException; A1 Task<Point>): the suffix after the LAST "`1_" of a

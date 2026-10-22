@@ -768,6 +768,30 @@ int32_t il2cpp_enum_boxed_get_hash_code(Il2CppObject* boxed)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_enum_get_hash_code -- enum-VALUE-CARRIER GetHashCode (see header).
+// Same net48 rule as the boxed form, applied to the value slot directly.
+//------------------------------------------------------------------------------
+int32_t il2cpp_enum_get_hash_code(Il2CppClass* enumClass, int64_t value)
+{
+    const Il2CppEnumInfo* info = FindInfo(enumClass);
+    if (info != nullptr && IsInt64Sized(info->underlying))
+    {
+        // net48 Int64.GetHashCode: low 32 ^ high 32. UInt32 is int64-SIZED
+        // (the formatter's width rule) but BOXES in the int32 slot -- the
+        // hash must follow the BOX width (IsInt64Boxed), not the format width.
+        if (IsInt64Boxed(info->underlying))
+        {
+            const uint64_t u = static_cast<uint64_t>(value);
+            return static_cast<int32_t>(u) ^ static_cast<int32_t>(u >> 32);
+        }
+        return static_cast<int32_t>(value);
+    }
+    // Int32-width (incl. uint32) and the Int32 no-metadata assumption: the
+    // value itself is the hash (Int32.GetHashCode identity).
+    return static_cast<int32_t>(value);
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_enum_get_name -- GetName(Type, value): the member name, or
 // nullptr for an unnamed value / an unregistered class (see header).
 //------------------------------------------------------------------------------

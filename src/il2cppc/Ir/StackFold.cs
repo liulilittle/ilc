@@ -415,6 +415,12 @@ public static class StackFold
                     // GetType()/get_Name on it fold to identities.
                     if (stValue is ExceptionEntryExpr)
                         objTypes[stName] = "System.Type";
+                    // tuple1 (ValueTuple): propagate the tracked tuple type
+                    // through the store so a later ldloca+callvirt (ToString /
+                    // GetHashCode / Equals) sees the receiver hint.
+                    else if (stValue is LocExpr stSrc && objTypes.TryGetValue(stSrc.Name, out var stSrcType)
+                        && ValueTupleSupport.IsValueTupleName(stSrcType))
+                        objTypes[stName] = stSrcType;
                     EmitStore(stName, ins);
                     if (stValue is IntConstExpr sc
                         && stlocCount.TryGetValue(stName, out var scnt) && scnt == 1
@@ -431,9 +437,23 @@ public static class StackFold
                 }
                 case ILOpCode.Ldloca:
                 case ILOpCode.Ldloca_s:
+                {
                     // ldloca: local variable address (M3 Task 11: value-type ctor this/byref).
-                    Push(new LocAddrExpr { Name = LocName(ctx, (int)ins.Operand) }, ins);
+                    var ldaName = LocName(ctx, (int)ins.Operand);
+                    // tuple1 (ValueTuple): a tuple local initialized in place by
+                    // its ctor (the `var t = (1, "a")` shape) has its type in
+                    // the IL local signature ("vt:<closedName>") -- record the
+                    // receiver hint so a later callvirt resolves to the tuple
+                    // member helpers.
+                    if (!objTypes.ContainsKey(ldaName) && ctx.LocalKinds is { Length: > 0 } lk
+                        && ldaName.StartsWith("loc", StringComparison.Ordinal)
+                        && int.TryParse(ldaName.AsSpan(3), out var ldaIdx)
+                        && ldaIdx >= 0 && ldaIdx < lk.Length
+                        && lk[ldaIdx] is { } ldaKind && ldaKind.StartsWith("vt:", StringComparison.Ordinal))
+                        objTypes[ldaName] = ldaKind["vt:".Length..];
+                    Push(new LocAddrExpr { Name = ldaName }, ins);
                     break;
+                }
                 case ILOpCode.Ldarga:
                 case ILOpCode.Ldarga_s:
                     // ldarga: argument address (M3 byref scenario).
@@ -3631,8 +3651,50 @@ public static class StackFold
                             => new ResolvedMethod("il2cpp::runtime::il2cpp_enum_to_string", 0, false, true, true,
                                 new[] { false }, true, ParamTypeNames: new[] { "enumval" },
                                 PrependTypeClass: constrainedRecvType),
+                        // bcldenum1: a BCL enum (System.DayOfWeek, ...) is a
+                        // TypeRef -- it has NO TypeDef in the translated set, so
+                        // the user-enum arm above misses it and the fold fell to
+                        // the BOXED-enum icall (il2cpp_enum_boxed_to_string),
+                        // whose `static_cast<Il2CppObject*>((&loc))` of an
+                        // int32_t* enum carrier does not compile. The value slot
+                        // is the SAME int32 carrier (D5), and the runtime already
+                        // ships the name-bearing metadata for the whitelisted
+                        // BCL enums (enumext.cpp's built-in registrar + the
+                        // transpiler's BclEnumRegisterInfo register block), so
+                        // the user-enum mapping is exactly right -- the class
+                        // descriptor expression resolves through
+                        // BoxClassDescriptorCpp, which registers a name-only
+                        // descriptor for a whitelisted BCL enum (no _class
+                        // symbol otherwise exists).
+                        _ when MethodRefResolver.HasBclEnumNameTable(constrainedRecvType)
+                            => new ResolvedMethod("il2cpp::runtime::il2cpp_enum_to_string", 0, false, true, true,
+                                new[] { false }, true, ParamTypeNames: new[] { "enumval" },
+                                PrependTypeClass: constrainedRecvType),
                         _ => resolved,
                     };
+                }
+
+                // bcldenum1 (second gap, same root cause): constrained
+                // GetHashCode on an enum VALUE CARRIER. `DayOfWeek.Saturday.
+                // GetHashCode()` folds to the receiver-agnostic
+                // icall_object_get_hash_code(Il2CppObject*), and the int32
+                // enum slot's ldloca ADDRESS does not convert -- the same
+                // "int32_t* -> Il2CppObject*" compile error as ToString. The
+                // net48 hash of an enum is the underlying value's hash, so the
+                // enum domain icall takes (klass, value) exactly like ToString.
+                // NOTE: unlike the ToString arm above this one deliberately
+                // overrides a RESOLVED runtime icall -- the receiver-agnostic
+                // Object::GetHashCode mapping is precisely the wrong one here,
+                // and the enum receiver type is the authority.
+                if (md != null && constrainedRecvType != null
+                    && IsObjectGetHashCode(md, (int)ins.Operand)
+                    && (types?.Any(t => t.FullName == constrainedRecvType
+                            && t.BaseTypeName == "System.Enum") == true
+                        || MethodRefResolver.HasBclEnumNameTable(constrainedRecvType)))
+                {
+                    resolved = new ResolvedMethod("il2cpp::runtime::il2cpp_enum_get_hash_code", 0, false, true, false,
+                        new[] { false }, true, ParamTypeNames: new[] { "enumval" },
+                        PrependTypeClass: constrainedRecvType);
                 }
 
                 if (resolved is { IsInstance: false })
@@ -3685,6 +3747,46 @@ public static class StackFold
                 {
                     Push(new NullExpr { TypeName = resolved.ReturnTypeName }, ins);
                     return;
+                }
+
+                // tuple1 (ValueTuple): a callvirt on a tuple receiver.
+                // Roslyn emits ToString/GetHashCode/Equals against
+                // System.Object (the struct's overrides), so the first
+                // resolution is the receiver-agnostic Object icall. The
+                // receiver hint (objTypes, recorded by the newobj fold) names
+                // the closed tuple instance -- route to the generated member
+                // helpers ValueTupleSupport emits.
+                if (md != null && recvType != null && ValueTupleSupport.IsValueTupleName(recvType)
+                    && args.Count > 0)
+                {
+                    var tupleMember = MemberSimpleName(md, (int)ins.Operand);
+                    var tupleResolved = tupleMember switch
+                    {
+                        "ToString" when args.Count == 1 =>
+                            new ResolvedMethod(ValueTupleSupport.ToStringFn(recvType), 0, false, true, true,
+                                new[] { true }, true, ParamTypeNames: new[] { "tupref" }),
+                        "GetHashCode" when args.Count == 1 =>
+                            new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(recvType), 0, false, false, true,
+                                new[] { true }, true, ParamTypeNames: new[] { "tupref" }),
+                        "Equals" when args.Count == 2 =>
+                            new ResolvedMethod(ValueTupleSupport.EqualsFn(recvType), 1, false, true, false,
+                                new[] { true, true }, true, ParamTypeNames: new[] { "tupref", "tupref" }),
+                        _ => null,
+                    };
+                    if (tupleResolved != null)
+                    {
+                        ValueTupleSupport.Require(recvType);
+                        var tcall = new CallExpr
+                        {
+                            Function = $"call_{ins.Operand}",
+                            ReturnsRef = tupleResolved.ReturnsRef,
+                            ResultKind = tupleResolved.ResultKind,
+                            Resolved = tupleResolved,
+                        };
+                        tcall.Args.AddRange(args);
+                        Push(tcall, ins);
+                        return;
+                    }
                 }
 
                 // M4 Task 5: System.String instance members map to runtime
@@ -4610,7 +4712,16 @@ public static class StackFold
                 // type (Il2CppBigInteger -- the same in-place path).
                 || typeFullName is "System.Numerics.BigInteger"
                 // wf2 (winforms1): System.IntPtr/UIntPtr are BCL VALUE types.
-                || typeFullName is "System.IntPtr" or "System.UIntPtr";
+                || typeFullName is "System.IntPtr" or "System.UIntPtr"
+                // tuple1 (ValueTuple): System.ValueTuple`N is an ordinary BCL
+                // VALUE type (a struct with Item1..ItemN + a .ctor). It has no
+                // TypeDef here, so without this arm the ctor took the
+                // reference-allocation path and emitted
+                // `il2cpp_object_new(&System_ValueTuple_2_int_string_class)` +
+                // a call to a ctor that is never generated (cmake: "not
+                // declared"). The in-place path declares the struct temp and
+                // lets the emitter lower the ctor to field stores.
+                || ValueTupleSupport.IsValueTupleName(typeFullName);
             if (isValueTypeNewobj)
             {
                 var vname = $"t{temps.Count}";
@@ -4964,6 +5075,18 @@ public static class StackFold
         // signature header: only the 0-param (the sole .NET Object.ToString
         // signature). On a hit, a callvirt with an unknown receiver type falls
         // back to icall_object_to_string instead of the vtable.
+        // The simple member name of a call token (ValueTuple member dispatch).
+        static string MemberSimpleName(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            return handle.Kind switch
+            {
+                HandleKind.MemberReference => md.GetString(md.GetMemberReference((MemberReferenceHandle)handle).Name),
+                HandleKind.MethodDefinition => md.GetString(md.GetMethodDefinition((MethodDefinitionHandle)handle).Name),
+                _ => "",
+            };
+        }
+
         static bool IsObjectToString(MetadataReader md, int token)
         {
             var handle = MetadataTokens.Handle(token);
@@ -4997,6 +5120,43 @@ public static class StackFold
             else return false;
             if (parentName != "System.Object") return false;
             if (methodName != "ToString") return false;
+            var sig = md.GetBlobReader(sigHandle);
+            sig.ReadSignatureHeader();
+            return sig.ReadCompressedInteger() == 0;
+        }
+
+        // Whether the call token is System.Object::GetHashCode() (the
+        // parameterless one) -- the GetHashCode mirror of IsObjectToString.
+        // Used by the constrained-enum value-carrier fold: Roslyn emits
+        // `ldloca; constrained. <enum>; callvirt Object::GetHashCode`.
+        static bool IsObjectGetHashCode(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            string? parentName = null;
+            string? methodName = null;
+            BlobHandle sigHandle = default;
+            if (handle.Kind == HandleKind.MemberReference)
+            {
+                var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+                parentName = mr.Parent.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)mr.Parent),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)mr.Parent),
+                    _ => null,
+                };
+                methodName = md.GetString(mr.Name);
+                sigHandle = mr.Signature;
+            }
+            else if (handle.Kind == HandleKind.MethodDefinition)
+            {
+                var mdef = md.GetMethodDefinition((MethodDefinitionHandle)handle);
+                parentName = md.GetFullName(mdef.GetDeclaringType());
+                methodName = md.GetString(mdef.Name);
+                sigHandle = mdef.Signature;
+            }
+            else return false;
+            if (parentName != "System.Object") return false;
+            if (methodName != "GetHashCode") return false;
             var sig = md.GetBlobReader(sigHandle);
             sig.ReadSignatureHeader();
             return sig.ReadCompressedInteger() == 0;
@@ -6585,8 +6745,103 @@ public static class StackFold
             // and the object pointer assignment was ill-typed (the reported
             // nested-closure 0xC0000005 / C0 build failure).
             if (typeByte is 0x0E or 0x12 or 0x1C or 0x1D or 0x14) return true;
-            if (typeByte == 0x15 && md != null) return IsGenericInstRefCarrier(md, ins);
+            // tuple1 (ValueTuple): the Item fields of a tuple carry a bare VAR
+            // field signature ("06 13 <index>"), so the element's real type is
+            // only in the PARENT TypeSpec's generic arguments -- check this
+            // BEFORE the generic-inst arm (which the VAR byte never reaches).
+            var tupleItemRef = ValueTupleItemFieldIsRef(md, ins);
+            if (tupleItemRef.HasValue) return tupleItemRef.Value;
+            if (typeByte == 0x15)
+            {
+                return IsGenericInstRefCarrier(md, ins);
+            }
             return false;
+        }
+
+        // tuple1 (ValueTuple): whether a FIELD token is a ValueTuple item and,
+        // if so, whether the ELEMENT is a reference.
+        //
+        // The field SIGNATURE of Item1/Item2 on a generic instantiation is a
+        // bare VAR ("06 13 <index>") -- the element's real type lives in the
+        // PARENT TypeSpec's generic arguments, so the signature alone can never
+        // answer this. The member reference's parent is
+        // `System.ValueTuple`N<...>`; decode its generic argument at the field
+        // index. Returns null when the field is not a ValueTuple item.
+        static bool? ValueTupleItemFieldIsRef(MetadataReader md, IlInstruction ins)
+        {
+            try
+            {
+                var handle = MetadataTokens.Handle((int)ins.Operand);
+                if (handle.Kind != HandleKind.MemberReference) return null;
+                var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+                var name = md.GetString(mr.Name);
+                if (!name.StartsWith("Item", StringComparison.Ordinal)) return null;
+                if (!int.TryParse(name.AsSpan(4), out var itemIndex) || itemIndex < 1) return null;
+                if (mr.Parent.Kind != HandleKind.TypeSpecification) return null;
+                var spec = md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent);
+                var sig = md.GetBlobReader(spec.Signature);
+                if (sig.ReadByte() != 0x15) return null;
+                sig.ReadByte(); // CLASS/VALUETYPE marker
+                var defHandle = sig.ReadTypeHandle();
+                var defName = defHandle.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+                    _ => null,
+                };
+                if (!ValueTupleSupport.IsValueTupleName(defName)) return null;
+                var argc = sig.ReadCompressedInteger();
+                if (itemIndex > argc) return null;
+                var elemByte = (byte)0;
+                for (var i = 1; i <= argc; i++)
+                {
+                    var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+                    if (i == itemIndex) { elemByte = b; break; }
+                    ConsumeTupleElemPayload(md, ref sig, b);
+                }
+                return elemByte is 0x0E or 0x12 or 0x1C or 0x1D or 0x14;
+            }
+            catch { return null; }
+        }
+
+        // Consume one generic-argument payload (keeping the blob aligned).
+        static void ConsumeTupleElemPayload(MetadataReader md, ref BlobReader sig, byte b)
+        {
+            switch (b)
+            {
+                case 0x11:
+                case 0x12:
+                case 0x40:
+                    _ = sig.ReadTypeHandle();
+                    break;
+                case 0x1D:
+                    ConsumeTupleElemPayload(md, ref sig,
+                        MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte()));
+                    break;
+                case 0x14:
+                    ConsumeTupleElemPayload(md, ref sig,
+                        MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte()));
+                    _ = sig.ReadCompressedInteger();
+                    var ns = sig.ReadCompressedInteger();
+                    for (var i = 0; i < ns; i++) _ = sig.ReadCompressedInteger();
+                    var nl = sig.ReadCompressedInteger();
+                    for (var i = 0; i < nl; i++) _ = sig.ReadCompressedInteger();
+                    break;
+                case 0x15:
+                {
+                    sig.ReadByte();
+                    _ = sig.ReadTypeHandle();
+                    var n = sig.ReadCompressedInteger();
+                    for (var i = 0; i < n; i++)
+                        ConsumeTupleElemPayload(md, ref sig,
+                            MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte()));
+                    break;
+                }
+                case 0x13:
+                case 0x1E:
+                    _ = sig.ReadCompressedInteger();
+                    break;
+            }
         }
 
         // Whether a GENERICINST (0x15) field type rides as a GC reference:
@@ -6679,7 +6934,11 @@ public static class StackFold
         // _obj -- see TypeEmitter.EmitClassStruct).
         static string SanitizeField(string name)
         {
-            var s = string.Join("_", name.Split('.', '+', '`', '<', '>', ',', '[', ']'));
+            // TypeEmitter.SanitizeIdentChars is the shared whitelist tail (the
+            // Split list below is a blacklist and would let '|' through -- the
+            // local-function metadata-name defect).
+            var s = TypeEmitter.SanitizeIdentChars(
+                string.Join("_", name.Split('.', '+', '`', '<', '>', ',', '[', ']')));
             return s == "_obj" ? "_obj_field" : s;
         }
 
@@ -7550,7 +7809,8 @@ public static class StackFold
     // Fold's scope.
     static string CppFieldName(string name)
     {
-        var s = string.Join("_", name.Split('.', '+', '`', '<', '>', ',', '[', ']'));
+        var s = TypeEmitter.SanitizeIdentChars(
+            string.Join("_", name.Split('.', '+', '`', '<', '>', ',', '[', ']')));
         return s == "_obj" ? "_obj_field" : s;
     }
 
