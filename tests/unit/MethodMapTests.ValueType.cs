@@ -236,6 +236,45 @@ public class MethodMapValueTypeTests
         Assert.Equal(new[] { "deref:u2" }, resolved.ParamTypeNames);
     }
 
+    //--------------------------------------------------------------------------
+    // P0-narrow: SByte/Int16/UInt16 parameterless ToString() had NO wiring in
+    // MethodMap.ValueType.cs (only Byte did), so the resolver fell through to
+    // the generated-name path and the emitted C++ called a nonexistent symbol
+    // (System_SByte_ToString_..., System_Int16_ToString_...,
+    // System_UInt16_ToString_...). The ADDRESS receiver must read the NATIVE
+    // SIGNED/UNSIGNED cell width: deref:i1 / deref:i2 sign-extend (so -3 and
+    // -32768 print correctly), deref:u2 zero-extends (65535 stays 65535).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_SByte_ToStringAddressReceiver_UsesSignedNarrowDeref()
+    {
+        var resolved = ResolveMemberWithAddress("System", "SByte", "ToString",
+            new byte[] { 0x00, 0x00, 0x0E });
+
+        Assert.Equal("il2cpp::runtime::icall_int32_to_string", resolved.CppName);
+        Assert.Equal(new[] { "deref:i1" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Int16_ToStringAddressReceiver_UsesSignedNarrowDeref()
+    {
+        var resolved = ResolveMemberWithAddress("System", "Int16", "ToString",
+            new byte[] { 0x00, 0x00, 0x0E });
+
+        Assert.Equal("il2cpp::runtime::icall_int32_to_string", resolved.CppName);
+        Assert.Equal(new[] { "deref:i2" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_UInt16_ToStringAddressReceiver_UsesUnsignedNarrowDeref()
+    {
+        var resolved = ResolveMemberWithAddress("System", "UInt16", "ToString",
+            new byte[] { 0x00, 0x00, 0x0E });
+
+        Assert.Equal("il2cpp::runtime::icall_int32_to_string", resolved.CppName);
+        Assert.Equal(new[] { "deref:u2" }, resolved.ParamTypeNames);
+    }
+
     private static ResolvedMethod ResolveMemberWithAddress(string ns, string typeName,
         string memberName, byte[] signature)
     {
