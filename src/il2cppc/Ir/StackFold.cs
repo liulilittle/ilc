@@ -3478,9 +3478,9 @@ public static class StackFold
                         // the slot's value__ through the ldloca address.
                         // The metadata token decodes a NESTED enum to the '+'
                         // form ("Cases.Outer+E") while TypeDef.FullName is the
-                        // SHORT name ("E"): match through MatchesFullName (the
-                        // nested-name contract, TypeDef.cs:26).
-                        _ when types?.Any(t => t.MatchesFullName(constrainedRecvType)
+                        // SHORT name ("E"): match through TypeLookup (the single
+                        // nested-name authority, Model/TypeLookup.cs).
+                        _ when types?.Any(t => TypeLookup.Matches(t, constrainedRecvType)
                             && t.BaseTypeName == "System.Enum") == true
                             => new ResolvedMethod("il2cpp::runtime::il2cpp_enum_to_string", 0, false, true, true,
                                 new[] { false }, true, ParamTypeNames: new[] { "enumval" },
@@ -4451,7 +4451,7 @@ public static class StackFold
             // System.TimeSpan) are runtime structs (Il2CppDateTime /
             // Il2CppTimeSpan) -- the same in-place path, with the ctor
             // resolved to the runtime icall (ResultIsReceiver).
-            var isValueTypeNewobj = (types?.FirstOrDefault(t => t.FullName == typeFullName && t.IsValueType) != null)
+            var isValueTypeNewobj = (TypeLookup.Find(types ?? Array.Empty<TypeDef>(), typeFullName) is { IsValueType: true })
                 || typeFullName is "System.DateTime" or "System.TimeSpan" or "System.Decimal"
                 // LOUD P0-02/03: Guid is a 16-byte value (uint8_t[16] slot);
                 // the ctor writes the bytes in place (Guid.Parse ABI), not a
@@ -4556,7 +4556,7 @@ public static class StackFold
                 // the list itself took the BCL-exception null model (stfld
                 // nullptr) instead of a real allocation.
                 && !typeFullName.Contains('`')
-                && !(types?.Any(t => t.FullName == typeFullName) ?? false);
+                && !TypeLookup.Any(types ?? Array.Empty<TypeDef>(), typeFullName);
             // excmsg: the modelled exception hierarchy. System.Exception keeps
             // the ilistException rule (only a message-carrying instance needs
             // identity); the Argument* family ALWAYS allocates because the
@@ -4943,7 +4943,7 @@ public static class StackFold
         {
             if (types != null)
             {
-                var td = types.FirstOrDefault(t => t.FullName == name);
+                var td = TypeLookup.Find(types, name);
                 if (td != null) return !td.IsValueType;
             }
             return name is not ("System.Byte" or "System.SByte" or "System.Boolean"
