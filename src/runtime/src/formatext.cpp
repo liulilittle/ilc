@@ -1350,6 +1350,22 @@ Il2CppObject* icall_format_int64_custom(int64_t value, Il2CppObject* format,
 }
 
 //------------------------------------------------------------------------------
+// icall_format_narrow_custom -- ToString(format[, provider]) for the narrow
+// integer types (Byte/SByte/Int16/UInt16). See il2cpp_format_ext.h: every
+// specifier matches the int32 engine on the sign/zero-extended value; only the
+// hex bit pattern is masked to the type width (net48: (sbyte)-1 "X" -> "FF",
+// (short)-1 "X" -> "FFFF" -- the int32 engine would print FFFFFFFF).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_narrow_custom(int32_t value, Il2CppObject* format,
+                                         Il2CppObject* provider, int32_t hexMask)
+{
+    const uint32_t mask = static_cast<uint32_t>(hexMask);
+    return ToStringInt(static_cast<int64_t>(value),
+                       static_cast<uint64_t>(static_cast<uint32_t>(value) & mask),
+                       format, IsInvariantProvider(provider));
+}
+
+//------------------------------------------------------------------------------
 // icall_format_double_custom -- double ToString(format[, provider]).
 // cultureprobe: 'provider' (the optional 3rd icall param, nullptr for the
 // 1-arg ToString(format) shape and the composite-format engine) routes the
@@ -1600,6 +1616,30 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
             Il2CppDecimal dec;
             std::memcpy(&dec, reinterpret_cast<const char*>(boxed) + 8, sizeof(dec));
             text = icall_decimal_to_string_custom(&dec, reinterpret_cast<Il2CppString*>(format), provider);
+        }
+        else if (name != nullptr &&
+                 (std::strcmp(name, "System.Byte") == 0 || std::strcmp(name, "System.SByte") == 0 ||
+                  std::strcmp(name, "System.Int16") == 0 || std::strcmp(name, "System.UInt16") == 0))
+        {
+            // P0-narrow (2026-10-22): the narrow integer boxes carry the masked
+            // int32 payload (boxingext2.cpp); net48's composite formatting
+            // applies the SAME narrow-width rule as the direct ToString(format)
+            // overload (fmtprobe: "{0:X}" of (sbyte)-1 -> "FF", of (short)-1 ->
+            // "FFFF", "{0:D5}" of (byte)5 -> "00005"). Sign/zero-extend by the
+            // box's OWN klass, then run the narrow engine.
+            const int32_t raw = *reinterpret_cast<const int32_t*>(
+                reinterpret_cast<const char*>(boxed) + 8);
+            const bool wide16 = (std::strcmp(name, "System.Int16") == 0 ||
+                                 std::strcmp(name, "System.UInt16") == 0);
+            int32_t v;
+            if (std::strcmp(name, "System.SByte") == 0)
+                v = static_cast<int32_t>(static_cast<int8_t>(raw));
+            else if (std::strcmp(name, "System.Int16") == 0)
+                v = static_cast<int32_t>(static_cast<int16_t>(raw));
+            else
+                v = raw & (wide16 ? 0xFFFF : 0xFF);
+            text = reinterpret_cast<Il2CppString*>(
+                icall_format_narrow_custom(v, format, provider, wide16 ? 0xFFFF : 0xFF));
         }
         else
         {

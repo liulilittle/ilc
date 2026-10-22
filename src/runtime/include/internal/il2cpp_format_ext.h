@@ -121,6 +121,35 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                                          Il2CppObject* provider);
 
 //------------------------------------------------------------------------------
+// icall_format_narrow_custom -- ToString(format[, provider]) for the NARROW
+// integer types (System.Byte / System.SByte / System.Int16 / System.UInt16).
+//
+// net48 oracle (fmtprobe, zh-CN + invariant): every standard/custom specifier
+// behaves exactly like the int32 engine ON THE SIGN/ZERO-EXTENDED VALUE --
+// EXCEPT the hex specifiers X/x, which format the value as the TYPE's own
+// unsigned bit pattern with MINIMAL digits (precision = minimum width):
+//
+//   value            "X"     "X2"    "X4"     (int32 engine would give)
+//   byte   255       FF      FF      00FF     FF
+//   byte     0       0       00      0000     0
+//   sbyte   -1       FF      FF      00FF     FFFFFFFF   <- masked
+//   sbyte -128       80      80      0080     FFFFFF80   <- masked
+//   short   -1       FFFF    FFFF    FFFF     FFFFFFFF   <- masked
+//   short -32768     8000    8000    8000     FFFF8000   <- masked
+//   ushort 65535     FFFF    FFFF    FFFF     FFFF
+//
+// 'value' is the caller's already sign/zero-extended narrow value (the
+// transpiler's deref:i1/deref:i2/deref:u2/unbox:i casts), so D/N/C/E/F/G/P and
+// the custom engine need no change; 'hexMask' selects the type width used ONLY
+// for the hex bit pattern (0xFF = 8-bit, 0xFFFF = 16-bit).
+//
+// Provider semantics as the int32 formatter (nullptr / non-empty name -> the
+// zh-CN host layout, the invariant name -> invariant C/P).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_narrow_custom(int32_t value, Il2CppObject* format,
+                                         Il2CppObject* provider, int32_t hexMask);
+
+//------------------------------------------------------------------------------
 // icall_format_composite_item -- format ONE composite-format argument (the
 // "{N[,width][:formatString]}" item of String.Format / StringBuilder.AppendFormat
 // -- the shared engine the composite parser delegates to).
