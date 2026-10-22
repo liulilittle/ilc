@@ -109,14 +109,20 @@ public class MethodMapTestsLinq
     // exists for a 16-byte value element (P0LINQ1 D1 boundary).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_ToList_Decimal_ThrowsLoud()
+    public void Resolve_ToList_Decimal_MapsToBoxedDec()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("ToList",
+        // p0linq4 (D1): ToList<decimal> is wired now -- the listobj storage is
+        // a reference array, so the element is BOXED on entry
+        // (il2cpp_linq_to_list_dec). The tracked List name carries the element
+        // so MethodMap.List dispatches the boxed arms. The MethodSpec carries
+        // the VALUETYPE TypeRef so the decoded full-name table says
+        // System.Decimal (the 0x11 byte alone covers every value type).
+        var resolved = ResolveMethodSpec(SynthesizeGenericNamedArg("ToList",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
-            genericSignature: new byte[] { 0x0A, 0x01, 0x11 })));
+            ns: "System", typeName: "Decimal"));
 
-        Assert.Contains("System.Linq.Enumerable::ToList", ex.Message);
-        Assert.Contains("List<int32>", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_to_list_dec", resolved.CppName);
+        Assert.Equal("System.Collections.Generic.List`1_System.Decimal", resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------
@@ -1164,6 +1170,57 @@ public class MethodMapTestsLinq
         Assert.Contains("int64-source key-selector surface", ex.Message);
     }
 
+    // p0linq4 (D4): ThenBy / ThenByDescending over an INT64 source. The
+    // (element, key) pair decides the fused-composite kernel:
+    //   long[] + int32 key -> il2cpp_linq_then_by_key[_desc]_i8_i4
+    //   long[] + int64 key -> il2cpp_linq_then_by_key[_desc]_i8_i8
+    // and the tracked result is a System.Int64[].
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(0x08, "System.Int64[]")]
+    [InlineData(0x0A, "System.Int64[]")]
+    public void Resolve_ThenBy_LongSource_MapsToI8CompositeMarker(byte keyByte, string resultArray)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("ThenBy",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0A, keyByte }));
+
+        Assert.Equal(ResolvedMethod.ThenByCombineMarker, resolved.CppName);
+        Assert.Equal(resultArray, resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_ThenByDescending_LongSource_MapsToDescCompositeMarker()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("ThenByDescending",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0A, 0x0A }));
+
+        Assert.Equal(ResolvedMethod.ThenByDescCombineMarker, resolved.CppName);
+        Assert.Equal("System.Int64[]", resolved.ReturnTypeName);
+    }
+
+    // p0linq4 (D4): an int32 source with an INT64 key has no fused kernel
+    // (there is no then_by_key_i4_i8 entry) -- LOUD, never a silent i4 sort.
+    [Fact]
+    public void Resolve_ThenBy_Int32SourceInt64Key_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("ThenBy",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0A })));
+
+        Assert.Contains("then-by surface", ex.Message);
+    }
+
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)
     {
         using var reader = new PEReader(pe);
@@ -1198,6 +1255,30 @@ public class MethodMapTestsLinq
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"), mdb.GetOrAddString("Enumerable"));
         var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(methodName), mdb.GetOrAddBlob(memberRefSignature));
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
+    }
+
+    // p0linq4 (D1): a ONE-argument MethodSpec whose generic argument is a
+    // VALUETYPE TypeRef (0x11 + TypeDefOrRef coded index) -- the shape the
+    // decoded generic-argument FULL NAME table needs to tell System.Decimal
+    // from the other 0x11 value types.
+    private static MemoryStream SynthesizeGenericNamedArg(string methodName, byte[] memberRefSignature,
+        string ns, string typeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"), mdb.GetOrAddString("Enumerable"));
+        var elemRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(methodName), mdb.GetOrAddBlob(memberRefSignature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x11); // VALUETYPE
+        spec.WriteCompressedInteger((MetadataTokens.GetRowNumber(elemRef) << 2) | 1); // TypeRef coded
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec));
         return Serialize(mdb);
     }
 

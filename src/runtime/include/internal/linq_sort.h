@@ -166,4 +166,21 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i4(Il2CppArray* src, Il2CppObject*
 Il2CppArray* il2cpp_linq_order_by_key_i8_i8(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject* keySel);
 
+//------------------------------------------------------------------------------
+// p0linq4 (D4): Enumerable.ThenBy / ThenByDescending over an INT64 (long[] /
+// ulong[]) SOURCE -- the int64-source counterparts of il2cpp_linq_then_by_key_
+// [_desc]_i4. The fused (k1, k2) composite sort is identical in contract
+// (each selector cached EXACTLY ONCE, stable, source never written, fresh
+// int64[] result with elemKind I8); the elements are 8-byte cells and the key
+// family is int32 (_i8_i4) or int64 (_i8_i8).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_key_i8_i4(Il2CppArray* src, Il2CppObject* k1Sel,
+                                           Il2CppObject* k2Sel);
+Il2CppArray* il2cpp_linq_then_by_key_desc_i8_i4(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel);
+Il2CppArray* il2cpp_linq_then_by_key_i8_i8(Il2CppArray* src, Il2CppObject* k1Sel,
+                                           Il2CppObject* k2Sel);
+Il2CppArray* il2cpp_linq_then_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel);
+
 } // namespace il2cpp

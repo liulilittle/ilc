@@ -1,5 +1,7 @@
 namespace Il2Cpp.Transpiler.Emit;
 
+using Il2Cpp.Transpiler.Model;
+
 //------------------------------------------------------------------------------
 // MethodMap.Collections -- System.Collections INTERFACE member dispatch
 // (D-SL-3, sldeep). Owners: System.Collections.ICollection / IEnumerable /
@@ -224,13 +226,33 @@ public static partial class MethodRefResolver
         // carrier "d", the int32-slot kinds as plain int32).
         var valFloatElem = objElemSuffix == "float";
         var valIntElem = objElemSuffix is "bool" or "char" or "sbyte" or "byte" or "short" or "ushort" or "uint";
+        // p0linq4 (D1): the BOXED value expansions (List<decimal> /
+        // List<DateTime> / List<TimeSpan> / List<user struct>). The tracked
+        // suffix carries the element: "System.Decimal" / "System.DateTime" /
+        // "System.TimeSpan" or a dotted user-struct full name.
+        var decElem = objElemSuffix == "System.Decimal";
+        var dtElem = objElemSuffix == "System.DateTime";
+        var tsElem = objElemSuffix == "System.TimeSpan";
+        TypeDef? structElemDef = null;
+        string? structElemCpp = null;
+        if (objElemSuffix != null && objElemSuffix.Contains('.') && TypeEmitter.SessionTypes is { } knownEnumTypes)
+        {
+            structElemDef = knownEnumTypes.FirstOrDefault(t => t.MatchesFullName(objElemSuffix)
+                && t.IsValueType && t.BaseTypeName != "System.Enum");
+            if (structElemDef != null)
+            {
+                TypeEmitter.LayoutInstanceFields(structElemDef);
+                structElemCpp = TypeEmitter.TypeCppName(structElemDef);
+            }
+        }
+        var boxedValueElem = decElem || dtElem || tsElem || structElemDef != null;
         switch (name)
         {
             case "MoveNext":
                 // bool MoveNext(): advances the snapshot cursor; returns the
                 // bool carrier as int32.
                 return count == 0
-                    ? I(isObjEnum || longElem || doubleElem || valFloatElem || valIntElem ? "il2cpp::il2cpp_list_obj_enumerator_move_next" : "il2cpp::il2cpp_list_i4_enumerator_move_next",
+                    ? I(isObjEnum || longElem || doubleElem || valFloatElem || valIntElem || boxedValueElem ? "il2cpp::il2cpp_list_obj_enumerator_move_next" : "il2cpp::il2cpp_list_i4_enumerator_move_next",
                         0, true, false, true, new[] { "deref:r" })
                     : null;
             case "get_Current":
@@ -246,6 +268,21 @@ public static partial class MethodRefResolver
                 if (valFloatElem)
                     return I("il2cpp::il2cpp_list_obj_enumerator_get_current_float", 0, true, false, true, new[] { "deref:r" },
                         resultKind: "d");
+                // p0linq4 (D1): the boxed value families (see TryMapList's
+                // get_Item arms -- same value-return shapes).
+                if (decElem)
+                    return I("il2cpp::il2cpp_list_obj_enumerator_get_current_dec", 0, true, false, true,
+                        new[] { "deref:r" }, resultKind: "dec", returnTypeName: "System.Decimal");
+                if (dtElem)
+                    return I("il2cpp::il2cpp_list_obj_enumerator_get_current_dt", 0, true, false, true,
+                        new[] { "deref:r" }, resultKind: "dt", returnTypeName: "System.DateTime");
+                if (tsElem)
+                    return I("il2cpp::il2cpp_list_obj_enumerator_get_current_ts", 0, true, false, true,
+                        new[] { "deref:r" }, resultKind: "ts", returnTypeName: "System.TimeSpan");
+                if (structElemCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_enumerator_get_current_struct_t<{structElemCpp}>", 0, true, false, true,
+                        new[] { "deref:r" }, resultKind: "us:" + structElemCpp,
+                        returnTypeName: structElemDef!.FullName);
                 if (valIntElem)
                     return I($"il2cpp::il2cpp_list_obj_enumerator_get_current_{objElemSuffix}", 0, true, false, true, new[] { "deref:r" });
                 return isObjEnum
@@ -254,7 +291,7 @@ public static partial class MethodRefResolver
                     : I("il2cpp::il2cpp_list_i4_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
             case "Reset":
                 return count == 0
-                    ? I(isObjEnum || longElem || doubleElem || valFloatElem || valIntElem ? "il2cpp::il2cpp_list_obj_enumerator_reset" : "il2cpp::il2cpp_list_i4_enumerator_reset",
+                    ? I(isObjEnum || longElem || doubleElem || valFloatElem || valIntElem || boxedValueElem ? "il2cpp::il2cpp_list_obj_enumerator_reset" : "il2cpp::il2cpp_list_i4_enumerator_reset",
                         0, false, false, true, new[] { "deref:r" })
                     : null;
             default:

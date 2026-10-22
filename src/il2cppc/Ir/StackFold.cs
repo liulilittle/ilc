@@ -1696,8 +1696,24 @@ public static class StackFold
                         }
                         var genericLdOp = MapGenericLdelemOp(md, (int)ins.Operand, types);
                         if (genericLdOp == null)
+                        {
+                            // p0linq4 (D1): a USER VALUE TYPE element read -- a
+                            // typed struct copy from the element pointer.
+                            if (UserStructElementCpp(md, (int)ins.Operand, types) is { } usLdCpp)
+                            {
+                                var usLdIdx = stack.Pop();
+                                var usLdArr = stack.Pop();
+                                Push(new CallExpr
+                                {
+                                    Function = "ldelem_us_" + usLdCpp,
+                                    ResultKind = "us:" + usLdCpp,
+                                    Args = { usLdArr, usLdIdx },
+                                }, ins);
+                                break;
+                            }
                             throw new NotSupportedException(
                                 $"ldelem at offset 0x{ins.Offset:X4}: element type needs the token-based emitter (8-byte primitive or user value type) -- CodeGenerator patch, see the ilop2 report");
+                        }
                         var genericLdIdx = stack.Pop();
                         var genericLdArr = stack.Pop();
                         var genericLdRef = genericLdOp == ILOpCode.Ldelem_ref;
@@ -1765,8 +1781,29 @@ public static class StackFold
                         }
                         var genericStOp = MapGenericStelemOp(md, (int)ins.Operand, types);
                         if (genericStOp == null)
+                        {
+                            // p0linq4 (D1): a USER VALUE TYPE element (a
+                            // translated struct) -- the element access is a
+                            // typed struct assignment through the element
+                            // pointer (the C++ type is carried in the marker
+                            // name; the emitter renders the dereference).
+                            if (UserStructElementCpp(md, (int)ins.Operand, types) is { } usStCpp)
+                            {
+                                var usStVal = stack.Pop();
+                                var usStIdx = stack.Pop();
+                                var usStArr = stack.Pop();
+                                stmts.Add(new CallStmt
+                                {
+                                    Function = "stelem_us_" + usStCpp,
+                                    Args = { usStArr, usStIdx, usStVal },
+                                    SourceOffset = ins.Offset,
+                                    SourceOpName = OpName(ins.OpCode),
+                                });
+                                break;
+                            }
                             throw new NotSupportedException(
                                 $"stelem at offset 0x{ins.Offset:X4}: element type needs the token-based emitter (8-byte primitive or user value type) -- CodeGenerator patch, see the ilop2 report");
+                        }
                         var genericStVal = stack.Pop();
                         var genericStIdx = stack.Pop();
                         var genericStArr = stack.Pop();
@@ -3807,6 +3844,21 @@ public static class StackFold
                     objTypes[ncTemp.Name] = "System.String";
                 return;
             }
+            // p0linq4 (D4): the fused-composite family suffix of a resolved
+            // PRIMARY OrderBy(keySelector) entry, or null when the entry is not
+            // one of them. The suffix is "_i4" for the int32 source
+            // (il2cpp_linq_order_by_key[_desc]_i4) and "_i8_i4"/"_i8_i8" for the
+            // int64 source (il2cpp_linq_order_by_key[_desc]_i8_<keyfam>).
+            static string? ThenByPrimaryEntrySuffix(string? cppName) => cppName switch
+            {
+                "il2cpp::il2cpp_linq_order_by_key_i4"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i4" => "_i4",
+                "il2cpp::il2cpp_linq_order_by_key_i8_i4"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i8_i4" => "_i8_i4",
+                "il2cpp::il2cpp_linq_order_by_key_i8_i8"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i8_i8" => "_i8_i8",
+                _ => null,
+            };
             // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending --
             // the CHAINED-SORTER marker (ResolvedMethod.ThenByCombineMarker /
             // ThenByDescCombineMarker). OrderBy(k1).ThenBy(k2) is a FUSED
@@ -3835,17 +3887,32 @@ public static class StackFold
                         "Enumerable.ThenBy is supported directly on a single OrderBy(keySelector) result only " +
                         "(OrderBy(k1).ThenBy(k2) -- D-LO2-1 stage-1 surface); deeper ThenBy chains and non-OrderBy " +
                         "receivers have no fused-composite runtime entry");
+                // The OrderBy call may have been stored into a temp and then
+                // COPIED through one or more branch-join spill temps before the
+                // ThenBy call reads it (`t4 = order_by(..); t5 = t4;
+                // then_by(t5, k2)` -- the csc shape for a chained extension
+                // call over a conditional). Follow pure temp-to-temp copies
+                // back to the OrderBy assignment; the composite REPLACES that
+                // assignment (so the primary selector is still invoked exactly
+                // once) and the receiver temp is re-read from the composite.
                 int obIndex = -1;
+                var chaseName = recvLoc.Name;
                 for (int si = stmts.Count - 1; si >= 0; --si)
                 {
-                    if (stmts[si] is AssignStmt cand && cand.Target == recvLoc.Name
-                        && cand.Value is CallExpr candCall
-                        && candCall.Resolved?.CppName == "il2cpp::il2cpp_linq_order_by_key_i4"
-                        && candCall.Args.Count == 2)
+                    if (stmts[si] is not AssignStmt cand || cand.Target != chaseName) continue;
+                    if (cand.Value is CallExpr candCall
+                        && candCall.Args.Count == 2
+                        && ThenByPrimaryEntrySuffix(candCall.Resolved?.CppName) is not null)
                     {
                         obIndex = si;
                         break;
                     }
+                    if (cand.Value is LocExpr copyFrom && IsTempName(copyFrom.Name))
+                    {
+                        chaseName = copyFrom.Name;
+                        continue;
+                    }
+                    break;
                 }
                 if (obIndex < 0)
                     throw new NotSupportedException(
@@ -3855,18 +3922,26 @@ public static class StackFold
                 var obAssign = (AssignStmt)stmts[obIndex];
                 var obValue = (CallExpr)obAssign.Value;
                 var thenDesc = resolved.CppName == ResolvedMethod.ThenByDescCombineMarker;
+                // p0linq4 (D4): the composite entry follows the PRIMARY OrderBy
+                // entry's element/key family. The receiver here is the OrderBy
+                // result tracked by the arm above (System.Int32[] or
+                // System.Int64[]), so the family suffix is read off the
+                // resolved primary entry: "_i4" -> _i4, "_i8_i4" -> _i8_i4,
+                // "_i8_i8" -> _i8_i8.
+                var familySuffix = ThenByPrimaryEntrySuffix(obValue.Resolved!.CppName)!;
+                var compositeEntry = thenDesc
+                    ? "il2cpp::il2cpp_linq_then_by_key_desc" + familySuffix
+                    : "il2cpp::il2cpp_linq_then_by_key" + familySuffix;
                 var composite = new CallExpr
                 {
                     Function = $"call_{ins.Operand}",
                     ReturnsRef = true,
                     ResultKind = null,
                     Resolved = new ResolvedMethod(
-                        thenDesc
-                            ? "il2cpp::il2cpp_linq_then_by_key_desc_i4"
-                            : "il2cpp::il2cpp_linq_then_by_key_i4",
+                        compositeEntry,
                         3, false, true, true, new[] { false, false, false }, false,
                         ParamTypeNames: new[] { "a", "", "" },
-                        ReturnTypeName: "System.Int32[]"),
+                        ReturnTypeName: familySuffix == "_i4" ? "System.Int32[]" : "System.Int64[]"),
                     IsPInvoke = false,
                     SetLastError = false,
                 };
@@ -3875,15 +3950,29 @@ public static class StackFold
                 composite.Args.Add(args[1]);         // the SECONDARY key selector
                 // Replace the order_by assignment (remove from its old spot --
                 // before the secondary delegate -- and append at the current
-                // end so every referenced delegate is already defined).
+                // end so every referenced delegate is already defined). The
+                // composite stores into the ORIGINAL OrderBy assignment's
+                // target; the ThenBy receiver temp (which may be one or more
+                // temp-to-temp copies further down) is re-read from it so the
+                // value flowing on is the composite result.
                 stmts.RemoveAt(obIndex);
                 stmts.Add(new AssignStmt
                 {
-                    Target = recvLoc.Name,
+                    Target = obAssign.Target,
                     Value = composite,
                     SourceOffset = ins.Offset,
                     SourceOpName = OpName(ins.OpCode),
                 });
+                if (recvLoc.Name != obAssign.Target)
+                {
+                    stmts.Add(new AssignStmt
+                    {
+                        Target = recvLoc.Name,
+                        Value = new LocExpr { Name = obAssign.Target },
+                        SourceOffset = ins.Offset,
+                        SourceOpName = OpName(ins.OpCode),
+                    });
+                }
                 Push(recvLoc, ins);
                 return;
             }
@@ -4746,6 +4835,23 @@ public static class StackFold
         // element family (int64/uint64 -> i8, double -> r8) and the float
         // element (r4 -- a float[] element read as int32_t would be garbage
         // bit interpretation).
+        //
+        // p0linq4 (D1): the C++ name of a USER VALUE TYPE array element (a
+        // translated struct), or null when the token is not one. The token
+        // ldelem/stelem arms use it to emit a typed struct copy (the emitter
+        // renders the dereference at the element pointer).
+        static string? UserStructElementCpp(MetadataReader? md, int token, IReadOnlyList<TypeDef>? types)
+        {
+            if (md == null || types == null) return null;
+            var (isRef, _, name) = ElementAccessInfo(md, token, types);
+            if (isRef || name == "?") return null;
+            var def = types.FirstOrDefault(t => t.MatchesFullName(name)
+                && t.IsValueType && t.BaseTypeName != "System.Enum");
+            if (def == null) return null;
+            TypeEmitter.LayoutInstanceFields(def);
+            return TypeEmitter.TypeCppName(def);
+        }
+
         static ILOpCode? MapGenericLdelemOp(MetadataReader? md, int token, IReadOnlyList<TypeDef>? types)
         {
             var (isRef, width, name) = ElementAccessInfo(md, token, types);
@@ -6301,7 +6407,12 @@ public static class StackFold
             LocExpr l => LocWidth(l.Name, ctx, tempWidths),
             BinaryExpr b => b.Kind ?? "i",
             UnaryExpr => "i",
-            CallExpr c => c.ResultKind ?? "i",
+            // p0linq4 (D4): a REFERENCE-returning call is a managed pointer,
+            // not an int32 slot. Without this arm a branch-join spill temp that
+            // received an array-returning LINQ call (the csc delegate-cache
+            // join in OrderBy(k1).ThenBy(k2)) was declared int32_t and the
+            // pointer store was truncated.
+            CallExpr c => c.ResultKind ?? (c.ReturnsRef ? "r" : "i"),
             _ => "i", // int32 default; refs/others never appear under conv.u8 in valid IL
         };
 

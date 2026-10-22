@@ -544,12 +544,59 @@ public class MethodMapTestsList
     [Fact]
     public void Resolve_List_Add_DottedStructReceiver_StaysLoud()
     {
-        // BCL struct full names are excluded from the dotted rule (no
-        // per-type box domain exists) -- they stay LOUD, never silently
-        // take the reference domain.
+        // p0linq4 (D1): a BCL struct full name that is NOT one of the three
+        // boxed-list families (decimal/DateTime/TimeSpan) still has no
+        // per-type box domain -- it stays LOUD, never silently takes the
+        // reference domain (a raw Guid value is not an Il2CppObject*).
         Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
-                "Add", receiverType: "System.Collections.Generic.List`1_System.DateTime"));
+                "Add", receiverType: "System.Collections.Generic.List`1_System.Guid"));
+    }
+
+    //--------------------------------------------------------------------------
+    // p0linq4 (D1): the BOXED value instantiations. List<decimal> /
+    // List<DateTime> / List<TimeSpan> ride the shared listobj storage through
+    // the *_dec/_dt/_ts forwarders (box on entry, unbox on exit).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_List_Decimal_Add_MapsToBoxedDec()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+            "Add", receiverType: "System.Collections.Generic.List`1_System.Decimal");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_add_dec", resolved.CppName);
+        Assert.Equal(new[] { "", "dec" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_List_Decimal_GetItem_MapsToBoxedDecResultSlot()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_System.Decimal");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item_dec", resolved.CppName);
+        // the 16-byte decimal cannot ride the return register: the icall
+        // writes through an explicit result slot ("dec" ResultKind).
+        Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_List_DateTime_Add_MapsToBoxedDt()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+            "Add", receiverType: "System.Collections.Generic.List`1_System.DateTime");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_add_dt", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_List_TimeSpan_GetItem_MapsToBoxedTs()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_System.TimeSpan");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item_ts", resolved.CppName);
+        Assert.Equal("ts", resolved.ResultKind);
     }
 
     //--------------------------------------------------------------------------

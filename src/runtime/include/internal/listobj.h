@@ -7,6 +7,9 @@
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
 #include "sortedlist.h"
+#include "decimal.h"      // p0linq4 (D1): Il2CppDecimal (List<decimal> elements)
+#include "il2cpp_time.h"  // p0linq4 (D1): Il2CppDateTime / Il2CppTimeSpan
+#include <cstddef>
 #include <cstdint>
 
 namespace il2cpp {
@@ -150,5 +153,159 @@ bool il2cpp_list_obj_contains_uint(Il2CppObject* self, int32_t value);
 int32_t il2cpp_list_obj_get_item_uint(Il2CppObject* self, int32_t index);
 int32_t il2cpp_list_obj_enumerator_get_current_uint(Il2CppObject* self);
 Il2CppObject* il2cpp_list_obj_to_array_uint(Il2CppObject* self);
+
+//------------------------------------------------------------------------------
+// p0linq4 (D1) -- List<decimal> / List<DateTime> / List<TimeSpan> /
+// List<user struct>.
+//
+// The listobj STORAGE is a reference array: an element is always an
+// Il2CppObject*. A 16-byte decimal therefore cannot ride the slot directly --
+// every value element is BOXED on entry and UNBOXED on exit (the G4
+// long/double precedent, extended to the remaining value families):
+//
+//   decimal    -> icall_box_decimal / icall_unbox_decimal  (System.Decimal box,
+//                 16-byte payload at offset 8)
+//   DateTime   -> the runtime Int64 box carrying the CLR ARRAY image
+//                 (il2cpp_datetime_to_array_bits: 62-bit ticks + 2-bit kind),
+//                 so the List element observes the same value the managed
+//                 DateTime[] cell holds
+//   TimeSpan   -> the Int64 box carrying the raw ticks
+//   user struct-> icall_box_user_struct(klass, value, sizeof(T)) -- the box's
+//                 klass is the struct's own generated descriptor
+//
+// Element reads use the same by-value / result-slot shapes as the rest of the
+// runtime:
+//   * decimal getters write through an explicit RESULT SLOT (the decimal T3
+//     contract: a 16-byte value cannot ride the return register);
+//   * DateTime/TimeSpan getters RETURN the 8/16-byte runtime struct by value;
+//   * a user-struct getter returns the box PAYLOAD ADDRESS (the caller copies
+//     it into its own value slot -- the il2cpp_unbox_user_struct contract).
+//
+// IndexOf/Contains/Remove for DateTime/TimeSpan/decimal reuse the boxed-value
+// equality of the shared listobj scan (icall_object_equals -> BoxedValueEquals
+// compares the decimal payload by value and the Int64 payload by bits, which
+// is exactly the packed array image), so no separate scan entry is needed.
+//------------------------------------------------------------------------------
+void il2cpp_list_obj_add_dec(Il2CppObject* self, const runtime::Il2CppDecimal* value);
+void il2cpp_list_obj_insert_dec(Il2CppObject* self, int32_t index, const runtime::Il2CppDecimal* value);
+void il2cpp_list_obj_set_item_dec(Il2CppObject* self, int32_t index, const runtime::Il2CppDecimal* value);
+bool il2cpp_list_obj_remove_dec(Il2CppObject* self, const runtime::Il2CppDecimal* value);
+int32_t il2cpp_list_obj_index_of_dec(Il2CppObject* self, const runtime::Il2CppDecimal* value);
+bool il2cpp_list_obj_contains_dec(Il2CppObject* self, const runtime::Il2CppDecimal* value);
+// The decimal GETTERS write through an explicit RESULT SLOT (the decimal T3
+// contract: a 16-byte value cannot ride the return register).
+void il2cpp_list_obj_get_item_dec(runtime::Il2CppDecimal* result, Il2CppObject* self, int32_t index);
+void il2cpp_list_obj_enumerator_get_current_dec(runtime::Il2CppDecimal* result, Il2CppObject* self);
+Il2CppObject* il2cpp_list_obj_to_array_dec(Il2CppObject* self);
+
+void il2cpp_list_obj_add_dt(Il2CppObject* self, runtime::Il2CppDateTime value);
+void il2cpp_list_obj_insert_dt(Il2CppObject* self, int32_t index, runtime::Il2CppDateTime value);
+void il2cpp_list_obj_set_item_dt(Il2CppObject* self, int32_t index, runtime::Il2CppDateTime value);
+bool il2cpp_list_obj_remove_dt(Il2CppObject* self, runtime::Il2CppDateTime value);
+int32_t il2cpp_list_obj_index_of_dt(Il2CppObject* self, runtime::Il2CppDateTime value);
+bool il2cpp_list_obj_contains_dt(Il2CppObject* self, runtime::Il2CppDateTime value);
+runtime::Il2CppDateTime il2cpp_list_obj_get_item_dt(Il2CppObject* self, int32_t index);
+runtime::Il2CppDateTime il2cpp_list_obj_enumerator_get_current_dt(Il2CppObject* self);
+Il2CppObject* il2cpp_list_obj_to_array_dt(Il2CppObject* self);
+
+void il2cpp_list_obj_add_ts(Il2CppObject* self, runtime::Il2CppTimeSpan value);
+void il2cpp_list_obj_insert_ts(Il2CppObject* self, int32_t index, runtime::Il2CppTimeSpan value);
+void il2cpp_list_obj_set_item_ts(Il2CppObject* self, int32_t index, runtime::Il2CppTimeSpan value);
+bool il2cpp_list_obj_remove_ts(Il2CppObject* self, runtime::Il2CppTimeSpan value);
+int32_t il2cpp_list_obj_index_of_ts(Il2CppObject* self, runtime::Il2CppTimeSpan value);
+bool il2cpp_list_obj_contains_ts(Il2CppObject* self, runtime::Il2CppTimeSpan value);
+runtime::Il2CppTimeSpan il2cpp_list_obj_get_item_ts(Il2CppObject* self, int32_t index);
+runtime::Il2CppTimeSpan il2cpp_list_obj_enumerator_get_current_ts(Il2CppObject* self);
+Il2CppObject* il2cpp_list_obj_to_array_ts(Il2CppObject* self);
+
+void il2cpp_list_obj_add_struct(Il2CppObject* self, const void* value,
+                                Il2CppClass* klass, int32_t payloadSize);
+void il2cpp_list_obj_insert_struct(Il2CppObject* self, int32_t index, const void* value,
+                                   Il2CppClass* klass, int32_t payloadSize);
+void il2cpp_list_obj_set_item_struct(Il2CppObject* self, int32_t index, const void* value,
+                                     Il2CppClass* klass, int32_t payloadSize);
+bool il2cpp_list_obj_remove_struct(Il2CppObject* self, const void* value,
+                                   Il2CppClass* klass, int32_t payloadSize);
+int32_t il2cpp_list_obj_index_of_struct(Il2CppObject* self, const void* value,
+                                        Il2CppClass* klass, int32_t payloadSize);
+bool il2cpp_list_obj_contains_struct(Il2CppObject* self, const void* value,
+                                     Il2CppClass* klass, int32_t payloadSize);
+// The user-struct GETTER copies the boxed payload into the caller's value slot
+// (the caller's C++ struct has no runtime-known type here).
+void il2cpp_list_obj_get_item_struct(void* result, Il2CppObject* self, int32_t index,
+                                     int32_t payloadSize);
+void il2cpp_list_obj_enumerator_get_current_struct(void* result, Il2CppObject* self,
+                                                   int32_t payloadSize);
+Il2CppObject* il2cpp_list_obj_to_array_struct(Il2CppObject* self, int32_t elemSize);
+
+//------------------------------------------------------------------------------
+// p0linq4 (D1): typed USER-STRUCT conveniences. The generated call site knows
+// the concrete C++ struct type, so these thin inline templates let it state the
+// type once: the element is boxed with the struct's OWN descriptor (passed as
+// the trailing `klass` argument) and the getter copies the payload into a
+// value of the caller's type. The VALUE parameters are POINTERS so the
+// emitter's uniform "addr:v" argument cast serves both shapes (a value
+// expression takes its address, an ldloca address passes through).
+//------------------------------------------------------------------------------
+template <typename T>
+inline void il2cpp_list_obj_add_struct_t(Il2CppObject* self, const T* value, Il2CppClass* klass)
+{
+    il2cpp_list_obj_add_struct(self, value, klass, static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline void il2cpp_list_obj_insert_struct_t(Il2CppObject* self, int32_t index, const T* value,
+                                           Il2CppClass* klass)
+{
+    il2cpp_list_obj_insert_struct(self, index, value, klass, static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline void il2cpp_list_obj_set_item_struct_t(Il2CppObject* self, int32_t index, const T* value,
+                                             Il2CppClass* klass)
+{
+    il2cpp_list_obj_set_item_struct(self, index, value, klass, static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline bool il2cpp_list_obj_remove_struct_t(Il2CppObject* self, const T* value, Il2CppClass* klass)
+{
+    return il2cpp_list_obj_remove_struct(self, value, klass, static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline int32_t il2cpp_list_obj_index_of_struct_t(Il2CppObject* self, const T* value,
+                                                Il2CppClass* klass)
+{
+    return il2cpp_list_obj_index_of_struct(self, value, klass, static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline bool il2cpp_list_obj_contains_struct_t(Il2CppObject* self, const T* value, Il2CppClass* klass)
+{
+    return il2cpp_list_obj_contains_struct(self, value, klass, static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline T il2cpp_list_obj_get_item_struct_t(Il2CppObject* self, int32_t index)
+{
+    T out;
+    il2cpp_list_obj_get_item_struct(&out, self, index, static_cast<int32_t>(sizeof(T)));
+    return out;
+}
+
+template <typename T>
+inline T il2cpp_list_obj_enumerator_get_current_struct_t(Il2CppObject* self)
+{
+    T out;
+    il2cpp_list_obj_enumerator_get_current_struct(&out, self, static_cast<int32_t>(sizeof(T)));
+    return out;
+}
+
+template <typename T>
+inline Il2CppObject* il2cpp_list_obj_to_array_struct_t(Il2CppObject* self)
+{
+    return il2cpp_list_obj_to_array_struct(self, static_cast<int32_t>(sizeof(T)));
+}
 
 } // namespace il2cpp

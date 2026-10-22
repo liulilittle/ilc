@@ -9619,6 +9619,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         }
         if (c.Function.StartsWith("ldelem_", StringComparison.Ordinal))
         {
+            // p0linq4 (D1): a USER VALUE TYPE element read (a translated
+            // struct) -- the element pointer cast to the struct type and
+            // dereferenced (a real struct copy, no intptr carrier).
+            if (c.Function.StartsWith("ldelem_us_", StringComparison.Ordinal))
+            {
+                var usCpp = c.Function["ldelem_us_".Length..];
+                var usPtr = $"il2cpp::il2cpp_array_get_elem_ptr({NullSafePtrCast("Il2CppArray*", EmitExpr(c.Args[0], md, types))}, static_cast<int32_t>({EmitExpr(c.Args[1], md, types)}))";
+                return $"(*reinterpret_cast<{usCpp}*>({usPtr}))";
+            }
             // ldelem: *(T*)il2cpp_array_get_elem_ptr(arr, idx) -- width read.
             // Reference elements: *(Il2CppObject**)... (the opcode is encoded
             // in the function name -- audit C4: "ldelem_ref" must be detected).
@@ -9672,6 +9681,19 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         }
         if (c.Function.StartsWith("stelem_", StringComparison.Ordinal))
         {
+            // p0linq4 (D1): a USER VALUE TYPE element store -- a typed struct
+            // assignment at the element pointer. An ADDRESS value (the newobj
+            // ctor's ldloca temp) is dereferenced first.
+            if (c.Function.StartsWith("stelem_us_", StringComparison.Ordinal))
+            {
+                var usCpp = c.Function["stelem_us_".Length..];
+                var usPtr = $"il2cpp::il2cpp_array_get_elem_ptr(reinterpret_cast<Il2CppArray*>({EmitExpr(c.Args[0], md, types)}), static_cast<int32_t>({EmitExpr(c.Args[1], md, types)}))";
+                var usVal = EmitExpr(c.Args[2], md, types);
+                var usValCode = c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*reinterpret_cast<{usCpp}*>({usVal}))"
+                    : usVal;
+                return $"(*reinterpret_cast<{usCpp}*>({usPtr}) = {usValCode})";
+            }
             // stelem (statement): *(T*)il2cpp_array_get_elem_ptr(arr, idx) = value;
             // Width dispatch like the ldelem handler (byte[] writes from the
             // Base64 icall results are reachable; a 4-byte store would overrun
