@@ -310,6 +310,23 @@ Il2CppObject* InvokeSelRefRef(Il2CppDelegate* d, Il2CppObject* o)
         : reinterpret_cast<SelRefRefFn>(d->methodPtr)(o);
 }
 
+// p0grp: the DECIMAL-source KEY-SELECTOR ABI (Func<System.Decimal,int32>).
+// The generated leaf takes the decimal struct BY VALUE and returns int32:
+//   int32_t (*)(il2cpp::runtime::Il2CppDecimal)                    (static)
+//   int32_t (*)(Il2CppObject*, il2cpp::runtime::Il2CppDecimal)     (instance)
+// The struct is passed by value exactly like the decimal arithmetic icalls
+// return it (decimal.h T3 contract); a pointer parameter would change the
+// calling convention.
+typedef int32_t (*SelDecI4Fn)(runtime::Il2CppDecimal);
+typedef int32_t (*SelDecI4ThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+
+int32_t InvokeSelDecI4(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecI4ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecI4Fn>(d->methodPtr)(v);
+}
+
 // The 2-arg int32 selector family (D-LINQZ-1 Zip, the Func<TSource,TSecond,
 // TResult> ABI): int32_t(*)(int32_t, int32_t) for a STATIC leaf;
 // int32_t(*)(Il2CppObject*, int32_t, int32_t) for an INSTANCE leaf (target in
@@ -529,8 +546,7 @@ void GrowGroupElements(Il2CppObject** resultSlot, int32_t bucketIndex)
         return; // at the 2^30 cap
     }
     Il2CppArray* newElems = il2cpp_array_new(
-        nullptr, isRef ? static_cast<int32_t>(sizeof(void*)) : static_cast<int32_t>(sizeof(int32_t)),
-        isRef, newLength);
+        nullptr, grp->elements->elemSize, isRef, newLength);
     res = AsGroupingResult(*resultSlot); // re-derive after the (possibly collecting) allocation
     grp = AsGrouping(
         *reinterpret_cast<Il2CppObject**>(res->groups->data + bucketIndex * sizeof(void*))); // re-derive the bucket
@@ -547,12 +563,12 @@ void GrowGroupElements(Il2CppObject** resultSlot, int32_t bucketIndex)
     }
     else
     {
-        int32_t* dst = reinterpret_cast<int32_t*>(newElems->data);
-        const int32_t* src = reinterpret_cast<const int32_t*>(grp->elements->data);
-        for (int32_t i = 0; i < n; ++i)
-        {
-            dst[i] = src[i];
-        }
+        // p0grp: VALUE cells are copied at the bucket's OWN element width.
+        // The int32 family is a 4-byte cell, but a decimal-source bucket holds
+        // 16-byte System.Decimal cells -- copying int32-per-slot would keep
+        // only the low dword of every decimal.
+        std::memcpy(newElems->data, grp->elements->data,
+                    static_cast<size_t>(n) * static_cast<size_t>(grp->elements->elemSize));
     }
     il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
                          reinterpret_cast<Il2CppObject*>(newElems));
@@ -2451,10 +2467,139 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
                                          elemKind, rsKind, /*keyKind=*/0);
 }
 
+// p0grp: GroupBy over a DECIMAL-element array source (int32-slot key).
+//
+// The int32-source kernel (BuildGroups) reads its elements through I4At (a
+// 4-byte cell) and materializes int32 buckets. A System.Decimal[] source has
+// 16-byte cells, so this entry is a separate pass over the same managed object
+// model:
+//
+//   * RequireDecimalFamily validates the 16-byte non-reference cell layout;
+//   * the key selector is invoked with the decimal element BY VALUE
+//     (InvokeSelDecI4 -- the generated Func<Decimal,int> leaf ABI);
+//   * the bucket key is the int32 slot narrowed by keyKind (the same
+//     KeyKindFor codes the integer entry uses -- byte/sbyte/short/ushort/
+//     char/bool/uint narrowing, int32 identity);
+//   * each bucket stores its elements as 16-byte decimal VALUE cells (no
+//     boxing: scale and sign are copied verbatim), so a bucket's element
+//     array is a real decimal[] whose layout matches net48's ToArray.
+//
+// The shared IGrouping readers dispatch on the bucket array's own layout:
+// il2cpp_linq_grouping_get_elements copies by elemSize (so 16-byte cells are
+// copied whole) and il2cpp_linq_grouping_get_enumerator boxes a decimal cell
+// as System.Decimal. The int32-only bucket OPERATORS (Where/Select/Sum/Min/
+// Max/First/ElementAt/Contains/Count(pred)/Any(pred)/All/ToArray) refuse a
+// non-4-byte bucket loudly (RequireI4GroupElements) instead of reading a
+// 16-byte cell as an int32 -- a silent wrong value is never possible.
+//
+// GC safety follows BuildGroups: the source / delegate / result are rooted
+// across the callback loop, and every cached pointer is re-derived from the
+// rooted result after an allocation (bucket growth).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySel,
+                                           int32_t keyKind)
+{
+    RequireArray(src);
+    Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
+    RequireDecimalFamily(src);
+
+    EnsureGroupingClassesRegistered();
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&kd));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* result = il2cpp_object_new(&g_groupingResultClass);
+    roots.Add(reinterpret_cast<void**>(&result));
+
+    Il2CppArray* groups = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+    Il2CppLinqGroupingResult* res = AsGroupingResult(result);
+    res->groups = groups;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&res->groups),
+                         reinterpret_cast<Il2CppObject*>(groups));
+    res->count = 0;
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        const int32_t key = NarrowKey(InvokeSelDecI4(kd, v), keyKind); // may allocate -> collect
+
+        res = AsGroupingResult(result);
+        const int32_t n = res->count;
+
+        int32_t found = -1;
+        for (int32_t j = 0; j < n; ++j)
+        {
+            Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
+            Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
+            if (AsGrouping(slots[j])->key == key)
+            {
+                found = j;
+                break;
+            }
+        }
+
+        if (found >= 0)
+        {
+            res = AsGroupingResult(result);
+            Il2CppLinqGrouping* grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                res->groups->data + found * sizeof(void*)));
+            if (grp->count == grp->elements->length)
+            {
+                GrowGroupElements(&result, found);
+            }
+            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                AsGroupingResult(result)->groups->data + found * sizeof(void*)));
+            const int32_t at = grp->count;
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(grp->elements, at)) = v;
+            ++grp->count;
+        }
+        else
+        {
+            Il2CppObject* ng = il2cpp_object_new(&g_groupingClass);
+            Il2CppLinqGrouping* grp = AsGrouping(ng);
+            grp->key = key;
+            grp->elements = nullptr;
+            grp->count = 0;
+            res = AsGroupingResult(result);
+            Il2CppObject** groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
+            il2cpp_write_barrier(reinterpret_cast<void**>(&groupSlots[res->count]), ng);
+            groupSlots[res->count] = ng;
+            ++res->count;
+
+            Il2CppArray* elems = il2cpp_array_new(
+                nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, kMinGroupItems);
+            res = AsGroupingResult(result); // re-derive after the allocation
+            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
+                res->groups->data + (res->count - 1) * sizeof(void*)));
+            grp->elements = elems;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
+                                 reinterpret_cast<Il2CppObject*>(elems));
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(grp->elements, 0)) = v;
+            grp->count = 1;
+        }
+    }
+    return result;
+}
+
 int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
     Il2CppLinqGrouping* grp = AsGrouping(grouping);
+    // p0grp: a decimal-source bucket holds 16-byte System.Decimal cells; the
+    // int32 accumulator would silently reinterpret every decimal (and the
+    // checked add would be meaningless). Reject it loudly instead.
+    if (grp->elements == nullptr || grp->elements->isRefElem ||
+        grp->elements->elemSize != static_cast<int32_t>(sizeof(int32_t)))
+    {
+        il2cpp_throw_not_supported_exception(
+            "GroupBy bucket operator: the bucket holds non-int32 elements "
+            "(a decimal-source bucket has no int32 operator kernel).");
+        return 0; // unreachable (the factory throws)
+    }
     // Checked int32 addition (net48 Enumerable.Sum, D-LINQ-3); an empty
     // bucket takes no additions -> 0.
     int32_t sum = 0;
@@ -2520,9 +2665,16 @@ Il2CppArray* il2cpp_linq_grouping_get_elements(Il2CppObject* grouping)
     roots.Add(reinterpret_cast<void**>(&grouping));
     Il2CppLinqGrouping* grp = AsGrouping(grouping);
     const bool isRef = grp->elements != nullptr && grp->elements->isRefElem;
+    const int32_t elemSize = grp->elements != nullptr
+        ? grp->elements->elemSize
+        : static_cast<int32_t>(sizeof(int32_t));
     Il2CppArray* out = isRef
         ? il2cpp_array_new(nullptr, sizeof(void*), true, grp->count)
-        : il2cpp_array_new(nullptr, sizeof(int32_t), false, grp->count);
+        : il2cpp_array_new(nullptr, elemSize, false, grp->count);
+    // p0grp: propagate the VALUE element kind (a decimal bucket has no
+    // recorded kind, an int32 bucket records kElemKindI4) so downstream Array
+    // scans see the same element identity as the source array.
+    if (grp->elements != nullptr) out->elemKind = grp->elements->elemKind;
     grp = AsGrouping(grouping); // re-derive after the (possibly collecting) allocation
     if (isRef)
     {
@@ -2538,11 +2690,12 @@ Il2CppArray* il2cpp_linq_grouping_get_elements(Il2CppObject* grouping)
     }
     else
     {
-        for (int32_t i = 0; i < grp->count; ++i)
-        {
-            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
-                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(grp->elements, i));
-        }
+        // p0grp: copy VALUE cells at the bucket's own element width. The int32
+        // family is 4 bytes; a decimal-source bucket is 16-byte
+        // System.Decimal cells (the pre-fix int32 loop kept only the low
+        // dword of every decimal -- a silent wrong value).
+        std::memcpy(out->data, grp->elements->data,
+                    static_cast<size_t>(grp->count) * static_cast<size_t>(elemSize));
     }
     return out;
 }
@@ -2610,9 +2763,30 @@ Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping)
         }
         else
         {
-            const int32_t v = *reinterpret_cast<int32_t*>(
-                il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
-            boxed = il2cpp_box_int32(nullptr, v);
+            // p0grp: VALUE cells dispatch on the bucket's OWN element width.
+            // The int32 family boxes a 4-byte cell (the i4 get_Current carrier
+            // unboxes it); a decimal-source bucket holds 16-byte
+            // System.Decimal cells and boxes them as System.Decimal (the
+            // reference carrier + `(decimal)o` unboxes them). Any other width
+            // is a loud wiring gap, never a wild read.
+            const int32_t elemSize = AsGrouping(grouping)->elements->elemSize;
+            if (elemSize == static_cast<int32_t>(sizeof(int32_t)))
+            {
+                const int32_t v = *reinterpret_cast<int32_t*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = il2cpp_box_int32(nullptr, v);
+            }
+            else if (elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)))
+            {
+                const runtime::Il2CppDecimal v = *DecAt(AsGrouping(grouping)->elements, i);
+                boxed = runtime::icall_box_decimal(&v);
+            }
+            else
+            {
+                il2cpp_throw_not_supported_exception(
+                    "GroupBy: bucket element width has no enumerator carrier.");
+                return nullptr; // unreachable (the factory throws)
+            }
         }
         // Re-derive both rooted slots AFTER the (possibly collecting) box.
         Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(snap->data);
@@ -3043,23 +3217,43 @@ float il2cpp_linq_average_sel_f(Il2CppArray* src, Il2CppObject* sel)
 // GroupBy result (see linq_map.h). Each entry materializes the bucket's exact
 // element snapshot and reuses the int32 array kernel, so the semantics are
 // identical to the array surface (the grouping IS an IEnumerable<int>).
+//
+// p0grp: these operators are int32-bucket ONLY. A decimal-source bucket stores
+// 16-byte System.Decimal cells, so reading it through the int32 kernels would
+// silently reinterpret every decimal as an int32 -- the guard below rejects
+// such a bucket loudly instead. (Count / Any / get_Key / get_elements stay
+// family-agnostic: they never read an element as an int32.)
 //------------------------------------------------------------------------------
+Il2CppArray* RequireI4GroupElements(Il2CppObject* grouping)
+{
+    Il2CppArray* elems = il2cpp_linq_grouping_get_elements(grouping);
+    if (elems == nullptr || elems->isRefElem ||
+        elems->elemSize != static_cast<int32_t>(sizeof(int32_t)))
+    {
+        il2cpp_throw_not_supported_exception(
+            "GroupBy bucket operator: the bucket holds non-int32 elements "
+            "(a decimal-source bucket has no int32 operator kernel).");
+        return nullptr; // unreachable (the factory throws)
+    }
+    return elems;
+}
+
 Il2CppArray* il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_where_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+    return il2cpp_linq_where_i4(RequireI4GroupElements(grouping), pred);
 }
 
 Il2CppArray* il2cpp_linq_grouping_select(Il2CppObject* grouping, Il2CppObject* sel)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_select_i4_i4(il2cpp_linq_grouping_get_elements(grouping), sel);
+    return il2cpp_linq_select_i4_i4(RequireI4GroupElements(grouping), sel);
 }
 
 int32_t il2cpp_linq_grouping_count_pred(Il2CppObject* grouping, Il2CppObject* pred)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_count_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+    return il2cpp_linq_count_i4(RequireI4GroupElements(grouping), pred);
 }
 
 int32_t il2cpp_linq_grouping_sum_sel(Il2CppObject* grouping, Il2CppObject* sel)
@@ -3067,32 +3261,32 @@ int32_t il2cpp_linq_grouping_sum_sel(Il2CppObject* grouping, Il2CppObject* sel)
     ThrowIfNullReceiver(grouping);
     // net48 Sum(selector) == Sum(Select(selector)) -- checked addition.
     Il2CppArray* projected = il2cpp_linq_select_i4_i4(
-        il2cpp_linq_grouping_get_elements(grouping), sel);
+        RequireI4GroupElements(grouping), sel);
     return il2cpp_linq_sum_i4(projected);
 }
 
 double il2cpp_linq_grouping_average_i4(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_average_i4(il2cpp_linq_grouping_get_elements(grouping));
+    return il2cpp_linq_average_i4(RequireI4GroupElements(grouping));
 }
 
 double il2cpp_linq_grouping_average_sel(Il2CppObject* grouping, Il2CppObject* sel)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_average_sel_i4(il2cpp_linq_grouping_get_elements(grouping), sel);
+    return il2cpp_linq_average_sel_i4(RequireI4GroupElements(grouping), sel);
 }
 
 int32_t il2cpp_linq_grouping_min_i4(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_min_i4(il2cpp_linq_grouping_get_elements(grouping));
+    return il2cpp_linq_min_i4(RequireI4GroupElements(grouping));
 }
 
 int32_t il2cpp_linq_grouping_max_i4(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_max_i4(il2cpp_linq_grouping_get_elements(grouping));
+    return il2cpp_linq_max_i4(RequireI4GroupElements(grouping));
 }
 
 bool il2cpp_linq_grouping_any(Il2CppObject* grouping)
@@ -3104,48 +3298,50 @@ bool il2cpp_linq_grouping_any(Il2CppObject* grouping)
 bool il2cpp_linq_grouping_any_pred(Il2CppObject* grouping, Il2CppObject* pred)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_any_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+    return il2cpp_linq_any_i4(RequireI4GroupElements(grouping), pred);
 }
 
 bool il2cpp_linq_grouping_all(Il2CppObject* grouping, Il2CppObject* pred)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_all_i4(il2cpp_linq_grouping_get_elements(grouping), pred);
+    return il2cpp_linq_all_i4(RequireI4GroupElements(grouping), pred);
 }
 
 int32_t il2cpp_linq_grouping_first_i4(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_first_i4(il2cpp_linq_grouping_get_elements(grouping));
+    return il2cpp_linq_first_i4(RequireI4GroupElements(grouping));
 }
 
 int32_t il2cpp_linq_grouping_first_or_default_i4(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_first_or_default_i4(il2cpp_linq_grouping_get_elements(grouping));
+    return il2cpp_linq_first_or_default_i4(RequireI4GroupElements(grouping));
 }
 
 int32_t il2cpp_linq_grouping_last_i4(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_last_i4(il2cpp_linq_grouping_get_elements(grouping));
+    return il2cpp_linq_last_i4(RequireI4GroupElements(grouping));
 }
 
 int32_t il2cpp_linq_grouping_element_at_i4(Il2CppObject* grouping, int32_t index)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_element_at_i4(il2cpp_linq_grouping_get_elements(grouping), index);
+    return il2cpp_linq_element_at_i4(RequireI4GroupElements(grouping), index);
 }
 
 bool il2cpp_linq_grouping_contains_i4(Il2CppObject* grouping, int32_t value)
 {
     ThrowIfNullReceiver(grouping);
-    return il2cpp_linq_contains_i4(il2cpp_linq_grouping_get_elements(grouping), value);
+    return il2cpp_linq_contains_i4(RequireI4GroupElements(grouping), value);
 }
 
 Il2CppArray* il2cpp_linq_grouping_to_array(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
+    // Family-agnostic: get_elements copies VALUE cells at the bucket's own
+    // element width, so a decimal bucket yields a real decimal[].
     return il2cpp_linq_grouping_get_elements(grouping);
 }
 

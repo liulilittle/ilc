@@ -124,6 +124,18 @@ public static partial class MethodRefResolver
             }
             if (aggRecv is "System.Linq.IGrouping" or "System.Linq.IGroupingResult")
             {
+                // p0grp: a DECIMAL-source bucket holds 16-byte System.Decimal
+                // cells; the per-bucket aggregate entries are int32 kernels.
+                // Reject loudly instead of reading a decimal as an int32 (and
+                // emitting an ill-typed temp for the decimal-typed result).
+                if (genArgs is { Length: >= 1 } && genArgs[0] == 0x11)
+                {
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
+                        "the per-bucket aggregate surface is the int32 kernel family " +
+                        "(see docs/audit/b4-gaps.md); a decimal bucket supports Count()/Any()/" +
+                        "ToArray() and foreach");
+                }
                 if (name == "Sum")
                 {
                     // Sum() -> the per-bucket checked sum; Sum(selector) ->
@@ -266,6 +278,30 @@ public static partial class MethodRefResolver
                 // INSTANCE property accessor: ParamCount is the EXPLICIT
                 // parameter count (0); the emitter prepends the receiver.
                 return I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true);
+            // p0grp: a DECIMAL-source bucket (il2cpp_linq_group_by_dec_key)
+            // holds 16-byte System.Decimal cells. The per-bucket operator
+            // family below is int32-kernel only (it snapshots the bucket and
+            // reuses the int32 array kernels), so it would reinterpret every
+            // decimal as an int32 -- a silent wrong value, and an ill-typed
+            // C++ temp for a decimal-typed result. Only the family-agnostic
+            // members are let through: Count()/Any() (bucket metadata),
+            // ToArray() (get_elements copies by element width) and get_Key.
+            bool decBucket = genArgs is { Length: >= 1 } && genArgs[0] == 0x11;
+            if (decBucket)
+            {
+                bool agnostic = name == "ToArray"
+                    || (name == "Count" && count < 2)
+                    || (name == "Any" && count < 2);
+                if (!agnostic)
+                {
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
+                        "the per-bucket operator surface is the int32 kernel family (Where/Select/" +
+                        "Sum/Min/Max/Average/First/FirstOrDefault/Last/ElementAt/Contains/Count(pred)/" +
+                        "Any(pred)/All); a decimal bucket only supports Count()/Any()/ToArray() and " +
+                        "foreach (see docs/audit/b4-gaps.md)");
+                }
+            }
             switch (name)
             {
                 case "Count" when count < 2:
@@ -387,6 +423,68 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_select_dec_dec", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Decimal[]");
             }
+            // p0grp: GroupBy over a decimal[] SOURCE with an int32-slot key.
+            // Before this arm the call fell past the decimal block, past the
+            // ref block (no GroupBy there) and into the int32-only gate at
+            // :522, which did not even LIST GroupBy -- so the MethodSpec
+            // resolved to null and the resolver reported the phantom
+            // "generic instantiation of System.Linq.Enumerable.GroupBy has no
+            // BCL mapping in M5" (MethodRefResolver.cs:459). The real gate was
+            // the SOURCE family, not the key family: the misleading message
+            // and the runtime stub are both fixed by wiring the shape here.
+            //
+            // Wired: the KEY-SELECTOR-ONLY overload (count == 2) with an
+            // int32-slot TKey (KeyKindFor >= 0). The runtime entry
+            // il2cpp_linq_group_by_dec_key invokes the selector with the
+            // decimal element BY VALUE and stores 16-byte decimal VALUE cells
+            // in the bucket, so a bucket's ToArray is a real decimal[].
+            //
+            // Still LOUD: an element selector / comparer / result selector
+            // over a decimal source (their callbacks need additional by-value
+            // struct ABIs), and a non-int32-slot key (long/ulong/decimal/
+            // DateTime/Guid) -- see docs/audit/b4-gaps.md.
+            if (name == "GroupBy")
+            {
+                if (genArgs is not { Length: >= 2 })
+                    return null;
+                // The 0x11 byte covers EVERY value type; only a real
+                // System.Decimal source has the 16-byte decimal reader. A
+                // named non-decimal value type (DateTime / user struct) keeps
+                // the LOUD rejection instead of a wild 16-byte reinterpret.
+                if (!IsDecimalGenArg(genArgNames, 0))
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy<{(genArgNames is { Length: >= 1 } ? genArgNames[0] : "valuetype")},...> " +
+                        "over a value-type source is not wired: the decimal-source grouping surface " +
+                        "covers System.Decimal[] only (see docs/audit/b4-gaps.md)");
+                int decKeyKind = KeyKindFor(genArgs[1]);
+                if (decKeyKind < 0)
+                {
+                    string decKeyName = genArgNames is { Length: >= 2 } && genArgNames[1] != "?"
+                        ? genArgNames[1]
+                        : GenericArgTypeName(genArgs[1]);
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy<System.Decimal,{decKeyName}> not wired: " +
+                        "the decimal-source grouping surface buckets by an integer key that fits the " +
+                        "int32 slot (int/bool/char/sbyte/byte/short/ushort/uint); " +
+                        $"{DescribeRejectedKey(genArgs[1], decKeyName)} " +
+                        "has no runtime key carrier yet (see docs/audit/b4-gaps.md)");
+                }
+                if (count != 2)
+                {
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy over a System.Decimal[] source with {count - 2} " +
+                        "additional argument(s) not wired: the decimal-source surface covers the " +
+                        "key-selector-only overload (an element selector / comparer / result " +
+                        "selector over a decimal source has no runtime callback ABI; " +
+                        "see docs/audit/b4-gaps.md)");
+                }
+                return I("il2cpp::il2cpp_linq_group_by_dec_key", 2, true, true, false,
+                    TwoArg, returnTypeName: "System.Linq.IGroupingResult",
+                    appendLiterals: new[]
+                    {
+                        decKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    });
+            }
         }
 
         // Reference-element ARRAY source: the ref-family entries that exist.
@@ -482,6 +580,21 @@ public static partial class MethodRefResolver
                         returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { name == "OrderBy" ? "0" : "1" });
                 }
+                // p0grp: GroupBy over a REFERENCE-element array source. The
+                // grouping kernel reads either int32 cells (BuildGroups /
+                // I4At) or 16-byte System.Decimal cells
+                // (il2cpp_linq_group_by_dec_key), so a string[]/object[]/
+                // class[] source has no reader at all. Rejecting it HERE keeps
+                // the message self-describing: without this arm the call fell
+                // through to the int32-only gate whose list did not name
+                // GroupBy, and the resolver reported the phantom "generic
+                // instantiation of System.Linq.Enumerable.GroupBy has no BCL
+                // mapping in M5" instead of the real reason.
+                case "GroupBy":
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy<{(genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?")},...> " +
+                        "over a reference-element source is not wired: the runtime grouping kernel reads " +
+                        "int32 cells or 16-byte System.Decimal cells only (see docs/audit/b4-gaps.md)");
                 default:
                     break;
             }
@@ -529,7 +642,7 @@ public static partial class MethodRefResolver
             string argType = genArgs is { Length: > 0 } ? GenericArgTypeName(genArgs[0]) : "?";
             return name switch
             {
-                "Count" or "Any" or "Where" or "Select" or "OrderBy" or "OrderByDescending" or "First" or "FirstOrDefault" or "ToArray" or "All" or "Take" or "Skip" or "TakeWhile" or "SkipWhile" or "Concat" or "Distinct" or "Except" or "Zip" or "Average" or "Reverse" or "Last" or "LastOrDefault" or "ElementAt" or "Contains" or "Aggregate" or "LongCount" or "SequenceEqual" or "DefaultIfEmpty" =>
+                "Count" or "Any" or "Where" or "Select" or "OrderBy" or "OrderByDescending" or "First" or "FirstOrDefault" or "ToArray" or "All" or "Take" or "Skip" or "TakeWhile" or "SkipWhile" or "Concat" or "Distinct" or "Except" or "Zip" or "Average" or "Reverse" or "Last" or "LastOrDefault" or "ElementAt" or "Contains" or "Aggregate" or "LongCount" or "SequenceEqual" or "DefaultIfEmpty" or "GroupBy" =>
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{argType}> not wired: " +
                         "the stage-1 runtime LINQ surface is int32 (0x08) element-family for this operator " +

@@ -15,6 +15,12 @@ Anything NOT listed here is expected to work: int32/bool/char/sbyte/byte/
 short/ushort/uint keys over an int32[] source, with or without an element
 selector, a result selector and a user `IEqualityComparer<TKey>`.
 
+**p0grp update (2026-10-22)**: a `System.Decimal[]` source is now wired for the
+key-selector-only GroupBy overload with an int32-slot key
+(`il2cpp_linq_group_by_dec_key`). The remaining decimal-source shapes (element
+selector / comparer / result selector) and the non-int32-slot key families are
+still LOUD; see section 6.
+
 ## 1. GroupBy key = `long` (0x0A)
 
 **Why LOUD**: the bucket key is an `int32_t` slot; a 64-bit key would be
@@ -109,3 +115,45 @@ virtual Equals(...) slot.` -- an explicit exception, never a wrong bucket.
 - Test that pins the supported set: `tests/unit/MethodMapTests.B4.cs`
   (`GroupBy_64BitKeys_StayLoud`, `GroupBy_DecimalKey_StaysLoud_AndNamesDecimal`)
   and `tests/cases/loud-p0-04-int/loud-p0-04-int.cs`.
+
+## 6. p0grp -- decimal SOURCE closed loop, and what it still does NOT cover
+
+**Wired (2026-10-22)**: `decimal[].GroupBy(keySelector)` with an int32-slot
+`TKey` (int/bool/char/sbyte/byte/short/ushort/uint). Transpiler arm:
+`MethodMap.Linq.cs` decimal-source block (`IsLinqDecimalSource`) ->
+`il2cpp_linq_group_by_dec_key(src, keySel, keyKind)`
+(`src/runtime/include/internal/linq_map.h`, `src/runtime/src/linq_map.cpp`).
+
+Implementation notes that a later batch must preserve:
+
+| Aspect | Current behaviour |
+|---|---|
+| source read | `DecAt` (16-byte `Il2CppDecimal` cell), validated by `RequireDecimalFamily` |
+| key selector ABI | `int32_t (*)(Il2CppDecimal)` / `int32_t (*)(Il2CppObject*, Il2CppDecimal)` -- the struct is passed BY VALUE (`InvokeSelDecI4`) |
+| bucket element storage | a REFERENCE array of `icall_box_decimal` boxes (so `get_elements` / `get_enumerator` / `get_count` work unchanged) |
+| key | int32 slot, narrowed by `NarrowKey` with the same `KeyKindFor` codes |
+| iteration | `foreach (object o in g) (decimal)o` -- the reference carrier + `icall_unbox_decimal`; there is NO `IEnumerator<decimal>.get_Current` 16-byte carrier |
+
+**Still LOUD** (transpile-time, each with its own message):
+
+1. `long`/`ulong`/`decimal`/`DateTime`/`Guid` keys -- sections 1-3 above; the
+   bucket key slot is still `int32_t`.
+2. A decimal SOURCE with an element selector, a comparer or a result selector
+   -- those callbacks would need additional by-value struct ABIs
+   (`Func<Decimal,Decimal>` etc.) that do not exist.
+3. A non-decimal 0x11 value-type source (`DateTime[]`, a user struct array):
+   the decimal arm requires the decoded `System.Decimal` name
+   (`IsDecimalGenArg(genArgNames, 0)`), so no wild 16-byte reinterpret happens.
+4. A reference-element source (`string[]`, `object[]`, `class[]`) -- the
+   reference-source arm now rejects GroupBy explicitly instead of falling
+   through to the resolver's phantom "no BCL mapping" message.
+5. `decimal[].GroupBy` with a decimal-key `ToArray()` of a bucket: the bucket
+   element array is a BOXED-decimal reference array, so `g.ToArray()` yields
+   `object[]`, not `decimal[]` (net48 yields `decimal[]`). Use the foreach
+   shape, or add a decimal materializer before claiming array parity.
+
+Pinned by: `tests/cases/p0grp/p0grp.cs` (e2e), `tests/runtime/test_linq_map.cpp`
+section 22 (runtime kernels), `tests/unit/MethodMapTests.B4DecimalSource.cs`
+(mapping + LOUD messages), and `tests/cases/loud-p0-grp-key-long/` (LOUD
+contract, registered in `scripts/sweep-exclude.txt`).
+

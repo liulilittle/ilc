@@ -417,6 +417,36 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
                                             int32_t rsKind, int32_t keyKind);
 
 //------------------------------------------------------------------------------
+// p0grp -- GroupBy over a DECIMAL-element ARRAY source (int32-slot key).
+//
+// The pre-existing entries read their source through I4At (an int32 4-byte
+// cell); a System.Decimal[] source is a 16-byte value array, so it needs its
+// own reader. This entry is the minimal closed loop for
+// `decimal[].GroupBy(x => (int)x)`:
+//
+//   * the source is validated with RequireDecimalFamily (16-byte cells, not a
+//     reference array);
+//   * the key selector receives the decimal element BY VALUE -- the generated
+//     leaf ABI is int32_t (*)(Il2CppDecimal) / int32_t (*)(Il2CppObject*,
+//     Il2CppDecimal) (the struct rides the by-value return/parameter path,
+//     exact_decimal_select precedent);
+//   * the bucket key is the int32 slot, narrowed by keyKind (the same
+//     KeyKindFor codes as il2cpp_linq_group_by_full_key);
+//   * each bucket stores its elements as BOXED System.Decimal references
+//     (icall_box_decimal) in a reference array, so the shared IGrouping
+//     reader/enumerator surface works unchanged: foreach over the bucket
+//     yields the boxed decimal, and `(decimal)o` unboxes it through
+//     icall_unbox_decimal.
+//
+// NOT supported here (transpile-time LOUD, see docs/audit/b4-gaps.md): an
+// element selector / comparer / result selector over a decimal source (their
+// callbacks would need additional by-value struct ABIs), and non-int32-slot
+// keys (long/ulong/decimal/DateTime/Guid).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySel,
+                                           int32_t keyKind);
+
+//------------------------------------------------------------------------------
 // nb9 FIX BATCH -- Enumerable operators over an IGrouping bucket / the whole
 // GroupBy result. Each entry materializes the grouping's EXACT-SIZE element
 // snapshot (il2cpp_linq_grouping_get_elements) and then reuses the int32 array

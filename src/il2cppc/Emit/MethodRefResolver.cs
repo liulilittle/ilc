@@ -2142,6 +2142,18 @@ var userRecvLike = receiverType ?? arg0Type;
                         if (instName?.Contains("IGrouping", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true,
                                 returnTypeName: "System.Linq.IGrouping");
+                        // p0grp: a DECIMAL element carrier (IEnumerator<decimal>).
+                        // It MUST come after the IGrouping arm above: the
+                        // instantiation of IEnumerator<IGrouping<int,decimal>>
+                        // also contains "System.Decimal". The 16-byte struct
+                        // cannot ride a register return slot, so the runtime
+                        // entry follows the decimal T3 result-slot contract
+                        // (the slot is the FIRST C++ parameter). Every OTHER
+                        // value type keeps the LOUD path below.
+                        if (instName?.EndsWith("_System.Decimal", StringComparison.Ordinal) == true
+                            || instName?.EndsWith("System.Decimal", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_dec", 0, true, false, true,
+                                resultKind: "dec", returnTypeName: "System.Decimal");
                         if (instName?.Contains("_long", StringComparison.Ordinal) == true
                             || instName?.Contains("_ulong", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_i8", 0, true, false, true, resultKind: "l");
