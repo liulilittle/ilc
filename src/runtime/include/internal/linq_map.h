@@ -51,6 +51,7 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
+#include "decimal.h" // P0LINQ1 (D2): the 16-byte System.Decimal value slot
 
 #include <cstdint>
 
@@ -223,6 +224,64 @@ Il2CppArray*  il2cpp_linq_to_array(Il2CppArray* src);
 // Returns a NEW List<int> with count == src->length holding the source
 // elements in order (il2cpp_list_i4_create + one add per element).
 Il2CppObject* il2cpp_linq_to_list(Il2CppArray* src);
+
+// P0LINQ1 (D1): ToList over the NON-int32 element families. net48's
+// Enumerable.ToList<TSource> is generic in TSource, so the transpiler must
+// dispatch on it; the runtime carries each family through the listobj domain
+// (listobj.h -- the SAME List<T> object the reference/value List surface
+// already uses, so Count/indexer/foreach resolve downstream):
+//   * _ref    reference elements (string[]/object[]/class[]) -> List<T>
+//             through il2cpp_list_obj_add (write barrier per slot).
+//   * _i8     int64[]  -> il2cpp_list_obj_add_long  (box on entry)
+//   * _d      double[] -> il2cpp_list_obj_add_double
+//   * _f      float[]  -> il2cpp_list_obj_add_float (double carrier)
+//   src : source array (null -> ArgumentNullException; a wrong element family
+//         for the entry -> NotSupportedException)
+// Every entry roots the source and the growing list across the per-element
+// add (each add may allocate -> a compaction can move both).
+Il2CppObject* il2cpp_linq_to_list_ref(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_to_list_i8(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_to_list_d(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_to_list_f(Il2CppArray* src);
+
+//------------------------------------------------------------------------------
+// P0LINQ1 (D2) -- the SOURCE-ONLY decimal aggregates. net48 has
+// Sum/Min/Max/Average(this IEnumerable<decimal>) overloads; decimal is a
+// 16-byte value type (decimal.h), so each entry walks the 16-byte cells:
+//   * Sum      -- Decimal.Add accumulation (OVERFLOW -> OverflowException,
+//                 net48 semantics); an empty source -> 0.
+//   * Average  -- Sum / count as a DECIMAL division (net48 returns decimal,
+//                 e.g. {1.5,2.5} -> 2.0); empty -> InvalidOperationException.
+//   * Min/Max  -- numeric comparison (icall_decimal_compare), returning the
+//                 WINNING OPERAND unchanged (scale preserved: {1.50,1.5} ->
+//                 Min/Max both 1.50); empty -> InvalidOperationException.
+// All four take a result slot FIRST (the decimal T3 contract, like
+// icall_decimal_add) because a 16-byte value cannot ride the return register.
+//   result : the output slot (never null -- caller-provided stack slot)
+//   src    : source array (null -> ArgumentNullException; a non-16-byte or
+//            reference-element source -> NotSupportedException)
+//------------------------------------------------------------------------------
+void il2cpp_linq_sum_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void il2cpp_linq_min_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void il2cpp_linq_max_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void il2cpp_linq_average_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+
+//------------------------------------------------------------------------------
+// P0LINQ1 (D3) -- Select with TResult = System.Decimal. net48's Select is
+// generic in TResult and decimal is a 16-byte value type, so the selector is
+// invoked through a RESULT-SLOT ABI:
+//   void (*)(Il2CppDecimal* out, TSource value)                    (static leaf)
+//   void (*)(Il2CppDecimal* out, Il2CppObject* this, TSource value) (bound leaf)
+// The source family picks the entry (each validates its own cell layout):
+//   _i4  int32[]   _i8  int64[]   _d  double[]   _f  float[]   _dec decimal[]
+// Returns a FRESH array of 16-byte decimal cells (elemSize 16, non-reference)
+// of the source length. The selector runs EXACTLY ONCE per element.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_i4_dec(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_i8_dec(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_d_dec(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_f_dec(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_dec_dec(Il2CppArray* src, Il2CppObject* sel);
 
 //------------------------------------------------------------------------------
 // LINQ GROUPING domain (D-LINQ-4) -- Enumerable.GroupBy, int32 family.

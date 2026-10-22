@@ -56,19 +56,138 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
-    // ToList<string>(IEnumerable<string>) -> LOUD: il2cpp_linq_to_list
-    // materializes List<int32> only (linq_map.h:84-93); a List<object>
-    // runtime does not exist in stage 1.
+    // ToList<string>(IEnumerable<string>) -> il2cpp_linq_to_list_ref.
+    //
+    // P0LINQ1 (D1): net48's Enumerable.ToList<TSource> is generic in TSource,
+    // so a reference-element source materializes List<T> through the listobj
+    // domain (the same List<T> object the List<string> surface uses). The
+    // tracked return type is the CONCRETE instantiation name so MethodMap.List
+    // selects the reference element arms.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_ToList_String_ThrowsLoud()
+    public void Resolve_ToList_String_MapsToToListRefIcall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("ToList",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_to_list_ref", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Collections.Generic.List`1_string", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // ToList<long>/ToList<double>/ToList<float> -> the matching listobj
+    // materializers (P0LINQ1 D1); the tracked type carries the element suffix.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ToList_Long_Double_Float_MapToFamilyMaterializers()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_to_list_i8",
+            ResolveMethodSpec(SynthesizeGeneric("ToList",
+                new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x0A })).CppName);
+        Assert.Equal("System.Collections.Generic.List`1_long",
+            ResolveMethodSpec(SynthesizeGeneric("ToList",
+                new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x0A })).ReturnTypeName);
+        Assert.Equal("il2cpp::il2cpp_linq_to_list_d",
+            ResolveMethodSpec(SynthesizeGeneric("ToList",
+                new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x0D })).CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_to_list_f",
+            ResolveMethodSpec(SynthesizeGeneric("ToList",
+                new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x0C })).CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // ToList<decimal>(IEnumerable<decimal>) -> LOUD: no List<T> storage domain
+    // exists for a 16-byte value element (P0LINQ1 D1 boundary).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ToList_Decimal_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("ToList",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
-            genericSignature: new byte[] { 0x0A, 0x01, 0x0E })));
+            genericSignature: new byte[] { 0x0A, 0x01, 0x11 })));
 
         Assert.Contains("System.Linq.Enumerable::ToList", ex.Message);
         Assert.Contains("List<int32>", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // Sum/Min/Max/Average over decimal[] -> the 16-byte decimal kernels
+    // (P0LINQ1 D2). ResultKind "dec" is the result-slot ABI marker.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_DecimalAggregates_MapToDecimalKernels()
+    {
+        foreach (var (name, icall) in new[]
+        {
+            ("Sum", "il2cpp::il2cpp_linq_sum_dec"),
+            ("Min", "il2cpp::il2cpp_linq_min_dec"),
+            ("Max", "il2cpp::il2cpp_linq_max_dec"),
+            ("Average", "il2cpp::il2cpp_linq_average_dec"),
+        })
+        {
+            var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+                new byte[] { 0x10, 0x01, 0x01, 0x11, 0x15, 0x11, 0x0B, 0x01, 0x11, 0x0B },
+                new byte[] { 0x0A, 0x01, 0x11 }));
+            Assert.Equal(icall, resolved.CppName);
+            Assert.Equal("dec", resolved.ResultKind);
+            Assert.Equal(1, resolved.ParamCount);
+            Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Sum/Min/Max over string[] -> LOUD: net48's Comparer<string>.Default is
+    // culture-aware (new[]{"B","a"}.Min() is "a"); ordinal would silently
+    // misorder mixed-case input (P0LINQ1 D2 decision, loud-p0-18-strmin-loud).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_StringMinMax_ThrowsLoud()
+    {
+        foreach (var name in new[] { "Min", "Max", "Sum", "Average" })
+        {
+            var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric(name,
+                new byte[] { 0x10, 0x01, 0x01, 0x0E, 0x15, 0x12, 0x09, 0x01, 0x0E },
+                new byte[] { 0x0A, 0x01, 0x0E })));
+            Assert.Contains("culture-aware collation", ex.Message);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Select with TResult = decimal (P0LINQ1 D3): the source family selects the
+    // runtime entry, and the result is a 16-byte decimal[].
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_SelectDecimalResult_MapsToSourceFamilyKernel()
+    {
+        // decimal -> decimal: the 0x11 source and 0x11 result are both named
+        // System.Decimal in the MethodSpec full-name table.
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Select",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x08 }));
+        Assert.Equal("il2cpp::il2cpp_linq_select_i4_i4", resolved.CppName);
+
+        // The int32 -> decimal shape: the source byte is 0x08, the result byte
+        // 0x11. IsDecimalGenArg requires the decoded full name, which the
+        // synthetic MethodSpec cannot carry (the generic signature holds only
+        // the dispatch byte), so this shape must stay LOUD rather than
+        // fabricate a decimal kernel for an unknown 0x11 struct.
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("Select",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x11 })));
+        Assert.Contains("System.Decimal only", ex.Message);
     }
 
     //--------------------------------------------------------------------------

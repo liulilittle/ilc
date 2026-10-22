@@ -362,6 +362,33 @@ public static partial class MethodRefResolver
             if (listDispatch != null) return listDispatch;
         }
 
+        // P0LINQ1 (D3): a DECIMAL-element ARRAY source. LinqSourceFamily folds
+        // 0x11 into "ref" (every value type shares that byte), so this block
+        // must run BEFORE the reference-source block or a decimal[] source
+        // would be dispatched into the ref kernels (which require isRefElem).
+        // The implemented operator is Select with a decimal result; the
+        // source-only aggregates are served earlier by LinqFamilyAggregate.
+        if (listKind == null && IsLinqDecimalSource(genArgs, receiverType, arg0Type)
+            && !IsLinqStringSource(genArgs, receiverType, arg0Type))
+        {
+            if (name == "Select")
+            {
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    throw new NotSupportedException(
+                        "Enumerable.Select with a (element, index) selector over a decimal-element " +
+                        "source is not wired: the runtime has no il2cpp_linq_select_idx_*_dec entry");
+                if (genArgs is not { Length: >= 2 })
+                    return null;
+                if (genArgs[1] != 0x11 || !IsDecimalGenArg(genArgNames, 1))
+                    throw new NotSupportedException(
+                        $"Enumerable.Select<System.Decimal,{GenericArgTypeName(genArgs[1])}> not wired: " +
+                        "the decimal-element source surface covers a System.Decimal result only " +
+                        "(il2cpp_linq_select_dec_dec, linq_map.h)");
+                return I("il2cpp::il2cpp_linq_select_dec_dec", 2, true, true, false, TwoArg,
+                    returnTypeName: "System.Decimal[]");
+            }
+        }
+
         // Reference-element ARRAY source: the ref-family entries that exist.
         if (linqSrcFam == "ref" && listKind == null)
         {
@@ -392,10 +419,14 @@ public static partial class MethodRefResolver
                     if (genArgs is not { Length: >= 2 })
                         return null;
                     if (!IsRefFamilyByte(genArgs[1]))
+                    {
                         throw new NotSupportedException(
                             $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
-                            "not wired: the runtime reference-source select surface is ref -> ref only " +
-                            "(il2cpp_linq_select_ref_ref, linq_map.h:81)");
+                            "not wired: the runtime reference-source select surface is ref -> ref " +
+                            "(il2cpp_linq_select_ref_ref); the decimal-result entries cover the " +
+                            "int32/int64/double/float/decimal SOURCE families " +
+                            "(il2cpp_linq_select_i4_dec/_i8_dec/_d_dec/_f_dec/_dec_dec)");
+                    }
                     return I("il2cpp::il2cpp_linq_select_ref_ref", 2, true, true, false, TwoArg,
                         returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
                 }
@@ -513,13 +544,75 @@ public static partial class MethodRefResolver
                 // il2cpp_linq_to_list materializes List<int32>; the result is
                 // tracked as a List`1 reference so downstream List members
                 // (get_Count / get_Item) resolve through MethodMap.List.
+                //
+                // P0LINQ1 (D1): net48's Enumerable.ToList<TSource> is generic
+                // in TSource, so a NON-int32 source must materialize the
+                // matching List<T> instead of being rejected. The runtime has
+                // one entry per implemented element family, each carrying the
+                // listobj domain (the same List<T> object the reference/value
+                // List surface already uses):
+                //   ref (string/object/class[]) -> il2cpp_linq_to_list_ref
+                //   int64  -> il2cpp_linq_to_list_i8
+                //   double -> il2cpp_linq_to_list_d
+                //   float  -> il2cpp_linq_to_list_f
+                // The tracked return type is the CONCRETE List`1_<elem>
+                // instantiation name so MethodMap.List's receiver gate selects
+                // the right element domain (the bare "List`1" pseudo-type only
+                // serves the unsuffixed int32 case). Any other element family
+                // (decimal, DateTime, a user struct, a narrow integral) stays
+                // LOUD: there is no List<T> storage domain for it.
                 if (genArgs is not { Length: >= 1 })
                     return null;
-                if (genArgs[0] != 0x08)
-                    throw new NotSupportedException(
-                        $"Enumerable.ToList<{GenericArgTypeName(genArgs[0])}> not wired: the runtime il2cpp_linq_to_list materializes only List<int32> (the listi4 domain -- linq_map.h:84-93); a List<{GenericArgTypeName(genArgs[0])}> runtime does not exist in stage 1");
-                return I("il2cpp::il2cpp_linq_to_list", 1, true, true, false,
-                    OneArg, returnTypeName: "System.Collections.Generic.List`1");
+                switch (genArgs[0])
+                {
+                    case 0x08:
+                        return I("il2cpp::il2cpp_linq_to_list", 1, true, true, false,
+                            OneArg, returnTypeName: "System.Collections.Generic.List`1");
+                    case 0x0A:
+                    case 0x0B:
+                        return I("il2cpp::il2cpp_linq_to_list_i8", 1, true, true, false,
+                            OneArg, returnTypeName: "System.Collections.Generic.List`1_long");
+                    case 0x0C:
+                        return I("il2cpp::il2cpp_linq_to_list_f", 1, true, true, false,
+                            OneArg, returnTypeName: "System.Collections.Generic.List`1_float");
+                    case 0x0D:
+                        return I("il2cpp::il2cpp_linq_to_list_d", 1, true, true, false,
+                            OneArg, returnTypeName: "System.Collections.Generic.List`1_double");
+                    case 0x0E:
+                        return I("il2cpp::il2cpp_linq_to_list_ref", 1, true, true, false,
+                            OneArg, returnTypeName: "System.Collections.Generic.List`1_string");
+                    case 0x1C:
+                        return I("il2cpp::il2cpp_linq_to_list_ref", 1, true, true, false,
+                            OneArg, returnTypeName: "System.Collections.Generic.List`1_object");
+                    case 0x12:
+                        // A CLASS element is a managed reference: the listobj
+                        // domain carries it. The MethodSpec full name (when
+                        // decoded) gives the EXACT element type so downstream
+                        // member calls resolve on it (DottedRefArg rule). Only a
+                        // SIMPLE dotted name is tracked: a nested ('+') or
+                        // generic ('`') name has no listobj element tag and
+                        // would emit an unresolvable receiver hint, so those
+                        // fall back to the generic reference-element hint.
+                        return I("il2cpp::il2cpp_linq_to_list_ref", 1, true, true, false,
+                            OneArg, returnTypeName: genArgNames is { Length: >= 1 }
+                                && genArgNames[0] is { } toListElem
+                                && toListElem.Contains('.')
+                                && !toListElem.Contains('+') && !toListElem.Contains('`')
+                                ? "System.Collections.Generic.List`1_" + toListElem
+                                : "System.Collections.Generic.List`1_class");
+                    case 0x15 or 0x1D or 0x14:
+                        // A generic-instance / array element is a managed
+                        // reference too; the element type is tracked as
+                        // System.Object (no per-instantiation List domain).
+                        return I("il2cpp::il2cpp_linq_to_list_ref", 1, true, true, false,
+                            OneArg, returnTypeName: "System.Collections.Generic.List`1_object");
+                    default:
+                        throw new NotSupportedException(
+                            $"Enumerable.ToList<{GenericArgTypeName(genArgs[0])}> not wired: the runtime materializes " +
+                            "List<int32> (il2cpp_linq_to_list / the listi4 domain) and List<T> over the reference, " +
+                            "int64, double and float element families (il2cpp_linq_to_list_ref/_i8/_d/_f -- the " +
+                            "listobj domain, linq_map.h); no List<T> storage domain exists for this element type");
+                }
             case "Count":
                 // D-LINQC-1: Enumerable.Count over a List<int32> receiver (the
                 // il2cpp_linq_to_list materializer -- its result is tracked as
@@ -619,6 +712,42 @@ public static partial class MethodRefResolver
                                     ? "il2cpp::il2cpp_linq_select_idx_i4_d"
                                     : "il2cpp::il2cpp_linq_select_i4_d",
                                 2, true, true, false, TwoArg, returnTypeName: "System.Double[]");
+                        case 0x11:
+                            // P0LINQ1 (D3): a DECIMAL result. decimal is a
+                            // 16-byte value type, so the result is a decimal[]
+                            // (elemSize 16, non-reference) and the selector
+                            // returns the struct BY VALUE through its own ABI --
+                            // the runtime picks the entry by the SOURCE family
+                            // (i4/i8/d/f/dec). A non-decimal 0x11 (DateTime, a
+                            // user struct) has no kernel and stays LOUD.
+                        {
+                            if (!IsDecimalGenArg(genArgNames, 1))
+                                throw new NotSupportedException(
+                                    $"Enumerable.Select<{GenericArgTypeName(genArgs![0])}," +
+                                    $"{GenericArgTypeName(tRes)}> not wired: the value-type result " +
+                                    "family with a kernel is System.Decimal only " +
+                                    "(il2cpp_linq_select_<src>_dec)");
+                            if (selIdx)
+                                throw new NotSupportedException(
+                                    "Enumerable.Select with a (element, index) selector returning " +
+                                    "System.Decimal is not wired: the runtime has no " +
+                                    "il2cpp_linq_select_idx_*_dec entry");
+                            string decEntry = LinqSourceFamily(genArgs, receiverType,
+                                count >= 2 ? arg1Type : arg0Type) switch
+                            {
+                                "i4" => "il2cpp::il2cpp_linq_select_i4_dec",
+                                "i8" => "il2cpp::il2cpp_linq_select_i8_dec",
+                                "f" => "il2cpp::il2cpp_linq_select_f_dec",
+                                "d" => "il2cpp::il2cpp_linq_select_d_dec",
+                                "ref" => throw new NotSupportedException(
+                                    "Enumerable.Select over a REFERENCE-element source returning " +
+                                    "System.Decimal is not wired: the runtime has no " +
+                                    "il2cpp_linq_select_ref_dec entry"),
+                                _ => "il2cpp::il2cpp_linq_select_dec_dec",
+                            };
+                            return I(decEntry, 2, true, true, false, TwoArg,
+                                returnTypeName: "System.Decimal[]");
+                        }
                         default:
                             // A reference TResult -> a reference array. The
                             // element name is tracked so downstream member
@@ -1170,6 +1299,7 @@ public static partial class MethodRefResolver
         0x0C => "System.Double[]",
         0x0D => "System.Double[]",
         0x0E => "System.String[]",
+        0x11 => "System.Decimal[]", // P0LINQ1 (D3): the 16-byte decimal array
         _ => "System.Object[]",
     };
 
@@ -1222,6 +1352,47 @@ public static partial class MethodRefResolver
         _ => "",
     };
 
+    //--------------------------------------------------------------------------
+    // P0LINQ1 (D2): the two families that LinqElementFamily folds into "ref"
+    // but that the AGGREGATE surface must tell apart.
+    //
+    //   * DECIMAL (0x11 VALUETYPE System.Decimal / "System.Decimal[]"): a real
+    //     16-byte value family with a decimal kernel -- Sum/Min/Max/Average are
+    //     implemented (il2cpp_linq_*_dec).
+    //   * STRING (0x0E / "System.String[]"): Min/Max exist in net48 but use
+    //     Comparer<string>.Default, i.e. CULTURE-aware collation. There is no
+    //     collation infrastructure here, and an ordinal comparison would be a
+    //     SILENT WRONG VALUE (probe: new[]{"B","a"}.Min() == "a", while ordinal
+    //     compares 'B' (0x42) < 'a' (0x61)). It must stay LOUD.
+    //
+    // The authoritative key is the MethodSpec generic argument; the tracked
+    // receiver/arg0 array name is the fallback (a source-only aggregate called
+    // through a non-MethodSpec MemberRef carries LinqAggregateElementByte's
+    // element byte, which for decimal/string is 0x11/0x0E).
+    //--------------------------------------------------------------------------
+    private static bool IsLinqDecimalSource(byte[]? genArgs, string? receiverType, string? arg0Type)
+    {
+        if (genArgs is { Length: >= 1 }) return genArgs[0] == 0x11;
+        var name = receiverType ?? arg0Type;
+        return name != null && name.EndsWith("System.Decimal[]", StringComparison.Ordinal);
+    }
+
+    private static bool IsLinqStringSource(byte[]? genArgs, string? receiverType, string? arg0Type)
+    {
+        if (genArgs is { Length: >= 1 }) return genArgs[0] == 0x0E;
+        var name = receiverType ?? arg0Type;
+        return name != null && name.EndsWith("System.String[]", StringComparison.Ordinal);
+    }
+
+    // IsDecimalGenArg -- is the generic-argument slot at 'index' really
+    // System.Decimal? The 0x11 byte covers EVERY value type (decimal, DateTime,
+    // user structs), so the decoded MethodSpec FULL NAMES are the only
+    // authority. A null name table (a shape that carries no names) answers
+    // false: a fabricated decimal kernel for a struct result would be a wild
+    // 16-byte read.
+    private static bool IsDecimalGenArg(string[]? genArgNames, int index) =>
+        genArgNames is { } names && index < names.Length && names[index] == "System.Decimal";
+
     private static string LinqElementFamily(byte[]? genArgs, string? receiverType, string? arg0Type)
     {
         if (genArgs is { Length: >= 1 })
@@ -1256,12 +1427,39 @@ public static partial class MethodRefResolver
     //   int64  -> int64   (Average -> double)
     //   float  -> float   (Average -> float)
     //   double -> double  (Average -> double)
-    // A reference source has no numeric aggregate (net48's Sum/Min/Max over
-    // strings do not exist for these overloads) -> generated-name fallback.
+    //   decimal -> decimal (Sum/Min/Max/Average all return decimal -- the
+    //             16-byte value slot, so the icall takes the result slot FIRST
+    //             and ResultKind "dec" carries that shape to the emitter)
+    // A STRING source (Min/Max) is rejected LOUDLY here: net48's
+    // Comparer<string>.Default is CULTURE-aware (probe: new[]{"B","a"}.Min()
+    // is "a" -- ordinal would answer "B"), and this runtime has no collation
+    // infrastructure, so an ordinal kernel would be a SILENT WRONG VALUE (the
+    // loud-p0-14-strkey-loud precedent).
     //--------------------------------------------------------------------------
     private static ResolvedMethod? LinqFamilyAggregate(string name, byte[]? genArgs,
         string? receiverType, string? arg0Type)
     {
+        // decimal and string are BOTH "ref" in LinqElementFamily (0x11 / 0x0E
+        // fall into the default arm). The aggregate surface must tell them
+        // apart BEFORE that table runs: decimal has a real 16-byte kernel,
+        // while string Min/Max is culture-aware and must stay LOUD.
+        if (IsLinqStringSource(genArgs, receiverType, arg0Type))
+        {
+            // Sum/Average do not even EXIST for string in net48 (no overload);
+            // Min/Max do and are culture-aware. Both are unwireable here.
+            throw new NotSupportedException(
+                $"Enumerable.{name}<System.String> not wired: string Min/Max uses " +
+                "Comparer<string>.Default, which is culture-aware collation (net48 sorts " +
+                "\"a\" before \"B\"); ordinal would silently misorder mixed-case input and " +
+                "this runtime has no collation infrastructure (see docs/audit/b5-gaps.md)");
+        }
+        if (IsLinqDecimalSource(genArgs, receiverType, arg0Type))
+        {
+            // decimal: the 16-byte result slot (decimal T3 contract). The
+            // kernel returns decimal for Average too (net48's overload).
+            return I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_dec", 1, true, false, false,
+                new[] { "a" }, resultKind: "dec");
+        }
         var fam = LinqElementFamily(genArgs, receiverType, arg0Type);
         if (fam == "ref") return null;
         bool avg = name == "Average";
