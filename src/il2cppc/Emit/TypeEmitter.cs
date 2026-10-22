@@ -629,10 +629,18 @@ public static class TypeEmitter
     private static IReadOnlyList<TypeDef>? _nestedIndexSource;
     private static int _nestedIndexSourceCount = -1;
 
+    // p0linq4 (D1): the FINAL type list of the current Generate (session
+    // scope, set by ResolveTypeCppNameCollisions). MethodMap.Linq needs it to
+    // resolve a user-struct generic argument to its TypeDef so a List<T>
+    // materializer can box with the struct's OWN descriptor and sizeof(T) --
+    // the resolver carries no type list of its own.
+    public static IReadOnlyList<TypeDef>? SessionTypes { get; private set; }
+
     // Public for CodeGenerator (called once per Generate, after all clones are
     // created -- the session map is deterministic on the final type list).
     public static void ResolveTypeCppNameCollisions(IReadOnlyList<TypeDef> types)
     {
+        SessionTypes = types;
         var byName = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var t in types)
         {
