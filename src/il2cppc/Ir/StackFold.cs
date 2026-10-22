@@ -76,6 +76,13 @@ public static class StackFold
         var stmts = new List<Stmt>();
         var stack = new Stack<Expr>();
         var temps = new List<string>();
+        // Leave sites that need EXPLICIT finally expansion (see the
+        // ILOpCode.Leave arm): the statement index the expansion is inserted
+        // at, the leave's own IL offset, the branch target offset, and the
+        // finally regions the leave exits (innermost first). Filled during the
+        // fold (the finally handler bodies are only folded later in the IL
+        // stream) and materialized right after the loop.
+        var leaveSites = new List<(int Index, int Offset, int Target, List<IlExceptionRegion> ExitedFinallys, int BodyEnd, int TryStart, bool NaturalTarget)>();
         // Audit H8: newobj temp -> the allocated type's full name. The throw
         // site uses it to emit the REAL managed exception type (a catch of a
         // derived type must match; before the fix every throw was a fixed
@@ -1074,19 +1081,26 @@ public static class StackFold
                     break;
                 case ILOpCode.Leave:
                 case ILOpCode.Leave_s:
-                    // leave: normal exit of a try/finally block. M3 emits the
-                    // try block inline and the finally/catch handler after it,
-                    // so a leave is a no-op ONLY when its target is the code
-                    // right AFTER the enclosing region's HANDLER -- the
-                    // emitted C++ shape's natural continuation (try closes,
-                    // handler runs, control continues after the construct).
-                    // Real Roslyn output targets handlerEnd from BOTH the try
-                    // body and the handler body (verified: TryDiv leave @0x06
-                    // -> 0x0D = handlerEnd, never tryEnd). Any other target
-                    // (break/continue/goto out of the try, e.g.) would
-                    // silently produce wrong control flow (audit H2) --
-                    // reject loudly; the full leave semantics (run finally,
-                    // then jump) is a future milestone.
+                    // leave = clear the evaluation stack, RUN the finally
+                    // handlers of every enclosing try block being exited
+                    // (innermost first) and jump to the target.
+                    //
+                    // The emitted C++ shape is "try block inline, handler
+                    // after it", with a finally's body duplicated: the
+                    // normal-path copy INSIDE the try block right after the
+                    // try body, and the exceptional-path copy in the
+                    // catch-all. A leave is therefore a pure no-op ONLY when
+                    // falling out of the try body naturally lands exactly
+                    // where the leave would go: the leave is the LAST
+                    // instruction of the innermost exited try range and its
+                    // target is that construct's chain end (or the method's
+                    // terminal instruction). Everything else -- `return`
+                    // inside a try, `break`/`continue` out of a try, a
+                    // conditional early exit -- must run the exited finally
+                    // bodies explicitly and then jump; that expansion is
+                    // recorded here and materialized after the fold loop
+                    // (the finally handler bodies are only folded later in
+                    // the IL stream). See MaterializeLeaveSites.
                     {
                         var leaveTarget = (int)ins.Operand;
                         // Containment chain: every region whose try or handler
@@ -1112,18 +1126,7 @@ public static class StackFold
                         // containing construct's end. Lock lowering (lockcase
                         // probe 2, nested lock) adds the MIDDLE case: the inner
                         // try body's normal-completion leave targets the
-                        // IMMEDIATELY enclosing construct's chain end
-                        // (leave @0x00C1 -> 0x00DB = the middle lock's end,
-                        // while the inner finally ends at 0x00CF and the
-                        // outermost at 0x00F6). The emitted C++ shape (M3)
-                        // lands at EVERY chain end of the containment chain
-                        // naturally: each construct's finally is emitted
-                        // inline right after its try body, so falling through
-                        // from the innermost body runs exactly the enclosing
-                        // finallys the leave semantics would run and arrives
-                        // at the target. Hence ANY chain end along the
-                        // containment chain is a valid no-op; anything else
-                        // stays rejected (audit H2).
+                        // IMMEDIATELY enclosing construct's chain end.
                         long ChainEnd(IlExceptionRegion r)
                         {
                             var e = r.HandlerOffset + r.HandlerLength;
@@ -1138,19 +1141,64 @@ public static class StackFold
                         // catch handler (and the AwaitUnsafeOnCompleted
                         // suspension path) `leave` to the METHOD'S FINAL ret
                         // -- the "return from the state machine" shape
-                        // (SetResult must NOT run on the exception path). The
-                        // emitted C++ naturally falls off the end of the
-                        // handler chain to the function's closing brace; in
-                        // the minimal synchronous surface both paths are
-                        // runtime-unreachable (SetException rethrows out of
-                        // MoveNext; AwaitUnsafeOnCompleted throws loudly), so
-                        // the fall-through never executes.
+                        // (SetResult must NOT run on the exception path).
                         var terminalOffset = il.Count > 0 ? il.Max(i => i.Offset) : -1;
-                        if (!chainEnds.Contains(leaveTarget) && leaveTarget != terminalOffset)
+                        // The target label is only emitted when an INSTRUCTION
+                        // exists at the target offset; a jump to an offset with
+                        // no instruction would render an undefined C++ label.
+                        var targetHasInstruction = il.Any(x => x.Offset == leaveTarget);
+                        var naturalTarget = chainEnds.Contains(leaveTarget) || leaveTarget == terminalOffset;
+                        // A leave must never land INSIDE a handler clause (ECMA
+                        // allows only targets outside every handler). Roslyn
+                        // never emits one; a jump into a C++ catch body is
+                        // illegal, so such an input keeps the old loud-ish
+                        // "skip the fold" behavior instead of an unbuildable
+                        // goto.
+                        var targetInsideHandler = ctx.ExceptionRegions != null
+                            && ctx.ExceptionRegions.Any(r =>
+                                leaveTarget >= r.HandlerOffset
+                                && leaveTarget < r.HandlerOffset + r.HandlerLength);
+
+                        // Finally regions this leave EXITS: the leave sits in
+                        // the region's TRY block and the target lies outside
+                        // it. Nested try ranges are strictly contained, so
+                        // ascending TryLength is innermost-first -- exactly the
+                        // order the finallys must run in.
+                        var exitedFinallys = chain
+                            .Where(r => r.Kind == ExceptionRegionKind.Finally
+                                        && ins.Offset >= r.TryOffset && ins.Offset < r.TryOffset + r.TryLength
+                                        && !(leaveTarget >= r.TryOffset && leaveTarget < r.TryOffset + r.TryLength))
+                            .OrderBy(r => r.TryLength)
+                            .ToList();
+
+                        // The END of the region body the leave sits in (the try
+                        // range, or the handler range when the leave is inside a
+                        // handler). The emitted C++ only falls through to the
+                        // target when nothing else in that body still has to
+                        // run, i.e. the leave is the body's LAST instruction.
+                        // This single rule covers all three leave shapes:
+                        //   * a normal-completion leave at the end of a try body
+                        //     (Roslyn's usual shape) -- a no-op;
+                        //   * a conditional `return`/`break`/`continue` in the
+                        //     MIDDLE of a try body -- must jump (the rest of the
+                        //     body is not part of that path);
+                        //   * a leave at the end of a catch handler -- a no-op.
+                        var innermost = chain[0];
+                        var bodyEnd = ins.Offset >= innermost.HandlerOffset
+                                      && ins.Offset < innermost.HandlerOffset + innermost.HandlerLength
+                            ? innermost.HandlerOffset + innermost.HandlerLength
+                            : innermost.TryOffset + innermost.TryLength;
+                        if (!targetHasInstruction || (targetInsideHandler && !naturalTarget))
                         {
-                            Console.Error.WriteLine($"warning: leave target 0x{leaveTarget:X4} != any chain end in {ctx.MethodFullName} -- skipping fold");
+                            Console.Error.WriteLine($"warning: leave target 0x{leaveTarget:X4} is not a reachable label position in {ctx.MethodFullName} -- skipping fold");
                             return stmts;
                         }
+                        // The "does the emitted shape already land there" decision
+                        // is made AFTER the fold (MaterializeLeaveSites): only
+                        // then is the full statement list known (a later `nop`
+                        // run or a folded-away instruction must not count as
+                        // "more code follows").
+                        leaveSites.Add((stmts.Count, ins.Offset, leaveTarget, exitedFinallys, bodyEnd, innermost.TryOffset, naturalTarget));
                     }
                     break;
                 case ILOpCode.Nop:
@@ -2011,6 +2059,104 @@ public static class StackFold
             }
 
             prevIns = ins;
+        }
+
+        // Materialize the explicit leave expansions recorded by the Leave arm.
+        // Whether a leave needs one is decided HERE, on the complete statement
+        // list: the emitted shape already lands on the target only when the
+        // leave is the LAST emitted statement of the body it sits in and the
+        // target is that construct's natural continuation. Everything else (a
+        // conditional return/break/continue, an early exit) gets, innermost
+        // finally first: a RENAMED copy of each exited finally body, then the
+        // jump. Renaming keeps the copy from colliding with the finally body
+        // the emitter duplicates for the normal/exceptional paths; the suffix
+        // derives from the leave offset, so each site gets its own labels.
+        if (leaveSites.Count > 0)
+        {
+            var natural = new bool[leaveSites.Count];
+            for (var li = 0; li < leaveSites.Count; li++)
+            {
+                var s0 = leaveSites[li];
+                // Statements after the leave but still inside the same body:
+                // the emitted fall-through would run them, so the leave must
+                // jump. Judged on EMITTED statements -- a trailing nop run, or
+                // instructions that fold to nothing, do not count.
+                var moreInBody = false;
+                for (var j = s0.Index; j < stmts.Count; j++)
+                {
+                    if (stmts[j].SourceOffset > s0.Offset && stmts[j].SourceOffset < s0.BodyEnd)
+                    {
+                        moreInBody = true;
+                        break;
+                    }
+                }
+                // An exited finally must actually be emitted for the natural
+                // shape to run it; when the try range produced no statement at
+                // all (ehnest1: an empty try body), the emitter never opens the
+                // try block and the finally copies are skipped entirely.
+                var tryOpened = stmts.Any(s =>
+                    s.SourceOffset >= s0.TryStart && s.SourceOffset < s0.BodyEnd
+                    && s.SourceOffset != s0.Offset);
+                natural[li] = !moreInBody && s0.NaturalTarget
+                              && (s0.ExitedFinallys.Count == 0 || tryOpened);
+            }
+
+            // Insertion happens at a recorded statement index; process the
+            // sites in REVERSE so an earlier insertion never shifts a later
+            // index.
+            for (var li = leaveSites.Count - 1; li >= 0; li--)
+            {
+                if (natural[li]) continue;
+                var site = leaveSites[li];
+                var expansion = new List<Stmt>();
+                foreach (var fr in site.ExitedFinallys)
+                {
+                    var body = stmts
+                        .Where(s => s.SourceOffset >= fr.HandlerOffset
+                                 && s.SourceOffset < fr.HandlerOffset + fr.HandlerLength)
+                        .ToList();
+                    // Drop the body's own branch targets that stay inside it --
+                    // they are re-registered by the label scan below.
+                    var labelMap = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (var bs in body)
+                        if (bs is LabelStmt ls && !labelMap.ContainsKey(ls.Name))
+                            labelMap[ls.Name] = $"{ls.Name}_lv{site.Offset:X4}";
+                    foreach (var bs in body)
+                    {
+                        // DEEP clone: the handler statements stay in `stmts`
+                        // (the emitter duplicates them for the normal and
+                        // exceptional paths) and must keep their original
+                        // handler offsets -- re-stamping a SHARED node would
+                        // move the finally body out of its handler range and
+                        // silently delete both emitted copies.
+                        var copy = IrNode.CloneStmt(bs);
+                        if (copy is LabelStmt ls2 && labelMap.TryGetValue(ls2.Name, out var nv))
+                            copy = new LabelStmt { Name = nv, SourceOffset = site.Offset, SourceOpName = ls2.SourceOpName };
+                        else if (copy is BranchStmt br)
+                            copy = new BranchStmt
+                            {
+                                TargetLabel = labelMap.TryGetValue(br.TargetLabel, out var nv2) ? nv2 : br.TargetLabel,
+                                Condition = br.Condition == null ? null : IrNode.CloneExpr(br.Condition),
+                                SourceOffset = site.Offset,
+                                SourceOpName = br.SourceOpName,
+                            };
+                        // Re-stamp every copied statement to the LEAVE offset:
+                        // the emitter attributes EH wrappers by SourceOffset,
+                        // and the copy executes in the try body, not in the
+                        // handler (a handler offset would make the emitter skip
+                        // it as a finally-body statement).
+                        copy.SourceOffset = site.Offset;
+                        expansion.Add(copy);
+                    }
+                }
+                expansion.Add(new BranchStmt
+                {
+                    TargetLabel = labels[site.Target],
+                    SourceOffset = site.Offset,
+                    SourceOpName = "leave",
+                });
+                stmts.InsertRange(site.Index, expansion);
+            }
         }
 
         // P0-2 dead-store removal: a local whose reads were all replaced by
