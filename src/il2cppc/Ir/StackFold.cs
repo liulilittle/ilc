@@ -3157,6 +3157,77 @@ public static class StackFold
                         }
                     }
                 }
+                // USER VALUE TYPE (struct) constrained receiver -- the same
+                // `ldloca a; constrained. P; callvirt Object::ToString()`
+                // shape for ToString / GetHashCode / Equals(object). ECMA
+                // III.4.2: constrained. on a VALUE type does NOT box -- net48
+                // dispatches DIRECTLY to the struct's own override. Without
+                // this arm the fold left the ldloca ADDRESS in the receiver
+                // slot of the boxed-object icalls (icall_object_to_string /
+                // icall_object_get_hash_code / icall_boxed_equals_ext2): the
+                // C++ "cannot convert 'Cases_P*' to 'Il2CppObject*'" compile
+                // failure, and a lost override even if it had compiled.
+                // The translated struct's own methods take `{T}* this`
+                // (TypeEmitter value-type instance ABI), so the ADDRESS
+                // receiver passes through unchanged.
+                if (md != null && constrainedRecvType != null && types != null
+                    && types.FirstOrDefault(t => t.MatchesFullName(constrainedRecvType)
+                        && t.IsValueType && t.BaseTypeName != "System.Enum") is { } vtRecvDef
+                    && ObjectInstanceMemberName(md, (int)ins.Operand) is { } vtObjMember)
+                {
+                    var vtMethod = vtRecvDef.Methods.FirstOrDefault(m => !m.IsStatic
+                        && m.Name == vtObjMember
+                        && m.ParamCount == (vtObjMember == "Equals" ? 1 : 0)
+                        // Equals(object) ONLY -- a struct's Equals(P) overload
+                        // (IEquatable<T>) has a different signature and must
+                        // not be bound to the Object::Equals call.
+                        && (vtObjMember != "Equals" || m.ParamTypes == "r:System.Object"));
+                    if (vtMethod != null)
+                    {
+                        var vtThis = args[0] switch
+                        {
+                            LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr => args[0],
+                            // A "sp:"-kind temp is ALREADY a {T}* struct
+                            // pointer (the ldelema element address of a
+                            // value-type array) -- taking its address again
+                            // would emit {T}**.
+                            LocExpr vtLe when tempWidths.TryGetValue(vtLe.Name, out var vtW)
+                                && vtW.StartsWith("sp:", StringComparison.Ordinal) => args[0],
+                            LocExpr vtLe => (Expr)new LocAddrExpr { Name = vtLe.Name },
+                            _ => args[0],
+                        };
+                        var vtParamRefs = vtMethod.ParamTypes.Length == 0
+                            ? Array.Empty<bool>()
+                            : CodeGenerator.SplitTopLevel(vtMethod.ParamTypes)
+                                .Select(p => p.StartsWith("r:", StringComparison.Ordinal)).ToArray();
+                        var vtCall = new CallExpr
+                        {
+                            Function = $"call_{ins.Operand}",
+                            ReturnsRef = vtMethod.ResultKind == MethodResultKind.Reference,
+                            Resolved = new ResolvedMethod(
+                                // Same symbol shape as TypeEmitter.MethodSymbolName
+                                // (Sanitize(ReflectionFullName) == TypeCppName).
+                                MethodRefResolver.UserMethodCppName(
+                                    TypeEmitter.ReflectionFullName(vtRecvDef), vtMethod.Name, vtMethod.ParamTypes),
+                                vtMethod.ParamCount, false, !vtMethod.ReturnsVoid,
+                                vtMethod.ResultKind == MethodResultKind.Reference, vtParamRefs, true),
+                        };
+                        vtCall.Args.Add(vtThis);
+                        for (var vi = 1; vi < args.Count; vi++) vtCall.Args.Add(args[vi]);
+                        Push(vtCall, ins);
+                        return;
+                    }
+                    // No override: net48 System.ValueType.ToString() returns the
+                    // type's FULL NAME (nested types keep the '+' separator) --
+                    // a compile-time constant, so no receiver evaluation and no
+                    // box is needed. Generic instantiations print the closed
+                    // name ("Box`1[System.Int32]") and keep the existing path.
+                    if (vtObjMember == "ToString" && vtRecvDef.GenericArity == 0)
+                    {
+                        Push(new StringConstExpr { Value = TypeEmitter.ReflectionFullName(vtRecvDef) }, ins);
+                        return;
+                    }
+                }
                 // G2 (audit recurse-recheck f14b): callvirt Object::ToString on
                 // an UNTRACKED receiver -- a plain `object no = null;` local,
                 // which objTypes does not record (newobj/box/GetType results
@@ -3388,7 +3459,11 @@ public static class StackFold
                         // lookup finds the registered metadata and prints the
                         // member NAME ("Red" -- net48-identical); "enumval" reads
                         // the slot's value__ through the ldloca address.
-                        _ when types?.Any(t => t.FullName == constrainedRecvType
+                        // The metadata token decodes a NESTED enum to the '+'
+                        // form ("Cases.Outer+E") while TypeDef.FullName is the
+                        // SHORT name ("E"): match through MatchesFullName (the
+                        // nested-name contract, TypeDef.cs:26).
+                        _ when types?.Any(t => t.MatchesFullName(constrainedRecvType)
                             && t.BaseTypeName == "System.Enum") == true
                             => new ResolvedMethod("il2cpp::runtime::il2cpp_enum_to_string", 0, false, true, true,
                                 new[] { false }, true, ParamTypeNames: new[] { "enumval" },
@@ -4650,6 +4725,49 @@ public static class StackFold
             var name = md.GetString(mr.Name);
             isInequality = name == "op_Inequality";
             return name == "op_Equality" || name == "op_Inequality";
+        }
+
+        // The name of a PARAMETERLESS-compatible System.Object instance member
+        // reached through a `constrained. T; callvirt` -- "ToString" (0 params),
+        // "GetHashCode" (0 params) or "Equals" (1 object param). Returns null
+        // for every other call (a static, a non-Object owner, another arity),
+        // so the caller's user-struct arm can never bind an unrelated method.
+        static string? ObjectInstanceMemberName(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            string? parentName = null;
+            string? methodName = null;
+            BlobHandle sigHandle = default;
+            if (handle.Kind == HandleKind.MemberReference)
+            {
+                var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+                parentName = mr.Parent.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)mr.Parent),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)mr.Parent),
+                    _ => null,
+                };
+                methodName = md.GetString(mr.Name);
+                sigHandle = mr.Signature;
+            }
+            else if (handle.Kind == HandleKind.MethodDefinition)
+            {
+                var mdef = md.GetMethodDefinition((MethodDefinitionHandle)handle);
+                parentName = md.GetFullName(mdef.GetDeclaringType());
+                methodName = md.GetString(mdef.Name);
+                sigHandle = mdef.Signature;
+            }
+            else return null;
+            if (parentName != "System.Object") return null;
+            var sig = md.GetBlobReader(sigHandle);
+            sig.ReadSignatureHeader();
+            var pc = sig.ReadCompressedInteger();
+            return methodName switch
+            {
+                "ToString" or "GetHashCode" when pc == 0 => methodName,
+                "Equals" when pc == 1 => methodName,
+                _ => null,
+            };
         }
 
         // G2 (audit recurse-recheck f14b): whether the call is
