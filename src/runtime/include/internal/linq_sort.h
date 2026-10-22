@@ -56,16 +56,25 @@ namespace il2cpp {
 // System.NotSupportedException.
 Il2CppArray* il2cpp_linq_order_by_i4(Il2CppArray* src, Il2CppObject* cmp);
 
-// Enumerable.OrderBy(object[]): stable order by 'cmp' over the reference
-// slots (Il2CppObject*), returned as a NEW reference array; the source is
-// never modified. Reference arrays only (isRefElem == true); the comparator
-// decides the null policy (null elements ARE passed to the callback, net48
-// OrderBy contract).
+// LOW-LEVEL comparison-ABI entry (NOT what Enumerable.OrderBy emits):
+// stable order by a 2-arg Comparison<T>-shaped delegate over the reference
+// slots (Il2CppObject*), returned as a NEW reference array; the source is never
+// modified. Reference arrays only (isRefElem == true); the comparator decides
+// the null policy (null elements ARE passed to the callback).
+//
+// NO CALLER: the transpiler has no emission site for this entry (grep over
+// src/il2cppc finds only the explanatory comment in MethodMap.Linq.cs).
+// Enumerable.OrderBy passes a 1-arg KEY SELECTOR, and calling a 1-arg function
+// through a 2-arg signature is undefined behaviour, so this is kept only as the
+// declared ABI for a caller that already HAS a Comparison<T>. Registered as an
+// unreferenced legacy declaration in docs/audit/b5-gaps.md section 5c -- do NOT
+// describe it as "wired".
 Il2CppArray* il2cpp_linq_order_by_ref(Il2CppArray* src, Il2CppObject* cmp);
 
-// Enumerable.OrderBy(string[]): string-typed variant of il2cpp_linq_order_by_ref
-// (same ABI and stability contract; the caller supplies the string
-// comparator -- e.g. an ordinal comparison -- via the delegate).
+// String-typed variant of il2cpp_linq_order_by_ref: same ABI and stability
+// contract. NO CALLER as well (see above); the transpiler's Enumerable.OrderBy
+// path uses the key-selector surface, and a STRING KEY is rejected at transpile
+// time (no collation in this runtime).
 Il2CppArray* il2cpp_linq_order_by_string(Il2CppArray* src, Il2CppObject* cmp);
 
 // Enumerable.OrderBy(TSource[], Func<TSource,TKey>) -- the KEY-SELECTOR
@@ -108,5 +117,31 @@ Il2CppArray* il2cpp_linq_then_by_key_i4(Il2CppArray* src, Il2CppObject* k1Sel,
 // element) and same int32 element/key family gate.
 Il2CppArray* il2cpp_linq_then_by_key_desc_i4(Il2CppArray* src, Il2CppObject* k1Sel,
                                              Il2CppObject* k2Sel);
+
+// Enumerable.OrderBy / OrderByDescending over a REFERENCE-element array with a
+// KEY SELECTOR (Func<TSource,TKey>) -- the reference-source counterpart of
+// il2cpp_linq_order_by_key_i4. Enumerable.OrderBy passes a 1-arg selector, so
+// it must NOT go through il2cpp_linq_order_by_ref/string (those take a 2-arg
+// Comparison<T>; calling a 1-arg function with 2 args is UB).
+//
+// The key family decides the entry suffix:
+//   _i4  TKey is a 32-bit integral (bool/char/sbyte/byte/short/ushort/int/uint)
+//        -- the selector's return is read from the int32 slot;
+//   _i8  TKey is int64/uint64;
+//   _d   TKey is float/double (the F-stack carrier);
+//   _ref TKey is a reference: strings compare ORDINAL (Comparer<string>.Default
+//        -- the arraysort ordinal contract), any other reference type defers to
+//        IComparable.CompareTo on the first key (Comparer<T>.Default).
+// Keys are cached EXACTLY ONCE per element (net48 EnumerableSorter). The
+// result is a NEW reference array; the source is never modified. `desc`
+// non-zero flips the order.
+Il2CppArray* il2cpp_linq_order_by_key_ref_i4(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_i8(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keySel,
+                                            int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* keySel,
+                                              int32_t desc);
 
 } // namespace il2cpp

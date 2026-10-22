@@ -108,6 +108,10 @@ public static partial class MethodRefResolver
                         // nb9 E6/D17: Comparison<T> for uint (carried as int32;
                         // the delegate supplies the unsigned order), int64,
                         // float and double.
+                        // B8-1: uint[] carries elemKind 5, so the runtime's
+                        // DEFAULT comparer path (null / Comparer<uint>.Default /
+                        // Comparer<uint>.Create) orders it UNSIGNED -- the
+                        // int32 carrier above is the ABI, not the semantics.
                         0x09 when count == 2 =>
                             secondIsIComparer
                                 ? I("il2cpp::il2cpp_array_sort_icomparer", 2, false, false, false, new[] { "a", "" })

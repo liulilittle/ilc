@@ -39,6 +39,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <new>
+#include <vector>
 
 namespace il2cpp {
 
@@ -135,33 +137,34 @@ bool InvokePredRef(Il2CppDelegate* d, Il2CppObject* o)
 class RootScope
 {
 public:
-    RootScope() : m_count(0) {}
+    RootScope() {}
     ~RootScope()
     {
-        while (m_count > 0)
-        {
-            il2cpp_gc_remove_static_root(m_slots[m_count - 1]);
-            --m_count;
-        }
+        for (size_t i = m_slots.size(); i > 0; --i)
+            il2cpp_gc_remove_static_root(m_slots[i - 1]);
     }
     void Add(void** slot)
     {
-        // nb9 H-B1: FoldRef roots THREE slots (delegate + source + seed); the
-        // old [2] capacity wrote past the array into m_count and corrupted the
-        // root table (a ref-accumulator Aggregate could crash). The capacity
-        // must always cover the Add count -- and an overflow is a programming
-        // error that must abort, never silently corrupt the count.
-        if (m_count >= static_cast<int32_t>(sizeof(m_slots) / sizeof(m_slots[0])))
+        // The slot table grows on demand. A fixed table with an std::abort()
+        // overflow check turns a rooting-count mistake into a silent process
+        // exit (exit 3, no message, no managed exception) -- List<T>.Except hit
+        // exactly that. An allocation failure now surfaces as a managed
+        // exception instead.
+        try
         {
-            std::abort();
+            m_slots.push_back(slot);
+        }
+        catch (const std::bad_alloc&)
+        {
+            il2cpp_throw_new(
+                "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                "Insufficient memory to continue the execution of the program.");
         }
         il2cpp_gc_add_static_root(slot);
-        m_slots[m_count++] = slot;
     }
 
 private:
-    void** m_slots[4]; // delegate + source array + seed (FoldRef) + spare
-    int32_t m_count;
+    std::vector<void**> m_slots; // delegate + source array + seed (FoldRef)
 };
 
 } // namespace
@@ -560,6 +563,322 @@ int32_t il2cpp_linq_count_ref(Il2CppArray* src, Il2CppObject* pred)
 }
 
 //------------------------------------------------------------------------------
+// nb15 B5 FIX -- WIDE / NARROW predicate families (see linq.h).
+//
+// Each entry reads the element cell at its REAL width (arr->elemSize drives
+// il2cpp_array_get_elem_ptr, so a 1/2/8-byte cell is never over-read) and
+// widens it into the delegate's ABI slot:
+//   i8  -> int64_t slot      d/f -> double slot (float widened; a float leaf
+//                            returns float, read as float then compared as
+//                            nonzero)
+//   narrow -> int32_t slot   (sign- or zero-extended per the elemKind code)
+// The predicate ABI typedefs mirror the generated instance/static leaves
+// (I4PredFn / I4PredThisFn / I8PredFn / I8PredThisFn / DPredFn / DPredThisFn).
+//------------------------------------------------------------------------------
+namespace {
+
+typedef bool (*I8PredFn)(int64_t);
+typedef bool (*I8PredThisFn)(Il2CppObject*, int64_t);
+typedef bool (*DPredFn)(double);
+typedef bool (*DPredThisFn)(Il2CppObject*, double);
+
+// The float family crosses the boundary as double: ParamTypesCpp maps a
+// float parameter to the double slot, and the bool RESULT rides the int32
+// slot (ReturnTypeCpp), so a float predicate leaf has the SAME ABI as a
+// double one. The entry stays separate so the transpiler can dispatch on the
+// metadata family without the runtime guessing.
+typedef bool (*FPredFn)(double);
+typedef bool (*FPredThisFn)(Il2CppObject*, double);
+
+bool InvokePredI8(Il2CppDelegate* d, int64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<I8PredThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<I8PredFn>(d->methodPtr)(v);
+}
+
+bool InvokePredD(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<DPredThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<DPredFn>(d->methodPtr)(v);
+}
+
+bool InvokePredF(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<FPredThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<FPredFn>(d->methodPtr)(v);
+}
+
+// Narrow integral cell -> the int32 slot the CLR passes for a narrow parameter.
+// Zero- vs sign-extension follows the source element type (elemKind), NEVER a
+// guess from the cell width.
+// Selector callback shapes for the wide/narrow Select surface
+// (il2cpp_linq_select_wide). The element crosses as the family's widened slot;
+// the result follows TResult's family. Instance-bound leaves carry `this` in
+// the first parameter slot.
+typedef int32_t (*SelI4I4Fn2)(int32_t);
+typedef int32_t (*SelI4I4ThisFn2)(Il2CppObject*, int32_t);
+typedef int64_t (*SelI4I8Fn2)(int32_t);
+typedef int64_t (*SelI4I8ThisFn2)(Il2CppObject*, int32_t);
+typedef double (*SelI4DFn2)(int32_t);
+typedef double (*SelI4DThisFn2)(Il2CppObject*, int32_t);
+typedef Il2CppObject* (*SelI4RefFn2)(int32_t);
+typedef Il2CppObject* (*SelI4RefThisFn2)(Il2CppObject*, int32_t);
+
+typedef int32_t (*SelI8I4Fn)(int64_t);
+typedef int32_t (*SelI8I4ThisFn)(Il2CppObject*, int64_t);
+typedef int64_t (*SelI8I8Fn)(int64_t);
+typedef int64_t (*SelI8I8ThisFn)(Il2CppObject*, int64_t);
+typedef double (*SelI8DFn)(int64_t);
+typedef double (*SelI8DThisFn)(Il2CppObject*, int64_t);
+typedef Il2CppObject* (*SelI8RefFn)(int64_t);
+typedef Il2CppObject* (*SelI8RefThisFn)(Il2CppObject*, int64_t);
+
+typedef int32_t (*SelDI4Fn)(double);
+typedef int32_t (*SelDI4ThisFn)(Il2CppObject*, double);
+typedef int64_t (*SelDI8Fn)(double);
+typedef int64_t (*SelDI8ThisFn)(Il2CppObject*, double);
+typedef double (*SelDDFn)(double);
+typedef double (*SelDDThisFn)(Il2CppObject*, double);
+typedef Il2CppObject* (*SelDRefFn)(double);
+typedef Il2CppObject* (*SelDRefThisFn)(Il2CppObject*, double);
+
+typedef int32_t (*SelRefI4Fn2)(Il2CppObject*);
+typedef int32_t (*SelRefI4ThisFn2)(Il2CppObject*, Il2CppObject*);
+typedef int64_t (*SelRefI8Fn2)(Il2CppObject*);
+typedef int64_t (*SelRefI8ThisFn2)(Il2CppObject*, Il2CppObject*);
+typedef double (*SelRefDFn2)(Il2CppObject*);
+typedef double (*SelRefDThisFn2)(Il2CppObject*, Il2CppObject*);
+typedef Il2CppObject* (*SelRefRefFn2)(Il2CppObject*);
+typedef Il2CppObject* (*SelRefRefThisFn2)(Il2CppObject*, Il2CppObject*);
+
+// (The Zip selector shapes are NOT typedef'd here: il2cpp_linq_zip_wide
+// instantiates the call through the ZipCall<Integer,Integer,Result> template so
+// the parameter ABI follows the selector's own statically declared types -- the
+// two sources may have different families, and a hand-written per-shape table
+// cannot express that. See ZipFill/ZipCall below.)
+
+
+int32_t NarrowElemAt(Il2CppArray* arr, int32_t index, int32_t elemKind)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, index);
+    switch (elemKind)
+    {
+        case IL2CPP_LINQ_NARROW_SBYTE:
+            return static_cast<int32_t>(*reinterpret_cast<int8_t*>(p));
+        case IL2CPP_LINQ_NARROW_BYTE:
+            return static_cast<int32_t>(*reinterpret_cast<uint8_t*>(p));
+        case IL2CPP_LINQ_NARROW_BOOL:
+            return *reinterpret_cast<uint8_t*>(p) != 0 ? 1 : 0;
+        case IL2CPP_LINQ_NARROW_SHORT:
+            return static_cast<int32_t>(*reinterpret_cast<int16_t*>(p));
+        case IL2CPP_LINQ_NARROW_USHORT:
+            return static_cast<int32_t>(*reinterpret_cast<uint16_t*>(p));
+        case IL2CPP_LINQ_NARROW_CHAR:
+            return static_cast<int32_t>(*reinterpret_cast<char16_t*>(p));
+        case IL2CPP_LINQ_NARROW_UINT:
+            return static_cast<int32_t>(*reinterpret_cast<uint32_t*>(p));
+        default:
+            return static_cast<int32_t>(*reinterpret_cast<int32_t*>(p));
+    }
+}
+
+} // namespace
+
+bool il2cpp_linq_any_i8(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (InvokePredI8(d, elem)) return true;
+    }
+    return false;
+}
+
+int32_t il2cpp_linq_count_i8(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t count = 0;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (InvokePredI8(d, elem)) ++count;
+    }
+    return count;
+}
+
+bool il2cpp_linq_all_i8(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int64_t elem = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (!InvokePredI8(d, elem)) return false;
+    }
+    return true;
+}
+
+// The double family reads the cell by its REAL width: a double[] holds 8-byte
+// cells, a float Select result is materialized as a widened double[] (the
+// F-stack convention), but a genuine 4-byte float[] cell stays possible --
+// il2cpp_array_get_elem_float_as_double is the runtime's authority for that.
+bool il2cpp_linq_any_d(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (InvokePredD(d, il2cpp_array_get_elem_float_as_double(src, i))) return true;
+    }
+    return false;
+}
+
+int32_t il2cpp_linq_count_d(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t count = 0;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (InvokePredD(d, il2cpp_array_get_elem_float_as_double(src, i))) ++count;
+    }
+    return count;
+}
+
+bool il2cpp_linq_all_d(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (!InvokePredD(d, il2cpp_array_get_elem_float_as_double(src, i))) return false;
+    }
+    return true;
+}
+
+bool il2cpp_linq_any_f(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (InvokePredF(d, il2cpp_array_get_elem_float_as_double(src, i))) return true;
+    }
+    return false;
+}
+
+int32_t il2cpp_linq_count_f(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t count = 0;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (InvokePredF(d, il2cpp_array_get_elem_float_as_double(src, i))) ++count;
+    }
+    return count;
+}
+
+bool il2cpp_linq_all_f(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (!InvokePredF(d, il2cpp_array_get_elem_float_as_double(src, i))) return false;
+    }
+    return true;
+}
+
+bool il2cpp_linq_any_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (InvokePredI4(d, NarrowElemAt(src, i, elemKind))) return true;
+    }
+    return false;
+}
+
+int32_t il2cpp_linq_count_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t count = 0;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (InvokePredI4(d, NarrowElemAt(src, i, elemKind))) ++count;
+    }
+    return count;
+}
+
+bool il2cpp_linq_all_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (!InvokePredI4(d, NarrowElemAt(src, i, elemKind))) return false;
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------------
 // Average on int32[]: the arithmetic mean as a double (net48 Enumerable.Average
 // returns double). Empty -> InvalidOperationException. The sum is computed as
 // int64 to avoid intermediate overflow (net48 uses a checked long accumulator);
@@ -630,6 +949,27 @@ int32_t il2cpp_linq_last_or_default_i4(Il2CppArray* src)
     return src->length != 0
         ? *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(src, src->length - 1))
         : 0;
+}
+
+//------------------------------------------------------------------------------
+// Last / LastOrDefault on a reference-element array (nb15 B5 FIX).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_last_ref(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    return *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(src, src->length - 1));
+}
+
+Il2CppObject* il2cpp_linq_last_or_default_ref(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0
+        ? *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(src, src->length - 1))
+        : nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -1751,6 +2091,612 @@ Il2CppArray* il2cpp_linq_to_array_family(Il2CppArray* src)
         // Pure value copy, no allocation inside.
         std::memcpy(out->data, src->data,
                     static_cast<size_t>(src->length) * static_cast<size_t>(src->elemSize));
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// nb15 B5 r3 -- Where / Select / First / FirstOrDefault / Last / LastOrDefault
+// over the WIDE (int64/double/float) and NARROW (byte/sbyte/short/ushort/char/
+// bool/uint) element families.
+//
+// These were DECLARED in linq.h but never defined: any call to them produced an
+// "undefined reference" at link time (the transpiler emits them from
+// il2cpp_linq_where_{i8,d,f,narrow} etc.). Each entry reads the element at its
+// REAL cell width -- a 1/2-byte narrow cell is sign- or zero-extended into the
+// int32 delegate slot, never read as a 4-byte int32 -- and a Where result keeps
+// the SOURCE family's element layout AND elemKind (a double[] result without
+// elemKind=4 prints as its IEEE754 bit pattern through string.Join).
+//------------------------------------------------------------------------------
+namespace {
+
+// The result-array element kind of a value family (1 int32, 2 int64, 3 single,
+// 4 double, 5 uint32); 0 for the narrow 1/2-byte families (unambiguous).
+int32_t WideResultKind(int32_t family)
+{
+    switch (family)
+    {
+        case 1: return 1; // int32
+        case 2: return 2; // int64
+        case 3: return 3; // single
+        case 4: return 4; // double
+        case 5: return 5; // uint32
+        default: return 0;
+    }
+}
+
+// The narrow family's result kind. It MUST stay 0: the narrow cells are 1/2
+// bytes, and string.Join's ValueArrayElement consults elemKind FIRST -- kind 1
+// would make it read a 4-byte int32 out of a 1/2-byte cell (byte{2,200} printed
+// 51202,-2147483448). With kind 0 the elemSize switch picks the right reader.
+int32_t NarrowResultKind(int32_t elemKind)
+{
+    (void)elemKind;
+    return 0;
+}
+
+// Read an element of the WIDE families through the family's own ABI slot.
+int64_t WideElemI8(Il2CppArray* src, int32_t i)
+{
+    return *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+}
+
+double WideElemD(Il2CppArray* src, int32_t i)
+{
+    return il2cpp_array_get_elem_float_as_double(src, i);
+}
+
+// Allocate a Where result of the SOURCE family (same cell width + same kind).
+Il2CppArray* AllocWideLike(Il2CppArray* proto, int32_t length, int32_t resultKind)
+{
+    if (proto->isRefElem)
+        return il2cpp_array_new(nullptr, proto->elemSize, true, length);
+    Il2CppArray* arr = il2cpp_array_new_typed(proto->elemSize, resultKind, length);
+    return arr;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_where_i8(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    Il2CppArray* scratch = AllocWideLike(src, n, WideResultKind(2));
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int64_t elem = WideElemI8(src, i);
+        if (!InvokePredI8(d, elem)) continue;
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(scratch, w)) = elem;
+        ++w;
+    }
+    if (w == n) return scratch;
+    Il2CppArray* out = AllocWideLike(src, w, WideResultKind(2));
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(scratch, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_where_d(Il2CppArray* src, Il2CppObject* pred)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    Il2CppArray* scratch = AllocWideLike(src, n, WideResultKind(4));
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const double elem = WideElemD(src, i);
+        if (!InvokePredD(d, elem)) continue;
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(scratch, w)) = elem;
+        ++w;
+    }
+    if (w == n) return scratch;
+    Il2CppArray* out = AllocWideLike(src, w, WideResultKind(4));
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(scratch, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_where_f(Il2CppArray* src, Il2CppObject* pred)
+{
+    // The float family's predicate ABI is the double slot (a float parameter
+    // widens exactly); the RESULT keeps the source cell width/kind.
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    const int32_t kind = src->elemKind != 0 ? src->elemKind : 3;
+    Il2CppArray* scratch = AllocWideLike(src, n, WideResultKind(3));
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const double elem = WideElemD(src, i);
+        if (!InvokePredF(d, elem)) continue;
+        std::memcpy(il2cpp_array_get_elem_ptr(scratch, w),
+                    il2cpp_array_get_elem_ptr(src, i),
+                    static_cast<size_t>(src->elemSize));
+        ++w;
+    }
+    (void)kind;
+    if (w == n) return scratch;
+    Il2CppArray* out = AllocWideLike(src, w, WideResultKind(3));
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i),
+                    il2cpp_array_get_elem_ptr(scratch, i),
+                    static_cast<size_t>(src->elemSize));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_where_narrow(Il2CppArray* src, Il2CppObject* pred, int32_t elemKind)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(pred);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    const int32_t n = src->length;
+    Il2CppArray* scratch = AllocWideLike(src, n, NarrowResultKind(elemKind));
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        if (!InvokePredI4(d, NarrowElemAt(src, i, elemKind))) continue;
+        std::memcpy(il2cpp_array_get_elem_ptr(scratch, w),
+                    il2cpp_array_get_elem_ptr(src, i),
+                    static_cast<size_t>(src->elemSize));
+        ++w;
+    }
+    if (w == n) return scratch;
+    Il2CppArray* out = AllocWideLike(src, w, NarrowResultKind(elemKind));
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i),
+                    il2cpp_array_get_elem_ptr(scratch, i),
+                    static_cast<size_t>(src->elemSize));
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// Select over a wide/narrow source: (srcKind, resKind) select the read and the
+// write family (0 int32 / 1 reference / 2 int64 / 3 float / 4 double).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_wide(Il2CppArray* src, Il2CppObject* sel,
+                                     int32_t kind, int32_t resKind)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(sel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t resSize = 4;
+    bool resIsRef = false;
+    int32_t resElemKind = 1;
+    switch (resKind)
+    {
+        case 1: resSize = static_cast<int32_t>(sizeof(void*)); resIsRef = true; resElemKind = 0; break;
+        case 2: resSize = 8; resElemKind = 2; break;
+        case 3: resSize = 8; resElemKind = 3; break; // float -> double carrier
+        case 4: resSize = 8; resElemKind = 4; break;
+        default: resSize = 4; resElemKind = 1; break;
+    }
+    Il2CppArray* out = resIsRef
+        ? il2cpp_array_new(nullptr, resSize, true, src->length)
+        : il2cpp_array_new_typed(resSize, resElemKind, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        // Read the SOURCE at its real width, widened into the selector's slot.
+        int32_t vi = 0;
+        int64_t v64 = 0;
+        double vd = 0.0;
+        Il2CppObject* vr = nullptr;
+        switch (kind)
+        {
+            case 2: v64 = WideElemI8(src, i); break;
+            case 3:
+            case 4: vd = WideElemD(src, i); break;
+            case 1: vr = *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(src, i)); break;
+            default: vi = NarrowElemAt(src, i, kind); break; // narrow cell codes
+        }
+
+        switch (resKind)
+        {
+            case 1:
+            {
+                Il2CppObject* r;
+                if (kind == 1)
+                    r = d->target != nullptr
+                        ? reinterpret_cast<SelRefRefThisFn2>(d->methodPtr)(d->target, vr)
+                        : reinterpret_cast<SelRefRefFn2>(d->methodPtr)(vr);
+                else if (kind == 2)
+                    r = d->target != nullptr
+                        ? reinterpret_cast<SelI8RefThisFn>(d->methodPtr)(d->target, v64)
+                        : reinterpret_cast<SelI8RefFn>(d->methodPtr)(v64);
+                else if (kind == 3 || kind == 4)
+                    r = d->target != nullptr
+                        ? reinterpret_cast<SelDRefThisFn>(d->methodPtr)(d->target, vd)
+                        : reinterpret_cast<SelDRefFn>(d->methodPtr)(vd);
+                else
+                    r = d->target != nullptr
+                        ? reinterpret_cast<SelI4RefThisFn2>(d->methodPtr)(d->target, vi)
+                        : reinterpret_cast<SelI4RefFn2>(d->methodPtr)(vi);
+                Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                    il2cpp_array_get_elem_ptr(out, i));
+                il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                *slot = r;
+                break;
+            }
+            case 2:
+            {
+                int64_t r = kind == 2
+                    ? (d->target != nullptr
+                        ? reinterpret_cast<SelI8I8ThisFn>(d->methodPtr)(d->target, v64)
+                        : reinterpret_cast<SelI8I8Fn>(d->methodPtr)(v64))
+                    : kind == 3 || kind == 4
+                        ? (d->target != nullptr
+                            ? reinterpret_cast<SelDI8ThisFn>(d->methodPtr)(d->target, vd)
+                            : reinterpret_cast<SelDI8Fn>(d->methodPtr)(vd))
+                        : (d->target != nullptr
+                            ? reinterpret_cast<SelI4I8ThisFn2>(d->methodPtr)(d->target, vi)
+                            : reinterpret_cast<SelI4I8Fn2>(d->methodPtr)(vi));
+                *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+                break;
+            }
+            case 3:
+            case 4:
+            {
+                double r = kind == 2
+                    ? (d->target != nullptr
+                        ? reinterpret_cast<SelI8DThisFn>(d->methodPtr)(d->target, v64)
+                        : reinterpret_cast<SelI8DFn>(d->methodPtr)(v64))
+                    : kind == 3 || kind == 4
+                        ? (d->target != nullptr
+                            ? reinterpret_cast<SelDDThisFn>(d->methodPtr)(d->target, vd)
+                            : reinterpret_cast<SelDDFn>(d->methodPtr)(vd))
+                        : (d->target != nullptr
+                            ? reinterpret_cast<SelI4DThisFn2>(d->methodPtr)(d->target, vi)
+                            : reinterpret_cast<SelI4DFn2>(d->methodPtr)(vi));
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+                break;
+            }
+            default:
+            {
+                int32_t r = kind == 2
+                    ? (d->target != nullptr
+                        ? reinterpret_cast<SelI8I4ThisFn>(d->methodPtr)(d->target, v64)
+                        : reinterpret_cast<SelI8I4Fn>(d->methodPtr)(v64))
+                    : kind == 3 || kind == 4
+                        ? (d->target != nullptr
+                            ? reinterpret_cast<SelDI4ThisFn>(d->methodPtr)(d->target, vd)
+                            : reinterpret_cast<SelDI4Fn>(d->methodPtr)(vd))
+                        : (d->target != nullptr
+                            ? reinterpret_cast<SelI4I4ThisFn2>(d->methodPtr)(d->target, vi)
+                            : reinterpret_cast<SelI4I4Fn2>(d->methodPtr)(vi));
+                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// First / FirstOrDefault / Last / LastOrDefault over the wide/narrow families.
+// Empty source: the *Or*Default forms return the family default (0 / 0.0); the
+// plain forms throw InvalidOperationException (net48).
+//------------------------------------------------------------------------------
+int64_t il2cpp_linq_first_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return WideElemI8(src, 0);
+}
+
+int64_t il2cpp_linq_first_or_default_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0 ? WideElemI8(src, 0) : 0;
+}
+
+double il2cpp_linq_first_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return WideElemD(src, 0);
+}
+
+double il2cpp_linq_first_or_default_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0 ? WideElemD(src, 0) : 0.0;
+}
+
+double il2cpp_linq_first_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return WideElemD(src, 0);
+}
+
+double il2cpp_linq_first_or_default_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0 ? WideElemD(src, 0) : 0.0;
+}
+
+int32_t il2cpp_linq_first_narrow(Il2CppArray* src, int32_t elemKind)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return NarrowElemAt(src, 0, elemKind);
+}
+
+int32_t il2cpp_linq_first_or_default_narrow(Il2CppArray* src, int32_t elemKind)
+{
+    CheckSource(src);
+    return src->length != 0 ? NarrowElemAt(src, 0, elemKind) : 0;
+}
+
+int64_t il2cpp_linq_last_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return WideElemI8(src, src->length - 1);
+}
+
+int64_t il2cpp_linq_last_or_default_i8(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0 ? WideElemI8(src, src->length - 1) : 0;
+}
+
+double il2cpp_linq_last_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return WideElemD(src, src->length - 1);
+}
+
+double il2cpp_linq_last_or_default_f(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0 ? WideElemD(src, src->length - 1) : 0.0;
+}
+
+double il2cpp_linq_last_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return WideElemD(src, src->length - 1);
+}
+
+double il2cpp_linq_last_or_default_d(Il2CppArray* src)
+{
+    CheckSource(src);
+    return src->length != 0 ? WideElemD(src, src->length - 1) : 0.0;
+}
+
+int32_t il2cpp_linq_last_narrow(Il2CppArray* src, int32_t elemKind)
+{
+    CheckSource(src);
+    if (src->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    return NarrowElemAt(src, src->length - 1, elemKind);
+}
+
+int32_t il2cpp_linq_last_or_default_narrow(Il2CppArray* src, int32_t elemKind)
+{
+    CheckSource(src);
+    return src->length != 0 ? NarrowElemAt(src, src->length - 1, elemKind) : 0;
+}
+
+//------------------------------------------------------------------------------
+// Zip over the WIDE / NARROW families (see linq.h). The two sources may have
+// DIFFERENT families (List<double>.Zip(int[])), so each side is read at its OWN
+// width and the selector is called through the ABI of its STATICALLY DECLARED
+// parameter types. CodeGenerator maps a delegate parameter to int32_t for the
+// int32 slot and EVERY narrow family, to int64_t for i8, and to double for
+// float/double (the F-stack carrier) -- so a (double, int32_t) thunk called
+// through a double(*)(double, double) pointer would put the second argument in
+// XMM1 while the callee reads a GPR. That is the silent garbage this
+// per-combination table exists to prevent (measured before the fix:
+// List<double>.Zip(List<int>) returned 774904112,774904112 instead of
+// 11.5,22.5).
+//------------------------------------------------------------------------------
+int32_t ZipSideWidthCode(int32_t side)
+{
+    // 0 = int32 slot, 1 = int64, 2 = double carrier.
+    return side == IL2CPP_LINQ_ZIP_I8 ? 1
+         : (side == IL2CPP_LINQ_ZIP_F || side == IL2CPP_LINQ_ZIP_D) ? 2 : 0;
+}
+
+// Read element `i` as the int32 slot. The narrow codes (0..6) disambiguate the
+// 1/2-byte cells -- elemKind is 0 for every narrow family this runtime
+// materializes (ValueElemKindFor), so the DECLARED side is the only authority
+// there; a typed elemKind (the wide families) wins when present.
+int32_t ZipReadI4(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, i);
+    switch (arr->elemKind)
+    {
+        case 1: return *reinterpret_cast<int32_t*>(p);
+        case 2: return static_cast<int32_t>(*reinterpret_cast<int64_t*>(p));
+        case 3: return static_cast<int32_t>(*reinterpret_cast<float*>(p));
+        case 4: return static_cast<int32_t>(*reinterpret_cast<double*>(p));
+        case 5: return static_cast<int32_t>(*reinterpret_cast<uint32_t*>(p));
+        default: return NarrowElemAt(arr, i, side); // narrow codes or the I4 default
+    }
+}
+
+int64_t ZipReadI8(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, i);
+    switch (arr->elemKind)
+    {
+        case 2: case 6: case 7: return *reinterpret_cast<int64_t*>(p);
+        case 1: return static_cast<int64_t>(*reinterpret_cast<int32_t*>(p));
+        case 4: return static_cast<int64_t>(*reinterpret_cast<double*>(p));
+        case 3: return static_cast<int64_t>(*reinterpret_cast<float*>(p));
+        default: break;
+    }
+    if (arr->elemSize == 8) return *reinterpret_cast<int64_t*>(p);
+    return static_cast<int64_t>(NarrowElemAt(arr, i, side));
+}
+
+// Read element `i` as the double carrier. elemKind comes FIRST: a 4-byte
+// single cell and an 8-byte double cell are indistinguishable from the width
+// alone, and this runtime's own FLOAT-result arrays are 8-byte cells carrying
+// elemKind 3 with the float's bits in the low 4 bytes -- reading one of those
+// as a double would take the higher undefined bits as part of the value.
+double ZipReadD(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    char* p = il2cpp_array_get_elem_ptr(arr, i);
+    switch (arr->elemKind)
+    {
+        case 4: return *reinterpret_cast<double*>(p);
+        case 3: return static_cast<double>(*reinterpret_cast<float*>(p));
+        case 1: return static_cast<double>(*reinterpret_cast<int32_t*>(p));
+        case 2: case 6: case 7: return static_cast<double>(*reinterpret_cast<int64_t*>(p));
+        case 5: return static_cast<double>(*reinterpret_cast<uint32_t*>(p));
+        default: break;
+    }
+    if (arr->elemSize == 8) return *reinterpret_cast<double*>(p);
+    if (arr->elemSize == 4)
+        return side == IL2CPP_LINQ_ZIP_I4
+            ? static_cast<double>(*reinterpret_cast<int32_t*>(p))
+            : static_cast<double>(*reinterpret_cast<float*>(p));
+    return static_cast<double>(NarrowElemAt(arr, i, side));
+}
+
+template <typename T>
+T ZipReadAs(Il2CppArray* arr, int32_t i, int32_t side);
+
+template <>
+inline int32_t ZipReadAs<int32_t>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    return ZipReadI4(arr, i, side);
+}
+
+template <>
+inline int64_t ZipReadAs<int64_t>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    return ZipReadI8(arr, i, side);
+}
+
+template <>
+inline double ZipReadAs<double>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    return ZipReadD(arr, i, side);
+}
+
+// Call the selector through the C signature of its declared parameter types
+// (T1, T2) and the result carrier R.
+template <typename T1, typename T2, typename R>
+R ZipCall(Il2CppDelegate* d, T1 a, T2 b)
+{
+    if (d->target != nullptr)
+        return reinterpret_cast<R (*)(Il2CppObject*, T1, T2)>(d->methodPtr)(d->target, a, b);
+    return reinterpret_cast<R (*)(T1, T2)>(d->methodPtr)(a, b);
+}
+
+template <typename T1, typename T2>
+void ZipFill(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
+             int32_t firstSide, int32_t secondSide, int32_t resKind,
+             Il2CppArray* out, int32_t n)
+{
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const T1 a = ZipReadAs<T1>(first, i, firstSide);
+        const T2 b = ZipReadAs<T2>(second, i, secondSide);
+        if (resKind == 2)
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, int64_t>(d, a, b);
+        else if (resKind == 3 || resKind == 4)
+            // float rides the double carrier: an 8-byte cell whose low 4 bytes
+            // are the float's own bits (il2cpp_linq_select_wide, resKind 3).
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, double>(d, a, b);
+        else
+            // int32 and uint32 share the 4-byte cell (the caller typed it);
+            // the uint32 thunk returns uint32_t, ABI-identical to int32_t.
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, int32_t>(d, a, b);
+    }
+}
+
+Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
+                                  Il2CppObject* sel, int32_t firstSide,
+                                  int32_t secondSide, int32_t resKind)
+{
+    CheckSource(first);
+    CheckSource(second);
+    Il2CppDelegate* d = RequireCallback(sel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+
+    const int32_t n = first->length < second->length ? first->length : second->length;
+    int32_t resSize = 4;
+    int32_t resElemKind = 1;
+    switch (resKind)
+    {
+        case 2: resSize = 8; resElemKind = 2; break;
+        case 3: resSize = 8; resElemKind = 3; break; // float -> double carrier
+        case 4: resSize = 8; resElemKind = 4; break;
+        case 5: resSize = 4; resElemKind = 5; break; // uint32
+        default: resSize = 4; resElemKind = 1; break;
+    }
+    Il2CppArray* out = il2cpp_array_new_typed(resSize, resElemKind, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    const int32_t c1 = ZipSideWidthCode(firstSide);
+    const int32_t c2 = ZipSideWidthCode(secondSide);
+    if (c1 == 0)
+    {
+        if (c2 == 0)
+            ZipFill<int32_t, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 1)
+            ZipFill<int32_t, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else
+            ZipFill<int32_t, double>(first, second, d, firstSide, secondSide, resKind, out, n);
+    }
+    else if (c1 == 1)
+    {
+        if (c2 == 0)
+            ZipFill<int64_t, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 1)
+            ZipFill<int64_t, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else
+            ZipFill<int64_t, double>(first, second, d, firstSide, secondSide, resKind, out, n);
+    }
+    else
+    {
+        if (c2 == 0)
+            ZipFill<double, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 1)
+            ZipFill<double, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else
+            ZipFill<double, double>(first, second, d, firstSide, secondSide, resKind, out, n);
     }
     return out;
 }

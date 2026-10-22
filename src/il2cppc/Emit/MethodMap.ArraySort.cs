@@ -29,13 +29,16 @@ namespace Il2Cpp.Transpiler.Emit;
 // il2cpp_delegate_new single-cast static methodPtr ABI as Predicate/
 // Converter), so the delegate form routes through MethodMap.Array.cs to the
 // runtime delegate-sort entries (arraysort.h il2cpp_array_sort_int32_comparison
-// / _ref_comparison, tested in test_arraysort). Value-element comparer sorts
-// without a runtime entry (uint32/int64) stay LOUD here.
+// / _ref_comparison / the wide _int64/_double/_float_comparison family,
+// tested in test_arraysort). B8-1: the count==2 arm is now claimed by
+// MethodMap.Array.cs for EVERY wired family (i4/u4/i8/f/d/string/object/class),
+// so this file's count==2 throw is unreachable for them -- it remains only as
+// a defensive LOUD guard for a shape the icall layer did not claim.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapArraySort(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string[]? genArgNames, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
         switch (name)
         {
@@ -62,10 +65,17 @@ public static partial class MethodRefResolver
                 }
                 if (count == 2)
                 {
-                    // Array.Sort<T>(T[], Comparison<T>) -- unwireable, see the
-                    // file header (delegate-to-function-pointer ABI absent).
+                    // Array.Sort<T>(T[], Comparison<T> | IComparer<T>): CLAIMED
+                    // by MethodMap.Array.cs for every wired element family (the
+                    // count==2 arms dispatch on the second parameter's decoded
+                    // MemberRef signature: System.Collections.Generic.IComparer`1
+                    // -> the comparer sort, everything else -> the delegate
+                    // sort). This throw is a DEFENSIVE guard only: reaching it
+                    // means the icall layer yielded a count==2 shape it does not
+                    // know, and a silent fall-through would emit a bogus
+                    // generated-name call.
                     throw new NotSupportedException(
-                        "Array.Sort<T>(T[], Comparison<T>) is not wired: the runtime callback sort takes a plain function pointer (ArrayCompareFn) but the transpiler has no delegate-to-function-pointer ABI; value-element comparer sorts have no runtime entry");
+                        "Array.Sort<T> with 2 args reached the ArraySort direct-call domain: the icall layer (MethodMap.Array.cs) claims every wired Comparison<T>/IComparer<T> family; this shape is unwired");
                 }
                 return null;
             case "CopyTo":
@@ -81,6 +91,32 @@ public static partial class MethodRefResolver
             // Every entry takes the arguments in exactly the runtime order.
             case "IndexOf":
                 if (genArgs == null) return null;
+                // A3: DateTime/TimeSpan generic instantiations (0x11 VALUETYPE).
+                // The value parameter is the runtime 8-byte struct -- no box is
+                // needed, so the element-kind scans compare ticks directly.
+                // The element type comes from the MethodSpec generic argument
+                // NAME (the only authoritative source): the StackFold
+                // arg0Type/arg1Type hints exist only for temporaries carrying
+                // an objTypes entry, so a plain local/parameter/field needle
+                // used to fall through to the NotSupported arm below.
+                if (genArgs.Length == 1 && genArgs[0] == 0x11
+                    && genArgNames is { Length: >= 1 })
+                {
+                    if (genArgNames[0] == "System.DateTime")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_index_of_datetime", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_index_of_datetime_range", 4, true, false, false, new[] { "a", "", "i", "i" });
+                    }
+                    if (genArgNames[0] == "System.TimeSpan")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_index_of_timespan", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_index_of_timespan_range", 4, true, false, false, new[] { "a", "", "i", "i" });
+                    }
+                }
                 return genArgs[0] switch
                 {
                     // int32 is claimed by the icall-layer domain (2-arg only);
@@ -139,6 +175,27 @@ public static partial class MethodRefResolver
                 };
             case "BinarySearch":
                 if (genArgs == null) return null;
+                // A3: DateTime/TimeSpan generic instantiations (0x11 VALUETYPE),
+                // by value -- the search compares ticks (Kind ignored). Same
+                // genArgNames authority as IndexOf above.
+                if (genArgs.Length == 1 && genArgs[0] == 0x11
+                    && genArgNames is { Length: >= 1 })
+                {
+                    if (genArgNames[0] == "System.DateTime")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_binary_search_datetime", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_binary_search_datetime_range", 4, true, false, false, new[] { "a", "i", "i", "" });
+                    }
+                    if (genArgNames[0] == "System.TimeSpan")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_binary_search_timespan", 2, true, false, false, new[] { "a", "" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_binary_search_timespan_range", 4, true, false, false, new[] { "a", "i", "i", "" });
+                    }
+                }
                 return genArgs[0] switch
                 {
                     0x08 when count == 2 => I("il2cpp::il2cpp_array_binary_search_int32", 2, true, false, false, new[] { "a", "i" }),

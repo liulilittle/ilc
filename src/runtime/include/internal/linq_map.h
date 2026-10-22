@@ -36,9 +36,9 @@
 // EMPTY-SEQUENCE SEMANTICS (net48 baseline): First on an empty array ->
 // InvalidOperationException; FirstOrDefault -> 0 (i4) / nullptr (ref).
 //
-// STAGE-1 DEVIATION (documented, accepted per design section 1.3): Where runs the
-// predicate TWICE per element (two passes: count matches, then fill an
-// exact-size result) -- observable only for side-effecting predicates.
+// WHERE PASSES: the predicate runs EXACTLY ONCE per element (a single pass
+// collects the matches into a growable buffer, then the exact-size result is
+// trimmed) -- see linq_map.cpp il2cpp_linq_where_ref and the [where-calls] probe.
 //
 // GC SAFETY (see linq_map.cpp): the callback may allocate (a collection may
 // move the source/result arrays), so the icalls root every array it holds
@@ -126,6 +126,25 @@ Il2CppObject* il2cpp_linq_first_or_default_ref(Il2CppArray* src);
 //   pred : delegate wrapping bool(*)(int32_t) (validation per the contract
 //          above: null -> ArgumentNullException)
 int32_t       il2cpp_linq_first_or_default_predicate(Il2CppArray* src, Il2CppObject* pred);
+
+// Last(predicate) over a REFERENCE-element array -- the reference counterpart
+// of il2cpp_linq_last_predicate. Walks the array BACKWARD and returns the LAST
+// element satisfying the predicate (net48 short-circuits from the end). No
+// match, or an empty source -> InvalidOperationException.
+//   src  : reference-element source array (null -> ArgumentNullException)
+//   pred : delegate wrapping bool(*)(Il2CppObject*); null -> ArgumentNullException
+Il2CppObject* il2cpp_linq_last_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+
+// LastOrDefault(predicate) over a REFERENCE-element array: the LAST matching
+// element, or nullptr when no element matches / the source is empty (never
+// throws for those). Same walk direction and callback ABI as last_pred_ref.
+Il2CppObject* il2cpp_linq_last_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+
+// Last(predicate) / LastOrDefault(predicate) over the int32 family: FORWARD
+// full walk keeping the last match (net48 4.8 has no reverse optimization for
+// the predicate form, so the predicate runs once per element).
+int32_t il2cpp_linq_last_pred_i4(Il2CppArray* src, Il2CppObject* pred);
+int32_t il2cpp_linq_last_or_default_pred_i4(Il2CppArray* src, Il2CppObject* pred);
 
 // Take -- the first `count` elements (net48 semantics, probe-verified):
 //   count <= 0      -> an EMPTY int32[] (net48's deferred TakeIterator only
@@ -317,6 +336,26 @@ Il2CppObject* il2cpp_linq_group_by_elem_i4(Il2CppArray* src, Il2CppObject* keySe
 Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
                                         Il2CppObject* elemSel, Il2CppObject* cmp,
                                         Il2CppObject* resSel, int32_t elemKind, int32_t rsKind);
+
+//------------------------------------------------------------------------------
+// B4-1 (P0-04): the integer KEY FAMILY of the same entry.
+//
+// The bucket key is an int32 slot, but a NARROW key selector (`x => (byte)x`)
+// returns its value in a register whose upper bits are NOT defined by the C++
+// return type (uint8_t/int8_t/uint16_t/int16_t) while the callback ABI reads
+// the result as int32_t. Reading that register raw produced a key such as 300
+// where net48's key is 44 -- a WRONG bucket (split/merged groups), not a
+// display artifact. keyKind makes the runtime NARROW the callback result back
+// to the declared TKey width before bucketing:
+//   0 int32 (identity) | 1 uint8 | 2 int8 | 3 uint16 | 4 int16 |
+//   5 uint32 (bit pattern, equality only) | 6 bool (0/1)
+// The element/result families and every other argument are identical to
+// il2cpp_linq_group_by_full (which forwards keyKind = 0).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* elemSel, Il2CppObject* cmp,
+                                            Il2CppObject* resSel, int32_t elemKind,
+                                            int32_t rsKind, int32_t keyKind);
 
 //------------------------------------------------------------------------------
 // nb9 FIX BATCH -- Enumerable operators over an IGrouping bucket / the whole

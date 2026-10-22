@@ -6557,6 +6557,36 @@ public static class StackFold
         // gets the "p" (void*) carrier -- the call result temp must hold the
         // full-width raw function pointer (the old null collapsed to int32_t,
         // truncating the x64 address before the calli could cast it).
+        // VALUETYPE (0x11) returns: the runtime-struct slot kinds.
+        //   * System.DateTime / System.TimeSpan -> "dt" / "ts" (A3: the old
+        //     null declared the temp int32_t, so passing a helper's DateTime
+        //     result to a typed runtime entry failed to compile).
+        //   * System.Guid / System.Decimal -> "guid" / "dec" (16-byte value
+        //     structs; a 4-byte slot truncates the value and rejects the
+        //     assignment outright).
+        //   * System.DateTimeOffset / System.Numerics.BigInteger -> "dto" / "bi"
+        //     (same truncation, same bridge).
+        // The owner is decoded from the signature's TypeDefOrRef coded index.
+        if (ret == 0x11)
+        {
+            var vtHandle = sig.ReadTypeHandle();
+            var vtName = vtHandle.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)vtHandle),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)vtHandle),
+                _ => null,
+            };
+            return vtName switch
+            {
+                "System.DateTime" => "dt",
+                "System.TimeSpan" => "ts",
+                "System.Guid" => "guid",
+                "System.Decimal" => "dec",
+                "System.DateTimeOffset" => "dto",
+                "System.Numerics.BigInteger" => "bi",
+                _ => null,
+            };
+        }
         return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : ret is 0x1B ? "p" : null;
     }
 

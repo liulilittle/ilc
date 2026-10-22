@@ -81,6 +81,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_array.h"
+#include "il2cpp_time.h" // A3: Il2CppDateTime/Il2CppTimeSpan by-value entries
 
 #include <cstdint>
 
@@ -280,6 +281,13 @@ int32_t il2cpp_icomparer_compare(Il2CppObject* comparer, Il2CppObject* a, Il2Cpp
 //   kComparerFamilyD   : float/double elements -- "(d,d)", a/b -> double
 //   kComparerFamilyRef : string/object/class elements -- "(r:", a/b ARE the
 //                        element object pointers
+//   kComparerFamilyU4  : uint32 elements -- the SAME "(i,i)" slot fragment and
+//                        raw-int32 ABI as I4, but the DEFAULT comparer orders
+//                        UNSIGNED. A uint[] shares the int32 stride AND
+//                        Comparer<uint>.Default rides the Comparer`1_int
+//                        singleton (its klass name cannot tell the two apart),
+//                        so the signedness must come from the ARRAY's elemKind
+//                        -- B8-1: without this, 4000000000 sorted below 1.
 // A Comparer<T>.Create wrapper runs its wrapped delegate. When no family slot
 // exists the non-generic IComparer.Compare(object, object) slot (the
 // Array.Sort(Array, IComparer) / SortedSet-with-non-generic-comparer shape)
@@ -295,6 +303,9 @@ enum ComparerValueFamily : int32_t
     // signature is "(f,f)" while the C++ ABI carries the values widened to
     // double, exactly like the D family.
     kComparerFamilyF = 4,
+    // B8-1: uint32 elements -- the "(i,i)" slot + raw-int32 ABI of I4 with an
+    // UNSIGNED default order (see the contract above).
+    kComparerFamilyU4 = 5,
 };
 
 int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
@@ -305,6 +316,12 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
 // getters to this; the returned object's Compare dispatches on the runtime
 // type). Idempotent; the same pointer is returned every call.
 Il2CppObject* il2cpp_comparer_default(void);
+
+// nb16 (b16low): the non-generic default comparer SINGLETON OBJECT itself
+// (DEFINED in arraysort.cpp). The default-comparer classification now tests
+// pointer identity against this address (the klass-name substring probe was
+// removed); sortedlist.cpp's IsDefaultComparerObject shares it.
+extern Il2CppObject System_Collections_Comparer_singleton;
 
 // a5reds (strsort_ordinal): System.StringComparer::get_Ordinal /
 // get_OrdinalIgnoreCase -- the runtime's ordinal-string-comparer SINGLETONS
@@ -417,6 +434,25 @@ int32_t il2cpp_array_binary_search_any(Il2CppArray* arr, Il2CppObject* value);
 int32_t il2cpp_array_binary_search_any_icomparer(Il2CppArray* arr, Il2CppObject* value, Il2CppObject* comparer);
 int32_t il2cpp_array_binary_search_any_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value);
 int32_t il2cpp_array_binary_search_any_icomparer_range(Il2CppArray* arr, int32_t index, int32_t length, Il2CppObject* value, Il2CppObject* comparer);
+
+// A3: Array.IndexOf<DateTime>/BinarySearch<DateTime> (the by-VALUE generic
+// instantiation -- no boxing needed). Cells are the CLR 8-byte images
+// (kind<<62|ticks); comparison uses TICKS only, matching DateTime.CompareTo
+// (DateTimeKind is not part of ordering or equality).
+int32_t il2cpp_array_index_of_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value);
+int32_t il2cpp_array_binary_search_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value);
+int32_t il2cpp_array_index_of_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value);
+int32_t il2cpp_array_binary_search_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value);
+// The range forms: IndexOf<T>(T[], T, int startIndex, int count) and
+// BinarySearch<T>(T[], int index, int length, T).
+int32_t il2cpp_array_index_of_datetime_range(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                             int32_t startIndex, int32_t count);
+int32_t il2cpp_array_binary_search_datetime_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                  runtime::Il2CppDateTime value);
+int32_t il2cpp_array_index_of_timespan_range(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                             int32_t startIndex, int32_t count);
+int32_t il2cpp_array_binary_search_timespan_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                  runtime::Il2CppTimeSpan value);
 
 // Array.BinarySearch<T>(T[], int, int, T) -- the range search (no comparer).
 int32_t il2cpp_array_binary_search_int32_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t value);
