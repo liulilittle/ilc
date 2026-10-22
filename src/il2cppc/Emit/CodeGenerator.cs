@@ -2513,7 +2513,16 @@ public static class CodeGenerator
                 else if (retCppK is "double") locKind[a.Target] = "d";
                 else if (retCppK is "float") locKind[a.Target] = "float";
                 else if (retCppK is "Il2CppObject*") locKind[a.Target] = "ref";
-                else locKind[a.Target] = "val";
+                // delevalue r3: a VALUE-TYPE return (Guid/DateTime/TimeSpan/
+                // decimal/user struct) is NOT an int32 slot. DelegateSignature
+                // already resolved the concrete leaf C++ type name, and the
+                // temp declaration channel (M3 Task 11: "the kind IS the C++
+                // type name") declares it verbatim -- so record the name
+                // itself. Folding it to "val" truncated the helper result into
+                // int32_t ("cannot convert 'il2cpp::Il2CppGuid' to 'int32_t'
+                // in assignment" for `pick ? f(x) : f(x)` branch merges).
+                else if (retCppK is "void" or "int32_t") locKind[a.Target] = "val";
+                else locKind[a.Target] = retCppK;
                 continue;
             }
             var kind = ExprKind(a.Value, locKind);
@@ -10098,7 +10107,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // the direct reinterpret. A Guid operand is the Il2CppGuid POD struct and
     // must be ADDRESSED instead (a reinterpret of the struct value is
     // ill-formed).
-    private static bool IsGuidOperand(Expr e, IReadOnlyList<TypeDef> types)
+    //
+    // delevalue r3: a delegate Invoke whose leaf returns System.Guid yields an
+    // Il2CppGuid VALUE with no slot behind it (`f(one) == one`). It is not an
+    // lvalue, so it needs the const-reference binding in GuidValueBytePtr --
+    // but only when the Invoke REALLY returns a Guid, which the decoded
+    // signature answers (the same decode the helper emission uses). Hence the
+    // md parameter: the token alone is not enough to classify the operand.
+    private static bool IsGuidOperand(Expr e, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         switch (e)
         {
@@ -10121,6 +10137,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 return sf.FieldName == "System.Guid.Empty";
             case StaticFieldAddrExpr sa:
                 return sa.FieldName == "System.Guid.Empty";
+            case DelegateInvokeExpr di:
+                // The Invoke signature decode maps a VALUETYPE return through
+                // TypeCppName, so System.Guid arrives as "il2cpp::Il2CppGuid".
+                // Any other struct return (DateTime/TimeSpan/Decimal/user
+                // struct) is NOT a Guid operand and keeps the direct cast.
+                return DelegateSignature(md, di.MethodToken).Ret == "il2cpp::Il2CppGuid";
             default:
                 return false;
         }
@@ -10141,14 +10163,23 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                                                && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
     }
 
-    // B3: the guid.h byte-slot argument for a Guid VALUE expression. An
-    // lvalue slot takes its address directly; a non-lvalue Guid expression
-    // (a call result that the fold did not materialize -- normally excluded
-    // from inlining) binds a const reference, whose temporary lives for the
-    // full call expression, and the const is cast away because the byte-slot
-    // ABI is declared mutable uint8_t*.
+    // B3: the guid.h byte-slot argument for a Guid VALUE expression. The
+    // guid.h icalls take a mutable uint8_t* (the ABI is declared non-const),
+    // so an lvalue slot is addressed directly and the const is cast away.
+    //
+    // delevalue r3: a NON-lvalue Guid expression (a delegate Invoke result
+    // such as `f(one) == one`) cannot be addressed at all -- `&(f(one))` is
+    // "taking address of rvalue", ill-formed. Binding it to a const reference
+    // first materializes a temporary whose lifetime covers the full call
+    // expression, which IS addressable. The same spelling is also valid for an
+    // lvalue (static_cast to a const reference is an identity here), so one
+    // form serves both:
+    //   reinterpret_cast<uint8_t*>(const_cast<Il2CppGuid*>(
+    //       &static_cast<const Il2CppGuid&>(code)))
+    // Verified with g++ -std=c++17 -Wall -Wextra on both an lvalue and an
+    // rvalue (see the dv-notes-r3 record).
     private static string GuidValueBytePtr(string code) =>
-        $"reinterpret_cast<uint8_t*>(&({code}))";
+        $"reinterpret_cast<uint8_t*>(const_cast<il2cpp::Il2CppGuid*>(&static_cast<const il2cpp::Il2CppGuid&>({code})))";
 
     private static string? EmitIcallCallArgs(ResolvedMethod r, List<Expr> args, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
@@ -10324,7 +10355,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 //    MethodMap.Net): the value already IS the byte pointer (or
                 //    a uint8_t[4] array that decays), so the direct reinterpret
                 //    stays.
-                "g" => IsGuidOperand(args[srcIdx], types)
+                "g" => IsGuidOperand(args[srcIdx], md, types)
                     ? (IsAddressExpr(args[srcIdx]) ? NullSafePtrCast("uint8_t*", code) : GuidValueBytePtr(code))
                     : NullSafePtrCast("uint8_t*", code),
                 // P/Invoke string params (sprint worklist #28/#29 next-gap):
