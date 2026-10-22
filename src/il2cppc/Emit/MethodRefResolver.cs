@@ -365,9 +365,11 @@ public static partial class MethodRefResolver
                 //                       historical unconditional routing; the
                 //                       shape is unknown so the legacy "MVAR
                 //                       everywhere" defaults apply.
-                //   map for THIS assembly -> authoritative: an entry means the
-                //                       variants exist (with its shape), a MISS
-                //                       means they do not (base symbol).
+                //   map for THIS assembly -> authoritative: an entry with
+                //                       EmitsVariants means the variants exist
+                //                       (with its shape); an entry WITHOUT it, or
+                //                       no entry at all, means they do not (base
+                //                       symbol).
                 var variantMap = GenericUsageAnalyzer.GenericMethodVariants;
                 var variantMapApplies = variantMap != null
                     && GenericUsageAnalyzer.GenericMethodVariantsAssembly is { } scannedMvid
@@ -381,7 +383,12 @@ public static partial class MethodRefResolver
                     // The key is the definition's generated C++ name -- the SAME
                     // string the emission side passes to EmitVariant, so the two
                     // sides cannot drift (and no metadata token aliasing).
-                    hasVariant = variantMap!.TryGetValue(ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method).CppName, out var vs);
+                    // EmitsVariants is the verdict itself: a scanned
+                    // type-DIRECTED definition has an entry too (so "absent"
+                    // keeps meaning "never scanned"), but emits no variant.
+                    hasVariant = variantMap!.TryGetValue(
+                            ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method).CppName, out var vs)
+                        && vs.EmitsVariants;
                     if (hasVariant) variantShape = vs;
                 }
                 // The definition's MVAR return flag: an absent shape (scan not
