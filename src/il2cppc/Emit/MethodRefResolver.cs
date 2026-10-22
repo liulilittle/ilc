@@ -910,7 +910,7 @@ public static partial class MethodRefResolver
             return new ResolvedMethod("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, false, Array.Empty<bool>(), true);
         }
         if (mrName == ".ctor" && owner2.EndsWith("Exception", StringComparison.Ordinal)
-            && !knownTypes.Any(t => t.FullName == owner2))
+            && !TypeLookup.Any(knownTypes, owner2))
         {
             var drops = CodeGenerator.SplitTopLevel(pt).Select(_ => "drop").ToArray();
             return new ResolvedMethod("il2cpp::runtime::il2cpp_object_ctor_nop", pc, false, false, false, ParamRefFlags(pt), true,
@@ -2118,7 +2118,7 @@ var userRecvLike = receiverType ?? arg0Type;
         if (owner == "System.IComparable" && name == "CompareTo" && count == 1)
             return I("il2cpp::il2cpp_icomparable_compare_to", 1, true, false, true);
         if (recvType == null) return null;
-        var t = knownTypes.FirstOrDefault(tt => tt.FullName == recvType
+        var t = knownTypes.FirstOrDefault(tt => TypeLookup.Matches(tt, recvType)
             || (tt.GenericArity > 0 && recvType.StartsWith(tt.FullName + "_", StringComparison.Ordinal)));
         if (t == null) return null;
         if (!t.Methods.Any(m => m.Name == name && m.ParamCount == count && !m.IsStatic))
@@ -2988,7 +2988,7 @@ var userRecvLike = receiverType ?? arg0Type;
     {
         var concrete = SharedCloneVarTypeName(md, token);
         if (concrete == null) return false;
-        var t = types?.FirstOrDefault(x => x.FullName == concrete);
+        var t = types == null ? null : TypeLookup.Find(types, concrete);
         if (t != null) return !t.IsValueType;
         return concrete is not ("System.Int32" or "System.Int64" or "System.UInt64"
             or "System.Double" or "System.Single" or "System.Boolean" or "System.Char"

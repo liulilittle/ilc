@@ -61,7 +61,7 @@ public static class AccessorAnalyzer
         {
             var typeFullName = md.GetFullName(tdh);
             // Only translated types are foldable (their structs exist).
-            if (!types.Any(t => t.FullName == typeFullName)) continue;
+            if (!TypeLookup.Any(types, typeFullName)) continue;
             var td = md.GetTypeDefinition(tdh);
             foreach (var mh in td.GetMethods())
             {
