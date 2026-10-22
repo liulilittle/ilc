@@ -192,6 +192,16 @@ namespace Cases
             Console.WriteLine("[dec-f3.5]=" + TryDecF(3.5f));
             Console.WriteLine("[dec-f0.1]=" + TryDecF(0.1f));
             Console.WriteLine("[dec-f1e30]=" + TryDecF(1e30f));
+            // VarDecFromR4 rounds to SEVEN significant digits (FLT_DIG), not
+            // the 15 of the double path: 1f/3f -> 0.3333333, 16777216f ->
+            // 16777220. Routing float through ctor_double would return
+            // 0.333333343267441m -- a silently different value.
+            Console.WriteLine("[dec-f-third]=" + TryDecF(1f / 3f));
+            Console.WriteLine("[dec-f-16777216]=" + TryDecF(16777216f));
+            Console.WriteLine("[dec-f-1e-28]=" + TryDecF(1e-28f));
+            Console.WriteLine("[dec-f-neg0.1]=" + TryDecF(-0.1f));
+            Console.WriteLine("[dec-f-0.3]=" + TryDecF(0.3f));
+            Console.WriteLine("[dec-f-1.1]=" + TryDecF(1.1f));
 
             // ================= D1: Convert.ToDecimal(string) ==================
             Console.WriteLine("[dec-s1.25]=" + TryDecS("1.25"));
