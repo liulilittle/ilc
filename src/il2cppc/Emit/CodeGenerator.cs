@@ -2513,7 +2513,16 @@ public static class CodeGenerator
                 else if (retCppK is "double") locKind[a.Target] = "d";
                 else if (retCppK is "float") locKind[a.Target] = "float";
                 else if (retCppK is "Il2CppObject*") locKind[a.Target] = "ref";
-                else locKind[a.Target] = "val";
+                // delevalue r3: a VALUE-TYPE return (Guid/DateTime/TimeSpan/
+                // decimal/user struct) is NOT an int32 slot. DelegateSignature
+                // already resolved the concrete leaf C++ type name, and the
+                // temp declaration channel (M3 Task 11: "the kind IS the C++
+                // type name") declares it verbatim -- so record the name
+                // itself. Folding it to "val" truncated the helper result into
+                // int32_t ("cannot convert 'il2cpp::Il2CppGuid' to 'int32_t'
+                // in assignment" for `pick ? f(x) : f(x)` branch merges).
+                else if (retCppK is "void" or "int32_t") locKind[a.Target] = "val";
+                else locKind[a.Target] = retCppK;
                 continue;
             }
             var kind = ExprKind(a.Value, locKind);
@@ -7727,7 +7736,7 @@ default: return false;                           // primitives/VAR(handled by ca
                 // P-D2 #1: a NON-typeSpec MemberRef Invoke (BCL non-generic --
                 // EventHandler.Invoke(object, EventArgs)) decodes straight from
                 // its signature blob (replaces the Resolve-based 2-class path).
-                return DelegateSignatureBlob(md, mr.Signature, Array.Empty<byte>());
+                return DelegateSignatureBlob(md, mr.Signature, Array.Empty<byte>(), Array.Empty<string?>());
             }
             if (handle.Kind == HandleKind.MethodDefinition)
             {
@@ -7735,7 +7744,7 @@ default: return false;                           // primitives/VAR(handled by ca
                 // Runtime, no IL body -- the transpiler skips emission but must
                 // decode its signature for the routing decision below).
                 var m = md.GetMethodDefinition((MethodDefinitionHandle)handle);
-                return DelegateSignatureBlob(md, m.Signature, Array.Empty<byte>());
+                return DelegateSignatureBlob(md, m.Signature, Array.Empty<byte>(), Array.Empty<string?>());
             }
             throw new NotSupportedException($"delegate Invoke token kind {handle.Kind} not supported in P-D2 #1 signature decode");
         }
@@ -7745,16 +7754,16 @@ default: return false;                           // primitives/VAR(handled by ca
         // contract -- the void + 0-param shape keeps the int32 ABI so the i4
         // multicast route stays multicast-capable).
         private static (string Ret, string[] Params) DelegateSignatureBlob(MetadataReader md,
-            BlobHandle sigHandle, byte[] genArgs)
+            BlobHandle sigHandle, byte[] genArgs, string?[] genArgNames)
         {
             var sig = md.GetBlobReader(sigHandle);
             var header = sig.ReadSignatureHeader();
             if (header.IsGeneric) sig.ReadCompressedInteger(); // Invoke is never generic; kept for alignment
             var paramCount = sig.ReadCompressedInteger();
-            var retCpp = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn: true, out var retIsVoid);
+            var retCpp = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn: true, out var retIsVoid);
             var paramCpp = new string[paramCount];
             for (var i = 0; i < paramCount; ++i)
-                paramCpp[i] = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn: false, out _);
+                paramCpp[i] = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn: false, out _);
             // FIX-162b: a void-returning ZERO-ARG delegate stays on the int32
             // ABI (multicast-capable via the i4 icall; the void return is
             // discarded by the caller's void context).
@@ -7773,15 +7782,19 @@ default: return false;                           // primitives/VAR(handled by ca
         private static (string Ret, string[] Params) DelegateSignatureGeneric(MetadataReader md,
             TypeSpecificationHandle parent, BlobHandle sigHandle)
         {
-            var genArgs = DelegateTypeSpecGenericArgs(md, parent);
-            return DelegateSignatureBlob(md, sigHandle, genArgs);
+            var (genArgs, genArgNames) = DelegateTypeSpecGenericArgs(md, parent);
+            return DelegateSignatureBlob(md, sigHandle, genArgs, genArgNames);
         }
 
         // BUG-1: read a generic delegate TypeSpec's instantiation args (the
         // GenericInst blob: 0x15 marker, CLASS/VALUETYPE byte, definition
         // coded index, arg count, then one type per arg). Returns the leading
-        // type byte of each arg with full trailing-payload consumption.
-        private static byte[] DelegateTypeSpecGenericArgs(MetadataReader md, TypeSpecificationHandle handle)
+        // type byte of each arg with full trailing-payload consumption, PLUS
+        // the full type name of every nameful arg (VALUETYPE 0x11 / CLASS
+        // 0x12 / TypeHandle 0x40 -- see ResolveGenericArgTypeName) so a
+        // struct generic argument keeps its concrete C++ type instead of
+        // collapsing to a bare marker byte.
+        private static (byte[] Bytes, string?[] Names) DelegateTypeSpecGenericArgs(MetadataReader md, TypeSpecificationHandle handle)
         {
             var spec = md.GetTypeSpecification(handle);
             var sig = md.GetBlobReader(spec.Signature);
@@ -7791,48 +7804,65 @@ default: return false;                           // primitives/VAR(handled by ca
             _ = sig.ReadTypeHandle(); // generic definition coded index
             var count = sig.ReadCompressedInteger();
             var args = new byte[count];
+            var names = new string?[count];
             for (var i = 0; i < count; ++i)
-                args[i] = ConsumeDelegateTypeByte(md, ref sig);
-            return args;
+                args[i] = ConsumeDelegateTypeByte(md, ref sig, out names[i]);
+            return (args, names);
         }
 
         // Consume one type byte + trailing payload (CLASS/VALUETYPE handle,
         // SZARRAY/PTR/BYREF element, GenericInst args, VAR/MVAR index, multidim
-        // array bounds, fnptr inner signature); return the leading byte.
-        private static byte ConsumeDelegateTypeByte(MetadataReader md, ref BlobReader sig)
+        // array bounds, fnptr inner signature); return the leading byte and,
+        // for the nameful bytes (0x11 VALUETYPE / 0x12 CLASS / 0x40 TypeHandle),
+        // the resolved full type name.
+        private static byte ConsumeDelegateTypeByte(MetadataReader md, ref BlobReader sig, out string? fullName)
         {
+            fullName = null;
             // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) first.
             var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
             switch (b)
             {
-                case 0x10: return ConsumeDelegateTypeByte(md, ref sig); // BYREF: element follows
-                case 0x11 or 0x12 or 0x40: _ = sig.ReadTypeHandle(); break;
-                case 0x1D or 0x1F: _ = ConsumeDelegateTypeByte(md, ref sig); break; // SZARRAY element
+                case 0x10: return ConsumeDelegateTypeByte(md, ref sig, out fullName); // BYREF: element follows
+                case 0x11 or 0x12 or 0x40:
+                    fullName = ResolveGenericArgTypeName(md, sig.ReadTypeHandle());
+                    break;
+                case 0x1D or 0x1F: _ = ConsumeDelegateTypeByte(md, ref sig, out _); break; // SZARRAY element
                 case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); break;          // VAR/MVAR index
                 case 0x15:                                                        // GenericInst
                     sig.ReadByte();
                     _ = sig.ReadTypeHandle();
                     var n = sig.ReadCompressedInteger();
-                    for (var i = 0; i < n; i++) _ = ConsumeDelegateTypeByte(md, ref sig);
+                    for (var i = 0; i < n; i++) _ = ConsumeDelegateTypeByte(md, ref sig, out _);
                     break;
                 case 0x14:                                                        // multidim ARRAY
-                    _ = ConsumeDelegateTypeByte(md, ref sig);
+                    _ = ConsumeDelegateTypeByte(md, ref sig, out _);
                     _ = sig.ReadCompressedInteger(); // rank
                     var sizes = sig.ReadCompressedInteger();
                     for (var i = 0; i < sizes; i++) _ = sig.ReadCompressedInteger();
                     var lob = sig.ReadCompressedInteger();
                     for (var i = 0; i < lob; i++) _ = sig.ReadCompressedInteger();
                     break;
-                case 0x0F: _ = ConsumeDelegateTypeByte(md, ref sig); break;        // PTR pointee
+                case 0x0F: _ = ConsumeDelegateTypeByte(md, ref sig, out _); break;        // PTR pointee
                 case 0x1B:                                                        // FNPTR
                     sig.ReadByte(); // calling convention
                     var nf = sig.ReadCompressedInteger();
-                    _ = ConsumeDelegateTypeByte(md, ref sig); // return type
-                    for (var i = 0; i < nf; i++) _ = ConsumeDelegateTypeByte(md, ref sig);
+                    _ = ConsumeDelegateTypeByte(md, ref sig, out _); // return type
+                    for (var i = 0; i < nf; i++) _ = ConsumeDelegateTypeByte(md, ref sig, out _);
                     break;
             }
             return b;
         }
+
+        // Resolve a TypeDefOrRef coded handle to its full type name (the same
+        // helper MethodRefResolver uses for MethodSpec generic arguments).
+        private static string? ResolveGenericArgTypeName(MetadataReader md, EntityHandle th) =>
+            th.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+                HandleKind.TypeSpecification => GenericTypeSpecDefinitionName(md, (TypeSpecificationHandle)th),
+                _ => null,
+            };
 
         // P-D2 #1: decode ONE delegate Invoke signature type (return or param)
         // with generic VAR/MVAR substitution into the leaf-ABI C++ type the
@@ -7844,7 +7874,7 @@ default: return false;                           // primitives/VAR(handled by ca
         // byref 0x10, typedref 0x16) LOUD-reject -- the old default->int32_t
         // silently tore them.
         private static string ConsumeDelegateSigFull(MetadataReader md, ref BlobReader sig,
-            byte[] genArgs, bool isReturn, out bool isVoid)
+            byte[] genArgs, string?[] genArgNames, bool isReturn, out bool isVoid)
         {
             // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) first.
             var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
@@ -7866,29 +7896,31 @@ default: return false;                           // primitives/VAR(handled by ca
                 case 0x0E: return "Il2CppObject*";             // STRING
                 case 0x12: _ = sig.ReadTypeHandle(); return "Il2CppObject*"; // CLASS
                 case 0x1C: return "Il2CppObject*";             // OBJECT
-                case 0x1D or 0x1F: _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _); return "Il2CppObject*"; // SZARRAY
+                case 0x1D or 0x1F: _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _); return "Il2CppObject*"; // SZARRAY
                 case 0x13 or 0x1E:                            // VAR/MVAR -> instantiation arg
                 {
                     var idx = sig.ReadCompressedInteger();
                     if (idx < genArgs.Length)
-                        return ConsumeDelegateSigByte(md, genArgs[idx], isReturn, out isVoid);
+                        return ConsumeDelegateSigByte(md, genArgs[idx],
+                            idx < genArgNames.Length ? genArgNames[idx] : null, isReturn, out isVoid);
                     return "int32_t"; // unresolved VAR -> value (M3 T->int convention)
                 }
                 case 0x15:                                    // GenericInst
                 {
                     // The marker byte (0x11 VALUETYPE / 0x12 CLASS) decides:
-                    // a VALUETYPE generic-instantiation is a struct value -- not
-                    // expressible in the helper -- LOUD-reject.
+                    // a VALUETYPE generic-instantiation is a struct value of a
+                    // GENERIC shape (Nullable`1<T>, a user generic struct) --
+                    // there is no single C++ type name for it -- LOUD-reject.
                     var marker = sig.ReadByte();
                     _ = sig.ReadTypeHandle();
                     var n = sig.ReadCompressedInteger();
-                    for (var i = 0; i < n; i++) _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    for (var i = 0; i < n; i++) _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
                     if (marker == 0x11)
-                        throw new NotSupportedException("delegate Invoke with a VALUETYPE generic-instantiation parameter/return is not supported: the multicast helper cannot express a struct value");
+                        throw new NotSupportedException("delegate Invoke with a VALUETYPE generic-instantiation (Nullable`1/struct`N) parameter/return is not supported: the multicast helper has no C++ name for an open generic value shape");
                     return "Il2CppObject*";
                 }
                 case 0x14:                                    // multidim ARRAY (ref)
-                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
                     _ = sig.ReadCompressedInteger();
                     var sizes = sig.ReadCompressedInteger();
                     for (var i = 0; i < sizes; i++) _ = sig.ReadCompressedInteger();
@@ -7897,22 +7929,38 @@ default: return false;                           // primitives/VAR(handled by ca
                     return "Il2CppObject*";
                 case 0x18: return "intptr_t";                  // native int (ELEMENT_TYPE_I)
                 case 0x11:                                     // VALUETYPE
-                    _ = sig.ReadTypeHandle();
-                    throw new NotSupportedException("delegate Invoke with a VALUETYPE (0x11) parameter/return is not supported: the multicast helper cannot express a struct value (the old decode silently collapsed it to int32_t)");
+                {
+                    // A struct parameter/return is passed BY VALUE with the
+                    // SAME C++ type the leaf method declares (ParamTypesCpp /
+                    // ReturnTypeCpp map "V:<FullName>" through TypeCppName --
+                    // System.Guid -> il2cpp::Il2CppGuid, System.DateTime ->
+                    // il2cpp::runtime::Il2CppDateTime, System.Decimal ->
+                    // il2cpp::runtime::Il2CppDecimal, user structs -> the
+                    // generated struct). Both the helper signature and the
+                    // leaf function therefore name one identical C++ type and
+                    // the compiler applies the platform aggregate ABI (MS x64:
+                    // a 16-byte aggregate rides a hidden by-ref slot; the
+                    // return goes through the sret register) on BOTH sides --
+                    // no manual pointer expansion, no int32/int64 truncation.
+                    var vtName = ResolveGenericArgTypeName(md, sig.ReadTypeHandle());
+                    if (vtName == null)
+                        throw new NotSupportedException("delegate Invoke VALUETYPE (0x11) parameter/return has an unresolvable type handle");
+                    return TypeCppName(vtName);
+                }
                 case 0x40:                                     // TypeHandle
                     _ = sig.ReadTypeHandle();
                     throw new NotSupportedException("delegate Invoke with a TypeHandle (0x40) parameter/return is not supported: the multicast helper cannot express it");
                 case 0x0F:                                     // PTR
-                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
                     throw new NotSupportedException("delegate Invoke with an unmanaged-pointer (0x0F) parameter/return is not supported: the multicast helper cannot express it");
                 case 0x1B:                                     // FNPTR
                     sig.ReadByte();
                     var nf = sig.ReadCompressedInteger();
-                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
-                    for (var i = 0; i < nf; i++) _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
+                    for (var i = 0; i < nf; i++) _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
                     throw new NotSupportedException("delegate Invoke with a function-pointer (0x1B) parameter/return is not supported: the multicast helper cannot express it");
                 case 0x10:                                     // BYREF (ref/out param)
-                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, isReturn, out _);
+                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
                     throw new NotSupportedException("delegate Invoke with a byref (0x10) parameter/return is not supported: the multicast helper cannot express the address ABI");
                 case 0x16:                                     // TYPEDREF
                     throw new NotSupportedException("delegate Invoke with a TypedReference (0x16) parameter/return is not supported");
@@ -7926,8 +7974,8 @@ default: return false;                           // primitives/VAR(handled by ca
         // ConsumeDelegateSigFull for the bytes the substitution can carry.
         // (The generic-arg byte carries no trailing payload -- a CLASS/VALUETYPE
         // arg is stored as its bare marker byte.)
-        private static string ConsumeDelegateSigByte(MetadataReader md, byte byteCode, bool isReturn,
-            out bool isVoid)
+        private static string ConsumeDelegateSigByte(MetadataReader md, byte byteCode, string? argFullName,
+            bool isReturn, out bool isVoid)
         {
             isVoid = false;
             switch (byteCode)
@@ -7941,7 +7989,17 @@ default: return false;                           // primitives/VAR(handled by ca
                 case 0x0E or 0x12 or 0x14 or 0x15 or 0x1C or 0x1D or 0x1F: return "Il2CppObject*";
                 case 0x18: return "intptr_t";
                 case 0x11:
-                    throw new NotSupportedException("delegate Invoke with a VALUETYPE generic argument is not supported: the multicast helper cannot express a struct value");
+                    // A VALUETYPE generic argument (Guid/DateTime/TimeSpan/
+                    // Decimal/user struct) is passed BY VALUE with the SAME
+                    // C++ type the leaf method declares (TypeCppName of the
+                    // arg's full name, exactly like ParamTypesCpp/
+                    // ReturnTypeCpp) so the helper signature and the leaf
+                    // share one type and the platform aggregate ABI applies
+                    // to both sides. Without a resolved name there is no
+                    // concrete C++ type to name -- LOUD rather than tear.
+                    if (argFullName == null)
+                        throw new NotSupportedException("delegate Invoke with a VALUETYPE generic argument has an unresolvable type handle");
+                    return TypeCppName(argFullName);
                 case 0x40:
                     throw new NotSupportedException("delegate Invoke with a TypeHandle generic argument is not supported: the multicast helper cannot express it");
                 case 0x0F:
@@ -7995,7 +8053,25 @@ default: return false;                           // primitives/VAR(handled by ca
             var leafStaticSig = string.Join(", ", paramCpp);
             var leafThisSig = string.Join(", ", new[] { "Il2CppObject*" }.Concat(paramCpp));
             var callArgs = string.Join(", ", paramCpp.Select((_, i) => $"p{i}"));
-            var zero = retCpp == "Il2CppObject*" ? "nullptr" : "0";
+            // delevalue: the result slot's zero initializer must match the
+            // slot's C++ shape. A pointer return uses nullptr, an explicit
+            // SCALAR whitelist keeps the plain `0` literal, and EVERYTHING
+            // ELSE -- the runtime value structs (Il2CppDateTime/TimeSpan/
+            // Decimal/Guid) and any user/aggregate return -- uses value
+            // initialization `{T}{}`, which is legal for aggregates, PODs and
+            // scalars alike. `__res = 0` on an aggregate is ill-formed C++
+            // ("conversion from 'int' to non-scalar type ... requested"), and
+            // guessing by a name prefix (StartsWith("Il2Cpp")) would mis-type
+            // every future struct return.
+            var zero = retCpp switch
+            {
+                "Il2CppObject*" => "nullptr",
+                "int8_t" or "uint8_t" or "int16_t" or "uint16_t"
+                    or "int32_t" or "uint32_t" or "int64_t" or "uint64_t"
+                    or "float" or "double" or "bool"
+                    or "intptr_t" or "uintptr_t" => "0",
+                _ => $"{retCpp}{{}}",
+            };
             var hasRet = retCpp != "void";
             var head = hasRet
                 ? "        __res = "
@@ -9242,8 +9318,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : nullptr)";
                 }
                 var specName = GenericTypeSpecDefinitionName(md, tsHandle);
+                // delevalue: the BCL Predicate`1/Converter`2/Comparison`1
+                // delegate instantiations ride the same il2cpp_delegate_new
+                // path (StackFold.IsDelegateType lists them), so a
+                // Delegate.Combine castclass back to the delegate type is an
+                // identity here too -- without these arms `p += ...` on a
+                // Predicate<T> LOUD-rejects.
                 if (!specName.StartsWith("System.Func`", StringComparison.Ordinal)
-                    && !specName.StartsWith("System.Action`", StringComparison.Ordinal))
+                    && !specName.StartsWith("System.Action`", StringComparison.Ordinal)
+                    && !specName.StartsWith("System.Predicate`", StringComparison.Ordinal)
+                    && !specName.StartsWith("System.Converter`", StringComparison.Ordinal)
+                    && !specName.StartsWith("System.Comparison`", StringComparison.Ordinal))
                 {
                     throw new NotSupportedException($"isinst/castclass of generic instantiation {specName} not wired in M5");
                 }
@@ -10022,7 +10107,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // the direct reinterpret. A Guid operand is the Il2CppGuid POD struct and
     // must be ADDRESSED instead (a reinterpret of the struct value is
     // ill-formed).
-    private static bool IsGuidOperand(Expr e, IReadOnlyList<TypeDef> types)
+    //
+    // delevalue r3: a delegate Invoke whose leaf returns System.Guid yields an
+    // Il2CppGuid VALUE with no slot behind it (`f(one) == one`). It is not an
+    // lvalue, so it needs the const-reference binding in GuidValueBytePtr --
+    // but only when the Invoke REALLY returns a Guid, which the decoded
+    // signature answers (the same decode the helper emission uses). Hence the
+    // md parameter: the token alone is not enough to classify the operand.
+    private static bool IsGuidOperand(Expr e, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         switch (e)
         {
@@ -10045,6 +10137,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 return sf.FieldName == "System.Guid.Empty";
             case StaticFieldAddrExpr sa:
                 return sa.FieldName == "System.Guid.Empty";
+            case DelegateInvokeExpr di:
+                // The Invoke signature decode maps a VALUETYPE return through
+                // TypeCppName, so System.Guid arrives as "il2cpp::Il2CppGuid".
+                // Any other struct return (DateTime/TimeSpan/Decimal/user
+                // struct) is NOT a Guid operand and keeps the direct cast.
+                return DelegateSignature(md, di.MethodToken).Ret == "il2cpp::Il2CppGuid";
             default:
                 return false;
         }
@@ -10065,14 +10163,23 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                                                && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
     }
 
-    // B3: the guid.h byte-slot argument for a Guid VALUE expression. An
-    // lvalue slot takes its address directly; a non-lvalue Guid expression
-    // (a call result that the fold did not materialize -- normally excluded
-    // from inlining) binds a const reference, whose temporary lives for the
-    // full call expression, and the const is cast away because the byte-slot
-    // ABI is declared mutable uint8_t*.
+    // B3: the guid.h byte-slot argument for a Guid VALUE expression. The
+    // guid.h icalls take a mutable uint8_t* (the ABI is declared non-const),
+    // so an lvalue slot is addressed directly and the const is cast away.
+    //
+    // delevalue r3: a NON-lvalue Guid expression (a delegate Invoke result
+    // such as `f(one) == one`) cannot be addressed at all -- `&(f(one))` is
+    // "taking address of rvalue", ill-formed. Binding it to a const reference
+    // first materializes a temporary whose lifetime covers the full call
+    // expression, which IS addressable. The same spelling is also valid for an
+    // lvalue (static_cast to a const reference is an identity here), so one
+    // form serves both:
+    //   reinterpret_cast<uint8_t*>(const_cast<Il2CppGuid*>(
+    //       &static_cast<const Il2CppGuid&>(code)))
+    // Verified with g++ -std=c++17 -Wall -Wextra on both an lvalue and an
+    // rvalue (see the dv-notes-r3 record).
     private static string GuidValueBytePtr(string code) =>
-        $"reinterpret_cast<uint8_t*>(&({code}))";
+        $"reinterpret_cast<uint8_t*>(const_cast<il2cpp::Il2CppGuid*>(&static_cast<const il2cpp::Il2CppGuid&>({code})))";
 
     private static string? EmitIcallCallArgs(ResolvedMethod r, List<Expr> args, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
@@ -10248,7 +10355,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 //    MethodMap.Net): the value already IS the byte pointer (or
                 //    a uint8_t[4] array that decays), so the direct reinterpret
                 //    stays.
-                "g" => IsGuidOperand(args[srcIdx], types)
+                "g" => IsGuidOperand(args[srcIdx], md, types)
                     ? (IsAddressExpr(args[srcIdx]) ? NullSafePtrCast("uint8_t*", code) : GuidValueBytePtr(code))
                     : NullSafePtrCast("uint8_t*", code),
                 // P/Invoke string params (sprint worklist #28/#29 next-gap):
