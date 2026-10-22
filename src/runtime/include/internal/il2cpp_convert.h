@@ -121,6 +121,13 @@ Il2CppString* icall_convert_to_string_bool(bool value);
 // ("-42", 16 -> "ffffffd6"; INT32_MIN, 8 -> "20000000000").
 Il2CppString* icall_convert_to_string_i4_base(int32_t value, int32_t toBase);
 
+// Convert.ToString(object): net48 returns the EMPTY string for null and the
+// argument's ToString() text otherwise (the IFormatProvider overload ignores
+// the provider for every primitive). This is the null-safe wrapper over
+// icall_object_to_string (which throws NullReferenceException on null, the
+// Object.ToString contract) -- P0-narrow, 2026-10-22.
+Il2CppString* icall_convert_to_string_obj(Il2CppObject* value);
+
 // Convert.ToBoolean(int32): 0 -> 0, any non-zero (incl. negative) -> 1.
 int32_t icall_convert_to_bool_i4(int32_t value);
 

@@ -1126,6 +1126,13 @@ public static partial class MethodRefResolver
             case "System.Nullable`1": return TryMapNullable(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Object":
             case "System.IConvertible":
+            // P0-narrow (2026-10-22): System.IFormattable had NO dispatch case
+            // at all -- `((IFormattable)sb).ToString("X", inv)` fell to the
+            // phantom generated-name path and the whole METHOD was dropped
+            // from the output. The explicit-interface call on a boxed
+            // primitive is the composite formatter (MethodMap.Object.cs
+            // TryMapObject).
+            case "System.IFormattable":
             case "System.Reflection.MemberInfo": return name == "get_Module"
                 ? TryMapModule(md, owner, name, count)
                 : TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);

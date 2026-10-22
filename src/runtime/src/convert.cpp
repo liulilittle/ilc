@@ -18,6 +18,7 @@
 #include "il2cpp_convert.h"
 #include "il2cpp_format.h"
 #include "il2cpp_exception_ext.h"
+#include "il2cpp_value_semantics.h" // icall_object_to_string (Convert.ToString(object))
 
 #include <cmath>
 #include <cstdint>
@@ -508,6 +509,22 @@ Il2CppString* icall_convert_to_string_d(double value)
 Il2CppString* icall_convert_to_string_bool(bool value)
 {
     return icall_bool_to_string(value);
+}
+
+//------------------------------------------------------------------------------
+// icall_convert_to_string_obj -- Convert.ToString(object): null -> the empty
+// string (net48), otherwise the value's ToString() text. The boxed dispatch
+// (icall_object_to_string) throws NullReferenceException on null -- the
+// Object.ToString contract, NOT the Convert one -- so the null test lives
+// here. P0-narrow, 2026-10-22.
+//------------------------------------------------------------------------------
+Il2CppString* icall_convert_to_string_obj(Il2CppObject* value)
+{
+    if (value == nullptr)
+    {
+        return il2cpp_string_new(nullptr, 0);
+    }
+    return icall_object_to_string(value);
 }
 
 Il2CppString* icall_convert_to_string_i4_base(int32_t value, int32_t toBase)

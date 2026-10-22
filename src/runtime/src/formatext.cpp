@@ -1685,4 +1685,22 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
     return result;
 }
 
+//------------------------------------------------------------------------------
+// icall_format_iface_tostring -- IFormattable.ToString(format, provider) on a
+// boxed primitive receiver. See il2cpp_format_ext.h: the composite formatter
+// with alignment 0 is the exact net48 semantics (including the narrow-integer
+// hex width rule), but net48 throws NullReferenceException for a null
+// receiver while the composite formatter renders the empty string.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_iface_tostring(Il2CppObject* boxed, Il2CppObject* format,
+                                          Il2CppObject* provider)
+{
+    if (boxed == nullptr)
+    {
+        il2cpp_throw_new("System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
+                         "Object reference not set to an instance of an object.");
+    }
+    return icall_format_composite_item(boxed, format, 0, provider);
+}
+
 }} // namespace il2cpp::runtime
