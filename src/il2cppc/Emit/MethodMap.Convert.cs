@@ -168,6 +168,59 @@ public static partial class MethodRefResolver
                         // params cast to int32 ("i"); the result is a string.
                         if (ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08)
                             return I("il2cpp::runtime::icall_convert_to_string_i4_base", 2, true, true, false, new[] { "i", "i" });
+                        // P0-narrow (2026-10-22): the narrow integer sources
+                        // (sbyte/byte/short/ushort) had NO arm -- the fold
+                        // threw "Convert.ToString param type 0x04 not wired in
+                        // M5" and the WHOLE method was dropped (a runtime
+                        // NotSupportedException stub) for a perfectly legal
+                        // statement. net48 (probed): Convert.ToString(narrow)
+                        // and Convert.ToString(narrow, provider) both return
+                        // the plain decimal text (the provider is ignored;
+                        // sbyte -1 -> "-1", byte 255 -> "255", ushort 65535 ->
+                        // "65535"), which is exactly icall_int32_to_string on
+                        // the sign/zero-extended value -- the same target the
+                        // int32 source uses.
+                        if (ps.Length == 1 && ps[0] is 0x04 or 0x05 or 0x06 or 0x07)
+                            return I("il2cpp::runtime::icall_convert_to_string_i4", 1, true, true, false);
+                        // Convert.ToString(object): net48 returns "" for null
+                        // and the value's ToString() text otherwise. The
+                        // boxed dispatch is icall_object_to_string, which
+                        // THROWS on null, so the null-safe wrapper
+                        // icall_convert_to_string_obj is the exact contract.
+                        // The STRING source rides the same wrapper: net48
+                        // Convert.ToString((string)null) is "" and a non-null
+                        // string returns itself (icall_object_to_string's
+                        // identity arm).
+                        if (ps.Length == 1 && ps[0] is 0x1C or 0x0E)
+                            return I("il2cpp::runtime::icall_convert_to_string_obj", 1, true, true, false);
+                        // Convert.ToString(x, IFormatProvider): net48 IGNORES
+                        // the provider for every primitive source (probed for
+                        // int/long/double/sbyte: all identical to the 1-arg
+                        // form), so the 2-arg form drops it and routes to the
+                        // same default formatter. NOTE: before this arm the
+                        // 2-arg shapes fell through to the 1-arg switch below,
+                        // which set ParamCount 1 while the IL pushes 2 -- a
+                        // stack desync that emitted the PROVIDER as the value
+                        // (silent wrong value for int/long/double too).
+                        if (ps.Length == 2 && ps[1] == 0x12)
+                            return ps[0] switch
+                            {
+                                0x02 => I("il2cpp::runtime::icall_convert_to_string_bool", 2, true, true, false,
+                                    new[] { "b", "drop" }),
+                                0x03 => I("il2cpp::runtime::icall_char_to_string", 2, true, true, false,
+                                    new[] { "c", "drop" }),
+                                0x04 or 0x05 or 0x06 or 0x07 or 0x08
+                                    => I("il2cpp::runtime::icall_convert_to_string_i4", 2, true, true, false,
+                                        new[] { "", "drop" }),
+                                0x0A => I("il2cpp::runtime::icall_convert_to_string_i8", 2, true, true, false,
+                                    new[] { "l", "drop" }),
+                                0x0D => I("il2cpp::runtime::icall_convert_to_string_d", 2, true, true, false,
+                                    new[] { "d", "drop" }),
+                                0x1C => I("il2cpp::runtime::icall_convert_to_string_obj", 2, true, true, false,
+                                    new[] { "", "drop" }),
+                                _ => throw new NotSupportedException(
+                                    $"Convert.ToString param type 0x{ps[0]:X2} with IFormatProvider not wired in M5"),
+                            };
                         return ps[0] switch
                         {
                             0x08 => I("il2cpp::runtime::icall_convert_to_string_i4", 1, true, true, false),

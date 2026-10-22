@@ -378,6 +378,107 @@ public class MethodMapFormatExtTests
     }
 
     //--------------------------------------------------------------------------
+    // P0-narrow (2026-10-22): the INTERFACE paths.
+    //   * IConvertible.ToString(IFormatProvider) -- was GetTypeCode-only, so
+    //     `((IConvertible)sb).ToString(inv)` threw "not wired in M5" and the
+    //     whole METHOD was dropped. net48 IGNORES the provider for primitives:
+    //     the boxed dispatch (icall_object_to_string) is the exact text.
+    //   * IFormattable.ToString(string, IFormatProvider) -- the owner had NO
+    //     dispatch case at all. net48 == ToString(format, provider), including
+    //     the narrow hex width -> icall_format_iface_tostring (the composite
+    //     formatter with alignment 0 + a null-receiver NRE check).
+    //   * Convert.ToString(narrow) / (narrow, provider) / (object) / (string).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_IConvertible_ToStringWithProvider_MapsToBoxedToString()
+    {
+        var resolved = ResolveMemberTyped(Synthesize("System", "IConvertible", "ToString",
+            new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString", "System.SByte");
+
+        Assert.Equal("il2cpp::runtime::icall_object_to_string", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_IConvertible_ToStringWithProvider_UntrackedReceiverStaysGap()
+    {
+        // A USER type's IConvertible.ToString is its own code -- never routed
+        // to the primitive boxed dispatch (a silent wrong value otherwise).
+        // The phantom guard rejects it instead.
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMemberTyped(Synthesize("System", "IConvertible", "ToString",
+                new byte[] { 0x00, 0x01, 0x0E, 0x12, 0x05 }), "ToString", "My.Numeric"));
+
+        Assert.Contains("not wired in M5", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_IFormattable_ToStringWithFormatAndProvider_MapsToIfaceFormatter()
+    {
+        var resolved = ResolveMemberTyped(Synthesize("System", "IFormattable", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString", "System.Int16");
+
+        Assert.Equal("il2cpp::runtime::icall_format_iface_tostring", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.True(resolved.ProviderCulture);
+        Assert.Equal(new[] { "", "", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Convert_ToStringNarrow_MapsToInt32Formatter()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Convert", "ToString", Sig(0x0E, 0x04)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_convert_to_string_i4", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        // no explicit cast: the narrow value already rides an int32 slot
+        Assert.Null(resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Convert_ToStringNarrowWithProvider_DropsProvider()
+    {
+        // The 2-arg form used to fall through to the 1-arg switch (ParamCount 1
+        // while the IL pushes 2) -- the provider was emitted as the VALUE.
+        var resolved = ResolveMember(Synthesize("System", "Convert", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x04, 0x12, 0x05 }), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_convert_to_string_i4", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Convert_ToStringObject_MapsToNullSafeWrapper()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Convert", "ToString", Sig(0x0E, 0x1C)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_convert_to_string_obj", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Convert_ToStringString_MapsToNullSafeWrapper()
+    {
+        // net48 Convert.ToString((string)null) == "" (not an NRE).
+        var resolved = ResolveMember(Synthesize("System", "Convert", "ToString", Sig(0x0E, 0x0E)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_convert_to_string_obj", resolved.CppName);
+    }
+
+    private static ResolvedMethod ResolveMemberTyped(MemoryStream pe, string memberName, string receiverType)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            receiverType, false, null, null);
+    }
+
+    //--------------------------------------------------------------------------
     // Gap shapes (unwired owners): the small-int/uint owners are the
     // TryMapValueType-only group (no runtime formatter icall for int16/
     // uint32/... -- the runtime has only int32/int64/double formatters).

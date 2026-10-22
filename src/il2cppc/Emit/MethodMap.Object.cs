@@ -8,6 +8,24 @@ namespace Il2Cpp.Transpiler.Emit;
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
+    // P0-narrow (2026-10-22): the receivers whose IConvertible.ToString /
+    // IFormattable.ToString implementations are the runtime's own primitive
+    // formatters (i.e. the ones icall_object_to_string / the composite
+    // formatter reproduce exactly). A USER type's implementation is its own
+    // code and must never be routed here.
+    private static bool IsPrimitiveToStringReceiver(string? t) => t is
+        "System.Int32" or "System.Int64" or "System.UInt32" or "System.UInt64"
+        or "System.Boolean" or "System.Char" or "System.Byte" or "System.SByte"
+        or "System.Int16" or "System.UInt16" or "System.Double" or "System.Single"
+        or "System.Decimal" or "System.String";
+
+    // IFormattable is implemented by the numeric primitives + decimal ONLY
+    // (bool/char/string do not implement it -- net48 rejects the cast).
+    private static bool IsFormattableReceiver(string? t) => t is
+        "System.Int32" or "System.Int64" or "System.UInt32" or "System.UInt64"
+        or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16"
+        or "System.Double" or "System.Single" or "System.Decimal";
+
     private static ResolvedMethod? TryMapObject(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
@@ -181,6 +199,45 @@ public static partial class MethodRefResolver
             case "System.IConvertible":
                 if (name == "GetTypeCode")
                     return I("il2cpp::runtime::icall_object_get_type_code", 0, true, false, true);
+                // P0-narrow (2026-10-22): IConvertible.ToString(IFormatProvider)
+                // -- the explicit interface call `((IConvertible)sb).ToString(inv)`
+                // (net48: the provider is IGNORED, the result is the plain
+                // ToString() text; probed for every primitive: sbyte -1, byte
+                // 255, short -5, ushort 65535, int -1, long -1234567890123,
+                // double 1.5, decimal 1.5m, bool "True", char "A"). The
+                // receiver is the BOXED object (the IL is `box T; castclass
+                // IConvertible`), so the boxed-value dispatch
+                // icall_object_to_string is the exact semantics -- it prints
+                // the same text and throws NullReferenceException on null,
+                // like net48. The provider rides the second slot as a "drop"
+                // (the icall takes the receiver only).
+                // Gated on a tracked PRIMITIVE receiver: a user type's
+                // IConvertible implementation is its own code, not
+                // Object.ToString, so an untracked/other receiver keeps the
+                // pre-existing LOUD gap (never a silent wrong value).
+                if (name == "ToString" && count == 1 && IsPrimitiveToStringReceiver(receiverType))
+                    return I("il2cpp::runtime::icall_object_to_string", 1, true, true, true,
+                        new[] { "", "drop" });
+                return null;
+            case "System.IFormattable":
+                // P0-narrow (2026-10-22): IFormattable.ToString(string,
+                // IFormatProvider) -- `((IFormattable)sb).ToString("X", inv)`.
+                // The owner had NO dispatch case at all, so the call fell to
+                // the phantom generated-name path and the whole METHOD was
+                // dropped from the output (a runtime NotSupportedException
+                // stub). net48 formats exactly like ToString(format, provider):
+                // probed (sbyte)-1 "X" -> "FF", "X4" -> "00FF", (short)-1 "X"
+                // -> "FFFB", (byte)255 "X" -> "FF", (ushort)65535 "X" ->
+                // "FFFF", "D5" -> "-00001", int -1 "X" -> "FFFFFFFF",
+                // ulong.MaxValue "X" -> 16 digits, 1.5f/double "F2" -> "1.50",
+                // decimal "F2" -> "1.50", and "Q" -> FormatException.
+                // icall_format_iface_tostring is the composite formatter with
+                // alignment 0 -- the SAME boxed-klass dispatch (including the
+                // narrow hex width and the decimal payload), so every row
+                // above is reproduced by one arm.
+                if (name == "ToString" && count == 2 && IsFormattableReceiver(receiverType))
+                    return I("il2cpp::runtime::icall_format_iface_tostring", 2, true, true, true,
+                        new[] { "", "", "drop" }, providerCulture: true);
                 return null;
             case "System.Reflection.MemberInfo":
                 // M5 wiring: MemberInfo::get_Name on a GetType() result (the
