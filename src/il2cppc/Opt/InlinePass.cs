@@ -538,7 +538,7 @@ public static class InlinePass
                     prefix.Add(new ExprStmt { Value = RewriteExpr(es.Value, argMap, locMap, usedNames, ref freshId) });
                     break;
                 case CallStmt cs:
-                    var nc = new CallStmt { Function = cs.Function, Resolved = cs.Resolved };
+                    var nc = new CallStmt { Function = cs.Function, Resolved = cs.Resolved, ThrowCtorParamTypes = cs.ThrowCtorParamTypes };
                     foreach (var arg in cs.Args) nc.Args.Add(RewriteExpr(arg, argMap, locMap, usedNames, ref freshId));
                     prefix.Add(nc);
                     break;

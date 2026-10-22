@@ -257,6 +257,36 @@ public static partial class MethodRefResolver
     // Supports MethodDefinition (0x06, user method calls), MemberReference
     // (0x0A, incl. System.Console icalls) and MethodSpecification (0x2B,
     // generic instance methods -- Array.Sort<T> etc.) tokens.
+    // excmsg: decode a newobj token's CTOR parameter types (MethodSignatureCoder
+    // encoding, e.g. "r:System.String,r:System.Exception"). The Argument*
+    // exception overloads share parameter BYTES, so the throw site needs the
+    // decoded text to pick the right net48 shape. Returns null when the token
+    // does not name a readable MemberReference/MethodDefinition signature.
+    public static string? CtorParamTypesOf(MetadataReader md, int token)
+    {
+        try
+        {
+            var handle = MetadataTokens.Handle(token);
+            BlobHandle sig;
+            switch (handle.Kind)
+            {
+                case HandleKind.MemberReference:
+                    sig = md.GetMemberReference((MemberReferenceHandle)handle).Signature;
+                    break;
+                case HandleKind.MethodDefinition:
+                    sig = md.GetMethodDefinition((MethodDefinitionHandle)handle).Signature;
+                    break;
+                default:
+                    return null;
+            }
+            return MethodSignatureCoder.Decode(md, sig).ParamTypes;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public static ResolvedMethod Resolve(MetadataReader md, int token, IReadOnlyList<TypeDef> knownTypes)
         => Resolve(md, token, knownTypes, null, false, null);
 
@@ -1090,14 +1120,20 @@ public static partial class MethodRefResolver
         string[]? genArgNames = null, string? instName = null)
     {
         var (count, ret, ps) = RawSignature(md, sigHandle);
-        // nb9 D13: get_ParamName is a catch-carrier read for EVERY receiver
-        // shape (catch variable, `is` pattern, cast/local); resolve it before
-        // the domain dispatch so no Argument* owner can fall to the phantom
-        // path. Ditto get_Message for the Argument* family (inherited).
-        if (name == "get_ParamName")
-            return I("il2cpp::icall_exception_param_name_current", 0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
-        if (name == "get_Message" && receiverType != null && owner.StartsWith("System.Argument", StringComparison.Ordinal))
-            return I("il2cpp::il2cpp_string_intern_literal(__il2cpp_ex.message_text()", 0, true, true, true, new[] { "drop" }, returnTypeName: "System.String");
+        // excmsg: the Argument*Exception family resolves through the EXCEPTION
+        // domain (MethodMap.Exception.cs) for EVERY member -- Message and
+        // ParamName split on the RECEIVER shape there (catch carrier vs a
+        // constructed instance), and the ctors map by (owner, param types).
+        // The old blanket intercepts here routed every receiver to the
+        // catch-carrier reads (thread-local paramName / __il2cpp_ex message),
+        // which is a phantom outside a catch block and a silent wrong value on
+        // a constructed instance.
+        if (owner is "System.ArgumentException" or "System.ArgumentNullException"
+            or "System.ArgumentOutOfRangeException" or "System.SystemException")
+        {
+            return TryMapException(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
+                MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
+        }
         // DateTimeOffset arithmetic overloads (Add(TimeSpan) vs the DateTime
         // operand forms; Subtract(TimeSpan) vs Subtract(DateTimeOffset)) carry
         // two valuetype parameter bytes (0x11) and cannot be told apart from
@@ -1397,13 +1433,16 @@ public static partial class MethodRefResolver
                 return null;
             case "System.WeakReference": return TryMapWeakReference(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Exception":
-            // nb9 D13: the Argument* exception family inherits get_Message /
-            // get_ParamName from System.Exception; route it there so a caught
-            // ArgumentException exposes its parameter name.
+            case "System.SystemException":
+            // excmsg: the Argument* exception family resolves through the SAME
+            // exception domain -- get_Message / get_ParamName split on the
+            // receiver shape (catch carrier vs constructed instance) and the
+            // ctors map by (owner, parameter types).
             case "System.ArgumentException":
             case "System.ArgumentNullException":
             case "System.ArgumentOutOfRangeException":
-                return TryMapException(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                return TryMapException(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
+                    MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
             // === 34-domain parallel-wiring skeleton (2026-08-03) ===
             // One case line per MethodMap.<Domain>.cs skeleton file. Agents fill
             // only their own file's TryMap body -- DO NOT edit this region.

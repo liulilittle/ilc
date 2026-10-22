@@ -96,6 +96,30 @@ void il2cpp_throw_new_with_param(const char* typeName, const char* message,
     throw DotNetException(typeName, message);
 }
 
+// excmsg: the Argument*Exception ctor shapes carry their ParamName as a real
+// ctor argument. Unlike il2cpp_throw_new_with_param above, a NULL/absent name
+// CLEARS the snapshot instead of leaving the previous throw's value (the old
+// value would be a silent wrong ParamName on the catch carrier), and an EMPTY
+// name is recorded as "" (net48 keeps ParamName == "").
+void il2cpp_throw_new_param_explicit(const char* typeName, const char* message,
+                                     const char* paramName, int32_t paramPresent)
+{
+    g_il2cpp_last_param_name[0] = 0;
+    g_il2cpp_last_param_name_present = false;
+    if (paramPresent != 0 && paramName != nullptr)
+    {
+        size_t n = std::strlen(paramName);
+        if (n >= sizeof(g_il2cpp_last_param_name))
+        {
+            n = sizeof(g_il2cpp_last_param_name) - 1;
+        }
+        std::memcpy(g_il2cpp_last_param_name, paramName, n);
+        g_il2cpp_last_param_name[n] = 0;
+        g_il2cpp_last_param_name_present = true;
+    }
+    throw DotNetException(typeName, message);
+}
+
 // nb9 D13: get_ParamName for a catch carrier -- returns the parameter name
 // captured by the most recent throw (null when the throw supplied none).
 Il2CppString* icall_exception_param_name_current()

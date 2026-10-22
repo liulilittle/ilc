@@ -376,7 +376,7 @@ public static class AllocPromoPass
 
     private static CallStmt RewriteCall(CallStmt c, HashSet<string> alias, string root)
     {
-        var nc = new CallStmt { Function = c.Function, Resolved = c.Resolved, SourceOffset = c.SourceOffset, SourceOpName = c.SourceOpName };
+        var nc = new CallStmt { Function = c.Function, Resolved = c.Resolved, ThrowCtorParamTypes = c.ThrowCtorParamTypes, SourceOffset = c.SourceOffset, SourceOpName = c.SourceOpName };
         foreach (var a in c.Args) nc.Args.Add(RewriteExpr(a, alias, root));
         return nc;
     }

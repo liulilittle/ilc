@@ -373,6 +373,7 @@ public static class TempSlotPass
         {
             Function = c.Function,
             Resolved = c.Resolved,
+            ThrowCtorParamTypes = c.ThrowCtorParamTypes,
             SourceOffset = c.SourceOffset,
             SourceOpName = c.SourceOpName,
         };

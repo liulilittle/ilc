@@ -444,6 +444,90 @@ Il2CppClass System_Globalization_CultureInfo_class = {
     0,                                     // interfaceCount
 };
 
+//------------------------------------------------------------------------------
+// Managed EXCEPTION descriptors (excmsg): `new ArgumentException("bad","p")`
+// must be a REAL object with a class identity, because GetType().Name and
+// isinst/as on a CONSTRUCTED instance read obj->klass (typecheck.cpp) and the
+// message/paramName side table keys by object pointer (stubs.cpp). Before these
+// descriptors existed the Argument* allocations folded to nullptr, so every
+// identity query saw a null receiver.
+//
+// The base chain mirrors .NET Framework 4.8 exactly:
+//   System.Exception : System.Object
+//   System.SystemException : System.Exception
+//   System.ArgumentException : SystemException
+//   System.ArgumentNullException : ArgumentException
+//   System.ArgumentOutOfRangeException : ArgumentException
+// so isinst walks the SAME inheritance relations the throw-carrier chains
+// spell out (il2cpp_exception_matches), keeping the constructed-instance path
+// and the catch-carrier path consistent.
+//
+// instanceSize: header + THREE reference slots (message, paramName, inner) --
+// the payload lives in the runtime side table (stubs.cpp), not in the object,
+// so the slots only need to exist for the allocation to be a valid managed
+// object. refFieldBitmap stays 0: the side table roots its entries itself
+// (il2cpp_gc_add_static_root), so the collector must NOT scan these objects.
+//------------------------------------------------------------------------------
+Il2CppClass System_Exception_class = {
+    "System.Exception",                    // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize: header only
+    0u,                                    // refFieldBitmap: side table owns the refs
+    0,                                     // refFieldCount
+    &System_Object_class,                  // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
+Il2CppClass System_SystemException_class = {
+    "System.SystemException",              // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize: header only
+    0u,                                    // refFieldBitmap
+    0,                                     // refFieldCount
+    &System_Exception_class,               // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
+Il2CppClass System_ArgumentException_class = {
+    "System.ArgumentException",            // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize: header only
+    0u,                                    // refFieldBitmap
+    0,                                     // refFieldCount
+    &System_SystemException_class,         // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
+Il2CppClass System_ArgumentNullException_class = {
+    "System.ArgumentNullException",        // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize: header only
+    0u,                                    // refFieldBitmap
+    0,                                     // refFieldCount
+    &System_ArgumentException_class,       // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
+Il2CppClass System_ArgumentOutOfRangeException_class = {
+    "System.ArgumentOutOfRangeException",  // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize: header only
+    0u,                                    // refFieldBitmap
+    0,                                     // refFieldCount
+    &System_ArgumentException_class,       // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
 namespace il2cpp {
 
 //------------------------------------------------------------------------------
@@ -617,6 +701,13 @@ void il2cpp_ensure_builtin_system_classes()
         // transpiler reject, so nothing ever carries them).
         il2cpp_class_register(&System_IntPtr_class);
         il2cpp_class_register(&System_UIntPtr_class);
+        // excmsg: the managed exception hierarchy (constructed instances need a
+        // real klass for GetType()/isinst; see the descriptor block above).
+        il2cpp_class_register(&System_Exception_class);
+        il2cpp_class_register(&System_SystemException_class);
+        il2cpp_class_register(&System_ArgumentException_class);
+        il2cpp_class_register(&System_ArgumentNullException_class);
+        il2cpp_class_register(&System_ArgumentOutOfRangeException_class);
         il2cpp_class_register(&System_IConvertible_class);
         il2cpp_class_register(&System_IComparable_class);
         il2cpp_class_register(&System_IFormattable_class);

@@ -33,6 +33,27 @@ Il2CppString* icall_exception_get_message(Il2CppObject* obj);
 void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* message, Il2CppObject* inner);
 Il2CppObject* icall_exception_get_inner_exception(Il2CppObject* obj);
 Il2CppObject* icall_exception_get_base_exception(Il2CppObject* obj);
+// excmsg: the Argument*Exception ctor with net48 Message/ParamName semantics.
+// kind: 0 ArgumentException / 1 ArgumentNullException /
+//       2 ArgumentOutOfRangeException. hasText: the ctor shape HAS a message
+// parameter (a null message then yields the generic reflection text; without
+// one the type's default resource text is used). 'actual' is the
+// ArgumentOutOfRangeException ActualValue box (null for every other shape).
+void icall_exception_ctor_arg(Il2CppObject* self, Il2CppString* message, Il2CppString* paramName,
+                              Il2CppObject* inner, Il2CppObject* actual, int32_t kind, int32_t hasText);
+// excmsg: get_ParamName on a CONSTRUCTED exception -- the INSTANCE value the
+// ctor stored (null when the ctor shape carried no parameter name); a receiver
+// without a side-table entry falls back to the throw snapshot.
+Il2CppString* icall_exception_get_param_name(Il2CppObject* obj);
+// excmsg: `throw new Argument*Exception(...)` -- composes the net48 message
+// text (the SAME composition the constructed-instance icall uses) and throws a
+// carrier with the ctor's ParamName recorded for the catch variable.
+//   typeName: the exception type chain the carrier reports
+//   kind    : 0 ArgumentException / 1 ArgumentNullException / 2 AOOR
+//   hasText : the ctor shape HAS a message parameter (null -> generic text)
+[[noreturn]] void il2cpp_throw_exception_ctor(const char* typeName, int32_t kind,
+                                              Il2CppString* message, Il2CppString* paramName,
+                                              Il2CppObject* actual, int32_t hasText);
 // nb1 EXC-CHAIN: the constant-null arms for the property surface that has
 // no constructed state in the carrier (get_Source / get_HelpLink /
 // get_TargetSite / get_StackTrace on a never-thrown constructed exception

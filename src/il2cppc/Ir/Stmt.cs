@@ -30,6 +30,11 @@ public sealed class CallStmt : Stmt
     public required string Function { get; init; }
     public List<Expr> Args { get; } = new();
     public ResolvedMethod? Resolved { get; set; }
+    // excmsg: for a `throw new Argument*Exception(...)` statement -- the ctor's
+    // decoded parameter types (MethodSignatureCoder encoding). The throw site
+    // maps the overload SHAPE (msg / param / inner / actual positions), which
+    // the raw argument list alone cannot express. Null for every other throw.
+    public string? ThrowCtorParamTypes { get; set; }
 }
 
 //------------------------------------------------------------------------------
@@ -69,7 +74,7 @@ public static partial class IrNode
             : $"if ({SerializeExpr(b.Condition)}) goto {b.TargetLabel};",
         RetStmt r => r.Value == null ? "return;" : $"return {SerializeExpr(r.Value)};",
         CallStmt c => SerializeCall("CallStmt", c.Function, false, null, c.Resolved,
-            System.Array.Empty<int>(), false, c.Args),
+            System.Array.Empty<int>(), false, c.Args) + (c.ThrowCtorParamTypes == null ? "" : $"@throwctor({c.ThrowCtorParamTypes})"),
         FieldAssignStmt f => $"FieldAssign({SerializeExpr(f.Object)}, {f.OwnerFullName}.{f.FieldCppName}, {SerializeExpr(f.Value)}){(f.IsRefField ? "@ref" : "")}{(f.IsValueTypeObject ? "{vt}" : "")}",
         _ => throw new NotSupportedException($"IR statement {s.GetType().Name} has no SerializeStmt arm (IR-node completeness audit)"),
     };
@@ -118,7 +123,7 @@ public static partial class IrNode
 
     private static CallStmt CloneCallStmt(CallStmt c)
     {
-        var nc = new CallStmt { Function = c.Function, Resolved = c.Resolved };
+        var nc = new CallStmt { Function = c.Function, Resolved = c.Resolved, ThrowCtorParamTypes = c.ThrowCtorParamTypes };
         foreach (var a in c.Args) nc.Args.Add(CloneExpr(a));
         return nc;
     }
