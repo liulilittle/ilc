@@ -174,4 +174,22 @@ Il2CppObject* icall_format_narrow_custom(int32_t value, Il2CppObject* format,
 Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* format, int32_t alignment,
                                           Il2CppObject* provider = nullptr);
 
+//------------------------------------------------------------------------------
+// icall_format_iface_tostring -- IFormattable.ToString(format, provider) on a
+// BOXED primitive receiver (`((IFormattable)sb).ToString("X", inv)`).
+//
+// net48 (probe-verified): IFormattable::ToString(format, provider) formats
+// EXACTLY like ToString(format, provider) -- including the narrow-integer hex
+// width rule (sbyte -1 "X" -> "FF", short -1 "X" -> "FFFB", ushort.MaxValue
+// "X" -> "FFFF"), uint/ulong full-range hex, float/double F/N/E, decimal
+// F/G/N and "Q" -> FormatException. So this is the composite formatter with
+// alignment 0 (the same boxed-klass dispatch).
+//
+// ERROR CONTRACT (net48): a NULL receiver throws NullReferenceException
+// (icall_format_composite_item would render the empty string -- Convert.ToString
+// semantics -- so the null check lives here).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_iface_tostring(Il2CppObject* boxed, Il2CppObject* format,
+                                          Il2CppObject* provider = nullptr);
+
 }} // namespace il2cpp::runtime
