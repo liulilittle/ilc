@@ -20,12 +20,12 @@ using Xunit;
 //     members on the three owners still resolve through TryMapValueType
 //     (MethodMap.ValueType.cs) -- the Format-first chain must not shadow them
 //   * GAP-SHAPE documentation: ToString(string) on owners OUTSIDE the
-//     Format dispatch chain (the small-int/uint owners System.Int16 /
-//     System.UInt16 / System.Byte / System.SByte / System.UInt32 /
-//     System.UInt64 -- routed to TryMapValueType only, MethodRefResolver.cs)
-//     falls to the mangled-name path with IsInstance=true -- the standard
-//     unwired-surface failure shape. These tests red-flag when a future
-//     agent wires any of them.
+//     Format dispatch chain falls to the mangled-name path with
+//     IsInstance=true -- the standard unwired-surface failure shape.
+//     P0-narrow (2026-10-22): the narrow owners System.Byte / System.SByte /
+//     System.Int16 / System.UInt16 WERE this shape (a silent C++ compile
+//     failure) and are now wired to icall_format_narrow_custom; the remaining
+//     Format-chain members are System.UInt32 / System.UInt64.
 //   * System.Single IS in the chain (routes to icall_format_double_custom --
 //     float lives in double slots, the icall_double_to_string precedent).
 //   * decimal-domain T3: System.Decimal joined the chain (Format ?? Decimal
@@ -265,6 +265,116 @@ public class MethodMapFormatExtTests
 
         Assert.Equal("il2cpp::runtime::icall_single_to_string", resolved.CppName);
         Assert.Equal(new[] { "unbox:d" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // P0-narrow (2026-10-22): ToString(string) on the NARROW integer owners.
+    // These four were the documented "gap shape" (mangled-name path -> phantom
+    // C++ symbol). They now route to icall_format_narrow_custom, whose extra
+    // hexMask argument preserves net48's TYPE-WIDTH hex rule ((sbyte)-1 "X" ->
+    // "FF", (short)-1 "X" -> "FFFF") while every other specifier stays the
+    // int32 engine on the sign/zero-extended value.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Byte_ToStringWithFormat_MapsToNarrowCustomIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Byte", "ToString", Sig(0x0E, 0x0E)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_format_narrow_custom", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "unbox:i", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "nullptr", "0xFF" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_SByte_ToStringWithFormat_MapsToNarrowCustomIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "SByte", "ToString", Sig(0x0E, 0x0E)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_format_narrow_custom", resolved.CppName);
+        Assert.Equal(new[] { "unbox:i", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "nullptr", "0xFF" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_Int16_ToStringWithFormat_MapsToNarrowCustomIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Int16", "ToString", Sig(0x0E, 0x0E)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_format_narrow_custom", resolved.CppName);
+        Assert.Equal(new[] { "unbox:i", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "nullptr", "0xFFFF" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_UInt16_ToStringWithFormat_MapsToNarrowCustomIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "UInt16", "ToString", Sig(0x0E, 0x0E)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_format_narrow_custom", resolved.CppName);
+        Assert.Equal(new[] { "unbox:i", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "nullptr", "0xFFFF" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_SByte_ToStringWithFormat_AddressReceiver_UsesSignedNarrowDeref()
+    {
+        var resolved = ResolveMember(Synthesize("System", "SByte", "ToString", Sig(0x0E, 0x0E)), "ToString",
+            receiverIsAddress: true);
+
+        Assert.Equal("il2cpp::runtime::icall_format_narrow_custom", resolved.CppName);
+        Assert.Equal(new[] { "deref:i1", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Int16_ToStringWithFormat_AddressReceiver_UsesSignedNarrowDeref()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Int16", "ToString", Sig(0x0E, 0x0E)), "ToString",
+            receiverIsAddress: true);
+
+        Assert.Equal(new[] { "deref:i2", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_UInt16_ToStringWithFormat_AddressReceiver_UsesUnsignedNarrowDeref()
+    {
+        var resolved = ResolveMember(Synthesize("System", "UInt16", "ToString", Sig(0x0E, 0x0E)), "ToString",
+            receiverIsAddress: true);
+
+        Assert.Equal(new[] { "deref:u2", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Byte_ToStringWithFormat_AddressReceiver_UsesUnsignedNarrowDeref()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Byte", "ToString", Sig(0x0E, 0x0E)), "ToString",
+            receiverIsAddress: true);
+
+        Assert.Equal(new[] { "deref:u1", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Int16_ToStringWithFormatAndProvider_PassesCultureAndMask()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Int16", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_format_narrow_custom", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ProviderCulture);
+        Assert.Equal(new[] { "unbox:i", "", "drop" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "0xFFFF" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_Byte_ToStringWithFormatAndProvider_PassesCultureAndMask()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Byte", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString");
+
+        Assert.Equal(new[] { "unbox:i", "", "drop" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "0xFF" }, resolved.AppendLiterals);
     }
 
     //--------------------------------------------------------------------------

@@ -124,6 +124,40 @@ public static partial class MethodRefResolver
             "System.UInt64" => I("il2cpp::runtime::icall_format_int64_custom", ps.Length, true, true, true,
                 FormatCasts(receiverIsAddress ? "deref:l" : "unbox:l", ps.Length),
                 providerCulture: ps.Length == 2),
+            // P0-narrow (2026-10-22): the four NARROW integer types had no
+            // ToString(string format) arm here at all, so the call fell to
+            // `_ => null` -> the generated-name path -> a phantom symbol
+            // (System_{SByte,Int16,UInt16,Byte}_ToString_<hash>) and a silent
+            // C++ compile failure. They ride the shared int32 engine with the
+            // NATIVE-WIDTH receiver read (deref:i1/deref:i2/deref:u2 -- the
+            // array-cell width, and the sign/zero extension the decimal-family
+            // specifiers need).
+            //
+            // HEX IS NOT THE INT32 ENGINE (fmtprobe oracle, zh-CN + invariant):
+            // net48 formats X/x as the TYPE's own unsigned bit pattern with
+            // minimal digits -- (sbyte)-1 "X" -> "FF", (short)-1 "X" -> "FFFF",
+            // (ushort)65535 "X" -> "FFFF", (byte)255 "X" -> "FF" -- while the
+            // int32 engine would print FFFFFFFF / FFFFFFFF / FFFF / FF. Every
+            // other specifier (D/N/C/E/F/G/P, precision, custom "000") is
+            // byte-identical to the int32 engine on the extended value. So the
+            // runtime icall takes an extra hexMask (0xFF / 0xFFFF) that masks
+            // ONLY the hex bit pattern. See il2cpp_format_ext.h.
+            "System.Byte" => I("il2cpp::runtime::icall_format_narrow_custom", ps.Length, true, true, true,
+                FormatCasts(receiverIsAddress ? "deref:u1" : "unbox:i", ps.Length),
+                appendLiterals: ps.Length == 1 ? new[] { "nullptr", "0xFF" } : new[] { "0xFF" },
+                providerCulture: ps.Length == 2),
+            "System.SByte" => I("il2cpp::runtime::icall_format_narrow_custom", ps.Length, true, true, true,
+                FormatCasts(receiverIsAddress ? "deref:i1" : "unbox:i", ps.Length),
+                appendLiterals: ps.Length == 1 ? new[] { "nullptr", "0xFF" } : new[] { "0xFF" },
+                providerCulture: ps.Length == 2),
+            "System.Int16" => I("il2cpp::runtime::icall_format_narrow_custom", ps.Length, true, true, true,
+                FormatCasts(receiverIsAddress ? "deref:i2" : "unbox:i", ps.Length),
+                appendLiterals: ps.Length == 1 ? new[] { "nullptr", "0xFFFF" } : new[] { "0xFFFF" },
+                providerCulture: ps.Length == 2),
+            "System.UInt16" => I("il2cpp::runtime::icall_format_narrow_custom", ps.Length, true, true, true,
+                FormatCasts(receiverIsAddress ? "deref:u2" : "unbox:i", ps.Length),
+                appendLiterals: ps.Length == 1 ? new[] { "nullptr", "0xFFFF" } : new[] { "0xFFFF" },
+                providerCulture: ps.Length == 2),
             _ => null,
         };
     }
