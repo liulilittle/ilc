@@ -442,6 +442,18 @@ public static partial class MethodRefResolver
         return false;
     }
 
+    // Does this BCL enum have a MEMBER-NAME table (the register table above)?
+    //
+    // bcldenum1: the constrained-enum ToString fold may only route a BCL enum
+    // through il2cpp_enum_to_string when the runtime registry can answer with
+    // MEMBER NAMES. KnownBclEnumNames is a WIDER set (it also lists enums the
+    // transpiler only needs an int32 carrier for -- GCLatencyMode/TypeCode have
+    // NO name table here and NO runtime built-in), and routing those to the
+    // enum icall would print the NUMERIC value where net48 prints a name --
+    // a silent wrong value. Those stay on the pre-existing LOUD path.
+    public static bool HasBclEnumNameTable(string fullName)
+        => BclEnumRegisterInfo.ContainsKey(fullName);
+
     // User enum TypeDefs: the member table comes from the type's STATIC
     // LITERAL fields (declaration order -- MetadataLoader already reads them
     // with ConstantValue). The underlying TypeCode is the value__ field's

@@ -34,7 +34,7 @@ public class InlinePassTests
 
     private static InlineCandidate Candidate(string function, int paramCount, List<Stmt> body,
         bool returnsVoid = false, bool returnsRef = false, bool eh = false, bool isVirtual = false,
-        string[]? localKinds = null) => new()
+        string[]? localKinds = null, string[]? paramTypes = null) => new()
     {
         Function = function,
         ParamCount = paramCount,
@@ -44,6 +44,7 @@ public class InlinePassTests
         IsVirtual = isVirtual,
         Body = body,
         LocalKinds = localKinds ?? Array.Empty<string>(),
+        ParamTypes = paramTypes ?? Array.Empty<string>(),
     };
 
     private static Func<string, InlineCandidate?> Lookup(params InlineCandidate[] c)
@@ -106,6 +107,48 @@ public class InlinePassTests
 
         Assert.Equal(0, result.Inlined);
         Assert.IsType<CallStmt>(result.Stmts[0]);
+    }
+
+    [Fact]
+    public void StructLocalDefinedByFieldStore_StaysACall_NoInline()
+    {
+        // sanitize1: `Pair p; p.A = n; p.B = n+2;` -- a struct local DEFINED
+        // through ldloca/stfld folds to FieldAssignStmt(loc0), NOT
+        // AssignStmt("loc0"). The D1 gate only inspected AssignStmt targets, so
+        // the body was inlined and the struct temp became
+        //   int32_t inl14;  (&inl14)->A = ...   // not a class type
+        var callee = Candidate("call_33", 1, new List<Stmt>
+        {
+            new FieldAssignStmt
+            {
+                Object = Loc("loc0"),
+                FieldCppName = "A",
+                OwnerFullName = "Cases.Pair",
+                IsValueTypeObject = true,
+                RefTargetFullName = "",
+                Value = Loc("arg0"),
+            },
+            new FieldAssignStmt
+            {
+                Object = Loc("loc0"),
+                FieldCppName = "B",
+                OwnerFullName = "Cases.Pair",
+                IsValueTypeObject = true,
+                RefTargetFullName = "",
+                Value = Bin(BinaryOp.Add, Loc("arg0"), I(2)),
+            },
+            new RetStmt { Value = Loc("loc0") },
+        }, localKinds: new[] { "v:Cases.Pair" });
+        var caller = new List<Stmt>
+        {
+            new AssignStmt { Target = "loc1", Value = new CallExpr { Function = "call_33", Args = { Loc("loc2") } } },
+            new RetStmt { Value = Loc("loc1") },
+        };
+
+        var result = InlinePass.Inline(caller, Lookup(callee));
+
+        Assert.Equal(0, result.Inlined);
+        Assert.IsType<CallExpr>(Assert.IsType<AssignStmt>(result.Stmts[0]).Value);
     }
 
     [Fact]
@@ -1106,5 +1149,99 @@ public class InlinePassTests
 
         Assert.Equal(1, result.Inlined);
         Assert.All(result.Stmts.Take(result.Stmts.Count - 1), s => Assert.Equal(0x00A8, s.SourceOffset));
+    }
+
+    //--------------------------------------------------------------------------
+    // Struct-typed ARGUMENT / byref gate (sanitize1 local-function probe).
+    //
+    // The D1 gate above only rejects bodies that DEFINE a struct local. The
+    // symmetric hole is the other direction: a body that READS a struct-typed
+    // PARAMETER (`int Sum(Pair q) => q.A + q.B;`) is inlined with an
+    // `inl0 = <caller Pair expr>` temp -- the emitter types an inline temp from
+    // the expression kind, which defaults to int32_t, so the generated code was
+    //   int32_t inl0;
+    //   inl0 = loc0;                    // Pair -> int32_t: compile error
+    //   (&(inl0))->A                    // non-class type int32_t
+    // A byref parameter has the same problem (`B:V:...` / `B:r:` kinds): the
+    // arg temp would copy the POINTER VALUE into an int32_t instead of keeping
+    // the address identity.
+    //
+    // The fix: the candidate carries its parameter kind strings
+    // (MethodDef.ParamTypes, the same "V:{FullName}" / "B:..." language the
+    // emitter uses) and the gate rejects any body whose USED parameters are
+    // struct/byref typed. Conservative: such bodies stay calls.
+    //--------------------------------------------------------------------------
+
+    [Fact]
+    public void StructTypedParameterBody_StaysACall_NoInline()
+    {
+        // int Sum(Pair q) => q.A + q.B;
+        var callee = Candidate("call_30", 1, new List<Stmt>
+        {
+            new RetStmt
+            {
+                Value = Bin(BinaryOp.Add,
+                    new FieldExpr { Object = Loc("arg0"), FieldCppName = "A", OwnerFullName = "Cases.Pair", IsValueTypeObject = true },
+                    new FieldExpr { Object = Loc("arg0"), FieldCppName = "B", OwnerFullName = "Cases.Pair", IsValueTypeObject = true }),
+            },
+        }, paramTypes: new[] { "V:Cases.Pair" });
+        var caller = new List<Stmt>
+        {
+            new AssignStmt { Target = "loc0", Value = new CallExpr { Function = "call_30", Args = { new LocAddrExpr { Name = "loc1" } } } },
+            new RetStmt { Value = Loc("loc0") },
+        };
+
+        var result = InlinePass.Inline(caller, Lookup(callee));
+
+        Assert.Equal(0, result.Inlined);
+        Assert.IsType<CallExpr>(Assert.IsType<AssignStmt>(result.Stmts[0]).Value);
+    }
+
+    [Fact]
+    public void ByRefParameterBody_StaysACall_NoInline()
+    {
+        // void Fill(ref int x) { x = 1; }  -- "B:i"
+        var callee = Candidate("call_31", 1, new List<Stmt>
+        {
+            new FieldAssignStmt
+            {
+                Object = Loc("arg0"),
+                FieldCppName = "value",
+                OwnerFullName = "System.Int32",
+                RefTargetFullName = "",
+                Value = I(1),
+            },
+            new RetStmt { Value = null },
+        }, returnsVoid: true, paramTypes: new[] { "B:i" });
+        var caller = new List<Stmt>
+        {
+            new CallStmt { Function = "call_31", Args = { new LocAddrExpr { Name = "loc1" } } },
+            new RetStmt { Value = null },
+        };
+
+        var result = InlinePass.Inline(caller, Lookup(callee));
+
+        Assert.Equal(0, result.Inlined);
+        Assert.IsType<CallStmt>(result.Stmts[0]);
+    }
+
+    [Fact]
+    public void ReferenceTypedParameterBody_StillInlines()
+    {
+        // Control: a REFERENCE parameter ("r:System.String") keeps the temp
+        // declaration legal -- the gate must not over-block the common shape.
+        var callee = Candidate("call_32", 1, new List<Stmt>
+        {
+            new RetStmt { Value = new CallExpr { Function = "Cases_P_GetLength_xxx", Args = { Loc("arg0") } } },
+        }, paramTypes: new[] { "r:System.String" });
+        var caller = new List<Stmt>
+        {
+            new AssignStmt { Target = "loc0", Value = new CallExpr { Function = "call_32", Args = { Loc("loc1") } } },
+            new RetStmt { Value = Loc("loc0") },
+        };
+
+        var result = InlinePass.Inline(caller, Lookup(callee));
+
+        Assert.Equal(1, result.Inlined);
     }
 }

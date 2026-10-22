@@ -112,6 +112,10 @@ public static class CodeGenerator
         CliOptions? options, Action<string>? progress = null)
     {
         _delegateMethodTokens.Clear();
+        // ValueTuple instantiations are collected per Generate run (the
+        // generated.h flush reads this set); a stale entry from a previous
+        // run in the same process would emit a struct no TU uses.
+        ValueTupleSupport.Clear();
         if (string.IsNullOrEmpty(assemblyPath) || !File.Exists(assemblyPath))
             throw new ArgumentException($"invalid or missing assemblyPath: '{assemblyPath}'");
 
@@ -197,6 +201,9 @@ public static class CodeGenerator
         // M6 include-table rebuild dropped it, so TryParse emitting cases
         // (numchain/parsecase) failed to compile against the namespace.
         generatedHeader.Line("#include \"il2cpp_parse.h\"");
+        // tuple1 (ValueTuple): the C# tuple struct helpers
+        // (il2cpp_tuple_element_to_string / _hash / _combine_hash).
+        generatedHeader.Line("#include \"il2cpp_valuetuple.h\"");
         // M5.5/M6 wiring: reflection domains -- reflect_base.h declares the
         // Type.GetType / Activator.CreateInstance icalls (MethodMap.Reflect.cs)
         // and typeinfo.h the typeinfo registry + member-query icalls
@@ -1013,6 +1020,11 @@ public static class CodeGenerator
                     // D1 gate: struct-typed locals (the inline temps would
                     // misdeclare -- see InlinePass.IsInlineable).
                     LocalKinds = candInfo.LocalKinds,
+                    // Struct/byref-typed PARAMETERS: the inline arg temp is
+                    // declared from the caller expression's kind (int32_t
+                    // default), so a `int Sum(Pair q)` body truncated the
+                    // struct (sanitize1). See InlinePass.UsesStructOrByRefParameter.
+                    ParamTypes = cm.ParamTypes.Length == 0 ? Array.Empty<string>() : SplitTopLevel(cm.ParamTypes).ToArray(),
                 };
             }
         }
@@ -1136,6 +1148,12 @@ public static class CodeGenerator
             }
             generatedHeader.Line($"struct {fwdSan}; // r78: forward-declared BCL type");
         }
+        // tuple1 (ValueTuple): the C# tuple structs and their member helpers
+        // must be DEFINED before the method declarations below (which pass
+        // them by value). The instantiation set is only known after every body
+        // is emitted, so a sentinel line is written here and replaced with the
+        // final definitions when the header is serialized.
+        generatedHeader.Line(ValueTupleDefsSentinel);
 
         // M2 type emission: struct layout definitions all live in generated.h (cross-type visible);
         // Il2CppClass descriptor definitions go in each type's own .cpp (single definition, ODR safe);
@@ -1650,11 +1668,18 @@ public static class CodeGenerator
                 if (accessors.ContainsKey(bodyInfo.MethodToken)) continue;
                 var insns = IlDecoder.DecodeMethod(bodyInfo.IlBytes, md);
                 var managedRetStruct = ManagedReturnStructName(md, m);
+                // tuple1 (ValueTuple): a tuple return is a GENERICINST return
+                // -- name the canonical struct so the body returns a struct
+                // value (not Il2CppObject*).
+                var managedRetTuple = managedRetStruct == null ? ManagedReturnValueTupleName(md, m) : null;
+                if (managedRetTuple != null) ValueTupleSupport.Require(managedRetTuple);
                 // A by-value System.Guid return IS supported now: the C++
                 // signature names il2cpp::Il2CppGuid (TypeCppName) and the
                 // body returns the value struct, exactly like decimal. No
                 // skip/stub for it.
-                var returnType = managedRetStruct != null ? TypeCppName(managedRetStruct) : ReturnTypeCpp(bodyInfo.ReturnType);
+                var returnType = managedRetStruct != null ? TypeCppName(managedRetStruct)
+                    : managedRetTuple != null ? ValueTupleSupport.StructName(managedRetTuple)
+                    : ReturnTypeCpp(bodyInfo.ReturnType);
                 // R2b P2: a VAR return in a reference instantiation renders as
                 // the managed reference (Il2CppObject*).
                 // D5 (arity-0 def): a SHARED method-level generic definition's
@@ -1689,7 +1714,7 @@ public static class CodeGenerator
                       t.InstantiationSuffix != null && t.InstantiationSuffix != "int"
                    || (t.InstantiationSuffix == null && t.GenericArity == 0
                        && t.Methods.Any(mm => mm.GenericArity > 0)));
-                _curStructReturnCpp = managedRetStruct != null ? returnType : null;
+                _curStructReturnCpp = managedRetStruct != null || managedRetTuple != null ? returnType : null;
                 List<Stmt> stmts;
                 // R2b P2: the resolution hint for VAR (0x13) TypeSpec args in
                 // this body's member references (List`1<T> -> List`1_<suffix>).
@@ -1982,6 +2007,10 @@ public static class CodeGenerator
                 if (IsDelegateTypeDef(t)) continue;
                 generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
             }
+        // bcldenum1: BCL ENUM class descriptors are DEFINED in entry.cpp (the
+        // name-only descriptor table below); every other TU needs the extern.
+        foreach (var bclEnumName in BclEnumClassNames(md))
+            generatedHeader.Line($"extern Il2CppClass {TypeEmitter.Sanitize(bclEnumName)}_class;");
         // M5.5 reflection (R-REFL-01): TypeInfo table externs -- entry.cpp
         // calls il2cpp_typeinfo_register(&{T}_typeinfo) from a DIFFERENT TU,
         // so the non-const namespace-global table needs the cross-TU extern
@@ -2023,6 +2052,10 @@ public static class CodeGenerator
             var bar = def.IndexOf('|');
             generatedHeader.Line($"struct {def[..bar]} {{ {def[(bar + 1)..]}; }};");
         }
+        // tuple1 (ValueTuple): the C# tuple structs + their member helpers
+        // (ToString/GetHashCode/Equals) were flushed at the sentinel above (they
+        // must precede the method declarations); nothing more to do here.
+        _ = ValueTupleSupport.Needed;
         // P-D2 #1: flush every delegate multicast helper as a FILE-SCOPE inline
         // definition -- generated.h is included by every .cpp, so any Invoke
         // call site in ANY method body sees one shared helper (deduped by
@@ -2049,7 +2082,16 @@ public static class CodeGenerator
         {
             generatedHeader.Line("static uint8_t il2cpp_guid_empty_bytes[16] = { 0 };");
         }
-        File.WriteAllText(Path.Combine(outDir, "include", "internal", "generated.h"), generatedHeader.ToString());
+        // tuple1 (ValueTuple): substitute the sentinel with the FINAL tuple
+        // struct definitions. The instantiation set is complete only after every
+        // body has been emitted, and the definitions must precede the method
+        // declarations (which pass the structs by value).
+        var headerText = generatedHeader.ToString().Replace(
+            ValueTupleDefsSentinel,
+            string.Concat(ValueTupleSupport.Needed
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .Select(ValueTupleSupport.EmitDefinitions)));
+        File.WriteAllText(Path.Combine(outDir, "include", "internal", "generated.h"), headerText);
 
         EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath),
             PointerSize, options?.TargetArch);
@@ -2786,7 +2828,21 @@ public static class CodeGenerator
             if (ilKind != null && ilKind.StartsWith("tuple:", StringComparison.Ordinal))
             {
                 var codes = ilKind["tuple:".Length..].Split(',');
+                // tuple1: the P5 "tuple:<codes>" kind names the same canonical
+                // struct ValueTupleSupport emits -- require it so the struct is
+                // flushed even when only a plain C# tuple local uses it.
+                ValueTupleSupport.Require(TupleStructInstanceName(codes));
                 w.Line($"{TupleStructCppName(codes)} {d} {{ }};");
+                continue;
+            }
+            // tuple1 (ValueTuple): a non-flat instantiation (a reference
+            // element, e.g. `(int, string)`) carries its canonical closed
+            // instance name; ValueTupleSupport emits that struct file-scope.
+            if (ilKind != null && ilKind.StartsWith("vt:", StringComparison.Ordinal))
+            {
+                var vtName = ilKind["vt:".Length..];
+                ValueTupleSupport.Require(vtName);
+                w.Line($"{ValueTupleSupport.StructName(vtName)} {d} {{ }};");
                 continue;
             }
             // R77 generic multi-instantiation: a generic-inst local encodes
@@ -3737,8 +3793,11 @@ public static class CodeGenerator
                 var tupleLocal = $"__tuple_{asTuple.Target}";
                 // D5: record for FILE-SCOPE emission into generated.h (the old
                 // inline #ifndef block was function-local -- a second method
-                // using the same tuple type saw an undefined type).
-                TupleDefsNeeded.Add($"{tupleTypeName}|{tupleTypeFields}");
+                // using the same tuple type saw an undefined type). The
+                // ValueTupleSupport emitter produces the struct AND its member
+                // helpers from the same canonical name, so the P5 path and the
+                // C# tuple path share one definition.
+                ValueTupleSupport.Require(TupleStructInstanceName(trfTuple));
                 w.LineAligned($"{tupleTypeName} {tupleLocal} {{ }};",
                     $"IL {At(asTuple.SourceOpName, asTuple.SourceOffset)} -- P5: allocate ValueTuple local");
                 // 2. Generate the call args + out-pointer args.
@@ -3900,19 +3959,37 @@ public static class CodeGenerator
         _ => throw new NotSupportedException($"Unknown ValueTuple field type code '{code}'")
     };
 
-    // D1 (valuetuple-local design): the CANONICAL C++ struct name for a
+    // P5 helper: map ValueTupleReturnFields type codes to the M3 element NAME
+    // used inside the canonical closed instance name (so the P5 struct and the
+    // C# tuple structs emitted by ValueTupleSupport share ONE definition).
+    private static string ExprTypeElementName(string code) => code switch
+    {
+        "d" => "double",
+        "f" => "float",
+        "l" => "long",
+        "i" => "int",
+        _ => throw new NotSupportedException($"Unknown ValueTuple field type code '{code}'")
+    };
+
+    // D1 (valuetuple-local design): the CANONICAL closed instance name for a
     // ValueTuple with the given field type codes. Single source of truth --
-    // the P5 emission site, the local-declaration arm, and the read-back
-    // paths must all derive the SAME name or the emitted struct and its
-    // users diverge (the defect that kept Math.SinCos uncompilable).
+    // the P5 emission site, the local-declaration arm, the read-back paths and
+    // ValueTupleSupport all derive the SAME struct from it.
+    internal static string TupleStructInstanceName(IReadOnlyList<string> fieldCodes)
+        => $"{ValueTupleSupport.DefPrefix}{fieldCodes.Count}_"
+           + string.Join("_", fieldCodes.Select(ExprTypeElementName));
+
     internal static string TupleStructCppName(IReadOnlyList<string> fieldCodes)
-        => $"System_ValueTuple_{fieldCodes.Count}_{string.Join("_", fieldCodes.Select(ExprTypeCpp))}";
+        => ValueTupleSupport.StructName(TupleStructInstanceName(fieldCodes));
 
     // D5 (valuetuple-local design): tuple struct DEFINITIONS collected during
     // body emission and flushed FILE-SCOPE into generated.h before it is
     // written. The old inline-in-function definition was function-local
     // scope -- a second method using the same tuple type saw an undefined
     // type (the macro guard only deduped TEXT, not C++ visibility).
+    // tuple1 (ValueTuple): the generated.h sentinel line that is replaced by
+    // the final tuple struct definitions once every body has been emitted.
+    private const string ValueTupleDefsSentinel = "// __IL2CPP_VALUETUPLE_DEFS__";
     private static readonly SortedSet<string> TupleDefsNeeded = new(StringComparer.Ordinal);
     // P-D2 #1: delegate multicast helper DEFINITIONS collected during body
     // emission and flushed FILE-SCOPE into generated.h (inline -- shared by
@@ -5485,6 +5562,10 @@ public static class CodeGenerator
         // type so the temp is declared `{CppName}* t;` (field access on the
         // element address dereferences it; see the ldelema_ emit site).
         CallExpr c when c.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true => c.ResultKind["sp:".Length..] + "*",
+        // tuple1 (ValueTuple): a user call returning a tuple carries
+        // "vt:<closedName>" -- the result temp is the generated struct.
+        CallExpr c when c.ResultKind?.StartsWith("vt:", StringComparison.Ordinal) == true
+            => ValueTupleSupport.StructName(c.ResultKind["vt:".Length..]),
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
         // P2-HARDEN #3: a delegate Invoke returning long/double/float carries
@@ -6054,6 +6135,31 @@ public static class CodeGenerator
     //--------------------------------------------------------------------------
     private static string EmitVirtualCall(VirtualCallExpr v, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
+        // tuple1 (ValueTuple): a callvirt on a tuple receiver -- Roslyn emits
+        // ToString/GetHashCode/Equals against System.Object for the struct's
+        // overrides, so the receiver type hint names the closed tuple instance.
+        // ValueTupleSupport generates the helpers; route the call directly.
+        if (v.ReceiverTypeName != null && ValueTupleSupport.IsValueTupleName(v.ReceiverTypeName)
+            && v.Args.Count > 0)
+        {
+            var tupleName = v.ReceiverTypeName;
+            ValueTupleSupport.Require(tupleName);
+            var tupleRecv = EmitExpr(v.Args[0], md, types);
+            var tupleRecvRef = v.Args[0] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                ? $"(*({tupleRecv}))"
+                : $"({tupleRecv})";
+            var tupleMember = TupleMemberName(md, v.MethodToken);
+            if (tupleMember == "ToString")
+                return $"reinterpret_cast<Il2CppObject*>({ValueTupleSupport.ToStringFn(tupleName)}({tupleRecvRef}))";
+            if (tupleMember == "GetHashCode")
+                return $"{ValueTupleSupport.GetHashCodeFn(tupleName)}({tupleRecvRef})";
+            if (tupleMember == "Equals" && v.Args.Count >= 2)
+            {
+                var other = EmitExpr(v.Args[1], md, types);
+                return $"{ValueTupleSupport.EqualsFn(tupleName)}({tupleRecvRef}, {other})";
+            }
+        }
+
         // M6 BCL-virtual devirtualization: callvirt targets declared on a BCL
         // base type that is NOT in the translated set (System.IO.TextReader /
         // TextWriter -- StringReader.ReadLine etc. compile as TextReader.ReadLine
@@ -6643,6 +6749,18 @@ default: return false;                           // primitives/VAR(handled by ca
     // Whether the callvirt target owner belongs to the transpiled type set (precondition for
     // VirtualTarget). Decodes with the same ownerFullName as VirtualTarget; a generic-instance owner
     // ("Box`1_int") matches the generic definition ("Box`1").
+    // The simple member name of a call token (the ValueTuple member dispatch).
+    private static string TupleMemberName(MetadataReader md, int token)
+    {
+        var handle = MetadataTokens.Handle(token);
+        return handle.Kind switch
+        {
+            HandleKind.MemberReference => md.GetString(md.GetMemberReference((MemberReferenceHandle)handle).Name),
+            HandleKind.MethodDefinition => md.GetString(md.GetMethodDefinition((MethodDefinitionHandle)handle).Name),
+            _ => "",
+        };
+    }
+
     private static bool OwnerIsTranslated(MetadataReader md, int token, IReadOnlyList<TypeDef> types)
     {
         var handle = MetadataTokens.Handle(token);
@@ -8847,6 +8965,9 @@ default: return false;                           // primitives/VAR(handled by ca
     // (il2cpp_time.h -- Il2CppDateTime/Il2CppTimeSpan, single int64 field).
     private static string TypeCppName(string fullName) => fullName switch
     {
+        // tuple1 (ValueTuple): the closed instance name maps to the struct
+        // ValueTupleSupport emits (TypeEmitter.Sanitize of the same name).
+        _ when ValueTupleSupport.IsValueTupleName(fullName) => ValueTupleSupport.StructName(fullName),
         "System.Object" => "Il2CppObject",
         "System.String" => "Il2CppObject",
         "System.DateTime" => "il2cpp::runtime::Il2CppDateTime",
@@ -9397,6 +9518,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                      $"(*reinterpret_cast<{TypeEmitter.TypeCppName(unboxTypeDef)}*>(il2cpp::runtime::il2cpp_unbox_user_struct({unboxVal})))",
                 // unbox of System.Object: degenerate case (object is already a reference)
                 "System.Object" => unboxVal,
+                // bcldenum1: an ENUM box carries an 8-byte payload slot and an
+                // enum klass (icall_box_enum) -- il2cpp_unbox_int32's klass
+                // check rejects it ("object is not a boxed Int32"). Read the
+                // width-aware enum payload instead. Covers BOTH a user enum
+                // TypeDef and a whitelisted BCL enum TypeRef (System.DayOfWeek):
+                // `DayOfWeek parsed = (DayOfWeek)Enum.Parse(...)`.
+                _ when unboxTypeDef?.BaseTypeName == "System.Enum"
+                    || KnownBclEnumNames.Contains(unboxType) =>
+                    $"static_cast<int32_t>(il2cpp::runtime::il2cpp_enum_boxed_payload({unboxVal}))",
                 // unbox of enum types: enum values are boxed as int32/int64 -- unbox to int32
                 var ubt when ubt.StartsWith("System.") => $"il2cpp::il2cpp_unbox_int32({unboxVal})",
                 _ => throw new NotSupportedException($"unbox of {unboxType} not supported -- no runtime unbox helper (audit H3 + M5)"),
@@ -9482,12 +9612,37 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // Delegate.Combine castclass back to the delegate type is an
                 // identity here too -- without these arms `p += ...` on a
                 // Predicate<T> LOUD-rejects.
-                if (!specName.StartsWith("System.Func`", StringComparison.Ordinal)
-                    && !specName.StartsWith("System.Action`", StringComparison.Ordinal)
-                    && !specName.StartsWith("System.Predicate`", StringComparison.Ordinal)
-                    && !specName.StartsWith("System.Converter`", StringComparison.Ordinal)
-                    && !specName.StartsWith("System.Comparison`", StringComparison.Ordinal))
+                var isDelegateInst = specName.StartsWith("System.Func`", StringComparison.Ordinal)
+                    || specName.StartsWith("System.Action`", StringComparison.Ordinal)
+                    || specName.StartsWith("System.Predicate`", StringComparison.Ordinal)
+                    || specName.StartsWith("System.Converter`", StringComparison.Ordinal)
+                    || specName.StartsWith("System.Comparison`", StringComparison.Ordinal);
+                if (!isDelegateInst)
                 {
+                    // anontype (sanitize2): a generic instantiation of a type
+                    // TRANSLATED IN THIS ASSEMBLY has a generated class
+                    // descriptor for its closed clone, so isinst/castclass is a
+                    // REAL conformance test against that descriptor -- not an
+                    // identity and not a LOUD gap. This is the anonymous-type
+                    // shape: Roslyn's <>f__AnonymousType0`2::Equals does
+                    //   var that = value as <>f__AnonymousType0`2;   // isinst
+                    // (the TypeSpec carries OPEN VAR arguments; the closed
+                    // clone is resolved through the same
+                    // InstantiationSuffixHint machinery the newobj/callvirt
+                    // owners use). A BCL instantiation (List`1<int>) still has
+                    // no descriptor in this assembly -> the historical LOUD
+                    // rejection below stays (GenericsSignatureTests).
+                    var instName = GenericInstantiationName(md, tsHandle);
+                    var instOwner = ResolveInstantiationOwner(types, instName);
+                    if (instOwner != null && !instOwner.IsInterface)
+                    {
+                        var objCodeInst = EmitExpr(c.Args[0], md, types);
+                        if (objCodeInst == "nullptr") return "nullptr";
+                        var klassInst = $"&{TypeEmitter.TypeCppName(instOwner)}_class";
+                        if (c.Function.StartsWith("castclass_", StringComparison.Ordinal))
+                            return $"(il2cpp::il2cpp_is_instance({objCodeInst}, {klassInst}) ? reinterpret_cast<Il2CppObject*>({objCodeInst}) : (({objCodeInst}) == nullptr ? nullptr : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), nullptr)))";
+                        return $"(il2cpp::il2cpp_is_instance({objCodeInst}, {klassInst}) ? reinterpret_cast<Il2CppObject*>({objCodeInst}) : nullptr)";
+                    }
                     throw new NotSupportedException($"isinst/castclass of generic instantiation {specName} not wired in M5");
                 }
                 var objCode0 = EmitExpr(c.Args[0], md, types);
@@ -10677,6 +10832,23 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     && _curLocKinds.TryGetValue(tsref.Name, out var tsrk) && tsrk == "ptr"
                     => $"il2cpp::runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>({code}))",
                 "deref:dt" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>({code}))",
+                // tuple1 (ValueTuple): the generated member helpers take the
+                // struct by const reference. An ADDRESS receiver (ldloca)
+                // dereferences; a VALUE receiver (a plain struct local or a
+                // call result) binds directly.
+                "tupref" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*({code}))"
+                    : $"({code})",
+                // tuple1 (ValueTuple): the generated ctor helper takes the
+                // receiver ADDRESS (slot 0) plus the element VALUES (slots
+                // 1..N). A receiver VALUE expression (the
+                // `new ValueTuple<int>(42)` shape) needs its address taken;
+                // element expressions pass through unchanged.
+                "tupctor" => j == 0
+                    ? (args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                        ? $"{code}"
+                        : $"(&({code}))")
+                    : code,
                 "deref:ts" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppTimeSpan*>({code}))",
                 // parity-T8: "ts_ticks" -- a TimeSpan VALUE reaching the
                 // int64_t ticks param of il2cpp_monitor_wait_timespan.
@@ -11522,6 +11694,82 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         };
     }
 
+    // tuple1 (ValueTuple): the canonical CLOSED INSTANCE NAME of a method's
+    // ValueTuple return type, or null. A C# tuple return is a GENERICINST
+    // (0x15) return -- ReturnTypeCpp has no struct arm for it and emitted
+    // Il2CppObject*, so `return <struct value>;` did not compile.
+    private static string? ManagedReturnValueTupleName(MetadataReader md, MethodDef m)
+    {
+        var handle = FindMethodHandle(md, m);
+        if (handle == null) return null;
+        var mi = md.GetMethodDefinition(handle.Value);
+        var sig = md.GetBlobReader(mi.Signature);
+        var hdr = sig.ReadSignatureHeader();
+        if (hdr.IsGeneric) sig.ReadCompressedInteger();
+        sig.ReadCompressedInteger(); // param count
+        var retByte = sig.ReadByte();
+        if (retByte != 0x15) return null; // not a GENERICINST return
+        sig.ReadByte();                   // CLASS/VALUETYPE marker
+        var defHandle = sig.ReadTypeHandle();
+        var defName = defHandle.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+            _ => null,
+        };
+        if (!ValueTupleSupport.IsValueTupleName(defName)) return null;
+        var argc = sig.ReadCompressedInteger();
+        var args = new string[argc];
+        for (var i = 0; i < argc; i++) args[i] = ReadM3ArgElementName(md, ref sig);
+        return defName + "_" + string.Join("_", args);
+    }
+
+    // The M3 element-name decode for a ValueTuple return signature (same table
+    // as ValueTupleSupport.ReadM3ArgName).
+    private static string ReadM3ArgElementName(MetadataReader md, ref BlobReader sig)
+    {
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        switch (b)
+        {
+            case 0x02: return "bool";
+            case 0x03: return "char";
+            case 0x04: return "sbyte";
+            case 0x05: return "byte";
+            case 0x06: return "short";
+            case 0x07: return "ushort";
+            case 0x08: return "int";
+            case 0x09: return "uint";
+            case 0x0A: return "long";
+            case 0x0B: return "ulong";
+            case 0x0C: return "float";
+            case 0x0D: return "double";
+            case 0x0E: return "string";
+            case 0x1C: return "object";
+            case 0x11:
+            case 0x12:
+                return MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig);
+            case 0x1D:
+                return "[" + ReadM3ArgElementName(md, ref sig) + "]";
+            case 0x15:
+            {
+                sig.ReadByte();
+                var def = sig.ReadTypeHandle();
+                var defName = def.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)def),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)def),
+                    _ => "?",
+                };
+                var n = sig.ReadCompressedInteger();
+                var inner = new string[n];
+                for (var i = 0; i < n; i++) inner[i] = ReadM3ArgElementName(md, ref sig);
+                return defName + "_" + string.Join("_", inner);
+            }
+            default:
+                return "object";
+        }
+    }
+
     // refl2 S3 (D4): does this type get a TypeInfo table/extern/registration?
     // reflectedNames == null = mode A / default (every type); otherwise the
     // type must be in the mode B manifest scope. The residual noTypeInfoOwners
@@ -11784,6 +12032,30 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
+    // BclEnumClassNames -- the BCL enum types the assembly REFERENCES and for
+    // which the runtime/transpiler ship a MEMBER-NAME table
+    // (MethodRefResolver.HasBclEnumNameTable -- the authority for both the
+    // runtime built-in registrar and the generated register block).
+    //
+    // bcldenum1: the constrained-enum ToString fold needs a NAME-BEARING class
+    // descriptor for a BCL enum (System.DayOfWeek), which -- unlike a user enum
+    // -- has no TypeDef here. These name-only descriptors are emitted in
+    // entry.cpp (never allocated, never cast to; the enum registry keys on the
+    // descriptor NAME). Deterministic (sorted) so entry.cpp is stable.
+    //--------------------------------------------------------------------------
+    private static List<string> BclEnumClassNames(MetadataReader md)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var trh in md.TypeReferences)
+        {
+            var fullName = md.GetFullName(trh);
+            if (MethodRefResolver.HasBclEnumNameTable(fullName))
+                names.Add(fullName);
+        }
+        return names.OrderBy(n => n, StringComparer.Ordinal).ToList();
+    }
+
+    //--------------------------------------------------------------------------
     // EmitAttributeRegistrations -- D-ATTR-1 item c: construct the custom
     // attribute INSTANCES of every annotated type and register them
     // (il2cpp_attribute_register). Only attributes whose class is a TRANSLATED
@@ -11861,7 +12133,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
-    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section ②
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section 鈶?
     // RF-N6): construct the MEMBER-level custom attribute instances (methods /
     // fields / properties) and register each annotated member's array in the
     // RF-N6 member registry (attribute.h) under the "FullName::memberName"
@@ -12022,6 +12294,30 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             w.Line("};");
         }
         w.Line();
+        // bcldenum1: BCL ENUM name descriptors. The constrained-enum ToString
+        // fold routes a whitelisted BCL enum (System.DayOfWeek) to
+        // il2cpp_enum_to_string(&System_DayOfWeek_class, value); the enum has
+        // no TypeDef in this assembly, so no descriptor symbol exists. Emit a
+        // name-only Il2CppClass per REFERENCED BCL enum that has a member-name
+        // table (MethodMap.Enum's BclEnumRegisterInfo -- the same authority the
+        // runtime built-in table mirrors) and register it at startup. The
+        // runtime's enum registry is keyed by descriptor NAME, so the
+        // name-bearing descriptor is all the lookup needs; the descriptor is
+        // never allocated or cast to. baseClass = System.ValueType (an enum IS
+        // a value type, and this makes isinst/enum identity behave).
+        var bclEnumNames = BclEnumClassNames(md);
+        foreach (var bclName in bclEnumNames)
+        {
+            w.Line($"// BCL enum class name descriptor (bcldenum1): enum ToString({EscapeC(bclName)})");
+            w.Line($"il2cpp::Il2CppClass {TypeEmitter.Sanitize(bclName)}_class = {{");
+            w.Open();
+            w.Line($"\"{EscapeC(bclName)}\",");
+            w.Line("static_cast<int32_t>(sizeof(int32_t)), 0u, 0,");
+            w.Line("&System_ValueType_class, nullptr, 0, nullptr, 0,");
+            w.Close();
+            w.Line("};");
+        }
+        w.Line();
         w.Line("// M4 Task 7: the C API contract -- il2cpp_runtime_init() must");
         w.Line("// leave the runtime fully usable: runtime bootstrap + export");
         w.Line("// registrations + type registrations + Main-type .cctor. This");
@@ -12033,6 +12329,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // il2cpp_class_by_name (the Type.GetType BCL fallback, reflect_base.cpp)
         // resolves them. Startup-only and idempotent (class_register dedups).
         foreach (var bclName in bclAttrNames)
+            w.Line($"il2cpp::il2cpp_class_register(&{TypeEmitter.Sanitize(bclName)}_class);");
+        // bcldenum1: register the BCL enum descriptors so il2cpp_class_by_name
+        // (and the enum registry's name lookup) resolves them. Startup-only and
+        // idempotent (class_register dedups by name).
+        foreach (var bclName in bclEnumNames)
             w.Line($"il2cpp::il2cpp_class_register(&{TypeEmitter.Sanitize(bclName)}_class);");
         // D-ATTR-1 item c: the attribute registry -- construct every custom
         // attribute INSTANCE (user attribute classes only; a BCL attribute class
@@ -12266,7 +12567,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         h.Open();
         h.Line("return il2cpp::il2cpp_report_unhandled_exception(__il2cpp_unhandled.message_text());");
         h.Close();
-        // GN-17 (方案乙): a native std::exception or any other C++ escape that
+        // GN-17 (鏂规涔?: a native std::exception or any other C++ escape that
         // slips past the P/Invoke boundary wrap (il2cpp_pinvoke_call) must NOT
         // reach std::terminate/abort -- report and exit non-zero (the .NET
         // process contract: an uncaught native exception is a reported,
