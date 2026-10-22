@@ -44,6 +44,11 @@
 namespace il2cpp {
 namespace runtime {
 
+// vtype2: reflected-override dispatch helpers (defined below
+// icall_object_get_hash_code -- forward-declared for that caller).
+Il2CppString* TryReflectedToStringDispatch(Il2CppObject* obj);
+bool TryReflectedGetHashCodeDispatch(Il2CppObject* obj, int32_t* result);
+
 namespace {
 
 // The boxed-value payload slot: one 8-byte-aligned slot after the object
@@ -403,7 +408,68 @@ int32_t icall_object_get_hash_code(Il2CppObject* obj)
     {
         return il2cpp_enum_boxed_get_hash_code(obj);
     }
+    // vtype2: a boxed USER STRUCT (or a translated class) with its own
+    // GetHashCode override dispatches the override (net48 virtual call); a
+    // type without one keeps the address-hash default below.
+    int32_t reflectedHash = 0;
+    if (TryReflectedGetHashCodeDispatch(obj, &reflectedHash))
+    {
+        return reflectedHash;
+    }
     return static_cast<int32_t>(reinterpret_cast<uintptr_t>(obj) >> 3);
+}
+
+//------------------------------------------------------------------------------
+// vtype2: net48 Object.ToString / Object.GetHashCode on a BOXED USER VALUE TYPE
+// is the VIRTUAL dispatch to the struct's OWN override, not the klass-name /
+// address fallbacks. The reflected method table (typeinfo.h) carries the
+// override and its vtable slot; the receiver is the box PAYLOAD address (the
+// generated value-type method takes the value's address -- the
+// il2cpp_unbox_user_struct contract), exactly like TryReflectedEqualsDispatch.
+// Returns nullptr / false when the type declares no reflected override, so the
+// caller keeps its pre-existing fallback (a struct without an override prints
+// its type name / hashes by address, which is the net48 default behaviour).
+//------------------------------------------------------------------------------
+Il2CppString* TryReflectedToStringDispatch(Il2CppObject* obj)
+{
+    if (obj == nullptr || obj->klass == nullptr)
+    {
+        return nullptr;
+    }
+    // "r:System.String()" matches ONLY the parameterless ToString -- a
+    // ToString(string format) / ToString(IFormatProvider) signature carries a
+    // non-empty parameter list and never matches.
+    const int32_t slot = FindVirtualSlotByNameAndSignature(obj, "ToString", "r:System.String()");
+    if (slot < 0 || obj->klass->vtable == nullptr || slot >= obj->klass->vtableSize ||
+        obj->klass->vtable[slot] == nullptr)
+    {
+        return nullptr;
+    }
+    using ToStringFn = Il2CppString* (*)(Il2CppObject*);
+    Il2CppObject* receiver = IsValueTypeKlass(obj->klass)
+        ? reinterpret_cast<Il2CppObject*>(reinterpret_cast<char*>(obj) + kBoxPayloadOffset)
+        : obj;
+    return reinterpret_cast<ToStringFn>(obj->klass->vtable[slot])(receiver);
+}
+
+bool TryReflectedGetHashCodeDispatch(Il2CppObject* obj, int32_t* result)
+{
+    if (obj == nullptr || obj->klass == nullptr)
+    {
+        return false;
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(obj, "GetHashCode", "i()");
+    if (slot < 0 || obj->klass->vtable == nullptr || slot >= obj->klass->vtableSize ||
+        obj->klass->vtable[slot] == nullptr)
+    {
+        return false;
+    }
+    using GetHashCodeFn = int32_t (*)(Il2CppObject*);
+    Il2CppObject* receiver = IsValueTypeKlass(obj->klass)
+        ? reinterpret_cast<Il2CppObject*>(reinterpret_cast<char*>(obj) + kBoxPayloadOffset)
+        : obj;
+    *result = reinterpret_cast<GetHashCodeFn>(obj->klass->vtable[slot])(receiver);
+    return true;
 }
 
 //------------------------------------------------------------------------------
@@ -506,6 +572,14 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
         // Object.ToString on a boxed enum prints the member name, and
         // Console.WriteLine(object) routes here (batch 148 enumparseic).
         return il2cpp_enum_boxed_to_string(obj);
+    }
+    // vtype2: a BOXED USER STRUCT with its own ToString override dispatches
+    // the override (net48 virtual call); a struct without one falls through
+    // to the klass-name text below, which IS the net48 ValueType.ToString
+    // result (the type's full name).
+    if (Il2CppString* reflected = TryReflectedToStringDispatch(obj))
+    {
+        return reflected;
     }
     if (HasKlassName(obj, "System.Uri"))
     {
