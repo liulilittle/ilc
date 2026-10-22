@@ -727,11 +727,19 @@ Il2CppArray* SortRefsKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc
 //
 // Every other reference type defers to IComparable.CompareTo on the first key
 // (Comparer<T>.Default), null-first.
+//
+// The NULL checks come FIRST, deliberately: net48 orders a null key before
+// every non-null key without consulting the comparer at all, so
+// `object[] { null, "a" }.OrderBy(x => x)` must return ",a" -- rejecting that
+// would be a LOUD misfire (a shape the runtime CAN answer correctly). The
+// collation rejection therefore only fires when two NON-NULL keys are compared
+// and at least one is a string.
 int32_t CompareRefKeys(Il2CppObject* a, Il2CppObject* b)
 {
     if (a == b) return 0;
-    if ((a != nullptr && a->klass == il2cpp_string_class()) ||
-        (b != nullptr && b->klass == il2cpp_string_class()))
+    if (a == nullptr) return -1;
+    if (b == nullptr) return 1;
+    if (a->klass == il2cpp_string_class() || b->klass == il2cpp_string_class())
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.OrderBy: a System.String key requires culture-aware collation, "
@@ -739,8 +747,6 @@ int32_t CompareRefKeys(Il2CppObject* a, Il2CppObject* b)
             "comparison would silently misorder mixed-case input (net48 "
             "Comparer<string>.Default sorts a before A)");
     }
-    if (a == nullptr) return -1;
-    if (b == nullptr) return 1;
     return il2cpp_icomparable_compare_to(a, b);
 }
 

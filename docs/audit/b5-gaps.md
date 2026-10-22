@@ -58,6 +58,14 @@ instance is a `System.String` (registered lock:
 `tests/cases/loud-p0-16-objkey-loud`). Every other reference key type still goes
 through `IComparable.CompareTo` (Comparer<T>.Default semantics), null-first.
 
+**NULL keys are NOT rejected.** The null checks run BEFORE the string check,
+because net48 orders a null key before every non-null key without consulting the
+comparer at all -- so `object[] { null, "a" }.OrderBy(x => x)` is answerable and
+returns `{ null, "a" }` (and the descending form puts null last). Rejecting that
+would be a LOUD misfire. Registered lock: `tests/cases/b5nullkey` (ascending,
+descending, two nulls, and null mixed with a non-string `IComparable` key). A
+comparison of two NON-null keys where at least one is a string still throws.
+
 Honest history: the ordinal branch was introduced by this batch (commit
 2a2cf2cf's `SortRefsKeyCopy`/`CompareRefKeys`), and the first e2e case was
 narrowed to single-case input to avoid the mismatch. Both were wrong; the
@@ -81,6 +89,15 @@ current state is the compile-time rejection (arrays and `List<T>`, lock:
   as the element-kind LITERAL the transpiler appends, never as a cell kind):
   `ValueElemKindFor` maps only 1 int32 / 2 int64 / 3 single / 4 double /
   5 uint32. `string.Join` over such an array hits the limitation above.
+- CORRECTION (R6) to an earlier report: the claim that "the `zip_i4` shortcut
+  now requires `resKind == 0` and exact int32 cells on both sides" was WRONG on
+  both counts -- `il2cpp_linq_zip_i4` has **no `resKind` parameter at all**.
+  What actually happened: the shortcut was **removed from the List path
+  entirely**. `il2cpp_linq_list_zip` now delegates to
+  `il2cpp_linq_zip_family` unconditionally, and the transpiler emits
+  `il2cpp_linq_zip_family` for every Zip (see section 5b: `il2cpp_linq_zip_i4`
+  has no caller). The truncation defect is fixed by routing through the
+  result-family-aware entry, not by adding a guard to `zip_i4`.
 - `Zip` with a `UInt64` (`ulong`) TResult is mapped onto the int64 result family
   (`resKind` 2): the cell width and the write ABI are identical, but a value
   above `Int64.MaxValue` prints through the int64 formatter, so an `ulong`
@@ -109,7 +126,7 @@ current state is the compile-time rejection (arrays and `List<T>`, lock:
 | `Zip` | TResult = `sbyte`/`byte`/`short`/`ushort` | transpile-time rejection: the wide/narrow zip surface writes 4- or 8-byte result cells, so a 1/2-byte result cell has no ABI |
 | `Zip` | TResult = `bool` / `char` | same as above (1/2-byte cell), and the shared formatter has no bool/signed-narrow entry |
 | `Zip` | TResult = a reference type, value-family receiver | the value-cell zip surface cannot write a reference slot |
-| `Zip` | reference-element receiver with a value-family second source / value TResult | the reference zip surface pairs reference slots only |
+| `Zip` | ANY reference-element source (array or `List<T>`), any TResult | **transpile-time rejection.** This used to CRASH, not throw: the reference Zip branch called the selector through `Il2CppObject*(Il2CppObject*, Il2CppObject*)`, so a value TResult (int32 in EAX) was stored as a GC pointer through the write barrier -- measured `exit=-1073741819` (0xC0000005) for `string[]{"a","bb"}.Zip(a, (x,y) => x.Length + y.Length)`. Both array arms and the `List<T>` arm now reject the shape at transpile time, and the runtime reference branch was REMOVED (section 5c) so it cannot be re-entered. |
 
 ## 5. Export inventory -- BOTH scopes (this replaces the earlier "0 unwired")
 
@@ -139,6 +156,14 @@ These are runtime-internal helpers or superseded entries -- NOT gaps:
 - `il2cpp_linq_grouping_*` / `il2cpp_linq_grouping_result_*` -- runtime-side
   class/enumerator symbols consumed by `linq_map.cpp` + `arraysort.cpp`.
 - `il2cpp_linq_list_snapshot` -- internal helper of `linq_list.cpp`.
+- `il2cpp_linq_zip_i4` (linq_map.cpp) -- **defined but now has NO CALLER**. The
+  four transpiler Zip emission sites all target `il2cpp_linq_zip_family`
+  (verified: `grep il2cpp_linq_zip_family src/il2cppc/Emit/MethodMap.Linq.cs`
+  -> 4 sites; `grep il2cpp_linq_zip_i4 src/il2cppc` -> only a comment), and the
+  former internal caller in `il2cpp_linq_list_zip` now delegates to the unified
+  entry. It is kept only as the int32-only fast-path ABI; if a future batch does
+  not add a caller, deleting it (declaration + definition) is the correct
+  cleanup.
 
 ### 5c. Unreferenced legacy declarations (honest statement)
 
@@ -151,6 +176,14 @@ over `src/il2cppc` finds only the explanatory comment in `MethodMap.Linq.cs`
 `Comparison<T>` ABI kept for a future caller. They are NOT "wired", they are
 unreferenced declarations -- if a future batch does not add a caller, deleting
 them (declaration + definition) is the correct cleanup.
+
+**Removed in R6: the reference branch of `il2cpp_linq_zip_family`** (it was
+`linq_list.cpp` ~1277-1302). It was unreachable-but-dangerous dead code: with
+the transpiler now rejecting every reference-element Zip, the only way in was a
+hand-written C++ caller, and that path stored a value-result thunk's EAX as a GC
+pointer. `grep ZipRefRefFn|ZipRefRefThisFn` showed exactly two users (the two
+typedefs plus that branch), so the branch AND both typedefs were deleted; the
+same conditions now raise `il2cpp_throw_not_supported_exception` instead.
 
 ## 6. Rooting table
 

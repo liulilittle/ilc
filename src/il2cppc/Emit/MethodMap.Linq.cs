@@ -928,6 +928,17 @@ public static partial class MethodRefResolver
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)},...> " +
                         "not wired: an element family with no cell ABI (see docs/audit/b5-gaps.md)");
+                // A reference-element source is NOT wired: the reference branch of
+                // il2cpp_linq_zip_family calls the selector through the
+                // Il2CppObject* -> Il2CppObject* ABI, so a VALUE TResult thunk
+                // (int32 in EAX) would be stored as a GC pointer -- a wild write
+                // (measured: 0xC0000005). Rejecting the source keeps that
+                // combination out of the runtime entirely.
+                if (zFirstKind == "1" || zSecondKind == "1")
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)}," +
+                        $"{GenericArgTypeName(ztRes)}> not wired: Enumerable.Zip over a reference-element " +
+                        "source is not wired (see docs/audit/b5-gaps.md)");
                 string? zResKind = LinqZipResKindOfElemByte(ztRes);
                 if (zResKind == null)
                     throw new NotSupportedException(
@@ -1621,24 +1632,19 @@ public static partial class MethodRefResolver
                 byte tSecond = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                 if (K == "1")
                 {
-                    // Reference-element List: the runtime's reference branch
-                    // pairs the reference slots and returns a reference array.
-                    // A value family on either side has no reference slot there
-                    // (and a value TResult would be written as a reference --
-                    // a silent wrong value), so both are rejected here.
-                    if (!IsRefFamilyByte(tSecond))
-                        throw new NotSupportedException(
-                            $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
-                            "over a reference-element List not wired: both sources must be " +
-                            "reference-element sequences (the reference zip surface has no value-cell ABI)");
-                    if (!IsRefFamilyByte(tRes))
-                        throw new NotSupportedException(
-                            $"Enumerable.Zip<...,...,{GenericArgTypeName(tRes)}> over a reference-element " +
-                            "List not wired: the reference zip surface returns the paired reference " +
-                            "slots, so a value TResult would be stored as a reference (silent wrong value)");
-                    return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
-                        new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
-                        appendLiterals: new[] { "1", "1", "0" });
+                    // Reference-element List: NOT wired. The runtime's reference
+                    // branch calls the selector through the
+                    // Il2CppObject*(Il2CppObject*, Il2CppObject*) ABI, but a value
+                    // TResult thunk returns int32 in EAX -- stored as a GC
+                    // pointer it is a wild write (measured: 0xC0000005). A
+                    // reference TResult has no cell ABI either. Both shapes are
+                    // rejected here, and the runtime branch was removed (see
+                    // docs/audit/b5-gaps.md).
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
+                        $"{GenericArgTypeName(tRes)}> over a reference-element List not wired: " +
+                        "Enumerable.Zip over a reference-element source is not wired " +
+                        "(see docs/audit/b5-gaps.md)");
                 }
                 string? resKind = tRes switch
                 {
@@ -1879,6 +1885,14 @@ public static partial class MethodRefResolver
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
                         "not wired: an element family with no cell ABI (see docs/audit/b5-gaps.md)");
+                // A reference-element source is NOT wired (see the int32 arm
+                // above): the reference branch would call a VALUE-result thunk
+                // through the Il2CppObject* ABI and store EAX as a GC pointer.
+                if (firstKind == "1" || secondKind == "1")
+                    throw new NotSupportedException(
+                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
+                        $"{GenericArgTypeName(tRes)}> not wired: Enumerable.Zip over a reference-element " +
+                        "source is not wired (see docs/audit/b5-gaps.md)");
                 string? resKind = LinqZipResKindOfElemByte(tRes);
                 if (resKind == null)
                     throw new NotSupportedException(

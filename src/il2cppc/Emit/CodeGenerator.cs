@@ -957,6 +957,17 @@ public static class CodeGenerator
                         ExceptionRegions = candInfo.ExceptionRegions,
                         MethodFullName = $"{ct.FullName}.{cm.Name}",
                         CctorOwnerFullName = cm.Name == ".cctor" ? TypeEmitter.ReflectionFullName(ct) : null,
+                        IsStatic = cm.IsStatic,
+                        ParamTypeNames = cm.ParamTypes.Length == 0
+                            ? null
+                            : SplitTopLevel(cm.ParamTypes).ToArray(),                        // The inline candidate's conv WIDTH dispatch needs the
+                        // same signature knowledge as the main fold: without
+                        // ParamTypeNames a `(int)(long)d` body folded to
+                        // icall_conv_i8_i4 (the int32 helper) even though `d` is
+                        // a DOUBLE parameter, so the inlined site computed
+                        // INT32_MIN where the non-inlined body correctly used
+                        // icall_conv_i8_d.
+
                     }, md, types, accessors, pe);
                 }
                 catch (Exception)

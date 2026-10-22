@@ -226,8 +226,9 @@ typedef Il2CppObject* (*SelI4RefFn)(int32_t);
 typedef Il2CppObject* (*SelI4RefThisFn)(Il2CppObject*, int32_t);
 typedef Il2CppObject* (*SelRefRefFn)(Il2CppObject*);
 typedef Il2CppObject* (*SelRefRefThisFn)(Il2CppObject*, Il2CppObject*);
-typedef Il2CppObject* (*ZipRefRefFn)(Il2CppObject*, Il2CppObject*);
-typedef Il2CppObject* (*ZipRefRefThisFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
+// (The Zip reference-selector typedefs were removed together with the
+// reference Zip branch: nothing in this file may call a selector through the
+// reference ABI any more -- see il2cpp_linq_zip_family.)
 
 bool InvokePredI4(Il2CppDelegate* d, int32_t v)
 {
@@ -1274,36 +1275,19 @@ Il2CppArray* il2cpp_linq_zip_family(Il2CppObject* first, Il2CppObject* second,
         roots.Add(reinterpret_cast<void**>(&b));
     }
 
-    if (firstKind == IL2CPP_LIST_KIND_REF || secondKind == IL2CPP_LIST_KIND_REF)
-    {
-        // Reference family: pair the reference slots to the shorter length.
-        // Both sides must actually be reference arrays -- a value family on
-        // either side has no reference slot, and writing one would store a
-        // value bit pattern as a GC pointer.
-        if (!a->isRefElem || !b->isRefElem)
-            il2cpp_throw_not_supported_exception(
-                "Enumerable.Zip: a reference-element source paired with a value-family source is "
-                "not wired (see docs/audit/b5-gaps.md).");
-        Il2CppDelegate* d = RequireCallback(sel, "selector");
-        roots.Add(reinterpret_cast<void**>(&d));
-        const int32_t n = a->length < b->length ? a->length : b->length;
-        Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
-        roots.Add(reinterpret_cast<void**>(&out));
-        for (int32_t i = 0; i < n; ++i)
-        {
-            Il2CppObject* r = d->target != nullptr
-                ? reinterpret_cast<ZipRefRefThisFn>(d->methodPtr)(d->target, ReadRef(a, i), ReadRef(b, i))
-                : reinterpret_cast<ZipRefRefFn>(d->methodPtr)(ReadRef(a, i), ReadRef(b, i));
-            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
-            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
-            *slot = r;
-        }
-        return out;
-    }
-    if (a->isRefElem || b->isRefElem)
+    // NO REFERENCE BRANCH: Enumerable.Zip over a reference-element source is
+    // rejected at TRANSPILE time (both arms of MethodMap.Linq.cs), because the
+    // reference ABI below would call a value-result thunk through
+    // Il2CppObject*(Il2CppObject*, Il2CppObject*) and store EAX as a GC pointer
+    // -- a measured wild write (0xC0000005) that this branch used to reach.
+    // The branch was therefore REMOVED (docs/audit/b5-gaps.md section 5c): an
+    // unreachable "return a reference array" path is worse than no path, since
+    // a future caller could re-enter it with a value selector.
+    if (firstKind == IL2CPP_LIST_KIND_REF || secondKind == IL2CPP_LIST_KIND_REF ||
+        a->isRefElem || b->isRefElem)
         il2cpp_throw_not_supported_exception(
-            "Enumerable.Zip: a reference-element source paired with a value-family source is not "
-            "wired (see docs/audit/b5-gaps.md).");
+            "Enumerable.Zip over a reference-element source is not wired (see "
+            "docs/audit/b5-gaps.md).");
     return il2cpp_linq_zip_wide(a, b, sel, ZipSideOfListKind(firstKind),
                                 ZipSideOfListKind(secondKind), resKind);
 }

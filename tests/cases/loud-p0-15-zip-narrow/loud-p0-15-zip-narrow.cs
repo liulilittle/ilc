@@ -87,6 +87,16 @@ namespace Cases
 
             // ===== Pairing stops at the SHORTER source (net48) =====
             Console.WriteLine("[z-shorter]=" + JoinL(bl.Zip(new short[] { 7, 8, 9 }, (a, b) => (long)a * 100 + b).ToArray()));
+
+            // ===== The THREE all-wide combinations (i4/i4, i4/i8, i8/i8) =====
+            // int32/int32 must keep the exact-int32 path; the two MIXED widths
+            // must read each side at its own width (a 4-byte cell read as int64,
+            // or vice versa, silently truncates or reads adjacent memory).
+            Console.WriteLine("[z-i4-i4]=" + JoinI(ia.Zip(new[] { 3, 4 }, (a, b) => a * b).ToArray()));
+            Console.WriteLine("[z-i4-i8]=" + JoinL(ia.Zip(new long[] { 3000000000L, 4000000000L }, (a, b) => a + b).ToArray()));
+            Console.WriteLine("[z-i8-i8]=" + JoinL(new long[] { 3000000000L, 5L }.Zip(new long[] { 1L, 4000000000L }, (a, b) => a + b).ToArray()));
+            Console.WriteLine("[z-i8-i4]=" + JoinL(new long[] { 3000000000L, 5L }.Zip(new[] { 1, 2 }, (a, b) => a + b).ToArray()));
+            Console.WriteLine("[z-i4-i4-long-res]=" + JoinL(ia.Zip(new[] { 3, 4 }, (a, b) => (long)a * b).ToArray()));
         }
     }
 }
