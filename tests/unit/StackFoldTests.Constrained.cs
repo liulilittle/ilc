@@ -111,6 +111,30 @@ public class StackFoldTestsConstrained
     }
 
     [Fact]
+    public void Fold_LdlocaConstrainedCallvirt_ObjectOwnerToString_BclEnumReceiver_MapsToEnumIcall()
+    {
+        // bcldenum1: a BCL enum (System.DayOfWeek) is a TypeRef -- it has no
+        // TypeDef in the translated assembly, so the enum arm's
+        // `types.Any(t => t.FullName == ...)` test misses and the fold fell
+        // through to the BOXED-enum icall, which took `static_cast<
+        // Il2CppObject*>((&loc0))` of an int32_t* -- a C++ compile error.
+        // The receiver is an enum VALUE CARRIER (int32 slot): the fold must
+        // route it to il2cpp_enum_to_string with the enum's name-bearing class
+        // descriptor, exactly like a user enum.
+        using var pe = Synthesize(BodyKind.LdlocaConstrainedCallvirtObjectToStringBclEnum);
+        var md = pe.GetMetadataReader();
+
+        var stmts = Fold(pe, md);
+
+        var call = Assert.Single(FindCallExprs(stmts));
+        Assert.Equal("il2cpp::runtime::il2cpp_enum_to_string", call.Resolved!.CppName);
+        Assert.True(call.Resolved.ReturnsRef); // string result
+        Assert.Equal("System.DayOfWeek", call.Resolved.PrependTypeClass);
+        Assert.Equal("enumval", call.Resolved.ParamTypeNames![0]);
+        Assert.IsType<LocAddrExpr>(call.Args[0]);
+    }
+
+    [Fact]
     public void Fold_ConstrainedCallvirt_StringReceiver_EqualsPlainCallvirt()
     {
         // reference-type constrained receiver (System.String): ECMA says the
@@ -163,6 +187,7 @@ public class StackFoldTestsConstrained
         PlainCallvirtStringToString,     // control: ldstr + callvirt Object::ToString
         LdlocaConstrainedCallvirtObjectToStringGuid,     // ldloca.s + constrained Guid + callvirt Object::ToString
         LdlocaConstrainedCallvirtObjectToStringDateTime, // ldloca.s + constrained DateTime + callvirt Object::ToString
+        LdlocaConstrainedCallvirtObjectToStringBclEnum, // ldloca.s + constrained System.DayOfWeek + callvirt Object::ToString
     }
 
     private static PEReader Synthesize(BodyKind kind)
@@ -177,6 +202,7 @@ public class StackFoldTestsConstrained
         var strRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("String"));
         var guidRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Guid"));
         var dateTimeRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("DateTime"));
+        var dayOfWeekRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("DayOfWeek"));
         var us = mdb.GetOrAddUserString("abc");
 
         // instance string Int32::ToString() -- 0 params, string return.
@@ -230,6 +256,13 @@ public class StackFoldTestsConstrained
                 encoder.OpCode(ILOpCode.Stloc_0);
                 encoder.LoadLocalAddress(0);
                 Constrained(encoder, MetadataTokens.GetToken(guidRef));
+                Callvirt(encoder, objToStringToken);
+                break;
+            case BodyKind.LdlocaConstrainedCallvirtObjectToStringBclEnum:
+                encoder.OpCode(ILOpCode.Ldc_i4_5);
+                encoder.OpCode(ILOpCode.Stloc_0);
+                encoder.LoadLocalAddress(0);
+                Constrained(encoder, MetadataTokens.GetToken(dayOfWeekRef));
                 Callvirt(encoder, objToStringToken);
                 break;
             case BodyKind.LdlocaConstrainedCallvirtObjectToStringDateTime:

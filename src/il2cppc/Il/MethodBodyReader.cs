@@ -328,26 +328,17 @@ public static class MethodBodyReader
             // or non-ValueTuple instantiations keep consuming + "v".
             if (defName != null && defName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
             {
+                // tuple1 (ValueTuple): EVERY ValueTuple local -- flat primitive
+                // or not -- declares as the canonical tuple struct. The closed
+                // instance name is decoded with the SAME M3 element table the
+                // call side uses, so the local, the ctor and the field owner
+                // agree on ONE C++ type. (The old "tuple:<codes>" path mapped
+                // every non-primitive element -- a string included -- to "i"
+                // and produced a DIFFERENT struct than the return type.)
                 var argcVt = sig.ReadCompressedInteger();
-                var codes = new List<string>();
-                var flat = true;
-                for (var i = 0; i < argcVt; i++)
-                {
-                    var ab = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
-                    switch (ab)
-                    {
-                        case 0x0A: codes.Add("l"); break;   // I8
-                        case 0x0C: codes.Add("d"); break;   // R4 (float-in-double slot)
-                        case 0x0D: codes.Add("d"); break;   // R8
-                        case 0x11 or 0x12: _ = sig.ReadTypeHandle(); flat = false; break;
-                        case 0x1D: _ = sig.ReadByte(); flat = false; break;
-                        case 0x13 or 0x1E: _ = sig.ReadCompressedInteger(); flat = false; break;
-                        case 0x15: flat = false; break;     // nested GenericInst: not decoded here
-                        default: codes.Add("i"); break;     // I4/U4/I2/U2/I1/U1/Bool/Char...
-                    }
-                }
-                if (flat)
-                    return "tuple:" + string.Join(",", codes);
+                var elems = new string[argcVt];
+                for (var i = 0; i < argcVt; i++) elems[i] = ReadM3ElementName(md, ref sig);
+                return "vt:" + defName + "_" + string.Join("_", elems);
             }
             // GN-2 (Nullable): a Nullable`1<T> local/value slot has no generated
             // C++ struct -- the runtime models the VALUE as an Il2CppObject*
@@ -477,6 +468,67 @@ public static class MethodBodyReader
     // NOTE: the pre-existing GenericArgSuffix below maps CLASS/VALUETYPE args
     // to the concrete SHORT type name for its own nested-shape recursion; its
     // VALUE must not be used here or the two sides split apart again.
+    // tuple1 (ValueTuple): the M3 element-name decode for a tuple local's
+    // generic arguments (the same table MethodRefResolver.ReadM3Arg /
+    // ValueTupleSupport.ReadM3ArgName use), consuming the full payload.
+    internal static string ReadM3ElementName(MetadataReader md, ref BlobReader sig)
+    {
+        var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+        switch (b)
+        {
+            case 0x02: return "bool";
+            case 0x03: return "char";
+            case 0x04: return "sbyte";
+            case 0x05: return "byte";
+            case 0x06: return "short";
+            case 0x07: return "ushort";
+            case 0x08: return "int";
+            case 0x09: return "uint";
+            case 0x0A: return "long";
+            case 0x0B: return "ulong";
+            case 0x0C: return "float";
+            case 0x0D: return "double";
+            case 0x0E: return "string";
+            case 0x1C: return "object";
+            case 0x11:
+            case 0x12:
+                return MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig);
+            case 0x1D:
+                return "[" + ReadM3ElementName(md, ref sig) + "]";
+            case 0x14:
+            {
+                var elem = ReadM3ElementName(md, ref sig);
+                var rank = sig.ReadCompressedInteger();
+                var sizes = sig.ReadCompressedInteger();
+                for (var i = 0; i < sizes; i++) _ = sig.ReadCompressedInteger();
+                var lo = sig.ReadCompressedInteger();
+                for (var i = 0; i < lo; i++) _ = sig.ReadCompressedInteger();
+                return "[" + elem + rank + "]";
+            }
+            case 0x15:
+            {
+                sig.ReadByte();
+                var def = sig.ReadTypeHandle();
+                var defName = def.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)def),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)def),
+                    _ => "?",
+                };
+                var n = sig.ReadCompressedInteger();
+                var inner = new string[n];
+                for (var i = 0; i < n; i++) inner[i] = ReadM3ElementName(md, ref sig);
+                return defName + "_" + string.Join("_", inner);
+            }
+            case 0x13:
+            case 0x1E:
+                _ = sig.ReadCompressedInteger();
+                return MethodRefResolver.InstantiationSuffixHint ?? "int";
+            default:
+                return "object";
+        }
+    }
+
     internal static string? SimpleGenericArgSuffix(MetadataReader md, ref BlobReader sig, out byte argLead)
     {
         var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());

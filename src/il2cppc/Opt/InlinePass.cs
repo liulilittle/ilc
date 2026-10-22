@@ -96,6 +96,13 @@ public sealed class InlineCandidate
     // loc{i}) -- the struct-local gate below needs them. Empty for legacy
     // and test candidates (gate allows).
     public string[] LocalKinds { get; init; } = Array.Empty<string>();
+    // Callee PARAMETER kind strings (MethodDef.ParamTypes -- the
+    // "V:{FullName}" value-type / "B:..." byref / "r:..." reference encoding
+    // the emitter already uses). The struct/byref argument gate below needs
+    // them: an inline arg temp is declared from the caller expression's kind
+    // (int32_t default), so a struct or byref parameter would be truncated.
+    // Empty for legacy and test candidates (gate allows).
+    public string[] ParamTypes { get; init; } = Array.Empty<string>();
     public required bool HasExceptionRegions { get; init; }
     // Virtual methods are NEVER inlined: a callvirt receiver could dispatch to an
     // override at runtime, so the compile-time body is not the executed one. The
@@ -308,6 +315,7 @@ public static class InlinePass
         // this covers struct traffic through locals in void (or
         // int-returning) bodies.
         if (DefinesStructLocal(candidate)) return false;
+        if (UsesStructOrByRefParameter(candidate)) return false;
         if (args.Count != candidate.ParamCount) return false;
         if (voidPosition != candidate.ReturnsVoid) return false; // position must match void-ness
         if (args.Any(a => a is LocAddrExpr)) return false;  // byref args rejected
@@ -352,17 +360,72 @@ public static class InlinePass
         if (kinds == null || kinds.Length == 0) return false;
         foreach (var b in candidate.Body)
         {
+            // Two definition shapes:
+            //   * AssignStmt("loc{k}") -- a whole-value store (ldloc/stloc of
+            //     another struct, a call result, ...);
+            //   * FieldAssignStmt/FieldAddrExpr rooted at "loc{k}" -- the
+            //     ldloca+stfld pair that initializes a struct field by field
+            //     (`Pair p; p.A = n; p.B = n+2;` -- the sanitize1 local-function
+            //     probe). Both materialize a caller-scope temp that the emitter
+            //     declares int32_t.
             if (b is AssignStmt a && LocIndex(a.Target) is int li
                 && li >= 0 && li < kinds.Length && IsStructLocalKind(kinds[li]))
                 return true;
+            if (b is FieldAssignStmt fa && StructRootLocal(fa.Object, kinds) is not null)
+                return true;
+            if (b is AssignStmt afa && afa.Value is FieldAddrExpr fae
+                && StructRootLocal(fae.Object, kinds) is not null)
+                return true;
         }
         return false;
+    }
+
+    // The local index when the expression IS a struct-typed local read/address
+    // ("loc{k}" / ldloca "loc{k}"), else null.
+    private static int? StructRootLocal(Expr e, string[] kinds)
+    {
+        var name = e switch
+        {
+            LocExpr l => l.Name,
+            LocAddrExpr l => l.Name,
+            _ => null,
+        };
+        if (name == null || LocIndex(name) is not int li) return null;
+        return li >= 0 && li < kinds.Length && IsStructLocalKind(kinds[li]) ? li : null;
     }
 
     private static int? LocIndex(string name)
     {
         if (!name.StartsWith("loc", StringComparison.Ordinal)) return null;
         return int.TryParse(name[3..], out var i) ? i : (int?)null;
+    }
+
+    // Symmetric gate to DefinesStructLocal (sanitize1 local-function probe):
+    // a body that READS a struct-typed or byref parameter cannot be inlined --
+    // the expansion materializes `inl<k> = <caller arg>` and the emitter types
+    // that temp from the expression kind (int32_t default), so a
+    // `int Sum(Pair q)` body became
+    //   int32_t inl0;  inl0 = loc0;  (&(inl0))->A   // not a class type
+    // and a byref arg would copy the address VALUE into an int32_t.
+    //
+    // The parameter kind language is MethodDef.ParamTypes ("V:{FullName}",
+    // "B:...", "r:...", "i", ...). Only parameters the body actually READS are
+    // considered (an unused struct arg materializes no temp). Absent
+    // ParamTypes (legacy/test candidates) allows -- the pre-existing contract.
+    private static bool UsesStructOrByRefParameter(InlineCandidate candidate)
+    {
+        var pts = candidate.ParamTypes;
+        if (pts == null || pts.Length == 0) return false;
+        for (var i = 0; i < pts.Length && i < candidate.ParamCount; i++)
+        {
+            var kind = pts[i];
+            if (kind.Length == 0) continue;
+            var isStructOrByRef = kind.StartsWith("V:", StringComparison.Ordinal)
+                || kind.StartsWith("B:", StringComparison.Ordinal);
+            if (!isStructOrByRef) continue;
+            if (BodyUsesArg(candidate.Body, $"arg{i}")) return true;
+        }
+        return false;
     }
 
     // Struct-typed local kinds: "v:" value-type structs (except the KVP

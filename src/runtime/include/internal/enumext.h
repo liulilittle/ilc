@@ -373,6 +373,20 @@ Il2CppString* il2cpp_enum_boxed_to_string(Il2CppObject* boxed);
 int32_t il2cpp_enum_boxed_get_hash_code(Il2CppObject* boxed);
 
 //------------------------------------------------------------------------------
+// il2cpp_enum_get_hash_code -- GetHashCode for an enum VALUE CARRIER (the
+// int32/int64 slot the transpiler holds a constrained enum receiver in).
+//
+//   The constrained-callvirt shape (`DayOfWeek.Monday.GetHashCode()`) pushes
+//   the enum's ldloca ADDRESS; the transpiler dereferences the value__ slot
+//   into the int64_t parameter (the same "enumval" shape ToString uses). The
+//   hash is net48's: the underlying value itself for an Int32-width enum,
+//   low-32 XOR high-32 for an Int64/UInt64-backed one. The class descriptor is
+//   the enum's name-bearing descriptor (a registered user enum or a whitelisted
+//   BCL enum); null/unknown keeps the documented Int32 assumption.
+//------------------------------------------------------------------------------
+int32_t il2cpp_enum_get_hash_code(Il2CppClass* enumClass, int64_t value);
+
+//------------------------------------------------------------------------------
 // il2cpp_enum_equals -- System.Enum.Equals(object) for a boxed enum.
 //
 //   self:  the boxed enum receiver (an Il2CppObject* whose klass is the enum

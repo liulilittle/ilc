@@ -262,6 +262,12 @@ public static class TempSlotPass
             // emitter declares it void*.
             CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "ptr"
                 or "dec" or "ip4" or "bi" or "dto" or "p" => c.ResultKind,
+        // tuple1 (ValueTuple): a user call returning a tuple ("vt:<name>")
+        // carries the struct type -- a struct temp must never share an int32
+        // slot (the store would truncate / not compile).
+        CallExpr c when c.ResultKind?.StartsWith("vt:", StringComparison.Ordinal) == true => c.ResultKind,
+        CallExpr c when c.ResultKind?.StartsWith("us:", StringComparison.Ordinal) == true => c.ResultKind,
+        CallExpr c when c.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true => c.ResultKind,
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
         // P2-HARDEN #3: a delegate Invoke returning long/double/float carries

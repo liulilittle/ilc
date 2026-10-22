@@ -752,8 +752,43 @@ public static class TypeEmitter
         // FIX r77: strip V_ prefix leaked from MethodSignatureCoder encoding
         if (result.StartsWith("V_"))
             result = result[2..];
-        return result;
+        return SanitizeIdentChars(result);
     }
+
+    // WHITELIST tail step (local-function fix): the Split/Join above is a
+    // BLACKLIST -- every character it does not name survives into the emitted
+    // C++ identifier. csc's local-function metadata name
+    // "<Add>g__Local|1_0" carries '|', which was NOT in that list, so the
+    // generated header contained
+    //   int32_t Cases_...__Add_g__Local|0_0_<hash>(int32_t);
+    // -> "error: expected initializer before '|' token". Enumerating hostile
+    // characters one by one guarantees the next one is another phantom, so the
+    // rule is now closed: anything outside [A-Za-z0-9_] becomes '_'.
+    //
+    // The Split/Join step is deliberately KEPT and runs FIRST: it collapses a
+    // RUN of separators into a single '_' ("a..b" -> "a__b", "<>c" -> "__c"),
+    // whereas per-character replacement would produce one '_' per character.
+    // Keeping it preserves every already-emitted symbol name verbatim (all of
+    // them are fixed points of this step) and makes the new step idempotent.
+    public static string SanitizeIdentChars(string s)
+    {
+        var clean = true;
+        foreach (var c in s)
+        {
+            if (!IsIdentChar(c)) { clean = false; break; }
+        }
+        if (clean) return s;
+        var buf = new System.Text.StringBuilder(s.Length);
+        foreach (var c in s)
+            buf.Append(IsIdentChar(c) ? c : '_');
+        return buf.ToString();
+    }
+
+    private static bool IsIdentChar(char c)
+        => c is >= 'A' and <= 'Z'
+        or >= 'a' and <= 'z'
+        or >= '0' and <= '9'
+        or '_';
 
     // Static field C++ file-scope name: {TypeCppName}_sf_{fieldName}. The file-scope
     // static guarantees uniqueness within the type.
