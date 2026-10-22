@@ -16,3 +16,4 @@ p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns
 loud-p0-14-strkey-loud   # LOUD contract: string key ordering requires culture-aware collation (transpile-time NotSupported)
 loud-p0-16-objkey-loud   # LOUD contract: object/string key ordering rejected at runtime (NotSupportedException)
 loud-p0-17-zipres-loud   # LOUD contract: 1/2-byte or bool/char Zip result has no cell ABI (transpile-time NotSupported)
+loud-p0-18-strmin-loud   # LOUD contract: string Min/Max requires culture-aware collation (transpile-time NotSupported)
