@@ -370,6 +370,9 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"linq.h\"");
         generatedHeader.Line("#include \"linq_map.h\"");
         generatedHeader.Line("#include \"linq_sort.h\"");
+        // nb15 B5 FIX: the List<T> receiver surface (a list object must never
+        // be cast to Il2CppArray*).
+        generatedHeader.Line("#include \"linq_list.h\"");
         // M6 wiring: the remaining wired-domain runtime headers -- every
         // il2cpp::runtime::* symbol the MethodMap domains can emit must be
         // declared in generated.h or the generated C++ fails to compile
@@ -954,6 +957,17 @@ public static class CodeGenerator
                         ExceptionRegions = candInfo.ExceptionRegions,
                         MethodFullName = $"{ct.FullName}.{cm.Name}",
                         CctorOwnerFullName = cm.Name == ".cctor" ? TypeEmitter.ReflectionFullName(ct) : null,
+                        IsStatic = cm.IsStatic,
+                        ParamTypeNames = cm.ParamTypes.Length == 0
+                            ? null
+                            : SplitTopLevel(cm.ParamTypes).ToArray(),                        // The inline candidate's conv WIDTH dispatch needs the
+                        // same signature knowledge as the main fold: without
+                        // ParamTypeNames a `(int)(long)d` body folded to
+                        // icall_conv_i8_i4 (the int32 helper) even though `d` is
+                        // a DOUBLE parameter, so the inlined site computed
+                        // INT32_MIN where the non-inlined body correctly used
+                        // icall_conv_i8_d.
+
                     }, md, types, accessors, pe);
                 }
                 catch (Exception)
@@ -1659,7 +1673,7 @@ public static class CodeGenerator
                 var prevVarHintParts = MethodRefResolver.InstantiationSuffixHintParts;
                 MethodRefResolver.InstantiationSuffixHint = t.InstantiationSuffix;
                 MethodRefResolver.InstantiationSuffixHintParts = t.InstantiationSuffixParts;
-                try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}", CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null }, md, types, accessors, pe); }
+                try { stmts = StackFold.Fold(insns, new MethodContext { ArgCount = bodyInfo.ArgCount, LocNames = bodyInfo.LocNames, LocalKinds = bodyInfo.LocalKinds, ReturnsVoid = bodyInfo.ReturnsVoid, ExceptionRegions = bodyInfo.ExceptionRegions, MethodFullName = $"{t.FullName}.{m.Name}", CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null, IsStatic = m.IsStatic, ParamTypeNames = m.ParamTypes.Length == 0 ? null : SplitTopLevel(m.ParamTypes).ToArray() }, md, types, accessors, pe); }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"warning: method fold failed -> skipped ({t.FullName}::{m.Name}: {ex.Message})");

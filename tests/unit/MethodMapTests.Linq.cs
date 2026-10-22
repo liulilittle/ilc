@@ -107,7 +107,7 @@ public class MethodMapTestsLinq
                 genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
             receiverType: "System.Collections.Generic.List`1");
 
-        Assert.Equal("il2cpp::il2cpp_list_i4_get_count", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_list_count", resolved.CppName);
         Assert.Equal(1, resolved.ParamCount);
         Assert.True(resolved.ReturnsValue);
         Assert.False(resolved.ReturnsRef);
@@ -127,7 +127,7 @@ public class MethodMapTestsLinq
                 genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
             receiverType: "System.Collections.Generic.List`1_int");
 
-        Assert.Equal("il2cpp::il2cpp_list_i4_get_count", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_list_count", resolved.CppName);
         Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
     }
 
@@ -758,6 +758,241 @@ public class MethodMapTestsLinq
         Assert.Equal("il2cpp::il2cpp_linq_grouping_get_elements", resolved.CppName);
         Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
         Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // P0-11: Any() reads only the array header (il2cpp_linq_any), so it is
+    // element-family agnostic. A reference-element source must resolve instead
+    // of hitting the int32-only gate.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Any_StringElement_MapsToAny()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Any",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_any", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Any_ClassElement_MapsToAny()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_any",
+            ResolveMethodSpec(SynthesizeGeneric("Any",
+                memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                genericSignature: new byte[] { 0x0A, 0x01, 0x12 })).CppName);
+    }
+
+    // List<int>.Any() resolves too (the i4 generic argument was never gated;
+    // the runtime List-receiver wiring is a separate gap, see b5-gaps.md).
+    [Fact]
+    public void Resolve_Any_ListReceiver_Resolves()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Any",
+                memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
+            receiverType: "System.Collections.Generic.List`1");
+
+        Assert.NotNull(resolved);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    // Any(predicate) over a reference source -> il2cpp_linq_any_ref (linq.h).
+    [Fact]
+    public void Resolve_Any_Predicate_StringElement_MapsToAnyRef()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Any",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_any_ref", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    // Count(predicate) over a reference source -> il2cpp_linq_count_ref.
+    [Fact]
+    public void Resolve_Count_Predicate_StringElement_MapsToCountRef()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_count_ref",
+            ResolveMethodSpec(SynthesizeGeneric("Count",
+                new byte[] { 0x10, 0x01, 0x02, 0x08,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+                new byte[] { 0x0A, 0x01, 0x0E })).CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // B5 D-1: Any(predicate)/Count(predicate) over the WIDE and NARROW array
+    // families must not fall into the int32 kernel (the old dispatch mapped
+    // every family to il2cpp_linq_any_i4, reading 4 bytes from a 1/2/8-byte
+    // cell). Each family resolves to its own width-correct entry, and the
+    // narrow cell-kind code is an APPENDED literal (never a consumed IL arg).
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("Any", 0x0A, "il2cpp::il2cpp_linq_any_i8")]     // int64
+    [InlineData("Count", 0x0A, "il2cpp::il2cpp_linq_count_i8")]
+    [InlineData("All", 0x0A, "il2cpp::il2cpp_linq_all_i8")]
+    [InlineData("Any", 0x0D, "il2cpp::il2cpp_linq_any_d")]      // double
+    [InlineData("Count", 0x0D, "il2cpp::il2cpp_linq_count_d")]
+    [InlineData("Any", 0x0C, "il2cpp::il2cpp_linq_any_f")]      // float
+    [InlineData("Any", 0x05, "il2cpp::il2cpp_linq_any_narrow")] // byte
+    [InlineData("Count", 0x06, "il2cpp::il2cpp_linq_count_narrow")] // short
+    public void Resolve_Predicate_WideAndNarrowFamilies_MapToTheirOwnWidth(string name, byte elem, string expected)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        if (expected.EndsWith("_narrow", StringComparison.Ordinal))
+        {
+            Assert.NotNull(resolved.AppendLiterals);
+            Assert.Single(resolved.AppendLiterals!);
+        }
+        else
+        {
+            Assert.Null(resolved.AppendLiterals);
+        }
+    }
+
+    // B5 D-2: every List<T> operator takes the LIST OBJECT uncast ("") -- never
+    // the "a" Il2CppArray* cast (offsetof(Il2CppArray,length) ==
+    // offsetof(Il2CppListI4,items) == 8 -> silent wrong value / AV).
+    [Theory]
+    [InlineData("Any", "il2cpp::il2cpp_linq_list_any", false, null, true)]
+    [InlineData("Count", "il2cpp::il2cpp_linq_list_count", false, null, true)]
+    [InlineData("All", "il2cpp::il2cpp_linq_list_all_pred", true, null, false)]
+    [InlineData("Where", "il2cpp::il2cpp_linq_list_where", true, "System.Int32[]", false)]
+    [InlineData("Select", "il2cpp::il2cpp_linq_list_select", true, "System.Int32[]", false)]
+    [InlineData("First", "il2cpp::il2cpp_linq_list_first_i4", false, null, true)]
+    [InlineData("FirstOrDefault", "il2cpp::il2cpp_linq_list_first_or_default_i4", false, null, true)]
+    public void Resolve_ListInt_AllRequiredOps_PassListObjectThrough(
+        string name, string expected, bool hasPredicate, string? returnType, bool listOnly)
+    {
+        byte[] memberRef;
+        byte[] genericArgs;
+        if (name is "Any" or "Count" or "First" or "FirstOrDefault")
+        {
+            memberRef = new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 };
+            genericArgs = new byte[] { 0x0A, 0x01, 0x08 };
+        }
+        else if (name == "Select")
+        {
+            memberRef = new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x08 };
+            genericArgs = new byte[] { 0x0A, 0x02, 0x08, 0x08 };
+        }
+        else
+        {
+            memberRef = new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 };
+            genericArgs = new byte[] { 0x0A, 0x01, 0x08 };
+        }
+
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric(name, memberRef, genericArgs),
+            receiverType: "System.Collections.Generic.List`1_int");
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.All(resolved.ParamTypeNames!, c => Assert.NotEqual("a", c));
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        if (hasPredicate) Assert.Equal("", resolved.ParamTypeNames![1]);
+        if (returnType != null) Assert.Equal(returnType, resolved.ReturnTypeName);
+        Assert.Equal(listOnly ? 1 : 2, resolved.ParamCount);
+    }
+
+    // B5 D-4: the already-implemented all_ref kernel (linq.h / linq.cpp) was
+    // never wired -- All over a reference source must resolve to it.
+    [Fact]
+    public void Resolve_All_StringElement_MapsToAllRef()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_all_ref",
+            ResolveMethodSpec(SynthesizeGeneric("All",
+                memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x02,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+                genericSignature: new byte[] { 0x0A, 0x01, 0x0E })).CppName);
+    }
+    //--------------------------------------------------------------------------
+    // P0-10: the reference-family map/element entries already exist in the
+    // runtime -- wire them for a reference-element TSource.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Where_StringElement_MapsToWhereRef()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Where",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_where_ref", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Select_StringToString_MapsToSelectRefRef()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Select",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0E, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_select_ref_ref", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_First_StringElement_MapsToFirstRef()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("First",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_first_ref", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_FirstOrDefault_StringElement_MapsToFirstOrDefaultRef()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_first_or_default_ref",
+            ResolveMethodSpec(SynthesizeGeneric("FirstOrDefault",
+                new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x0E })).CppName);
+    }
+
+    // B5 D-4: Last over a reference source used to be LOUD because linq.h had
+    // no last_ref kernel; the kernel now exists (linq.h / linq.cpp) and is
+    // wired, so Last<string> resolves to the real entry.
+    [Fact]
+    public void Resolve_Last_StringElement_MapsToLastRef()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_last_ref",
+            ResolveMethodSpec(SynthesizeGeneric("Last",
+                new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+                new byte[] { 0x0A, 0x01, 0x0E })).CppName);
     }
 
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)
