@@ -82,7 +82,7 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_time.h" // A3: Il2CppDateTime/Il2CppTimeSpan by-value entries
-
+#include "decimal.h"     // p0grp: the 16-byte System.Decimal enumerator carrier
 #include <cstdint>
 
 //------------------------------------------------------------------------------
@@ -529,6 +529,15 @@ int32_t     il2cpp_ienum_get_current_i4(Il2CppObject* receiver);
 int64_t     il2cpp_ienum_get_current_i8(Il2CppObject* receiver);
 double      il2cpp_ienum_get_current_d(Il2CppObject* receiver);
 Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver);
+
+// p0grp: the 16-byte System.Decimal carrier (IEnumerator<decimal>.get_Current).
+// A 16-byte struct cannot ride a register return slot in the generated-code
+// model, so the entry follows the decimal T3 result-slot contract: the FIRST
+// parameter is the caller's Il2CppDecimal result slot. The receiver may be a
+// snapshot enumerator over a decimal[] (the GroupBy bucket surface) or over a
+// reference array of BOXED decimals; any other layout raises
+// InvalidCastException rather than reinterpreting memory.
+void il2cpp_ienum_get_current_dec(runtime::Il2CppDecimal* result, Il2CppObject* receiver);
 
 // The NON-generic IEnumerator.get_Current -- always the object-returning slot
 // ("r:System.Object()"). Distinct from il2cpp_ienum_get_current_ref, which

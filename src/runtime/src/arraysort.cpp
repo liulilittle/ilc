@@ -4837,6 +4837,60 @@ Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver)
 }
 
 //------------------------------------------------------------------------------
+// p0grp: IEnumerator<System.Decimal>.get_Current -- the 16-byte carrier.
+//
+// A 16-byte struct cannot ride the register return slot the other carriers
+// use, so this entry follows the decimal T3 result-slot contract: the caller
+// passes its Il2CppDecimal slot FIRST. The receiver is a snapshot enumerator
+// over either
+//   * a DECIMAL value array (the GroupBy decimal bucket -- 16-byte cells), or
+//   * a REFERENCE array of BOXED decimals (a boxed snapshot),
+// so both shapes round-trip. Any other element layout raises
+// InvalidCastException instead of reinterpreting memory.
+//------------------------------------------------------------------------------
+void il2cpp_ienum_get_current_dec(runtime::Il2CppDecimal* result, Il2CppObject* receiver)
+{
+    if (result == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (receiver->klass != &System_Collections_SortedList_Enumerator_class)
+    {
+        il2cpp_throw_new(
+            "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+            "Specified cast is not valid.");
+        return;
+    }
+    Il2CppArray* arr = ArrayEnum(receiver)->array;
+    const int32_t idx = ArrayEnum(receiver)->index;
+    if (arr == nullptr || idx < 0 || idx >= arr->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "index", "Index was out of range. Must be non-negative and less than the size of the collection.");
+        return;
+    }
+    if (arr->isRefElem)
+    {
+        Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        *result = runtime::icall_unbox_decimal(boxed);
+        return;
+    }
+    if (arr->elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)))
+    {
+        *result = *reinterpret_cast<const runtime::Il2CppDecimal*>(
+            arr->data + static_cast<size_t>(idx) * static_cast<size_t>(arr->elemSize));
+        return;
+    }
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_ienum_get_current_obj -- the NON-generic IEnumerator.get_Current
 // (always returns System.Object / r:System.Object()).
 //------------------------------------------------------------------------------
