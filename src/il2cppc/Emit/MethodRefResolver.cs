@@ -335,63 +335,127 @@ public static partial class MethodRefResolver
                         ? sharedRes
                         : sharedRes with { ReturnsRef = true };
                 }
-                // M7 genlist: a single STRING (0x0E) generic argument routes to
-                // the emitted string-typed variant of the definition
-                // ({defCppName}_string -- CodeGenerator emits a pass-through
-                // identity body for generic methods under that name, the
-                // genlist `T Id<T>(T x) => x` shape). Any other non-int32
-                // argument stays LOUD (no generated variant).
+                // P0GEN (generic-method variant routing): the concrete slot
+                // variants ({name}_string/_long/_double/_<Struct>) exist ONLY
+                // for a definition the pre-emission scan classified as
+                // TYPE-AGNOSTIC (GenericUsageAnalyzer.GenericMethodVariants --
+                // the SAME map the emission side reads). The old shape appended
+                // the suffix UNCONDITIONALLY, so a type-DIRECTED generic method
+                // (S<T>(T v) => v.ToString()) resolved to a symbol that was
+                // never emitted: transpile OK, then cmake "'<name>_string' was
+                // not declared in this scope" -- a phantom symbol, strictly
+                // worse than a rejection.
+                //
+                // When the token is absent the BASE definition symbol is the
+                // only correct answer (it is always emitted), so the resolution
+                // falls back to it instead of fabricating a suffix.
+                //
+                // The MVAR SHAPE decides the per-slot typing: only the slots the
+                // definition's signature actually declares as the method's own
+                // generic parameter become the concrete slot type; everything
+                // else keeps its declared type. Forcing every slot to a
+                // reference (the old _string arm) made a non-MVAR return
+                // `static int Ignore<T>(T v) => 42` resolve as ReturnsRef and
+                // the caller emitted `reinterpret_cast<Il2CppObject*>(int32_t)`.
+                //
+                // TRI-STATE contract with the pre-scan:
+                //   map null / scanned from ANOTHER assembly -> the scan does not
+                //                       cover this module (synthetic-PE unit
+                //                       tests, a nested Generate). Keep the
+                //                       historical unconditional routing; the
+                //                       shape is unknown so the legacy "MVAR
+                //                       everywhere" defaults apply.
+                //   map for THIS assembly -> authoritative: an entry with
+                //                       EmitsVariants means the variants exist
+                //                       (with its shape); an entry WITHOUT it, or
+                //                       no entry at all, means they do not (base
+                //                       symbol).
+                var variantMap = GenericUsageAnalyzer.GenericMethodVariants;
+                var variantMapApplies = variantMap != null
+                    && GenericUsageAnalyzer.GenericMethodVariantsAssembly is { } scannedMvid
+                    && md.GetGuid(md.GetModuleDefinition().Mvid) == scannedMvid;
+                GenericUsageAnalyzer.GenericMethodVariantShape? variantShape = null;
+                var variantsKnown = false;
+                var hasVariant = true;
+                if (genArgs.Length == 1 && variantMapApplies)
+                {
+                    variantsKnown = true;
+                    // The key is the definition's generated C++ name -- the SAME
+                    // string the emission side passes to EmitVariant, so the two
+                    // sides cannot drift (and no metadata token aliasing).
+                    // EmitsVariants is the verdict itself: a scanned
+                    // type-DIRECTED definition has an entry too (so "absent"
+                    // keeps meaning "never scanned"), but emits no variant.
+                    hasVariant = variantMap!.TryGetValue(
+                            ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method).CppName, out var vs)
+                        && vs.EmitsVariants;
+                    if (hasVariant) variantShape = vs;
+                }
+                // The definition's MVAR return flag: an absent shape (scan not
+                // run) keeps the legacy "the return is the generic parameter"
+                // assumption.
+                bool ReturnIsMvar() => variantShape?.ReturnMvar ?? true;
+                // Per-slot reference classification of a variant: an MVAR slot
+                // becomes the requested slot type (reference only for the string
+                // variant); a NON-MVAR slot keeps the definition's own
+                // classification. Without a shape, every slot is an MVAR slot
+                // (the legacy arm).
+                bool[] VariantParamRefs(ResolvedMethod d, bool mvarIsRef) =>
+                    variantShape is { } sh
+                        ? sh.ParamMvar.Select((mv, i) => mv ? mvarIsRef : i < d.ParamIsRef.Length && d.ParamIsRef[i]).ToArray()
+                        : d.ParamIsRef.Select(_ => mvarIsRef).ToArray();
                 if (genArgs.Length == 1 && genArgs[0] == 0x0E)
                 {
                     var def = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                    if (variantsKnown && !hasVariant) return def;
+                    var returnsRef = ReturnIsMvar();
                     return def with
                     {
                         CppName = def.CppName + "_string",
-                        ReturnsRef = true,
-                        ParamIsRef = def.ParamIsRef.Select(_ => true).ToArray(),
-                        ReturnTypeName = "System.String",
+                        ReturnsRef = returnsRef,
+                        ParamIsRef = VariantParamRefs(def, mvarIsRef: true),
+                        ReturnTypeName = returnsRef ? "System.String" : def.ReturnTypeName,
                     };
                 }
                 // GN-N4 stage-1 (GN-5 by-value MVAR, 1.5): a single LONG
                 // (0x0A) / DOUBLE (0x0D) by-value generic argument routes to
                 // the emitted int64_t/double slot variant of the definition
-                // ({defCppName}_long / {defCppName}_double -- CodeGenerator
-                // emits the pass-through identity body for the concrete slot
-                // width, mirroring the string variant). The caller result temp
-                // gets the width ResultKind ("l"/"d") and the MVAR param slots
-                // are value slots (ParamIsRef false). Any OTHER by-value MVAR
-                // argument stays LOUD (no fabricated variant -- explicit LOUD +
-                // expected is the decision's LOSSY escape).
+                // ({defCppName}_long / {defCppName}_double). The caller result
+                // temp gets the width ResultKind ("l"/"d") ONLY when the
+                // definition's RETURN is the MVAR; a concrete-width return keeps
+                // its signature-derived kind (StackFold.UserCallResultKind).
                 if (genArgs.Length == 1 && genArgs[0] == 0x0A)
                 {
                     var def = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                    if (variantsKnown && !hasVariant) return def;
                     return def with
                     {
                         CppName = def.CppName + "_long",
-                        ResultKind = "l",
+                        ParamIsRef = VariantParamRefs(def, mvarIsRef: false),
+                        ResultKind = ReturnIsMvar() ? "l" : def.ResultKind,
                     };
                 }
                 if (genArgs.Length == 1 && genArgs[0] == 0x0D)
                 {
                     var def = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                    if (variantsKnown && !hasVariant) return def;
                     return def with
                     {
                         CppName = def.CppName + "_double",
-                        ResultKind = "d",
+                        ParamIsRef = VariantParamRefs(def, mvarIsRef: false),
+                        ResultKind = ReturnIsMvar() ? "d" : def.ResultKind,
                     };
                 }
                 // GN-N4 stage-2 (Id<Pt> by-value MVAR): a single USER VALUE
                 // TYPE (0x11 VALUETYPE) generic argument routes to the emitted
-                // concrete-struct variant ({defCppName}_{structCppName} --
-                // CodeGenerator emits the pass-through identity body for the
-                // struct slot, keyed on the MethodSpec scan's
-                // MethodSpecUserStructArgs set). The result temp is the struct
-                // C++ type (ResultKind "us:{CppName}" -- the same slot kind
-                // the P25b struct box/unbox uses). The decoded genArgNames[0]
+                // concrete-struct variant ({defCppName}_{structCppName}). The
+                // result temp is the struct C++ type (ResultKind "us:{CppName}"
+                // -- the same slot kind the P25b struct box/unbox uses) only
+                // when the RETURN is the MVAR. The decoded genArgNames[0]
                 // (GenericArgFullNames) carries the struct's FULL name; the C++
                 // name comes from the types collection (TypeEmitter.TypeCppName
-                // -- matches the emission key). Unknown/unregistered shapes stay
-                // LOUD (no fabricated variant).
+                // -- matches the emission key). No scan entry / unknown shape
+                // binds the base definition symbol (never a fabricated name).
                 if (genArgs.Length == 1 && genArgs[0] == 0x11
                     && genArgNames is { Length: >= 1 } && genArgNames[0] is { } structFullName)
                 {
@@ -399,11 +463,13 @@ public static partial class MethodRefResolver
                     if (structDef != null && structDef.IsValueType)
                     {
                         var def = ResolveMethodDefinition(md, (MethodDefinitionHandle)ms.Method);
+                        if (variantsKnown && !hasVariant) return def;
                         var scpp = TypeEmitter.TypeCppName(structDef);
                         return def with
                         {
                             CppName = def.CppName + "_" + scpp,
-                            ResultKind = "us:" + scpp,
+                            ParamIsRef = VariantParamRefs(def, mvarIsRef: false),
+                            ResultKind = ReturnIsMvar() ? "us:" + scpp : def.ResultKind,
                         };
                     }
                 }
