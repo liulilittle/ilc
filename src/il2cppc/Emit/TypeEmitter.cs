@@ -1114,14 +1114,14 @@ public static class TypeEmitter
         // the event backing field) are runtime Il2CppDelegate objects; the
         // concrete generated C++ type does not exist.
         _ when fullName == "System.EventHandler" || fullName == "System.EventHandler`1" => "Il2CppObject*",
-        _ when allTypes != null && allTypes.Any(x => x.FullName == fullName && IsDelegateType(x)) => "Il2CppObject*",
+        _ when allTypes != null && allTypes.Any(x => TypeLookup.Matches(x, fullName) && IsDelegateType(x)) => "Il2CppObject*",
         // COM stage 17 batch 3 (com17type): an INTERFACE-typed reference field
         // (DragEventArgs.Data : IDataObject). Interfaces have NO generated C++
         // struct (CodeGenerator emits only the extern Il2CppClass descriptor
         // -- instanceSize 0, never allocated), so the member is a plain GC
         // reference slot, exactly like a System.Object field; the concrete
         // implementer's object is what the slot holds at runtime.
-        _ when allTypes != null && allTypes.Any(x => x.FullName == fullName && x.IsInterface) => "Il2CppObject*",
+        _ when allTypes != null && allTypes.Any(x => TypeLookup.Matches(x, fullName) && x.IsInterface) => "Il2CppObject*",
         // M6 Nullable<T>: a nullable field of any T has no generated C++ struct --
         // the runtime represents it as an Il2CppObject* (null for HasValue=false,
         // boxed T for HasValue=true). Map to Il2CppObject* like other BCL structs.
@@ -1153,7 +1153,7 @@ public static class TypeEmitter
         // r78 fix: any other BCL type not in the types list has no generated C++ struct.
         // Map to Il2CppObject* (the runtime stamps these with System.Object/System.Array).
         // Types in the types list get their own struct definition via EmitClassStruct.
-        _ when allTypes == null || !allTypes.Any(x => x.FullName == fullName) => "Il2CppObject*",
+        _ when allTypes == null || !allTypes.Any(x => TypeLookup.Matches(x, fullName)) => "Il2CppObject*",
         _ => $"{Sanitize(fullName)}*",
     };
 
@@ -1276,7 +1276,7 @@ public static class TypeEmitter
     // t.VirtualMethods.Count entries. The vtable array lives in the type's
     // .cpp (single definition); the descriptor references it.
     //--------------------------------------------------------------------------
-    public static string EmitVTable(TypeDef t, IReadOnlyList<string> slotMethodNames)
+    public static string EmitVTable(TypeDef t, IReadOnlyList<string?> slotMethodNames)
     {
         var w = new CppWriter();
         w.Line($"// Virtual dispatch table for {t.FullName}: {t.VirtualMethods.Count} slot(s) in base-first order.");
@@ -1285,7 +1285,16 @@ public static class TypeEmitter
         for (var i = 0; i < t.VirtualMethods.Count; i++)
         {
             var m = t.VirtualMethods[i];
-            w.Line($"reinterpret_cast<void*>(&{slotMethodNames[i]}), // slot {i}: {m.Name}({m.ParamTypes}){(m.Owner == t ? "" : " (inherited from " + m.Owner.FullName + ")")}");
+            // An ABSTRACT slot has no generated function body (abstract methods
+            // have RVA=0 and are skipped at emission), so taking its address
+            // would reference an undefined symbol. The declaring type is
+            // abstract and can never be instantiated, so the slot is
+            // unreachable; nullptr keeps the table well-formed and the slot
+            // layout intact (a derived type replaces it with its override).
+            var entry = slotMethodNames[i] == null
+                ? "nullptr"
+                : $"reinterpret_cast<void*>(&{slotMethodNames[i]})";
+            w.Line($"{entry}, // slot {i}: {m.Name}({m.ParamTypes}){(m.Owner == t ? "" : " (inherited from " + m.Owner.FullName + ")")}");
         }
         w.Close();
         w.Line($"}};");

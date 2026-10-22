@@ -394,7 +394,7 @@ public static class MetadataLoader
     {
         foreach (var h in md.TypeDefinitions)
         {
-            if (md.GetFullName(h) != iface.FullName) continue;
+            if (!iface.MatchesFullName(md.GetFullName(h))) continue;
             List<CustomAttributeDef> attrs;
             try { attrs = ReadCustomAttributes(md, h); }
             catch (NotSupportedException) { return null; }

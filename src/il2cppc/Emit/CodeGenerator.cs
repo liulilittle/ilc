@@ -603,7 +603,7 @@ public static class CodeGenerator
         // string scans below -- newobj-only instantiations have no local kind).
         void EnsureClone(string gDef, string gSuffix, string[]? parts = null)
         {
-            var def = types.FirstOrDefault(x => x.FullName == gDef && x.InstantiationSuffix == null);
+            var def = types.FirstOrDefault(x => TypeLookup.Matches(x, gDef) && x.InstantiationSuffix == null);
             if (def == null) return;
             // R2b: the "int" instantiation IS the definition itself under the
             // M3 single-instantiation convention (TypeCppName default "_int");
@@ -836,7 +836,7 @@ public static class CodeGenerator
                             var gth = gsig.ReadTypeHandle();
                             if (gth.Kind != HandleKind.TypeDefinition) continue;
                             var gtd = md.GetTypeDefinition((TypeDefinitionHandle)gth);
-                            var gDef = types.FirstOrDefault(t => t.FullName == md.GetFullName((TypeDefinitionHandle)gth));
+                            var gDef = TypeLookup.Find(types, md.GetFullName((TypeDefinitionHandle)gth));
                             if (gDef == null || !gDef.IsValueType) continue;
                             _ = md.GetString(gtd.Name); // metadata sanity (name read)
                             GenericUsageAnalyzer.MethodSpecUserStructArgs ??= new HashSet<string>(StringComparer.Ordinal);
@@ -1356,7 +1356,13 @@ public static class CodeGenerator
                 var slotNames = t.VirtualMethods.Select(m =>
                     m.Owner.MatchesFullName("System.ValueType") && m.Name == "GetHashCode"
                         ? "il2cpp::runtime::icall_value_type_get_hash_code_of_ptr"
-                        : MethodCppName(m.Owner, m)).ToList();
+                        // ABSTRACT slot: abstract methods have no IL body (RVA=0)
+                        // and are skipped at emission, so there is no generated
+                        // symbol to take the address of. The declaring type is
+                        // abstract and can never be instantiated, so the slot is
+                        // unreachable; nullptr keeps the table linkable while a
+                        // derived type's override fills its own copy.
+                        : m.IsAbstract ? null : MethodCppName(m.Owner, m)).ToList();
                 w.Line(TypeEmitter.EmitVTable(t, slotNames));
                 generatedHeader.Line($"extern void* {cppName}_vtable[];");
             }
@@ -2795,7 +2801,7 @@ public static class CodeGenerator
                 {
                     var defName = gParts[0];
                     var suffix = gParts[1];
-                    var genericTypeDef = types.FirstOrDefault(t => t.FullName == defName);
+                    var genericTypeDef = TypeLookup.Find(types, defName);
                     if (genericTypeDef != null)
                     {
                         // R2b P2: a CLASS instantiation is a managed reference
@@ -2957,7 +2963,7 @@ public static class CodeGenerator
                 // root slot). These are UNCONDITIONAL whole-method roots (the
                 // struct is address-taken via ldloca; RootSlotPass liveness
                 // cannot track interior fields).
-                var vtTypeDef = types.FirstOrDefault(t => t.FullName == ilKind[2..]);
+                var vtTypeDef = TypeLookup.Find(types, ilKind[2..]);
                 if (vtTypeDef != null && vtTypeDef.InstanceFields.Any(f => f.TypeKind == FieldTypeKind.Reference))
                 {
                     // Nested structs (async state machines): declare with the
@@ -4157,7 +4163,7 @@ public static class CodeGenerator
                 // feeding stfld) is dereferenced first (stfld copies the
                 // value, not the pointer).
                 if (fa.RefTargetFullName == "System.Guid"
-                    || types.FirstOrDefault(x => x.FullName == fa.OwnerFullName)?.InstanceFields
+                    || TypeLookup.Find(types, fa.OwnerFullName)?.InstanceFields
                         .Any(f => f.TypeKind == FieldTypeKind.Guid && TypeEmitter.Sanitize(f.Name) == fa.FieldCppName) == true)
                 {
                     var guidVal = fa.Value is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
@@ -6353,10 +6359,14 @@ public static class CodeGenerator
         var byCpp = types.FirstOrDefault(t => t.InstantiationSuffix != null
             && TypeEmitter.TypeCppName(t) == TypeEmitter.Sanitize(name));
         if (byCpp != null) return byCpp;
+        // Nested types: metadata names them with the '+' form
+        // ("Cases.Outer+Inner") while TypeDef.FullName is the bare short name
+        // ("Inner") -- compare through the reflection key so a nested type (and
+        // a nested clone) is reachable from a metadata-produced name.
         var exact = types.FirstOrDefault(t => t.InstantiationSuffix != null
-            && t.FullName + "_" + t.InstantiationSuffix == name);
+            && TypeEmitter.ReflectionFullName(t) + "_" + t.InstantiationSuffix == name);
         if (exact != null) return exact;
-        var byName = types.FirstOrDefault(t => t.FullName == name);
+        var byName = TypeLookup.Find(types, name);
         if (byName != null) return byName;
         // F1 (R2b P2): a canonical generic-instance name resolves by its
         // ARGUMENT. A BASE type ("VirtBase`1<System.String>") must bind the
@@ -6386,21 +6396,23 @@ public static class CodeGenerator
             };
             if (suffix != null)
             {
-                var cloneHit = types.FirstOrDefault(t => t.FullName == gDef
+                var cloneHit = types.FirstOrDefault(t => TypeLookup.Matches(t, gDef)
                     && t.InstantiationSuffix == suffix);
                 if (cloneHit != null) return cloneHit;
             }
             else
             {
-                var classHit = types.FirstOrDefault(t => t.FullName == gDef
+                var classHit = types.FirstOrDefault(t => TypeLookup.Matches(t, gDef)
                     && t.InstantiationSuffix == "class");
                 if (classHit != null) return classHit;
             }
-            var gDefHit = types.FirstOrDefault(t => t.FullName == gDef);
+            var gDefHit = TypeLookup.Find(types, gDef);
             if (gDefHit != null) return gDefHit;
         }
         return types.FirstOrDefault(t => t.GenericArity > 0
-            && name.StartsWith(t.FullName + "_", StringComparison.Ordinal));
+            && (name.StartsWith(t.FullName + "_", StringComparison.Ordinal)
+                || (t.IsNested && t.DeclaringTypeName.Length > 0
+                    && name.StartsWith(t.DeclaringTypeName + "+" + t.Name + "_", StringComparison.Ordinal))));
     }
 
     private static string? TryDevirtualize(VirtualCallExpr v, TypeDef owner, string sig,
@@ -6643,7 +6655,7 @@ default: return false;                           // primitives/VAR(handled by ca
             ownerFullName = null;
         }
         return ownerFullName != null
-            && types.Any(t => t.FullName == ownerFullName
+            && types.Any(t => TypeLookup.Matches(t, ownerFullName)
                            || (t.GenericArity > 0 && ownerFullName.StartsWith(t.FullName + "_", StringComparison.Ordinal)));
     }
 
@@ -8351,7 +8363,7 @@ default: return false;                           // primitives/VAR(handled by ca
         // otherwise declare an int32_t slot and truncate the value.
         return ownerFullName is "System.DateTime" or "System.TimeSpan" or "System.Decimal" or "System.Guid"
             or "System.IntPtr" or "System.UIntPtr"
-            || types.Any(t => t.FullName == ownerFullName && t.IsValueType);
+            || TypeLookup.Find(types, ownerFullName) is { IsValueType: true };
     }
 
     // Value-type ctor token -> the declaring type's C++ name ("Calc.Point" -> Point).
@@ -8374,7 +8386,7 @@ default: return false;                           // primitives/VAR(handled by ca
                 _ => "?",
             };
         }
-        var t = types.FirstOrDefault(x => x.FullName == ownerFullName);
+        var t = TypeLookup.Find(types, ownerFullName);
         // M5 wiring: unknown owners (BCL value types like System.DateTime) go
         // through the CodeGenerator TypeCppName mapping -- System.DateTime ->
         // il2cpp::runtime::Il2CppDateTime, System.TimeSpan -> Il2CppTimeSpan.
@@ -8393,7 +8405,7 @@ default: return false;                           // primitives/VAR(handled by ca
         var handle = MetadataTokens.Handle(token);
         if (handle.Kind != HandleKind.MethodDefinition) return false;
         var ownerFullName = md.GetFullName(md.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType());
-        return types.Any(t => t.FullName == ownerFullName && t.IsValueType);
+        return TypeLookup.Find(types, ownerFullName) is { IsValueType: true };
     }
 
     // P/Invoke return type (M4: int32_t; M4.5: IntPtr/UIntPtr returns -> full-width pointer -- an
@@ -10276,7 +10288,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
 
     private static bool IsGuidField(FieldExpr f, IReadOnlyList<TypeDef> types)
     {
-        var owner = types.FirstOrDefault(x => x.FullName == f.OwnerFullName);
+        var owner = TypeLookup.Find(types, f.OwnerFullName);
         if (owner == null)
         {
             // A GENERIC INSTANCE owner ("Gen`1_int", the StackFold
@@ -11301,7 +11313,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // C++ name would be an unknown type -- the value stays Il2CppObject*.
     private static bool IsInterfaceType(string fullName, IReadOnlyList<TypeDef> types)
     {
-        return types.Any(x => x.FullName == fullName && x.IsInterface);
+        return types.Any(x => TypeLookup.Matches(x, fullName) && x.IsInterface);
     }
 
     // Known .NET base chains for BCL exceptions (compile-time knowledge; the
