@@ -189,7 +189,7 @@ public static class Normalize
 
     private static CallStmt StrengthReduceCallStmt(CallStmt c)
     {
-        var nc = new CallStmt { Function = c.Function, SourceOffset = c.SourceOffset, SourceOpName = c.SourceOpName, Resolved = c.Resolved };
+        var nc = new CallStmt { Function = c.Function, SourceOffset = c.SourceOffset, SourceOpName = c.SourceOpName, Resolved = c.Resolved, ThrowCtorParamTypes = c.ThrowCtorParamTypes };
         foreach (var a in c.Args) nc.Args.Add(StrengthReduce(a));
         return nc;
     }
@@ -313,7 +313,7 @@ public static class Normalize
     {
         // M5 wiring: preserve the fold-time resolution (receiver-type-aware;
         // the emitter cannot reproduce it from the token alone).
-        var nc = new CallStmt { Function = c.Function, SourceOffset = c.SourceOffset, SourceOpName = c.SourceOpName, Resolved = c.Resolved };
+        var nc = new CallStmt { Function = c.Function, SourceOffset = c.SourceOffset, SourceOpName = c.SourceOpName, Resolved = c.Resolved, ThrowCtorParamTypes = c.ThrowCtorParamTypes };
         foreach (var a in c.Args) nc.Args.Add(Rewrite(a, knownNonNull));
         return nc;
     }

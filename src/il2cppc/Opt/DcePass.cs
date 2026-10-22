@@ -547,6 +547,7 @@ public static class DcePass
         {
             Function = c.Function,
             Resolved = c.Resolved,
+            ThrowCtorParamTypes = c.ThrowCtorParamTypes,
             SourceOffset = c.SourceOffset,
             SourceOpName = c.SourceOpName,
         };

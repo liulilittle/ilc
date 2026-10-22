@@ -4436,7 +4436,7 @@ public static class CodeGenerator
                     // REAL message instead of the hardcoded "exception thrown".
                     var thrownType = c.Function[6..];
                     var chain = ExceptionChain(thrownType, types);
-                    w.LineAligned(EmitThrowCall(thrownType, chain, c.Args, md, types),
+                    w.LineAligned(EmitThrowCall(thrownType, chain, c.Args, md, types, c.ThrowCtorParamTypes),
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- throw a managed {thrownType} exception");
                     break;
                 }
@@ -5782,7 +5782,19 @@ public static class CodeGenerator
         // not by klass, so GetType()/Message never consult the klass).
         // Without the entry the fallback emits an undeclared
         // &System_Exception_class symbol.
-        "System.Exception" => "il2cpp_object_new(&System_Object_class)",
+        // ilistException: `new Exception("a")` -- the message rides the runtime
+        // side table keyed by object identity. excmsg: the object now carries
+        // the REAL System.Exception descriptor (metadata.cpp) so GetType()
+        // answers "Exception" like net48 (the plain-object allocation reported
+        // "Object").
+        "System.Exception" => "il2cpp_object_new(&System_Exception_class)",
+        // excmsg: the modelled exception hierarchy allocates through its REAL
+        // runtime descriptors (metadata.cpp) -- GetType().Name / isinst read
+        // obj->klass, and the message/paramName side table keys by identity.
+        "System.SystemException" => "il2cpp_object_new(&System_SystemException_class)",
+        "System.ArgumentException" => "il2cpp_object_new(&System_ArgumentException_class)",
+        "System.ArgumentNullException" => "il2cpp_object_new(&System_ArgumentNullException_class)",
+        "System.ArgumentOutOfRangeException" => "il2cpp_object_new(&System_ArgumentOutOfRangeException_class)",
         // GN-20 P1 (p-stacktrace): `new StackTrace()` -- the runtime has no
         // StackTrace object model (its frame content is the W7 live-stack
         // enumeration). Allocate as a plain object (the System.Exception
@@ -8806,6 +8818,14 @@ default: return false;                           // primitives/VAR(handled by ca
         // multicast class's baseClass walks up to it, so isinst passes for
         // both single-cast and combined delegates.
         "System.EventHandler" or "System.EventHandler`1" => "&System_Delegate_class",
+        // excmsg: the modelled exception hierarchy descriptors (metadata.cpp)
+        // -- isinst/castclass on a constructed exception instance must compare
+        // against the REAL klass the allocation stamps.
+        "System.SystemException" => "&System_SystemException_class",
+        "System.ArgumentException" => "&System_ArgumentException_class",
+        "System.ArgumentNullException" => "&System_ArgumentNullException_class",
+        "System.ArgumentOutOfRangeException" => "&System_ArgumentOutOfRangeException_class",
+        "System.Exception" => "&System_Exception_class",
         _ => $"&{TypeEmitter.Sanitize(typeName)}_class",
     };
 
@@ -11242,15 +11262,36 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // the previous "exception thrown" default.
     //--------------------------------------------------------------------------
     private static string EmitThrowCall(string thrownType, string chain, List<Expr> args,
-        MetadataReader md, IReadOnlyList<TypeDef> types)
+        MetadataReader md, IReadOnlyList<TypeDef> types, string? ctorParamTypes = null)
     {
-        if (thrownType == "System.ArgumentNullException" && args.Count >= 1)
-            return $"il2cpp::il2cpp_throw_argument_null_exception({EmitMessageArg(args[0], md, types)});";
-        if (thrownType == "System.ArgumentOutOfRangeException" && args.Count >= 2)
-            return $"il2cpp::il2cpp_throw_argument_out_of_range_exception({EmitMessageArg(args[0], md, types)}, {EmitMessageArg(args[1], md, types)});";
+        // excmsg: the Argument* family throws through ONE runtime entry that
+        // composes the net48 message (default/generic text + the parameter-name
+        // and actual-value lines) and records the ctor's ParamName for the
+        // catch variable. The overload SHAPE (which IL argument is the message,
+        // the paramName, the inner exception, the ActualValue) comes from the
+        // ctor's decoded parameter types -- the raw arg list cannot express it.
+        if (MethodRefResolver.IsArgExceptionType(thrownType)
+            && MethodRefResolver.TryArgExceptionCtorShape(thrownType, ctorParamTypes,
+                out var kind, out var msgArg, out var paramArg, out var innerArg, out var actualArg, out var hasText))
+        {
+            static string Slot(List<Expr> a, int idx, MetadataReader m, IReadOnlyList<TypeDef> t)
+                => idx >= 0 && idx < a.Count ? EmitObjectArg(a[idx], m, t) : "nullptr";
+            return $"il2cpp::runtime::il2cpp_throw_exception_ctor(\"{chain}\", {kind}, "
+                + $"{Slot(args, msgArg, md, types)}, {Slot(args, paramArg, md, types)}, "
+                + $"{Slot(args, actualArg, md, types)}, {(hasText ? 1 : 0)});";
+        }
         if (args.Count >= 1)
             return $"il2cpp::il2cpp_throw_new(\"{chain}\", {EmitMessageArg(args[^1], md, types)});";
         return $"il2cpp::il2cpp_throw_new(\"{chain}\", \"exception thrown\");";
+    }
+
+    // A managed reference argument (Il2CppString*/Il2CppObject* by layout): the
+    // runtime icalls take the object pointer directly, so only the C++ type
+    // needs the exact reinterpret (a null literal stays bare).
+    private static string EmitObjectArg(Expr arg, MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        if (arg is NullExpr) return "nullptr";
+        return NullSafePtrCast("Il2CppString*", EmitExpr(arg, md, types));
     }
 
     private static string EmitMessageArg(Expr arg, MetadataReader md, IReadOnlyList<TypeDef> types)

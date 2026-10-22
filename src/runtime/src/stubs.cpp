@@ -12,6 +12,8 @@
 #include "il2cpp_environment.h" // icall_environment_get_processor_count (ThreadPool alignment)
 #include "threadpool.h" // il2cpp_threadpool_get_thread_count (live worker count)
 #include "appdomain.h" // il2cpp_appdomain_singleton (get_default_domain adm1 fix)
+#include "il2cpp_value_semantics.h" // icall_object_to_string (ActualValue text)
+#include "il2cpp_pinvoke_ext.h" // il2cpp_pinvoke_string_to_utf8_alloc (throw path)
 
 #include <cstdint>
 #include <cstdlib>
@@ -53,7 +55,16 @@ void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)
 // are rare -- the e2e surface uses a handful).
 //------------------------------------------------------------------------------
 namespace {
-struct ExceptionMessageEntry { Il2CppObject* obj; Il2CppString* msg; Il2CppObject* inner; };
+struct ExceptionMessageEntry
+{
+    Il2CppObject* obj;
+    Il2CppString* msg;
+    Il2CppObject* inner;
+    // excmsg: the INSTANCE parameter name (null when the ctor supplied none or
+    // an empty one). Stored per object -- a constructed ArgumentException keeps
+    // its ParamName after unrelated throws (no thread-local leak).
+    Il2CppString* paramName;
+};
 constexpr int32_t kMaxExceptionMessages = 64;
 ExceptionMessageEntry g_exceptionMessages[kMaxExceptionMessages];
 int32_t g_exceptionMessageCount = 0;
@@ -74,6 +85,294 @@ ExceptionMessageEntry* FindExceptionEntry(Il2CppObject* obj)
     }
     return nullptr;
 }
+
+//------------------------------------------------------------------------------
+// excmsg: net48 Argument*Exception Message composition.
+//
+// .NET Framework 4.8 builds Message from up to three parts:
+//   <text> [CRLF "<param-name prefix>" <paramName>]
+//          [CRLF "<actual-value prefix>" <actual> "<period>"]
+// The <text> is the caller's message when it supplied one (an EMPTY string is
+// used verbatim -- probe a3: ArgumentException("","") -> ""), otherwise either
+// the type's DEFAULT resource text (the ctor takes no message at all) or the
+// GENERIC reflection text (the ctor HAS a message parameter that received
+// null). Both fallbacks are zh-CN host resources, byte-pinned by the net48
+// oracle probes (see the escape tables below).
+//
+// The parts are staged in NON-GC memory and committed with ONE managed
+// allocation, following concat.cpp's GC contract: every managed read happens
+// before the single allocation, so no intermediate managed value can be
+// collected while it is still needed.
+//------------------------------------------------------------------------------
+// The affixes as UTF-16 units (the composition works in the managed string
+// representation; the UTF-8 escapes above feed the string allocator).
+const char16_t kGenericPrefix16[] = u"\u5F15\u53D1\u7C7B\u578B\u4E3A\u201C";
+const char16_t kGenericSuffix16[] = u"\u201D\u7684\u5F02\u5E38\u3002";
+const char16_t kArgumentExceptionDefault16[] = u"\u503C\u4E0D\u5728\u9884\u671F\u7684\u8303\u56F4\u5185\u3002";
+const char16_t kArgumentNullDefault16[] = u"\u503C\u4E0D\u80FD\u4E3A null\u3002";
+const char16_t kArgumentOutOfRangeDefault16[] =
+    u"\u6307\u5B9A\u7684\u53C2\u6570\u5DF2\u8D85\u51FA\u6709\u6548\u503C\u7684\u8303\u56F4\u3002";
+const char16_t kParamNamePrefix16[] = u"\u53C2\u6570\u540D: ";
+const char16_t kActualValuePrefix16[] = u"\u5B9E\u9645\u503C\u662F ";
+const char16_t kPeriod16[] = u"\u3002";
+const char16_t kCrlf16[] = u"\r\n";
+
+// The same affixes in UTF-8 (the THROW path composes the carrier text, which
+// DotNetException holds as `const char*`). Both tables encode the identical
+// net48 zh-CN host resources; keep them in sync.
+const char* kGenericPrefixUtf8 =
+    "\xE5\xBC\x95\xE5\x8F\x91\xE7\xB1\xBB\xE5\x9E\x8B\xE4\xB8\xBA\xE2\x80\x9C";
+const char* kGenericSuffixUtf8 =
+    "\xE2\x80\x9D\xE7\x9A\x84\xE5\xBC\x82\xE5\xB8\xB8\xE3\x80\x82";
+const char* kArgumentExceptionDefaultUtf8 =
+    "\xE5\x80\xBC\xE4\xB8\x8D\xE5\x9C\xA8\xE9\xA2\x84\xE6\x9C\x9F\xE7\x9A\x84"
+    "\xE8\x8C\x83\xE5\x9B\xB4\xE5\x86\x85\xE3\x80\x82";
+const char* kArgumentNullDefaultUtf8 =
+    "\xE5\x80\xBC\xE4\xB8\x8D\xE8\x83\xBD\xE4\xB8\xBA\x20\x6E\x75\x6C\x6C\xE3\x80\x82";
+const char* kArgumentOutOfRangeDefaultUtf8 =
+    "\xE6\x8C\x87\xE5\xAE\x9A\xE7\x9A\x84\xE5\x8F\x82\xE6\x95\xB0\xE5\xB7\xB2\xE8\xB6\x85"
+    "\xE5\x87\xBA\xE6\x9C\x89\xE6\x95\x88\xE5\x80\xBC\xE7\x9A\x84\xE8\x8C\x83\xE5\x9B\xB4\xE3\x80\x82";
+const char* kParamNamePrefixUtf8 = "\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20";
+const char* kActualValuePrefixUtf8 = "\xE5\xAE\x9E\xE9\x99\x85\xE5\x80\xBC\xE6\x98\xAF\x20";
+const char* kPeriodUtf8 = "\xE3\x80\x82";
+
+// Cached fallback texts, created once per kind and rooted permanently. A
+// nullptr slot means "not created yet"; creating one allocates, so the
+// creation must happen BEFORE the managed values whose lifetime spans it.
+Il2CppString* g_defaultTexts[3] = {nullptr, nullptr, nullptr};
+Il2CppString* g_genericTexts[3] = {nullptr, nullptr, nullptr};
+
+const char* KindTypeName(int32_t kind)
+{
+    switch (kind)
+    {
+        case 1: return "System.ArgumentNullException";
+        case 2: return "System.ArgumentOutOfRangeException";
+        default: return "System.ArgumentException";
+    }
+}
+
+const char16_t* KindDefault16(int32_t kind)
+{
+    switch (kind)
+    {
+        case 1: return kArgumentNullDefault16;
+        case 2: return kArgumentOutOfRangeDefault16;
+        default: return kArgumentExceptionDefault16;
+    }
+}
+
+// "<prefix><type name><suffix>" -- the net48 reflection text used when a ctor
+// HAS a message parameter that received null.
+Il2CppString* BuildGenericText16(int32_t kind)
+{
+    const char* name = KindTypeName(kind);
+    char16_t buf[160];
+    size_t o = 0;
+    for (const char16_t* p = kGenericPrefix16; *p != 0 && o + 1 < 160; ++p) buf[o++] = *p;
+    for (const char* p = name; *p != '\0' && o + 1 < 160; ++p) buf[o++] = static_cast<char16_t>(*p);
+    for (const char16_t* p = kGenericSuffix16; *p != 0 && o + 1 < 160; ++p) buf[o++] = *p;
+    return il2cpp_string_new(buf, static_cast<int32_t>(o));
+}
+
+Il2CppString* DefaultTextFor16(int32_t kind)
+{
+    if (kind < 0 || kind > 2) kind = 0;
+    if (g_defaultTexts[kind] == nullptr)
+    {
+        const char16_t* text = KindDefault16(kind);
+        size_t n = 0;
+        while (text[n] != 0) ++n;
+        g_defaultTexts[kind] = il2cpp_string_new(text, static_cast<int32_t>(n));
+        il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_defaultTexts[kind]));
+    }
+    return g_defaultTexts[kind];
+}
+
+Il2CppString* GenericTextFor16(int32_t kind)
+{
+    if (kind < 0 || kind > 2) kind = 0;
+    if (g_genericTexts[kind] == nullptr)
+    {
+        g_genericTexts[kind] = BuildGenericText16(kind);
+        il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_genericTexts[kind]));
+    }
+    return g_genericTexts[kind];
+}
+
+// net48 Argument*Exception::Message composition:
+//   <text> [CRLF "<param-name prefix>" <paramName>]
+//          [CRLF "<actual-value prefix>" <actual> "<period>"]
+// hasText == 0  -> the ctor had NO message parameter: the type's DEFAULT text;
+// hasText != 0  -> the ctor's message argument (null -> the generic text).
+// An EMPTY paramName suppresses the parameter line (net48 IsNullOrEmpty) but
+// the stored ParamName stays "" -- see icall_exception_get_param_name.
+// A null ActualValue suppresses the actual-value line (probe x2).
+Il2CppString* ComposeMessage16(Il2CppString* text, Il2CppString* paramName,
+                               Il2CppObject* actual, int32_t kind, int32_t hasText)
+{
+    Il2CppString* base = (hasText != 0)
+        ? (text != nullptr ? text : GenericTextFor16(kind))
+        : DefaultTextFor16(kind);
+
+    // The actual-value text is obtained (and immediately staged below) BEFORE
+    // the single managed allocation of the result.
+    Il2CppString* actualText = nullptr;
+    if (actual != nullptr)
+    {
+        actualText = reinterpret_cast<Il2CppString*>(icall_object_to_string(actual));
+    }
+
+    const bool hasParam = paramName != nullptr && paramName->length > 0;
+    const bool hasActual = actual != nullptr;
+
+    size_t total = static_cast<size_t>(base != nullptr ? base->length : 0) + 16;
+    if (hasParam)
+    {
+        total += 2 + 5 + static_cast<size_t>(paramName->length);
+    }
+    if (hasActual)
+    {
+        total += 2 + 5 + (actualText != nullptr ? static_cast<size_t>(actualText->length) : 0) + 1;
+    }
+
+    char16_t* scratch = static_cast<char16_t*>(std::malloc(total * sizeof(char16_t)));
+    if (scratch == nullptr)
+    {
+        std::abort();
+    }
+    size_t o = 0;
+    auto append = [&scratch, &o](const char16_t* s, size_t n)
+    {
+        for (size_t i = 0; i < n; ++i) scratch[o++] = s[i];
+    };
+    if (base != nullptr)
+    {
+        append(base->chars, static_cast<size_t>(base->length));
+    }
+    if (hasParam)
+    {
+        append(kCrlf16, 2);
+        append(kParamNamePrefix16, 5);
+        append(paramName->chars, static_cast<size_t>(paramName->length));
+    }
+    if (hasActual)
+    {
+        append(kCrlf16, 2);
+        append(kActualValuePrefix16, 5);
+        if (actualText != nullptr)
+        {
+            append(actualText->chars, static_cast<size_t>(actualText->length));
+        }
+        append(kPeriod16, 1);
+    }
+    Il2CppString* result = il2cpp_string_new(scratch, static_cast<int32_t>(o));
+    std::free(scratch);
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// The THROW path (excmsg): `throw new ArgumentException(...)` carries its text
+// through the DotNetException carrier, which holds `const char*`. The parts are
+// composed into a heap buffer (DotNetException stores the pointer WITHOUT
+// copying, so the buffer must outlive the unwind -- exactly like the
+// il2cpp_pinvoke_string_to_utf8_alloc contract EmitThrowCall already uses for
+// runtime-string messages). This is the SAME composition as ComposeMessage16;
+// the two are kept side by side so a future edit cannot drift one from the
+// other silently.
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+char* ComposeMessageUtf8(Il2CppString* text, Il2CppString* paramName, Il2CppObject* actual,
+                         int32_t kind, int32_t hasText)
+{
+    // Resolve the BASE text first (it may allocate, so it must be settled
+    // before the single result buffer is sized).
+    char* ownedBase = nullptr; // heap copy of a caller-supplied message
+    char generic[192];
+    const char* base = nullptr;
+    if (hasText != 0)
+    {
+        if (text != nullptr)
+        {
+            ownedBase = il2cpp_pinvoke_string_to_utf8_alloc(text);
+            base = (ownedBase != nullptr) ? ownedBase : "";
+        }
+        else
+        {
+            // The generic reflection text for a null message argument.
+            const char* name = KindTypeName(kind);
+            size_t o = 0;
+            const char* parts[3] = {kGenericPrefixUtf8, name, kGenericSuffixUtf8};
+            for (int32_t i = 0; i < 3; ++i)
+            {
+                for (const char* p = parts[i]; *p != '\0' && o + 1 < sizeof(generic); ++p) generic[o++] = *p;
+            }
+            generic[o] = '\0';
+            base = generic;
+        }
+    }
+    else
+    {
+        // No message parameter in the ctor shape -> the type's default text.
+        switch (kind)
+        {
+            case 1: base = kArgumentNullDefaultUtf8; break;
+            case 2: base = kArgumentOutOfRangeDefaultUtf8; break;
+            default: base = kArgumentExceptionDefaultUtf8; break;
+        }
+    }
+
+    char* actualUtf8 = nullptr;
+    if (actual != nullptr)
+    {
+        Il2CppString* actualText = reinterpret_cast<Il2CppString*>(icall_object_to_string(actual));
+        if (actualText != nullptr)
+        {
+            actualUtf8 = il2cpp_pinvoke_string_to_utf8_alloc(actualText);
+        }
+    }
+    char* paramUtf8 = nullptr;
+    const bool hasParam = paramName != nullptr && paramName->length > 0;
+    if (hasParam)
+    {
+        paramUtf8 = il2cpp_pinvoke_string_to_utf8_alloc(paramName);
+    }
+    const bool hasActual = actual != nullptr;
+
+    size_t total = std::strlen(base) + 8;
+    if (hasParam) total += 2 + std::strlen(kParamNamePrefixUtf8) + (paramUtf8 != nullptr ? std::strlen(paramUtf8) : 0);
+    if (hasActual) total += 2 + std::strlen(kActualValuePrefixUtf8) + (actualUtf8 != nullptr ? std::strlen(actualUtf8) : 0) + std::strlen(kPeriodUtf8);
+
+    char* out = static_cast<char*>(std::malloc(total));
+    if (out == nullptr) std::abort();
+    size_t o = 0;
+    auto put = [&out, &o](const char* s)
+    {
+        while (*s != '\0') out[o++] = *s++;
+    };
+    put(base);
+    if (hasParam)
+    {
+        out[o++] = '\r';
+        out[o++] = '\n';
+        put(kParamNamePrefixUtf8);
+        if (paramUtf8 != nullptr) put(paramUtf8);
+    }
+    if (hasActual)
+    {
+        out[o++] = '\r';
+        out[o++] = '\n';
+        put(kActualValuePrefixUtf8);
+        if (actualUtf8 != nullptr) put(actualUtf8);
+        put(kPeriodUtf8);
+    }
+    out[o] = '\0';
+    std::free(paramUtf8);
+    std::free(actualUtf8);
+    std::free(ownedBase);
+    return out;
+}
+
 } // namespace
 void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* message, Il2CppObject* inner)
 {
@@ -84,6 +383,7 @@ void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* messag
         // from the original insert; overwriting the values is enough.
         e->msg = message;
         e->inner = inner;
+        e->paramName = nullptr;
         return;
     }
     if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
@@ -92,9 +392,11 @@ void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* messag
     slot.obj = self;
     slot.msg = message;
     slot.inner = inner;
+    slot.paramName = nullptr;
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.obj));
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.msg));
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.inner));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.paramName));
 }
 void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message)
 {
@@ -108,6 +410,102 @@ Il2CppString* icall_exception_get_message(Il2CppObject* obj)
         return e->msg;
     }
     return il2cpp_string_new(nullptr, 0); // no captured message -> empty string
+}
+
+//------------------------------------------------------------------------------
+// icall_exception_ctor_arg -- the Argument*Exception ctor (excmsg).
+//
+// The transpiler maps every net48 Argument* ctor shape to this ONE entry so the
+// managed object gets the net48 Message AND ParamName semantics:
+//   self     : the freshly allocated instance (System_Argument*_class);
+//   message  : the ctor's message argument (may be null);
+//   paramName: the ctor's parameter name (may be null; an EMPTY string is a
+//              real value -- net48 keeps ParamName == "" while suppressing the
+//              message line);
+//   inner    : the inner exception (may be null);
+//   actual   : ArgumentOutOfRangeException's ActualValue box (may be null);
+//   kind     : 0 ArgumentException, 1 ArgumentNullException,
+//              2 ArgumentOutOfRangeException;
+//   hasText  : 1 when the ctor shape HAS a message parameter (so a null message
+//              means the GENERIC reflection text), 0 when the shape has no
+//              message parameter at all (the type's DEFAULT text).
+// The composed message goes into the same side table get_Message reads; the
+// paramName is stored separately so get_ParamName answers the INSTANCE value.
+//------------------------------------------------------------------------------
+void icall_exception_ctor_arg(Il2CppObject* self, Il2CppString* message, Il2CppString* paramName,
+                              Il2CppObject* inner, Il2CppObject* actual, int32_t kind, int32_t hasText)
+{
+    Il2CppString* composed = ComposeMessage16(message, paramName, actual, kind, hasText);
+    ExceptionMessageEntry* e = FindExceptionEntry(self);
+    if (e != nullptr)
+    {
+        e->msg = composed;
+        e->inner = inner;
+        e->paramName = paramName;
+        return;
+    }
+    if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
+    const int32_t i = g_exceptionMessageCount++;
+    ExceptionMessageEntry& slot = g_exceptionMessages[i];
+    slot.obj = self;
+    slot.msg = composed;
+    slot.inner = inner;
+    slot.paramName = paramName;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.obj));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.msg));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.inner));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.paramName));
+}
+
+// get_ParamName on a CONSTRUCTED exception: the instance value stored by the
+// ctor (null when the ctor shape carried no parameter name). A receiver with no
+// side-table entry (e.g. an object built through a path that did not capture
+// one) falls back to the thread-local throw snapshot -- the catch-carrier
+// answer, which is the best available information there.
+Il2CppString* icall_exception_get_param_name(Il2CppObject* obj)
+{
+    ExceptionMessageEntry* e = FindExceptionEntry(obj);
+    if (e != nullptr)
+    {
+        return e->paramName;
+    }
+    return icall_exception_param_name_current();
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_throw_exception_ctor -- the `throw new Argument*Exception(...)` path.
+//
+// net48 semantics for the CATCH VARIABLE: the caught exception exposes the
+// ctor-composed Message and the ctor's ParamName. This entry composes the text
+// (ComposeMessageUtf8 -- the same rules as the constructed-instance icall) and
+// throws the carrier, recording the ParamName explicitly so the catch-carrier
+// read (icall_exception_param_name_current) answers the ctor value instead of
+// whatever a previous throw happened to leave in the thread-local snapshot.
+//------------------------------------------------------------------------------
+void il2cpp_throw_exception_ctor(const char* typeName, int32_t kind,
+                                 Il2CppString* message, Il2CppString* paramName,
+                                 Il2CppObject* actual, int32_t hasText)
+{
+    char* text = ComposeMessageUtf8(message, paramName, actual, kind, hasText);
+    // The ParamName snapshot: the ctor ARGUMENT decides. An absent argument
+    // (paramName == nullptr) clears the snapshot -- net48 ParamName is null
+    // there, and a stale value from an earlier throw would be a wrong answer.
+    char paramBuf[128];
+    int32_t present = 0;
+    if (paramName != nullptr)
+    {
+        char* pn = il2cpp_pinvoke_string_to_utf8_alloc(paramName);
+        if (pn != nullptr)
+        {
+            size_t n = std::strlen(pn);
+            if (n >= sizeof(paramBuf)) n = sizeof(paramBuf) - 1;
+            std::memcpy(paramBuf, pn, n);
+            paramBuf[n] = '\0';
+            present = 1;
+            std::free(pn);
+        }
+    }
+    il2cpp_throw_new_param_explicit(typeName, text, paramBuf, present);
 }
 
 // get_InnerException: the stored inner object (null when the chain has no
