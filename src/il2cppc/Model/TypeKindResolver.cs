@@ -123,6 +123,9 @@ public static class TypeKindResolver
             // are reference-type singletons).
             if (fieldName.StartsWith("System.Decimal.", StringComparison.Ordinal)) return "val";
             if (fieldName.StartsWith("System.DateTime.", StringComparison.Ordinal)) return "val";
+            // System.Guid.Empty is the shared 16-byte zero slot -- a "guid"
+            // value (Il2CppGuid), not a reference.
+            if (fieldName == "System.Guid.Empty") return "guid";
             return "ref";
         }
     }

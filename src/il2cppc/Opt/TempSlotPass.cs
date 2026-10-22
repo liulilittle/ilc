@@ -271,6 +271,10 @@ public static class TempSlotPass
         DelegateInvokeExpr d when d.ResultKind is "l" or "d" or "float" => d.ResultKind,
         DelegateInvokeExpr d when d.ReturnsRef => "ref",
         FieldExpr f when f.IsRefField => "ref",
+        // System.Guid.Empty is the shared 16-byte zero slot ("guid" -- the
+        // Il2CppGuid value struct); the metadata-free default would call it
+        // "val" and let it share an int32 slot.
+        StaticFieldExpr sf when sf.FieldName == "System.Guid.Empty" => "guid",
         LocExpr l when locKind.TryGetValue(l.Name, out var k) => k,
         _ => "val",
     };
