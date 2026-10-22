@@ -244,6 +244,23 @@ Il2CppObject* il2cpp_linq_to_list_i8(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_to_list_d(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_to_list_f(Il2CppArray* src);
 
+// p0linq4 (D1): ToList over the REMAINING value families. The listobj storage
+// is a reference array, so each element is BOXED on entry (see listobj.h):
+//   * _dec  decimal[]     -> icall_box_decimal (16-byte payload)
+//   * _dt   DateTime[]    -> the Int64 box carrying the CLR array image
+//                            (ticks + 2-bit kind), so the element equals the
+//                            managed DateTime[] cell
+//   * _ts   TimeSpan[]    -> the Int64 box carrying the ticks
+//   * _struct user struct[] -> icall_box_user_struct with the element type's
+//                            OWN descriptor (payloadSize = sizeof(T), the
+//                            transpiler passes it as a literal)
+// GC SAFETY is the same contract as the entries above.
+Il2CppObject* il2cpp_linq_to_list_dec(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_to_list_dt(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_to_list_ts(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_to_list_struct(Il2CppArray* src, Il2CppClass* klass,
+                                         int32_t payloadSize);
+
 //------------------------------------------------------------------------------
 // P0LINQ1 (D2) -- the SOURCE-ONLY decimal aggregates. net48 has
 // Sum/Min/Max/Average(this IEnumerable<decimal>) overloads; decimal is a
@@ -282,6 +299,21 @@ Il2CppArray* il2cpp_linq_select_i8_dec(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_d_dec(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_f_dec(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_dec(Il2CppArray* src, Il2CppObject* sel);
+
+// p0linq4 (D2): Select with an (element, index) selector returning decimal --
+// the Func<TSource,int,decimal> overload over an int32 source. Same 16-byte
+// result-slot contract; the selector is invoked EXACTLY ONCE per element with
+// the element AND its 0-based SOURCE index:
+//   Il2CppDecimal (*)(int32_t value, int32_t index)                     (static)
+//   Il2CppDecimal (*)(Il2CppObject* this, int32_t value, int32_t index) (bound)
+Il2CppArray* il2cpp_linq_select_idx_i4_dec(Il2CppArray* src, Il2CppObject* sel);
+
+// p0linq4 (D3): Select over a REFERENCE-element source returning decimal --
+// the ref -> decimal counterpart of il2cpp_linq_select_ref_ref. The element
+// crosses as Il2CppObject*:
+//   Il2CppDecimal (*)(Il2CppObject* elem)                            (static)
+//   Il2CppDecimal (*)(Il2CppObject* this, Il2CppObject* elem)        (bound)
+Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel);
 
 //------------------------------------------------------------------------------
 // LINQ GROUPING domain (D-LINQ-4) -- Enumerable.GroupBy, int32 family.

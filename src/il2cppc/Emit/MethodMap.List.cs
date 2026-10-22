@@ -1,5 +1,7 @@
 namespace Il2Cpp.Transpiler.Emit;
 
+using Il2Cpp.Transpiler.Model;
+
 //------------------------------------------------------------------------------
 // MethodMap.List -- System.Collections.Generic.List`1 (int32 AOT expansion)
 // icall mappings (il2cpp_list_i4_*, see src/runtime/include/internal/listi4.h).
@@ -112,6 +114,41 @@ public static partial class MethodRefResolver
         // BCL struct full names stay LOUD (no per-type box domain).
         var dottedElem = DottedRefArg(instTag);
         if (dottedElem != null) objReceiver = true;
+        // p0linq4 (D1): the BOXED value instantiations -- List<decimal> /
+        // List<DateTime> / List<TimeSpan> / List<user struct>. The listobj
+        // storage is a reference array, so every element is a BOX; the
+        // element-touching members dispatch to the listobj *_dec/_dt/_ts/
+        // _struct forwarders (listobj.h) while T-free members (Count / Clear /
+        // RemoveAt / Sort / GetEnumerator) reuse the shared listobj entries.
+        var decReceiver = instTag is "System.Collections.Generic.List`1_System.Decimal";
+        var dtReceiver = instTag is "System.Collections.Generic.List`1_System.DateTime";
+        var tsReceiver = instTag is "System.Collections.Generic.List`1_System.TimeSpan";
+        // A user STRUCT element: a dotted full name whose TypeDef is a value
+        // type in this assembly. Such an element rides the listobj reference
+        // domain only through the boxed *_struct arms below -- never the plain
+        // object ones (a raw struct value is not an Il2CppObject*). A user
+        // CLASS keeps the existing objReceiver path.
+        TypeDef? structDef = null;
+        if (dottedElem != null && TypeEmitter.SessionTypes is { } knownTypes)
+        {
+            structDef = knownTypes.FirstOrDefault(t => t.MatchesFullName(dottedElem)
+                && t.IsValueType && t.BaseTypeName != "System.Enum");
+        }
+        if (structDef != null) objReceiver = false;
+        // p0linq4 (D1): the concrete C++ name + box descriptor of a user-struct
+        // element. The struct must be laid out before sizeof({T}) is emitted.
+        string? structCpp = null;
+        if (structDef != null)
+        {
+            TypeEmitter.LayoutInstanceFields(structDef);
+            structCpp = TypeEmitter.TypeCppName(structDef);
+        }
+        // p0linq4 (D1): the runtime suffix of the BOXED value instantiations
+        // (listobj.h *_dec/_dt/_ts forwarders).
+        string? boxedKind = decReceiver ? "dec"
+            : dtReceiver ? "dt"
+            : tsReceiver ? "ts"
+            : null;
         ResolvedMethod Loud() => throw new NotSupportedException(
             $"List`1 member '{name}' is not the List<int32> AOT expansion (receiver '{receiverType ?? "<untracked>"}', ps [{BitConverter.ToString(ps)}]) -- only il2cpp_list_i4_* is wired");
 
@@ -125,6 +162,7 @@ public static partial class MethodRefResolver
                 // listobj domain.
                 if (count == 0)
                     return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
                         ? I("il2cpp::il2cpp_list_obj_create", 0, true, true, true, new[] { "drop" })
                         : i4Receiver
                             ? I("il2cpp::il2cpp_list_i4_create", 0, true, true, true, new[] { "drop" })
@@ -138,6 +176,7 @@ public static partial class MethodRefResolver
                 // contract -- Count is T-free).
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
                     ? I("il2cpp::il2cpp_list_obj_get_count", 0, true, false, true)
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_get_count", 0, true, false, true)
@@ -148,6 +187,7 @@ public static partial class MethodRefResolver
                 // element slots are cleared through write barriers there).
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
                     ? I("il2cpp::il2cpp_list_obj_clear", 0, false, false, true)
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_clear", 0, false, false, true)
@@ -162,6 +202,20 @@ public static partial class MethodRefResolver
                         return I("il2cpp::il2cpp_list_obj_add_double", 1, false, false, true, new[] { "", "d" });
                     if (longReceiver)
                         return I("il2cpp::il2cpp_list_obj_add_long", 1, false, false, true, new[] { "", "l" });
+                    // p0linq4 (D1): the BOXED value instantiations. The element
+                    // is a value slot of the runtime struct type (decimal:
+                    // "dec"; DateTime/TimeSpan: "dt"/"ts"), so the argument is
+                    // passed by address ("dec" / "deref:dt" / "deref:ts") or by
+                    // value respectively.
+                    if (decReceiver)
+                        return I("il2cpp::il2cpp_list_obj_add_dec", 1, false, false, true, new[] { "", "dec" });
+                    if (dtReceiver)
+                        return I("il2cpp::il2cpp_list_obj_add_dt", 1, false, false, true, new[] { "", "" });
+                    if (tsReceiver)
+                        return I("il2cpp::il2cpp_list_obj_add_ts", 1, false, false, true, new[] { "", "" });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_add_struct_t<{structCpp}>", 1, false, false, true,
+                            new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
                     var valKindAdd = ListValKind(instTag);
                     if (valKindAdd != null)
                         return I($"il2cpp::il2cpp_list_obj_add_{valKindAdd}", 1, false, false, true,
@@ -183,6 +237,24 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_list_obj_get_item_double", 1, true, false, true, new[] { "", "i" }, resultKind: "d");
                 if (longReceiver)
                     return I("il2cpp::il2cpp_list_obj_get_item_long", 1, true, false, true, new[] { "", "i" }, resultKind: "l");
+                // p0linq4 (D1): the BOXED value instantiations. decimal writes
+                // through an explicit result slot (ResultKind "dec" -- the
+                // emitter prepends (&target)); DateTime/TimeSpan return the
+                // runtime struct by value; a user struct returns a value of its
+                // own C++ type ("us:{CppName}").
+                if (decReceiver)
+                    return I("il2cpp::il2cpp_list_obj_get_item_dec", 1, true, false, true,
+                        new[] { "", "i" }, resultKind: "dec", returnTypeName: "System.Decimal");
+                if (dtReceiver)
+                    return I("il2cpp::il2cpp_list_obj_get_item_dt", 1, true, false, true,
+                        new[] { "", "i" }, resultKind: "dt", returnTypeName: "System.DateTime");
+                if (tsReceiver)
+                    return I("il2cpp::il2cpp_list_obj_get_item_ts", 1, true, false, true,
+                        new[] { "", "i" }, resultKind: "ts", returnTypeName: "System.TimeSpan");
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_get_item_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "i" }, resultKind: "us:" + structCpp,
+                        returnTypeName: structDef!.FullName);
                 var valKindGet = ListValKind(instTag);
                 if (valKindGet != null)
                     return valKindGet == "float"
@@ -205,6 +277,16 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_list_obj_set_item_double", 2, false, false, true, new[] { "", "i", "d" });
                 if (longReceiver)
                     return I("il2cpp::il2cpp_list_obj_set_item_long", 2, false, false, true, new[] { "", "i", "l" });
+                // p0linq4 (D1): boxed value instantiations (Add's value shapes).
+                if (decReceiver)
+                    return I("il2cpp::il2cpp_list_obj_set_item_dec", 2, false, false, true, new[] { "", "i", "dec" });
+                if (dtReceiver)
+                    return I("il2cpp::il2cpp_list_obj_set_item_dt", 2, false, false, true, new[] { "", "i", "" });
+                if (tsReceiver)
+                    return I("il2cpp::il2cpp_list_obj_set_item_ts", 2, false, false, true, new[] { "", "i", "" });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_set_item_struct_t<{structCpp}>", 2, false, false, true,
+                        new[] { "", "i", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
                 var valKindSet = ListValKind(instTag);
                 if (valKindSet != null)
                     return I($"il2cpp::il2cpp_list_obj_set_item_{valKindSet}", 2, false, false, true,
@@ -224,6 +306,15 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_list_obj_insert_double", 2, false, false, true, new[] { "", "i", "d" });
                 if (longReceiver)
                     return I("il2cpp::il2cpp_list_obj_insert_long", 2, false, false, true, new[] { "", "i", "l" });
+                if (decReceiver)
+                    return I("il2cpp::il2cpp_list_obj_insert_dec", 2, false, false, true, new[] { "", "i", "dec" });
+                if (dtReceiver)
+                    return I("il2cpp::il2cpp_list_obj_insert_dt", 2, false, false, true, new[] { "", "i", "" });
+                if (tsReceiver)
+                    return I("il2cpp::il2cpp_list_obj_insert_ts", 2, false, false, true, new[] { "", "i", "" });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_insert_struct_t<{structCpp}>", 2, false, false, true,
+                        new[] { "", "i", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
                 var valKindInsert = ListValKind(instTag);
                 if (valKindInsert != null)
                     return I($"il2cpp::il2cpp_list_obj_insert_{valKindInsert}", 2, false, false, true,
@@ -243,6 +334,15 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_list_obj_remove_double", 1, true, false, true, new[] { "", "d" });
                 if (longReceiver)
                     return I("il2cpp::il2cpp_list_obj_remove_long", 1, true, false, true, new[] { "", "l" });
+                if (decReceiver)
+                    return I("il2cpp::il2cpp_list_obj_remove_dec", 1, true, false, true, new[] { "", "dec" });
+                if (dtReceiver)
+                    return I("il2cpp::il2cpp_list_obj_remove_dt", 1, true, false, true, new[] { "", "" });
+                if (tsReceiver)
+                    return I("il2cpp::il2cpp_list_obj_remove_ts", 1, true, false, true, new[] { "", "" });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_remove_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
                 var valKindRemove = ListValKind(instTag);
                 if (valKindRemove != null)
                     return I($"il2cpp::il2cpp_list_obj_remove_{valKindRemove}", 1, true, false, true,
@@ -266,6 +366,17 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_list_obj_to_array_double", 0, true, true, true, returnTypeName: "System.Double[]");
                 if (longReceiver)
                     return I("il2cpp::il2cpp_list_obj_to_array_long", 0, true, true, true, returnTypeName: "System.Int64[]");
+                // p0linq4 (D1): boxed value instantiations -- ToArray unboxes
+                // each element into the typed value array.
+                if (decReceiver)
+                    return I("il2cpp::il2cpp_list_obj_to_array_dec", 0, true, true, true, returnTypeName: "System.Decimal[]");
+                if (dtReceiver)
+                    return I("il2cpp::il2cpp_list_obj_to_array_dt", 0, true, true, true, returnTypeName: "System.DateTime[]");
+                if (tsReceiver)
+                    return I("il2cpp::il2cpp_list_obj_to_array_ts", 0, true, true, true, returnTypeName: "System.TimeSpan[]");
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_to_array_struct_t<{structCpp}>", 0, true, true, true,
+                        returnTypeName: structDef!.FullName + "[]");
                 var valKindToArray = ListValKind(instTag);
                 if (valKindToArray != null)
                     return I($"il2cpp::il2cpp_list_obj_to_array_{valKindToArray}", 0, true, true, true,
@@ -280,6 +391,7 @@ public static partial class MethodRefResolver
                 // plain int32 on both domains.
                 if (count != 1 || ps.Length != 1 || ps[0] != 0x08) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
                     ? I("il2cpp::il2cpp_list_obj_remove_at", 1, false, false, true, new[] { "", "i" })
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_remove_at", 1, false, false, true, new[] { "", "i" })
@@ -292,6 +404,15 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_list_obj_index_of_double", 1, true, false, true, new[] { "", "d" });
                 if (longReceiver)
                     return I("il2cpp::il2cpp_list_obj_index_of_long", 1, true, false, true, new[] { "", "l" });
+                if (decReceiver)
+                    return I("il2cpp::il2cpp_list_obj_index_of_dec", 1, true, false, true, new[] { "", "dec" });
+                if (dtReceiver)
+                    return I("il2cpp::il2cpp_list_obj_index_of_dt", 1, true, false, true, new[] { "", "" });
+                if (tsReceiver)
+                    return I("il2cpp::il2cpp_list_obj_index_of_ts", 1, true, false, true, new[] { "", "" });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_index_of_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
                 var valKindIndexOf = ListValKind(instTag);
                 if (valKindIndexOf != null)
                     return I($"il2cpp::il2cpp_list_obj_index_of_{valKindIndexOf}", 1, true, false, true,
@@ -308,6 +429,15 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_list_obj_contains_double", 1, true, false, true, new[] { "", "d" });
                 if (longReceiver)
                     return I("il2cpp::il2cpp_list_obj_contains_long", 1, true, false, true, new[] { "", "l" });
+                if (decReceiver)
+                    return I("il2cpp::il2cpp_list_obj_contains_dec", 1, true, false, true, new[] { "", "dec" });
+                if (dtReceiver)
+                    return I("il2cpp::il2cpp_list_obj_contains_dt", 1, true, false, true, new[] { "", "" });
+                if (tsReceiver)
+                    return I("il2cpp::il2cpp_list_obj_contains_ts", 1, true, false, true, new[] { "", "" });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_contains_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
                 var valKindContains = ListValKind(instTag);
                 if (valKindContains != null)
                     return I($"il2cpp::il2cpp_list_obj_contains_{valKindContains}", 1, true, false, true,
@@ -329,6 +459,7 @@ public static partial class MethodRefResolver
                 // listobj enumerator icalls.
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
                     ? I("il2cpp::il2cpp_list_obj_get_enumerator", 0, true, true, true,
                         returnTypeName: ListEnumeratorTrackedType(instTag))
                     : i4Receiver
@@ -342,6 +473,7 @@ public static partial class MethodRefResolver
                 // numeric listi4 sort).
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
                     ? I("il2cpp::il2cpp_list_obj_sort", 0, false, false, true)
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_sort", 0, false, false, true)
@@ -426,8 +558,32 @@ public static partial class MethodRefResolver
         "System.Collections.Generic.List`1_short" => "System.Collections.Generic.List`1.Enumerator_short",
         "System.Collections.Generic.List`1_ushort" => "System.Collections.Generic.List`1.Enumerator_ushort",
         "System.Collections.Generic.List`1_uint" => "System.Collections.Generic.List`1.Enumerator_uint",
-        _ => null,
+        // p0linq4 (D1): the BOXED value instantiations track their element
+        // form verbatim ("System.Decimal" / "System.DateTime" / "System.TimeSpan"
+        // / a user-struct full name); TryMapListEnumerator dispatches on it.
+        // A dotted USER CLASS keeps the historical null (the object-element
+        // enumerator arms already cover it through ListObjElementTypeName).
+        "System.Collections.Generic.List`1_System.Decimal"
+            => "System.Collections.Generic.List`1.Enumerator_System.Decimal",
+        "System.Collections.Generic.List`1_System.DateTime"
+            => "System.Collections.Generic.List`1.Enumerator_System.DateTime",
+        "System.Collections.Generic.List`1_System.TimeSpan"
+            => "System.Collections.Generic.List`1.Enumerator_System.TimeSpan",
+        _ => ListStructEnumeratorTrackedType(instTag),
     };
+
+    // p0linq4 (D1): the enumerator pseudo-type for a List<user struct>
+    // instantiation -- the element full name is carried verbatim so the
+    // enumerator dispatch can resolve the struct's C++ type.
+    private static string? ListStructEnumeratorTrackedType(string? instTag)
+    {
+        if (instTag == null || TypeEmitter.SessionTypes is not { } knownTypes) return null;
+        var dotted = DottedRefArg(instTag);
+        if (dotted == null) return null;
+        var def = knownTypes.FirstOrDefault(t => t.MatchesFullName(dotted)
+            && t.IsValueType && t.BaseTypeName != "System.Enum");
+        return def == null ? null : "System.Collections.Generic.List`1.Enumerator_" + dotted;
+    }
 
     //--------------------------------------------------------------------------
     // TryMapListInterface -- ilistException: the GENERIC list interface owners

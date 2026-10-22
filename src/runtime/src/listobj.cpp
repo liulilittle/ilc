@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 namespace il2cpp {
 namespace {
@@ -191,5 +192,68 @@ bool il2cpp_list_obj_remove_float(Il2CppObject* self,double v){ ThrowIfNull(self
 double il2cpp_list_obj_get_item_float(Il2CppObject* self,int32_t idx){ return runtime::icall_unbox_float(il2cpp_list_obj_get_item(self,idx)); }
 double il2cpp_list_obj_enumerator_get_current_float(Il2CppObject* self){ return runtime::icall_unbox_float(il2cpp_list_obj_enumerator_get_current(self)); }
 Il2CppObject* il2cpp_list_obj_to_array_float(Il2CppObject* self){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppListObj* l=AsList(self); Il2CppArray* r=il2cpp_array_new_typed(sizeof(float),3,l->count); rs.Add(reinterpret_cast<void**>(&r)); l=AsList(self); float* dst=reinterpret_cast<float*>(r->data); Il2CppObject** src=l->items?Slots(l):nullptr; for(int32_t i=0;i<l->count;++i) dst[i]=src?static_cast<float>(runtime::icall_unbox_float(src[i])):0.0f; return reinterpret_cast<Il2CppObject*>(r); }
+
+//------------------------------------------------------------------------------
+// p0linq4 (D1) -- decimal / DateTime / TimeSpan / user-struct elements.
+//
+// The storage domain is the SHARED listobj reference array, so a 16-byte
+// decimal (and every other value element) crosses the boundary as a BOX:
+//   * decimal  -> icall_box_decimal / icall_unbox_decimal (System.Decimal box,
+//                 16-byte payload at offset 8);
+//   * DateTime -> the Int64 box carrying the CLR ARRAY image
+//                 (il2cpp_datetime_to_array_bits: ticks + 2-bit kind), so a
+//                 List<DateTime> element observes exactly the value a managed
+//                 DateTime[] cell holds;
+//   * TimeSpan -> the Int64 box carrying the raw ticks;
+//   * user struct -> icall_box_user_struct with the struct's OWN generated
+//                 descriptor (a byte-exact payload copy).
+// The element getters mirror the runtime's value-return contracts: decimal
+// writes through an explicit RESULT SLOT (16 bytes cannot ride a register),
+// DateTime/TimeSpan return the runtime struct BY VALUE, and the user-struct
+// getter returns the box PAYLOAD ADDRESS (the caller copies it out --
+// il2cpp_unbox_user_struct contract).
+//
+// GC SAFETY: identical to the families above -- 'self' is rooted across the
+// boxing allocation, and every read re-derives the slot from the rooted list.
+//------------------------------------------------------------------------------
+void il2cpp_list_obj_add_dec(Il2CppObject* self, const runtime::Il2CppDecimal* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_decimal(v); il2cpp_list_obj_add(self,b); }
+void il2cpp_list_obj_insert_dec(Il2CppObject* self,int32_t idx,const runtime::Il2CppDecimal* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_decimal(v); il2cpp_list_obj_insert(self,idx,b); }
+void il2cpp_list_obj_set_item_dec(Il2CppObject* self,int32_t idx,const runtime::Il2CppDecimal* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_decimal(v); il2cpp_list_obj_set_item(self,idx,b); }
+int32_t il2cpp_list_obj_index_of_dec(Il2CppObject* self,const runtime::Il2CppDecimal* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_decimal(v); return il2cpp_list_obj_index_of(self,b); }
+bool il2cpp_list_obj_contains_dec(Il2CppObject* self,const runtime::Il2CppDecimal* v){ return il2cpp_list_obj_index_of_dec(self,v)>=0; }
+bool il2cpp_list_obj_remove_dec(Il2CppObject* self,const runtime::Il2CppDecimal* v){ ThrowIfNull(self); int32_t idx=il2cpp_list_obj_index_of_dec(self,v); if(idx<0) return false; il2cpp_list_obj_remove_at(self,idx); return true; }
+void il2cpp_list_obj_get_item_dec(runtime::Il2CppDecimal* result,Il2CppObject* self,int32_t idx){ *result = runtime::icall_unbox_decimal(il2cpp_list_obj_get_item(self,idx)); }
+void il2cpp_list_obj_enumerator_get_current_dec(runtime::Il2CppDecimal* result,Il2CppObject* self){ *result = runtime::icall_unbox_decimal(il2cpp_list_obj_enumerator_get_current(self)); }
+Il2CppObject* il2cpp_list_obj_to_array_dec(Il2CppObject* self){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppListObj* l=AsList(self); Il2CppArray* r=il2cpp_array_new(nullptr,sizeof(runtime::Il2CppDecimal),false,l->count); rs.Add(reinterpret_cast<void**>(&r)); l=AsList(self); char* dst=reinterpret_cast<char*>(r->data); Il2CppObject** src=l->items?Slots(l):nullptr; for(int32_t i=0;i<l->count;++i){ const runtime::Il2CppDecimal v=src?runtime::icall_unbox_decimal(src[i]):runtime::Il2CppDecimal(); std::memcpy(dst+static_cast<size_t>(i)*sizeof(runtime::Il2CppDecimal),&v,sizeof(runtime::Il2CppDecimal)); } return reinterpret_cast<Il2CppObject*>(r); }
+
+void il2cpp_list_obj_add_dt(Il2CppObject* self, runtime::Il2CppDateTime v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(runtime::il2cpp_datetime_to_array_bits(v)); il2cpp_list_obj_add(self,b); }
+void il2cpp_list_obj_insert_dt(Il2CppObject* self,int32_t idx,runtime::Il2CppDateTime v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(runtime::il2cpp_datetime_to_array_bits(v)); il2cpp_list_obj_insert(self,idx,b); }
+void il2cpp_list_obj_set_item_dt(Il2CppObject* self,int32_t idx,runtime::Il2CppDateTime v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(runtime::il2cpp_datetime_to_array_bits(v)); il2cpp_list_obj_set_item(self,idx,b); }
+int32_t il2cpp_list_obj_index_of_dt(Il2CppObject* self,runtime::Il2CppDateTime v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(runtime::il2cpp_datetime_to_array_bits(v)); return il2cpp_list_obj_index_of(self,b); }
+bool il2cpp_list_obj_contains_dt(Il2CppObject* self,runtime::Il2CppDateTime v){ return il2cpp_list_obj_index_of_dt(self,v)>=0; }
+bool il2cpp_list_obj_remove_dt(Il2CppObject* self,runtime::Il2CppDateTime v){ ThrowIfNull(self); int32_t idx=il2cpp_list_obj_index_of_dt(self,v); if(idx<0) return false; il2cpp_list_obj_remove_at(self,idx); return true; }
+runtime::Il2CppDateTime il2cpp_list_obj_get_item_dt(Il2CppObject* self,int32_t idx){ return runtime::il2cpp_datetime_from_array_bits(runtime::icall_unbox_long(il2cpp_list_obj_get_item(self,idx))); }
+runtime::Il2CppDateTime il2cpp_list_obj_enumerator_get_current_dt(Il2CppObject* self){ return runtime::il2cpp_datetime_from_array_bits(runtime::icall_unbox_long(il2cpp_list_obj_enumerator_get_current(self))); }
+Il2CppObject* il2cpp_list_obj_to_array_dt(Il2CppObject* self){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppListObj* l=AsList(self); Il2CppArray* r=il2cpp_array_new_typed(sizeof(int64_t),kElemKindDateTime,l->count); rs.Add(reinterpret_cast<void**>(&r)); l=AsList(self); int64_t* dst=reinterpret_cast<int64_t*>(r->data); Il2CppObject** src=l->items?Slots(l):nullptr; for(int32_t i=0;i<l->count;++i) dst[i]=src?runtime::icall_unbox_long(src[i]):0; return reinterpret_cast<Il2CppObject*>(r); }
+
+void il2cpp_list_obj_add_ts(Il2CppObject* self, runtime::Il2CppTimeSpan v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(v.ticks); il2cpp_list_obj_add(self,b); }
+void il2cpp_list_obj_insert_ts(Il2CppObject* self,int32_t idx,runtime::Il2CppTimeSpan v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(v.ticks); il2cpp_list_obj_insert(self,idx,b); }
+void il2cpp_list_obj_set_item_ts(Il2CppObject* self,int32_t idx,runtime::Il2CppTimeSpan v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(v.ticks); il2cpp_list_obj_set_item(self,idx,b); }
+int32_t il2cpp_list_obj_index_of_ts(Il2CppObject* self,runtime::Il2CppTimeSpan v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(v.ticks); return il2cpp_list_obj_index_of(self,b); }
+bool il2cpp_list_obj_contains_ts(Il2CppObject* self,runtime::Il2CppTimeSpan v){ return il2cpp_list_obj_index_of_ts(self,v)>=0; }
+bool il2cpp_list_obj_remove_ts(Il2CppObject* self,runtime::Il2CppTimeSpan v){ ThrowIfNull(self); int32_t idx=il2cpp_list_obj_index_of_ts(self,v); if(idx<0) return false; il2cpp_list_obj_remove_at(self,idx); return true; }
+runtime::Il2CppTimeSpan il2cpp_list_obj_get_item_ts(Il2CppObject* self,int32_t idx){ return runtime::Il2CppTimeSpan(runtime::icall_unbox_long(il2cpp_list_obj_get_item(self,idx))); }
+runtime::Il2CppTimeSpan il2cpp_list_obj_enumerator_get_current_ts(Il2CppObject* self){ return runtime::Il2CppTimeSpan(runtime::icall_unbox_long(il2cpp_list_obj_enumerator_get_current(self))); }
+Il2CppObject* il2cpp_list_obj_to_array_ts(Il2CppObject* self){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppListObj* l=AsList(self); Il2CppArray* r=il2cpp_array_new_typed(sizeof(int64_t),kElemKindTimeSpan,l->count); rs.Add(reinterpret_cast<void**>(&r)); l=AsList(self); int64_t* dst=reinterpret_cast<int64_t*>(r->data); Il2CppObject** src=l->items?Slots(l):nullptr; for(int32_t i=0;i<l->count;++i) dst[i]=src?runtime::icall_unbox_long(src[i]):0; return reinterpret_cast<Il2CppObject*>(r); }
+
+void il2cpp_list_obj_add_struct(Il2CppObject* self, const void* v, Il2CppClass* klass, int32_t payloadSize){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_user_struct(klass,v,static_cast<size_t>(payloadSize)); il2cpp_list_obj_add(self,b); }
+void il2cpp_list_obj_insert_struct(Il2CppObject* self,int32_t idx,const void* v,Il2CppClass* klass,int32_t payloadSize){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_user_struct(klass,v,static_cast<size_t>(payloadSize)); il2cpp_list_obj_insert(self,idx,b); }
+void il2cpp_list_obj_set_item_struct(Il2CppObject* self,int32_t idx,const void* v,Il2CppClass* klass,int32_t payloadSize){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_user_struct(klass,v,static_cast<size_t>(payloadSize)); il2cpp_list_obj_set_item(self,idx,b); }
+int32_t il2cpp_list_obj_index_of_struct(Il2CppObject* self,const void* v,Il2CppClass* klass,int32_t payloadSize){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_user_struct(klass,v,static_cast<size_t>(payloadSize)); return il2cpp_list_obj_index_of(self,b); }
+bool il2cpp_list_obj_contains_struct(Il2CppObject* self,const void* v,Il2CppClass* klass,int32_t payloadSize){ return il2cpp_list_obj_index_of_struct(self,v,klass,payloadSize)>=0; }
+bool il2cpp_list_obj_remove_struct(Il2CppObject* self,const void* v,Il2CppClass* klass,int32_t payloadSize){ ThrowIfNull(self); int32_t idx=il2cpp_list_obj_index_of_struct(self,v,klass,payloadSize); if(idx<0) return false; il2cpp_list_obj_remove_at(self,idx); return true; }
+void il2cpp_list_obj_get_item_struct(void* result,Il2CppObject* self,int32_t idx,int32_t payloadSize){ const void* p=runtime::il2cpp_unbox_user_struct(il2cpp_list_obj_get_item(self,idx)); std::memcpy(result,p,static_cast<size_t>(payloadSize)); }
+void il2cpp_list_obj_enumerator_get_current_struct(void* result,Il2CppObject* self,int32_t payloadSize){ const void* p=runtime::il2cpp_unbox_user_struct(il2cpp_list_obj_enumerator_get_current(self)); std::memcpy(result,p,static_cast<size_t>(payloadSize)); }
+Il2CppObject* il2cpp_list_obj_to_array_struct(Il2CppObject* self,int32_t elemSize){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppListObj* l=AsList(self); Il2CppArray* r=il2cpp_array_new(nullptr,elemSize,false,l->count); rs.Add(reinterpret_cast<void**>(&r)); l=AsList(self); char* dst=reinterpret_cast<char*>(r->data); Il2CppObject** src=l->items?Slots(l):nullptr; for(int32_t i=0;i<l->count;++i){ if(src){ const void* p=runtime::il2cpp_unbox_user_struct(src[i]); std::memcpy(dst+static_cast<size_t>(i)*static_cast<size_t>(elemSize),p,static_cast<size_t>(elemSize)); } else { std::memset(dst+static_cast<size_t>(i)*static_cast<size_t>(elemSize),0,static_cast<size_t>(elemSize)); } } return reinterpret_cast<Il2CppObject*>(r); }
 bool il2cpp_is_list_obj(Il2CppObject* obj){ return obj != nullptr && obj->klass == &g_listObjClass; }
 } // namespace il2cpp

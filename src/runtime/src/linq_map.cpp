@@ -1442,6 +1442,110 @@ Il2CppObject* il2cpp_linq_to_list_f(Il2CppArray* src)
 }
 
 //------------------------------------------------------------------------------
+// p0linq4 (D1) -- ToList over the remaining value families.
+//
+// Same discipline as the entries above: the source and the growing list are
+// rooted across every add (each add may grow the items array, i.e. ALLOCATE,
+// and a compaction can move both), and the element is read through the rooted
+// source before the add.
+//
+// The listobj storage is a reference array, so the element crosses as a BOX:
+// decimal through icall_box_decimal (16-byte payload), DateTime/TimeSpan
+// through the Int64 box carrying the SAME image a managed array cell holds,
+// and a user struct through icall_box_user_struct with its own descriptor.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_to_list_dec(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        runtime::Il2CppDecimal elem;
+        std::memcpy(&elem, il2cpp_array_get_elem_ptr(src, i), sizeof(elem));
+        il2cpp_list_obj_add_dec(list, &elem);
+    }
+    return list;
+}
+
+Il2CppObject* il2cpp_linq_to_list_dt(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireI8Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t bits = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        il2cpp_list_obj_add_dt(list, runtime::il2cpp_datetime_from_array_bits(bits));
+    }
+    return list;
+}
+
+Il2CppObject* il2cpp_linq_to_list_ts(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireI8Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t ticks = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        il2cpp_list_obj_add_ts(list, runtime::Il2CppTimeSpan(ticks));
+    }
+    return list;
+}
+
+Il2CppObject* il2cpp_linq_to_list_struct(Il2CppArray* src, Il2CppClass* klass,
+                                         int32_t payloadSize)
+{
+    RequireArray(src);
+    if (src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "ToList over a user value type needs a value-element source array.");
+    }
+    if (klass == nullptr || payloadSize <= 0)
+    {
+        il2cpp_throw_argument_null_exception("klass");
+    }
+    if (src->elemSize != payloadSize)
+    {
+        il2cpp_throw_not_supported_exception(
+            "ToList over a user value type: the source element stride does not match the struct size.");
+    }
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const void* elem = il2cpp_array_get_elem_ptr(src, i);
+        il2cpp_list_obj_add_struct(list, elem, klass, static_cast<size_t>(payloadSize));
+    }
+    return list;
+}
+
+//------------------------------------------------------------------------------
 // P0LINQ1 (D2) -- the SOURCE-ONLY decimal aggregates.
 //
 // decimal is a 16-byte value type (decimal.h), so every cell is read as the
@@ -1682,6 +1786,100 @@ Il2CppArray* il2cpp_linq_select_f_dec(Il2CppArray* src, Il2CppObject* sel)
 Il2CppArray* il2cpp_linq_select_dec_dec(Il2CppArray* src, Il2CppObject* sel)
 {
     return SelectToDecimal(src, sel, 4);
+}
+
+//------------------------------------------------------------------------------
+// p0linq4 (D2) -- Select with an (element, index) selector returning decimal.
+//
+// Same 16-byte-cell result array and the same BY-VALUE decimal return ABI as
+// SelectToDecimal (the generated decimal-returning method returns the struct
+// by value), with the element's 0-based SOURCE index as the second argument:
+//   Il2CppDecimal (*)(int32_t value, int32_t index)
+//   Il2CppDecimal (*)(Il2CppObject* self, int32_t value, int32_t index)
+//
+// GC SAFETY: identical to SelectToDecimal -- the delegate and the source and
+// result arrays are rooted; the result cell address is computed AFTER the
+// callback returns (never cached across it).
+//------------------------------------------------------------------------------
+namespace {
+
+typedef runtime::Il2CppDecimal (*SelIdxToDecFn)(int32_t v, int32_t index);
+typedef runtime::Il2CppDecimal (*SelIdxToDecThisFn)(Il2CppObject* self, int32_t v,
+                                                    int32_t index);
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_select_idx_i4_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const runtime::Il2CppDecimal slot = d->target != nullptr
+            ? reinterpret_cast<SelIdxToDecThisFn>(d->methodPtr)(d->target, v, i)
+            : reinterpret_cast<SelIdxToDecFn>(d->methodPtr)(v, i);
+        // The slot address is derived from the ROOTED result array only AFTER
+        // the callback returned (a compaction inside the callback can move it).
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot,
+                    sizeof(runtime::Il2CppDecimal));
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// p0linq4 (D3) -- Select over a REFERENCE source returning decimal.
+//
+// The element crosses as Il2CppObject* (the ref-family ABI), the result is a
+// 16-byte decimal cell written through the rooted result array:
+//   Il2CppDecimal (*)(Il2CppObject* elem)
+//   Il2CppDecimal (*)(Il2CppObject* self, Il2CppObject* elem)
+//
+// GC SAFETY: the delegate, the source and the result array are rooted; the
+// element is read through the rooted source each iteration, and the result
+// cell address is computed only after the callback returns.
+//------------------------------------------------------------------------------
+namespace {
+
+typedef runtime::Il2CppDecimal (*SelRefToDecFn)(Il2CppObject* elem);
+typedef runtime::Il2CppDecimal (*SelRefToDecThisFn)(Il2CppObject* self, Il2CppObject* elem);
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        const runtime::Il2CppDecimal slot = d->target != nullptr
+            ? reinterpret_cast<SelRefToDecThisFn>(d->methodPtr)(d->target, elem)
+            : reinterpret_cast<SelRefToDecFn>(d->methodPtr)(elem);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot,
+                    sizeof(runtime::Il2CppDecimal));
+    }
+    return out;
 }
 
 //------------------------------------------------------------------------------

@@ -418,13 +418,21 @@ public static partial class MethodRefResolver
                             "source is not wired: the runtime has no il2cpp_linq_select_idx_ref_* entry");
                     if (genArgs is not { Length: >= 2 })
                         return null;
+                    // p0linq4 (D3): a DECIMAL result over a reference source --
+                    // the ref -> decimal kernel (il2cpp_linq_select_ref_dec).
+                    // The 0x11 byte covers every value type, so the decoded
+                    // MethodSpec FULL NAME is the only authority for decimal.
+                    if (genArgs[1] == 0x11 && IsDecimalGenArg(genArgNames, 1))
+                        return I("il2cpp::il2cpp_linq_select_ref_dec", 2, true, true, false, TwoArg,
+                            returnTypeName: "System.Decimal[]");
                     if (!IsRefFamilyByte(genArgs[1]))
                     {
                         throw new NotSupportedException(
                             $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                             "not wired: the runtime reference-source select surface is ref -> ref " +
-                            "(il2cpp_linq_select_ref_ref); the decimal-result entries cover the " +
-                            "int32/int64/double/float/decimal SOURCE families " +
+                            "(il2cpp_linq_select_ref_ref) and ref -> decimal " +
+                            "(il2cpp_linq_select_ref_dec); the decimal-result entries over a VALUE source " +
+                            "cover the int32/int64/double/float/decimal SOURCE families " +
                             "(il2cpp_linq_select_i4_dec/_i8_dec/_d_dec/_f_dec/_dec_dec)");
                     }
                     return I("il2cpp::il2cpp_linq_select_ref_ref", 2, true, true, false, TwoArg,
@@ -517,8 +525,13 @@ public static partial class MethodRefResolver
         // a reference source is rejected with a precise message there. The
         // int32-only gate below would otherwise reject every narrow/wide Zip
         // before that arm can run.
+        // p0linq4 (D4): ThenBy / ThenByDescending are family-agnostic in the
+        // SAME sense -- their own arm below validates the (element, key) pair
+        // (int32 elements with int32 keys, int64 elements with int32/int64
+        // keys) and returns the combine marker. The int32-only gate here would
+        // otherwise reject every int64-source ThenBy before that arm runs.
         bool familyAgnostic = name is "Count" or "ToArray" or "Sum" or "Min" or "Max"
-            or "Average" or "Aggregate" or "Any" or "Zip";
+            or "Average" or "Aggregate" or "Any" or "Zip" or "ThenBy" or "ThenByDescending";
         if (!familyAgnostic && name != "ToList" &&
             (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08))
         {
@@ -559,8 +572,20 @@ public static partial class MethodRefResolver
                 // instantiation name so MethodMap.List's receiver gate selects
                 // the right element domain (the bare "List`1" pseudo-type only
                 // serves the unsuffixed int32 case). Any other element family
-                // (decimal, DateTime, a user struct, a narrow integral) stays
-                // LOUD: there is no List<T> storage domain for it.
+                // (a narrow integral, an enum) stays LOUD.
+                //
+                // p0linq4 (D1): the remaining VALUE families are now wired too.
+                // The listobj storage is a reference array, so a 16-byte decimal
+                // CANNOT ride an element slot -- every value element is BOXED on
+                // entry and unboxed on exit (listobj.h):
+                //   decimal  -> il2cpp_linq_to_list_dec   (icall_box_decimal)
+                //   DateTime -> il2cpp_linq_to_list_dt    (Int64 box of the CLR
+                //               array image: ticks + 2-bit kind)
+                //   TimeSpan -> il2cpp_linq_to_list_ts    (Int64 box of the ticks)
+                //   user struct -> il2cpp_linq_to_list_struct (icall_box_user_struct
+                //               with the struct's OWN descriptor + sizeof(T))
+                // The tracked List name carries the element so MethodMap.List
+                // dispatches the boxed arms.
                 if (genArgs is not { Length: >= 1 })
                     return null;
                 switch (genArgs[0])
@@ -606,12 +631,61 @@ public static partial class MethodRefResolver
                         // System.Object (no per-instantiation List domain).
                         return I("il2cpp::il2cpp_linq_to_list_ref", 1, true, true, false,
                             OneArg, returnTypeName: "System.Collections.Generic.List`1_object");
+                    case 0x11:
+                    {
+                        // A VALUE type: the 0x11 byte covers decimal, DateTime,
+                        // TimeSpan, Guid, DateTimeOffset and every user struct --
+                        // the decoded MethodSpec FULL NAME is the only authority.
+                        string? elemFull = genArgNames is { Length: >= 1 } ? genArgNames[0] : null;
+                        switch (elemFull)
+                        {
+                            case "System.Decimal":
+                                return I("il2cpp::il2cpp_linq_to_list_dec", 1, true, true, false,
+                                    OneArg, returnTypeName: "System.Collections.Generic.List`1_System.Decimal");
+                            case "System.DateTime":
+                                return I("il2cpp::il2cpp_linq_to_list_dt", 1, true, true, false,
+                                    OneArg, returnTypeName: "System.Collections.Generic.List`1_System.DateTime");
+                            case "System.TimeSpan":
+                                return I("il2cpp::il2cpp_linq_to_list_ts", 1, true, true, false,
+                                    OneArg, returnTypeName: "System.Collections.Generic.List`1_System.TimeSpan");
+                        }
+                        // A USER STRUCT (a value type defined in this assembly):
+                        // the box needs the struct's own generated descriptor and
+                        // its payload size, both of which only exist for a
+                        // translated user value type.
+                        if (elemFull != null && TypeEmitter.SessionTypes is { } knownTypes)
+                        {
+                            var elemDef = knownTypes.FirstOrDefault(t => t.MatchesFullName(elemFull));
+                            if (elemDef != null && elemDef.IsValueType
+                                && elemDef.BaseTypeName != "System.Enum")
+                            {
+                                TypeEmitter.LayoutInstanceFields(elemDef);
+                                string elemCpp = TypeEmitter.TypeCppName(elemDef);
+                                return I("il2cpp::il2cpp_linq_to_list_struct", 1, true, true, false,
+                                    OneArg,
+                                    returnTypeName: "System.Collections.Generic.List`1_" + elemFull,
+                                    appendLiterals: new[]
+                                    {
+                                        $"&{elemCpp}_class",
+                                        $"static_cast<int32_t>(sizeof({elemCpp}))",
+                                    });
+                            }
+                        }
+                        throw new NotSupportedException(
+                            $"Enumerable.ToList<{GenericArgTypeName(genArgs[0])}> not wired: the runtime " +
+                            "materializes List<T> over the reference/int64/double/float families " +
+                            "(il2cpp_linq_to_list_ref/_i8/_d/_f), the 16-byte decimal family " +
+                            "(il2cpp_linq_to_list_dec) and DateTime/TimeSpan/user-struct elements " +
+                            "(il2cpp_linq_to_list_dt/_ts/_struct) through the listobj domain (boxed " +
+                            "elements); this value type has no List<T> carrier");
+                    }
                     default:
                         throw new NotSupportedException(
                             $"Enumerable.ToList<{GenericArgTypeName(genArgs[0])}> not wired: the runtime materializes " +
                             "List<int32> (il2cpp_linq_to_list / the listi4 domain) and List<T> over the reference, " +
                             "int64, double and float element families (il2cpp_linq_to_list_ref/_i8/_d/_f -- the " +
-                            "listobj domain, linq_map.h); no List<T> storage domain exists for this element type");
+                            "listobj domain, linq_map.h), plus decimal/DateTime/TimeSpan/user-struct elements " +
+                            "(_dec/_dt/_ts/_struct); no List<T> storage domain exists for this element type");
                 }
             case "Count":
                 // D-LINQC-1: Enumerable.Count over a List<int32> receiver (the
@@ -728,10 +802,21 @@ public static partial class MethodRefResolver
                                     "family with a kernel is System.Decimal only " +
                                     "(il2cpp_linq_select_<src>_dec)");
                             if (selIdx)
-                                throw new NotSupportedException(
-                                    "Enumerable.Select with a (element, index) selector returning " +
-                                    "System.Decimal is not wired: the runtime has no " +
-                                    "il2cpp_linq_select_idx_*_dec entry");
+                            {
+                                // p0linq4 (D2): the (element, index) selector
+                                // returning decimal has a kernel for the int32
+                                // source only (il2cpp_linq_select_idx_i4_dec --
+                                // the same 16-byte result-slot ABI plus the
+                                // source index).
+                                if (LinqSourceFamily(genArgs, receiverType,
+                                        count >= 2 ? arg1Type : arg0Type) != "i4")
+                                    throw new NotSupportedException(
+                                        "Enumerable.Select with a (element, index) selector returning " +
+                                        "System.Decimal is wired for an int32 source only " +
+                                        "(il2cpp_linq_select_idx_i4_dec)");
+                                return I("il2cpp::il2cpp_linq_select_idx_i4_dec", 2, true, true,
+                                    false, TwoArg, returnTypeName: "System.Decimal[]");
+                            }
                             string decEntry = LinqSourceFamily(genArgs, receiverType,
                                 count >= 2 ? arg1Type : arg0Type) switch
                             {
@@ -894,7 +979,15 @@ public static partial class MethodRefResolver
                 // call -- each element's k1 and k2 are each cached EXACTLY
                 // ONCE (net48 EnumerableSorter). Requires int32 elements AND
                 // int32 keys (the stage-1 key family).
-                if (genArgs is not { Length: >= 2 } || genArgs[1] != 0x08)
+                //
+                // p0linq4 (D4): an INT64-element source (long[]/ulong[]) rides
+                // the *_i8_<keyfam> entries -- 8-byte cells in, a fresh int64[]
+                // (elemKind I8) out; the key family is int32 or int64. The
+                // StackFold fold recognises the matching OrderBy assignment
+                // (il2cpp_linq_order_by_key[_desc]_i8_<keyfam>) and rewrites it
+                // into the i8 composite.
+                if (genArgs is not { Length: >= 2 }
+                    || ThenByKernelSuffix(genArgs[0], genArgs[1]) is null)
                 {
                     string elemArgType = genArgs is { Length: >= 1 }
                         ? GenericArgTypeName(genArgs[0]) : "?";
@@ -902,14 +995,15 @@ public static partial class MethodRefResolver
                         ? GenericArgTypeName(genArgs[1]) : "?";
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{elemArgType},{keyArgType}> not wired: " +
-                        "the stage-1 then-by surface (il2cpp_linq_then_by_key_i4) is int32 (0x08) " +
-                        "elements AND int32 (0x08) keys only -- the runtime fuses the (k1, k2) composite sort");
+                        "the then-by surface (il2cpp_linq_then_by_key_i4 / _i8_<keyfam>) covers int32 " +
+                        "elements with int32 keys and int64 elements with int32/int64 keys only -- the " +
+                        "runtime fuses the (k1, k2) composite sort");
                 }
                 return I(name == "ThenBy"
                         ? ResolvedMethod.ThenByCombineMarker
                         : ResolvedMethod.ThenByDescCombineMarker,
                     2, false, false, false, new[] { "", "" },
-                    returnTypeName: "System.Int32[]");
+                    returnTypeName: genArgs[0] == 0x08 ? "System.Int32[]" : "System.Int64[]");
             case "GroupBy":
                 // GroupBy(source, keySelector) -> il2cpp_linq_group_by_i4
                 // (D-LINQ-4): the runtime builds a tracked grouping result
@@ -1609,6 +1703,20 @@ public static partial class MethodRefResolver
         0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "ref",
         _ => "",
     };
+
+    // p0linq4 (D4): the runtime entry suffix of the fused composite sort for a
+    // (TSource, TKey) byte pair, or null when no kernel exists:
+    //   int32  source + int32  key -> "i4"
+    //   int64  source + int32  key -> "i8_i4"
+    //   int64  source + int64  key -> "i8_i8"
+    private static string? ThenByKernelSuffix(byte elemByte, byte keyByte)
+    {
+        bool keyI4 = keyByte is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09;
+        bool keyI8 = keyByte is 0x0A or 0x0B;
+        if (elemByte == 0x08) return keyI4 ? "i4" : null;
+        if (elemByte is 0x0A or 0x0B) return keyI4 ? "i8_i4" : keyI8 ? "i8_i8" : null;
+        return null;
+    }
 
     private static string? LinqNarrowCode(byte b) => b switch
     {
