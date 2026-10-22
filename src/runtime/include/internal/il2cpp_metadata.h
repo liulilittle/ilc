@@ -137,6 +137,15 @@ extern il2cpp::Il2CppClass System_Decimal_class;
 // (net48: a boxed IntPtr is the only True source).
 extern il2cpp::Il2CppClass System_IntPtr_class;
 extern il2cpp::Il2CppClass System_UIntPtr_class;
+// excmsg: the managed exception hierarchy. Generated code references these for
+// `new Argument*Exception(...)` allocations (il2cpp_object_new(&System_..._class))
+// and for isinst/castclass on constructed exception instances; the base chain
+// matches net48 (ArgumentException : SystemException : Exception).
+extern il2cpp::Il2CppClass System_Exception_class;
+extern il2cpp::Il2CppClass System_SystemException_class;
+extern il2cpp::Il2CppClass System_ArgumentException_class;
+extern il2cpp::Il2CppClass System_ArgumentNullException_class;
+extern il2cpp::Il2CppClass System_ArgumentOutOfRangeException_class;
 extern il2cpp::Il2CppClass System_IConvertible_class;
 extern il2cpp::Il2CppClass System_IComparable_class;
 extern il2cpp::Il2CppClass System_IFormattable_class;

@@ -76,6 +76,16 @@ private:
                                               const char* message,
                                               const char* paramName);
 
+// excmsg: throw with an EXPLICIT ParamName snapshot -- paramPresent == 0
+// records "no parameter name" (null) WITHOUT parsing the message text, so a
+// message that happens to contain the parameter-name marker cannot leak into
+// ParamName. Used by the Argument*Exception ctor shapes, whose ParamName is a
+// ctor argument (possibly an empty string, which stays "").
+[[noreturn]] void il2cpp_throw_new_param_explicit(const char* typeName,
+                                                  const char* message,
+                                                  const char* paramName,
+                                                  int32_t paramPresent);
+
 // Type-conformance test for catch matching:
 //   caught  : the catch clause's exception type ("System.Exception")
 //   thrown  : the in-flight exception's type chain ("System.DivideByZero

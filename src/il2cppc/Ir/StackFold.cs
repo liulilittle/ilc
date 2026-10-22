@@ -92,6 +92,13 @@ public static class StackFold
         // site forwards them to the emitter so the managed exception carrier
         // carries the REAL message instead of the hardcoded "exception thrown".
         var exceptionMessages = new Dictionary<string, List<Expr>>();
+        // excmsg: newobj temp -> the BCL-exception ctor's PARAMETER TYPES
+        // (MethodSignatureCoder encoding). The Argument* family's overloads
+        // share parameter BYTES (string vs Exception), so the throw site needs
+        // the decoded text to tell (msg,param) from (msg,inner) -- and a single
+        // string is the PARAM name on ArgumentNullException but the MESSAGE on
+        // ArgumentException.
+        var exceptionCtorParamTypes = new Dictionary<string, string>();
         // RF-N4: the typeof-chain IsGenericTypeDefinition decision. The
         // typeof fold resolves a closed GENERICINST (typeof(Box<int>)) and
         // the open definition (typeof(Box<>)) to the SAME full-name string
@@ -577,7 +584,7 @@ public static class StackFold
                     break;
                 case ILOpCode.Newobj:
                     EnsureCctorForNewObj(stmts, ctx, md, ins, types);
-                    EmitNewObj(stmts, stack, temps, ins, md, types, exceptionMessages);
+                    EmitNewObj(stmts, stack, temps, ins, md, types, exceptionMessages, exceptionCtorParamTypes);
                     break;
                 case ILOpCode.Ret:
                     stmts.Add(new RetStmt
@@ -1220,9 +1227,19 @@ public static class StackFold
                     // paramName, captured in EmitNewObj) so the managed
                     // exception carrier carries the REAL message instead of
                     // the hardcoded "exception thrown".
+                    // excmsg: also forward the ctor's PARAMETER TYPES for the
+                    // Argument* family -- the throw site maps the overload
+                    // shape to the right semantic slot (a single string is a
+                    // paramName on ArgumentNullException, a message on
+                    // ArgumentException, and (string, Exception) is always
+                    // (message, inner)).
                     if (thrown is LocExpr tl2 && exceptionMessages.TryGetValue(tl2.Name, out var msgArgs))
                     {
                         thrownStmt.Args.AddRange(msgArgs);
+                        if (exceptionCtorParamTypes.TryGetValue(tl2.Name, out var ctorPs))
+                        {
+                            thrownStmt.ThrowCtorParamTypes = ctorPs;
+                        }
                     }
                     stmts.Add(thrownStmt);
                     break;
@@ -4362,7 +4379,8 @@ public static class StackFold
         //   push tN                                  (object reference pushed)
         void EmitNewObj(List<Stmt> stmts, Stack<Expr> stack, List<string> temps, IlInstruction ins,
             MetadataReader? md, IReadOnlyList<TypeDef>? types,
-            Dictionary<string, List<Expr>> exceptionMessages)
+            Dictionary<string, List<Expr>> exceptionMessages,
+            Dictionary<string, string> exceptionCtorParamTypes)
         {
             var resolved = md != null
                 ? MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>())
@@ -4522,8 +4540,12 @@ public static class StackFold
             // the allocation is skipped and null is pushed (the ctor call is a
             // nop).
             // M5 wiring: the same holds for EVERY BCL exception type
-            // (ArgumentException/InvalidOperationException/... -- no runtime
-            // class descriptor exists; the typed throw carries the carrier).
+            // (InvalidOperationException/... -- no runtime class descriptor
+            // exists; the typed throw carries the carrier).
+            // excmsg: EXCEPT the four Argument*/Exception carriers the runtime
+            // now models with real descriptors (metadata.cpp) -- a constructed
+            // instance answers GetType().Name / isinst / Message / ParamName,
+            // so it must be a REAL object (the side table keys by pointer).
             var name = $"t{temps.Count}";
             temps.Add(name);
             objTypes[name] = typeFullName; // audit H8: the throw site needs the object.s type
@@ -4535,6 +4557,15 @@ public static class StackFold
                 // nullptr) instead of a real allocation.
                 && !typeFullName.Contains('`')
                 && !(types?.Any(t => t.FullName == typeFullName) ?? false);
+            // excmsg: the modelled exception hierarchy. System.Exception keeps
+            // the ilistException rule (only a message-carrying instance needs
+            // identity); the Argument* family ALWAYS allocates because the
+            // constructed instance is an observable value (ParamName/Message/
+            // GetType). SystemException is the shared base (never thrown
+            // directly by user code, but keep the identity consistent).
+            var isModelledException = typeFullName is "System.ArgumentException"
+                or "System.ArgumentNullException" or "System.ArgumentOutOfRangeException"
+                or "System.SystemException";
             // ilistException: a System.Exception built with a message
             // (`new Exception("a")`) and USED as a value (added to a list,
             // .Message read) needs a REAL object identity -- the message
@@ -4543,7 +4574,8 @@ public static class StackFold
             // to a plain-object allocation); the throw-site carrier path
             // above is untouched. All other BCL exceptions keep the null
             // model (throw-only paths).
-            var isMessageCarrierException = typeFullName == "System.Exception" && (resolved?.ParamCount ?? 0) >= 1;
+            var isMessageCarrierException = (typeFullName == "System.Exception" && (resolved?.ParamCount ?? 0) >= 1)
+                || isModelledException;
             if (isBclException && !isMessageCarrierException)
             {
                 stmts.Add(new AssignStmt
@@ -4570,12 +4602,21 @@ public static class StackFold
             }
             // excext (m7m): remember the BCL-exception ctor args so the throw
             // site can forward the real message/paramName to il2cpp_throw_new.
-            // Only the .ctor(string) message and .ctor(string,string)
-            // paramName+message shapes are captured; any other shape leaves the
-            // throw with the default message (the emitter's fallback).
+            // excmsg: the Argument* family additionally records the ctor's
+            // PARAMETER TYPES -- the throw site maps the overload SHAPE (a
+            // single string is a paramName on ArgumentNullException but a
+            // message on ArgumentException, and (string, Exception) is always
+            // (message, inner)).
             if (isBclException)
             {
                 exceptionMessages[name] = new List<Expr>(args);
+                var ctorParamTypes = md != null
+                    ? MethodRefResolver.CtorParamTypesOf(md, (int)ins.Operand)
+                    : null;
+                if (ctorParamTypes != null)
+                {
+                    exceptionCtorParamTypes[name] = ctorParamTypes;
+                }
             }
             // 2) Construct: this = the temp object; args passed in original
             //    order.
