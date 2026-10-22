@@ -36,9 +36,9 @@
 // EMPTY-SEQUENCE SEMANTICS (net48 baseline): First on an empty array ->
 // InvalidOperationException; FirstOrDefault -> 0 (i4) / nullptr (ref).
 //
-// STAGE-1 DEVIATION (documented, accepted per design section 1.3): Where runs the
-// predicate TWICE per element (two passes: count matches, then fill an
-// exact-size result) -- observable only for side-effecting predicates.
+// WHERE PASSES: the predicate runs EXACTLY ONCE per element (a single pass
+// collects the matches into a growable buffer, then the exact-size result is
+// trimmed) -- see linq_map.cpp il2cpp_linq_where_ref and the [where-calls] probe.
 //
 // GC SAFETY (see linq_map.cpp): the callback may allocate (a collection may
 // move the source/result arrays), so the icalls root every array it holds
@@ -126,6 +126,25 @@ Il2CppObject* il2cpp_linq_first_or_default_ref(Il2CppArray* src);
 //   pred : delegate wrapping bool(*)(int32_t) (validation per the contract
 //          above: null -> ArgumentNullException)
 int32_t       il2cpp_linq_first_or_default_predicate(Il2CppArray* src, Il2CppObject* pred);
+
+// Last(predicate) over a REFERENCE-element array -- the reference counterpart
+// of il2cpp_linq_last_predicate. Walks the array BACKWARD and returns the LAST
+// element satisfying the predicate (net48 short-circuits from the end). No
+// match, or an empty source -> InvalidOperationException.
+//   src  : reference-element source array (null -> ArgumentNullException)
+//   pred : delegate wrapping bool(*)(Il2CppObject*); null -> ArgumentNullException
+Il2CppObject* il2cpp_linq_last_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+
+// LastOrDefault(predicate) over a REFERENCE-element array: the LAST matching
+// element, or nullptr when no element matches / the source is empty (never
+// throws for those). Same walk direction and callback ABI as last_pred_ref.
+Il2CppObject* il2cpp_linq_last_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+
+// Last(predicate) / LastOrDefault(predicate) over the int32 family: FORWARD
+// full walk keeping the last match (net48 4.8 has no reverse optimization for
+// the predicate form, so the predicate runs once per element).
+int32_t il2cpp_linq_last_pred_i4(Il2CppArray* src, Il2CppObject* pred);
+int32_t il2cpp_linq_last_or_default_pred_i4(Il2CppArray* src, Il2CppObject* pred);
 
 // Take -- the first `count` elements (net48 semantics, probe-verified):
 //   count <= 0      -> an EMPTY int32[] (net48's deferred TakeIterator only
