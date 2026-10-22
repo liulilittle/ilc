@@ -248,6 +248,20 @@ public static partial class MethodRefResolver
                     };
                 return null;
             case "System.SByte":
+                // P0-narrow (2026-10-22): SByte.ToString() had NO wiring here
+                // (only Byte did), so the call fell through to the
+                // generated-name path and emitted a call to a nonexistent
+                // System_SByte_ToString_<hash> symbol -- a SILENT transpile
+                // success followed by a C++ compile failure. SByte formats
+                // through the int32 formatter (the Byte precedent) with the
+                // ADDRESS form reading the NATIVE SIGNED 1-byte cell
+                // (deref:i1 -- the sbyte[] ldelema cell; the unsigned deref:u1
+                // would print 253 for -3). An int32 slot keeps the
+                // sign-extended value, so the narrow read is exact in both
+                // shapes.
+                if (name == "ToString" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_int32_to_string", 0, true, true, true,
+                        new[] { receiverIsAddress ? "deref:i1" : "unbox:i" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -264,6 +278,14 @@ public static partial class MethodRefResolver
                     };
                 return null;
             case "System.Int16":
+                // P0-narrow (2026-10-22): Int16.ToString() had NO wiring here
+                // (only Byte did) -- see the SByte arm above. The ADDRESS form
+                // reads the NATIVE SIGNED 2-byte cell (deref:i2 -- the short[]
+                // ldelema cell; deref:i would over-read neighbour bytes and an
+                // unsigned read would print 65531 for -5).
+                if (name == "ToString" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_int32_to_string", 0, true, true, true,
+                        new[] { receiverIsAddress ? "deref:i2" : "unbox:i" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -280,6 +302,14 @@ public static partial class MethodRefResolver
                     };
                 return null;
             case "System.UInt16":
+                // P0-narrow (2026-10-22): UInt16.ToString() had NO wiring here
+                // (only Byte did) -- see the SByte arm above. The ADDRESS form
+                // reads the NATIVE UNSIGNED 2-byte cell (deref:u2 -- the
+                // ushort[] ldelema cell); the full 0..65535 range must not be
+                // sign-extended, so deref:i2 would print -1 for 65535.
+                if (name == "ToString" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_int32_to_string", 0, true, true, true,
+                        new[] { receiverIsAddress ? "deref:u2" : "unbox:i" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
