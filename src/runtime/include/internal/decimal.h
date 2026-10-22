@@ -96,6 +96,10 @@ bool icall_decimal_equals(const Il2CppDecimal* d1, const Il2CppDecimal* d2);
 // Unary minus: result = -a (flags ^= SignMask, Decimal.cs:961).
 void icall_decimal_negate(Il2CppDecimal* result, const Il2CppDecimal* a);
 
+// p0conv2 (D1): decimal identity copy (Convert.ToDecimal(decimal) -- net48
+// returns the value unchanged, scale preserved). Result-slot first.
+void icall_decimal_copy(Il2CppDecimal* result, const Il2CppDecimal* a);
+
 // Math.Abs(decimal) / Math.Max(decimal,decimal) / Math.Min(decimal,decimal) /
 // Math.Sign(decimal) (LOUD P0-19). Abs clears the sign flag; Max/Min return
 // the winning OPERAND unchanged (scale preserved -- net48's
@@ -146,6 +150,27 @@ int64_t icall_decimal_to_int64(const Il2CppDecimal* d);
 uint32_t icall_decimal_to_uint32(const Il2CppDecimal* d);
 uint64_t icall_decimal_to_uint64(const Il2CppDecimal* d);
 
+// --- P0 (p0conv2): System.Convert's ROUNDING conversions --------------------
+// Convert.ToInt32/ToInt64/ToUInt32/ToUInt64(decimal) on net48 do NOT truncate:
+// they round the value to the nearest INTEGER, ties to EVEN (banker's
+// rounding), and only THEN range-check (OverflowException when the ROUNDED
+// value falls outside the target). Probe-pinned on the net48 oracle:
+//   Convert.ToInt32(12.5m) == 12   (truncation would also give 12)
+//   Convert.ToInt32(3.5m)  ==  4   (truncation gives 3)
+//   Convert.ToInt32(12.9m) == 13   (truncation gives 12)
+//   Convert.ToInt32(-12.5m) == -12, ToInt32(-0.9m) == -1
+//   Convert.ToInt32(2147483647.6m) -> OverflowException (rounds to 2^31)
+//   Convert.ToInt32(-2147483647.5m) == -2147483648 (rounds INTO range)
+//   Convert.ToUInt32(-0.5m) == 0 (rounds to -0, which is zero)
+// These entries therefore must NEVER be served by the truncating pair above --
+// that would be a silent wrong value (the MethodMap.ConvertExtra.cs:39 note).
+// Implementation: RoundCore(0 decimals, ToEven) then the SAME range check the
+// truncating cores use.
+int32_t icall_decimal_to_int32_round(const Il2CppDecimal* d);
+int64_t icall_decimal_to_int64_round(const Il2CppDecimal* d);
+uint32_t icall_decimal_to_uint32_round(const Il2CppDecimal* d);
+uint64_t icall_decimal_to_uint64_round(const Il2CppDecimal* d);
+
 // --- T1: misc ---------------------------------------------------------------
 // DecCalc.GetHashCode (DecCalc.cs:1854-1871): canonicalizes the scale
 // (Unscale) before hashing so 1.00m and 1m hash alike.
@@ -153,7 +178,10 @@ int32_t icall_decimal_get_hash_code(const Il2CppDecimal* d);
 
 // Floating-point conversions (the netcore21+ audit closure -- VarDecFromR4/R8
 // and VarR4/R8FromDec). ctor_double rounds to 15 significant digits (the
-// documented VarDecFromR8 contract) and throws OverflowException for
+// documented VarDecFromR8 contract); ctor_float rounds to 7 significant digits
+// (FLT_DIG -- the VarDecFromR4 contract, p0conv2 probe-pinned: (decimal)1f/3f
+// == 0.3333333m, (decimal)16777216f == 16777220m, NOT the 15-digit expansion
+// of the exact binary float). Both throw OverflowException for
 // NaN/Infinity/magnitude overflow; to_double decomposes the 96-bit mantissa
 // exactly and divides by 10^scale (nearest-double within <=1 ulp).
 void icall_decimal_ctor_double(Il2CppDecimal* out, double value);

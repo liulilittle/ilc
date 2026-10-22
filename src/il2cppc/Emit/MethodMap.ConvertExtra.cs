@@ -114,11 +114,15 @@ public static partial class MethodRefResolver
                     // char: zero-extend, never throws (the pinned ToInt32(char)
                     // family behavior; [0, 65535] always fits uint32).
                     0x03 => I("il2cpp::runtime::icall_convert_to_int32_char", 1, true, false, false),
+                    // p0conv2 (D2): Convert.ToUInt32(decimal) ROUNDS half-to-even
+                    // then range-checks (net48 probe: ToUInt32(3.5m)==4,
+                    // ToUInt32(-0.5m)==0, ToUInt32(4294967296m) -> Overflow).
+                    0x11 => I("il2cpp::runtime::icall_decimal_to_uint32_round", 1, true, false, false, new[] { "dec" }),
                     // T1 parity: rounding-aware icall_convert_to_uint32_d
                     // (ovf_u4_d truncates; net48 rounds half-to-even first).
                     0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint32_d", 1, true, false, false, new[] { "d" }),
                     0x0E => throw new NotSupportedException("Convert.ToUInt32(string) needs a throwing parse icall with the null-means-zero rule (no uint parser exists at all)"),
-                    _ => throw new NotSupportedException($"Convert.ToUInt32 param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException($"Convert.ToUInt32 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
             case "ToUInt64":
@@ -139,11 +143,15 @@ public static partial class MethodRefResolver
                     // ulong identity: bit-pattern round-trip through the
                     // i8<->u8 reinterpret helper.
                     0x0B => I("il2cpp::runtime::icall_conv_i8_u8", 1, true, false, false, new[] { "q" }, "l"),
+                    // p0conv2 (D2): Convert.ToUInt64(decimal) ROUNDS half-to-even
+                    // then range-checks (net48 probe: ToUInt64(3.5m)==4,
+                    // ToUInt64(-0.5m)==0). NOT the truncating decimal icall.
+                    0x11 => I("il2cpp::runtime::icall_decimal_to_uint64_round", 1, true, false, false, new[] { "dec" }, "l"),
                     // T1 parity: rounding-aware icall_convert_to_uint64_d ("l"
                     // carries the uint64 slot, the ovf_u8 precedent).
                     0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint64_d", 1, true, false, false, new[] { "d" }, "l"),
                     0x0E => throw new NotSupportedException("Convert.ToUInt64(string) needs a throwing parse icall with the null-means-zero rule (no ulong parser exists at all)"),
-                    _ => throw new NotSupportedException($"Convert.ToUInt64 param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException($"Convert.ToUInt64 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
             case "ToSingle":
@@ -170,20 +178,67 @@ public static partial class MethodRefResolver
                     // is no unsigned VALUE cast code (a sign-extending route
                     // would produce a negative float for uint >= 2^31).
                     0x09 => throw new NotSupportedException("Convert.ToSingle(uint) needs an _i4-input helper (zero-extension inside the runtime) or an unsigned value-cast code; see edit_convert.md"),
+                    // p0conv2 (D2): Convert.ToSingle(decimal) is the exact
+                    // VarR4FromDec conversion -- net48 probe confirms it is
+                    // bit-identical to the explicit (float)decimal cast
+                    // (12.5m and 0.1m both agree), so the existing
+                    // decimal->float icall serves it ("d" carrier).
+                    0x11 => I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "dec" }, "d"),
                     // net48 InvalidCastException ALWAYS (unsupported).
                     0x02 or 0x03 => throw new NotSupportedException($"Convert.ToSingle({(ps[0] == 0x02 ? "bool" : "char")}) throws InvalidCastException on net48 and no existing icall raises it"),
                     0x0E => throw new NotSupportedException("Convert.ToSingle(string) needs a throwing float-parse icall with the null-means-zero rule (no float parser exists)"),
-                    _ => throw new NotSupportedException($"Convert.ToSingle param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException($"Convert.ToSingle param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
             case "ToDecimal":
-                // No decimal-target converter exists in the runtime (and
-                // icall_decimal_to_int32 is the TRUNCATING explicit-cast
-                // helper, not Convert's banker's rounding). Every overload is
-                // needs-new; the int-family ones have candidate paths through
-                // the decimal ctor icalls but need the dec-result-slot
-                // protocol owned by the decimal domain. See edit_convert.md.
-                throw new NotSupportedException($"Convert.ToDecimal is unwired: no decimal-target runtime icalls exist (rounding converters needed for float/double/decimal-string; ctor-based paths need the dec-result protocol; see edit_convert.md)");
+                // p0conv2 (D1): Convert.ToDecimal now has a real decimal-target
+                // path. The decimal ctors already exist (decimal.h:131-140) and
+                // the "dec" ResultKind carries the T3 result-slot protocol
+                // (MethodMap.Decimal.cs .ctor arm: the icall takes the target
+                // slot FIRST and the AssignStmt "dec" branch prepends it), so
+                // every integer source is EXACT:
+                //   sbyte/byte/short/ushort/int -> ctor_int32 ("i" widen)
+                //   uint                        -> ctor_uint32 ("i")
+                //   long                        -> ctor_int64 ("l")
+                //   ulong                       -> ctor_uint64 ("q")
+                //   bool                        -> ctor_int32 (bool slots carry 0/1)
+                //   float                       -> ctor_float (7 significant digits,
+                //                                  the VarDecFromR4 contract)
+                //   double                      -> ctor_double (15 significant
+                //                                  digits, VarDecFromR8)
+                //   decimal                     -> icall_decimal_copy (identity,
+                //                                  scale preserved)
+                //   string                      -> icall_convert_to_decimal_string
+                //                                  (null -> 0m, the Convert rule)
+                //   char                        -> InvalidCastException on net48
+                //                                  (probe-pinned for 'A'), served by
+                //                                  icall_convert_to_decimal_char
+                if (ps.Length != 1)
+                    throw new NotSupportedException($"Convert.ToDecimal with {ps.Length} param(s) not wired (object/2-arg provider overloads on the edit_convert.md needs-new list)");
+                return ps[0] switch
+                {
+                    // Integer sources ride the existing ctor icalls. ResultKind
+                    // "dec" makes the emitter write through the target slot.
+                    0x04 or 0x05 or 0x06 or 0x07 or 0x08
+                        => I("il2cpp::runtime::icall_decimal_ctor_int32", 1, true, false, false, new[] { "i" }, "dec"),
+                    0x09 => I("il2cpp::runtime::icall_decimal_ctor_uint32", 1, true, false, false, new[] { "i" }, "dec"),
+                    0x0A => I("il2cpp::runtime::icall_decimal_ctor_int64", 1, true, false, false, new[] { "l" }, "dec"),
+                    0x0B => I("il2cpp::runtime::icall_decimal_ctor_uint64", 1, true, false, false, new[] { "q" }, "dec"),
+                    // bool slots carry int32 0/1 (the documented ABI invariant).
+                    0x02 => I("il2cpp::runtime::icall_decimal_ctor_int32", 1, true, false, false, new[] { "i" }, "dec"),
+                    // Float/double: the VarDecFromR4/R8 rounding ctors. The
+                    // source value passes UNCAST (float rides the double slot
+                    // exactly, the MathF precedent).
+                    0x0C => I("il2cpp::runtime::icall_decimal_ctor_float", 1, true, false, false, new[] { "" }, "dec"),
+                    0x0D => I("il2cpp::runtime::icall_decimal_ctor_double", 1, true, false, false, new[] { "" }, "dec"),
+                    // decimal identity: net48 returns the operand unchanged.
+                    0x11 => I("il2cpp::runtime::icall_decimal_copy", 1, true, false, false, new[] { "dec" }, "dec"),
+                    // string: Convert's null-means-zero rule then decimal parse.
+                    0x0E => I("il2cpp::runtime::icall_convert_to_decimal_string", 1, true, false, false, new[] { "s" }, "dec"),
+                    // char: InvalidCastException on net48, never a value.
+                    0x03 => I("il2cpp::runtime::icall_convert_to_decimal_char", 1, true, false, false, new[] { "i" }, "dec"),
+                    _ => throw new NotSupportedException($"Convert.ToDecimal param type 0x{ps[0]:X2} not wired (object/2-arg provider overloads on the edit_convert.md needs-new list)"),
+                };
             default: return null;
         }
     }
