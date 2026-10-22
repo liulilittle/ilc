@@ -18,6 +18,7 @@
 #include "il2cpp_convert.h"
 #include "il2cpp_format.h"
 #include "il2cpp_exception_ext.h"
+#include "decimal_format.h" // p0conv2: icall_decimal_parse (Convert.ToDecimal(string))
 
 #include <cmath>
 #include <cstdint>
@@ -550,6 +551,42 @@ Il2CppString* icall_convert_to_string_i4_base(int32_t value, int32_t toBase)
     }
     buf[len] = '\0';
     return il2cpp_string_new_from_cs(buf);
+}
+
+//------------------------------------------------------------------------------
+// p0conv2 (D1): System.Convert -> System.Decimal.
+//
+// Convert.ToDecimal(string) is NOT decimal.Parse: net48 applies the Convert
+// "null means zero" rule FIRST (null -> 0m), then the Number.ParseDecimal
+// grammar (ASCII whitespace trim, optional sign, digits, at most one '.',
+// thousands ',' between digits; NO exponent). Malformed text -> FormatException,
+// out-of-range -> OverflowException. icall_decimal_parse throws
+// ArgumentNullException on null, so the null arm is handled here.
+//
+// Convert.ToDecimal(char): net48 throws InvalidCastException for EVERY char
+// (probe-pinned for 'A' -- unlike Convert.ToInt32(char), which zero-extends).
+// There is no value conversion, so the helper always throws.
+//------------------------------------------------------------------------------
+void icall_convert_to_decimal_string(Il2CppDecimal* out, Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        // Convert's null-means-zero rule (see the header contract).
+        out->flags = 0;
+        out->hi32 = 0;
+        out->lo64 = 0;
+        return;
+    }
+    // Delegate to the decimal parser (throws Format/Overflow as net48 does).
+    icall_decimal_parse(out, value);
+}
+
+void icall_convert_to_decimal_char(Il2CppDecimal* out, int32_t utf16)
+{
+    (void)out;
+    (void)utf16;
+    il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+                     "Invalid cast from 'Char' to 'Decimal'.");
 }
 
 }} // namespace il2cpp::runtime

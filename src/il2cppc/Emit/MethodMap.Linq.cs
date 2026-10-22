@@ -2095,6 +2095,39 @@ public static partial class MethodRefResolver
 
         switch (name)
         {
+            // p0conv2 (D3): OrderBy / OrderByDescending over an INT64 value
+            // SOURCE with a key selector. The int32-source entries
+            // (il2cpp_linq_order_by_key_i4) read 4-byte cells and materialize
+            // an int32[] result, so a long[]/ulong[] source needs the i8-source
+            // family (il2cpp_linq_order_by_key[_desc]_i8_<keyfam>): 8-byte
+            // element cells in, a fresh int64[] (elemKind I8) out. The KEY
+            // family is int32 (0x08-slot primitives) or int64 (0x0A/0x0B);
+            // anything else has no i8-source key kernel.
+            case "OrderBy" when srcFam == "i8" && count >= 2:
+            case "OrderByDescending" when srcFam == "i8" && count >= 2:
+            {
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over an int64-element source with an (element, index) key selector " +
+                        "is not wired (the runtime has no index key-selector entry)");
+                byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                string? keyFam = keyByte switch
+                {
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                    0x0A or 0x0B => "i8",
+                    _ => null,
+                };
+                if (keyFam == null)
+                {
+                    string elemName = genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{elemName},{GenericArgTypeName(keyByte)}> " +
+                        "not wired: the int64-source key-selector surface covers int32 and int64 keys only " +
+                        "(a float/double/reference key has no int64-source kernel)");
+                }
+                return I($"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_i8_{keyFam}",
+                    2, true, true, false, TwoArg, returnTypeName: "System.Int64[]");
+            }
             case "Any" when count < 2:
                 // Family-agnostic: reads only the array header.
                 return I("il2cpp::il2cpp_linq_any", 1, true, false, false, OneArg);

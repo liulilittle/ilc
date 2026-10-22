@@ -2238,6 +2238,15 @@ void icall_decimal_negate(Il2CppDecimal* result, const Il2CppDecimal* a)
     Store(result, x);
 }
 
+// p0conv2 (D1): Convert.ToDecimal(decimal) is the IDENTITY (net48 returns the
+// operand unchanged -- scale and sign preserved, no rounding, no throw).
+void icall_decimal_copy(Il2CppDecimal* result, const Il2CppDecimal* a)
+{
+    result->flags = a->flags;
+    result->hi32 = a->hi32;
+    result->lo64 = a->lo64;
+}
+
 // LOUD P0-19: System.Math's decimal overloads (Abs/Max/Min/Sign). Abs is the
 // net48 Decimal.Abs (sign flag cleared, scale/mantissa untouched). Max/Min
 // follow net48's `val1 < val2 ? val2 : val1` / `val1 < val2 ? val1 : val2`
@@ -2424,6 +2433,57 @@ uint64_t icall_decimal_to_uint64(const Il2CppDecimal* d)
     return ToUInt64Core(v);
 }
 
+//------------------------------------------------------------------------------
+// p0conv2 (D2): System.Convert's ROUNDING decimal -> integer conversions.
+//
+// Convert.ToInt32/ToInt64/ToUInt32/ToUInt64(decimal) round to the nearest
+// integer with MIDPOINT TO EVEN, then range-check the ROUNDED value -- they are
+// NOT the truncating explicit-cast (op_Explicit) conversions above. Probe-pinned
+// on the net48 oracle (see decimal.h):
+//   ToInt32(3.5m) == 4 (truncation: 3), ToInt32(12.9m) == 13 (truncation: 12),
+//   ToInt32(-12.5m) == -12, ToInt32(-0.9m) == -1,
+//   ToInt32(2147483647.6m) -> OverflowException (the ROUNDED value is 2^31),
+//   ToInt32(-2147483647.5m) == -2147483648 (rounds INTO range),
+//   ToUInt32(-0.5m) == 0 (rounds to a negative zero -> zero, no throw).
+//
+// RoundCore(v, 0, 0) is exactly DecCalc.InternalRound(mode ToEven) down to zero
+// decimals, which is what net48's Convert path performs through
+// Decimal.Round(value, 0) before the range test; the ToXxxCore helpers then
+// apply the same range checks (and the same OverflowException) the truncating
+// entries use.
+//------------------------------------------------------------------------------
+int32_t icall_decimal_to_int32_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0); // 0 decimals, MidpointRounding.ToEven
+    return ToInt32Core(v);
+}
+
+int64_t icall_decimal_to_int64_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0);
+    return ToInt64Core(v);
+}
+
+uint32_t icall_decimal_to_uint32_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0);
+    return ToUInt32Core(v);
+}
+
+uint64_t icall_decimal_to_uint64_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0);
+    return ToUInt64Core(v);
+}
+
 int32_t icall_decimal_get_hash_code(const Il2CppDecimal* d)
 {
     DecCalc v;
@@ -2441,11 +2501,22 @@ int32_t icall_decimal_get_hash_code(const Il2CppDecimal* d)
 // rounded magnitude exceeds the 96-bit/scale-28 envelope throw
 // OverflowException (the oleaut contract); NaN/Infinity likewise.
 //
+// float -> decimal: the VarDecFromR4 contract rounds to 7 significant decimal
+// digits (FLT_DIG), NOT 15. p0conv2 probe-pinned on net48:
+//   Convert.ToDecimal(0.1f)      == 0.1m          (scale 1)
+//   Convert.ToDecimal(1f/3f)     == 0.3333333m    (scale 7)
+//   Convert.ToDecimal(16777216f) == 16777220m     (7 digits)
+//   Convert.ToDecimal(1e-28f)    == 1E-28m        (scale 28)
+//   Convert.ToDecimal(1e30f)     -> OverflowException
+// Routing the float through the double path (15 digits) would return
+// 0.100000001490116m -- a silently different VALUE, so ctor_float has its own
+// digit budget.
+//
 // decimal -> double/float: exact decomposition hi32*2^64 + lo64 (both terms
 // IEEE-exact) divided by 10^scale -- nearest-double within <=1 ulp of the
 // true quotient (the documented VarR8FromDec precision envelope).
 //------------------------------------------------------------------------------
-void icall_decimal_ctor_double(Il2CppDecimal* out, double value)
+void CtorFromFloating(Il2CppDecimal* out, double value, int significantDigits)
 {
     std::memset(out, 0, sizeof(Il2CppDecimal));
     if (value == 0.0)
@@ -2460,19 +2531,21 @@ void icall_decimal_ctor_double(Il2CppDecimal* out, double value)
     const bool neg = std::signbit(value) != 0;
     const double a = std::fabs(value);
 
-    // Round to 15 significant digits ("%.14E" == one leading digit + 14
-    // fraction digits), then decompose into an integer digit string and a
-    // power-of-ten scale.
+    // Round to 'significantDigits' significant digits ("%.<n-1>E" == one
+    // leading digit + n-1 fraction digits), then decompose into an integer
+    // digit string and a power-of-ten scale.
+    char fmt[8];
+    std::snprintf(fmt, sizeof fmt, "%%.%dE", significantDigits - 1);
     char buf[48];
-    std::snprintf(buf, sizeof buf, "%.14E", a);
+    std::snprintf(buf, sizeof buf, fmt, a);
     char digits[24];
     digits[0] = buf[0];                       // the leading digit
-    for (int i = 2; i < 16; ++i) digits[i - 1] = buf[i]; // skip the dot at [1]
-    digits[15] = 0;
-    const int e10 = std::atoi(buf + 17);      // after 'E' at index 16
+    for (int i = 2; i < significantDigits + 1; ++i) digits[i - 1] = buf[i]; // skip the dot at [1]
+    digits[significantDigits] = 0;
+    const int e10 = std::atoi(buf + significantDigits + 2); // after 'E'
 
-    int32_t scale = 14 - e10;                 // value = DigitsInt * 10^-scale
-    int di = 15;
+    int32_t scale = (significantDigits - 1) - e10; // value = DigitsInt * 10^-scale
+    int di = significantDigits;
     while (scale > 0 && di > 1 && digits[di - 1] == '0') { digits[--di] = 0; --scale; }
 
     // Build the canonical fixed-point form for the parser.
@@ -2502,10 +2575,19 @@ void icall_decimal_ctor_double(Il2CppDecimal* out, double value)
     icall_decimal_parse(out, il2cpp_string_new_from_utf8(plain));
 }
 
+void icall_decimal_ctor_double(Il2CppDecimal* out, double value)
+{
+    CtorFromFloating(out, value, 15); // VarDecFromR8: 15 significant digits
+}
+
 void icall_decimal_ctor_float(Il2CppDecimal* out, float value)
 {
-    icall_decimal_ctor_double(out, static_cast<double>(value));
+    // VarDecFromR4: 7 significant digits (FLT_DIG) -- see the block comment
+    // above CtorFromFloating. Widening the float to double and taking 15
+    // digits would expose the binary expansion (0.1f -> 0.100000001490116m).
+    CtorFromFloating(out, static_cast<double>(value), 7);
 }
+
 
 double icall_decimal_to_double(const Il2CppDecimal* d)
 {

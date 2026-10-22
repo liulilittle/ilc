@@ -1114,6 +1114,56 @@ public class MethodMapTestsLinq
                 new byte[] { 0x0A, 0x01, 0x0E })).CppName);
     }
 
+    //--------------------------------------------------------------------------
+    // p0conv2 (D3): OrderBy over an INT64 (long[]) source with a key selector.
+    // The int32-source entry reads 4-byte cells, so the int64 source has its
+    // own family: il2cpp_linq_order_by_key[_desc]_i8_<keyfam> (8-byte element
+    // cells, a fresh int64[] result). The KEY family picks the suffix: int32
+    // (0x08 slot primitives) -> _i8_i4, int64 -> _i8_i8.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("OrderBy", 0x08, "il2cpp::il2cpp_linq_order_by_key_i8_i4")]
+    [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_i8_i8")]
+    [InlineData("OrderByDescending", 0x08, "il2cpp::il2cpp_linq_order_by_key_desc_i8_i4")]
+    [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_i8_i8")]
+    public void Resolve_OrderBy_LongSource_MapsToI8KeyIcall(
+        string name, byte keyByte, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0A, keyByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Int64[]", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // p0conv2 (D3): an int64-source OrderBy with an unsupported KEY family
+    // (float/double/reference) stays LOUD -- no i8-source kernel exists.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(0x0D)]
+    [InlineData(0x0E)]
+    [InlineData(0x12)]
+    public void Resolve_OrderBy_LongSource_UnsupportedKeyFamily_ThrowsLoud(byte keyByte)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("OrderBy",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0A, keyByte })));
+
+        Assert.Contains("int64-source key-selector surface", ex.Message);
+    }
+
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)
     {
         using var reader = new PEReader(pe);

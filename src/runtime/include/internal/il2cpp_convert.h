@@ -33,6 +33,7 @@
 
 #include "il2cpp_string.h"
 #include "il2cpp_exception.h"
+#include "decimal.h" // p0conv2 (D1): Il2CppDecimal result-slot parameters
 
 #include <cstdint>
 
@@ -132,5 +133,24 @@ int32_t icall_convert_to_char_i4(int32_t value);
 // Convert.ToInt32(char): zero-extends the UTF-16 unit to int32, never throws.
 int32_t icall_convert_to_int32_char(int32_t utf16);
 int32_t icall_convert_to_int32_bool(int32_t value);
+
+//------------------------------------------------------------------------------
+// p0conv2 (D1): System.Convert -> System.Decimal.
+//
+// The result is a 16-byte decimal, so these follow the decimal RESULT-SLOT
+// contract (decimal.h): the target slot comes FIRST and the value is written
+// through it (Il2CppDecimal* out).
+//
+//   * icall_convert_to_decimal_string -- Convert.ToDecimal(string[, provider]):
+//     net48's "null means zero" rule (null -> 0m) over the Number.ParseDecimal
+//     grammar; malformed text -> FormatException, out of range ->
+//     OverflowException. It is NOT icall_decimal_parse (which throws
+//     ArgumentNullException on null).
+//   * icall_convert_to_decimal_char -- Convert.ToChar-style rejection:
+//     Convert.ToDecimal(char) throws InvalidCastException on net48 (probe-pinned
+//     for 'A'); no managed char can be a decimal, so the helper always throws.
+//------------------------------------------------------------------------------
+void icall_convert_to_decimal_string(Il2CppDecimal* out, Il2CppString* value);
+void icall_convert_to_decimal_char(Il2CppDecimal* out, int32_t utf16);
 
 }} // namespace il2cpp::runtime
