@@ -923,6 +923,31 @@ public static class CodeGenerator
         // directly return/store a same-type field) are folded into field
         // accesses at every call site and their FUNCTIONS are not emitted.
         var accessors = AccessorAnalyzer.Scan(pe, md, types);
+        // P0GEN (generic-method variant routing, ORDER-INDEPENDENCE CONTRACT):
+        // decide ONCE, before any resolution that can consult it, which generic
+        // method DEFINITIONS are type-agnostic -- those get the concrete slot
+        // variants ({name}_string/_long/_double/_<Struct>) and the resolver
+        // routes a MethodSpec to exactly those symbols.
+        //
+        // The map is the SINGLE SOURCE OF TRUTH for both sides: the emission
+        // block below reads it instead of re-running its own predicate, and
+        // MethodRefResolver only appends a suffix when the token is present.
+        // That is what makes the decision order-independent: a call site may be
+        // resolved before or after the callee body is emitted (the fold walks
+        // bodies in metadata order), and "fill a set at emission time, query it
+        // at resolution time" would make the answer depend on that order --
+        // producing exactly the phantom symbol this scan exists to prevent.
+        //
+        // Placement is load-bearing: the inline-candidate fold loop below is
+        // the first consumer that resolves method specs, so the scan MUST
+        // complete before it.
+        GenericUsageAnalyzer.GenericMethodVariants = ScanGenericMethodVariants(pe, md, types, accessors);
+        // Scope the map to THIS assembly: a MethodSpec-on-MethodDefinition can
+        // only name a definition in the same module, so a resolver running on a
+        // different module (synthetic-PE unit tests, nested Generate) must not
+        // read this map -- it would see "no entry" for a definition the scan
+        // never visited and wrongly drop the variant.
+        GenericUsageAnalyzer.GenericMethodVariantsAssembly = md.GetGuid(md.GetModuleDefinition().Mvid);
         // OPT-2 (escape-analysis wiring, AllocPromoPass.cs header ordering
         // contract): fold every translatable method once into an inline
         // candidate table. Each emitted method then runs InlinePass (small
@@ -1838,9 +1863,21 @@ public static class CodeGenerator
                 // Gate: only type-agnostic bodies are expanded -- a numeric
                 // generic (`Add<T>`) would emit an uncompilable Il2CppObject*
                 // body and break unrelated cases.
-                if (m.IsGenericMethod && IsPurePassThrough(stmts))
+                // P0GEN: the variant gate reads the PRE-EMISSION scan
+                // (GenericUsageAnalyzer.GenericMethodVariants, keyed by this
+                // definition's MethodDef token) instead of re-testing the
+                // post-optimization stmts. The resolver consults the SAME map,
+                // so emission and resolution cannot disagree no matter which
+                // body is emitted first (the old asymmetric shape: the resolver
+                // appended a suffix unconditionally while this block only
+                // emitted variants for a pass-through body -> a call to a
+                // symbol that was never emitted, i.e. transpile OK + cmake
+                // "'<name>_long' was not declared in this scope").
+                if (m.IsGenericMethod
+                    && GenericUsageAnalyzer.GenericMethodVariants?.TryGetValue(cppMethodName, out var variantInfo) == true
+                    && variantInfo.EmitsVariants)
                 {
-                    var shape = GenericMvarShape(md, bodyInfo.MethodToken, m.ParamCount);
+                    var shape = variantInfo;
                     // ParamMvar covers EXPLICIT params only; paramTypes leads
                     // with hidden slots (instance `this`). Index with the
                     // leading offset and bounds-guard (a static/instance skew
@@ -5455,13 +5492,24 @@ public static class CodeGenerator
         _ => "val",
     };
 
-    // M7 genlist: a generic method body is PURE PASS-THROUGH when the folded
-    // IR only moves args/locals (no arithmetic/calls/fields on the generic
-    // value) -- `T Id<T>(T x) => x` folds to `return arg0`. Such a body is
-    // type-agnostic: emitting it with Il2CppObject* param/return types (the
-    // string variant) is safe. A numeric generic (`Add<T>(T a, T b) => a+b`)
-    // folds to `arg0 + arg1` -- NOT pass-through; its string variant would be
-    // uncompilable C++ (Il2CppObject* arithmetic), so the gate rejects it.
+    // M7 genlist: a generic method body is TYPE-AGNOSTIC when the folded IR
+    // only moves args/locals (no arithmetic/calls/fields on the generic value)
+    // -- `T Id<T>(T x) => x` folds to `return arg0` -- OR returns a CONSTANT
+    // that never observes the generic value's representation
+    // (`static int Ignore<T>(T v) => 42` folds to `return 42`). Such a body is
+    // type-agnostic: emitting it with Il2CppObject* / int64_t / double param
+    // and return types (the concrete slot variants) is safe. A numeric generic
+    // (`Add<T>(T a, T b) => a+b`) folds to `arg0 + arg1` -- NOT type-agnostic;
+    // its string variant would be uncompilable C++ (Il2CppObject*
+    // arithmetic), so the gate rejects it.
+    //
+    // P0GEN: the constant arm is what closes the emission/resolution asymmetry
+    // -- the resolver routes `Ignore<long>` to {name}_long, so the definition
+    // MUST emit that variant. A constant return is exactly as type-agnostic as
+    // a pass-through: `int32_t Ignore_string(Il2CppObject* arg0) { return 42; }`
+    // compiles for every slot width. Type-DIRECTED bodies (a call/field/
+    // arithmetic on the generic value, e.g. `v.ToString()`) stay rejected --
+    // their variant body is not compilable for a value slot.
     private static bool IsPurePassThrough(List<Stmt> stmts)
     {
         foreach (var s in stmts)
@@ -5469,7 +5517,8 @@ public static class CodeGenerator
             switch (s)
             {
                 case RetStmt r:
-                    if (r.Value is not (LocExpr or null)) return false;
+                    if (r.Value is not (LocExpr or null or IntConstExpr or Int64ConstExpr
+                        or DoubleConstExpr or StringConstExpr or NullExpr)) return false;
                     break;
                 case AssignStmt a:
                     if (a.Value is not LocExpr) return false;
@@ -5481,6 +5530,83 @@ public static class CodeGenerator
             }
         }
         return true;
+    }
+
+    // P0GEN: the pre-emission scan that decides the generic-method VARIANT
+    // surface (see GenericUsageAnalyzer.GenericMethodVariants). One pass over
+    // every translated method body; a generic definition whose folded body is
+    // type-agnostic is recorded with its MVAR shape. The fold here mirrors the
+    // emission fold's INPUT (raw IL -> StackFold), not its output pipeline:
+    // the variant gate must be a property of the DEFINITION, and running the
+    // optimization passes twice would be both wasteful and a second source of
+    // truth (a pass could in principle turn a directed body into a constant).
+    //
+    // Failure policy: a body that cannot be read or folded is NOT registered --
+    // the resolver then binds the base symbol (no fabricated variant), exactly
+    // what the emission loop does for the same method (it emits the base body
+    // or a not-transpiled stub, never a variant).
+    //
+    // BOTH verdicts are recorded (true = variants exist, false = type-directed):
+    // a MISS must mean "never scanned", so a synthetic-PE unit test that calls
+    // Resolve without Generate keeps the historical routing.
+    private static Dictionary<string, GenericUsageAnalyzer.GenericMethodVariantShape> ScanGenericMethodVariants(
+        PEReader pe, MetadataReader md, IReadOnlyList<TypeDef> types,
+        IReadOnlyDictionary<int, FoldedAccessor> accessors)
+    {
+        var result = new Dictionary<string, GenericUsageAnalyzer.GenericMethodVariantShape>(StringComparer.Ordinal);
+        foreach (var t in types)
+        {
+            foreach (var m in t.Methods)
+            {
+                if (!m.IsGenericMethod || m.IsAbstract || m.IsPInvoke) continue;
+                // The key both sides share: the definition's generated C++ name
+                // (owner + name + signature hash). Computed BEFORE the body read
+                // so an unreadable body still records the type-directed verdict.
+                var key = MethodCppName(t, m);
+                MethodBodyInfo info;
+                try { info = MethodBodyReader.Read(pe, md, t, m); }
+                catch { continue; }
+                if (accessors.ContainsKey(info.MethodToken)) continue;
+                var (paramMvar, returnMvar) = GenericMvarShape(md, info.MethodToken, m.ParamCount);
+                List<Stmt> stmts;
+                try
+                {
+                    // Mirror the emission fold's closed-generic context: a
+                    // generic method on a generic CLONE resolves its VAR
+                    // TypeSpecs through the clone's suffix, so the scan must
+                    // see the same shapes the emitted body will (save/restore
+                    // -- the hint must never leak between bodies).
+                    var prevHint = MethodRefResolver.InstantiationSuffixHint;
+                    var prevHintParts = MethodRefResolver.InstantiationSuffixHintParts;
+                    MethodRefResolver.InstantiationSuffixHint = t.InstantiationSuffix;
+                    MethodRefResolver.InstantiationSuffixHintParts = t.InstantiationSuffixParts;
+                    try
+                    {
+                        stmts = StackFold.Fold(IlDecoder.DecodeMethod(info.IlBytes, md), new MethodContext
+                        {
+                            ArgCount = info.ArgCount,
+                            LocNames = info.LocNames,
+                            LocalKinds = info.LocalKinds,
+                            ReturnsVoid = info.ReturnsVoid,
+                            ExceptionRegions = info.ExceptionRegions,
+                            MethodFullName = $"{t.FullName}.{m.Name}",
+                            CctorOwnerFullName = m.Name == ".cctor" ? TypeEmitter.ReflectionFullName(t) : null,
+                            IsStatic = m.IsStatic,
+                            ParamTypeNames = m.ParamTypes.Length == 0 ? null : SplitTopLevel(m.ParamTypes).ToArray(),
+                        }, md, types, accessors, pe);
+                    }
+                    finally
+                    {
+                        MethodRefResolver.InstantiationSuffixHint = prevHint;
+                        MethodRefResolver.InstantiationSuffixHintParts = prevHintParts;
+                    }
+                }
+                catch { continue; }
+                var typeAgnostic = IsPurePassThrough(DcePass.Run(stmts).Stmts);
+                result[key] = new GenericUsageAnalyzer.GenericMethodVariantShape(typeAgnostic, paramMvar, returnMvar);
+            }
+        }
+        return result;
     }
 
     // M7 genlist: decode the method definition's RAW signature to find which

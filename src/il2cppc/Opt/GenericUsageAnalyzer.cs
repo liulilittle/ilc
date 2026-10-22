@@ -71,6 +71,52 @@ public static class GenericUsageAnalyzer
     public static HashSet<string>? MethodSpecUserStructArgs { get; set; }
 
     //--------------------------------------------------------------------------
+    // P0GEN: the GENERIC-METHOD VARIANT surface, keyed by the DEFINITION's
+    // generated C++ name (owner+name+signature hash -- the same key both sides
+    // already compute, so no extra metadata plumbing and no cross-assembly
+    // token aliasing). One entry per generic method DEFINITION that the
+    // pre-emission scan reached:
+    //   EmitsVariants = true  -> the body is TYPE-AGNOSTIC, so the definition
+    //                            is emitted with the concrete slot variants
+    //                            ({name}_string / _long / _double / _<Struct>)
+    //                            and the resolver must route a MethodSpec to
+    //                            exactly those symbols.
+    //   EmitsVariants = false -> the body is type-DIRECTED; no variant exists
+    //                            and the resolver must bind the BASE symbol.
+    //   no entry              -> the definition was never scanned (synthetic
+    //                            PEs in unit tests). The resolver keeps the
+    //                            historical routing; the emission side emits
+    //                            nothing extra either way.
+    //
+    // WHY a pre-scan (order independence): the call site may be resolved
+    // BEFORE the callee body is folded/emitted (the fold walks bodies in
+    // metadata order; a call can precede its target). "Fill a set at emission
+    // time, query it at resolution time" would then depend on traversal order
+    // and silently produce the phantom symbol this map exists to prevent.
+    // CodeGenerator populates this map in ONE scan over every method body
+    // BEFORE any resolve that consults it; the emission side reads the SAME
+    // map instead of recomputing on its own post-optimization stmts, so the
+    // two sides can never disagree (single source of truth).
+    //
+    // The shape is the MVAR SHAPE (explicit-param MVAR flags + MVAR return),
+    // the same shape GenericMvarShape computes: a variant is only a REFERENCE
+    // slot where the definition's signature actually uses the method's own
+    // generic parameter -- `static int Ignore<T>(T v) => 42` keeps its int32
+    // return in the _string variant.
+    //--------------------------------------------------------------------------
+    public static Dictionary<string, GenericMethodVariantShape>? GenericMethodVariants { get; set; }
+
+    // The MVID of the assembly GenericMethodVariants was scanned from. A
+    // MethodSpec-on-MethodDefinition can only name a definition in the SAME
+    // assembly, so a resolver running on a different module (a synthetic PE in
+    // a unit test, or a nested Generate on another input) must NOT read this
+    // map -- it would see "no entry" for a definition the scan never visited
+    // and wrongly drop the variant. Null = no scan in effect.
+    public static Guid? GenericMethodVariantsAssembly { get; set; }
+
+    public readonly record struct GenericMethodVariantShape(bool EmitsVariants, bool[] ParamMvar, bool ReturnMvar);
+
+    //--------------------------------------------------------------------------
     // Collapse a closed instantiation's argument list onto plain "object"
     // when the definition is in the active share set (all parameters are
     // shareable -- the mask is all-true). Mutates args in place; returns true
