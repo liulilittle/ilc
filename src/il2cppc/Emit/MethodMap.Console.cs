@@ -137,7 +137,7 @@ public static partial class MethodRefResolver
         string? vtName = null;
         if (paramTypes is { Length: > 0 })
         {
-            var parts = CodeGenerator.SplitTopLevel(paramTypes);
+            var parts = CodeGenerator.SplitTopLevel(paramTypes).ToArray();
             if (parts.Length > 0 && parts[0].StartsWith("V:", StringComparison.Ordinal))
                 vtName = parts[0][2..];
         }
