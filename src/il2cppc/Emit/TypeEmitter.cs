@@ -159,6 +159,12 @@ public static class TypeEmitter
                 BeforeFieldInit = (td.Attributes & TypeAttributes.BeforeFieldInit) != 0,
                 IsValueType = DecodeNestedBaseType(md, td.BaseType) == "System.ValueType",
                 GenericArity = td.GetGenericParameters().Count,
+                // flagsenum: the REAL [Flags] bit, decoded from the nested
+                // TypeDef's own CustomAttribute rows (the same authority
+                // MetadataLoader.LoadAssembly uses for top-level types). A
+                // nested [Flags] enum would otherwise reach the runtime with
+                // isFlags=0 and silently print numeric combinations.
+                IsFlags = MetadataLoader.HasFlagsAttribute(md, tdHandle),
             };
             foreach (var iih in td.GetInterfaceImplementations())
             {

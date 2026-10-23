@@ -75,23 +75,25 @@
 // text; the transpiler owns that decision -- this primitive reports the
 // outcome.
 //
-// [FLAGS] ToString DECOMPOSITION (rtflags, 2026-08-09): il2cpp_enum_to_string
-// decomposes an unnamed value into its named bit components ("F1, F2" for
-// value 3 of {None=0, F1=1, F2=2, F3=4}) when the enum is flags-capable.
-// net48 semantics (csc probe): a NON-FLAGS enum NEVER decomposes -- an
-// unnamed value prints its numeric decimal even when the value is a
-// combination of member values (probe plain3=3 / plain7=7); only a [Flags]
-// enum decomposes, and ONLY when the value is fully covered by named bits
-// (partial coverage -- probe partial2=10 -> "10" -- stays numeric). The
-// runtime has no [Flags] attribute bit in the registry (the transpiler's
-// register emission carries no attribute info -- the member table is the
-// only metadata), so flags-CAPABILITY is detected from the member table
-// itself: an enum is treated as flags-capable when it has a zero-valued
-// member AND every non-zero member value is an exact power of two -- the
-// canonical [Flags] shape (the .NET [Flags] convention typically declares
-// a zero member and single-bit members). DOCUMENTED DEVIATION: a plain
-// (non-[Flags]) enum with exactly that member shape would also decompose
-// (net48 requires the attribute); no current e2e/unit case has that shape.
+// [FLAGS] ToString DECOMPOSITION (rtflags, 2026-08-09; attribute-driven
+// since flagsenum): il2cpp_enum_to_string decomposes an unnamed value into
+// its named bit components ("F1, F2" for value 3 of {None=0, F1=1, F2=2,
+// F3=4}) when the enum is a [Flags] enum. net48 semantics (csc probe): a
+// NON-FLAGS enum NEVER decomposes -- an unnamed value prints its numeric
+// decimal even when the value is a combination of member values (probe
+// plain3=3 / plain7=7); only a [Flags] enum decomposes, and ONLY when the
+// value is fully covered by named bits (partial coverage -- probe partial2=10
+// -> "10" -- stays numeric).
+//
+// FLAGS CAPABILITY IS THE ATTRIBUTE, NOT THE MEMBER SHAPE. The transpiler
+// decodes System.FlagsAttribute from the TypeDef's CustomAttribute rows
+// (MetadataLoader.HasFlagsAttribute) and emits it as
+// Il2CppEnumInfo::isFlags; the runtime reads that bit. The pre-fix heuristic
+// ("zero member + every non-zero member an exact power of two") was WRONG
+// for the extremely common shape that also declares composite members --
+// `[Flags] enum { None=0, A=1, B=2, C=4, AB=3 }` printed "5" instead of
+// "A, C" (a silent wrong value), and a plain `{Zero=0, One=1, Two=2}` enum
+// decomposed when net48 prints "3".
 //   Decomposition algorithm (net48 probe-verified, probe2/probe3):
 //     1. exact member match first (a defined member name wins over
 //        decomposition -- including a composite member: value 3 of
@@ -103,6 +105,11 @@
 //        (probe g2_all=31 -> "X1, X2, X4, X8, X16" -- value order, NOT
 //        declaration order); if the remaining bits cannot be fully covered
 //        by named members the numeric fallback applies (net48).
+// The "F" FORMAT SPECIFIER IS DIFFERENT: net48 decomposes for EVERY enum
+// (attribute irrelevant) -- probe: plain Color{Red=0, Green=1, Blue=2}
+// ToString("F") of 3 -> "Green, Blue" while ToString() -> "3"; plain
+// {A=1, B=2, AB=3, C=4} "F" of 7 -> "AB, C". il2cpp_enum_to_string_format
+// therefore runs the decomposition unconditionally for 'F'.
 // Flags-style comma-joined NAMES in Parse are NOT supported (deviation).
 //------------------------------------------------------------------------------
 
@@ -137,6 +144,11 @@ struct Il2CppEnumInfo
     int32_t             valueCount; // number of members
     const char* const*  names;      // ASCII member names, one per member
     const int64_t*      values;     // member values (int64 carrier)
+    // flagsenum: the REAL System.FlagsAttribute bit (1 = [Flags]). The
+    // transpiler emits it as the LAST column, so a 4-column brace
+    // initializer keeps compiling and stays warning-free (the default
+    // member initializer also covers any stale generated output).
+    uint8_t             isFlags = 0;
 };
 
 //------------------------------------------------------------------------------

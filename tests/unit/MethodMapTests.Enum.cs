@@ -451,19 +451,38 @@ public class EnumRegisterWiringTests
     {
         var block = MethodRefResolver.EmitEnumRegisterBlock("System.DayOfWeek", 9,
             new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" },
-            new long[] { 0, 1, 2, 3, 4, 5, 6 });
+            new long[] { 0, 1, 2, 3, 4, 5, 6 }, isFlags: false);
 
         Assert.Contains("static const char* const s_System_DayOfWeek_names[] = { \"Sunday\", \"Monday\", \"Tuesday\", \"Wednesday\", \"Thursday\", \"Friday\", \"Saturday\" };", block);
         Assert.Contains("static const int64_t s_System_DayOfWeek_values[] = { 0, 1, 2, 3, 4, 5, 6 };", block);
-        Assert.Contains("static const il2cpp::runtime::Il2CppEnumInfo s_System_DayOfWeek_enumInfo = { 9, 7, s_System_DayOfWeek_names, s_System_DayOfWeek_values };", block);
+        Assert.Contains("static const il2cpp::runtime::Il2CppEnumInfo s_System_DayOfWeek_enumInfo = { 9, 7, s_System_DayOfWeek_names, s_System_DayOfWeek_values, 0 };", block);
         Assert.Contains("il2cpp::runtime::il2cpp_enum_register(\"System.DayOfWeek\", &s_System_DayOfWeek_enumInfo);", block);
+    }
+
+    //--------------------------------------------------------------------------
+    // flagsenum: the register block's LAST column is the REAL [Flags]
+    // attribute bit (Il2CppEnumInfo::isFlags). The runtime's ToString
+    // decomposition reads it -- never a member-shape guess -- so a [Flags]
+    // enum with composite members (AB=3) still decomposes.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void EmitRegisterBlock_FlagsBitIsEmitted()
+    {
+        var flags = MethodRefResolver.EmitEnumRegisterBlock("Cases.Flags",
+            9, new[] { "None", "A", "B", "C", "AB" }, new long[] { 0, 1, 2, 4, 3 },
+            isFlags: true);
+        Assert.Contains("Il2CppEnumInfo s_Cases_Flags_enumInfo = { 9, 5, s_Cases_Flags_names, s_Cases_Flags_values, 1 };", flags);
+
+        var plain = MethodRefResolver.EmitEnumRegisterBlock("Cases.Plain",
+            9, new[] { "Zero", "One", "Two" }, new long[] { 0, 1, 2 }, isFlags: false);
+        Assert.Contains("Il2CppEnumInfo s_Cases_Plain_enumInfo = { 9, 3, s_Cases_Plain_names, s_Cases_Plain_values, 0 };", plain);
     }
 
     [Fact]
     public void EmitRegisterBlock_UserEnumTypeName_Sanitized()
     {
         var block = MethodRefResolver.EmitEnumRegisterBlock("AuditFix.MyColor", 9,
-            new[] { "Red", "Green" }, new long[] { 0, 1 });
+            new[] { "Red", "Green" }, new long[] { 0, 1 }, isFlags: false);
 
         Assert.Contains("s_AuditFix_MyColor_names", block);
         Assert.Contains("s_AuditFix_MyColor_values", block);
