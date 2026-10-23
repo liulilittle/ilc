@@ -309,6 +309,75 @@ Il2CppString* il2cpp_bitconverter_to_hex_string(Il2CppArray* bytes)
 }
 
 //------------------------------------------------------------------------------
+// BitConverter.ToString(byte[] value, int startIndex, int length) -- net48
+// (referencesource mscorlib/system/bitconverter.cs). The validation ORDER is
+// the net48 one and it is observable: ToString(new byte[0], 0, 0) returns ""
+// (the startIndex check is guarded by `startIndex > 0`), while
+// ToString(new byte[0], 1, 0) throws ArgumentOutOfRangeException; a negative
+// length on an in-range startIndex throws ArgumentOutOfRangeException
+// ("length"), and only a positive length that overruns the array throws
+// ArgumentException.
+//------------------------------------------------------------------------------
+Il2CppString* il2cpp_bitconverter_to_hex_string_range(Il2CppArray* bytes,
+                                                      int32_t startIndex,
+                                                      int32_t length)
+{
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("value");
+    }
+    if (startIndex < 0 || (startIndex >= bytes->length && startIndex > 0))
+    {
+        il2cpp_throw_argument_out_of_range_exception("startIndex", nullptr);
+    }
+    if (length < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("length", nullptr);
+    }
+    if (startIndex > bytes->length - length)
+    {
+        il2cpp_throw_argument_exception("Index was out of range. Must be non-negative and less than the size of the collection.");
+    }
+    if (length == 0)
+    {
+        return il2cpp_string_new(nullptr, 0);
+    }
+    static constexpr char16_t kHexDigits[] = u"0123456789ABCDEF";
+    std::vector<char16_t> buf(static_cast<size_t>(length) * 3u - 1u);
+    int32_t o = 0;
+    for (int32_t i = 0; i < length; ++i)
+    {
+        if (i > 0)
+        {
+            buf[static_cast<size_t>(o++)] = u'-';
+        }
+        const uint8_t b = static_cast<uint8_t>(bytes->data[startIndex + i]);
+        buf[static_cast<size_t>(o++)] = kHexDigits[b >> 4];
+        buf[static_cast<size_t>(o++)] = kHexDigits[b & 0x0F];
+    }
+    return il2cpp_string_new(buf.data(), o);
+}
+
+// ToString(byte[] value, int startIndex): the net48 delegation to the 3-arg
+// form with length = value.Length - startIndex. A null value is checked
+// FIRST (before the length subtraction dereferences the array).
+Il2CppString* il2cpp_bitconverter_to_hex_string_from(Il2CppArray* bytes,
+                                                     int32_t startIndex)
+{
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("value");
+    }
+    return il2cpp_bitconverter_to_hex_string_range(bytes, startIndex,
+                                                   bytes->length - startIndex);
+}
+
+int32_t il2cpp_bitconverter_get_is_little_endian()
+{
+    return 1;
+}
+
+//------------------------------------------------------------------------------
 // BitConverter bit bridges: pure bit-pattern reinterpretations.
 //------------------------------------------------------------------------------
 

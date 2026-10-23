@@ -48,14 +48,17 @@ using Xunit;
 public class MethodMapConsoleTests
 {
     //--------------------------------------------------------------------------
-    // WriteLine(long) -> int64 generated-header helper (0x0A = ELEMENT_TYPE_I8)
+    // WriteLine(long) -> runtime int64 icall (0x0A = ELEMENT_TYPE_I8). misc3
+    // moved the int64 arm off the generated-header inline helper onto the
+    // runtime entry so every integer width shares one console formatter
+    // family (console.cpp icall_console_write_line_l).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Console_WriteLineInt64_MapsToInt64Helper()
+    public void Resolve_Console_WriteLineInt64_MapsToInt64Icall()
     {
         var resolved = ResolveMember(Synthesize("System", "Console", "WriteLine", Sig(0x01, 0x0A)), "WriteLine");
 
-        Assert.Equal("il2cpp_console_write_line_l", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_console_write_line_l", resolved.CppName);
         Assert.False(resolved.IsInstance);
         Assert.False(resolved.ReturnsValue);
         Assert.Equal(1, resolved.ParamCount);
@@ -119,20 +122,19 @@ public class MethodMapConsoleTests
     }
 
     //--------------------------------------------------------------------------
-    // WriteLine(object) with a tracked UInt64 box -> LOUD (the arg0Type switch
-    // has no System.UInt64 case: an unbox:q cast does not exist in the
-    // CodeGenerator cast table, so the boxed surface stays loud while the
-    // direct overload is wired).
+    // WriteLine(object) with a tracked UInt64 box -> the u64 icall through the
+    // "unbox:ul" cast. misc3 wired the 8-byte unsigned carrier, so the boxed
+    // surface no longer has to stay LOUD: UInt64.MaxValue prints its full
+    // decimal instead of the int64 helper's -1.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Console_WriteLineUInt64Boxed_ThrowsLoud()
+    public void Resolve_Console_WriteLineUInt64Boxed_MapsToUInt64Icall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Console", "WriteLine", Sig(0x01, 0x1C)), "WriteLine",
-                arg0Type: "System.UInt64"));
+        var resolved = ResolveMember(Synthesize("System", "Console", "WriteLine", Sig(0x01, 0x1C)), "WriteLine",
+            arg0Type: "System.UInt64");
 
-        Assert.Contains("System.Console::WriteLine", ex.Message);
-        Assert.Contains("not wired", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_console_write_line_u64", resolved.CppName);
+        Assert.Equal(new[] { "unbox:ul" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -157,26 +159,27 @@ public class MethodMapConsoleTests
     }
 
     //--------------------------------------------------------------------------
-    // Boxed prims without an int64-carrier unbox cast stay LOUD (their boxes
-    // are not long boxes -- a wrong path would be a runtime InvalidCast from
-    // unbox_long's klass check instead of a compile-time error; boxed Int64
-    // would also truncate through the Int32 numeric fallback).
+    // Boxed prims that have no unbox cast still render correctly: Int64 and
+    // UInt32 go through their matching icall; Byte/SByte/Int16/UInt16 have no
+    // cast in the CodeGenerator table but the runtime object printer
+    // (valuesemantics.cpp icall_object_to_string) masks/sign-extends them
+    // correctly, so they route to icall_console_write_line_object. Only a
+    // WRONG path would be a runtime InvalidCast (unbox_long klass-checks).
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData("System.Int64")]
-    [InlineData("System.Byte")]
-    [InlineData("System.SByte")]
-    [InlineData("System.Int16")]
-    [InlineData("System.UInt16")]
-    [InlineData("System.UInt32")]
-    public void Resolve_Console_WriteLineBoxedPrimWithoutCarrier_ThrowsLoud(string boxType)
+    [InlineData("System.Int64", "il2cpp::runtime::icall_console_write_line_l")]
+    [InlineData("System.UInt32", "il2cpp::runtime::icall_console_write_line_u32")]
+    [InlineData("System.Byte", "il2cpp::runtime::icall_console_write_line_object")]
+    [InlineData("System.SByte", "il2cpp::runtime::icall_console_write_line_object")]
+    [InlineData("System.Int16", "il2cpp::runtime::icall_console_write_line_object")]
+    [InlineData("System.UInt16", "il2cpp::runtime::icall_console_write_line_object")]
+    public void Resolve_Console_WriteLineBoxedPrim_MapsToCarrierOrObjectPrinter(string boxType, string expected)
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Console", "WriteLine", Sig(0x01, 0x1C)), "WriteLine",
-                arg0Type: boxType));
+        var resolved = ResolveMember(Synthesize("System", "Console", "WriteLine", Sig(0x01, 0x1C)), "WriteLine",
+            arg0Type: boxType);
 
-        Assert.Contains("System.Console::WriteLine", ex.Message);
-        Assert.Contains("not wired", ex.Message);
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------

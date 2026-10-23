@@ -1264,10 +1264,16 @@ public static partial class MethodRefResolver
         var arrayParamTypes = owner == "System.Array"
             ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
             : null;
+        // misc3 console alignment: the Write/WriteLine VALUETYPE overloads
+        // (decimal) share the 0x11 raw byte with DateTime/enum/user structs,
+        // so the DECODED parameter text names them.
+        var consoleParamTypes = owner == "System.Console"
+            ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
+            : null;
         // #region BCL domain dispatch
         switch (owner)
         {
-            case "System.Console": return TryMapConsole(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Console": return TryMapConsole(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, consoleParamTypes);
             case "System.Math": return TryMapMath(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapMathExtra(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Convert":
@@ -1904,7 +1910,13 @@ var userRecvLike = receiverType ?? arg0Type;
                 // -- the ONLY TextWriter surface the Console domain owns.
                 // StringIO/StreamIO receivers keep the mappings above.
                 if (receiverType is "System.Console.OutStream" or "System.Console.ErrorStream")
-                    return TryMapConsoleStream(owner, name, ps, count);
+                    return TryMapConsoleStream(owner, name, ps, count, receiverType);
+                // misc3 Console.In: the stdin TextReader object (get_In tracks
+                // it as "System.Console.InReader"). Read/Peek/ReadLine/
+                // ReadToEnd route to the stdin icalls; the receiver is the
+                // process-stdin singleton (the runtime ignores it).
+                if (receiverType == "System.Console.InReader")
+                    return TryMapConsoleStream(owner, name, ps, count, receiverType);
                 if (owner is "System.IO.TextReader" or "System.IO.TextWriter" && receiverType == null)
                     return null; // base owner, first pass -- defer to the receiver-aware re-resolve
                 return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);            case "System.IO.BinaryReader":

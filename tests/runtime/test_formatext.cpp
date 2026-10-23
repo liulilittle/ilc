@@ -439,15 +439,33 @@ int main()
     Expect(FmtThrowsI64(INT64_C(123), "Q"), "int64 unknown specifier Q -> FormatException");
     Expect(FmtThrowsD(1.5, "Q"), "double unknown specifier Q -> FormatException");
     Expect(FmtThrowsD(1.5, "D5"), "double D5 -> FormatException (out of subset)");
-    // scientific notation and ';' sections remain out of subset (documented)
-    Expect(FmtThrowsD(1.5, "0.00E+00"),
-           "double custom scientific E+0 -> FormatException (out of subset)");
-    Expect(FmtThrowsD(1.5, "0E0"),
-           "double custom scientific 0E0 -> FormatException (out of subset)");
+    // scientific notation IS implemented (numexp1 net48 oracle, 2026-10-23);
+    // ';' sections remain out of subset (documented).
+    ExpectFmtD(1.5, "0.00E+00", "1.50E+00",
+               "double custom scientific 0.00E+00");
+    ExpectFmtD(1.5, "0E0", "2E0", "double custom scientific 0E0 (rounds up)");
+    ExpectFmtD(0.000123, "0.00E+00", "1.23E-04",
+               "double custom scientific 0.00E+00 of 0.000123");
+    ExpectFmtD(1234.5, "0.00e+00", "1.23e+03",
+               "double custom scientific lowercase e");
+    ExpectFmtD(1234.5, "0.00E-00", "1.23E03",
+               "double custom scientific E-00 (sign only when negative)");
+    ExpectFmtD(1234.5, "##0.0E+0", "123.5E+1",
+               "double custom scientific ##0.0E+0 shifts the mantissa");
+    ExpectFmtD(1234.5, "#,##0.0E+0", "1,234.5E+0",
+               "double custom scientific with grouping");
+    ExpectFmtD(0.0, "0.00E+00", "0.00E+00",
+               "double custom scientific of zero");
+    ExpectFmtD(-1234.5, "0.00E+00", "-1.23E+03",
+               "double custom scientific negative");
+    ExpectFmtD(1234.5, "0.00\\E+00", "1234.50E+00",
+               "escaped E is a literal (not a marker)");
     Expect(FmtThrowsD(1.5, "0.##;-#.##"),
            "double custom ';' sections -> FormatException (out of subset)");
-    Expect(FmtThrowsI32(12345, "0.00E+0"),
-           "int32 custom scientific -> FormatException (out of subset)");
+    ExpectFmtI32(12345, "0.00E+0", "1.23E+4",
+                 "int32 custom scientific");
+    ExpectFmtI32(0, "0.00E+00", "0.00E+00",
+                 "int32 custom scientific of zero");
     Expect(FmtThrowsI32(12345, "0;#"),
            "int32 custom ';' sections -> FormatException (out of subset)");
 

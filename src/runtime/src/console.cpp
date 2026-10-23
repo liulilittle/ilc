@@ -24,6 +24,10 @@
 #include "il2cpp_console.h"
 #include "il2cpp_runtime.h"          // icall_console_write_line_s (the M1 string printer)
 #include "il2cpp_string.h"
+#include "il2cpp_array.h"            // Il2CppArray (char[] console overloads)
+#include "il2cpp_format.h"           // icall_int64_to_string / icall_uint64_to_string
+#include "decimal_format.h"          // icall_decimal_to_string (decimal console overloads)
+#include "il2cpp_stringbuilder.h"    // icall_string_format_1/2/3 + icall_string_format
 #include "il2cpp_value_semantics.h"  // icall_object_to_string (boxed ToString dispatch)
 #include "il2cpp_exception.h"        // il2cpp_throw_new (SetOut/SetError(null) ArgumentNullException)
 
@@ -469,6 +473,284 @@ void icall_console_write_line_object(Il2CppObject* value)
     // string icalls in runtime.cpp stay UTF-8-only (separate work order).
     WriteStringToStream(reinterpret_cast<Il2CppObject*>(text), stdout);
     console_write_newline();
+}
+
+//------------------------------------------------------------------------------
+// Full Write/WriteLine overload surface (misc3 console alignment; see
+// il2cpp_console.h). Every arm reuses the SAME formatter the matching
+// ToString uses, so console text and managed ToString stay byte-identical.
+//------------------------------------------------------------------------------
+
+namespace {
+
+// Render a boxed/any value through the Object.ToString dispatch, or nullptr
+// for a null value (net48 TextWriter.Write(object): a null writes nothing).
+Il2CppString* ObjectTextOrNull(Il2CppObject* value)
+{
+    if (value == nullptr)
+        return nullptr;
+    return icall_object_to_string(value);
+}
+
+void WriteTextThenNewline(Il2CppString* text, bool newline)
+{
+    if (text != nullptr)
+        WriteStringToStream(reinterpret_cast<Il2CppObject*>(text), stdout);
+    if (newline)
+        console_write_newline();
+}
+
+// char[] handling: net48 Console.Write(char[]) emits every unit; a null array
+// throws ArgumentNullException (net48 Console.Write(char[] buffer)).
+void WriteChars(Il2CppArray* chars, int32_t index, int32_t count, bool range)
+{
+    if (chars == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "buffer");
+    }
+    int32_t begin = 0;
+    int32_t len = chars->length;
+    if (range)
+    {
+        if (index < 0)
+        {
+            il2cpp_throw_new("System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
+                             "index");
+        }
+        if (count < 0)
+        {
+            il2cpp_throw_new("System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
+                             "count");
+        }
+        if (index + count > chars->length)
+        {
+            il2cpp_throw_new("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+                             "Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+        }
+        begin = index;
+        len = count;
+    }
+    if (chars->elemSize != 2)
+        return; // not a char[]: nothing to render (defensive)
+    const char16_t* units = reinterpret_cast<const char16_t*>(chars->data);
+    console_write_units(units + begin, len, stdout);
+}
+
+} // namespace
+
+void icall_console_write_line_l(int64_t value)
+{
+    WriteTextThenNewline(icall_int64_to_string(value), true);
+}
+
+void icall_console_write_l(int64_t value)
+{
+    WriteTextThenNewline(icall_int64_to_string(value), false);
+}
+
+void icall_console_write_u64(uint64_t value)
+{
+    const std::string text = console_format_u64(value);
+    std::fputs(text.c_str(), stdout);
+}
+
+void icall_console_write_line_decimal(const Il2CppDecimal* value)
+{
+    WriteTextThenNewline(icall_decimal_to_string(value), true);
+}
+
+void icall_console_write_decimal(const Il2CppDecimal* value)
+{
+    WriteTextThenNewline(icall_decimal_to_string(value), false);
+}
+
+void icall_console_write_object(Il2CppObject* value)
+{
+    WriteTextThenNewline(ObjectTextOrNull(value), false);
+}
+
+void icall_console_write_line_chars(Il2CppArray* chars)
+{
+    WriteChars(chars, 0, 0, false);
+    console_write_newline();
+}
+
+void icall_console_write_chars(Il2CppArray* chars)
+{
+    WriteChars(chars, 0, 0, false);
+}
+
+void icall_console_write_line_chars_range(Il2CppArray* chars, int32_t index, int32_t count)
+{
+    WriteChars(chars, index, count, true);
+    console_write_newline();
+}
+
+void icall_console_write_chars_range(Il2CppArray* chars, int32_t index, int32_t count)
+{
+    WriteChars(chars, index, count, true);
+}
+
+void icall_console_write_line_fmt1(Il2CppObject* format, Il2CppObject* arg0)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(icall_string_format_1(format, arg0)), true);
+}
+
+void icall_console_write_fmt1(Il2CppObject* format, Il2CppObject* arg0)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(icall_string_format_1(format, arg0)), false);
+}
+
+void icall_console_write_line_fmt2(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(icall_string_format_2(format, arg0, arg1)), true);
+}
+
+void icall_console_write_fmt2(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(icall_string_format_2(format, arg0, arg1)), false);
+}
+
+void icall_console_write_line_fmt3(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(icall_string_format_3(format, arg0, arg1, arg2)), true);
+}
+
+void icall_console_write_fmt3(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(icall_string_format_3(format, arg0, arg1, arg2)), false);
+}
+
+void icall_console_write_line_fmt_array(Il2CppObject* format, Il2CppArray* args)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(
+        icall_string_format(format, reinterpret_cast<Il2CppObject*>(args))), true);
+}
+
+void icall_console_write_fmt_array(Il2CppObject* format, Il2CppArray* args)
+{
+    WriteTextThenNewline(reinterpret_cast<Il2CppString*>(
+        icall_string_format(format, reinterpret_cast<Il2CppObject*>(args))), false);
+}
+
+//------------------------------------------------------------------------------
+// Redirection probes: isatty() on the standard stream. A shell/difftest pipe
+// is not a tty, so every redirected run reports true -- which is exactly the
+// net48 answer inside a redirected process.
+//------------------------------------------------------------------------------
+int32_t icall_console_is_input_redirected()
+{
+#ifdef _WIN32
+    return ::_isatty(::_fileno(stdin)) == 0 ? 1 : 0;
+#else
+    return ::isatty(STDIN_FILENO) == 0 ? 1 : 0;
+#endif
+}
+
+int32_t icall_console_is_output_redirected()
+{
+#ifdef _WIN32
+    return ::_isatty(::_fileno(stdout)) == 0 ? 1 : 0;
+#else
+    return ::isatty(STDOUT_FILENO) == 0 ? 1 : 0;
+#endif
+}
+
+int32_t icall_console_is_error_redirected()
+{
+#ifdef _WIN32
+    return ::_isatty(::_fileno(stderr)) == 0 ? 1 : 0;
+#else
+    return ::isatty(STDERR_FILENO) == 0 ? 1 : 0;
+#endif
+}
+
+//------------------------------------------------------------------------------
+// Console.In -- the standard-input TextReader surface. The reader IS the
+// process stdin (no object state), so every member ignores the receiver and
+// reads std::cin. net48 semantics: Read/Peek return the UTF-16 code unit or
+// -1 at end of input; ReadLine strips the terminator; ReadToEnd returns "" at
+// end of input.
+//------------------------------------------------------------------------------
+namespace {
+
+// The Console.In reader object: a header-only singleton (the TextReader
+// surface has no state -- the members read the process stdin directly). It is
+// a REAL non-null object because the generated code null-checks every
+// callvirt receiver; a GC static root keeps it alive for the whole process.
+struct ConsoleInObject
+{
+    Il2CppObject obj;
+};
+
+il2cpp::Il2CppClass ConsoleInClass = {
+    "System.IO.TextReader/ConsoleIn",   // name
+    static_cast<int32_t>(sizeof(ConsoleInObject)), // instanceSize
+    0u,                                 // refFieldBitmap: no reference fields
+    0,                                  // refFieldCount
+    &System_Object_class,               // baseClass
+    nullptr, 0,                         // vtable
+    nullptr, 0,                         // interfaces
+};
+
+ConsoleInObject* g_consoleInObject = nullptr;
+
+Il2CppObject* EnsureConsoleInObject()
+{
+    if (g_consoleInObject == nullptr)
+    {
+        il2cpp::il2cpp_class_register(&ConsoleInClass);
+        g_consoleInObject = reinterpret_cast<ConsoleInObject*>(il2cpp::il2cpp_object_new(&ConsoleInClass));
+        il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_consoleInObject));
+    }
+    return reinterpret_cast<Il2CppObject*>(g_consoleInObject);
+}
+
+} // namespace
+
+Il2CppObject* icall_console_get_in()
+{
+    return EnsureConsoleInObject();
+}
+
+int32_t icall_console_in_read()
+{
+    const int ch = std::getchar();
+    return ch == EOF ? -1 : static_cast<int32_t>(static_cast<unsigned char>(ch));
+}
+
+int32_t icall_console_in_peek()
+{
+    const int ch = std::getchar();
+    if (ch == EOF)
+        return -1;
+    std::ungetc(ch, stdin);
+    return static_cast<int32_t>(static_cast<unsigned char>(ch));
+}
+
+Il2CppObject* icall_console_in_read_line()
+{
+    std::string line;
+    if (!std::getline(std::cin, line))
+        return nullptr;
+    if (!line.empty() && line.back() == '\r')
+        line.pop_back();
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(line.c_str()));
+}
+
+Il2CppObject* icall_console_in_read_to_end()
+{
+    std::string all;
+    std::string line;
+    while (std::getline(std::cin, line))
+    {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        all += line;
+        all += '\n';
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(all.c_str()));
 }
 
 Il2CppObject* icall_console_read_line()
