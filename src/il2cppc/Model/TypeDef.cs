@@ -104,8 +104,7 @@ public sealed class TypeDef
     // a second-pass resolution pointer to the enclosing TypeDef (null when the
     // enclosing type is not translated in this assembly).
     public bool IsNested { get; init; }
-    public string DeclaringTypeName { get; init; } = "";
-    // refl6b (item A): the raw ECMA 3-bit TYPE visibility mask
+    public string DeclaringTypeName { get; init; } = "";    // refl6b (item A): the raw ECMA 3-bit TYPE visibility mask
     // (TypeAttributes & 0x7). For a NESTED type: NestedPublic=0x2,
     // NestedPrivate=0x3, NestedFamily=0x4, NestedAssembly=0x5,
     // NestedFamANDAssem=0x6, NestedFamORAssem=0x7 -- the byte the enclosing
@@ -115,6 +114,16 @@ public sealed class TypeDef
     // by the nested table). Set in ExpandNestedTypes (the metadata TypeDef's
     // raw Attributes).
     public int VisibilityMask { get; init; }
+    // refl2 (A): the type's ECMA metadata token (0x02000000 | TypeDef row) for
+    // Type.MetadataToken. 0 for a synthesized type (a generic clone has no own
+    // TypeDef row -- net48 reports the DEFINITION's token for a constructed
+    // instance, which the folded typeof chain answers from the ldtoken).
+    public int MetadataToken { get; init; }
+    // refl2 (A): the RAW ECMA TypeAttributes value (TypeDef.Attributes) for
+    // Type.Attributes and the exact nested-visibility predicates. 0 for a
+    // synthesized clone (a constructed instance takes the definition's value
+    // through the clone path).
+    public int RawAttributes { get; init; }
     public TypeDef? DeclaringType { get; set; }
     public List<TypeDef> NestedTypes { get; } = new();
 

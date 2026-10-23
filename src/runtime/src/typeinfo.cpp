@@ -1509,18 +1509,47 @@ Il2CppObject* il2cpp_typeinfo_get_namespace(Il2CppObject* typeName)
     if (typeName == nullptr) ThrowNullTypeReceiver();
     char buf[kNameBufferSize];
     if (!AsciiFromManagedString(typeName, buf)) return nullptr;
-    const char* lastDot = std::strrchr(buf, '.');
+    // refl2 (A): net48 reports the ELEMENT type's namespace for an array /
+    // pointer / byref type ("System.Int32[]" -> "System"). The simplified model
+    // carries arrays as the registry identity "[System.Int32" (a leading '[')
+    // and the folded display form "System.Int32[]" -- both are reduced to the
+    // element name first, then truncated like any other type name.
+    char* name = buf;
+    if (name[0] == '[')
+    {
+        // "[System.Int32" -- strip the leading '[' (the array marker).
+        ++name;
+    }
+    size_t len = std::strlen(name);
+    while (len > 0)
+    {
+        const char tail = name[len - 1];
+        if (tail == ']' || tail == '*' || tail == '&')
+        {
+            --len;
+            continue;
+        }
+        if (tail == ',' || tail == '[')
+        {
+            // "System.Int32[,]" / "System.Int32[" -- stop at the rank marker.
+            --len;
+            continue;
+        }
+        break;
+    }
+    name[len] = '\0';
+    const char* lastDot = std::strrchr(name, '.');
     if (lastDot == nullptr)
     {
         return nullptr; // global namespace (net48 null)
     }
-    const size_t nsLen = static_cast<size_t>(lastDot - buf);
+    const size_t nsLen = static_cast<size_t>(lastDot - name);
     if (nsLen == 0)
     {
         return nullptr; // ".Short" impossible for a valid type name; defensive
     }
     char ns[kNameBufferSize];
-    std::memcpy(ns, buf, nsLen);
+    std::memcpy(ns, name, nsLen);
     ns[nsLen] = '\0';
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(ns));
 }
@@ -4631,6 +4660,222 @@ int32_t il2cpp_memberinfo_is_constructor(Il2CppObject* memberName)
     }
     const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
     return (m != nullptr && (m->flags & 4) != 0) ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
+// refl2 (A) -- the remaining Type predicate / query surface on the name-string
+// (Type VALUE) receiver. See typeinfo.h for the contract of each.
+//------------------------------------------------------------------------------
+
+namespace {
+
+// The typeFlags bit test for a resolved typeinfo (0 when unregistered).
+int32_t TypeFlagOfName(const char* name, int32_t mask)
+{
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(name);
+    if (info == nullptr) return 0;
+    return (info->typeFlags & mask) != 0 ? 1 : 0;
+}
+
+} // namespace
+
+int32_t il2cpp_typeinfo_get_array_rank(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    // The array class NAME carries the rank: the transpiler's array identity is
+    // "[<element>" for a rank-1 array (the runtime descriptor convention) and
+    // the net48 display form "<element>[]" / "<element>[,]" for a folded type
+    // value. Both shapes are decoded here; a non-array receiver raises net48's
+    // ArgumentException ("Type must be an array").
+    const size_t len = std::strlen(buf);
+    if (len > 0 && buf[0] == '[')
+    {
+        // "[System.Int32" -- the descriptor form is rank 1.
+        return 1;
+    }
+    if (len >= 2 && buf[len - 1] == ']')
+    {
+        size_t open = len - 1;
+        while (open > 0 && buf[open - 1] != '[') --open;
+        if (open > 0)
+        {
+            // "<elem>[,]" -> the rank is the comma count + 1.
+            int32_t rank = 1;
+            for (size_t i = open; i + 1 < len; ++i)
+            {
+                if (buf[i] == ',') ++rank;
+            }
+            return rank;
+        }
+    }
+    il2cpp_throw_argument_exception(
+        "Type must be an array type.");
+}
+
+int32_t il2cpp_typeinfo_is_constructed_generic(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    // A runtime receiver is the registry key = the DEFINITION's name, which can
+    // never carry the closed argument list -> net48 False (a definition is not
+    // constructed). A closed instance is only expressible through the folded
+    // typeof chain (StackFold answers it from the TypeSpec blob).
+    (void)buf;
+    return 0;
+}
+
+int32_t il2cpp_typeinfo_is_abstract(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    return TypeFlagOfName(buf, 0x01);
+}
+
+int32_t il2cpp_typeinfo_is_sealed(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    return TypeFlagOfName(buf, 0x02);
+}
+
+int32_t il2cpp_typeinfo_is_public(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    return TypeFlagOfName(buf, 0x04);
+}
+
+int32_t il2cpp_typeinfo_is_nested(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    return TypeFlagOfName(buf, 0x08);
+}
+
+int32_t il2cpp_typeinfo_get_metadata_token(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    return info != nullptr ? info->metadataToken : 0;
+}
+
+Il2CppObject* il2cpp_typeinfo_make_array_type(Il2CppObject* typeName, int32_t rank)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return nullptr;
+    // net48 MakeArrayType: the DISPLAY identity "<element>[]" / "<element>[,]".
+    // The element is the receiver's net48 display name (the registry key is
+    // already the full name for a non-array type).
+    char outBuf[kNameBufferSize * 2];
+    const int32_t effectiveRank = rank < 1 ? 1 : rank;
+    char commas[64];
+    const size_t commaCount = static_cast<size_t>(effectiveRank - 1);
+    if (commaCount >= sizeof(commas)) return nullptr;
+    for (size_t i = 0; i < commaCount; ++i) commas[i] = ',';
+    commas[commaCount] = '\0';
+    std::snprintf(outBuf, sizeof(outBuf), "%s[%s]", buf, commas);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(outBuf));
+}
+
+Il2CppObject* il2cpp_typeinfo_make_byref_type(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return nullptr;
+    char outBuf[kNameBufferSize * 2];
+    std::snprintf(outBuf, sizeof(outBuf), "%s&", buf);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(outBuf));
+}
+
+Il2CppObject* il2cpp_typeinfo_make_pointer_type(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return nullptr;
+    char outBuf[kNameBufferSize * 2];
+    std::snprintf(outBuf, sizeof(outBuf), "%s*", buf);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(outBuf));
+}
+
+//------------------------------------------------------------------------------
+// refl2 (A) -- Type.Attributes + the exact nested-visibility predicates.
+//------------------------------------------------------------------------------
+int32_t il2cpp_typeinfo_get_attributes(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    if (info != nullptr && info->attributes != 0) return info->attributes;
+    // BCL core approximation (a TypeRef has no attribute rows at runtime).
+    // Public=0x1 / NotPublic=0x0 in the low 3 bits; Sealed=0x100,
+    // Abstract=0x80 per ECMA-335 TypeAttributes.
+    int32_t attrs = 0x1; // public
+    if (buf != nullptr)
+    {
+        if (std::strcmp(buf, "System.Int32") == 0 || std::strcmp(buf, "System.String") == 0)
+            attrs |= 0x100; // sealed
+        if (std::strcmp(buf, "System.ValueType") == 0
+            || std::strcmp(buf, "System.Enum") == 0
+            || std::strcmp(buf, "System.Array") == 0)
+            attrs |= 0x80; // abstract
+    }
+    return attrs;
+}
+
+int32_t il2cpp_typeinfo_is_nested_public(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    if (info == nullptr) return 0;
+    return (info->attributes & 0x7) == 0x2 ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_is_nested_private(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    if (info == nullptr) return 0;
+    return (info->attributes & 0x7) == 0x3 ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_is_visible(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(buf);
+    if (info == nullptr) return 0;
+    const int32_t vis = info->attributes & 0x7;
+    // Public (0x1) or NestedPublic (0x2). The full net48 rule also requires
+    // every ENCLOSING type to be visible; the simplified model's registry key
+    // is the '+'-joined chain, and the enclosing chain is emitted as its own
+    // typeinfo, so the nested answer is exact for the one-level cases the
+    // probes cover (W7: a private OUTER type with a nested-public inner is
+    // not modeled).
+    return (vis == 0x1 || vis == 0x2) ? 1 : 0;
+}
+
+int32_t il2cpp_typeinfo_equals_non_type(Il2CppObject* typeName, Il2CppObject* other)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    // net48: a non-Type argument answers False (never an exception).
+    (void)other;
+    return 0;
 }
 
 } // namespace il2cpp

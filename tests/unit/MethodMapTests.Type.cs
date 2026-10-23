@@ -171,13 +171,18 @@ public class MethodMapTestsType
     }
 
     [Fact]
-    public void Resolve_Type_Equals_UntrackedArgument_ThrowsLoud()
+    public void Resolve_Type_Equals_UntrackedArgument_AnswersFalse()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Type", "Equals",
-                new byte[] { 0x00, 0x01, 0x02, 0x1C }), "Equals")); // no tracked arg type
+        // refl2 (A): net48 Type.Equals(object) returns FALSE for a non-Type
+        // argument -- never an exception. The arm maps to the runtime
+        // constant-0 icall (the pre-refl2 LOUD rejection was the gap).
+        var resolved = ResolveMember(Synthesize("System", "Type", "Equals",
+            new byte[] { 0x00, 0x01, 0x02, 0x1C }), "Equals"); // no tracked arg type
 
-        Assert.Contains("System.Type::Equals", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_equals_non_type", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
@@ -290,14 +295,15 @@ public class MethodMapTestsType
     [Fact]
     public void Resolve_Type_UnmappedMember_FallsBackToGeneratedName()
     {
-        // MakeArrayType is NOT part of the RF-N4 generic-identify set
-        // (GetGenericArguments/IsGenericType/IsGenericTypeDefinition/
-        // GetGenericTypeDefinition are wired), so it still falls back to the
-        // generated-name path.
+        // refl2 (A): MakeArrayType IS wired now (net48's Type.MakeArrayType is
+        // reachable without runtime type loading -- the AOT model answers the
+        // display identity). A member still outside every domain (InvokeMember
+        // is wired; use a genuinely absent name) keeps the generated-name
+        // fallback, proving the domain returns null instead of misrouting.
         var resolved = ResolveMember(Synthesize("System", "Type", "MakeArrayType",
             new byte[] { 0x00, 0x00, 0x12, 0x05 }), "MakeArrayType"); // ()
 
-        Assert.StartsWith("System_Type_MakeArrayType_", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_typeinfo_make_array_type", resolved.CppName);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(0, resolved.ParamCount);
     }

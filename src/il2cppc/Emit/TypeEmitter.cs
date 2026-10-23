@@ -149,6 +149,8 @@ public static class TypeEmitter
                 // nestedVis column (GetNestedType / GetNestedTypes public-only
                 // default filter).
                 VisibilityMask = (int)td.Attributes & 0x7,
+                MetadataToken = 0x02000000 | System.Reflection.Metadata.Ecma335.MetadataTokens.GetRowNumber(tdHandle),
+                RawAttributes = (int)td.Attributes,
                 BaseTypeName = DecodeNestedBaseType(md, td.BaseType),
                 IsInterface = (td.Attributes & TypeAttributes.Interface) != 0,
                 // Devirt S1: nested sealed/abstract types parse the same
@@ -2044,6 +2046,22 @@ public static class TypeEmitter
         // adding the header again would double-shift). Trailing field,
         // zero-delta default (typeinfo.h).
         w.Line($"    {(t.IsValueType ? 1 : 0)},                            // isValueType (O4: boxed-struct field offset + header)");
+        // refl2 (A): the TypeAttributes-derived predicate bits (typeinfo.h
+        // typeFlags). Exact ECMA bits, never a shape guess:
+        //   0x01 Abstract (0x20)  0x02 Sealed (0x01)
+        //   0x04 Public   (VisibilityMask == 0x1 NotPublic? no -- Public is 0x1)
+        //   0x08 Nested   (the TypeDef is nested)
+        var typeFlags = (t.IsAbstract ? 0x01 : 0)
+            | (t.IsSealed ? 0x02 : 0)
+            | (t.VisibilityMask == 0x1 ? 0x04 : 0)
+            | (t.IsNested ? 0x08 : 0);
+        w.Line($"    0x{typeFlags:x},  // typeFlags (refl2: Abstract|Sealed|Public|Nested)");
+        // refl2 (A): the ECMA metadata token for Type.MetadataToken on a
+        // runtime receiver (the folded typeof chain answers it directly).
+        w.Line($"    0x{t.MetadataToken:x8},  // metadataToken (refl2: TypeDef row token)");
+        // refl2 (A): the RAW TypeAttributes value (Type.Attributes + the exact
+        // nested-visibility predicates).
+        w.Line($"    0x{t.RawAttributes:x8},  // attributes (refl2: raw ECMA TypeAttributes)");
         w.Line("};");
         w.Line();
         return w.ToString();
