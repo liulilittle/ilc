@@ -396,8 +396,10 @@ const char* const kDayOfWeekNames[] = {
     "Saturday",
 };
 const int64_t kDayOfWeekValues[] = {0, 1, 2, 3, 4, 5, 6};
+// isFlags = 0: System.DayOfWeek is a PLAIN enum -- net48 never decomposes it
+// (probe dowF3="Wednesday", dowG3="Wednesday", dowF9="9").
 const Il2CppEnumInfo kDayOfWeekInfo = {
-    kEnumUnderlyingInt32, 7, kDayOfWeekNames, kDayOfWeekValues,
+    kEnumUnderlyingInt32, 7, kDayOfWeekNames, kDayOfWeekValues, 0,
 };
 
 // The null-descriptor fallback list (extend on demand -- one entry per BCL
