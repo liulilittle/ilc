@@ -2315,7 +2315,7 @@ void SortIComparerCore(Il2CppArray** pa, int32_t lo, int32_t hi,
         {
             try
             {
-                FComparerCompare cmp(comparerSlot);
+                FComparerCompare cmp{comparerSlot};
                 QuickSortValArray<float>(pa, lo, hi, cmp);
             }
             catch (const DotNetException&)

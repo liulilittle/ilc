@@ -201,9 +201,62 @@ internal static class ValueTupleSupport
     internal static TupleElem[] ResolveElems(string fullName, IReadOnlyList<TypeDef>? types)
     {
         var names = ElementNames(fullName);
+        if (names.Length == 0)
+        {
+            // Registry miss (the greedy fallback in ElementNames splits
+            // '_'-carrying element names wrong): re-decode from the TYPE TABLE
+            // the MetadataReader builds for every instantiation -- the
+            // instantiation TypeDef IMMEDIATELY follows its ValueTuple
+            // DEFINITION TypeDef in the types list (MetadataLoader preserves
+            // declaration order), so scan forward from the definition.
+            // LOUD on failure rather than guessing.
+            string[]? decoded = null;
+            if (types != null)
+            {
+                var defName = ArityPrefix(fullName);
+                for (var ti = 0; ti < types.Count; ti++)
+                {
+                    if (!string.Equals(types[ti].FullName, defName, StringComparison.Ordinal)) continue;
+                    for (var tj = ti + 1; tj < types.Count && !IsValueTupleDefinition(types[tj]); tj++)
+                        if (string.Equals(types[tj].FullName, fullName, StringComparison.Ordinal))
+                        {
+                            decoded = SplitElements(types[tj].InstantiationSuffixParts, types[tj].InstantiationSuffix);
+                            break;
+                        }
+                    if (decoded != null) break;
+                }
+            }
+            if (decoded == null)
+                throw new NotSupportedException(
+                    $"ValueTuple instantiation '{fullName}' has no recorded element table (element names cannot be split from the closed name)");
+            RecordElements(ArityPrefix(fullName), decoded);
+            names = ElementNames(fullName);
+        }
         var result = new TupleElem[names.Length];
         for (var i = 0; i < names.Length; i++) result[i] = ResolveElem(names[i], types);
         return result;
+    }
+
+    private static bool IsValueTupleDefinition(TypeDef t)
+        => t.IsGenericType && IsValueTupleName(t.FullName) && t.InstantiationSuffix == null;
+
+    private static string ArityPrefix(string fullName)
+    {
+        var arity = Arity(fullName);
+        return DefPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // The instantiation TypeDef's InstantiationSuffix is the '_' JOIN of the
+    // per-argument suffixes (see EnsureClone), but a suffix may itself carry
+    // '_' (a nested "System.ValueTuple`2_int_int" instantiation). Split from
+    // the RIGHT: the arity is known, and the M3 classifier table keeps every
+    // simple suffix '_'-free, so a trailing simple suffix peels off cleanly
+    // and the remainder is consumed left-to-right.
+    private static string[] SplitElements(string[]? parts, string? suffix)
+    {
+        if (parts is { Length: > 0 }) return parts;
+        if (string.IsNullOrEmpty(suffix)) return Array.Empty<string>();
+        return suffix.Split('_');
     }
 
     // The canonical C++ struct name -- MUST equal
@@ -396,6 +449,48 @@ internal static class ValueTupleSupport
 
     internal static IEnumerable<string> Needed => _needed;
 
+    // Dependency-ordered emission: a tuple whose elements hold another tuple
+    // BY VALUE must be DEFINED after that element's struct (a member of an
+    // incomplete type is ill-formed, and the member helpers call the inner
+    // helpers, so the whole definition block must follow). FlatLength /
+    // ordinal order cannot express this (an outer 2-tuple and its inner
+    // 2-tuple share the same flat count, and 'S' < 'i' puts the outer
+    // first) -- Kahn topological sort with an ordinal tie-break.
+    internal static IEnumerable<string> OrderedNeeded()
+    {
+        var set = new HashSet<string>(_needed, StringComparer.Ordinal);
+        var deps = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var n in set)
+        {
+            var d = new List<string>();
+            foreach (var e in ElementNames(n))
+                if (IsValueTupleName(e) && set.Contains(e) && !string.Equals(e, n, StringComparison.Ordinal))
+                    d.Add(e);
+            deps[n] = d;
+        }
+        var emitted = new HashSet<string>(StringComparer.Ordinal);
+        var remaining = new SortedSet<string>(set, StringComparer.Ordinal);
+        var result = new List<string>(set.Count);
+        while (remaining.Count > 0)
+        {
+            string? pick = null;
+            foreach (var n in remaining)
+            {
+                var ready = true;
+                foreach (var dep in deps[n])
+                    if (!emitted.Contains(dep)) { ready = false; break; }
+                if (ready) { pick = n; break; }
+            }
+            // Cycle guard (not expected -- tuple nesting is a DAG): emit
+            // ordinal-first rather than hanging.
+            pick ??= remaining.Min!;
+            remaining.Remove(pick);
+            emitted.Add(pick);
+            result.Add(pick);
+        }
+        return result;
+    }
+
     // Emit the struct + member helpers for one instantiation.
     internal static string EmitDefinitions(string fullName, IReadOnlyList<TypeDef>? types = null)
     {
@@ -405,7 +500,7 @@ internal static class ValueTupleSupport
         {
             w.Line("// System.ValueTuple (the 0-tuple, C# `ValueTuple.Create()`).");
             w.Line($"struct {name} {{");
-            w.Close();
+            w.Open();
             w.Line("};");
             w.Line();
             w.Line($"inline void {CtorFn(fullName)}({name}* self) {{ (void)self; }}");
@@ -552,14 +647,28 @@ internal static class ValueTupleSupport
         w.Line("{");
         w.Open();
         w.Line("Il2CppObject* acc = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\"(\"));");
-        for (var i = 0; i < arity; i++)
+        if (arity == 8 && IsValueTupleName(elems[7].Token))
         {
-            if (i > 0)
-                w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\", \")));");
-            w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({ElementToString(elems[i], Field(arity, i))}));");
+            for (var i = 0; i < 7; i++)
+            {
+                if (i > 0)
+                    w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\", \")));");
+                w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({ElementToString(elems[i], Field(arity, i))}));");
+            }
+            w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({StructName(elems[7].Token)}_ToStringInner(self.Rest)));");
+            w.Line("return acc;");
         }
-        w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\")\")));");
-        w.Line("return acc;");
+        else
+        {
+            for (var i = 0; i < arity; i++)
+            {
+                if (i > 0)
+                    w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\", \")));");
+                w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({ElementToString(elems[i], Field(arity, i))}));");
+            }
+            w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\")\")));");
+            w.Line("return acc;");
+        }
         w.Close();
         w.Line("}");
         w.Line();

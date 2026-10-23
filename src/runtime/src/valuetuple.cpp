@@ -8,6 +8,7 @@
 #include "il2cpp_string_ext2.h"       // icall_string_concat_2
 #include "il2cpp_value_semantics.h"   // icall_*_get_hash_code, icall_object_to_string
 #include "il2cpp_boxing_ext2.h"       // kBoxPayloadOffset, box helpers
+#include "il2cpp_runtime.h"           // il2cpp_object_new
 #include "typeinfo.h"                 // il2cpp_typeinfo_lookup + reflected dispatch
 
 #include <cstring>
@@ -257,20 +258,41 @@ int32_t il2cpp_tuple_user_struct_equals(Il2CppClass* klass, const void* a, const
     if (a == nullptr || b == nullptr) return 0;
     if (klass != nullptr)
     {
-        const int32_t slot = ReflectedEqualsSlot(klass);
-        if (slot >= 0)
+        // The struct's own Equals(object) override wins (net48 ValueType
+        // dispatch): the override takes the boxed OTHER object, so box b and
+        // pass each receiver's value address -- the generated value-type
+        // method ABI (the il2cpp_unbox_user_struct contract).
+        const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(klass->name);
+        const Il2CppMethodInfo* equalsOverride = nullptr;
+        if (info != nullptr)
         {
-            using EqualsFn = int32_t (*)(const void*, const void*);
-            // The struct's Equals(object) takes the boxed OTHER object; the
-            // extra indirection would need a box, so the generated signature
-            // (const void*) form is used when the type exposes it. When the
-            // override takes object, the boxed comparison runs instead.
-            _ = slot;
-            _ = reinterpret_cast<EqualsFn>(nullptr);
-            const int32_t size = klass->instanceSize - kTupleBoxPayloadOffset;
-            if (size <= 0) return 1;
-            return std::memcmp(a, b, static_cast<size_t>(size)) == 0 ? 1 : 0;
+            for (int32_t i = 0; i < info->methodCount; ++i)
+            {
+                const Il2CppMethodInfo& m = info->methods[i];
+                if (m.name != nullptr && std::strcmp(m.name, "Equals") == 0 &&
+                    m.paramCount == 1 && m.signature != nullptr &&
+                    std::strstr(m.signature, "(r:System.Object)") != nullptr)
+                {
+                    equalsOverride = &m;
+                    break;
+                }
+            }
         }
+        if (equalsOverride != nullptr && equalsOverride->virtualSlot >= 0 &&
+            klass->vtable != nullptr && equalsOverride->virtualSlot < klass->vtableSize &&
+            klass->vtable[equalsOverride->virtualSlot] != nullptr)
+        {
+            using EqualsObjectFn = int32_t (*)(void*, Il2CppObject*);
+            Il2CppObject* boxedB = il2cpp_object_new(klass);
+            if (boxedB == nullptr) return 0;
+            const int32_t size = klass->instanceSize - kTupleBoxPayloadOffset;
+            if (size > 0) std::memcpy(reinterpret_cast<char*>(boxedB) + kTupleBoxPayloadOffset, b, static_cast<size_t>(size));
+            return reinterpret_cast<EqualsObjectFn>(
+                klass->vtable[equalsOverride->virtualSlot])(
+                const_cast<void*>(a), boxedB) != 0 ? 1 : 0;
+        }
+        // No override: the net48 ValueType default -- a field-image comparison
+        // (memcmp, the CLR's CanCompareBits path for reference-free structs).
         const int32_t size = klass->instanceSize - kTupleBoxPayloadOffset;
         if (size <= 0) return 1;
         return std::memcmp(a, b, static_cast<size_t>(size)) == 0 ? 1 : 0;
