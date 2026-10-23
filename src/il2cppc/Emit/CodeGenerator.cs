@@ -12617,7 +12617,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         MethodRefResolver.EnsureEnumRegisterCapacity(enumTypes.Count);
         foreach (var t in enumTypes)
             if (MethodRefResolver.TryGetUserEnumRegisterInfo(t, out var einfo))
-                w.Line(MethodRefResolver.EmitEnumRegisterBlock(einfo.TypeName, einfo.UnderlyingTypeCode, einfo.Names, einfo.Values));
+                w.Line(MethodRefResolver.EmitEnumRegisterBlock(einfo.TypeName, einfo.UnderlyingTypeCode, einfo.Names, einfo.Values, einfo.IsFlags));
         // M5.5 reflection (R-REFL-01): register every reflected type's TypeInfo
         // table in the runtime registry BEFORE any Type.GetType/GetMethod/
         // GetField query runs (the registry is static; registration is

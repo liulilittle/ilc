@@ -396,8 +396,10 @@ const char* const kDayOfWeekNames[] = {
     "Saturday",
 };
 const int64_t kDayOfWeekValues[] = {0, 1, 2, 3, 4, 5, 6};
+// isFlags = 0: System.DayOfWeek is a PLAIN enum -- net48 never decomposes it
+// (probe dowF3="Wednesday", dowG3="Wednesday", dowF9="9").
 const Il2CppEnumInfo kDayOfWeekInfo = {
-    kEnumUnderlyingInt32, 7, kDayOfWeekNames, kDayOfWeekValues,
+    kEnumUnderlyingInt32, 7, kDayOfWeekNames, kDayOfWeekValues, 0,
 };
 
 // The null-descriptor fallback list (extend on demand -- one entry per BCL
@@ -477,52 +479,31 @@ bool IsValueOfRegisteredNonBuiltin(int64_t value)
 }
 
 //------------------------------------------------------------------------------
-// [FLAGS] ToString DECOMPOSITION (rtflags, 2026-08-09).
+// [FLAGS] ToString DECOMPOSITION (rtflags, 2026-08-09; attribute-driven since
+// flagsenum).
 //
 // net48 semantics (csc probe): only a [Flags] enum decomposes an unnamed
 // value into its named bit components ("F1, F2" for value 3 of {None=0,
-// F1=1, F2=2, F3=4}); a NON-flags enum never decomposes (plain3=3). The
-// registry carries no [Flags] attribute bit -- the transpiler emits only
-// the member table (names + values, enumext.h) -- so flags-capability is
-// DETECTED from the member shape: a zero-valued member AND every non-zero
-// member an exact power of two, the canonical [Flags] convention. This
-// distinguishes the e2e flags enum (EFlags {None=0, F1=1, F2=2, F3=4})
-// from the plain enums (EInt {A=1, B=2} -- no zero member; enumdeep Color
-// {Red=1, Green=2, Blue=4} -- no zero member). DOCUMENTED DEVIATION: a
-// plain enum with exactly the flags member shape (zero + power-of-two
-// members) also decomposes; net48 would print numeric for it. The Test.Color
-// fixture {0,1,2} is such a shape -- its TESTED values (7, -1, 1) still
-// print numeric/name because decomposition only fires on FULL coverage
-// (7's bit 4 is uncovered; -1's high bits are uncovered), so no existing
-// test regresses.
+// F1=1, F2=2, F3=4}) in the DEFAULT/G form; a NON-flags enum never decomposes
+// there (plain3=3). The [Flags] bit is a REAL ATTRIBUTE: the transpiler
+// decodes System.FlagsAttribute from the TypeDef's CustomAttribute rows
+// (MetadataLoader.HasFlagsAttribute) and emits it as Il2CppEnumInfo::isFlags.
+//
+// The pre-fix code had no attribute bit and GUESSED flags-capability from the
+// member shape (zero member + every non-zero member an exact power of two).
+// That guess is wrong for the common `[Flags] enum {None=0, A=1, B=2, AB=3}`
+// shape -- the composite member disqualified the whole enum, so (A|C) printed
+// "5" instead of "A, C" (a silent wrong value) -- and it wrongly decomposed a
+// plain {Zero=0, One=1, Two=2} enum. Both are fixed by reading the attribute.
 //------------------------------------------------------------------------------
 
-// Is the enum flags-capable (the canonical [Flags] member shape -- see
-// above)? The exact power-of-two test rejects composite members (3, 6, 7,
-// ...) and the zero-member requirement excludes plain enums like EInt/Access
-// pattern non-flags enums (which have no None member).
+// Is the enum a [Flags] enum? The transpiler's attribute bit is the ONLY
+// authority (net48: [Flags] is an attribute, not a member shape). An
+// unregistered / legacy 4-column registration has isFlags = 0 (not flags),
+// which is the net48-correct answer for a plain enum.
 bool IsFlagsCapable(const Il2CppEnumInfo* info)
 {
-    if (info == nullptr)
-    {
-        return false;
-    }
-    bool hasZero = false;
-    for (int32_t i = 0; i < info->valueCount; ++i)
-    {
-        const int64_t v = info->values[i];
-        if (v == 0)
-        {
-            hasZero = true;
-            continue;
-        }
-        // Exact power of two (v > 0 and exactly one bit set).
-        if (v <= 0 || (v & (v - 1)) != 0)
-        {
-            return false;
-        }
-    }
-    return hasZero;
+    return info != nullptr && info->isFlags != 0;
 }
 
 // Decompose 'value' into the member names whose values fully cover it.
@@ -964,11 +945,31 @@ Il2CppString* il2cpp_enum_to_string_format(Il2CppClass* enumClass,
     }
     if (spec == 'F')
     {
-        // net48: "F" behaves like "G" for named values (a non-flags enum's
-        // named value prints its NAME -- the enumparseic e2e pinned this);
-        // the [Flags] decomposition kicks in for unnamed values of flags-
-        // capable enums. il2cpp_enum_to_string already implements exactly
-        // that order (name -> flags decomposition -> numeric), so delegate.
+        // net48 "F" = "the flags form", and it is NOT gated on the [Flags]
+        // attribute: probe (csc net48) -- a PLAIN Color{Red=0, Green=1,
+        // Blue=2} enum prints ToString("F") of 3 as "Green, Blue" while its
+        // default ToString() prints "3"; a plain {A=1, B=2, AB=3, C=4} prints
+        // "F" of 7 as "AB, C". A named value still prints its NAME ("F" of 1
+        // -> "Green"/"A"), value 0 -> the zero member's name, and a value the
+        // members cannot fully cover stays numeric ("F" of 8 -> "8").
+        // The default/G path stays attribute-gated (see il2cpp_enum_to_string).
+        if (info != nullptr)
+        {
+            for (int32_t i = 0; i < info->valueCount; ++i)
+            {
+                if (info->values[i] == value)
+                {
+                    return il2cpp_string_new_from_cs(info->names[i]);
+                }
+            }
+            const char* flagsNames[kMaxFlagsNames];
+            const int32_t flagsCount =
+                DecomposeFlagsNames(info, value, flagsNames, kMaxFlagsNames);
+            if (flagsCount > 0)
+            {
+                return JoinFlagsNames(flagsNames, flagsCount);
+            }
+        }
         return il2cpp_enum_to_string(enumClass, value);
     }
     if (spec == 'G')

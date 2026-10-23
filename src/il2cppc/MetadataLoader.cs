@@ -69,6 +69,10 @@ public static class MetadataLoader
                 // A null/empty entry per index means "unconstrained".
                 GenericConstraints = TypeDef.GenericConstraintReader.Read(
                     md, td.GetGenericParameters(), h => ResolveTypeName(md, h)),
+                // flagsenum: the REAL [Flags] bit (CustomAttribute table), not a
+                // member-shape guess. The runtime's ToString decomposition keys on
+                // this (enumext.h Il2CppEnumInfo::isFlags).
+                IsFlags = HasFlagsAttribute(md, tdHandle),
             };
 
             // Interface implementations (Task 8): the InterfaceImpl table's (class, interface)
@@ -609,6 +613,47 @@ public static class MetadataLoader
     {
         var td = md.GetTypeDefinition(tdHandle);
         return DecodeCustomAttributes(md, td.GetCustomAttributes());
+    }
+
+    //--------------------------------------------------------------------------
+    // HasFlagsAttribute -- does this TypeDef carry [System.Flags]?
+    //
+    // flagsenum: the transpiler used to send NO attribute information to the
+    // runtime, so enumext.cpp guessed flags-capability from the member shape
+    // (zero member + all-power-of-two members). That guess is wrong for the
+    // extremely common `[Flags] enum { None=0, A=1, B=2, AB=3 }` shape: the
+    // composite member disqualifies the whole enum and every combination
+    // prints numeric instead of "A, C" (silent wrong value).
+    //
+    // The [Flags] bit lives in the CustomAttribute table as a row on the
+    // TypeDef whose constructor belongs to System.FlagsAttribute. Only the
+    // attribute CLASS is needed (the blob is empty by contract: FlagsAttribute
+    // takes no arguments), so this walks the ctor handle to its parent type
+    // name and compares -- no blob decode, hence no NotSupportedException
+    // risk from an exotic attribute blob elsewhere on the type.
+    //--------------------------------------------------------------------------
+    public static bool HasFlagsAttribute(MetadataReader md, TypeDefinitionHandle tdHandle)
+    {
+        foreach (var cah in md.GetTypeDefinition(tdHandle).GetCustomAttributes())
+        {
+            var ca = md.GetCustomAttribute(cah);
+            EntityHandle parent;
+            if (ca.Constructor.Kind == HandleKind.MemberReference)
+                parent = md.GetMemberReference((MemberReferenceHandle)ca.Constructor).Parent;
+            else if (ca.Constructor.Kind == HandleKind.MethodDefinition)
+                parent = md.GetMethodDefinition((MethodDefinitionHandle)ca.Constructor).GetDeclaringType();
+            else
+                continue; // MethodSpec/other ctor kinds cannot be an attribute class
+            if (parent.IsNil) continue;
+            var attrType = parent.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)parent),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)parent),
+                _ => null,
+            };
+            if (attrType == "System.FlagsAttribute") return true;
+        }
+        return false;
     }
 
     private static List<CustomAttributeDef> DecodeCustomAttributes(MetadataReader md, CustomAttributeHandleCollection handles)

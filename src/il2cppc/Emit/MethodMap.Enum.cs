@@ -401,8 +401,10 @@ public static partial class MethodRefResolver
     //     static const char* const s_{T}_names[] = { "Red", "Green" };
     //     static const int64_t      s_{T}_values[] = { 1, 2 };
     //     static const il2cpp::runtime::Il2CppEnumInfo s_{T}_enumInfo =
-    //         { 9, 2, s_{T}_names, s_{T}_values };
+    //         { 9, 2, s_{T}_names, s_{T}_values, 0 };
     //     il2cpp::runtime::il2cpp_enum_register("Calc.Color", &s_{T}_enumInfo);
+    // The trailing column is the REAL [Flags] attribute bit (1 for a
+    // [Flags] enum) -- see enumext.h's Il2CppEnumInfo::isFlags.
     // Call sites (item c, CodeGenerator.cs -- hooks occupied by a parallel
     // agent, per the session report): enum types WITH a .cctor go inside
     // ensure_cctor_{T} after the done-flag; types without one go in
@@ -416,7 +418,7 @@ public static partial class MethodRefResolver
     // kEnumUnderlying* -- consistent with icall_object_get_type_code).
     public const int UnderlyingInt32 = 9;
 
-    private static readonly Dictionary<string, (int Underlying, string[] Names, long[] Values)> BclEnumRegisterInfo =
+    private static readonly Dictionary<string, (int Underlying, string[] Names, long[] Values, bool IsFlags)> BclEnumRegisterInfo =
         new()
         {
             // Mirrors enumext.cpp kDayOfWeekNames/kDayOfWeekValues (the
@@ -424,9 +426,12 @@ public static partial class MethodRefResolver
             // fallback; this table is the authority for the name-keyed
             // register emission -- a mismatch would make the two paths
             // disagree on the same value).
+            // IsFlags=false: System.DayOfWeek is a plain enum (net48 prints
+            // "Wednesday" for 3 and the numeric "9" for 9 -- never a
+            // decomposition; probe dowF3/dowG3).
             ["System.DayOfWeek"] = (UnderlyingInt32,
                 new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" },
-                new long[] { 0, 1, 2, 3, 4, 5, 6 }),
+                new long[] { 0, 1, 2, 3, 4, 5, 6 }, false),
         };
 
     // BCL enums (TypeRefs -- their members live in mscorlib, invisible to
@@ -435,7 +440,7 @@ public static partial class MethodRefResolver
     {
         if (BclEnumRegisterInfo.TryGetValue(fullName, out var entry))
         {
-            info = new EnumRegisterInfo(fullName, entry.Underlying, entry.Names, entry.Values);
+            info = new EnumRegisterInfo(fullName, entry.Underlying, entry.Names, entry.Values, entry.IsFlags);
             return true;
         }
         info = null!;
@@ -491,7 +496,10 @@ public static partial class MethodRefResolver
             TypeEmitter.ReflectionFullName(t),
             underlying,
             literals.Select(f => f.Name).ToArray(),
-            literals.Select(f => long.TryParse(f.ConstantValue, out var v) ? v : 0L).ToArray());
+            literals.Select(f => long.TryParse(f.ConstantValue, out var v) ? v : 0L).ToArray(),
+            // flagsenum: the REAL [Flags] attribute bit decoded by the loader
+            // (MetadataLoader.HasFlagsAttribute), never a member-shape guess.
+            t.IsFlags);
         return true;
     }
 
@@ -499,14 +507,14 @@ public static partial class MethodRefResolver
     // call. The registry stores pointers only -- the statics must outlive it
     // (file-scope static storage satisfies that).
     public static string EmitEnumRegisterBlock(string typeName, int underlying,
-        string[] names, long[] values)
+        string[] names, long[] values, bool isFlags)
     {
         var w = new CppWriter();
         var cpp = TypeEmitter.Sanitize(typeName);
         w.Line($"// Enum metadata for {typeName} (il2cpp_enum_register).");
         w.Line($"static const char* const s_{cpp}_names[] = {{ {string.Join(", ", names.Select(n => $"\"{n}\""))} }};");
         w.Line($"static const int64_t s_{cpp}_values[] = {{ {string.Join(", ", values)} }};");
-        w.Line($"static const il2cpp::runtime::Il2CppEnumInfo s_{cpp}_enumInfo = {{ {underlying}, {names.Length}, s_{cpp}_names, s_{cpp}_values }};");
+        w.Line($"static const il2cpp::runtime::Il2CppEnumInfo s_{cpp}_enumInfo = {{ {underlying}, {names.Length}, s_{cpp}_names, s_{cpp}_values, {(isFlags ? 1 : 0)} }};");
         w.Line($"il2cpp::runtime::il2cpp_enum_register(\"{typeName}\", &s_{cpp}_enumInfo);");
         return w.ToString();
     }
@@ -523,6 +531,8 @@ public static partial class MethodRefResolver
 }
 
 // One enum type's register metadata (the transpiler-side view of the
-// runtime's Il2CppEnumInfo -- see enumext.h).
+// runtime's Il2CppEnumInfo -- see enumext.h). IsFlags is the REAL
+// System.FlagsAttribute bit (TypeDef.IsFlags), the runtime's only authority
+// for ToString decomposition -- never inferred from the member shape.
 public sealed record EnumRegisterInfo(
-    string TypeName, int UnderlyingTypeCode, string[] Names, long[] Values);
+    string TypeName, int UnderlyingTypeCode, string[] Names, long[] Values, bool IsFlags);
