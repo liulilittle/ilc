@@ -229,9 +229,9 @@ public class MethodMapBitConverterTests
     }
 
     //--------------------------------------------------------------------------
-    // ToString(byte[]) -> string hex formatter: the "a" cast byte[] slot, a
-    // managed string result (ReturnsRef, the ToBase64String precedent); the
-    // offset/length overloads have no runtime helper -- LOUD.
+    // ToString(byte[]) / (byte[], int) / (byte[], int, int) -> string hex
+    // formatter: the "a" cast byte[] slot, a managed string result
+    // (ReturnsRef, the ToBase64String precedent).
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_BitConverter_ToStringByteArray_MapsToHexFormatterIcall()
@@ -251,25 +251,39 @@ public class MethodMapBitConverterTests
     }
 
     [Fact]
-    public void Resolve_BitConverter_ToStringWithStartIndex_ThrowsLoud()
+    public void Resolve_BitConverter_ToStringWithStartIndex_MapsToRangeIcall()
     {
         // string ToString(byte[], int): 0x0E ret, 0x1D 0x05 0x08 params.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "BitConverter", "ToString",
-                new byte[] { 0x00, 0x02, 0x0E, 0x1D, 0x05, 0x08 }), "ToString"));
+        // The range form is wired (net48 has all three ToString overloads;
+        // the validation order lives in bitconverter.cpp).
+        var resolved = ResolveMember(Synthesize("System", "BitConverter", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x1D, 0x05, 0x08 }), "ToString");
 
-        Assert.Contains("arity 2", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_bitconverter_to_hex_string_from", resolved.CppName);
+        Assert.Equal(new[] { "a", "i" }, resolved.ParamTypeNames);
+        Assert.True(resolved.ReturnsRef);
     }
 
     [Fact]
-    public void Resolve_BitConverter_GetIsLittleEndian_ThrowsLoud()
+    public void Resolve_BitConverter_ToStringWithStartIndexAndLength_MapsToRangeIcall()
+    {
+        // string ToString(byte[], int, int).
+        var resolved = ResolveMember(Synthesize("System", "BitConverter", "ToString",
+            new byte[] { 0x00, 0x03, 0x0E, 0x1D, 0x05, 0x08, 0x08 }), "ToString");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_bitconverter_to_hex_string_range", resolved.CppName);
+        Assert.Equal(new[] { "a", "i", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_BitConverter_GetIsLittleEndian_MapsToRuntimeEntry()
     {
         // bool get_IsLittleEndian(): bool ret, 0 params.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "BitConverter", "get_IsLittleEndian",
-                new byte[] { 0x00, 0x00, 0x02 }), "get_IsLittleEndian"));
+        var resolved = ResolveMember(Synthesize("System", "BitConverter", "get_IsLittleEndian",
+            new byte[] { 0x00, 0x00, 0x02 }), "get_IsLittleEndian");
 
-        Assert.Contains("little-endian is the platform contract", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_bitconverter_get_is_little_endian", resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
