@@ -333,6 +333,50 @@ Il2CppClass System_Decimal_class = {
     3,
 };
 
+// nullable (GN-2): the 8-byte / 16-byte BCL VALUE-type box descriptors.
+// A Nullable<T> value is represented as an Il2CppObject* holding a box of the
+// underlying T, so DateTime/TimeSpan/Guid need real box classes (exactly like
+// the primitive boxes: header + aligned payload slot, System.Object base, no
+// reference fields) -- icall_object_to_string / icall_object_get_hash_code /
+// icall_boxed_equals_ext2 dispatch on klass->name, and a boxed value must
+// carry its OWN type identity. TimeSpan is 8 bytes (ticks), DateTime is 8
+// bytes (ticks; kind is normalized to 0 by the box), Guid is 16 bytes.
+Il2CppClass System_DateTime_class = {
+    "System.DateTime",
+    16, // header + aligned 8-byte ticks payload
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
+Il2CppClass System_TimeSpan_class = {
+    "System.TimeSpan",
+    16,
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
+Il2CppClass System_Guid_class = {
+    "System.Guid",
+    32, // header + aligned 16-byte payload
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
 // box-identity (audit A-c): the transpiler's default descriptor arm emits
 // `&System_<Name>_class` for every type without an explicit mapping, so
 // `obj is IntPtr` / `obj is UIntPtr` referenced these symbols -- which did not
@@ -711,6 +755,12 @@ void il2cpp_ensure_builtin_system_classes()
         il2cpp_class_register(&System_IConvertible_class);
         il2cpp_class_register(&System_IComparable_class);
         il2cpp_class_register(&System_IFormattable_class);
+        // nullable (GN-2): the DateTime/TimeSpan/Guid box descriptors (the
+        // Nullable<T> representation boxes the underlying T, so these must
+        // resolve by name before the first nullable box is allocated).
+        il2cpp_class_register(&System_DateTime_class);
+        il2cpp_class_register(&System_TimeSpan_class);
+        il2cpp_class_register(&System_Guid_class);
         // rtdict-b23 (DICT-GC): the Dictionary`2<string,int> GC-object wrapper
         // descriptor (defined in dictsi_obj.cpp, extern in dictsi_obj.h).
         // Registered here so

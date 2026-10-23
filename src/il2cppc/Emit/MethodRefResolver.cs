@@ -964,6 +964,14 @@ public static partial class MethodRefResolver
         // TaskAwaiter`1_int64") -- the Task domain dispatches the int64
         // result carrier on it (the definition-name owner alone cannot
         // distinguish Task<int> from Task<long> member calls).
+        // GN-2 (Nullable): a System.Nullable`1<T> member call reaches here with
+        // a TypeSpec parent, so the owner-keyed BCL dispatch below sees the
+        // DEFINITION name "System.Nullable`1" but not the underlying T -- the
+        // md-aware arm decodes T from the parent TypeSpec and returns the
+        // synthetic marker WITH its slot kind (l/d/dec/dt/ts/guid/us:...).
+        var nullableMr = TryMapNullableMember(md, mr2.Parent, mrName, pc);
+        if (nullableMr != null) return nullableMr;
+
         var bcl2 = BclResolve(md, owner2, mrName, mr2.Signature, null, receiverType, receiverIsAddress, arg0Type, arg1Type,
             instName: mr2.Parent.Kind == HandleKind.TypeSpecification ? cppPrefix : null);
         if (bcl2 != null) return bcl2;
