@@ -149,3 +149,8 @@ extern il2cpp::Il2CppClass System_ArgumentOutOfRangeException_class;
 extern il2cpp::Il2CppClass System_IConvertible_class;
 extern il2cpp::Il2CppClass System_IComparable_class;
 extern il2cpp::Il2CppClass System_IFormattable_class;
+// nullable (GN-2): the DateTime/TimeSpan/Guid box descriptors (a Nullable<T>
+// value is a box of the underlying T; see il2cpp_nullable.h).
+extern il2cpp::Il2CppClass System_DateTime_class;
+extern il2cpp::Il2CppClass System_TimeSpan_class;
+extern il2cpp::Il2CppClass System_Guid_class;

@@ -30,6 +30,10 @@
 #include "appdomain.h" // adm1 D2: System_AppDomain_class (Object.ToString LOUD throw)
 #include "il2cpp_object.h"
 #include "versionuri.h" // icall_uri_to_string (untracked-Uri ToString branch below)
+// nullable (GN-2): the DateTime/TimeSpan/Guid boxes + the guid.h ToString
+// (the Nullable<T> representation boxes the underlying T).
+#include "guid.h"
+#include "il2cpp_time.h"
 
 // decimal_format.h owns the il2cpp::runtime::Il2CppDecimal definition AND the
 // T2 formatting icalls (its struct is the decimal_format.h/decimal.cpp side
@@ -96,6 +100,32 @@ double BoxedDoubleValue(const Il2CppObject* boxed)
 Il2CppDecimal BoxedDecimalValue(const Il2CppObject* boxed)
 {
     Il2CppDecimal value;
+    std::memcpy(&value, reinterpret_cast<const char*>(boxed) + kBoxPayloadOffset,
+                sizeof(value));
+    return value;
+}
+
+// nullable (GN-2): the DateTime/TimeSpan/Guid boxes (il2cpp_nullable.h owns
+// the box/unbox icalls; these readers serve the value-semantics dispatch).
+Il2CppDateTime BoxedDateTimeValue(const Il2CppObject* boxed)
+{
+    Il2CppDateTime value;
+    std::memcpy(&value, reinterpret_cast<const char*>(boxed) + kBoxPayloadOffset,
+                sizeof(value));
+    return value;
+}
+
+Il2CppTimeSpan BoxedTimeSpanValue(const Il2CppObject* boxed)
+{
+    Il2CppTimeSpan value;
+    std::memcpy(&value, reinterpret_cast<const char*>(boxed) + kBoxPayloadOffset,
+                sizeof(value));
+    return value;
+}
+
+Il2CppGuid BoxedGuidValue(const Il2CppObject* boxed)
+{
+    Il2CppGuid value;
     std::memcpy(&value, reinterpret_cast<const char*>(boxed) + kBoxPayloadOffset,
                 sizeof(value));
     return value;
@@ -564,6 +594,24 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
         // icall (decimal_format.cpp) on the 16-byte payload.
         Il2CppDecimal value = BoxedDecimalValue(obj);
         return icall_decimal_to_string(&value);
+    }
+    // nullable (GN-2): the DateTime/TimeSpan/Guid boxes (il2cpp_nullable.h --
+    // the Nullable<T> representation boxes the underlying T, so these types
+    // reach the ordinary Object.ToString dispatch).
+    if (HasKlassName(obj, "System.DateTime"))
+    {
+        return reinterpret_cast<Il2CppString*>(
+            icall_datetime_to_string(BoxedDateTimeValue(obj)));
+    }
+    if (HasKlassName(obj, "System.TimeSpan"))
+    {
+        return reinterpret_cast<Il2CppString*>(
+            icall_timespan_to_string(BoxedTimeSpanValue(obj)));
+    }
+    if (HasKlassName(obj, "System.Guid"))
+    {
+        const Il2CppGuid g = BoxedGuidValue(obj);
+        return reinterpret_cast<Il2CppString*>(il2cpp_guid_to_string(g.b));
     }
     if (il2cpp_enum_is_registered(obj->klass))
     {

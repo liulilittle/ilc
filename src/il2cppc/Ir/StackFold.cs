@@ -3596,6 +3596,38 @@ public static class StackFold
                     arg0IsAddr = false;
                 }
 
+                // GN-2 (Nullable): a constrained callvirt on a Nullable`1<T>
+                // receiver (ToString / Equals / GetHashCode -- the compiler
+                // emits `ldloca; constrained. Nullable`1<T>; callvirt
+                // Object::<member>`). The receiver is the ADDRESS of the
+                // Il2CppObject* slot; the marker carries the underlying T in
+                // ParamTypeNames[0] ("nullable:<T>") because the MemberRef
+                // parent is System.Object (the token cannot be decoded).
+                if (md != null && constrainedRecvType != null
+                    && constrainedRecvType.StartsWith("System.Nullable`1_", StringComparison.Ordinal))
+                {
+                    var nbSuffix = constrainedRecvType["System.Nullable`1_".Length..];
+                    var nbT = SuffixToManagedTypeName(nbSuffix);
+                    if (IsObjectMember(md, (int)ins.Operand, "ToString", 0))
+                    {
+                        resolved = new ResolvedMethod("il2cpp::runtime::il2cpp_nullable_to_string", 0,
+                            false, true, true, new[] { false }, true,
+                            ParamTypeNames: new[] { "nullable:" + nbT }, ReturnTypeName: "System.String");
+                    }
+                    else if (IsObjectMember(md, (int)ins.Operand, "Equals", 1))
+                    {
+                        resolved = new ResolvedMethod("il2cpp::runtime::il2cpp_nullable_equals", 1,
+                            false, true, false, new[] { false, false }, true,
+                            ParamTypeNames: new[] { "nullable:" + nbT, "" });
+                    }
+                    else if (IsObjectMember(md, (int)ins.Operand, "GetHashCode", 0))
+                    {
+                        resolved = new ResolvedMethod("il2cpp::runtime::il2cpp_nullable_get_hash_code", 0,
+                            false, true, false, new[] { false }, true,
+                            ParamTypeNames: new[] { "nullable:" + nbT });
+                    }
+                }
+
                 // constrained. VALUE-TYPE ToString (guidcase): even with the
                 // constrained receiver hint, the Object-owner MemberRef
                 // resolves to nothing -- TryMapObject's receiver-typed
@@ -3669,6 +3701,16 @@ public static class StackFold
                         _ when MethodRefResolver.HasBclEnumNameTable(constrainedRecvType)
                             => new ResolvedMethod("il2cpp::runtime::il2cpp_enum_to_string", 0, false, true, true,
                                 new[] { false }, true, ParamTypeNames: new[] { "enumval" },
+                                PrependTypeClass: constrainedRecvType),
+                        // nullable (GN-2) / user value types: a constrained
+                        // ToString on a TRANSLATED user struct -- the runtime
+                        // helper finds the type's reflected ToString override
+                        // and calls it with the VALUE ADDRESS (the value-type
+                        // this ABI). PrependTypeClass supplies the descriptor.
+                        _ when constrainedRecvType != null && types?.Any(t =>
+                                TypeLookup.Matches(t, constrainedRecvType) && t.IsValueType) == true
+                            => new ResolvedMethod("il2cpp::runtime::il2cpp_user_struct_to_string", 0, false, true, true,
+                                new[] { false }, true, ParamTypeNames: new[] { "vaddr" },
                                 PrependTypeClass: constrainedRecvType),
                         _ => resolved,
                     };
@@ -5176,6 +5218,41 @@ public static class StackFold
                 && md.GetString(mr.Name) == "GetTypeFromHandle";
         }
 
+        // IsObjectMember: whether a call token targets System.Object::<name>
+        // with the given explicit parameter count (the constrained-call shape
+        // of a value type's inherited virtual members).
+        static bool IsObjectMember(MetadataReader md, int token, string name, int paramCount)
+        {
+            var handle = MetadataTokens.Handle(token);
+            string? parentName;
+            string? methodName;
+            BlobHandle sigHandle;
+            if (handle.Kind == HandleKind.MemberReference)
+            {
+                var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+                parentName = mr.Parent.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)mr.Parent),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)mr.Parent),
+                    _ => null,
+                };
+                methodName = md.GetString(mr.Name);
+                sigHandle = mr.Signature;
+            }
+            else if (handle.Kind == HandleKind.MethodDefinition)
+            {
+                var mdef = md.GetMethodDefinition((MethodDefinitionHandle)handle);
+                parentName = md.GetFullName(mdef.GetDeclaringType());
+                methodName = md.GetString(mdef.Name);
+                sigHandle = mdef.Signature;
+            }
+            else return false;
+            if (parentName != "System.Object" || methodName != name) return false;
+            var sig = md.GetBlobReader(sigHandle);
+            sig.ReadSignatureHeader();
+            return sig.ReadCompressedInteger() == paramCount;
+        }
+
         // InitializeArray fold (e2e G1): whether the call token is
         // RuntimeHelpers::InitializeArray -- a BCL static method, always a
         // MemberRef with a TypeRef parent in user code. Both parents are
@@ -5936,10 +6013,35 @@ public static class StackFold
         static string TypeSpecName(MetadataReader md, TypeSpecificationHandle handle)
         {
             var sig = md.GetBlobReader(md.GetTypeSpecification(handle).Signature);
-            if (sig.ReadByte() == 0x13)
+            var header = sig.ReadByte();
+            if (header == 0x13)
             {
                 _ = sig.ReadCompressedInteger(); // VAR index (single instantiation: T -> int)
                 return "System.Int32";
+            }
+            // GN-2 (Nullable): a `System.Nullable`1<T>` instantiation names
+            // itself "System.Nullable`1_<T>" so the constrained-call fold can
+            // recognise the boxed-object Nullable receiver (the generic
+            // fallback below is the TaskAwaiter legacy default and would make
+            // a Nullable receiver look like a Task awaiter).
+            if (header == 0x15)
+            {
+                _ = sig.ReadByte(); // CLASS/VALUETYPE marker
+                var d = sig.ReadTypeHandle();
+                var dn = d.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)d),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)d),
+                    _ => null,
+                };
+                if (dn == "System.Nullable`1")
+                {
+                    var argc = sig.ReadCompressedInteger();
+                    var args = new string[argc];
+                    for (var i = 0; i < argc; ++i)
+                        args[i] = ReadM3Arg(md, ref sig, sig.ReadByte());
+                    return dn + "_" + string.Join("_", args);
+                }
             }
             return "System.Runtime.CompilerServices.TaskAwaiter`1";
         }

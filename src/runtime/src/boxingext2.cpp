@@ -57,6 +57,8 @@
 #include "il2cpp_boxing_ext.h" // icall_boxed_equals (legacy set delegation)
 #include "enumext.h"           // il2cpp_enum_is_registered / il2cpp_enum_equals
                                // (boxed-enum value equality)
+#include "guid.h"              // Il2CppGuid (the Guid box payload, nullable GN-2)
+#include "il2cpp_time.h"       // icall_datetime_equals / icall_timespan_equals
 #include "il2cpp_exception.h"
 #include "il2cpp_metadata.h"
 #include "il2cpp_object.h"
@@ -171,6 +173,29 @@ uint64_t BoxPayloadUInt64(Il2CppObject* obj)
 double BoxPayloadDouble(Il2CppObject* obj)
 {
     return *reinterpret_cast<double*>(reinterpret_cast<char*>(obj) + kBoxPayloadOffset);
+}
+
+// nullable (GN-2): the DateTime/TimeSpan/Guid box payloads (the descriptors
+// live in metadata.cpp; the boxes are created by il2cpp_nullable.h's icalls).
+Il2CppDateTime BoxedDateTime(Il2CppObject* obj)
+{
+    Il2CppDateTime value;
+    std::memcpy(&value, reinterpret_cast<char*>(obj) + kBoxPayloadOffset, sizeof(value));
+    return value;
+}
+
+Il2CppTimeSpan BoxedTimeSpan(Il2CppObject* obj)
+{
+    Il2CppTimeSpan value;
+    std::memcpy(&value, reinterpret_cast<char*>(obj) + kBoxPayloadOffset, sizeof(value));
+    return value;
+}
+
+Il2CppGuid BoxedGuid(Il2CppObject* obj)
+{
+    Il2CppGuid value;
+    std::memcpy(&value, reinterpret_cast<char*>(obj) + kBoxPayloadOffset, sizeof(value));
+    return value;
 }
 
 // Allocate a boxed object whose payload is an int32 at the shared slot.
@@ -640,6 +665,27 @@ bool icall_boxed_equals_ext2(Il2CppObject* a, Il2CppObject* b)
         std::memcpy(&db, reinterpret_cast<const char*>(b) + kBoxPayloadOffset,
                     sizeof(db));
         return icall_decimal_equals(&da, &db);
+    }
+    // nullable (GN-2): the DateTime/TimeSpan/Guid boxes compare by VALUE
+    // (net48 value-type semantics; the same-klass gate above already proved
+    // both operands are the same type).
+    if (klass == &System_DateTime_class)
+    {
+        const Il2CppDateTime va = BoxedDateTime(b);
+        const Il2CppDateTime vb = BoxedDateTime(a);
+        return icall_datetime_equals(va, vb);
+    }
+    if (klass == &System_TimeSpan_class)
+    {
+        const Il2CppTimeSpan va = BoxedTimeSpan(b);
+        const Il2CppTimeSpan vb = BoxedTimeSpan(a);
+        return icall_timespan_equals(va, vb);
+    }
+    if (klass == &System_Guid_class)
+    {
+        const Il2CppGuid va = BoxedGuid(b);
+        const Il2CppGuid vb = BoxedGuid(a);
+        return std::memcmp(va.b, vb.b, sizeof(va.b)) == 0;
     }
     // Enum-klass boxes (icall_box_enum): the klass is the enum's OWN
     // descriptor (name-bearing, so the enumext registry resolves it). The
