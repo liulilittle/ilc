@@ -264,6 +264,17 @@ public static class GenericConstraintReader
     // FullName + "|" + suffix.
     public string InstantiationKey => InstantiationSuffix == null ? FullName : FullName + "|" + InstantiationSuffix;
 
+    // [Flags] attribute (flagsenum): the REAL [Flags] bit from the metadata
+    // CustomAttribute table (System.FlagsAttribute on the TypeDef), NOT a
+    // guess from the member shape. net48 semantics: [Flags] is an attribute
+    // -- an enum that declares composite members (AB = A|B, All = A|B|C) is
+    // still a flags enum, and a plain enum whose members happen to be
+    // {Zero=0, One=1, Two=2} is NOT one. Emitted as the isFlags column of the
+    // runtime Il2CppEnumInfo (enumext.h) so the ToString decomposition keys
+    // on the attribute instead of the shape heuristic (the silent-wrong-value
+    // defect this field closes).
+    public bool IsFlags { get; init; }
+
     // Value type (M3 Task 11): a struct whose instances are plain C++ values
     // (NO object header, NO GC allocation). Local variables hold the value
     // inline; field access is '.', not '->'; newobj initializes in place.

@@ -36,17 +36,27 @@
 //  15. Equals width-aware payload compare -- int64 values differing only in
 //      the high 32 bits are NOT equal; same-value int64 and int32 enums,
 //      cross-type and null-other cases.
-//  17. [Flags] ToString decomposition (rtflags) -- a flags-capable enum
-//      (zero member + power-of-two members) decomposes an unnamed value into
-//      its named bit components joined with ", " (net48): combined values
-//      (3=F1|F2 -> "F1, F2"), all-bits-covered (7 -> "F1, F2, F3"), single
-//      member -> name, zero -> the zero member's name, partial coverage /
-//      negative -> numeric fallback, and the boxed path inherits it.
+//  17. [Flags] ToString decomposition (rtflags; attribute-driven since
+//      flagsenum) -- a [Flags] enum (Il2CppEnumInfo::isFlags == 1)
+//      decomposes an unnamed value into its named bit components joined
+//      with ", " (net48): combined values (3=F1|F2 -> "F1, F2"),
+//      all-bits-covered (7 -> "F1, F2, F3"), single member -> name, zero ->
+//      the zero member's name, partial coverage / negative -> numeric
+//      fallback, and the boxed path inherits it.
 //  18. Flags output ORDER -- decomposed names print in ASCENDING VALUE
 //      order, not declaration order (net48 probe g2_all=31).
-//  19. NON-flags enums never decompose -- a composite member (3) disqualifies
-//      the flags shape, so A|B prints numeric "3" (net48 plain3=3);
-//      DayOfWeek's non-power-of-two values keep the numeric fallback.
+//  19. NON-flags enums never decompose in the DEFAULT form -- isFlags == 0
+//      keeps the numeric fallback (net48 plain3=3); DayOfWeek's non-power-
+//      of-two values keep it too.
+//  19b. COMPOSITE-MEMBER [Flags] enums (the flagsenum defect): an enum with
+//      AB=3/All=7 still decomposes (isFlags=1) -- 5 -> "A, C", 6 -> "B, C",
+//      7 -> "All", 8 -> "8". The pre-fix shape heuristic returned numeric
+//      for all of these (silent wrong value).
+//  19c. PLAIN enum with the flags SHAPE ({Zero=0, One=1, Two=2}): isFlags=0
+//      -> default ToString of 3 is "3" (the old heuristic printed
+//      "One, Two" -- the documented deviation this task removed).
+//  19d. "F" format decomposes for EVERY enum (net48 probe: a plain enum's
+//      ToString("F") of 3 is "Green, Blue" while ToString() is "3").
 //
 // Plain executable + minimal assertion harness (see test_typecheck.cpp).
 //------------------------------------------------------------------------------
@@ -236,45 +246,72 @@ il2cpp::runtime::Il2CppEnumInfo tempInfoB = {
 };
 
 // Test.Flags -- the [Flags] decomposition fixture (rtflags): the canonical
-// [Flags] member shape (zero member + power-of-two members).
+// [Flags] member shape (zero member + power-of-two members). The trailing 1
+// is the REAL System.FlagsAttribute bit the transpiler now emits
+// (Il2CppEnumInfo::isFlags) -- decomposition keys on it, not on the shape.
 il2cpp::Il2CppClass flagsClass = {
     "Test.Flags", 4, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
 };
 const char* flagsNames[] = {"None", "F1", "F2", "F3"};
 const int64_t flagsValues[] = {0, 1, 2, 4};
 il2cpp::runtime::Il2CppEnumInfo flagsInfo = {
-    il2cpp::runtime::kEnumUnderlyingInt32, 4, flagsNames, flagsValues,
+    il2cpp::runtime::kEnumUnderlyingInt32, 4, flagsNames, flagsValues, 1,
 };
 
 // Test.Order -- flags decomposition output order: names print in ASCENDING
 // VALUE order regardless of declaration order (net48, probe g2_all=31).
-// Has a zero member (Zero=0) so IsFlagsCapable's zero-member discriminator
-// fires (net48 decomposes zero-less flags enums too, but the runtime cannot
-// tell those apart from plain power-of-two enums -- documented deviation;
-// see the fixture comment for Test.NonFlagsPow2).
+// isFlags = 1 (a real [Flags] enum -- the attribute, not the shape, decides).
 il2cpp::Il2CppClass orderClass = {
     "Test.Order", 4, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
 };
 const char* orderNames[] = {"Zero", "H", "A", "D", "B", "C"};
 const int64_t orderValues[] = {0, 16, 1, 8, 2, 4};
 il2cpp::runtime::Il2CppEnumInfo orderInfo = {
-    il2cpp::runtime::kEnumUnderlyingInt32, 6, orderNames, orderValues,
+    il2cpp::runtime::kEnumUnderlyingInt32, 6, orderNames, orderValues, 1,
+};
+
+// Test.FlagsComposite -- a [Flags] enum that ALSO declares composite members
+// (AB=3, All=7). The pre-fix shape heuristic disqualified it (3 and 7 are not
+// powers of two), so combinations printed numeric; with the attribute bit it
+// decomposes exactly like net48:
+//   value 5 (A|C) -> "A, C"   (AB is not a subset of 5)
+//   value 6 (B|C) -> "B, C"
+//   value 7       -> "All"    (exact member match wins)
+//   value 8       -> "8"      (uncovered bit stays numeric)
+il2cpp::Il2CppClass flagsCompositeClass = {
+    "Test.FlagsComposite", 4, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+};
+const char* flagsCompositeNames[] = {"None", "A", "B", "C", "AB", "All"};
+const int64_t flagsCompositeValues[] = {0, 1, 2, 4, 3, 7};
+il2cpp::runtime::Il2CppEnumInfo flagsCompositeInfo = {
+    il2cpp::runtime::kEnumUnderlyingInt32, 6, flagsCompositeNames,
+    flagsCompositeValues, 1,
 };
 
 // Test.NonFlagsPow2 -- a NON-flags enum whose members are all powers of two
-// but which has NO zero member. The zero-member requirement is the runtime's
-// discriminator between a [Flags] enum (canonically declares None/Zero = 0)
-// and a plain enum with coincidentally power-of-two members (net48: a plain
-// enum like EInt {A=1, B=2} prints "3" for value 3 -- plain3 probe). Values
-// avoid the DayOfWeek range (0-6) so the null-descriptor built-in fallback
-// stays unambiguous.
+// but which has NO zero member. isFlags = 0 (no [Flags] attribute), so it
+// never decomposes -- exactly like net48.
 il2cpp::Il2CppClass nonFlagsClass = {
     "Test.NonFlagsPow2", 4, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
 };
 const char* nonFlagsNames[] = {"A", "B"};
 const int64_t nonFlagsValues[] = {1, 8};
 il2cpp::runtime::Il2CppEnumInfo nonFlagsInfo = {
-    il2cpp::runtime::kEnumUnderlyingInt32, 2, nonFlagsNames, nonFlagsValues,
+    il2cpp::runtime::kEnumUnderlyingInt32, 2, nonFlagsNames, nonFlagsValues, 0,
+};
+
+// Test.PlainFlagsShape -- a PLAIN (non-[Flags]) enum with EXACTLY the
+// canonical flags member shape {Zero=0, One=1, Two=2}. The old shape
+// heuristic decomposed it ("One, Two" for 3); net48 prints "3" because the
+// attribute is absent. isFlags = 0.
+il2cpp::Il2CppClass plainShapeClass = {
+    "Test.PlainFlagsShape", 4, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+};
+const char* plainShapeNames[] = {"Zero", "One", "Two"};
+const int64_t plainShapeValues[] = {0, 1, 2};
+il2cpp::runtime::Il2CppEnumInfo plainShapeInfo = {
+    il2cpp::runtime::kEnumUnderlyingInt32, 3, plainShapeNames,
+    plainShapeValues, 0,
 };
 
 // Test.DayOfWeek -- the BCL System.DayOfWeek metadata (the runtime ships a
@@ -329,7 +366,9 @@ int main()
     il2cpp_enum_register("Test.Wide", &wideInfo);
     il2cpp_enum_register("Test.Flags", &flagsInfo);
     il2cpp_enum_register("Test.Order", &orderInfo);
+    il2cpp_enum_register("Test.FlagsComposite", &flagsCompositeInfo);
     il2cpp_enum_register("Test.NonFlagsPow2", &nonFlagsInfo);
+    il2cpp_enum_register("Test.PlainFlagsShape", &plainShapeInfo);
 
     // The name-string ABI's parse_boxed resolves the enum's CLASS descriptor
     // by name (il2cpp_class_by_name) to box with the enum's OWN klass -- so
@@ -558,9 +597,16 @@ int main()
     Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(nullptr, 6),
                                     "Saturday"),
            "DayOfWeek to_string(null descriptor, 6) -> \"Saturday\"");
+    // NOTE (flagsenum): value 3 is now owned by the Test.FlagsComposite
+    // fixture (AB=3), so it is AMBIGUOUS on the null-descriptor path and
+    // formats numeric by design. The unambiguous built-in arm is exercised
+    // with value 5 (Friday), which no registered fixture owns.
+    Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(nullptr, 5),
+                                    "Friday"),
+           "DayOfWeek to_string(null descriptor, 5) -> \"Friday\" (unambiguous built-in match)");
     Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(nullptr, 3),
-                                    "Wednesday"),
-           "DayOfWeek to_string(null descriptor, 3) -> \"Wednesday\" (unambiguous built-in match)");
+                                    "3"),
+           "to_string(null descriptor, 3) -> \"3\" (Test.FlagsComposite owns 3 -- ambiguous, numeric)");
     Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(nullptr, 1),
                                     "1"),
            "to_string(null descriptor, 1) -> \"1\" (registered Test.Color owns 1 -- ambiguous, numeric per the deviation note)");
@@ -762,7 +808,7 @@ int main()
     }
 
     // --- 17. [Flags] ToString decomposition (rtflags, net48 semantics) ---
-    // A flags-capable enum (zero member + power-of-two members) decomposes
+    // A [Flags] enum (isFlags == 1 -- the real attribute bit) decomposes
     // an unnamed value into its named bit components joined with ", ".
     // Test.Flags = {None=0, F1=1, F2=2, F3=4} -- the enumdeep3 EFlags shape.
     {
@@ -816,23 +862,107 @@ int main()
                "flags to_string 10=D|B -> \"B, D\" (value-ascending)");
     }
 
-    // --- 19. NON-flags enums never decompose (net48 plain3=3) ---
-    // Test.NonFlagsPow2 = {A=1, B=8}: powers of two but NO zero member --
-    // the zero-member requirement is the runtime's [Flags] discriminator, so
-    // the enum is NOT flags-capable and value 9 (A|B) prints numeric "9".
+    // --- 19. NON-flags enums never decompose in the default form ---
+    // Test.NonFlagsPow2 = {A=1, B=8}: powers of two but isFlags == 0 (no
+    // [Flags] attribute), so value 9 (A|B) prints numeric "9" (net48 plain3).
     {
         Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&nonFlagsClass, 9),
                                         "9"),
-               "non-flags to_string 9=A|B -> \"9\" (no zero member -> not flags-capable, numeric)");
+               "non-flags to_string 9=A|B -> \"9\" (isFlags=0, numeric)");
         // Named values still print their names.
         Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&nonFlagsClass, 1),
                                         "A"),
                "non-flags to_string 1 -> \"A\" (named value)");
-        // DayOfWeek (0..6) is not flags-shaped (values 3/5/6 are not powers
-        // of two) -- its unnamed values stay numeric.
+        // DayOfWeek (0..6) is a plain enum (isFlags=0) -- its unnamed values
+        // stay numeric.
         Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&dowClass, 9),
                                         "9"),
-               "DayOfWeek to_string 9 -> \"9\" (not flags-shaped, numeric)");
+               "DayOfWeek to_string 9 -> \"9\" (not [Flags], numeric)");
+    }
+
+    // --- 19b. [Flags] WITH COMPOSITE MEMBERS (the flagsenum defect) ---
+    // Test.FlagsComposite = {None=0, A=1, B=2, C=4, AB=3, All=7}: the
+    // composite members are not powers of two, so the PRE-FIX shape
+    // heuristic disqualified the whole enum and every combination printed
+    // numeric. net48 (and now the attribute bit) decomposes:
+    //   5 = A|C -> "A, C"  (AB=3 is not a subset of 5)
+    //   6 = B|C -> "B, C"
+    //   7       -> "All"   (exact member match wins over AB|C)
+    //   8       -> "8"     (uncovered bit stays numeric)
+    {
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&flagsCompositeClass, 5),
+                                        "A, C"),
+               "flags+composite to_string 5=A|C -> \"A, C\" (AB not a subset)");
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&flagsCompositeClass, 6),
+                                        "B, C"),
+               "flags+composite to_string 6=B|C -> \"B, C\"");
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&flagsCompositeClass, 7),
+                                        "All"),
+               "flags+composite to_string 7 -> \"All\" (exact member match)");
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&flagsCompositeClass, 3),
+                                        "AB"),
+               "flags+composite to_string 3 -> \"AB\" (composite member name)");
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&flagsCompositeClass, 8),
+                                        "8"),
+               "flags+composite to_string 8 -> \"8\" (uncovered bit numeric)");
+        // Boxed path inherits the attribute-driven decomposition.
+        Expect(ManagedStringEqualsAscii(
+                   il2cpp_enum_boxed_to_string(
+                       icall_box_enum(&flagsCompositeClass, 5)),
+                   "A, C"),
+               "boxed flags+composite to_string 5 -> \"A, C\"");
+    }
+
+    // --- 19c. PLAIN enum with the FLAGS SHAPE never decomposes ---
+    // Test.PlainFlagsShape = {Zero=0, One=1, Two=2}: exactly the member shape
+    // the pre-fix heuristic used as its [Flags] discriminator. net48 has no
+    // attribute -> no decomposition; value 3 prints "3" (the old runtime
+    // printed "One, Two" -- the documented deviation this task removed).
+    {
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&plainShapeClass, 3),
+                                        "3"),
+               "plain flags-shaped to_string 3 -> \"3\" (no [Flags] attribute)");
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&plainShapeClass, 4),
+                                        "4"),
+               "plain flags-shaped to_string 4 -> \"4\" (uncovered bit numeric)");
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&plainShapeClass, 1),
+                                        "One"),
+               "plain flags-shaped to_string 1 -> \"One\" (named value)");
+        Expect(ManagedStringEqualsAscii(il2cpp_enum_to_string(&plainShapeClass, 0),
+                                        "Zero"),
+               "plain flags-shaped to_string 0 -> \"Zero\" (zero member name)");
+    }
+
+    // --- 19d. "F" format decomposes for EVERY enum (net48 probe) ---
+    // net48's "F" specifier is not gated on [Flags]: a plain enum's
+    // ToString("F") of 3 is "One, Two" while its default ToString() is "3".
+    {
+        Expect(ManagedStringEqualsAscii(
+                   il2cpp_enum_to_string_format(&plainShapeClass, 3, Str("F")),
+                   "One, Two"),
+               "plain flags-shaped ToString(\"F\") 3 -> \"One, Two\"");
+        Expect(ManagedStringEqualsAscii(
+                   il2cpp_enum_to_string_format(&plainShapeClass, 3, Str("f")),
+                   "One, Two"),
+               "plain flags-shaped ToString(\"f\") 3 -> \"One, Two\" (case-insensitive)");
+        Expect(ManagedStringEqualsAscii(
+                   il2cpp_enum_to_string_format(&plainShapeClass, 1, Str("F")),
+                   "One"),
+               "plain flags-shaped ToString(\"F\") 1 -> \"One\" (named value)");
+        Expect(ManagedStringEqualsAscii(
+                   il2cpp_enum_to_string_format(&plainShapeClass, 4, Str("F")),
+                   "4"),
+               "plain flags-shaped ToString(\"F\") 4 -> \"4\" (uncovered bit numeric)");
+        // "F" on a real [Flags] enum still matches the default form.
+        Expect(ManagedStringEqualsAscii(
+                   il2cpp_enum_to_string_format(&flagsClass, 3, Str("F")),
+                   "F1, F2"),
+               "flags ToString(\"F\") 3 -> \"F1, F2\"");
+        // "D"/"X" never decompose.
+        Expect(ManagedStringEqualsAscii(
+                   il2cpp_enum_to_string_format(&flagsClass, 3, Str("D")),
+                   "3"),
+               "flags ToString(\"D\") 3 -> \"3\" (numeric, no decomposition)");
     }
 
     // --- 20. NAME-STRING ABI (enumface, D-STREN-2, 2026-08-12) ---
