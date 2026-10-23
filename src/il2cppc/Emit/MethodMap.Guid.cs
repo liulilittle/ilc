@@ -103,9 +103,25 @@ public static partial class MethodRefResolver
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_guid_equals", 1, true, false, true, new[] { "g", "g" });
+                // NOTE (boxwire): the box class DOES exist now
+                // (System_Guid_class, metadata.cpp + icall_box_guid); only the
+                // boxed-EQUALS helper for a VALUE receiver is missing --
+                // icall_boxed_equals_ext2 takes two OBJECTS, and the receiver
+                // here is the 16-byte value slot. net48 Guid.Equals(object)
+                // semantics (null -> false, non-Guid -> false, Guid box ->
+                // byte equality) need a value-vs-object helper, which the
+                // runtime does not have yet. Stays LOUD (no silent wrong).
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("Equals(object) not wired: a boxed Guid has no runtime box class, so the boxed value cannot reach the icall");
+                    throw new NotSupportedException("Guid.Equals(object) not wired: the runtime has no value-vs-object Guid equality helper (icall_boxed_equals_ext2 takes two box objects)");
                 return null;
+            // boxwire (nullable GN-2 follow-up): Guid.GetHashCode -- the value
+            // hash icall (guid.h il2cpp_guid_get_hash_code, the ORACLE-probed
+            // net48 fold). Without this arm the call fell through to
+            // Object::GetHashCode's default and passed the VALUE ADDRESS as an
+            // Il2CppObject* (probe: `g.GetHashCode()` emitted
+            // icall_object_get_hash_code((&loc2)) -> a garbage/address hash).
+            case "GetHashCode":
+                return I("il2cpp::il2cpp_guid_get_hash_code", 0, true, false, true, new[] { "g" });
             case "CompareTo":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_guid_compare", 1, true, false, true, new[] { "g", "g" });
