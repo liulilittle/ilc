@@ -7222,7 +7222,7 @@ public static class StackFold
             ILOpCode.Stloc or ILOpCode.Stloc_s or ILOpCode.Stloc_0 or ILOpCode.Stloc_1
                 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3 or ILOpCode.Starg or ILOpCode.Starg_s
                 or ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Pop
-                or ILOpCode.Stfld or ILOpCode.Stsfld
+                or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Throw
                 or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_ref
                 // IL gap batch b23: the pointer-deref / value-type / block /
                 // checked-op families all POP stack values -- a catch handler
