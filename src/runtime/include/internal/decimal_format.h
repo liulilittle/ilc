@@ -129,8 +129,8 @@ bool icall_decimal_try_parse(Il2CppString* text, Il2CppDecimal* result);
 // containing the flag throws ArgumentException ("the data type does not
 // support the numeric style AllowHexSpecifier", no ParamName) BEFORE the
 // null-text check (oracle: Parse(null, HexNumber) is ArgumentException, not
-// ArgumentNullException). Undefined style bits (outside 0x1FF) throw
-// ArgumentException with ParamName "style".
+// ArgumentNullException). Undefined style bits (outside 0x3FF, i.e. above the
+// 0x200 hex bit) throw ArgumentException with ParamName "style".
 //
 // CULTURE (deliberate, documented trade-off): the runtime culture model is
 // invariant-only (cultureinfo.cpp returns "." / "," / "-" / "+" and no
