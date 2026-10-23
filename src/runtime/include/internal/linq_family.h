@@ -1,0 +1,182 @@
+#pragma once
+//------------------------------------------------------------------------------
+// linq_family.h -- the UNIFIED CELL ABI for the LINQ element families.
+//
+// HISTORY: the LINQ runtime grew one hand-written kernel per element family
+// (i4 / i8 / f / d / narrow / ref / decimal), so every operator needed N
+// entries and the transpiler needed an N-way dispatch. The remaining gaps
+// (Take/Skip/Distinct/Reverse/Concat/Except/Contains/SequenceEqual/ElementAt/
+// DefaultIfEmpty/LongCount/Union/Intersect/Single/OrderBy/ThenBy/GroupBy/
+// Aggregate/Zip over the value families) would have multiplied that surface by
+// N. This header introduces ONE cell-descriptor space and ONE set of
+// family-generic kernels: a caller passes the cell code as a trailing literal
+// and the kernel reads/writes the element at its REAL width.
+//
+// CELL CODES (the transpiler's single authority; a trailing literal, never a
+// consumed IL argument):
+//     0  sbyte      1  byte       2  bool       3  short
+//     4  ushort     5  char       6  uint       7  int32
+//     8  int64      9  float      10 double     11 decimal
+//     12 DateTime   13 TimeSpan   14 Guid       15 reference
+//
+// The 0..6 range is byte-identical to IL2CPP_LINQ_NARROW_* (linq.h) so the
+// narrow kernels keep their existing codes; 7..10 reuses the IL2CPP_LINQ_ZIP_*
+// I4/I8/F/D values. This is deliberate: the same integer means the same cell
+// in every LINQ entry point.
+//
+// DELEGATE ABI CLASSES (what the generated leaf's C++ signature really is --
+// CodeGenerator.ParamTypesCpp): the cell determines how the kernel WIDENS an
+// element into the callback's parameter slot:
+//     i32 slot  -- sbyte/byte/bool/short/ushort/char/uint/int32
+//     i64 slot  -- int64
+//     dbl slot  -- float/double            (the F-stack carrier: float -> double)
+//     ref slot  -- reference                (Il2CppObject*)
+//     by value  -- decimal (Il2CppDecimal), DateTime (Il2CppDateTime),
+//                  TimeSpan (Il2CppTimeSpan), Guid (Il2CppGuid) -- the
+//                  generated thunk takes the struct BY VALUE, so the kernel
+//                  must call it through that exact signature.
+//------------------------------------------------------------------------------
+
+#include "decimal.h"
+#include "guid.h"
+#include "il2cpp_array.h"
+#include "il2cpp_object.h"
+#include "il2cpp_time.h"
+
+#include <cstdint>
+
+namespace il2cpp {
+
+// The cell codes (see the header comment).
+constexpr int32_t IL2CPP_LINQ_CELL_SBYTE    = 0;
+constexpr int32_t IL2CPP_LINQ_CELL_BYTE     = 1;
+constexpr int32_t IL2CPP_LINQ_CELL_BOOL     = 2;
+constexpr int32_t IL2CPP_LINQ_CELL_SHORT    = 3;
+constexpr int32_t IL2CPP_LINQ_CELL_USHORT   = 4;
+constexpr int32_t IL2CPP_LINQ_CELL_CHAR     = 5;
+constexpr int32_t IL2CPP_LINQ_CELL_UINT     = 6;
+constexpr int32_t IL2CPP_LINQ_CELL_I4       = 7;
+constexpr int32_t IL2CPP_LINQ_CELL_I8       = 8;
+constexpr int32_t IL2CPP_LINQ_CELL_F        = 9;
+constexpr int32_t IL2CPP_LINQ_CELL_D        = 10;
+constexpr int32_t IL2CPP_LINQ_CELL_DECIMAL  = 11;
+constexpr int32_t IL2CPP_LINQ_CELL_DATETIME = 12;
+constexpr int32_t IL2CPP_LINQ_CELL_TIMESPAN = 13;
+constexpr int32_t IL2CPP_LINQ_CELL_GUID     = 14;
+constexpr int32_t IL2CPP_LINQ_CELL_REF      = 15;
+
+// The byte width of a cell (the payload stride of its arrays).
+int32_t LinqCellSize(int32_t cell);
+
+// True when the cell's elements are GC references (scanned payload).
+bool LinqCellIsRef(int32_t cell);
+
+// True when the cell's delegate ABI is the int32 parameter slot.
+bool LinqCellIsI4Slot(int32_t cell);
+
+// The element address (bounds-checked) of element `index`.
+char* LinqCellPtr(Il2CppArray* arr, int32_t index);
+
+// Widen element `index` into the callback slot family. The i4 read is the
+// CLR's narrow-parameter widening (sign- or zero-extension per cell), never a
+// 4-byte over-read of a 1/2-byte cell.
+int32_t       LinqCellReadI4(Il2CppArray* arr, int32_t index, int32_t cell);
+int64_t       LinqCellReadI8(Il2CppArray* arr, int32_t index, int32_t cell);
+double        LinqCellReadD(Il2CppArray* arr, int32_t index, int32_t cell);
+Il2CppObject* LinqCellReadRef(Il2CppArray* arr, int32_t index, int32_t cell);
+
+// The by-value struct reads (the 4 struct cells only; a caller must have
+// already dispatched on the cell).
+runtime::Il2CppDecimal  LinqCellReadDec(Il2CppArray* arr, int32_t index);
+runtime::Il2CppDateTime LinqCellReadDt(Il2CppArray* arr, int32_t index);
+runtime::Il2CppTimeSpan LinqCellReadTs(Il2CppArray* arr, int32_t index);
+Il2CppGuid              LinqCellReadGuid(Il2CppArray* arr, int32_t index);
+
+// The family default (default(T)) into `dst` (cell-width bytes).
+void LinqCellDefault(char* dst, int32_t cell);
+
+// Copy element `index` of `src` into `dst` at the cell's own width (a
+// reference copy runs the write barrier).
+void LinqCellCopy(char* dst, Il2CppObject** barrierSlot, Il2CppArray* src,
+                  int32_t index, int32_t cell);
+
+// EqualityComparer<T>.Default equality between two elements of the same cell.
+bool LinqCellEquals(Il2CppArray* a, int32_t ia, Il2CppArray* b, int32_t ib,
+                    int32_t cell);
+
+// Equality between an element and a caller-supplied value in the cell's
+// widened slot (Contains).
+bool LinqCellEqualsI4(Il2CppArray* a, int32_t ia, int32_t value, int32_t cell);
+bool LinqCellEqualsI8(Il2CppArray* a, int32_t ia, int64_t value, int32_t cell);
+bool LinqCellEqualsD(Il2CppArray* a, int32_t ia, double value, int32_t cell);
+bool LinqCellEqualsRef(Il2CppArray* a, int32_t ia, Il2CppObject* value, int32_t cell);
+bool LinqCellEqualsDec(Il2CppArray* a, int32_t ia, runtime::Il2CppDecimal value);
+bool LinqCellEqualsDt(Il2CppArray* a, int32_t ia, runtime::Il2CppDateTime value);
+bool LinqCellEqualsTs(Il2CppArray* a, int32_t ia, runtime::Il2CppTimeSpan value);
+bool LinqCellEqualsGuid(Il2CppArray* a, int32_t ia, Il2CppGuid value);
+
+// Validate that `arr` is a one-dimensional array whose element width matches
+// the cell (a mis-dispatched call must never read a narrower cell as a wider
+// one). Null -> ArgumentNullException; a mismatch -> NotSupportedException.
+Il2CppArray* LinqRequireCell(Il2CppArray* arr, int32_t cell);
+
+// Allocate a fresh array of `length` elements of the cell's own layout.
+Il2CppArray* LinqNewArray(int32_t cell, int32_t length);
+
+//------------------------------------------------------------------------------
+// FAMILY-GENERIC ELEMENT OPERATORS
+//
+// Every entry below takes the source ARRAY plus the cell code as the trailing
+// argument and materializes eagerly (the stage-1 AOT form). They are the
+// all-family successors of the per-family kernels in linq.cpp / linq_map.cpp:
+//   Take / Skip / Reverse / Concat / Distinct / Except / Union / Intersect
+//   DefaultIfEmpty / LongCount
+// The element-RETURNING operators are generated per result ABI (see the
+// macros below) because the C++ return type differs per family.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_take_family(Il2CppArray* src, int32_t count, int32_t cell);
+Il2CppArray* il2cpp_linq_skip_family(Il2CppArray* src, int32_t count, int32_t cell);
+Il2CppArray* il2cpp_linq_reverse_family(Il2CppArray* src, int32_t cell);
+Il2CppArray* il2cpp_linq_concat_family(Il2CppArray* first, Il2CppArray* second, int32_t cell);
+Il2CppArray* il2cpp_linq_distinct_family(Il2CppArray* src, int32_t cell);
+Il2CppArray* il2cpp_linq_except_family(Il2CppArray* first, Il2CppArray* second, int32_t cell);
+Il2CppArray* il2cpp_linq_union_family(Il2CppArray* first, Il2CppArray* second, int32_t cell);
+Il2CppArray* il2cpp_linq_intersect_family(Il2CppArray* first, Il2CppArray* second, int32_t cell);
+Il2CppArray* il2cpp_linq_default_if_empty_family(Il2CppArray* src, int32_t cell);
+int64_t      il2cpp_linq_long_count_family(Il2CppArray* src, int32_t cell);
+bool         il2cpp_linq_sequence_equal_family(Il2CppArray* first, Il2CppArray* second, int32_t cell);
+
+// Contains: the value rides the family's own parameter slot.
+bool il2cpp_linq_contains_family_i4(Il2CppArray* src, int32_t value, int32_t cell);
+bool il2cpp_linq_contains_family_i8(Il2CppArray* src, int64_t value, int32_t cell);
+bool il2cpp_linq_contains_family_d(Il2CppArray* src, double value, int32_t cell);
+bool il2cpp_linq_contains_family_ref(Il2CppArray* src, Il2CppObject* value, int32_t cell);
+bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
+bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
+bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);
+bool il2cpp_linq_contains_family_guid(Il2CppArray* src, Il2CppGuid value);
+
+// ElementAt / Single / SingleOrDefault per RESULT ABI. Each family's entry
+// validates the cell it was dispatched for and reads one element at its real
+// width. `*OrDefault` answers default(T) for an empty source.
+#define IL2CPP_LINQ_DECL_ELEM_ENTRIES(NAME)                                     \
+int32_t                 il2cpp_linq_##NAME##_fam_i4(Il2CppArray* src, int32_t arg, int32_t cell);   \
+int64_t                 il2cpp_linq_##NAME##_fam_i8(Il2CppArray* src, int32_t arg, int32_t cell);   \
+double                  il2cpp_linq_##NAME##_fam_d(Il2CppArray* src, int32_t arg, int32_t cell);    \
+Il2CppObject*           il2cpp_linq_##NAME##_fam_ref(Il2CppArray* src, int32_t arg, int32_t cell);  \
+runtime::Il2CppDecimal  il2cpp_linq_##NAME##_fam_dec(Il2CppArray* src, int32_t arg, int32_t cell);  \
+runtime::Il2CppDateTime il2cpp_linq_##NAME##_fam_dt(Il2CppArray* src, int32_t arg, int32_t cell);   \
+runtime::Il2CppTimeSpan il2cpp_linq_##NAME##_fam_ts(Il2CppArray* src, int32_t arg, int32_t cell);   \
+Il2CppGuid              il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t arg, int32_t cell);
+
+// ElementAt(source, index): index out of range -> ArgumentOutOfRangeException.
+IL2CPP_LINQ_DECL_ELEM_ENTRIES(element_at)
+// Single / SingleOrDefault: the source must hold exactly one element
+// (Single throws InvalidOperationException otherwise; SingleOrDefault throws
+// for more than one and answers default(T) for an empty source -- net48).
+IL2CPP_LINQ_DECL_ELEM_ENTRIES(single)
+IL2CPP_LINQ_DECL_ELEM_ENTRIES(single_or_default)
+
+#undef IL2CPP_LINQ_DECL_ELEM_ENTRIES
+
+} // namespace il2cpp
