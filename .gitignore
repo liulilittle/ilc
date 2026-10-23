@@ -26,7 +26,8 @@ tests/cases/*/build_*/
 # matrixcase uses gen_link/ instead of gen/)
 tests/cases/*/gen_link/
 tests/cases/*/gen-link/
-tests/cases/*/gen_probe/
+tests/cases/*/gen_probe*/
+tests/cases/*/out_probe/
 
 # runtime test build output (cmake -G "MinGW Makefiles" from tests/runtime)
 tests/runtime/build_mingw/

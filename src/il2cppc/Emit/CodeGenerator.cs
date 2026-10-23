@@ -692,6 +692,8 @@ public static class CodeGenerator
                 IsNested = def.IsNested,
                 DeclaringTypeName = def.DeclaringTypeName,
                 VisibilityMask = def.VisibilityMask,
+                MetadataToken = def.MetadataToken,
+                RawAttributes = def.RawAttributes,
                 BeforeFieldInit = def.BeforeFieldInit,
                 BaseTypeName = def.BaseTypeName,
             };

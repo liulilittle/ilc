@@ -427,6 +427,79 @@ public static partial class MethodRefResolver
             // would not compile with a string receiver).
             case "get_IsArray":
                 return I("il2cpp::il2cpp_typeinfo_is_array", 0, true, false, true);
+            // refl2 (A): the TypeAttributes-derived Type predicates. The FOLDED
+            // typeof chains answer these at transpile time (StackFold decodes the
+            // exact metadata bits); these arms serve a RUNTIME receiver (a
+            // GetType() result) through the typeinfo typeFlags column. The
+            // pre-refl2 surface had NO arm, so the call fell to a phantom
+            // generated-name symbol ("System_Type_get_IsAbstract_<hash>" was
+            // never declared -> the cmake build FAILED, not merely wrong output).
+            case "get_IsAbstract":
+                return I("il2cpp::il2cpp_typeinfo_is_abstract", 0, true, false, true);
+            case "get_IsSealed":
+                return I("il2cpp::il2cpp_typeinfo_is_sealed", 0, true, false, true);
+            case "get_IsPublic":
+                return I("il2cpp::il2cpp_typeinfo_is_public", 0, true, false, true);
+            case "get_IsNested":
+                return I("il2cpp::il2cpp_typeinfo_is_nested", 0, true, false, true);
+            // refl2 (A): Type.MetadataToken (the ECMA token; the AOT runtime
+            // answers the transpiler-baked row for a registered type).
+            case "get_MetadataToken":
+                return I("il2cpp::il2cpp_typeinfo_get_metadata_token", 0, true, false, true);
+            // refl2 (A): Type.Attributes -- the RAW ECMA TypeAttributes int32.
+            // The pre-refl2 surface had no arm, so `(int)(t.Attributes &
+            // VisibilityMask)` fell to a phantom generated-name symbol.
+            case "get_Attributes":
+                return I("il2cpp::il2cpp_typeinfo_get_attributes", 0, true, false, true);
+            // refl2 (A): the exact nested-visibility predicates (net48 compares
+            // TypeAttributes & 0x7 to the ECMA value) + IsVisible.
+            case "get_IsNestedPublic":
+                return I("il2cpp::il2cpp_typeinfo_is_nested_public", 0, true, false, true);
+            case "get_IsNestedPrivate":
+                return I("il2cpp::il2cpp_typeinfo_is_nested_private", 0, true, false, true);
+            case "get_IsVisible":
+                return I("il2cpp::il2cpp_typeinfo_is_visible", 0, true, false, true);
+            // refl2 (A): Type.GetArrayRank -- net48 throws ArgumentException on a
+            // non-array receiver (the runtime icall enforces it).
+            case "GetArrayRank":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_get_array_rank", 0, true, false, true);
+                throw new NotSupportedException(
+                    $"Type.GetArrayRank with {ps.Length} parameter(s) not wired in refl2 -- only the net48 () overload exists");
+            // refl2 (A): Type.IsConstructedGenericType. The FOLDED typeof chain
+            // decides it from the TypeSpec blob (a closed GENERICINST -> 1); a
+            // RUNTIME receiver is the definition name and can never be a closed
+            // instance -> constant 0 (net48 False).
+            case "get_IsConstructedGenericType":
+                return I("il2cpp::il2cpp_typeinfo_is_constructed_generic", 0, true, false, true);
+            // refl2 (A): Type.MakeArrayType([int rank]) / MakeByRefType /
+            // MakePointerType. These FABRICATE a type VALUE -- in this AOT model
+            // that is the net48 DISPLAY identity string ("System.Int32[]" /
+            // "System.Int32&" / "System.Int32*"), which the Type domain then
+            // answers .Name/.FullName from. net48's MakeArrayType is reachable
+            // without any runtime type loading, so it is implemented rather than
+            // rejected.
+            case "MakeArrayType":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_make_array_type", 0, true, true, true,
+                        new[] { "", "1" }, returnTypeName: "System.Type");
+                if (ps.Length == 1 && ps[0] == 0x08)
+                    return I("il2cpp::il2cpp_typeinfo_make_array_type", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.Type");
+                throw new NotSupportedException(
+                    $"Type.MakeArrayType with {ps.Length} parameter(s) not wired in refl2 -- the () and (int rank) overloads map to il2cpp_typeinfo_make_array_type");
+            case "MakeByRefType":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_make_byref_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
+                throw new NotSupportedException(
+                    $"Type.MakeByRefType with {ps.Length} parameter(s) not wired in refl2 -- only the () overload maps to il2cpp_typeinfo_make_byref_type");
+            case "MakePointerType":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_typeinfo_make_pointer_type", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type");
+                throw new NotSupportedException(
+                    $"Type.MakePointerType with {ps.Length} parameter(s) not wired in refl2 -- only the () overload maps to il2cpp_typeinfo_make_pointer_type");
             case "get_IsEnum":
                 return I("il2cpp::il2cpp_typeinfo_is_enum", 0, true, false, true);
             // refl6a (item A, probe p-refl6-enum): the System.Type enum surface

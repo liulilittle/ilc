@@ -45,6 +45,14 @@ public static class MetadataLoader
                 IsModuleType = false,
                 BaseTypeName = DecodeBaseType(md, td.BaseType),
                 IsInterface = (td.Attributes & TypeAttributes.Interface) != 0,
+                // refl2 (A): carry the raw ECMA visibility mask (TypeAttributes &
+                // 0x7) for top-level types too -- Type.IsPublic / IsNested decode
+                // it (NestedPublic=0x2 vs NotPublic=0x0 / Public=0x1).
+                VisibilityMask = (int)td.Attributes & 0x7,
+                // refl2 (A): the ECMA token (0x02000000 | TypeDef row) -- the
+                // exact value net48 Type.MetadataToken reports.
+                MetadataToken = 0x02000000 | MetadataTokens.GetRowNumber(tdHandle),
+                RawAttributes = (int)td.Attributes,
                 // Devirt S1 (devirtualization-plan.md section S1): the metadata sealed
                 // bit (TypeAttributes.Sealed 0x1) -- a sealed class cannot be
                 // subclassed, the basis for callvirt -> direct-call lowering.

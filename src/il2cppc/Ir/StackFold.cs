@@ -3012,6 +3012,80 @@ public static class StackFold
                     Push(new IntConstExpr { Value = TypeCodeOfTypeName(foldedType.Value, types) }, ins);
                     return;
                 }
+                //--------------------------------------------------------------------------
+                // refl2 (A): the remaining Type surface on the FOLDED typeof chain.
+                // Each is decided from the ldtoken token, so the answer is the exact
+                // net48 value (no registry approximation):
+                //   * get_IsConstructedGenericType -- a closed GENERICINST TypeSpec
+                //     with no open argument. typeof(List<>) / typeof(int) -> 0.
+                //   * get_IsAbstract / IsSealed / IsPublic / IsNested -- the raw
+                //     TypeAttributes bits of a TypeDef (exact). A TypeRef carries no
+                //     attribute rows in this reader: the builtin BCL table answers
+                //     the well-known core types, else the value stays 0 (documented
+                //     boundary, reported in the notes).
+                //   * GetArrayRank -- 1 + the trailing-comma count of the array
+                //     identity; a non-array receiver keeps the runtime icall (which
+                //     raises net48's ArgumentException).
+                //   * MakeArrayType([rank]) / MakeByRefType / MakePointerType -- the
+                //     net48 display identity of the constructed type.
+                //   * get_MetadataToken -- the ECMA metadata token
+                //     (0x02000000 | TypeDef row), the exact net48 value.
+                //--------------------------------------------------------------------------
+                if (typeFromHandleToken.TryGetValue(prevCall.Offset, out var memberToken))
+                {
+                    if (IsTypeGetIsConstructedGenericType(md, (int)ins.Operand))
+                    {
+                        stack.Pop();
+                        Push(new IntConstExpr { Value = IsConstructedGenericToken(md, memberToken) ? 1 : 0 }, ins);
+                        return;
+                    }
+                    if (IsTypeGetTypeAttributePredicate(md, (int)ins.Operand) is { } attrPred)
+                    {
+                        stack.Pop();
+                        Push(new IntConstExpr { Value = TypeAttributeFlag(md, memberToken, attrPred) }, ins);
+                        return;
+                    }
+                    if (IsTypeGetArrayRank(md, (int)ins.Operand) && ArrayRankOfToken(md, memberToken) is { } rank)
+                    {
+                        stack.Pop();
+                        Push(new IntConstExpr { Value = rank }, ins);
+                        return;
+                    }
+                    if (IsTypeMakeArrayType(md, (int)ins.Operand, out var makeRank))
+                    {
+                        stack.Pop();
+                        Push(new StringConstExpr
+                        {
+                            Value = "[" + ReflectionDisplayName(md, memberToken, false)
+                                + new string(',', Math.Max(makeRank, 1) - 1),
+                        }, ins);
+                        return;
+                    }
+                    if (IsTypeMakeByRefType(md, (int)ins.Operand))
+                    {
+                        stack.Pop();
+                        Push(new StringConstExpr
+                        {
+                            Value = ReflectionDisplayName(md, memberToken, false) + "&",
+                        }, ins);
+                        return;
+                    }
+                    if (IsTypeMakePointerType(md, (int)ins.Operand))
+                    {
+                        stack.Pop();
+                        Push(new StringConstExpr
+                        {
+                            Value = ReflectionDisplayName(md, memberToken, false) + "*",
+                        }, ins);
+                        return;
+                    }
+                    if (IsTypeGetMetadataToken(md, (int)ins.Operand))
+                    {
+                        stack.Pop();
+                        Push(new IntConstExpr { Value = MetadataTokenOfType(md, memberToken) }, ins);
+                        return;
+                    }
+                }
                 // RF-N4: Type.get_IsGenericTypeDefinition on a FOLDED typeof
                 // chain -- decided AT FOLD TIME (the runtime registry cannot
                 // distinguish a definition from its closed clones; the folded
@@ -5551,8 +5625,7 @@ public static class StackFold
 
         // refl2 (A): whether the call token is Type::get_FullName (the typeof
         // fold chain renders the net48 FullName -- see ReflectionDisplayName).
-        static bool IsTypeGetFullName(MetadataReader md, int token)
-        {
+        static bool IsTypeGetFullName(MetadataReader md, int token)        {
             var handle = MetadataTokens.Handle(token);
             if (handle.Kind != HandleKind.MemberReference) return false;
             var mr = md.GetMemberReference((MemberReferenceHandle)handle);
@@ -5560,6 +5633,198 @@ public static class StackFold
             var parent = md.GetFullName((TypeReferenceHandle)mr.Parent);
             return (parent == "System.Type" || parent == "System.Reflection.MemberInfo")
                 && md.GetString(mr.Name) == "get_FullName";
+        }
+
+        // refl2 (A): the typeof-chain Type predicates / constructors. Each
+        // helper recognizes ONE net48 member by name on the System.Type owner;
+        // the fold decides the answer from the ldtoken token.
+        static bool IsTypeMemberNamed(MetadataReader md, int token, string memberName)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            return md.GetFullName((TypeReferenceHandle)mr.Parent) == "System.Type"
+                && md.GetString(mr.Name) == memberName;
+        }
+
+        static bool IsTypeGetIsConstructedGenericType(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "get_IsConstructedGenericType");
+
+        // The TypeAttributes predicate family: get_IsAbstract / get_IsSealed /
+        // get_IsPublic / get_IsNested. Returns the flag mask (typeinfo.h
+        // typeFlags bit) the fold must test, or null when the member is not one
+        // of them.
+        static int? IsTypeGetTypeAttributePredicate(MetadataReader md, int token)
+        {
+            if (IsTypeMemberNamed(md, token, "get_IsAbstract")) return 0x01;
+            if (IsTypeMemberNamed(md, token, "get_IsSealed")) return 0x02;
+            if (IsTypeMemberNamed(md, token, "get_IsPublic")) return 0x04;
+            if (IsTypeMemberNamed(md, token, "get_IsNested")) return 0x08;
+            return null;
+        }
+
+        static bool IsTypeGetArrayRank(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "GetArrayRank");
+
+        // MakeArrayType() -- the 0-arg form folds; the (int rank) overload rides
+        // the IL stack and keeps the runtime path.
+        static bool IsTypeMakeArrayType(MetadataReader md, int token, out int rank)
+        {
+            rank = 1;
+            if (!IsTypeMemberNamed(md, token, "MakeArrayType")) return false;
+            var handle = MetadataTokens.Handle(token);
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            var sig = md.GetBlobReader(mr.Signature);
+            sig.ReadSignatureHeader();
+            return sig.ReadCompressedInteger() == 0;
+        }
+
+        static bool IsTypeMakeByRefType(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "MakeByRefType");
+
+        static bool IsTypeMakePointerType(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "MakePointerType");
+
+        static bool IsTypeGetMetadataToken(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "get_MetadataToken");
+
+        // A closed GENERICINST TypeSpec with no open (VAR/MVAR) argument.
+        static bool IsConstructedGenericToken(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return false;
+            var sig = md.GetBlobReader(
+                md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            if (sig.ReadByte() != 0x15) return false;
+            _ = sig.ReadByte();
+            _ = sig.ReadTypeHandle();
+            var argc = sig.ReadCompressedInteger();
+            for (var i = 0; i < argc; i++)
+            {
+                var et = sig.ReadByte();
+                if (et is 0x13 or 0x1E) return false; // open parameter
+                if (et is 0x11 or 0x12) { _ = sig.ReadTypeHandle(); continue; }
+                if (et is 0x1D or 0x14 or 0x0F or 0x10 or 0x15)
+                {
+                    _ = DecodeDisplayType(md, ref sig, false, out _);
+                    continue;
+                }
+                // primitives / string / object: closed
+            }
+            return true;
+        }
+
+        // The net48 TypeAttributes predicate answer for a typeof token. A
+        // TypeDef answers the exact metadata bits; a TypeRef (BCL / other
+        // assembly) has no attribute rows in this reader, so the well-known core
+        // table answers. Arrays are sealed public classes (net48).
+        static int TypeAttributeFlag(MetadataReader md, int token, int mask)
+        {
+            var handle = MetadataTokens.Handle(token);
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                {
+                    var td = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+                    var attrs = td.Attributes;
+                    if (mask == 0x01) return (attrs & System.Reflection.TypeAttributes.Abstract) != 0 ? 1 : 0;
+                    if (mask == 0x02) return (attrs & System.Reflection.TypeAttributes.Sealed) != 0 ? 1 : 0;
+                    if (mask == 0x04) return ((int)attrs & 0x7) == 0x1 ? 1 : 0;
+                    if (mask == 0x08) return td.IsNested ? 1 : 0;
+                    return 0;
+                }
+                case HandleKind.TypeReference:
+                    return BclTypeAttributeFlag(md.GetFullName((TypeReferenceHandle)handle), mask);
+                case HandleKind.TypeSpecification:
+                {
+                    var sig = md.GetBlobReader(
+                        md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                    var et = sig.ReadByte();
+                    if (et is 0x1D or 0x14)
+                    {
+                        if (mask == 0x02) return 1; // sealed
+                        if (mask == 0x04) return 1; // public
+                        return 0;
+                    }
+                    if (et == 0x15)
+                    {
+                        _ = sig.ReadByte();
+                        var defTok = sig.ReadTypeHandle();
+                        if (mask == 0x04) return 1;
+                        return defTok.Kind switch
+                        {
+                            HandleKind.TypeDefinition => TypeAttributeFlag(
+                                md, MetadataTokens.GetToken(defTok), mask),
+                            HandleKind.TypeReference => BclTypeAttributeFlag(
+                                md.GetFullName((TypeReferenceHandle)defTok), mask),
+                            _ => 0,
+                        };
+                    }
+                    return 0;
+                }
+                default:
+                    return 0;
+            }
+        }
+
+        // The BCL core-type attribute table (a TypeRef has no attribute rows in
+        // this reader). Only the shapes the net48 probes reach are pinned; any
+        // other TypeRef answers 0 (documented boundary).
+        static int BclTypeAttributeFlag(string fullName, int mask)
+        {
+            switch (mask)
+            {
+                case 0x01: // IsAbstract
+                    return fullName is "System.ValueType" or "System.Enum"
+                        or "System.Delegate" or "System.MulticastDelegate"
+                        or "System.Array" ? 1 : 0;
+                case 0x02: // IsSealed
+                    return fullName is "System.Int32" or "System.UInt32"
+                        or "System.Int16" or "System.UInt16" or "System.Int64"
+                        or "System.UInt64" or "System.Byte" or "System.SByte"
+                        or "System.Boolean" or "System.Char" or "System.Single"
+                        or "System.Double" or "System.Decimal" or "System.String"
+                        or "System.IntPtr" or "System.UIntPtr" ? 1 : 0;
+                case 0x04: // IsPublic
+                    return 1;
+                case 0x08: // IsNested
+                    return fullName.Contains('+') ? 1 : 0;
+                default:
+                    return 0;
+            }
+        }
+
+        // net48 GetArrayRank on a typeof token: null when the token is not an
+        // array (the caller keeps the runtime path, which raises net48's
+        // ArgumentException).
+        static int? ArrayRankOfToken(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return null;
+            var sig = md.GetBlobReader(
+                md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            var et = sig.ReadByte();
+            if (et == 0x1D) return 1;               // SZARRAY
+            if (et == 0x14)                          // ARRAY
+            {
+                _ = DecodeDisplayType(md, ref sig, false, out _);
+                return Math.Max(sig.ReadCompressedInteger(), 1);
+            }
+            return null;
+        }
+
+        // net48 Type.MetadataToken of a typeof token: the ECMA token.
+        static int MetadataTokenOfType(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            return handle.Kind switch
+            {
+                HandleKind.TypeDefinition => 0x02000000 | MetadataTokens.GetRowNumber((EntityHandle)handle),
+                HandleKind.TypeReference => 0x01000000 | MetadataTokens.GetRowNumber((EntityHandle)handle),
+                HandleKind.TypeSpecification => 0x1B000000 | MetadataTokens.GetRowNumber((EntityHandle)handle),
+                _ => 0,
+            };
         }
 
         // refl2 (A): whether the call token is Type::get_AssemblyQualifiedName.

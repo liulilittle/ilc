@@ -188,6 +188,29 @@ struct Il2CppTypeInfo
     // Trailing field (like genericArity / baseTypeName / nestedNames -- the
     // zero-delta default; the emitter emits 0 for reference types).
     int32_t             isValueType;
+
+    // refl2 (A): TypeAttributes-derived flags for the Type predicate surface
+    // (IsAbstract / IsSealed / IsPublic / IsNested). Trailing field (zero
+    // default = a pre-refl2 table answers False for all four, which is the
+    // documented "not reflected / unknown" answer). Bits:
+    //   0x01 Abstract (TypeAttributes.Abstract 0x20)
+    //   0x02 Sealed   (TypeAttributes.Sealed   0x01)
+    //   0x04 Public   (VisibilityMask == 0x1 NotPublic? no -- Public is 0x1)
+    //   0x08 Nested   (the type is a nested TypeDef)
+    // The transpiler bakes them from the TypeDef's raw metadata attributes, so
+    // the answers are the exact ECMA bits, not a shape guess.
+    int32_t             typeFlags;
+
+    // refl2 (A): the type's ECMA metadata token (0x02000000 | TypeDef row) for
+    // Type.MetadataToken on a runtime receiver. Trailing field (0 = unknown,
+    // the pre-refl2 zero-delta default).
+    int32_t             metadataToken;
+
+    // refl2 (A): the RAW ECMA TypeAttributes value (TypeDef.Attributes) for
+    // Type.Attributes and the exact visibility predicates (IsNestedPublic /
+    // IsNestedPrivate / ...). Trailing field (0 = unknown, the zero-delta
+    // default).
+    int32_t             attributes;
 };
 
 //------------------------------------------------------------------------------
@@ -912,5 +935,53 @@ int32_t il2cpp_memberinfo_is_family_or_assembly(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_static(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_public(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_constructor(Il2CppObject* memberName);
+
+//------------------------------------------------------------------------------
+// refl2 (A) -- the remaining System.Type predicate / query surface on the
+// name-string (Type VALUE) receiver. The FOLDED typeof chains answer these at
+// transpile time (StackFold); these icalls serve a RUNTIME receiver (a
+// GetType() result) and keep the net48 contract:
+//   * il2cpp_typeinfo_get_array_rank -- Type.GetArrayRank. A NON-array receiver
+//     throws ArgumentException (net48 "Type must be an array"); a rank-1 array
+//     answers 1, an N-dim array its rank (the array CLASS name carries the rank
+//     as the trailing-comma count).
+//   * il2cpp_typeinfo_is_constructed_generic -- Type.IsConstructedGenericType:
+//     the receiver denotes a CLOSED generic instance. The simplified model's
+//     registry key is the DEFINITION name, so a runtime receiver can never carry
+//     the argument list -> constant 0 (net48 False for a definition; a closed
+//     instance is only expressible through the folded typeof chain).
+//   * il2cpp_typeinfo_is_abstract / _is_sealed / _is_public / _is_nested -- the
+//     TypeAttributes predicates from the typeinfo typeFlags column.
+//   * il2cpp_typeinfo_get_metadata_token -- Type.MetadataToken. The AOT model
+//     has no ECMA metadata at runtime: a registered typeinfo answers the
+//     transpiler-baked token (0 for an unregistered / BCL type, the documented
+//     boundary).
+//   * il2cpp_typeinfo_make_array_type / _make_byref_type / _make_pointer_type
+//     -- the net48 display identity of the constructed type ("<elem>[]",
+//     "<elem>&", "<elem>*"); a rank argument > 1 produces "<elem>[,]" form.
+// Null receiver -> NullReferenceException (the null-Type doctrine).
+//------------------------------------------------------------------------------
+int32_t il2cpp_typeinfo_get_array_rank(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_constructed_generic(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_abstract(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_sealed(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_public(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_nested(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_get_metadata_token(Il2CppObject* typeName);
+Il2CppObject* il2cpp_typeinfo_make_array_type(Il2CppObject* typeName, int32_t rank);
+Il2CppObject* il2cpp_typeinfo_make_byref_type(Il2CppObject* typeName);
+Il2CppObject* il2cpp_typeinfo_make_pointer_type(Il2CppObject* typeName);
+// refl2 (A): Type.get_Attributes -- the RAW ECMA TypeAttributes int32 of the
+// receiver (a registered typeinfo answers its baked TypeDef.Attributes; an
+// unregistered / BCL name answers the BCL core table's approximation, else 0).
+int32_t il2cpp_typeinfo_get_attributes(Il2CppObject* typeName);
+// refl2 (A): the exact nested-visibility predicates Type.IsNestedPublic /
+// IsNestedPrivate / IsNestedFamily / IsNestedAssembly / IsNestedFamANDAssem /
+// IsNestedFamORAssem -- TypeAttributes & 0x7 compared to the exact ECMA value
+// (2/3/4/5/6/7), plus Type.IsVisible (public OR nested-public and every
+// enclosing type visible -- the simplified model answers public || nestedPublic).
+int32_t il2cpp_typeinfo_is_nested_public(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_nested_private(Il2CppObject* typeName);
+int32_t il2cpp_typeinfo_is_visible(Il2CppObject* typeName);
 
 } // namespace il2cpp

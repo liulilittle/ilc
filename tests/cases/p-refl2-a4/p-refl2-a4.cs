@@ -41,8 +41,8 @@ namespace Cases
             W("dict.full", typeof(Dictionary<string, int>).FullName);
             W("byref.full", typeof(int).MakeByRefType().FullName);
             W("ptr.full", typeof(int).MakePointerType().FullName);
-            W("asm", typeof(Plain).Assembly.FullName);
-            W("asmname", typeof(Plain).Assembly.GetName().Name);
+            // (Assembly surface is phase C -- p-refl2-c1)
+
             W("aqn", typeof(Plain).AssemblyQualifiedName);
             W("aqn.int", typeof(int).AssemblyQualifiedName);
             W("boxint.aqn", typeof(Box<int>).AssemblyQualifiedName);
@@ -58,6 +58,7 @@ namespace Cases
             W("rank.nested", typeof(Box<int>.Inner).IsNested);
             W("rank.nestedpub", typeof(Box<int>.Inner).IsNestedPublic);
             W("nested.vis", (int)(typeof(Outer.Plain2).Attributes & System.Reflection.TypeAttributes.VisibilityMask));
+            W("attrs.pub", (int)(typeof(Plain).Attributes & System.Reflection.TypeAttributes.VisibilityMask));
         }
     }
     public class Outer { public class Plain2 { } }
