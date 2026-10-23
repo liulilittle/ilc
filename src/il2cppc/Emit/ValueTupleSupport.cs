@@ -3,7 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using Il2Cpp.Transpiler.Model;
 
 //------------------------------------------------------------------------------
-// ValueTupleSupport -- System.ValueTuple`1..8 support for C# 7 tuple syntax.
+// ValueTupleSupport -- System.ValueTuple`0..8 support for C# 7 tuple syntax.
 //
 // A C# tuple `(int, string)` IS the ordinary BCL value type
 // System.ValueTuple`2<Int32,String>: csc emits a normal `newobj` of its
@@ -18,27 +18,82 @@ using Il2Cpp.Transpiler.Model;
 //     spelling MethodRefResolver/CodeGenerator.GenericInstantiationName
 //     produce ("System.ValueTuple`2_int_string"), so the local, the ctor, the
 //     field owner and the struct definition can never diverge;
-//   * the element M3 names and their C++ field types;
+//   * the ELEMENT TABLE of each instantiation (recorded from the metadata
+//     signature, never re-derived from the flattened name -- the flattened
+//     name is ambiguous when an element is itself a generic instantiation);
+//   * each element's STRUCTURAL SHAPE (primitive slot / BCL value struct /
+//     nested ValueTuple / user value type / managed reference) and the
+//     resulting C++ field type;
 //   * the generated struct + member helpers (file scope, inline);
 //   * the generated member names the fold resolves to.
 //
-// ELEMENT KINDS: 'i' int32 slot, 'l' int64 slot, 'd'/'f' double slot,
-// 'r' managed reference (string / object / array / user class).
-// A user VALUE-type element is carried as a reference-shaped slot (documented
-// deviation: its helper text/hash uses the object dispatch).
+// net48 SEMANTICS (probe-verified against csc/net48, see
+// .opencode/tmp/vtup-notes.md):
+//   * arity 1..7 hash: left fold of
+//         Combine(h, e) = unchecked((rol5(h) + h) ^ e)
+//     seeded with the FIRST element's hash (System.Numerics.Hashing.
+//     HashHelpers.Combine -- IL-verified in mscorlib's
+//     ValueTuple::CombineHashCodes).
+//   * arity 8 (ValueTuple`8<T1..T7,TRest>): with L = TRest's flattened
+//     length, the hash is
+//         fold(Item_L, Item_{L+1}, ..., Item7, TRest.GetHashCode())
+//     and equals TRest.GetHashCode() when L >= 8 (the last 8 slots win).
+//   * ToString: "(e1, e2, ...)", flattened across TRest through the
+//     ITupleInternal.ToStringEnd contract; a null reference element renders
+//     as the EMPTY string ("(1, )").
 //------------------------------------------------------------------------------
 namespace Il2Cpp.Transpiler.Emit;
+
+// The STRUCTURAL shape of one tuple element -- decided from the element's
+// metadata type, never from its flattened name.
+internal enum TupleElemShape
+{
+    Int32,      // int/uint/short/ushort/byte/sbyte (int32 slot)
+    Int64,      // long/ulong
+    Double,     // double
+    Single,     // float (stored as double, formatted/hashed as float)
+    Bool,       // bool (int32 slot)
+    Char,       // char (int32 slot)
+    Decimal,    // System.Decimal (16-byte Il2CppDecimal)
+    DateTime,   // System.DateTime (Il2CppDateTime)
+    TimeSpan,   // System.TimeSpan (Il2CppTimeSpan)
+    Guid,       // System.Guid (16-byte Il2CppGuid)
+    Nested,     // a nested System.ValueTuple`N -- carried BY VALUE
+    UserStruct, // a translated user value type -- carried BY VALUE
+    Ref,        // string/object/array/class/Nullable<T> -- Il2CppObject*
+}
+
+internal readonly struct TupleElem
+{
+    public TupleElem(TupleElemShape shape, string cpp, string token)
+    {
+        Shape = shape;
+        Cpp = cpp;
+        Token = token;
+    }
+
+    public TupleElemShape Shape { get; }
+    // The C++ field type inside the generated struct.
+    public string Cpp { get; }
+    // The closed instance name (Nested) / full type name -- the registry key
+    // of a nested tuple, otherwise informational.
+    public string Token { get; }
+}
 
 internal static class ValueTupleSupport
 {
     internal const string DefPrefix = "System.ValueTuple`";
+    internal const string ZeroName = "System.ValueTuple";
 
     internal static bool IsValueTupleName(string? fullName)
-        => fullName != null && fullName.StartsWith(DefPrefix, StringComparison.Ordinal);
+        => fullName != null
+           && (fullName == ZeroName || fullName.StartsWith(DefPrefix, StringComparison.Ordinal));
 
-    // The arity encoded in "System.ValueTuple`N[...]"; -1 when not a tuple.
+    // The arity encoded in "System.ValueTuple`N[...]"; 0 for the non-generic
+    // System.ValueTuple; -1 when not a tuple.
     internal static int Arity(string fullName)
     {
+        if (fullName == ZeroName) return 0;
         if (!IsValueTupleName(fullName)) return -1;
         var i = DefPrefix.Length;
         var digits = 0;
@@ -46,12 +101,33 @@ internal static class ValueTupleSupport
         return digits == 0 || !int.TryParse(fullName.AsSpan(i, digits), out var n) ? -1 : n;
     }
 
-    // Element M3 names of a CLOSED instance name (the suffix after
-    // "System.ValueTuple`N_"). Arity-driven; the supported element set
-    // (primitives / string / object / array tokens / dotted user full names)
-    // splits unambiguously.
+    //--------------------------------------------------------------------------
+    // ELEMENT TABLE REGISTRY.
+    //
+    // "System.ValueTuple`N_e1_e2_..." cannot be split back into its elements
+    // unambiguously (an element name may itself contain '_'), so every decode
+    // site records the ELEMENT ARRAY it already had in hand. ElementNames then
+    // answers from the registry; the greedy fallback only serves a name the
+    // registry has never seen (in which case nothing can compare against it).
+    //--------------------------------------------------------------------------
+    private static readonly Dictionary<string, string[]> _elements = new(StringComparer.Ordinal);
+
+    internal static void RecordElements(string defName, IReadOnlyList<string> elems)
+    {
+        var closed = elems.Count == 0 ? defName : defName + "_" + string.Join("_", elems);
+        if (_elements.ContainsKey(closed)) return;
+        _elements[closed] = elems.ToArray();
+        // A nested tuple element is required transitively (its struct must be
+        // DEFINED before the outer struct can hold it by value).
+        foreach (var e in elems)
+            if (IsValueTupleName(e)) Require(e);
+    }
+
+    // Element names of a CLOSED instance name. Registry first; greedy split
+    // (trailing elements are the simple ones) as the historical fallback.
     internal static string[] ElementNames(string fullName)
     {
+        if (_elements.TryGetValue(fullName, out var known)) return known;
         var arity = Arity(fullName);
         if (arity <= 0) return Array.Empty<string>();
         var rest = fullName[(DefPrefix.Length + arity.ToString(System.Globalization.CultureInfo.InvariantCulture).Length)..];
@@ -61,8 +137,6 @@ internal static class ValueTupleSupport
         if (parts.Length == arity) return parts;
         if (parts.Length > arity)
         {
-            // A dotted/underscored element name: re-join greedily from the
-            // right (the trailing elements of a tuple are the simple ones).
             var result = new string[arity];
             var end = parts.Length;
             for (var k = arity - 1; k >= 0; k--)
@@ -76,25 +150,114 @@ internal static class ValueTupleSupport
         return parts;
     }
 
-    // Element M3 name -> slot kind character.
-    internal static char KindChar(string elementName) => elementName switch
+    // The flattened element count of a ValueTuple closed name: ValueTuple`8
+    // appends its TRest's elements (recursively).
+    internal static int FlatLength(string fullName)
     {
-        "bool" or "char" or "sbyte" or "byte" or "short" or "ushort" or "int" or "uint" => 'i',
-        "long" or "ulong" => 'l',
-        "double" or "float" => 'd',
-        _ => 'r',
-    };
+        var arity = Arity(fullName);
+        if (arity < 8) return arity < 0 ? 0 : arity;
+        var elems = ElementNames(fullName);
+        return 7 + (elems.Length == 8 ? FlatLength(elems[7]) : 0);
+    }
 
-    // Element M3 name -> the C++ field type inside the generated struct.
-    internal static string FieldCppType(string elementName) => KindChar(elementName) switch
+    //--------------------------------------------------------------------------
+    // Element token (as produced by the M3 generic-argument decoders) ->
+    // structural shape + C++ field type.
+    //--------------------------------------------------------------------------
+    internal static TupleElem ResolveElem(string token, IReadOnlyList<TypeDef>? types)
     {
-        'i' => "int32_t",
-        'l' => "int64_t",
-        'd' => "double",
-        _ => "Il2CppObject*",
-    };
+        switch (token)
+        {
+            case "bool" or "System.Boolean": return new(TupleElemShape.Bool, "int32_t", token);
+            case "char" or "System.Char": return new(TupleElemShape.Char, "int32_t", token);
+            case "sbyte" or "byte" or "short" or "ushort" or "int" or "uint"
+                or "System.SByte" or "System.Byte" or "System.Int16" or "System.UInt16"
+                or "System.Int32" or "System.UInt32":
+                return new(TupleElemShape.Int32, "int32_t", token);
+            case "long" or "ulong" or "System.Int64" or "System.UInt64":
+                return new(TupleElemShape.Int64, "int64_t", token);
+            case "double" or "System.Double": return new(TupleElemShape.Double, "double", token);
+            case "float" or "System.Single": return new(TupleElemShape.Single, "double", token);
+            case "System.Decimal": return new(TupleElemShape.Decimal, "il2cpp::runtime::Il2CppDecimal", token);
+            case "System.DateTime": return new(TupleElemShape.DateTime, "il2cpp::runtime::Il2CppDateTime", token);
+            case "System.TimeSpan": return new(TupleElemShape.TimeSpan, "il2cpp::runtime::Il2CppTimeSpan", token);
+            case "System.Guid": return new(TupleElemShape.Guid, "il2cpp::Il2CppGuid", token);
+        }
+        if (IsValueTupleName(token))
+            return new(TupleElemShape.Nested, StructName(token), token);
+        // Nullable<T> is modelled as a managed reference slot (null = no value,
+        // boxed T = value), the transpiler-wide GN-2 contract.
+        if (token.StartsWith("System.Nullable`1", StringComparison.Ordinal))
+            return new(TupleElemShape.Ref, "Il2CppObject*", token);
+        if (types != null)
+        {
+            var def = types.FirstOrDefault(t => t.MatchesFullName(token));
+            if (def != null && def.IsValueType)
+                return new(TupleElemShape.UserStruct, TypeEmitter.TypeCppName(def), token);
+        }
+        return new(TupleElemShape.Ref, "Il2CppObject*", token);
+    }
 
-    internal static bool IsRefElement(string elementName) => KindChar(elementName) == 'r';
+    internal static TupleElem[] ResolveElems(string fullName, IReadOnlyList<TypeDef>? types)
+    {
+        var names = ElementNames(fullName);
+        if (names.Length == 0)
+        {
+            // Registry miss (the greedy fallback in ElementNames splits
+            // '_'-carrying element names wrong): re-decode from the TYPE TABLE
+            // the MetadataReader builds for every instantiation -- the
+            // instantiation TypeDef IMMEDIATELY follows its ValueTuple
+            // DEFINITION TypeDef in the types list (MetadataLoader preserves
+            // declaration order), so scan forward from the definition.
+            // LOUD on failure rather than guessing.
+            string[]? decoded = null;
+            if (types != null)
+            {
+                var defName = ArityPrefix(fullName);
+                for (var ti = 0; ti < types.Count; ti++)
+                {
+                    if (!string.Equals(types[ti].FullName, defName, StringComparison.Ordinal)) continue;
+                    for (var tj = ti + 1; tj < types.Count && !IsValueTupleDefinition(types[tj]); tj++)
+                        if (string.Equals(types[tj].FullName, fullName, StringComparison.Ordinal))
+                        {
+                            decoded = SplitElements(types[tj].InstantiationSuffixParts, types[tj].InstantiationSuffix);
+                            break;
+                        }
+                    if (decoded != null) break;
+                }
+            }
+            if (decoded == null)
+                throw new NotSupportedException(
+                    $"ValueTuple instantiation '{fullName}' has no recorded element table (element names cannot be split from the closed name)");
+            RecordElements(ArityPrefix(fullName), decoded);
+            names = ElementNames(fullName);
+        }
+        var result = new TupleElem[names.Length];
+        for (var i = 0; i < names.Length; i++) result[i] = ResolveElem(names[i], types);
+        return result;
+    }
+
+    private static bool IsValueTupleDefinition(TypeDef t)
+        => t.IsGenericType && IsValueTupleName(t.FullName) && t.InstantiationSuffix == null;
+
+    private static string ArityPrefix(string fullName)
+    {
+        var arity = Arity(fullName);
+        return DefPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // The instantiation TypeDef's InstantiationSuffix is the '_' JOIN of the
+    // per-argument suffixes (see EnsureClone), but a suffix may itself carry
+    // '_' (a nested "System.ValueTuple`2_int_int" instantiation). Split from
+    // the RIGHT: the arity is known, and the M3 classifier table keeps every
+    // simple suffix '_'-free, so a trailing simple suffix peels off cleanly
+    // and the remainder is consumed left-to-right.
+    private static string[] SplitElements(string[]? parts, string? suffix)
+    {
+        if (parts is { Length: > 0 }) return parts;
+        if (string.IsNullOrEmpty(suffix)) return Array.Empty<string>();
+        return suffix.Split('_');
+    }
 
     // The canonical C++ struct name -- MUST equal
     // TypeEmitter.Sanitize(closedInstanceName), which is exactly what
@@ -103,8 +266,19 @@ internal static class ValueTupleSupport
     internal static string StructName(string fullName) => TypeEmitter.Sanitize(fullName);
 
     internal static string ToStringFn(string fullName) => StructName(fullName) + "_ToString";
+    // "ToStringEnd()": the ITupleInternal contract -- the text from the FIRST
+    // rest element through the closing paren (leading ", ", trailing ')').
+    internal static string ToStringInnerFn(string fullName) => StructName(fullName) + "_ToStringInner";
     internal static string GetHashCodeFn(string fullName) => StructName(fullName) + "_GetHashCode";
     internal static string EqualsFn(string fullName) => StructName(fullName) + "_Equals";
+    internal static string NewFn(string fullName) => StructName(fullName) + "_New";
+    internal static string CtorFn(string fullName) => StructName(fullName) + "_ctor";
+
+    // The field name of element i (1-based): Item1..Item7 and, for arity 8,
+    // "Rest" for the TRest slot (the metadata field name csc emits, and the
+    // name ldfld resolves to).
+    internal static string FieldName(int arity, int index1)
+        => arity == 8 && index1 == 8 ? "Rest" : "Item" + index1.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     //--------------------------------------------------------------------------
     // M3 generic-argument decode (the SAME table MethodRefResolver.ReadM3Arg
@@ -158,6 +332,7 @@ internal static class ValueTupleSupport
                 var n = sig.ReadCompressedInteger();
                 var args = new string[n];
                 for (var i = 0; i < n; i++) args[i] = ReadM3ArgName(md, ref sig);
+                RecordElements(defName, args);
                 return defName + "_" + string.Join("_", args);
             }
             case 0x13:
@@ -190,6 +365,7 @@ internal static class ValueTupleSupport
         var argc = sig.ReadCompressedInteger();
         var args = new string[argc];
         for (var i = 0; i < argc; i++) args[i] = ReadM3ArgName(md, ref sig);
+        RecordElements(defName!, args);
         return defName + "_" + string.Join("_", args);
     }
 
@@ -223,6 +399,7 @@ internal static class ValueTupleSupport
             var argc = sig.ReadCompressedInteger();
             var args = new string[argc];
             for (var i = 0; i < argc; i++) args[i] = ReadM3ArgName(md, ref sig);
+            RecordElements(defName!, args);
             return defName + "_" + string.Join("_", args);
         }
         catch { return null; }
@@ -241,8 +418,9 @@ internal static class ValueTupleSupport
             if (sig.ReadCompressedInteger() != arity) return null;
             var args = new string[arity];
             for (var i = 0; i < arity; i++) args[i] = ReadM3ArgName(md, ref sig);
-            return DefPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                + "_" + string.Join("_", args);
+            var defName = DefPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            RecordElements(defName, args);
+            return defName + "_" + string.Join("_", args);
         }
         catch { return null; }
     }
@@ -255,63 +433,260 @@ internal static class ValueTupleSupport
 
     internal static void Require(string fullName)
     {
-        if (IsValueTupleName(fullName)) _needed.Add(fullName);
+        if (IsValueTupleName(fullName) && fullName != ZeroName) _needed.Add(fullName);
+        else if (fullName == ZeroName) _needed.Add(ZeroName);
     }
 
-    internal static void Clear() => _needed.Clear();
+    internal static void Clear()
+    {
+        _needed.Clear();
+        // The element registry is per-assembly (two Generate calls in one
+        // process must not share stale tables), while unit tests call the
+        // decoders directly -- keeping it across a Clear would only ever
+        // re-add identical entries, so clearing is the safe side.
+        _elements.Clear();
+    }
 
     internal static IEnumerable<string> Needed => _needed;
 
-    // Emit the struct + member helpers for one instantiation.
-    internal static string EmitDefinitions(string fullName)
+    // Dependency-ordered emission: a tuple whose elements hold another tuple
+    // BY VALUE must be DEFINED after that element's struct (a member of an
+    // incomplete type is ill-formed, and the member helpers call the inner
+    // helpers, so the whole definition block must follow). FlatLength /
+    // ordinal order cannot express this (an outer 2-tuple and its inner
+    // 2-tuple share the same flat count, and 'S' < 'i' puts the outer
+    // first) -- Kahn topological sort with an ordinal tie-break.
+    internal static IEnumerable<string> OrderedNeeded()
     {
-        var elems = ElementNames(fullName);
-        if (elems.Length == 0) return "";
+        var set = new HashSet<string>(_needed, StringComparer.Ordinal);
+        var deps = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var n in set)
+        {
+            var d = new List<string>();
+            foreach (var e in ElementNames(n))
+                if (IsValueTupleName(e) && set.Contains(e) && !string.Equals(e, n, StringComparison.Ordinal))
+                    d.Add(e);
+            deps[n] = d;
+        }
+        var emitted = new HashSet<string>(StringComparer.Ordinal);
+        var remaining = new SortedSet<string>(set, StringComparer.Ordinal);
+        var result = new List<string>(set.Count);
+        while (remaining.Count > 0)
+        {
+            string? pick = null;
+            foreach (var n in remaining)
+            {
+                var ready = true;
+                foreach (var dep in deps[n])
+                    if (!emitted.Contains(dep)) { ready = false; break; }
+                if (ready) { pick = n; break; }
+            }
+            // Cycle guard (not expected -- tuple nesting is a DAG): emit
+            // ordinal-first rather than hanging.
+            pick ??= remaining.Min!;
+            remaining.Remove(pick);
+            emitted.Add(pick);
+            result.Add(pick);
+        }
+        return result;
+    }
+
+    // Emit the struct + member helpers for one instantiation.
+    internal static string EmitDefinitions(string fullName, IReadOnlyList<TypeDef>? types = null)
+    {
         var name = StructName(fullName);
         var w = new CppWriter();
-        w.Line($"// System.ValueTuple`{elems.Length} instantiation (C# tuple syntax).");
+        if (fullName == ZeroName)
+        {
+            w.Line("// System.ValueTuple (the 0-tuple, C# `ValueTuple.Create()`).");
+            w.Line($"struct {name} {{");
+            w.Open();
+            w.Line("};");
+            w.Line();
+            w.Line($"inline void {CtorFn(fullName)}({name}* self) {{ (void)self; }}");
+            w.Line($"inline Il2CppObject* {ToStringFn(fullName)}(const {name}& self)");
+            w.Line("{");
+            w.Open();
+            w.Line("(void)self;");
+            w.Line("return reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\"()\"));");
+            w.Close();
+            w.Line("}");
+            w.Line($"inline Il2CppObject* {ToStringInnerFn(fullName)}(const {name}& self)");
+            w.Line("{");
+            w.Open();
+            w.Line("(void)self;");
+            w.Line("return reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\")\"));");
+            w.Close();
+            w.Line("}");
+            w.Line($"inline int32_t {GetHashCodeFn(fullName)}(const {name}& self) {{ (void)self; return 0; }}");
+            w.Line($"inline int32_t {EqualsFn(fullName)}(const {name}& self, const {name}& other) {{ (void)self; (void)other; return 1; }}");
+            w.Line($"inline {name} {NewFn(fullName)}() {{ {name} r {{ }}; return r; }}");
+            w.Line();
+            return w.ToString();
+        }
+
+        var elems = ResolveElems(fullName, types);
+        if (elems.Length == 0) return "";
+        var arity = elems.Length;
+
+        w.Line($"// System.ValueTuple`{arity} instantiation (C# tuple syntax).");
         w.Line($"struct {name} {{");
         w.Open();
-        for (var i = 0; i < elems.Length; i++)
-            w.Line($"{FieldCppType(elems[i])} Item{i + 1};");
+        for (var i = 0; i < arity; i++)
+            w.Line($"{elems[i].Cpp} {FieldName(arity, i + 1)};");
         w.Close();
         w.Line("};");
         w.Line();
-        EmitCtor(w, name, elems);
-        EmitToString(w, name, elems);
-        EmitGetHashCode(w, name, elems);
-        EmitEquals(w, name, elems);
+        EmitCtor(w, name, elems, arity);
+        EmitNew(w, name, elems, arity);
+        EmitToString(w, name, elems, arity);
+        EmitToStringInner(w, name, elems, arity);
+        EmitGetHashCode(w, name, elems, arity);
+        EmitEquals(w, name, elems, arity);
         return w.ToString();
     }
 
-    private static void EmitCtor(CppWriter w, string name, string[] elems)
+    private static void EmitCtor(CppWriter w, string name, TupleElem[] elems, int arity)
     {
         // The IL ctor takes the elements in order; the transpiler emits a
         // free function taking the receiver ADDRESS (the value-type method
         // ABI) plus the elements. Field order == ctor argument order.
-        var args = string.Join(", ", elems.Select((e, i) => $"{FieldCppType(e)} arg{i}"));
+        var args = string.Join(", ", elems.Select((e, i) => $"{e.Cpp} arg{i}"));
         w.Line($"inline void {name}_ctor({name}* self{(args.Length > 0 ? ", " + args : "")})");
         w.Line("{");
         w.Open();
-        for (var i = 0; i < elems.Length; i++)
-            w.Line($"self->Item{i + 1} = arg{i};");
+        for (var i = 0; i < arity; i++)
+            w.Line($"self->{FieldName(arity, i + 1)} = arg{i};");
         w.Close();
         w.Line("}");
         w.Line();
     }
 
-    private static void EmitToString(CppWriter w, string name, string[] elems)
+    private static void EmitNew(CppWriter w, string name, TupleElem[] elems, int arity)
     {
-        // net48 text: "(" + elem1 + ", " + elem2 + ")".
+        // ValueTuple.Create<T..>(...) returns the tuple BY VALUE. (The old
+        // route reused the ctor helper, which takes the receiver address --
+        // the first ELEMENT was then bound to `self` and addressed.)
+        var args = string.Join(", ", elems.Select((e, i) => $"{e.Cpp} arg{i}"));
+        w.Line($"inline {name} {name}_New({args})");
+        w.Line("{");
+        w.Open();
+        w.Line($"{name} r {{ }};");
+        for (var i = 0; i < arity; i++)
+            w.Line($"r.{FieldName(arity, i + 1)} = arg{i};");
+        w.Line("return r;");
+        w.Close();
+        w.Line("}");
+        w.Line();
+    }
+
+    //--------------------------------------------------------------------------
+    // Element text / hash / equality expressions.
+    //--------------------------------------------------------------------------
+    private static string Field(int arity, int index0) => $"self.{FieldName(arity, index0 + 1)}";
+
+    private static string ElementToString(TupleElem e, string field)
+        => e.Shape switch
+        {
+            TupleElemShape.Int32 => $"il2cpp::runtime::icall_int32_to_string({field})",
+            TupleElemShape.Int64 => $"il2cpp::runtime::icall_int64_to_string({field})",
+            TupleElemShape.Double => $"il2cpp::runtime::icall_double_to_string({field})",
+            TupleElemShape.Single => $"il2cpp::runtime::icall_single_to_string(static_cast<double>({field}))",
+            TupleElemShape.Bool => $"il2cpp::runtime::icall_bool_to_string({field} != 0)",
+            TupleElemShape.Char => $"il2cpp::runtime::icall_char_to_string({field})",
+            TupleElemShape.Decimal => $"il2cpp::runtime::icall_decimal_to_string(&{field})",
+            TupleElemShape.DateTime => $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_datetime_to_string({field}))",
+            TupleElemShape.TimeSpan => $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::icall_timespan_to_string({field}))",
+            TupleElemShape.Guid => $"reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_guid_to_string({field}.b))",
+            TupleElemShape.Nested => $"reinterpret_cast<Il2CppObject*>({StructName(e.Token)}_ToString({field}))",
+            TupleElemShape.UserStruct => $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_user_struct_to_string({UserClass(e)}, const_cast<void*>(static_cast<const void*>(&{field}))))",
+            _ => $"reinterpret_cast<Il2CppObject*>(il2cpp::runtime::il2cpp_tuple_ref_to_string({field}))",
+        };
+
+    private static string UserClass(TupleElem e) => $"&{e.Cpp}_class";
+
+    private static string ElementHash(TupleElem e, string field)
+        => e.Shape switch
+        {
+            TupleElemShape.Int32 => $"il2cpp::runtime::icall_int32_get_hash_code({field})",
+            TupleElemShape.Int64 => $"il2cpp::runtime::icall_int64_get_hash_code({field})",
+            TupleElemShape.Double => $"il2cpp::runtime::icall_double_get_hash_code({field})",
+            TupleElemShape.Single => $"il2cpp::runtime::il2cpp_tuple_single_hash({field})",
+            // Boolean.GetHashCode: true -> 1, false -> 0.
+            TupleElemShape.Bool => $"static_cast<int32_t>({field} != 0 ? 1 : 0)",
+            // Char.GetHashCode == the UTF-16 code unit (net48).
+            TupleElemShape.Char => field,
+            TupleElemShape.Decimal => $"il2cpp::runtime::icall_decimal_get_hash_code(&{field})",
+            TupleElemShape.DateTime => $"il2cpp::runtime::icall_datetime_get_hash_code({field})",
+            TupleElemShape.TimeSpan => $"il2cpp::runtime::icall_timespan_get_hash_code({field})",
+            TupleElemShape.Guid => $"il2cpp::il2cpp_guid_get_hash_code({field}.b)",
+            TupleElemShape.Nested => $"{StructName(e.Token)}_GetHashCode({field})",
+            TupleElemShape.UserStruct => $"il2cpp::runtime::il2cpp_tuple_user_struct_hash({UserClass(e)}, &{field})",
+            _ => $"il2cpp::runtime::il2cpp_tuple_ref_hash({field})",
+        };
+
+    private static string ElementEquals(TupleElem e, string selfField, string otherField)
+        => e.Shape switch
+        {
+            TupleElemShape.Single => $"(static_cast<float>({selfField}) == static_cast<float>({otherField}))",
+            TupleElemShape.Decimal => $"il2cpp::runtime::icall_decimal_equals(&{selfField}, &{otherField})",
+            TupleElemShape.DateTime => $"il2cpp::runtime::icall_datetime_equals({selfField}, {otherField})",
+            TupleElemShape.TimeSpan => $"(il2cpp::runtime::icall_timespan_get_ticks({selfField}) == il2cpp::runtime::icall_timespan_get_ticks({otherField}))",
+            TupleElemShape.Guid => $"il2cpp::il2cpp_guid_equals({selfField}.b, {otherField}.b)",
+            TupleElemShape.Nested => $"{StructName(e.Token)}_Equals({selfField}, {otherField}) == 1",
+            TupleElemShape.UserStruct => $"il2cpp::runtime::il2cpp_tuple_user_struct_equals({UserClass(e)}, &{selfField}, &{otherField})",
+            TupleElemShape.Ref => $"il2cpp::runtime::icall_object_equals({selfField}, {otherField})",
+            _ => $"({selfField} == {otherField})",
+        };
+
+    private static void EmitToString(CppWriter w, string name, TupleElem[] elems, int arity)
+    {
+        var inner = ToStringInnerFn(name.Length > 0 ? name[..0] : name); // placeholder, unused
+        _ = inner;
         w.Line($"inline Il2CppObject* {name}_ToString(const {name}& self)");
         w.Line("{");
         w.Open();
         w.Line("Il2CppObject* acc = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\"(\"));");
-        for (var i = 0; i < elems.Length; i++)
+        if (arity == 8 && IsValueTupleName(elems[7].Token))
+        {
+            for (var i = 0; i < 7; i++)
+            {
+                if (i > 0)
+                    w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\", \")));");
+                w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({ElementToString(elems[i], Field(arity, i))}));");
+            }
+            w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({StructName(elems[7].Token)}_ToStringInner(self.Rest)));");
+            w.Line("return acc;");
+        }
+        else
+        {
+            for (var i = 0; i < arity; i++)
+            {
+                if (i > 0)
+                    w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\", \")));");
+                w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({ElementToString(elems[i], Field(arity, i))}));");
+            }
+            w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\")\")));");
+            w.Line("return acc;");
+        }
+        w.Close();
+        w.Line("}");
+        w.Line();
+    }
+
+    // ITupleInternal.ToStringEnd(): the text from the FIRST element of the rest
+    // segment through the closing paren -- leading ", ", trailing ')'.
+    private static void EmitToStringInner(CppWriter w, string name, TupleElem[] elems, int arity)
+    {
+        w.Line($"inline Il2CppObject* {name}_ToStringInner(const {name}& self)");
+        w.Line("{");
+        w.Open();
+        w.Line("Il2CppObject* acc = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\", \"));");
+        for (var i = 0; i < arity; i++)
         {
             if (i > 0)
                 w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\", \")));");
-            w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({ElementToString(elems[i], i)}));");
+            w.Line($"acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>({ElementToString(elems[i], Field(arity, i))}));");
         }
         w.Line("acc = il2cpp::runtime::icall_string_concat_2(acc, reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_intern_literal(\")\")));");
         w.Line("return acc;");
@@ -320,53 +695,45 @@ internal static class ValueTupleSupport
         w.Line();
     }
 
-    private static string ElementBits(string elementName, int index)
-    {
-        // The helper takes the element's RAW 64-BIT SLOT BITS: an integer
-        // value widens, a double needs its BIT PATTERN (a plain
-        // static_cast<int64_t>(double) truncates the value).
-        var item = $"self.Item{index + 1}";
-        return KindChar(elementName) switch
-        {
-            'd' => $"il2cpp::runtime::il2cpp_tuple_double_bits({item})",
-            'r' => "static_cast<int64_t>(0)",
-            _ => $"static_cast<int64_t>({item})",
-        };
-    }
-
-    private static string ElementToString(string elementName, int index)
-    {
-        var kind = KindChar(elementName);
-        var value = ElementBits(elementName, index);
-        var obj = kind == 'r' ? $"self.Item{index + 1}" : "nullptr";
-        return $"il2cpp::runtime::il2cpp_tuple_element_to_string('{kind}', {value}, {obj})";
-    }
-
-    private static string ElementHash(string elementName, int index)
-    {
-        var kind = KindChar(elementName);
-        var value = ElementBits(elementName, index);
-        var obj = kind == 'r' ? $"self.Item{index + 1}" : "nullptr";
-        return $"il2cpp::runtime::il2cpp_tuple_element_hash('{kind}', {value}, {obj})";
-    }
-
-    private static void EmitGetHashCode(CppWriter w, string name, string[] elems)
+    private static void EmitGetHashCode(CppWriter w, string name, TupleElem[] elems, int arity)
     {
         w.Line($"inline int32_t {name}_GetHashCode(const {name}& self)");
         w.Line("{");
         w.Open();
-        w.Line("int32_t h = 0;");
-        for (var i = 0; i < elems.Length; i++)
+        if (arity == 8)
         {
-            w.Line($"h = il2cpp::runtime::il2cpp_tuple_combine_hash(h, {ElementHash(elems[i], i)});");
+            // net48 ValueTuple`8.GetHashCode: with L = TRest's flattened
+            // length, only the LAST 8 slots take part --
+            //   L >= 8 -> TRest.GetHashCode()
+            //   else   -> fold(Item_L, ..., Item7, TRest.GetHashCode())
+            var restToken = elems[7].Token;
+            var l = IsValueTupleName(restToken) ? FlatLength(restToken) : 1;
+            if (l >= 8)
+            {
+                w.Line($"return {ElementHash(elems[7], Field(arity, 7))};");
+            }
+            else
+            {
+                var start = l < 1 ? 1 : l;
+                w.Line($"int32_t h = {ElementHash(elems[start - 1], Field(arity, start - 1))};");
+                for (var i = start; i < 7; i++)
+                    w.Line($"h = il2cpp::runtime::il2cpp_tuple_combine_hash(h, {ElementHash(elems[i], Field(arity, i))});");
+                w.Line($"return il2cpp::runtime::il2cpp_tuple_combine_hash(h, {ElementHash(elems[7], Field(arity, 7))});");
+            }
         }
-        w.Line("return h;");
+        else
+        {
+            w.Line($"int32_t h = {ElementHash(elems[0], Field(arity, 0))};");
+            for (var i = 1; i < arity; i++)
+                w.Line($"h = il2cpp::runtime::il2cpp_tuple_combine_hash(h, {ElementHash(elems[i], Field(arity, i))});");
+            w.Line("return h;");
+        }
         w.Close();
         w.Line("}");
         w.Line();
     }
 
-    private static void EmitEquals(CppWriter w, string name, string[] elems)
+    private static void EmitEquals(CppWriter w, string name, TupleElem[] elems, int arity)
     {
         // The strongly-typed Equals(ValueTuple`N) overload (csc picks it for
         // tuple-to-tuple comparisons). Reference elements compare through
@@ -375,12 +742,8 @@ internal static class ValueTupleSupport
         w.Line("{");
         w.Open();
         var conds = new List<string>();
-        for (var i = 0; i < elems.Length; i++)
-        {
-            conds.Add(IsRefElement(elems[i])
-                ? $"il2cpp::runtime::icall_object_equals(self.Item{i + 1}, other.Item{i + 1})"
-                : $"self.Item{i + 1} == other.Item{i + 1}");
-        }
+        for (var i = 0; i < arity; i++)
+            conds.Add(ElementEquals(elems[i], Field(arity, i), $"other.{FieldName(arity, i + 1)}"));
         w.Line($"return {(conds.Count == 0 ? "1" : string.Join(" && ", conds))} ? 1 : 0;");
         w.Close();
         w.Line("}");

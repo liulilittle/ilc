@@ -2093,11 +2093,13 @@ public static class CodeGenerator
         // struct definitions. The instantiation set is complete only after every
         // body has been emitted, and the definitions must precede the method
         // declarations (which pass the structs by value).
+        // A tuple holding another tuple BY VALUE must be DEFINED after that
+        // element's struct (a member of an incomplete type is ill-formed);
+        // ValueTupleSupport.OrderedNeeded topologically sorts the set.
         var headerText = generatedHeader.ToString().Replace(
             ValueTupleDefsSentinel,
-            string.Concat(ValueTupleSupport.Needed
-                .OrderBy(n => n, StringComparer.Ordinal)
-                .Select(ValueTupleSupport.EmitDefinitions)));
+            string.Concat(ValueTupleSupport.OrderedNeeded()
+                .Select(n => ValueTupleSupport.EmitDefinitions(n, types))));
         File.WriteAllText(Path.Combine(outDir, "include", "internal", "generated.h"), headerText);
 
         EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath),
@@ -8915,16 +8917,11 @@ default: return false;                           // primitives/VAR(handled by ca
                     && (!string.IsNullOrEmpty(sk) && (sk.EndsWith("*") || sk == "spx"));
             if (isStructPointer)
                 return $"reinterpret_cast<{TypeCppName(owner)}*>({objCode})->{fieldCppName}";
-            if (obj is LocAddrExpr || (obj is LocExpr le && IsAddressArg(le.Name)))
+            if (obj is LocAddrExpr || obj is FieldAddrExpr || (obj is LocExpr le && IsAddressArg(le.Name)))
                 return $"{objCode}->{fieldCppName}";
-            // GN-N4 stage-2 (Id<Pt> by-value MVAR): a value-type field receiver
-            // that is a FUNCTION-CALL RESULT (the pass-through generic variant
-            // {name}_Cases_Pt returns the struct BY VALUE -- `Pt p = Id<Pt>(..)`
-            // then `p.X` folds the field access onto the call expression).
-            // `(&(call))->field` takes the address of an rvalue -- C++ rejects
-            // it ("taking address of rvalue"); member access on the prvalue
-            // (`(call).field`) is legal and reads the returned struct directly.
             if (obj is CallExpr)
+                return $"{objCode}.{fieldCppName}";
+            if (obj is FieldExpr fe && (fe.IsValueTypeObject || fe.OwnerFullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal)))
                 return $"{objCode}.{fieldCppName}";
             return $"(&({objCode}))->{fieldCppName}";
         }
@@ -10884,6 +10881,22 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // pre-marshalled char16_t* temp passes through UNCAST (the
                 // native declaration is const char16_t*).
                 "u16:System.String" => code,
+                // tuple1 (ValueTuple): an int32 ELEMENT of a tuple struct --
+                // the ldflda address wraps a FIELD (not a receiver address):
+                // `(&(loc.Item1))` is an lvalue the generic pun derefs, but
+                // FieldAccess already emitted a '.' member access on the
+                // struct value (loc.Item2.Item1 -- the fold of ldfld onto a
+                // tuple local). The member access IS the value -- pass it
+                // through, EXCEPT when a tuple NESTS the address (the
+                // `(&(tupcall(...)))` mirror of the tupref rvalue shape): a
+                // field fold onto a tuple member HELPER would double-emit the
+                // helper's parameter address. That nested-by-value-vs-address
+                // shape is the tuple domain's own; the resolver routes tuple
+                // helpers explicitly, so the generic numeric domains never see
+                // it -- the guard stays narrow (FieldExpr receiver only).
+                "deref:i" when args[srcIdx] is FieldExpr feRecv
+                    && feRecv.OwnerFullName != null
+                    && ValueTupleSupport.IsValueTupleName(feRecv.OwnerFullName) => code,
                 "deref:i" => $"(*reinterpret_cast<int32_t*>({code}))",
                 // binrw3 residual: "deref:u1"/"deref:u2" -- read a 1/2-byte
                 // cell through a NATIVE-width pointer (ldelema of byte[]/
