@@ -539,7 +539,8 @@ static void ValidateCtorKind(int32_t kind)
 {
     if (kind < 0 || kind > 2)
     {
-        il2cpp_throw_argument_exception("The DateTimeKind is not valid.");
+        il2cpp_throw_new_param_explicit("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+                                      "The DateTimeKind is not valid.", "kind", 1);
     }
 }
 
@@ -873,11 +874,11 @@ Il2CppDateTime icall_datetime_specify_kind(Il2CppDateTime dt, int32_t kind)
 {
     // net48: SpecifyKind stores the requested kind; the ticks are NEVER
     // converted (the raw value stays). Only the three defined values are
-    // legal; anything else is a caller bug -> LOUD.
+    // legal; anything else throws ArgumentException (probe-pinned dtkind1/k11).
     if (kind < 0 || kind > 2)
     {
-        il2cpp_throw_argument_out_of_range_exception(
-            "kind", "The DateTimeKind is not valid.");
+        il2cpp_throw_new_param_explicit("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+                                      "The DateTimeKind is not valid.", "kind", 1);
     }
     return Il2CppDateTime(dt.ticks, kind);
 }
