@@ -10439,6 +10439,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             }
             var code = EmitExpr(args[srcIdx], md, types);
             var cast = casts2 != null && j < casts2.Length ? casts2[j] : null;
+            // dparse: "lit:<expr>" -- the icall slot takes a compile-time
+            // literal INSTEAD of an IL argument (decimal.Parse(string,
+            // IFormatProvider) forwards NumberStyles.Number=111 through the
+            // styled icall, which has no styles parameter in that overload).
+            // The cast REPLACES the argument expression, exactly like the
+            // "tzsec" replacement cast below; the IL argument is still
+            // consumed by the fold (ParamCount stays the IL arity).
+            if (cast is { Length: > 4 } litCast && litCast.StartsWith("lit:", StringComparison.Ordinal))
+            {
+                parts.Add(litCast[4..]);
+                continue;
+            }
             if ((isMonitorEnter || isMonitorTryEnterFlag) && j == slotCount - 1 && args[srcIdx] is LocAddrExpr && cast is "" or null)            {
                 parts.Add($"reinterpret_cast<bool*>({code})");
                 continue;

@@ -101,4 +101,52 @@ void icall_decimal_parse(Il2CppDecimal* result, Il2CppString* text);
 // returns false and leaves 'result' untouched (see header comment).
 bool icall_decimal_try_parse(Il2CppString* text, Il2CppDecimal* result);
 
+//------------------------------------------------------------------------------
+// NumberStyles-aware parsing (dparse) -- the overloads that carry a
+// NumberStyles / IFormatProvider argument:
+//
+//   Parse(string, IFormatProvider)                 -> styles = Number(111)
+//   Parse(string, NumberStyles)                    -> styles from IL
+//   Parse(string, NumberStyles, IFormatProvider)   -> styles from IL
+//   TryParse(string, NumberStyles, IFormatProvider, out decimal)
+//
+// SEMANTICS: full net48 NumberStyles surface -- AllowLeadingWhite/
+// AllowTrailingWhite (ASCII whitespace 0x20, 0x09..0x0D), AllowLeadingSign/
+// AllowTrailingSign, AllowParentheses, AllowDecimalPoint, AllowThousands
+// (tolerated anywhere after the first digit, incl. trailing/double commas),
+// AllowExponent (e/E + optional sign + digits, |exp| capped at 9999),
+// AllowCurrencySymbol (invariant symbol U+00A4). The numeric conversion is
+// the net48 TryNumberToDecimal algorithm: 30-digit buffer, HALF-EVEN
+// rounding at scale 29, "0" for |value| < 1e-29, OverflowException when the
+// rounded value still needs > 29 significant digits or scale > 28.
+//
+// NOTE the styled core ROUNDS where the legacy 2-arg core (above) reports
+// Overflow: the 2-arg icalls keep their original strict core so existing
+// call sites and the T2 unit pins are unchanged (see ParseCore in
+// decimal_format.cpp).
+//
+// AllowHexSpecifier: net48 decimal does NOT support hex -- every combination
+// containing the flag throws ArgumentException ("the data type does not
+// support the numeric style AllowHexSpecifier", no ParamName) BEFORE the
+// null-text check (oracle: Parse(null, HexNumber) is ArgumentException, not
+// ArgumentNullException). Undefined style bits (outside 0x1FF) throw
+// ArgumentException with ParamName "style".
+//
+// CULTURE (deliberate, documented trade-off): the runtime culture model is
+// invariant-only (cultureinfo.cpp returns "." / "," / "-" / "+" and no
+// culture object exists), so 'provider' is only observed for PRESENCE -- a
+// null provider (net48: current culture) and any non-null provider behave
+// IDENTICALLY. The separator/sign/symbol set is fixed to the invariant one.
+// This keeps the icall ABI faithful to net48 while avoiding a culture
+// infrastructure the rest of the runtime does not have.
+void icall_decimal_parse_styles(Il2CppDecimal* result, Il2CppString* text,
+                                int32_t styles, Il2CppObject* provider);
+
+// TryParse twin: same argument validation (the hex/undefined-style
+// ArgumentException still THROWS -- net48 validates the style before the
+// null check), otherwise never throws. A failed parse writes decimal.Zero
+// into 'result' (the existing TryParse contract) and returns false.
+bool icall_decimal_try_parse_styles(Il2CppString* text, int32_t styles,
+                                    Il2CppObject* provider, Il2CppDecimal* result);
+
 }} // namespace il2cpp::runtime

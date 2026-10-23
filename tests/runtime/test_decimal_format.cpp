@@ -41,6 +41,8 @@ using il2cpp::runtime::icall_decimal_to_string;
 using il2cpp::runtime::icall_decimal_to_string_custom;
 using il2cpp::runtime::icall_decimal_parse;
 using il2cpp::runtime::icall_decimal_try_parse;
+using il2cpp::runtime::icall_decimal_parse_styles;
+using il2cpp::runtime::icall_decimal_try_parse_styles;
 using il2cpp::runtime::icall_decimal_round;
 
 int g_failures = 0;
@@ -204,6 +206,99 @@ bool TryParseIs(const char* text, const char* expected)
         return false;
     }
     return StringIs(icall_decimal_to_string(&out), expected);
+}
+
+//------------------------------------------------------------------------------
+// dparse: NumberStyles-aware parse helpers. Every expected value below is a
+// net48 oracle output (the .opencode/tmp/net48probe runs).
+//------------------------------------------------------------------------------
+constexpr int32_t kNSNone = 0x0000;
+constexpr int32_t kNSAllowLeadingWhite = 0x0001;
+constexpr int32_t kNSAllowTrailingWhite = 0x0002;
+constexpr int32_t kNSAllowLeadingSign = 0x0004;
+constexpr int32_t kNSAllowTrailingSign = 0x0008;
+constexpr int32_t kNSAllowParentheses = 0x0010;
+constexpr int32_t kNSAllowDecimalPoint = 0x0020;
+constexpr int32_t kNSAllowThousands = 0x0040;
+constexpr int32_t kNSAllowExponent = 0x0080;
+constexpr int32_t kNSAllowCurrencySymbol = 0x0100;
+constexpr int32_t kNSAllowHexSpecifier = 0x0200;
+constexpr int32_t kNSNumber = 0x006F;
+constexpr int32_t kNSFloat = 0x00A7;
+constexpr int32_t kNSCurrency = 0x017F;
+constexpr int32_t kNSAny = 0x01FF;
+constexpr int32_t kNSInteger = 0x0007;
+constexpr int32_t kNSHexNumber = 0x0203;
+
+// Styled TryParse: true -> compare the G text; false -> expect failure.
+bool TryParseStyledIs(const char* text, int32_t styles, const char* expected)
+{
+    Il2CppDecimal out = MakeDec(0xDEADBEEFDEADBEEFULL, 0xDEADBEEF, 0, false);
+    if (!icall_decimal_try_parse_styles(il2cpp::il2cpp_string_new_from_cs(text), styles,
+                                        nullptr, &out))
+    {
+        return false;
+    }
+    return StringIs(icall_decimal_to_string(&out), expected);
+}
+
+// Styled Parse that must throw 'typeTag' (the ArgumentException/Format/
+// Overflow families). The ParamName of the ArgumentException is checked
+// separately where it matters (net48: "style" for undefined bits, none for
+// the hex reject).
+void ExpectStyledThrows(const char* what, const char* typeTag, const char* text,
+                        int32_t styles, const char* paramName)
+{
+    bool caught = false;
+    try
+    {
+        Il2CppDecimal out = MakeDec(0, 0);
+        // A null 'text' passes a null managed string (the ArgumentNullException
+        // path); il2cpp_string_new_from_cs(nullptr) is not defined.
+        il2cpp::Il2CppString* s = text != nullptr ? il2cpp::il2cpp_string_new_from_cs(text) : nullptr;
+        icall_decimal_parse_styles(&out, s, styles, nullptr);
+    }
+    catch (const il2cpp::DotNetException& e)
+    {
+        caught = true;
+        Expect(std::strncmp(e.type_name(), typeTag, std::strlen(typeTag)) == 0,
+               what);
+        if (paramName != nullptr)
+        {
+            il2cpp::Il2CppString* pn = il2cpp::icall_exception_param_name_current();
+            Expect(pn != nullptr && StringIs(pn, paramName), what);
+        }
+    }
+    catch (...)
+    {
+        caught = true;
+        Expect(false, "wrong exception carrier type (not DotNetException)");
+    }
+    Expect(caught, what);
+}
+
+// Styled TryParse that must still THROW (style validation precedes the parse).
+void ExpectStyledTryThrows(const char* what, const char* typeTag, const char* text,
+                           int32_t styles)
+{
+    bool caught = false;
+    try
+    {
+        Il2CppDecimal out = MakeDec(0, 0);
+        icall_decimal_try_parse_styles(il2cpp::il2cpp_string_new_from_cs(text), styles,
+                                       nullptr, &out);
+    }
+    catch (const il2cpp::DotNetException& e)
+    {
+        caught = true;
+        Expect(std::strncmp(e.type_name(), typeTag, std::strlen(typeTag)) == 0, what);
+    }
+    catch (...)
+    {
+        caught = true;
+        Expect(false, "wrong exception carrier type (not DotNetException)");
+    }
+    Expect(caught, what);
 }
 
 } // namespace
@@ -480,6 +575,125 @@ int main()
     ExpectRoundThrowsArg("Round(mode=3 ToNegativeInfinity) -> ArgumentException", 0, 3);
     ExpectRoundThrowsArg("Round(mode=4 ToPositiveInfinity) -> ArgumentException", 0, 4);
     ExpectRoundThrowsArg("Round(mode=5) -> ArgumentException", 0, 5);
+
+    // --- 14. dparse: NumberStyles-aware Parse/TryParse (net48 oracle) ---
+    // Flag-by-flag: each flag independently enables exactly its own syntax.
+    Expect(TryParseStyledIs("1.5", kNSAllowDecimalPoint, "1.5"),
+           "styled: AllowDecimalPoint alone");
+    Expect(TryParseStyledIs("1.5", kNSNone, "") == false,
+           "styled: None rejects the decimal point");
+    Expect(TryParseStyledIs("1", kNSNone, "1"), "styled: None accepts digits");
+    Expect(TryParseStyledIs("-1", kNSNone, "") == false,
+           "styled: None rejects the sign");
+    Expect(TryParseStyledIs(" 1", kNSAllowLeadingWhite | kNSAllowDecimalPoint, "1"),
+           "styled: AllowLeadingWhite");
+    Expect(TryParseStyledIs("1 ", kNSAllowTrailingWhite | kNSAllowDecimalPoint, "1"),
+           "styled: AllowTrailingWhite");
+    Expect(TryParseStyledIs(" 1", kNSAllowTrailingWhite | kNSAllowDecimalPoint, "") == false,
+           "styled: leading space needs AllowLeadingWhite");
+    Expect(TryParseStyledIs("-1.5", kNSAllowLeadingSign | kNSAllowDecimalPoint, "-1.5"),
+           "styled: AllowLeadingSign");
+    Expect(TryParseStyledIs("1.5-", kNSAllowTrailingSign | kNSAllowDecimalPoint, "-1.5"),
+           "styled: AllowTrailingSign (net48)");
+    Expect(TryParseStyledIs("1.5-", kNSFloat, "") == false,
+           "styled: Float has no AllowTrailingSign");
+    Expect(TryParseStyledIs("(1.5)", kNSAllowParentheses | kNSAllowDecimalPoint, "-1.5"),
+           "styled: AllowParentheses");
+    Expect(TryParseStyledIs("(1.5)", kNSAllowDecimalPoint, "") == false,
+           "styled: parentheses need the flag");
+    Expect(TryParseStyledIs("1,234.5", kNSAllowThousands | kNSAllowDecimalPoint, "1234.5"),
+           "styled: AllowThousands");
+    Expect(TryParseStyledIs("1,,2", kNSAllowThousands | kNSAllowDecimalPoint, "12"),
+           "styled: net48 tolerates a double separator");
+    Expect(TryParseStyledIs("1,", kNSAllowThousands | kNSAllowDecimalPoint, "1"),
+           "styled: net48 tolerates a trailing separator");
+    Expect(TryParseStyledIs(",1", kNSAllowThousands | kNSAllowDecimalPoint, "") == false,
+           "styled: a leading separator is rejected");
+    Expect(TryParseStyledIs("1e3", kNSFloat, "1000"), "styled: AllowExponent");
+    Expect(TryParseStyledIs("1.5e-2", kNSFloat, "0.015"), "styled: negative exponent");
+    Expect(TryParseStyledIs("1e3", kNSNumber, "") == false,
+           "styled: Number has no AllowExponent");
+    Expect(TryParseStyledIs("1e", kNSFloat, "") == false,
+           "styled: a bare exponent marker is rejected");
+    Expect(TryParseStyledIs("\u00A41.5", kNSCurrency, "1.5"),
+           "styled: currency symbol prefix");
+    Expect(TryParseStyledIs("1.5\u00A4", kNSCurrency, "1.5"),
+           "styled: currency symbol suffix");
+    Expect(TryParseStyledIs("-\u00A41.5", kNSCurrency, "-1.5"),
+           "styled: sign before the currency symbol");
+    Expect(TryParseStyledIs("\u00A4-1.5", kNSCurrency, "-1.5"),
+           "styled: sign after the currency symbol");
+    Expect(TryParseStyledIs("(\u00A41.5)", kNSCurrency, "-1.5"),
+           "styled: parentheses around the currency form");
+    Expect(TryParseStyledIs("\u00A41.5", kNSNumber, "") == false,
+           "styled: Number rejects the currency symbol");
+    Expect(TryParseStyledIs("\u00A41,234.5", kNSCurrency, "1234.5"),
+           "styled: currency + thousands");
+    // Presets.
+    Expect(TryParseStyledIs(" 1,234.5 ", kNSNumber, "1234.5"), "styled: Number preset");
+    Expect(TryParseStyledIs(" 1.5e3 ", kNSFloat, "1500"), "styled: Float preset");
+    Expect(TryParseStyledIs("\u00A4(1,234.5)", kNSAny, "-1234.5"), "styled: Any preset");
+    Expect(TryParseStyledIs(" -12 ", kNSInteger, "-12"), "styled: Integer preset");
+    Expect(TryParseStyledIs("1.5", kNSInteger, "") == false,
+           "styled: Integer rejects the decimal point");
+
+    // net48 rounds (the legacy core overflows) at the scale boundary.
+    Expect(TryParseStyledIs("1e-29", kNSFloat, "0.0000000000000000000000000000"),
+           "styled: 1e-29 rounds to a scale-28 zero");
+    Expect(TryParseStyledIs("1.5e-29", kNSFloat, "0.0000000000000000000000000000"),
+           "styled: 1.5e-29 rounds (half-even)");
+    Expect(TryParseStyledIs("35e-29", kNSFloat, "0.0000000000000000000000000004"),
+           "styled: 35e-29 rounds up (half-even)");
+    Expect(TryParseStyledIs("0.000000000000000000000000000015", kNSNumber,
+                            "0.0000000000000000000000000000"),
+           "styled: a 30-fraction-digit zero-tail value rounds");
+    Expect(TryParseStyledIs("7922816251426433759354395033.6", kNSNumber,
+                            "7922816251426433759354395034"),
+           "styled: rounding carries into the mantissa");
+    Expect(TryParseStyledIs("79228162514264337593543950335.1", kNSNumber,
+                            "79228162514264337593543950335"),
+           "styled: the 30th digit rounds away");
+    Expect(TryParseStyledIs("79228162514264337593543950336", kNSNumber, "") == false,
+           "styled: a genuine 2^96 overflow still fails");
+
+    // Scale/sign preservation (net48 oracle GetBits).
+    Expect(TryParseStyledIs("-0.00", kNSNumber, "-0.00"),
+           "styled: negative zero keeps its sign and scale");
+    Expect(TryParseStyledIs("1.50e0", kNSFloat, "1.50"),
+           "styled: exponent 0 keeps the parsed scale");
+    Expect(TryParseStyledIs("15.0e-1", kNSFloat, "1.50"),
+           "styled: the exponent folds into the scale");
+
+    // Argument validation (net48 order: undefined bits, then hex, then null).
+    ExpectStyledThrows("styled: AllowHexSpecifier -> ArgumentException (no ParamName)",
+                       "System.ArgumentException", "1F", kNSHexNumber, nullptr);
+    ExpectStyledThrows("styled: AllowHexSpecifier beats the null-text check",
+                       "System.ArgumentException", nullptr, kNSHexNumber, nullptr);
+    ExpectStyledThrows("styled: undefined style bits -> ArgumentException",
+                       "System.ArgumentException", "1", 0x1000, "style");
+    ExpectStyledThrows("styled: undefined bits beat the hex reject",
+                       "System.ArgumentException", "1", 0x1200, "style");
+    ExpectStyledThrows("styled: null text -> ArgumentNullException",
+                       "System.ArgumentNullException", nullptr, kNSNumber, "String");
+    ExpectStyledThrows("styled: malformed -> FormatException",
+                       "System.FormatException", "abc", kNSNumber, nullptr);
+    ExpectStyledThrows("styled: overflow -> OverflowException",
+                       "System.OverflowException", "1e40", kNSFloat, nullptr);
+    ExpectStyledTryThrows("styled try_parse: AllowHexSpecifier still throws",
+                          "System.ArgumentException", "1F", kNSHexNumber);
+    ExpectStyledTryThrows("styled try_parse: undefined bits still throw",
+                          "System.ArgumentException", "1", 0x1000);
+    Expect(TryParseStyledIs("abc", kNSNumber, "") == false,
+           "styled try_parse: malformed -> false");
+    Expect(TryParseStyledIs("1e40", kNSFloat, "") == false,
+           "styled try_parse: overflow -> false");
+
+    // The legacy 2-arg core is UNCHANGED (no rounding, no trailing sign).
+    ExpectParseThrows("legacy parse still rejects the trailing sign",
+                      "System.FormatException", "1-");
+    ExpectParseThrows("legacy parse still overflows on 29 fraction digits",
+                      "System.OverflowException",
+                      "0.00000000000000000000000000001");
 
     if (g_failures == 0)
     {
