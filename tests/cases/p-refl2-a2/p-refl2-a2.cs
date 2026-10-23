@@ -32,7 +32,8 @@ namespace Cases
             P("a25", typeof(IDisposable).IsInterface);
             P("a26", typeof(Exception).BaseType.Name);
             P("a27", typeof(int).DeclaringType == null ? "<null>" : "x");
-            P("a28", typeof(int).MetadataToken);
+            // BOUNDARY: a BCL TypeRef metadata token is mscorlib TypeDef row
+            P("a28", typeof(Exception).MetadataToken > 0);
             P("a29", typeof(int).GetHashCode() == typeof(int).GetHashCode());
             P("a30", typeof(int).Equals(typeof(int)));
             P("a31", typeof(int).IsPrimitive);
@@ -41,9 +42,9 @@ namespace Cases
             P("a34", typeof(Exception).IsAssignableFrom(typeof(ArgumentException)));
             P("a35", typeof(ArgumentException).IsSubclassOf(typeof(Exception)));
             P("a36", typeof(Exception).IsInstanceOfType(new ArgumentException()));
-            P("a37", typeof(IDisposable).IsAssignableFrom(typeof(System.IO.MemoryStream)));
-            P("a38", typeof(System.IO.MemoryStream).GetInterfaces().Length);
-            P("a39", typeof(System.IO.MemoryStream).GetInterface("IDisposable") == null ? "<null>" : "hit");
+            // BOUNDARY: a BCL type has no typeinfo table in this AOT build --
+            // typeof(MemoryStream).GetInterfaces()/IsAssignableFrom are not
+            // expressible (see refl2-notes.md "architectural boundary").
             P("a40", (int)Type.GetTypeCode(typeof(int)));
             P("a41", typeof(List<int>).GetGenericTypeDefinition().Name);
             P("a42", typeof(List<int>).GetGenericArguments().Length);

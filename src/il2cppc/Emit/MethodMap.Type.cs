@@ -1,4 +1,4 @@
-﻿using System.Reflection.Metadata;
+using System.Reflection.Metadata;
 
 namespace Il2Cpp.Transpiler.Emit;
 
@@ -85,14 +85,20 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_typeinfo_is_assignable_from", 1, true, false, true,
                     new[] { "", "" });
             // Type.Equals(object o) -- instance type identity (icall_type_equals:
-            // descriptor identity fast path, else name equality). Wired only
-            // for a TRACKED Type argument -- a non-Type argument cannot be
-            // passed to the descriptor-taking icall (no .NET "false for
-            // non-Type" support in the runtime).
+            // descriptor identity fast path, else name equality).
+            // refl2 (A): net48 Type.Equals(object) returns FALSE for a non-Type
+            // argument (never an exception) -- `typeof(int).Equals("x")` is
+            // False, `typeof(int).Equals(null)` is False. A TRACKED Type
+            // argument keeps the name-equality icall; every other argument
+            // (including an untracked one) folds to the constant 0, which is the
+            // exact net48 answer and needs no runtime type test.
             case "Equals":
                 if (ps.Length == 1 && arg0Type == "System.Type")
                     return I("il2cpp::runtime::icall_type_equals", 1, true, false, true, new[] { "", "" });
-                throw new NotSupportedException($"Type.Equals(object) with {(arg0Type == null ? "untracked" : $"non-Type argument {arg0Type}")} not wired in M5 -- only a tracked System.Type argument maps to icall_type_equals");
+                if (ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::il2cpp_typeinfo_equals_non_type", 1, true, false, true,
+                        new[] { "", "" });
+                throw new NotSupportedException($"Type.Equals(object) with {(arg0Type == null ? "untracked" : $"non-Type argument {arg0Type}")} not wired in M5 -- ps=[{string.Join(",", ps.Select(b => b.ToString("x2")))}] count={ps.Length}");
             // Type.GetProperty/GetMethod/GetField(string name) -- M5.5
             // typeinfo queries (see typeinfo.h managed-string ABI). The
             // receiver is the Type VALUE (the full-name string, same shape

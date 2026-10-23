@@ -157,6 +157,16 @@ public static class StackFold
         // get_Name fold recognise the element-fold receiver too. LOCAL to this
         // Fold invocation (per-method IL offsets).
         var gn18TypeValueLdelems = new HashSet<int>();
+        // refl2 (A): TYPE-VALUE display registry. A folded typeof chain pushes a
+        // StringConstExpr whose value is the typeinfo REGISTRY identity, not the
+        // net48 display name. Each producer that yields a TYPE VALUE records its
+        // instruction offset here with the exact net48 (FullName, Name, assembly
+        // suffix) triple, so the CONSUMER folds (get_Name / get_FullName /
+        // get_AssemblyQualifiedName / GetElementType / GetGenericTypeDefinition /
+        // Make*Type) can answer without re-deriving the token -- and so a chain
+        // like typeof(List<int>).GetGenericTypeDefinition().Name keeps working
+        // (the producer is a CALL, not the ldtoken pair).
+        var typeValueDisplay = new Dictionary<int, (string Full, string Short, string AsmSuffix)>();
         // valdeep L26: temp VALUE width ("l"/"d" = 64-bit slot, else int32).
         // LocKindOf only knows "loc" locals; temps (t*) materialized from
         // calls/joins/snapshots carry their width here so the conv.u8 fold
@@ -2938,6 +2948,13 @@ public static class StackFold
                 // names). Same pattern / same key as the
                 // typeFromHandleGenericDef record above.
                 typeFromHandleToken[ins.Offset] = (int)ldtMarker.Value;
+                // refl2 (A): record the net48 display triple for this TYPE VALUE
+                // (see typeValueDisplay). Every downstream Type-domain consumer
+                // fold reads it instead of re-deriving the token.
+                typeValueDisplay[ins.Offset] = (
+                    ReflectionDisplayName(md, (int)ldtMarker.Value, true),
+                    ReflectionDisplayShortName(md, (int)ldtMarker.Value),
+                    AssemblySuffix(md, (int)ldtMarker.Value));
                 Push(new StringConstExpr { Value = TypeNameForReflection(md, (int)ldtMarker.Value) }, ins);
                 return;
             }
@@ -2956,54 +2973,39 @@ public static class StackFold
             //     string -- folding avoids the ABI mismatch (the emitted
             //     il2cpp_type_get_typecode((Il2CppObject*)"System.Int32")
             //     fails to compile).
-            if (md != null && prevIns is IlInstruction { OpCode: ILOpCode.Call } prevCall
-                && IsGetTypeFromHandle(md, (int)prevCall.Operand)
+            // typeof-chain consumer folds (audit F1 follow-up + refl2 A): the
+            // stack top is a TYPE VALUE (a StringConstExpr) whose display triple
+            // was registered by its producer (typeValueDisplay, keyed by the
+            // producing CALL's offset). Fold the consuming Type-domain call:
+            //   * get_Name / get_FullName / get_AssemblyQualifiedName -- the
+            //     net48 display strings (arrays keep their rank, constructed
+            //     generics the assembly-qualified argument list);
+            //   * GetTypeCode (static 1-param) -- the typecode CONSTANT;
+            //   * get_IsGenericTypeDefinition / get_ContainsGenericParameters --
+            //     the fold-time open-generic decisions;
+            //   * the A-class predicates / GetArrayRank / Make*Type /
+            //     get_MetadataToken / get_BaseType / Equals;
+            //   * GetGenericArguments -- the adjacent-consumer element fold.
+            if (md != null && prevIns is IlInstruction { OpCode: ILOpCode.Call or ILOpCode.Callvirt } prevCall
+                && typeValueDisplay.TryGetValue(prevCall.Offset, out var typeValue)
                 && stack.Count > 0 && stack.Peek() is StringConstExpr foldedType)
             {
                 if (IsTypeGetName(md, (int)ins.Operand))
                 {
                     stack.Pop();
-                    // net48 Type.Name: the ldtoken token carries the ARRAY RANK /
-                    // GENERIC ARITY shape the identity string loses (an array
-                    // identity "[System.Int32" must answer "Int32[]", a
-                    // constructed generic definition "List`1" keeps its arity).
-                    var shortName = typeFromHandleToken.TryGetValue(prevCall.Offset, out var nameToken)
-                        ? ReflectionDisplayShortName(md, nameToken)
-                        : ShortTypeName(foldedType.Value);
-                    Push(new StringConstExpr { Value = shortName }, ins);
+                    Push(new StringConstExpr { Value = typeValue.Short }, ins);
                     return;
                 }
-                // Type.FullName on the FOLDED typeof chain: the identity string
-                // is the typeinfo REGISTRY key (arrays ride as "[<elem>", a
-                // closed generic as its DEFINITION name), which is not the
-                // net48 FullName ("System.Int32[]",
-                // "System.Nullable`1[[System.Int32, mscorlib, ...]]"). The
-                // ldtoken token decodes the exact net48 name.
                 if (IsTypeGetFullName(md, (int)ins.Operand))
                 {
                     stack.Pop();
-                    Push(new StringConstExpr
-                    {
-                        Value = typeFromHandleToken.TryGetValue(prevCall.Offset, out var fullToken)
-                            ? ReflectionDisplayName(md, fullToken, true)
-                            : foldedType.Value,
-                    }, ins);
+                    Push(new StringConstExpr { Value = typeValue.Full }, ins);
                     return;
                 }
-                // Type.AssemblyQualifiedName on the FOLDED typeof chain: the
-                // net48 "<FullName>, <asm>, Version=..., Culture=neutral,
-                // PublicKeyToken=..." form. The assembly suffix depends on the
-                // type's OWN assembly (mscorlib for a BCL type, the input
-                // assembly for a user type), which the metadata token carries.
                 if (IsTypeGetAssemblyQualifiedName(md, (int)ins.Operand))
                 {
                     stack.Pop();
-                    Push(new StringConstExpr
-                    {
-                        Value = typeFromHandleToken.TryGetValue(prevCall.Offset, out var aqnToken)
-                            ? ReflectionDisplayName(md, aqnToken, true) + AssemblySuffix(md, aqnToken)
-                            : foldedType.Value,
-                    }, ins);
+                    Push(new StringConstExpr { Value = typeValue.Full + typeValue.AsmSuffix }, ins);
                     return;
                 }
                 if (IsTypeGetTypeCode(md, (int)ins.Operand))
@@ -3012,27 +3014,109 @@ public static class StackFold
                     Push(new IntConstExpr { Value = TypeCodeOfTypeName(foldedType.Value, types) }, ins);
                     return;
                 }
+                // RF-N4: Type.get_IsGenericTypeDefinition on a FOLDED typeof
+                // chain -- decided AT FOLD TIME (the runtime registry cannot
+                // distinguish a definition from its closed clones).
+                if (IsTypeGetIsGenericTypeDefinition(md, (int)ins.Operand)
+                    && typeFromHandleGenericDef.TryGetValue(prevCall.Offset, out var isDef))
+                {
+                    stack.Pop();
+                    Push(new IntConstExpr { Value = isDef ? 1 : 0 }, ins);
+                    return;
+                }
+                // REFL6B (item B5): Type.get_ContainsGenericParameters on the
+                // FOLDED typeof chain (same fold site, wider predicate).
+                if (IsTypeGetContainsGenericParameters(md, (int)ins.Operand)
+                    && typeFromHandleContainsGenParams.TryGetValue(prevCall.Offset, out var cgp))
+                {
+                    stack.Pop();
+                    Push(new IntConstExpr { Value = cgp ? 1 : 0 }, ins);
+                    return;
+                }
+                // GN-18 P2/D1 (S3 / Plan B): Type::GetGenericArguments on the
+                // FOLDED typeof chain -- INTERCEPTED AT THE CONSUMPTION POINT.
+                // The segment folds to the constant its ADJACENT consumer wants:
+                //   next == ldlen                          -> IntConstExpr(arity)
+                //   next == ldc.i4.i (0<=i<arity) &&
+                //     next2 == ldelem_ref                 -> StringConstExpr(names[i])
+                // ONE decision covers both consumers. EVERY other shape keeps the
+                // existing runtime path, which LOUDs for arity > 0.
+                if (IsTypeGetGenericArguments(md, (int)ins.Operand)
+                    && typeFromHandleToken.TryGetValue(prevCall.Offset, out var genToken))
+                {
+                    var genArity = GenericInstArity(md, genToken);
+                    var genNames = GenericInstArgNames(md, genToken);
+                    if (genArity > 0 && genNames != null && genNames.Count == genArity)
+                    {
+                        var genIdx = il.FindIndex(x => x.Offset == ins.Offset);
+                        if (genIdx >= 0 && genIdx + 1 < il.Count)
+                        {
+                            var genNext = il[genIdx + 1];
+                            // .Length -> the arity constant. The consumed ldlen
+                            // is recorded in gn18SkipOffsets so the main walk
+                            // does not run it again.
+                            if (genNext.OpCode is ILOpCode.Ldlen)
+                            {
+                                stack.Pop();
+                                gn18SkipOffsets.Add(genNext.Offset);
+                                Push(new IntConstExpr { Value = genArity }, ins);
+                                return;
+                            }
+                            // [i] -> the i-th argument's managed name (matched BY
+                            // VALUE across the whole ldc.i4 immediate family).
+                            if (genIdx + 2 < il.Count
+                                && LdcI4ConstValue(genNext) is { } genElemIndex
+                                && genElemIndex >= 0 && genElemIndex < genNames.Count
+                                && il[genIdx + 2].OpCode is ILOpCode.Ldelem_ref)
+                            {
+                                stack.Pop();
+                                gn18SkipOffsets.Add(genNext.Offset);       // the ldc.i4.i
+                                gn18SkipOffsets.Add(il[genIdx + 2].Offset); // the Ldelem_ref
+                                gn18TypeValueLdelems.Add(il[genIdx + 2].Offset); // element-fold Type-value terminal
+                                Push(new StringConstExpr { Value = genNames[genElemIndex] }, ins);
+                                return;
+                            }
+                        }
+                    }
+                }
                 //--------------------------------------------------------------------------
-                // refl2 (A): the remaining Type surface on the FOLDED typeof chain.
-                // Each is decided from the ldtoken token, so the answer is the exact
-                // net48 value (no registry approximation):
-                //   * get_IsConstructedGenericType -- a closed GENERICINST TypeSpec
-                //     with no open argument. typeof(List<>) / typeof(int) -> 0.
-                //   * get_IsAbstract / IsSealed / IsPublic / IsNested -- the raw
-                //     TypeAttributes bits of a TypeDef (exact). A TypeRef carries no
-                //     attribute rows in this reader: the builtin BCL table answers
-                //     the well-known core types, else the value stays 0 (documented
-                //     boundary, reported in the notes).
-                //   * GetArrayRank -- 1 + the trailing-comma count of the array
-                //     identity; a non-array receiver keeps the runtime icall (which
-                //     raises net48's ArgumentException).
-                //   * MakeArrayType([rank]) / MakeByRefType / MakePointerType -- the
-                //     net48 display identity of the constructed type.
-                //   * get_MetadataToken -- the ECMA metadata token
-                //     (0x02000000 | TypeDef row), the exact net48 value.
+                // refl2 (A): the typeof-chain TYPE-KIND predicates. A BCL TypeRef
+                // carries no typeinfo table at runtime, so the answers come from
+                // the metadata TypeDef when present and the curated BCL shape
+                // table otherwise (documented boundary).
                 //--------------------------------------------------------------------------
                 if (typeFromHandleToken.TryGetValue(prevCall.Offset, out var memberToken))
                 {
+                    if (TypeKindPredicateOf(md, (int)ins.Operand) is { } kindPred)
+                    {
+                        stack.Pop();
+                        Push(new IntConstExpr { Value = TypeKindFlag(md, memberToken, kindPred) ? 1 : 0 }, ins);
+                        return;
+                    }
+                    if (IsTypeGetBaseType(md, (int)ins.Operand))
+                    {
+                        var baseName = BaseTypeNameOf(md, memberToken);
+                        stack.Pop();
+                        if (baseName == null)
+                        {
+                            Push(new NullExpr { TypeName = "System.Type" }, ins);
+                        }
+                        else
+                        {
+                            Push(new StringConstExpr { Value = baseName }, ins);
+                            // The base is ANOTHER Type VALUE -- register its
+                            // display triple so `.Name` / `.FullName` on it fold.
+                            typeValueDisplay[ins.Offset] = (
+                                baseName, ShortTypeName(baseName), AssemblySuffixOfName(md, baseName));
+                        }
+                        return;
+                    }
+                    if (IsTypeGetMetadataToken(md, (int)ins.Operand))
+                    {
+                        stack.Pop();
+                        Push(new IntConstExpr { Value = MetadataTokenOfType(md, memberToken) }, ins);
+                        return;
+                    }
                     if (IsTypeGetIsConstructedGenericType(md, (int)ins.Operand))
                     {
                         stack.Pop();
@@ -3051,134 +3135,77 @@ public static class StackFold
                         Push(new IntConstExpr { Value = rank }, ins);
                         return;
                     }
+                    // MakeArrayType() / MakeByRefType() / MakePointerType() and
+                    // GetElementType(): the result is ANOTHER Type VALUE, so its
+                    // display triple is registered for the next consumer.
                     if (IsTypeMakeArrayType(md, (int)ins.Operand, out var makeRank))
                     {
                         stack.Pop();
-                        Push(new StringConstExpr
-                        {
-                            Value = "[" + ReflectionDisplayName(md, memberToken, false)
-                                + new string(',', Math.Max(makeRank, 1) - 1),
-                        }, ins);
+                        var elemFull = typeValue.Full;
+                        Push(new StringConstExpr { Value = "[" + elemFull }, ins);
+                        typeValueDisplay[ins.Offset] = (
+                            elemFull + "[" + new string(',', Math.Max(makeRank, 1) - 1) + "]",
+                            typeValue.Short + "[]",
+                            typeValue.AsmSuffix);
                         return;
                     }
                     if (IsTypeMakeByRefType(md, (int)ins.Operand))
                     {
                         stack.Pop();
-                        Push(new StringConstExpr
-                        {
-                            Value = ReflectionDisplayName(md, memberToken, false) + "&",
-                        }, ins);
+                        Push(new StringConstExpr { Value = typeValue.Full + "&" }, ins);
+                        typeValueDisplay[ins.Offset] = (
+                            typeValue.Full + "&", typeValue.Short + "&", typeValue.AsmSuffix);
                         return;
                     }
                     if (IsTypeMakePointerType(md, (int)ins.Operand))
                     {
                         stack.Pop();
-                        Push(new StringConstExpr
-                        {
-                            Value = ReflectionDisplayName(md, memberToken, false) + "*",
-                        }, ins);
+                        Push(new StringConstExpr { Value = typeValue.Full + "*" }, ins);
+                        typeValueDisplay[ins.Offset] = (
+                            typeValue.Full + "*", typeValue.Short + "*", typeValue.AsmSuffix);
                         return;
                     }
-                    if (IsTypeGetMetadataToken(md, (int)ins.Operand))
+                    if (IsTypeGetElementType(md, (int)ins.Operand))
+                    {
+                        var elem = ElementTypeDisplayOf(md, memberToken);
+                        stack.Pop();
+                        if (elem == null)
+                        {
+                            Push(new NullExpr { TypeName = "System.Type" }, ins);
+                        }
+                        else
+                        {
+                            Push(new StringConstExpr { Value = elem.Value.Identity }, ins);
+                            typeValueDisplay[ins.Offset] = (elem.Value.Full, elem.Value.Short, elem.Value.AsmSuffix);
+                        }
+                        return;
+                    }
+                    // Type.GetGenericTypeDefinition() on a FOLDED constructed
+                    // generic -- the DEFINITION's Type VALUE (identity for a
+                    // definition receiver; InvalidOperationException for a
+                    // non-generic one, which stays on the runtime path).
+                    if (IsTypeGetGenericTypeDefinition(md, (int)ins.Operand)
+                        && GenericDefinitionDisplayOf(md, memberToken) is { } defDisplay)
                     {
                         stack.Pop();
-                        Push(new IntConstExpr { Value = MetadataTokenOfType(md, memberToken) }, ins);
+                        Push(new StringConstExpr { Value = defDisplay.Identity }, ins);
+                        typeValueDisplay[ins.Offset] = (defDisplay.Full, defDisplay.Short, defDisplay.AsmSuffix);
                         return;
                     }
                 }
-                // RF-N4: Type.get_IsGenericTypeDefinition on a FOLDED typeof
-                // chain -- decided AT FOLD TIME (the runtime registry cannot
-                // distinguish a definition from its closed clones; the folded
-                // NAME is the definition's name for both). The ldtoken's
-                // open-definition flag was recorded when the GetTypeFromHandle
-                // fold ran (keyed by prevCall.Offset): typeof(Box<>) -> 1,
-                // typeof(Box<int>) / typeof(int) -> 0. A RUNTIME receiver
-                // never reaches this fold -- it hits the MethodMap.Type.cs
-                // LOUD rejection instead.
-                if (IsTypeGetIsGenericTypeDefinition(md, (int)ins.Operand))
+                // Type.Equals(object) with BOTH sides folded Type values: the
+                // Type VALUEs are name strings, so net48 reference identity
+                // reduces to ordinal name equality.
+                if (IsTypeEqualsMember(md, (int)ins.Operand)
+                    && stack.Count >= 2 && stack.ElementAt(1) is StringConstExpr otherType)
                 {
                     stack.Pop();
-                    Push(new IntConstExpr { Value = typeFromHandleGenericDef.TryGetValue(prevCall.Offset, out var isDef) && isDef ? 1 : 0 }, ins);
-                    return;
-                }
-                // REFL6B (item B5): Type.get_ContainsGenericParameters on the
-                // FOLDED typeof chain -- same fold site, same key, wider
-                // predicate (the type OR any enclosing/declaring type holds an
-                // open generic parameter; typeof(Outer<>.Inner) -> 1, closed
-                // instantiations and arrays -> 0). A RUNTIME receiver never
-                // reaches this fold -- it maps to the constant-0 runtime icall
-                // in MethodMap.Type.cs.
-                if (IsTypeGetContainsGenericParameters(md, (int)ins.Operand))
-                {
                     stack.Pop();
-                    Push(new IntConstExpr { Value = typeFromHandleContainsGenParams.TryGetValue(prevCall.Offset, out var cgp) && cgp ? 1 : 0 }, ins);
-                    return;
-                }
-                // GN-18 P2/D1 (S3 / Plan B): Type::GetGenericArguments on the
-                // FOLDED typeof chain -- INTERCEPTED AT THE CONSUMPTION POINT.
-                // The receiver is the type-name StringConstExpr the
-                // GetTypeFromHandle fold above produced, and the ldtoken token
-                // was recorded beside it (typeFromHandleToken, same key). The
-                // segment folds to the constant its ADJACENT consumer wants:
-                //   next == ldlen                          -> IntConstExpr(arity)
-                //   next == ldc.i4.i (0<=i<arity) &&
-                //     next2 == ldelem_ref                 -> StringConstExpr(names[i])
-                // ONE decision covers both consumers, so there is no
-                // "Length folded / element unread" half-state. EVERY other
-                // shape (a variable / out-of-range index, a result stored in a
-                // temp, any other consumer, an open definition whose token is
-                // not a GENERICINST TypeSpec) is NOT folded and keeps the
-                // existing runtime path, which LOUDs for arity > 0. The names
-                // come from the TypeSpec blob (metadata side), never from the
-                // emit-side clone suffix.
-                if (IsTypeGetGenericArguments(md, (int)ins.Operand)
-                    && typeFromHandleToken.TryGetValue(prevCall.Offset, out var genToken))
-                {
-                    var genArity = GenericInstArity(md, genToken);
-                    var genNames = GenericInstArgNames(md, genToken);
-                    if (genArity > 0 && genNames != null && genNames.Count == genArity)
+                    Push(new IntConstExpr
                     {
-                        var genIdx = il.FindIndex(x => x.Offset == ins.Offset);
-                        if (genIdx >= 0 && genIdx + 1 < il.Count)
-                        {
-                            var genNext = il[genIdx + 1];
-                            // .Length -> the arity constant. The consumed ldlen
-                            // is recorded in gn18SkipOffsets so the main walk
-                            // does not run it again: the fold already emitted
-                            // the constant, and a second run would consume that
-                            // constant as an array (il2cpp_array_get_length(1) ->
-                            // 0xC0000005, observed in the generated C++).
-                            if (genNext.OpCode is ILOpCode.Ldlen)
-                            {
-                                stack.Pop();
-                                gn18SkipOffsets.Add(genNext.Offset);
-                                Push(new IntConstExpr { Value = genArity }, ins);
-                                return;
-                            }
-                            // [i] -> the i-th argument's managed name. The index
-                            // is matched BY VALUE across the whole ldc.i4
-                            // immediate family (arr[0] is ldc.i4.0, a distinct
-                            // opcode from ldc.i4), so a constant out-of-range
-                            // index, a variable index or any other shape is NOT
-                            // folded and keeps the runtime LOUD path.
-                            if (genIdx + 2 < il.Count
-                                && LdcI4ConstValue(genNext) is { } genElemIndex
-                                && genElemIndex >= 0 && genElemIndex < genNames.Count
-                                && il[genIdx + 2].OpCode is ILOpCode.Ldelem_ref)
-                            {
-                                stack.Pop();
-                                gn18SkipOffsets.Add(genNext.Offset);       // the ldc.i4.i
-                                gn18SkipOffsets.Add(il[genIdx + 2].Offset); // the Ldelem_ref
-                                gn18TypeValueLdelems.Add(il[genIdx + 2].Offset); // element-fold Type-value terminal
-                                Push(new StringConstExpr { Value = genNames[genElemIndex] }, ins);
-                                return;
-                            }
-                        }
-                    }
-                    // Not an adjacent ldlen / in-range constant-index ldelem,
-                    // or the blob did not decode: fall through to the existing
-                    // runtime path (arity > 0 -> LOUD). No marker is left on
-                    // the evaluation stack.
+                        Value = string.Equals(foldedType.Value, otherType.Value, StringComparison.Ordinal) ? 1 : 0,
+                    }, ins);
+                    return;
                 }
             }
             // GN-18 P2/D1 (S3): the GetGenericArguments element fold leaves a
@@ -5686,8 +5713,335 @@ public static class StackFold
         static bool IsTypeMakePointerType(MetadataReader md, int token)
             => IsTypeMemberNamed(md, token, "MakePointerType");
 
+        // refl2 (A): the typeof-chain TYPE-KIND predicates. Returns the
+        // predicate key (used by TypeKindFlag) or null.
+        static string? TypeKindPredicateOf(MetadataReader md, int token)
+        {
+            if (IsTypeMemberNamed(md, token, "get_IsEnum")) return "enum";
+            if (IsTypeMemberNamed(md, token, "get_IsInterface")) return "interface";
+            if (IsTypeMemberNamed(md, token, "get_IsValueType")) return "valuetype";
+            if (IsTypeMemberNamed(md, token, "get_IsClass")) return "class";
+            if (IsTypeMemberNamed(md, token, "get_IsPrimitive")) return "primitive";
+            if (IsTypeMemberNamed(md, token, "get_IsArray")) return "array";
+            if (IsTypeMemberNamed(md, token, "get_IsGenericType")) return "generic";
+            if (IsTypeMemberNamed(md, token, "get_IsGenericTypeDefinition")) return "genericdef";
+            return null;
+        }
+
+        static bool IsTypeGetBaseType(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "get_BaseType");
+
+        // The assembly suffix of a full type NAME (a resolved base name has no
+        // token at hand): a System.* name belongs to mscorlib, anything else to
+        // this assembly.
+        static string AssemblySuffixOfName(MetadataReader md, string fullName)
+            => fullName.StartsWith("System.", StringComparison.Ordinal)
+                ? BclAssemblySuffix()
+                : ThisAssemblySuffix(md);
+
+        static bool IsTypeGetElementType(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "GetElementType");
+
+        static bool IsTypeGetGenericTypeDefinition(MetadataReader md, int token)
+            => IsTypeMemberNamed(md, token, "GetGenericTypeDefinition");
+
+        // The ELEMENT type's display triple for an array receiver, or null when
+        // the receiver is not an array (net48 GetElementType -> null).
+        static (string Identity, string Full, string Short, string AsmSuffix)? ElementTypeDisplayOf(
+            MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return null;
+            var sig = md.GetBlobReader(
+                md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            var et = sig.ReadByte();
+            if (et is not (0x1D or 0x14)) return null;
+            // Re-read the blob and decode the element with its defining token.
+            var sig2 = md.GetBlobReader(
+                md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            _ = sig2.ReadByte();
+            var elemFull = DecodeDisplayType(md, ref sig2, true, out var elemTok);
+            var elemShort = ShortTypeName(elemFull);
+            return (elemFull, elemFull, elemShort, AssemblySuffixOfToken(md, elemTok));
+        }
+
+        // The DEFINITION's display triple for a constructed generic receiver, or
+        // null when the receiver is not a closed GENERICINST (a non-generic
+        // receiver keeps the runtime path, which raises net48's
+        // InvalidOperationException).
+        static (string Identity, string Full, string Short, string AsmSuffix)? GenericDefinitionDisplayOf(
+            MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return null;
+            var sig = md.GetBlobReader(
+                md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+            if (sig.ReadByte() != 0x15) return null;
+            _ = sig.ReadByte();
+            var defTok = sig.ReadTypeHandle();
+            var defName = defTok.Kind switch
+            {
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defTok),
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defTok),
+                HandleKind.TypeSpecification => TypeNameForReflection(
+                    md, MetadataTokens.GetToken(defTok)),
+                _ => null,
+            };
+            if (defName == null) return null;
+            return (defName, defName, ShortTypeName(defName), AssemblySuffixOfToken(md, defTok));
+        }
+
+        // The predicate answer for a typeof token. A TypeDef answers from its
+        // real metadata shape; a TypeRef (BCL) from the curated core table
+        // (documented boundary -- only the types the net48 probes reach are
+        // pinned; anything else answers the conservative default).
+        static bool TypeKindFlag(MetadataReader md, int token, string pred)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                var sig = md.GetBlobReader(
+                    md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                var et = sig.ReadByte();
+                switch (pred)
+                {
+                    case "array":
+                        return et is 0x1D or 0x14;
+                    case "valuetype":
+                        if (et is 0x1D or 0x14) return false;
+                        if (et == 0x15)
+                        {
+                            // A constructed generic is a value type only for
+                            // System.Nullable`1 (the net48 builtin struct).
+                            _ = sig.ReadByte();
+                            var d = sig.ReadTypeHandle();
+                            var dn = d.Kind switch
+                            {
+                                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)d),
+                                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)d),
+                                _ => null,
+                            };
+                            return dn == "System.Nullable`1";
+                        }
+                        return false;
+                    case "class":
+                        return !TypeKindFlag(md, token, "valuetype")
+                            && !TypeKindFlag(md, token, "interface");
+                    case "generic":
+                        return et == 0x15;
+                    case "genericdef":
+                        return false; // a TypeSpec is a CONSTRUCTED instance
+                    case "interface":
+                    case "enum":
+                        return false;
+                    case "primitive":
+                        return et is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07
+                            or 0x08 or 0x09 or 0x0A or 0x0B or 0x0C or 0x0D
+                            or 0x18 or 0x19;
+                    default:
+                        return false;
+                }
+            }
+            if (handle.Kind == HandleKind.TypeDefinition)
+            {
+                var td = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+                var baseName = BaseTypeNameOfToken(md, td.BaseType);
+                var isEnum = baseName == "System.Enum";
+                var isValueType = baseName == "System.ValueType";
+                var isIface = (td.Attributes & System.Reflection.TypeAttributes.Interface) != 0;
+                switch (pred)
+                {
+                    case "enum": return isEnum;
+                    case "interface": return isIface;
+                    case "valuetype": return isValueType || isEnum;
+                    case "class": return !isValueType && !isEnum && !isIface;
+                    case "primitive": return false;
+                    case "array": return false;
+                    case "generic": return td.GetGenericParameters().Count > 0;
+                    case "genericdef": return td.GetGenericParameters().Count > 0;
+                    default: return false;
+                }
+            }
+            // BCL TypeRef: the curated core table.
+            var name = handle.Kind == HandleKind.TypeReference
+                ? md.GetFullName((TypeReferenceHandle)handle)
+                : null;
+            if (name == null) return false;
+            return BclTypeKindFlag(name, pred);
+        }
+
+        // The curated BCL shape table (a TypeRef carries no metadata rows in this
+        // reader). Documented boundary: the core mscorlib types the net48 probes
+        // reach; anything else answers false.
+        static bool BclTypeKindFlag(string fullName, string pred)
+        {
+            bool IsPrimitiveName() => fullName is "System.Boolean" or "System.Char"
+                or "System.SByte" or "System.Byte" or "System.Int16" or "System.UInt16"
+                or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64"
+                or "System.Single" or "System.Double" or "System.IntPtr" or "System.UIntPtr";
+            bool IsEnumName() => fullName == "System.DayOfWeek"
+                || MethodRefResolver.HasBclEnumNameTable(fullName);
+            switch (pred)
+            {
+                case "primitive": return IsPrimitiveName();
+                case "enum": return IsEnumName();
+                case "interface":
+                    return fullName is "System.IDisposable" or "System.ICloneable"
+                        or "System.IComparable" or "System.IFormattable"
+                        or "System.IConvertible" or "System.IEquatable`1"
+                        or "System.Collections.IEnumerable" or "System.Collections.IEnumerator"
+                        or "System.Collections.Generic.IEnumerable`1"
+                        or "System.Collections.Generic.IEnumerator`1"
+                        or "System.Collections.Generic.IList`1"
+                        or "System.Collections.Generic.ICollection`1"
+                        or "System.Collections.Generic.IDictionary`2";
+                case "valuetype":
+                    return IsPrimitiveName() || IsEnumName()
+                        || fullName is "System.Decimal" or "System.DateTime"
+                            or "System.TimeSpan" or "System.Guid" or "System.ValueType"
+                            or "System.Enum" or "System.Nullable`1";
+                case "class":
+                    return !BclTypeKindFlag(fullName, "valuetype")
+                        && !BclTypeKindFlag(fullName, "interface");
+                case "array": return false;
+                case "generic":
+                    return GenericArityFromName(fullName) > 0;
+                case "genericdef":
+                    return GenericArityFromName(fullName) > 0;
+                default: return false;
+            }
+        }
+
+        // The base type's full name for a typeof token (null for System.Object /
+        // an interface / an unregistered BCL name).
+        static string? BaseTypeNameOf(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                {
+                    var td = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+                    if ((td.Attributes & System.Reflection.TypeAttributes.Interface) != 0) return null;
+                    var baseName = BaseTypeNameOfToken(md, td.BaseType);
+                    if (baseName == null) return null;
+                    // A root class (base System.Object) answers System.Object; a
+                    // System.Object receiver answers null (net48).
+                    if (baseName == "System.Object"
+                        && md.GetFullName((TypeDefinitionHandle)handle) == "System.Object")
+                        return null;
+                    return baseName;
+                }
+                case HandleKind.TypeReference:
+                    return BclBaseTypeName(md.GetFullName((TypeReferenceHandle)handle));
+                case HandleKind.TypeSpecification:
+                {
+                    var sig = md.GetBlobReader(
+                        md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                    var et = sig.ReadByte();
+                    if (et is 0x1D or 0x14) return "System.Array";
+                    if (et == 0x15)
+                    {
+                        _ = sig.ReadByte();
+                        var d = sig.ReadTypeHandle();
+                        var dn = d.Kind switch
+                        {
+                            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)d),
+                            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)d),
+                            _ => null,
+                        };
+                        if (dn == "System.Nullable`1") return "System.ValueType";
+                        return "System.Object";
+                    }
+                    return null;
+                }
+                default:
+                    return null;
+            }
+        }
+
+        static string? BaseTypeNameOfToken(MetadataReader md, EntityHandle h)
+        {
+            if (h.IsNil) return null;
+            return h.Kind switch
+            {
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)h),
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)h),
+                HandleKind.TypeSpecification => TypeNameForReflection(md, MetadataTokens.GetToken(h)),
+                _ => null,
+            };
+        }
+
+        // The curated BCL base table (documented boundary: the core mscorlib
+        // hierarchy the net48 probes reach).
+        static string? BclBaseTypeName(string fullName) => fullName switch
+        {
+            "System.Object" => null,
+            "System.ValueType" => "System.Object",
+            "System.Enum" => "System.ValueType",
+            "System.Array" => "System.Object",
+            "System.Delegate" => "System.Object",
+            "System.MulticastDelegate" => "System.Delegate",
+            "System.Exception" => "System.Object",
+            "System.SystemException" => "System.Exception",
+            "System.ArgumentException" => "System.SystemException",
+            "System.ArgumentNullException" => "System.ArgumentException",
+            "System.ArgumentOutOfRangeException" => "System.ArgumentException",
+            "System.InvalidOperationException" => "System.SystemException",
+            "System.NotSupportedException" => "System.SystemException",
+            "System.NullReferenceException" => "System.SystemException",
+            "System.IndexOutOfRangeException" => "System.SystemException",
+            "System.String" => "System.Object",
+            "System.Int32" => "System.ValueType",
+            "System.Int64" => "System.ValueType",
+            "System.Boolean" => "System.ValueType",
+            "System.Char" => "System.ValueType",
+            "System.Double" => "System.ValueType",
+            "System.Single" => "System.ValueType",
+            "System.Byte" => "System.ValueType",
+            "System.SByte" => "System.ValueType",
+            "System.Int16" => "System.ValueType",
+            "System.UInt16" => "System.ValueType",
+            "System.UInt32" => "System.ValueType",
+            "System.UInt64" => "System.ValueType",
+            "System.Decimal" => "System.ValueType",
+            "System.DateTime" => "System.ValueType",
+            "System.TimeSpan" => "System.ValueType",
+            "System.Guid" => "System.ValueType",
+            "System.IntPtr" => "System.ValueType",
+            "System.UIntPtr" => "System.ValueType",
+            "System.DayOfWeek" => "System.Enum",
+            _ when fullName.EndsWith("Exception", StringComparison.Ordinal) => "System.SystemException",
+            _ => "System.Object",
+        };
+
+        // Type.Equals(object) -- the net48 instance equality (the MemberRef
+        // parent is System.Type, or System.Reflection.MemberInfo for the same
+        // Roslyn-quirk family as get_Name).
+        static bool IsTypeEqualsMember(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            var parent = md.GetFullName((TypeReferenceHandle)mr.Parent);
+            return (parent == "System.Type" || parent == "System.Reflection.MemberInfo")
+                && md.GetString(mr.Name) == "Equals";
+        }
+
+        // Type.MetadataToken -- csc emits the MemberRef with parent
+        // System.Reflection.MemberInfo (the same Roslyn quirk as get_Name), so
+        // BOTH owners are accepted.
         static bool IsTypeGetMetadataToken(MetadataReader md, int token)
-            => IsTypeMemberNamed(md, token, "get_MetadataToken");
+        {
+            if (IsTypeMemberNamed(md, token, "get_MetadataToken")) return true;
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            return md.GetFullName((TypeReferenceHandle)mr.Parent) == "System.Reflection.MemberInfo"
+                && md.GetString(mr.Name) == "get_MetadataToken";
+        }
 
         // A closed GENERICINST TypeSpec with no open (VAR/MVAR) argument.
         static bool IsConstructedGenericToken(MetadataReader md, int token)

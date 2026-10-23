@@ -983,5 +983,10 @@ int32_t il2cpp_typeinfo_get_attributes(Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_is_nested_public(Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_is_nested_private(Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_is_visible(Il2CppObject* typeName);
+// refl2 (A): Type.Equals(object) for a NON-Type argument -- net48 answers
+// False unconditionally (never an exception). A null receiver keeps the
+// net48 NullReferenceException. The argument is ignored (it is never a Type in
+// the simplified model unless the fold already routed it to icall_type_equals).
+int32_t il2cpp_typeinfo_equals_non_type(Il2CppObject* typeName, Il2CppObject* other);
 
 } // namespace il2cpp

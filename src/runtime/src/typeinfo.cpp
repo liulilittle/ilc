@@ -4870,4 +4870,12 @@ int32_t il2cpp_typeinfo_is_visible(Il2CppObject* typeName)
     return (vis == 0x1 || vis == 0x2) ? 1 : 0;
 }
 
+int32_t il2cpp_typeinfo_equals_non_type(Il2CppObject* typeName, Il2CppObject* other)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    // net48: a non-Type argument answers False (never an exception).
+    (void)other;
+    return 0;
+}
+
 } // namespace il2cpp
