@@ -227,6 +227,63 @@ public static partial class MethodRefResolver
                         return I(newline ? "il2cpp::runtime::icall_console_write_line_s" : "il2cpp::runtime::icall_console_write_s", 1, false, false, false, new[] { "tostring:sb" }, null, false, false, true);
                     if (arg0Type == "System.String")
                         return I(newline ? "il2cpp::runtime::icall_console_write_line_s" : "il2cpp::runtime::icall_console_write_s", 1, false, false, false, null, null, false, false, true);
+                    // A TRACKED primitive box unboxes through its matching
+                    // helper: byte-identical to the object printer but without
+                    // the virtual ToString dispatch. Single is NOT here: net48
+                    // boxes a float as System.Single, and there is no
+                    // unbox-single helper (icall_unbox_double klass-checks for
+                    // a Double box and would throw InvalidCastException) -- it
+                    // falls through to the object printer, whose
+                    // HasKlassName("System.Single") arm renders it.
+                    if (arg0Type is "System.Int32" or "System.UInt32" or "System.Int64"
+                        or "System.UInt64" or "System.Double"
+                        or "System.Boolean" or "System.Char")
+                    {
+                        var primCast = arg0Type switch
+                        {
+                            "System.Int32" => "unbox:i",
+                            "System.UInt32" => "unbox:ui",
+                            "System.Int64" => "unbox:l",
+                            "System.UInt64" => "unbox:ul",
+                            "System.Double" => "unbox:d",
+                            "System.Boolean" => "unbox:b",
+                            _ => "unbox:c",
+                        };
+                        var primCasts = new[] { primCast };
+                        return arg0Type switch
+                        {
+                            "System.Int32" => I(newline ? "il2cpp::runtime::icall_console_write_line_i" : "il2cpp::runtime::icall_console_write_i", 1, false, false, false, primCasts, null, false, false, true),
+                            "System.UInt32" => I(newline ? "il2cpp::runtime::icall_console_write_line_u32" : "il2cpp::runtime::icall_console_write_u32", 1, false, false, false, primCasts, null, false, false, true),
+                            "System.Int64" => I(newline ? "il2cpp::runtime::icall_console_write_line_l" : "il2cpp::runtime::icall_console_write_l", 1, false, false, false, primCasts, null, false, false, true),
+                            "System.UInt64" => I(newline ? "il2cpp::runtime::icall_console_write_line_u64" : "il2cpp::runtime::icall_console_write_u64", 1, false, false, false, primCasts, null, false, false, true),
+                            "System.Double" => I(newline ? "il2cpp::runtime::icall_console_write_line_d" : "il2cpp::runtime::icall_console_write_d", 1, false, false, false, primCasts, null, false, false, true),
+                            "System.Boolean" => I(newline ? "il2cpp::runtime::icall_console_write_line_b" : "il2cpp::runtime::icall_console_write_b", 1, false, false, false, primCasts, null, false, false, true),
+                            _ => I(newline ? "il2cpp::runtime::icall_console_write_line_c" : "il2cpp::runtime::icall_console_write_c", 1, false, false, false, primCasts, null, false, false, true),
+                        };
+                    }
+                    // Narrow integer boxes (Byte/SByte/Int16/UInt16) and Single
+                    // have no unbox cast in the CodeGenerator cast table, but
+                    // the runtime object printer (valuesemantics.cpp
+                    // icall_object_to_string) already renders them with the
+                    // correct masked/sign-extended value, so they route there
+                    // -- NOT to the enum arm below (a Byte box is not a long
+                    // carrier: unbox_long would throw InvalidCastException).
+                    if (arg0Type is "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16" or "System.Single")
+                        return I(newline ? "il2cpp::runtime::icall_console_write_line_object" : "il2cpp::runtime::icall_console_write_object", 1, false, false, false, null, null, false, false, true);
+                    // A TRACKED box that is not one of the primitive classes
+                    // above is an ENUM (user enums box through their own
+                    // descriptor, BCL enums box through the int64 carrier and
+                    // therefore reach the object printer with the Int64 box
+                    // class -- losing the enum identity). Both route through
+                    // the "enum:l" cast: it emits
+                    // il2cpp_enum_to_string(nullptr, unbox_long(box)), whose
+                    // null-descriptor branch resolves the BUILT-IN BCL enum name
+                    // table (DayOfWeek -> "Monday") and whose
+                    // registered-descriptor branch resolves user enums. Without
+                    // this arm a boxed DayOfWeek prints "1" (timecase
+                    // regression: oracle "Monday").
+                    if (arg0Type is not null)
+                        return I(newline ? "il2cpp::runtime::icall_console_write_line_s" : "il2cpp::runtime::icall_console_write_s", 1, false, false, false, new[] { "enum:l" }, null, false, false, true);
                     return I(newline ? "il2cpp::runtime::icall_console_write_line_object" : "il2cpp::runtime::icall_console_write_object", 1, false, false, false, null, null, false, false, true);
             }
             throw new NotSupportedException(
