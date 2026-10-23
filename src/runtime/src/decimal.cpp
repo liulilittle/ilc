@@ -23,15 +23,17 @@
 //     net48 rejects MidpointRounding 2/3/4 through Round; probe-verified)
 //   * ToInt32/64/UInt32/64 out of range -> OverflowException
 //
-// KNOWN DEVIATION (GetHashCode): net48's GetHashCode is an InternalCall into
-// the native CLR (VarR8FromDec -> ((low32 & 0xFFFFFFF0) ^ high32), zero -> 0;
-// coreclr-1.x src/vm/comdecimal.cpp). It needs oleaut's 15-significant-digit
-// VarR8FromDec conversion which is not available as managed reference source.
-// Per the T1 card (decimal-domain.md 2.4) this file ports DecCalc.cs:1854
-// (the repo's reference): Unscale canonicalization + xor of the four dwords.
-// The two algorithms agree on the shared contract (scale-canonical hashing:
-// 1.00m hashes like 1m; zero hashes to 0). net48-exact hash values are a
-// follow-up item.
+// GetHashCode SEMANTIC NOTE: net48's GetHashCode is an InternalCall into the
+// native CLR: it converts the decimal to a double (VarR8FromDec) and returns
+// (low32 & 0xFFFFFFF0) ^ high32 of the IEEE-754 bits, with a zero-mantissa
+// shortcut (coreclr-1.x src/vm/comdecimal.cpp). That is what this file now
+// implements (DecimalGetHashCodeNet48), NOT DecCalc.cs:1854 -- the .NET Core
+// algorithm the T1 card originally pointed at. The two disagree on ordinary
+// values (1.5m: 65551 vs 1073217536), and because Dictionary<decimal,T> /
+// HashSet<decimal> bucket on this hash the Core algorithm was a user-visible
+// silent wrong value. The decimal->double conversion net48 uses is also NOT
+// the "exact decomposition / 10^scale" form: it is M / T10[scale] with T10 the
+// correctly rounded powers of ten (probe-fitted, 2M samples, 0 mismatches).
 //------------------------------------------------------------------------------
 
 #include "decimal.h"
@@ -1986,30 +1988,10 @@ done:
     return;
 }
 
-// DecCalc.GetHashCode (DecCalc.cs:1854-1871): canonicalizes the scale
-// (Unscale) before hashing so 1.00m and 1m hash alike.
-int32_t DecGetHashCode(const DecCalc& d)
-{
-    if ((d.Low64() | d.uhi) == 0)
-    {
-        return 0;
-    }
-
-    uint32_t flags = d.uflags;
-    if ((flags & kScaleMask) == 0 || (d.ulo & 1) != 0)
-    {
-        return (int32_t)(flags ^ d.uhi ^ d.umid ^ d.ulo);
-    }
-
-    int32_t scale = (int32_t)((flags >> kScaleShift) & 0xFF);
-    uint32_t low = d.ulo;
-    uint64_t high64 = ((uint64_t)d.uhi << 32) | d.umid;
-
-    Unscale(low, high64, scale);
-
-    flags = (flags & ~kScaleMask) | ((uint32_t)scale << kScaleShift);
-    return (int32_t)(flags ^ (uint32_t)(high64 >> 32) ^ (uint32_t)high64 ^ low);
-}
+// DecCalc.GetHashCode (DecCalc.cs:1854-1871) was DELETED here. It is the .NET
+// CORE algorithm and is not what net48 returns; its only caller
+// (icall_decimal_get_hash_code) now uses DecimalGetHashCodeNet48 instead.
+// Deleting rather than keeping it unused also keeps -Wall -Wextra clean.
 
 // Truncate toward zero (Decimal.cs:888-893).
 void Truncate(DecCalc& d)
@@ -2484,11 +2466,22 @@ uint64_t icall_decimal_to_uint64_round(const Il2CppDecimal* d)
     return ToUInt64Core(v);
 }
 
+// Forward declarations: both live in the floating-point section further down
+// (the net48 conversion + hash pair), but the hash icall above them needs them.
+double DecimalToDoubleBits(const Il2CppDecimal* d);
+int32_t DecimalGetHashCodeNet48(const Il2CppDecimal* d);
+
+// net48 GetHashCode. The DecCalc.GetHashCode algorithm that used to live here
+// (DecCalc.cs:1854-1871: Unscale canonicalization + xor of the four dwords) is
+// the .NET CORE algorithm and produced values that disagree with .NET
+// Framework 4.8 (e.g. 1.5m: 65551 here vs 1073217536 on net48), which silently
+// broke Dictionary<decimal,T> / HashSet<decimal> lookups. The port now follows
+// the net48 algorithm -- see DecimalGetHashCodeNet48 (decimal.cpp) for the
+// reverse-engineered definition and the probe evidence. Deliberately NOT
+// canonicalizing the scale: net48 does not either.
 int32_t icall_decimal_get_hash_code(const Il2CppDecimal* d)
 {
-    DecCalc v;
-    Load(v, d);
-    return DecGetHashCode(v);
+    return DecimalGetHashCodeNet48(d);
 }
 
 //------------------------------------------------------------------------------
@@ -2589,17 +2582,114 @@ void icall_decimal_ctor_float(Il2CppDecimal* out, float value)
 }
 
 
-double icall_decimal_to_double(const Il2CppDecimal* d)
+//------------------------------------------------------------------------------
+// net48 decimal -> double / decimal -> float (VarR8FromDec / VarR4FromDec).
+//
+// SEMANTIC BASELINE IS .NET FRAMEWORK 4.8, and its conversion is NOT the
+// "exact decomposition / 10^scale" form the previous implementation used:
+//
+//   M = (double)hi32 * 2^64 + (double)lo64   // exact: both terms are exact
+//                                            // (hi32 <= 2^32-1, lo64 < 2^64),
+//                                            // so this is ONE rounding
+//   d = M / T10[scale]                       // ONE more rounding
+//   d = -d when the sign bit is set          // -0.0 for negative zero
+//
+// T10[] holds the CORRECTLY ROUNDED doubles of 10^scale. It is a hardcoded
+// table on purpose: neither the platform libm nor .NET's Math.Pow is
+// correctly rounded at every scale (Math.Pow(10,23) is 1 ulp HIGH, and
+// MinGW's std::pow disagrees with .NET's at several scales), so computing
+// the power at run time would make the result compiler-dependent -- exactly
+// the class of silent drift this port must not have.
+//
+// Evidence (probe: tests/cases/dhashprobe/dhashfit9.cs, net48 oracle):
+//   * 2,000,000 adversarial (lo,mid,hi,scale,sign) samples:
+//     doubleBad=0 floatBad=0.
+//   * the previous form (M / std::pow(10, scale)) was wrong for 65,136 of
+//     2,000,000 samples (3.26%), always by 1 ulp, and concentrated at
+//     scale >= 23 where pow(10,scale) itself stops being exact.
+//   * decimal -> float needs no separate path: net48's (float)d is
+//     bit-identical to (float)of this double on 2.5M samples (the float
+//     conversion is one rounding from the same value), so to_float stays a
+//     narrowing of to_double.
+//------------------------------------------------------------------------------
+constexpr uint64_t kPow10Bits[29] = {
+    0x3FF0000000000000ull, 0x4024000000000000ull, 0x4059000000000000ull,
+    0x408F400000000000ull, 0x40C3880000000000ull, 0x40F86A0000000000ull,
+    0x412E848000000000ull, 0x416312D000000000ull, 0x4197D78400000000ull,
+    0x41CDCD6500000000ull, 0x4202A05F20000000ull, 0x42374876E8000000ull,
+    0x426D1A94A2000000ull, 0x42A2309CE5400000ull, 0x42D6BCC41E900000ull,
+    0x430C6BF526340000ull, 0x4341C37937E08000ull, 0x4376345785D8A000ull,
+    0x43ABC16D674EC800ull, 0x43E158E460913D00ull, 0x4415AF1D78B58C40ull,
+    0x444B1AE4D6E2EF50ull, 0x4480F0CF064DD592ull, 0x44B52D02C7E14AF6ull,
+    0x44EA784379D99DB4ull, 0x45208B2A2C280291ull, 0x4554ADF4B7320335ull,
+    0x4589D971E4FE8402ull, 0x45C027E72F1F1281ull,
+};
+
+double DecimalToDoubleBits(const Il2CppDecimal* d)
 {
     const int32_t scale = (d->flags >> kDecimalScaleShift) & 0xFF;
     const bool neg = (d->flags & kDecimalSignMask) != 0;
-    double m = std::ldexp(static_cast<double>(d->hi32), 64) + static_cast<double>(d->lo64);
-    if (scale > 0) m /= std::pow(10.0, scale);
+    // hi32*2^64 is exact (a 32-bit integer scaled by a power of two);
+    // (double)lo64 rounds once; the sum is exact because the two exponents are
+    // far enough apart that the significands cannot overlap. This is the net48
+    // shape: ONE rounding for the mantissa, ONE for the divide.
+    double m = std::ldexp(static_cast<double>(d->hi32), 64) +
+               static_cast<double>(d->lo64);
+    if (scale > 0)
+    {
+        double divisor = 0.0;
+        std::memcpy(&divisor, &kPow10Bits[scale], sizeof divisor);
+        m /= divisor;
+    }
     return neg ? -m : m;
+}
+
+// net48 GetHashCode (the native CLR's Decimal.GetHashCode, NOT .NET Core's
+// DecCalc.GetHashCode). Reverse-engineered with a net48 oracle over 54 named
+// values + 400,000 per-scale + 2,000,000 adversarial samples:
+//
+//   bits = IEEE-754 bits of (double)d
+//   hash = mantissa == 0 ? 0 : (int)((bits >> 32) ^ (int)(bits & 0xFFFFFFF0))
+//
+// Notes on the exact shape (each one is probe-pinned):
+//   * The 0xFFFFFFF0 mask on the LOW dword is what makes this decimal-specific.
+//     Without the mask it degenerates to Double.GetHashCode(), which disagrees
+//     with net48 on 27 of the 54 named values (e.g. 0.1m: -1507852279 vs
+//     -1507852285).
+//   * The mantissa-zero test comes FIRST, so -0.0m / decimal.Negate(0m) /
+//     new decimal(0,0,0,true,0) hash to 0 rather than to (int)0x80000000.
+//   * The hash is NOT value-canonical. net48 hashes the ROUNDED DOUBLE of the
+//     stored (mantissa, scale) pair, so a large mantissa written with one extra
+//     trailing zero (mathematically the same value) can hash differently:
+//     m@scale14 -> -1803220006 but (m*10)@scale15 -> -1803220054,
+//     probe-verified. We reproduce that defect verbatim; "canonicalizing" it
+//     with the DecCalc Unscale step would be a silent wrong value, and
+//     Dictionary<decimal,T> / HashSet<decimal> bucket on this number.
+//   * .NET Core's DecCalc.GetHashCode (unscale + xor of the four dwords) is a
+//     DIFFERENT algorithm and is deliberately not used: the project's semantic
+//     baseline is net48.
+int32_t DecimalGetHashCodeNet48(const Il2CppDecimal* d)
+{
+    if (d->hi32 == 0 && d->lo64 == 0)
+    {
+        return 0;
+    }
+    const double value = DecimalToDoubleBits(d);
+    uint64_t bits = 0;
+    std::memcpy(&bits, &value, sizeof bits);
+    return (int32_t)((uint32_t)(bits >> 32) ^ ((uint32_t)bits & 0xFFFFFFF0u));
+}
+
+double icall_decimal_to_double(const Il2CppDecimal* d)
+{
+    return DecimalToDoubleBits(d);
 }
 
 float icall_decimal_to_float(const Il2CppDecimal* d)
 {
+    // net48's decimal->float is bit-identical to narrowing this double
+    // (probe: 2,500,000 samples, 0 mismatches), so there is no separate
+    // VarR4FromDec path to reproduce.
     return static_cast<float>(icall_decimal_to_double(d));
 }
 

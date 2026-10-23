@@ -46,6 +46,7 @@
 
 #include "il2cpp_hashtable.h"
 
+#include "decimal.h" // icall_decimal_get_hash_code / icall_decimal_equals
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gcroot.h"
 #include "il2cpp_runtime.h"
@@ -57,6 +58,12 @@
 #include <cstring>
 
 namespace il2cpp {
+
+// Decimal key support: the value hash / equality live in the nested runtime
+// namespace (decimal.h) because they are the System.Decimal icalls.
+using runtime::Il2CppDecimal;
+using runtime::icall_decimal_equals;
+using runtime::icall_decimal_get_hash_code;
 
 namespace {
 
@@ -175,11 +182,15 @@ int32_t BucketIndex(int32_t hash, int32_t bucketCount)
 // carry the same names.
 //
 // COVERAGE (exact, see IsBoxedValueKey): Int32 / Double / Char / Boolean /
-// Single / Int64 / UInt32 / UInt64 are hashed BY VALUE. Byte / SByte / Int16 /
-// UInt16 / Decimal are NOT in that set today -- they fall through to the
-// address hash below, so two equal boxed small values are distinct keys.
-// That is a PRE-EXISTING gap in this table, unrelated to box descriptor
-// identity (recorded as a separate item; this comment must not overclaim).
+// Single / Int64 / UInt32 / UInt64 / Decimal are hashed BY VALUE. Byte / SByte /
+// Int16 / UInt16 are NOT in that set today -- they fall through to the address
+// hash below, so two equal boxed small values are distinct keys. That is a
+// PRE-EXISTING gap in this table, unrelated to box descriptor identity
+// (recorded as a separate item; this comment must not overclaim).
+//
+// Decimal was added to the set with the net48 hash fix: before it, a decimal
+// key fell through to the ADDRESS hash, so 1.5m and 1.50m (equal values) were
+// different buckets and every lookup missed -- probe decimalhash2.
 //------------------------------------------------------------------------------
 
 bool IsStringKey(const Il2CppObject* key)
@@ -207,12 +218,15 @@ bool IsBoxedValueKey(const Il2CppObject* key)
            std::strcmp(n, "System.Single") == 0 ||
            std::strcmp(n, "System.Int64") == 0 ||
            std::strcmp(n, "System.UInt32") == 0 ||
-           std::strcmp(n, "System.UInt64") == 0;
+           std::strcmp(n, "System.UInt64") == 0 ||
+           std::strcmp(n, "System.Decimal") == 0;
 }
 
 // The boxed-value payload slot: the aligned 8-byte slot after the object
 // header -- byte-identical to boxing.cpp / boxingext.cpp / boxingext2.cpp's
-// kBoxPayloadOffset (never change one without the other).
+// kBoxPayloadOffset (never change one without the other). The System.Decimal
+// box stores a 16-byte Il2CppDecimal at this same offset (boxingext2.cpp
+// g_decimalBoxClass has instanceSize 32 = header + the 16-byte value slot).
 constexpr int32_t kBoxPayloadOffset = 8;
 
 // Read the boxed payloads. Only called after IsBoxedValueKey (or a string
@@ -323,6 +337,19 @@ int32_t BoxedValueHash(const Il2CppObject* boxed)
         const int64_t v = BoxedInt64Value(boxed);
         return static_cast<int32_t>(v) ^ static_cast<int32_t>(static_cast<uint64_t>(v) >> 32);
     }
+    if (std::strcmp(n, "System.Decimal") == 0)
+    {
+        // net48 Decimal.GetHashCode -- the SAME icall the direct call uses
+        // (decimal.cpp DecimalGetHashCodeNet48: the masked IEEE bits of the
+        // converted double, with a zero-mantissa shortcut). Routing through
+        // icall_object_get_hash_code would work too, but that adds a second
+        // klass-name dispatch for a value we already classified here.
+        Il2CppDecimal value;
+        std::memcpy(&value,
+                    reinterpret_cast<const char*>(boxed) + kBoxPayloadOffset,
+                    sizeof(value));
+        return icall_decimal_get_hash_code(&value);
+    }
     return BoxedInt32Value(boxed);
 }
 
@@ -391,6 +418,16 @@ bool KeyEquals(Il2CppObject* a, Il2CppObject* b)
         if (std::strcmp(n, "System.Int64") == 0 || std::strcmp(n, "System.UInt64") == 0)
         {
             return BoxedInt64Value(a) == BoxedInt64Value(b);
+        }
+        if (std::strcmp(n, "System.Decimal") == 0)
+        {
+            // net48 decimal.Equals: value equality (scale-insensitive), which
+            // is exactly icall_decimal_equals (DecCalc.Equals).
+            Il2CppDecimal va;
+            Il2CppDecimal vb;
+            std::memcpy(&va, reinterpret_cast<const char*>(a) + kBoxPayloadOffset, sizeof(va));
+            std::memcpy(&vb, reinterpret_cast<const char*>(b) + kBoxPayloadOffset, sizeof(vb));
+            return icall_decimal_equals(&va, &vb);
         }
         return BoxedInt32Value(a) == BoxedInt32Value(b);
     }
