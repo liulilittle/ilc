@@ -1,5 +1,7 @@
 namespace Il2Cpp.Transpiler.Emit;
 
+using Il2Cpp.Transpiler.Model;
+
 //------------------------------------------------------------------------------
 // MethodMap.HashSet -- System.Collections.Generic.HashSet`1 wiring.
 // Owners: System.Collections.Generic.HashSet`1 (+Enumerator)
@@ -34,7 +36,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     // The element family of a HashSet instantiation.
-    private enum HashSetKind { Ref, I4, I8, D, U4, Dec }
+    private enum HashSetKind { Ref, I4, I8, D, U4, Dec, Dt, Ts, Guid, Struct, Enum }
 
     private static HashSetKind? HashSetKindOf(string? instTag)
     {
@@ -46,6 +48,9 @@ public static partial class MethodRefResolver
             case "System.Collections.Generic.HashSet`1_double": return HashSetKind.D;
             case "System.Collections.Generic.HashSet`1_uint": return HashSetKind.U4;
             case "System.Collections.Generic.HashSet`1_System.Decimal": return HashSetKind.Dec;
+            case "System.Collections.Generic.HashSet`1_System.DateTime": return HashSetKind.Dt;
+            case "System.Collections.Generic.HashSet`1_System.TimeSpan": return HashSetKind.Ts;
+            case "System.Collections.Generic.HashSet`1_System.Guid": return HashSetKind.Guid;
             case "System.Collections.Generic.HashSet`1_string":
             case "System.Collections.Generic.HashSet`1_object":
             case "System.Collections.Generic.HashSet`1_class":
@@ -53,16 +58,43 @@ public static partial class MethodRefResolver
         }
         // Any other CLOSED instantiation (a user class / struct / enum / a
         // nested generic): its element is a managed reference at the C++ ABI
-        // (value types are boxed at the call site), so it rides the reference
-        // family. The prefix check keeps `HashSet`1_` from matching the raw
-        // definition name.
+        // (value types are boxed by the generated call site), so it rides the
+        // reference family. The prefix check keeps `HashSet`1_` from matching
+        // the raw definition name.
         if (instTag.StartsWith("System.Collections.Generic.HashSet`1_", StringComparison.Ordinal)
             && instTag.Length > "System.Collections.Generic.HashSet`1_".Length)
         {
+            // A user STRUCT / ENUM element needs the BOX at the call site: the
+            // carrier table stores managed objects, so every value argument is
+            // boxed through icall_box_user_struct / icall_box_enum (the same
+            // box the List<struct> domain uses). A user CLASS element is a
+            // plain reference.
+            if (IsUserValueTypeElement(instTag))
+                return HashSetKind.Struct;
             return HashSetKind.Ref;
         }
         return null;
     }
+
+    // The element TypeDef when the instantiation is a USER value type (a struct
+    // or an enum declared in this assembly); null for a reference element.
+    private static TypeDef? HashSetValueTypeElement(string? instTag)
+    {
+        const string prefix = "System.Collections.Generic.HashSet`1_";
+        if (instTag == null || !instTag.StartsWith(prefix, StringComparison.Ordinal)) return null;
+        var elem = instTag[prefix.Length..];
+        // The BCL struct families have their own arms; a short primitive
+        // suffix ("int"/"string"/"object"/"class") never names a user type.
+        if (elem is "int" or "long" or "double" or "uint" or "string" or "object" or "class") return null;
+        if (MethodRefResolver.IsKnownValueTypeName(elem)) return null;
+        if (TypeEmitter.SessionTypes is not { } known) return null;
+        // A USER value type: the element name is the TypeDef full name (which
+        // for a global-namespace type has NO dot -- matching on the value-type
+        // flag alone is what makes the global case work).
+        return known.FirstOrDefault(t => t.MatchesFullName(elem) && t.IsValueType);
+    }
+
+    private static bool IsUserValueTypeElement(string? instTag) => HashSetValueTypeElement(instTag) != null;
 
     // The concrete C++ parameter/return code for an element family.
     private static string HashSetCode(HashSetKind k, bool asArgument) => k switch
@@ -72,6 +104,14 @@ public static partial class MethodRefResolver
         HashSetKind.I8 => "l",
         HashSetKind.D => "d",
         HashSetKind.Dec => "dec",
+        // DateTime/TimeSpan cross as VALUES (the icall takes them by value);
+        // Guid crosses as an ADDRESS (16-byte, the T3/Guid contract).
+        HashSetKind.Dt => "deref:dt",
+        HashSetKind.Ts => "deref:ts",
+        HashSetKind.Guid => "g",
+        // A user value type: the carrier is a BOX, so the argument is boxed
+        // through the element type's own descriptor.
+        HashSetKind.Struct => "box:us",
         _ => "",
     };
 
@@ -82,6 +122,9 @@ public static partial class MethodRefResolver
         HashSetKind.D => "double",
         HashSetKind.U4 => "uint",
         HashSetKind.Dec => "dec",
+        HashSetKind.Dt => "dt",
+        HashSetKind.Ts => "ts",
+        HashSetKind.Guid => "guid",
         _ => "ref",
     };
 
@@ -96,6 +139,9 @@ public static partial class MethodRefResolver
         if (!receiverType.StartsWith("System.Collections.Generic.HashSet`1.Enumerator_", StringComparison.Ordinal))
             return null;
         var suffix = receiverType["System.Collections.Generic.HashSet`1.Enumerator_".Length..];
+        // The USER STRUCT element token carries its type after "struct:" and is
+        // handled by TryMapHashSetEnumerator's dedicated arm.
+        if (suffix.StartsWith("struct:", StringComparison.Ordinal)) return null;
         return suffix switch
         {
             "int" or "System.Int32" => HashSetKind.I4,
@@ -196,22 +242,48 @@ public static partial class MethodRefResolver
 
             case "Add":
                 if (count != 1 || !IsVarShape()) return Loud(instTag, name, ps);
+                if (k == HashSetKind.Struct)
+                {
+                    var sdef = HashSetValueTypeElement(instTag)!;
+                    TypeEmitter.LayoutInstanceFields(sdef);
+                    var scpp = TypeEmitter.TypeCppName(sdef);
+                    return I($"il2cpp::runtime::icall_hashset_struct_add_t<{scpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { $"&{scpp}_class" });
+                }
                 return Icall("add", 1, true, false, new[] { "", code });
 
             case "Remove":
                 if (count != 1 || !IsVarShape()) return Loud(instTag, name, ps);
+                if (k == HashSetKind.Struct)
+                {
+                    var sdef = HashSetValueTypeElement(instTag)!;
+                    TypeEmitter.LayoutInstanceFields(sdef);
+                    var scpp = TypeEmitter.TypeCppName(sdef);
+                    return I($"il2cpp::runtime::icall_hashset_struct_remove_t<{scpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { $"&{scpp}_class" });
+                }
                 return Icall("remove", 1, true, false, new[] { "", code });
 
             case "Contains":
                 if (count != 1 || !IsVarShape()) return Loud(instTag, name, ps);
+                if (k == HashSetKind.Struct)
+                {
+                    var sdef = HashSetValueTypeElement(instTag)!;
+                    TypeEmitter.LayoutInstanceFields(sdef);
+                    var scpp = TypeEmitter.TypeCppName(sdef);
+                    return I($"il2cpp::runtime::icall_hashset_struct_contains_t<{scpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { $"&{scpp}_class" });
+                }
                 return Icall("contains", 1, true, false, new[] { "", code });
 
             case "get_Count":
                 if (count != 0) return Loud(instTag, name, ps);
+                if (k == HashSetKind.Struct) return I("il2cpp::runtime::icall_hashset_int_get_count", 0, true, false, true, new[] { "" });
                 return Icall("get_count", 0, true, false, new[] { "" });
 
             case "Clear":
                 if (count != 0) return Loud(instTag, name, ps);
+                if (k == HashSetKind.Struct) return I("il2cpp::runtime::icall_hashset_int_clear", 0, false, false, true, new[] { "" });
                 return Icall("clear", 0, false, false, new[] { "" });
 
             case "CopyTo":
@@ -239,6 +311,16 @@ public static partial class MethodRefResolver
 
             case "GetEnumerator":
                 if (count != 0) return Loud(instTag, name, ps);
+                if (k == HashSetKind.Struct)
+                {
+                    // A struct element enumerates the carrier snapshot; the
+                    // element read needs the struct type (see the enumerator arm).
+                    var sdef = HashSetValueTypeElement(instTag)!;
+                    TypeEmitter.LayoutInstanceFields(sdef);
+                    var scpp = TypeEmitter.TypeCppName(sdef);
+                    return I("il2cpp::il2cpp_hashset_ref_get_enumerator", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Collections.Generic.HashSet`1.Enumerator_struct:" + scpp + ":" + sdef.FullName);
+                }
                 return I($"il2cpp::il2cpp_hashset_{suffix}_get_enumerator", 0, true, true, true,
                     new[] { "" }, returnTypeName: HashSetEnumeratorTrackedType(instTag, k));
 
@@ -289,6 +371,9 @@ public static partial class MethodRefResolver
         HashSetKind.I8 => "l",
         HashSetKind.D => "d",
         HashSetKind.Dec => "dec",
+        HashSetKind.Dt => "dt",
+        HashSetKind.Ts => "ts",
+        HashSetKind.Guid => "guid",
         _ => "a",
     };
 
@@ -323,7 +408,39 @@ public static partial class MethodRefResolver
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
         var kind = HashSetEnumeratorKind(receiverType);
-        if (kind == null) return null;
+        if (kind == null)
+        {
+            // The USER STRUCT element token carries its C++ type + full name
+            // after "Enumerator_struct:<cpp>:<fullname>" (see the GetEnumerator
+            // arm): get_Current unboxes the carrier into the struct slot.
+            const string structPrefix = "System.Collections.Generic.HashSet`1.Enumerator_struct:";
+            if (receiverType != null && receiverType.StartsWith(structPrefix, StringComparison.Ordinal))
+            {
+                var rest = receiverType[structPrefix.Length..];
+                var sep = rest.IndexOf(':');
+                var scpp = sep > 0 ? rest[..sep] : rest;
+                var fullName = sep > 0 ? rest[(sep + 1)..] : scpp;
+                switch (name)
+                {
+                    case "MoveNext":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_keycollection_enumerator_move_next", 0, true, false, true, new[] { "deref:r" })
+                            : null;
+                    case "get_Current":
+                        return count == 0
+                            ? I($"il2cpp::runtime::icall_hashset_struct_enumerator_get_current_t<{scpp}>", 0, true, false, true,
+                                new[] { "deref:r" }, resultKind: "us:" + scpp, returnTypeName: fullName)
+                            : null;
+                    case "Dispose":
+                        return count == 0
+                            ? I("il2cpp::il2cpp_dict_si_enumerator_dispose", 0, false, false, true, new[] { "deref:r" })
+                            : null;
+                    default:
+                        return null;
+                }
+            }
+            return null;
+        }
         var k = kind.Value;
         switch (name)
         {

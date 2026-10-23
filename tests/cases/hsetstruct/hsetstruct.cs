@@ -28,7 +28,7 @@ class Prog
         Console.WriteLine("struct_has=" + pt.Contains(new Pt(3, 4)));
         Console.WriteLine("struct_miss=" + pt.Contains(new Pt(9, 9)));
         string spt = "";
-        foreach (Pt v in pt) spt += v.ToString() + ";";
+        foreach (Pt v in pt) spt += v.X + "/" + v.Y + ";";
         Console.WriteLine("struct_order=" + spt);
         Console.WriteLine("struct_remove=" + pt.Remove(new Pt(1, 2)) + " count=" + pt.Count);
     }
