@@ -46,6 +46,19 @@ namespace il2cpp {
 // the set code below is in il2cpp, so bind them once here.
 using runtime::icall_object_get_hash_code;
 using runtime::icall_object_equals;
+using runtime::icall_box_long;
+using runtime::icall_unbox_long;
+using runtime::icall_box_double;
+using runtime::icall_unbox_double;
+using runtime::icall_box_uint;
+using runtime::icall_unbox_uint;
+using runtime::icall_unbox_decimal;
+using runtime::icall_box_date_time;
+using runtime::icall_unbox_date_time;
+using runtime::icall_box_time_span;
+using runtime::icall_unbox_time_span;
+using runtime::icall_box_guid;
+using runtime::icall_unbox_guid;
 
 
 //------------------------------------------------------------------------------
@@ -751,12 +764,13 @@ Il2CppClass* il2cpp_hashset_class()
 }
 
 //------------------------------------------------------------------------------
-// int32 family.
-//------------------------------------------------------------------------------
-//------------------------------------------------------------------------------
 // The carrier primitives (used by the USER VALUE TYPE template wrappers the
 // generated code instantiates, and by the DateTime/TimeSpan/Guid families).
+// These are DECLARED in namespace runtime (hashset.h) and must be DEFINED
+// there too -- a definition at il2cpp scope is a DIFFERENT symbol.
 //------------------------------------------------------------------------------
+namespace runtime {
+
 bool icall_hashset_add_carrier(Il2CppObject* self, Il2CppObject* carrier)
 {
     ThrowIfNullReceiver(self);
@@ -1043,6 +1057,8 @@ void icall_hashset_guid_enumerator_get_current(Il2CppGuid* result, Il2CppObject*
     if (result == nullptr) return;
     *result = icall_unbox_guid(il2cpp_dict_si_keycollection_enumerator_get_current(self));
 }
+
+} // namespace runtime
 
 namespace runtime {
 
