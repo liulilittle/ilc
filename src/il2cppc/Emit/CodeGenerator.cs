@@ -3107,6 +3107,16 @@ public static class CodeGenerator
                 w.Line($"{MuPrefix(d)}void* {d};");
                 continue;
             }
+            // D/E (Nullable element address): the ldelema of a Nullable`1<T>
+            // array element is the address of ONE Il2CppObject* cell (the
+            // boxed-object nullable representation). Declaring it intptr_t
+            // (the generic "ptr" carrier) made the generated
+            // `(t != nullptr)` / unbox expressions ill-typed.
+            if (kind == "naddr")
+            {
+                w.Line($"{MuPrefix(d)}Il2CppObject** {d};");
+                continue;
+            }
             // M4.5: P/Invoke IntPtr result temps -> full-width pointer (an
             // int32_t temp truncates the x64 native return; the consumer
             // casts onward with the "p" arg-cast).
@@ -5581,6 +5591,9 @@ public static class CodeGenerator
         // type so the temp is declared `{CppName}* t;` (field access on the
         // element address dereferences it; see the ldelema_ emit site).
         CallExpr c when c.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true => c.ResultKind["sp:".Length..] + "*",
+        // D/E (Nullable element address): the address of ONE Il2CppObject*
+        // cell must declare as Il2CppObject** (not the intptr_t carrier).
+        CallExpr c when c.ResultKind == "naddr" => "naddr",
         // tuple1 (ValueTuple): a user call returning a tuple carries
         // "vt:<closedName>" -- the result temp is the generated struct.
         CallExpr c when c.ResultKind?.StartsWith("vt:", StringComparison.Ordinal) == true
@@ -9354,6 +9367,11 @@ default: return false;                           // primitives/VAR(handled by ca
     private static string NullableObjectExpr(Expr recv, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         var code = EmitExpr(recv, md, types);
+        // D/E (Nullable element address): an ldelema of a Nullable`1<T> array
+        // element is already a typed Il2CppObject** (ResultKind "naddr") --
+        // deref it to the nullable object.
+        if (recv is CallExpr ce && ce.ResultKind == "naddr")
+            return $"(*reinterpret_cast<Il2CppObject**>({code}))";
         return recv is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
             ? $"(*reinterpret_cast<Il2CppObject**>({code}))"
             : code;
@@ -10174,6 +10192,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             // the intptr_t carrier. Everything else stays the intptr_t pointer.
             if (c.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true)
                 return $"reinterpret_cast<{c.ResultKind["sp:".Length..]}*>({ldelemaPtr})";
+            // D/E (Nullable element address): a typed Il2CppObject** -- the
+            // nullable members/initobj then deref it as the object slot.
+            if (c.ResultKind == "naddr")
+                return $"reinterpret_cast<Il2CppObject**>({ldelemaPtr})";
             return $"reinterpret_cast<intptr_t>({ldelemaPtr})";
         }
         // ILOP-2 P8: il2cpp::il2cpp_localloc -- stack-frame allocation
@@ -11387,8 +11409,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // canonical TypeSpecTokenName fallback ("System.Object") would misclassify
     // the slot kind.
     private static string? TypeSpecGenericInstDefName(MetadataReader md, int token)
-    {
-        var handle = MetadataTokens.Handle(token);
+    {        var handle = MetadataTokens.Handle(token);
         if (handle.Kind != HandleKind.TypeSpecification) return null;
         var sig = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
         if (sig.ReadByte() != 0x15) return null; // not GENERICINST
@@ -11423,6 +11444,33 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         ("string", IntPtr.Size), ("object", IntPtr.Size),
     };
 
+    // Decode a GENERIC INSTANTIATION TypeSpec into (isValueType, defFullName,
+    // closedInstanceName). The closed name is only produced for shapes the
+    // transpiler has a C++ struct for (ValueTupleSupport closed instances);
+    // for every other instantiation it is null and the caller decides.
+    //--------------------------------------------------------------------------
+    private static (bool IsValue, string? DefName, string? ClosedName) DecodeGenericInstSpec(MetadataReader md, int typeToken)
+    {
+        var handle = MetadataTokens.Handle(typeToken);
+        if (handle.Kind != HandleKind.TypeSpecification) return (false, null, null);
+        var specHandle = (TypeSpecificationHandle)handle;
+        var sig = md.GetBlobReader(md.GetTypeSpecification(specHandle).Signature);
+        if (sig.ReadByte() != 0x15) return (false, null, null); // not GENERICINST
+        var marker = sig.ReadByte(); // 0x11 VALUETYPE / 0x12 CLASS
+        var def = sig.ReadTypeHandle();
+        var defName = def.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)def),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)def),
+            _ => null,
+        };
+        var isValue = marker == 0x11;
+        var closed = isValue && ValueTupleSupport.IsValueTupleName(defName)
+            ? ValueTupleSupport.ClosedNameFromSpec(md, specHandle)
+            : null;
+        return (isValue, defName, closed);
+    }
+
     // ArrayElementType -- newarr element type -> (elemSize, isRefElement).    //   System.Int32                 -> (4, false)
     //   System.Byte                  -> (1, false)   (net-domain T0; ldelem.u1/
     //                                                 stelem.i1 width dispatch
@@ -11435,6 +11483,39 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     private static (int ElemSize, bool IsRefElement) ArrayElementType(MetadataReader md, int typeToken, IReadOnlyList<TypeDef> types)
     {
         var typeName = TypeTokenFullName(md, typeToken);
+        // D/E (value-element TypeSpec): a GENERIC INSTANTIATION element. The
+        // name channel collapses every GenericInst to "System.Object", which
+        // would allocate a GC REFERENCE array over value payload (a silent
+        // mis-allocation: the collector would scan struct bytes as pointers).
+        // Decode the instantiation kind explicitly:
+        //   * System.Nullable`1<T> -- the runtime models a nullable VALUE as an
+        //     Il2CppObject* slot, so the element IS a GC reference (pointer
+        //     stride, scanned payload). Handled before the generic arms below.
+        //   * System.ValueTuple`N<...> -- a real generated struct with a known
+        //     C++ layout; the element stride is that struct's size and the
+        //     element access is the typed struct copy (ldelem_us_/stelem_us_).
+        //   * any other value instantiation has no C++ name -> LOUD.
+        if (MetadataTokens.Handle(typeToken).Kind == HandleKind.TypeSpecification)
+        {
+            var (specIsValue, specDef, specClosed) = DecodeGenericInstSpec(md, typeToken);
+            if (!specIsValue)
+            {
+                // CLASS instantiation: a managed reference element.
+                return (PointerSize, true);
+            }
+            if (specDef == "System.Nullable`1")
+            {
+                // Boxed-object nullable representation: one GC pointer per cell.
+                return (PointerSize, true);
+            }
+            if (ValueTupleSupport.IsValueTupleName(specClosed))
+            {
+                ValueTupleSupport.Require(specClosed!);
+                return (ValueTupleSupport.SizeOf(specClosed!, PointerSize), false);
+            }
+            throw new NotSupportedException(
+                $"newarr of value type {specDef ?? typeName} not supported: the generic value instantiation has no C++ struct (no box/array helper)");
+        }
         if (typeName == "System.Int32") return (4, false);
         // batch 2026-10-05 (iopairprobe, audit C4): the remaining value-type
         // element arrays the probe allocates -- each allocates its exact value

@@ -4985,7 +4985,26 @@ public static class StackFold
         // structs keep the intptr_t "ptr" carrier, unchanged).
         static string? LdelemaUserStructKind(MetadataReader? md, int token, IReadOnlyList<TypeDef>? types)
         {
-            if (md == null || types == null) return null;
+            if (md == null) return null;
+            // D/E (value-element TypeSpec): a System.ValueTuple`N instantiation
+            // is a generated struct -- its element address is a typed struct
+            // pointer (the following ldflda ItemK dereferences fields through
+            // it), exactly like a translated user struct.
+            var (specIsValue, specDef, specClosed) = DecodeGenericInstSpec(md, token);
+            if (specIsValue && ValueTupleSupport.IsValueTupleName(specClosed))
+            {
+                ValueTupleSupport.Require(specClosed!);
+                return "sp:" + ValueTupleSupport.StructName(specClosed!);
+            }
+            // D/E (value-element TypeSpec): a System.Nullable`1<T> element is
+            // ONE Il2CppObject* cell (the boxed-object nullable
+            // representation), so its address is an Il2CppObject** slot --
+            // "naddr" (the temp/consumer declarations need the double
+            // pointer, and the nullable members deref it to the object).
+            if (specIsValue && specDef == "System.Nullable`1")
+                return "naddr";
+            _ = specDef;
+            if (types == null) return null;
             var fullName = TypeFullNameFromToken(md, token);
             var t = types.FirstOrDefault(x => x.MatchesFullName(fullName));
             if (t == null || !t.IsValueType) return null;
@@ -5348,6 +5367,32 @@ public static class StackFold
                 or "System.DateTime" or "System.TimeSpan" or "System.Decimal" or "System.Guid");
         }
 
+        // D/E (value-element TypeSpec): decode a GENERIC INSTANTIATION TypeSpec
+        // into (isValueType, defFullName, closedInstanceName). The closed name
+        // is produced only for shapes with a C++ struct (ValueTupleSupport);
+        // every other instantiation answers null for it.
+        static (bool IsValue, string? DefName, string? ClosedName) DecodeGenericInstSpec(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeSpecification) return (false, null, null);
+            var specHandle = (TypeSpecificationHandle)handle;
+            var sig = md.GetBlobReader(md.GetTypeSpecification(specHandle).Signature);
+            if (sig.ReadByte() != 0x15) return (false, null, null);
+            var marker = sig.ReadByte();
+            var def = sig.ReadTypeHandle();
+            var defName = def.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)def),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)def),
+                _ => null,
+            };
+            var isValue = marker == 0x11;
+            var closed = isValue && ValueTupleSupport.IsValueTupleName(defName)
+                ? ValueTupleSupport.ClosedNameFromSpec(md, specHandle)
+                : null;
+            return (isValue, defName, closed);
+        }
+
         // Classify a generic array/pointer element TypeDefOrRef/TypeSpec token
         // for the fixed-width ldelem/stelem emission: (IsRef, Width, Name).
         // TypeSpecs: a VAR generic parameter (0x13) instantiates to int32 under
@@ -5373,8 +5418,37 @@ public static class StackFold
                 if (header == 0x13) return (false, 4, "T"); // VAR generic parameter -> int32 (M3 convention)
                 if (header == 0x15)
                 {
-                    var defType = sig.ReadByte();
-                    return (defType != 0x11, null, "?"); // CLASS inst -> ref; VALUETYPE inst -> value (width unknown)
+                    var defType = sig.ReadByte(); // CLASS(0x12) / VALUETYPE(0x11) marker
+                    if (defType != 0x11) return (true, null, "?"); // CLASS inst -> ref
+                    // D/E (value-element TypeSpec): a VALUETYPE generic
+                    // instantiation. Two shapes are expressible:
+                    //   * System.Nullable`1<T> -- this runtime models a
+                    //     nullable VALUE as an Il2CppObject* slot (null = no
+                    //     value, boxed T = value; TypeEmitter M6 contract), so
+                    //     a nullable array element IS a GC reference.
+                    //   * System.ValueTuple`N<...> -- a real generated struct
+                    //     (ValueTupleSupport), accessed through the typed
+                    //     struct-copy path (ldelem_us_/stelem_us_).
+                    // Any other value instantiation stays width-unknown (the
+                    // token-based emitter has no C++ name for it).
+                    var defHandle = sig.ReadTypeHandle();
+                    var defName = defHandle.Kind switch
+                    {
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+                        _ => null,
+                    };
+                    if (defName == "System.Nullable`1") return (true, null, defName);
+                    if (ValueTupleSupport.IsValueTupleName(defName))
+                    {
+                        var closed = ValueTupleSupport.ClosedNameFromSpec(md, (TypeSpecificationHandle)handle);
+                        if (closed != null)
+                        {
+                            ValueTupleSupport.Require(closed);
+                            return (false, null, closed);
+                        }
+                    }
+                    return (false, null, "?");
                 }
                 throw new NotSupportedException($"type token 0x{token:X8}: TypeSpec header 0x{header:X2} not VAR(0x13)/GenericInst(0x15)");
             }
@@ -5398,6 +5472,14 @@ public static class StackFold
             if (md == null || types == null) return null;
             var (isRef, _, name) = ElementAccessInfo(md, token, types);
             if (isRef || name == "?") return null;
+            // D/E (value-element TypeSpec): a System.ValueTuple`N instantiation
+            // is a generated struct (ValueTupleSupport), not a TypeDef -- the
+            // typed struct copy path is exactly right for it.
+            if (ValueTupleSupport.IsValueTupleName(name))
+            {
+                ValueTupleSupport.Require(name);
+                return ValueTupleSupport.StructName(name);
+            }
             var def = types.FirstOrDefault(t => t.MatchesFullName(name)
                 && t.IsValueType && t.BaseTypeName != "System.Enum");
             if (def == null) return null;
