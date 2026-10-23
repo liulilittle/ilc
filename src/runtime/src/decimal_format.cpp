@@ -1064,6 +1064,425 @@ ParseStatus ParseCore(Il2CppString* text, Il2CppDecimal* out)
     return ParseStatus::Ok;
 }
 
+//------------------------------------------------------------------------------
+// NumberStyles-aware parse (dparse). Port of the net48 Number.TryParseNumber
+// state machine + Number.TryNumberToDecimal conversion (see decimal_format.h
+// for the contract and the provider/culture trade-off).
+//
+// DIFFERENCE FROM ParseCore ABOVE: the net48 conversion ROUNDS half-to-even
+// at the 29th significant digit and returns zero for |value| < 1e-29, while
+// ParseCore reports Overflow in both cases. The legacy two-argument icalls
+// keep ParseCore so their pinned behaviour does not move; the styled icalls
+// follow net48 exactly.
+//------------------------------------------------------------------------------
+constexpr int32_t kStyleAllowLeadingWhite = 0x0001;
+constexpr int32_t kStyleAllowTrailingWhite = 0x0002;
+constexpr int32_t kStyleAllowLeadingSign = 0x0004;
+constexpr int32_t kStyleAllowTrailingSign = 0x0008;
+constexpr int32_t kStyleAllowParentheses = 0x0010;
+constexpr int32_t kStyleAllowDecimalPoint = 0x0020;
+constexpr int32_t kStyleAllowThousands = 0x0040;
+constexpr int32_t kStyleAllowExponent = 0x0080;
+constexpr int32_t kStyleAllowCurrencySymbol = 0x0100;
+constexpr int32_t kStyleAllowHexSpecifier = 0x0200;
+// The defined NumberStyles bits in net48: 0x1FF is the documented surface and
+// 0x200 (AllowHexSpecifier) is a DEFINED bit that decimal rejects separately.
+// Bits above 0x200 are undefined (ArgumentException, paramName "style") --
+// the oracle probe shows 0x200 -> the hex message (no paramName) while 0x400+
+// -> the undefined-style message.
+constexpr int32_t kStyleDefinedMask = 0x03FF;
+
+// Invariant currency symbol (zh-CN uses U+00A5; the runtime culture is
+// invariant-only -- see the header trade-off note).
+constexpr char16_t kInvariantCurrencySymbol = u'\u00A4';
+
+// net48 exception texts, byte-identical to the oracle (UTF-8 escapes keep the
+// source encoding-independent; the ArgumentException factory carries them
+// verbatim and CaptureParamName derives "style" from the second line).
+const char* const kDecimalHexStyleMessage =
+    "\xE6\x95\xB0\xE6\x8D\xAE\xE7\xB1\xBB\xE5\x9E\x8B\xE4\xB8\x8D\xE6\x94\xAF"
+    "\xE6\x8C\x81\xE6\x95\xB0\xE5\xAD\x97\xE6\xA0\xB7\xE5\xBC\x8F\x20"
+    "AllowHexSpecifier\xE3\x80\x82";
+const char* const kDecimalStyleUndefinedMessage =
+    "\xE4\xBD\xBF\xE7\x94\xA8\xE4\xBA\x86\xE6\x9C\xAA\xE5\xAE\x9A\xE4\xB9\x89"
+    "\xE7\x9A\x84\x20NumberStyles\x20\xE5\x80\xBC\xE3\x80\x82\r\n"
+    "\xE5\x8F\x82\xE6\x95\xB0\xE5\x90\x8D\x3A\x20style";
+
+// Argument validation order matches net48: undefined bits first (paramName
+// "style"), then AllowHexSpecifier (decimal does not support hex), then the
+// null-text check. TryParse throws these too.
+void ValidateParseStyles(int32_t styles)
+{
+    if ((styles & ~kStyleDefinedMask) != 0)
+    {
+        il2cpp_throw_argument_exception(kDecimalStyleUndefinedMessage);
+    }
+    if ((styles & kStyleAllowHexSpecifier) != 0)
+    {
+        il2cpp_throw_argument_exception(kDecimalHexStyleMessage);
+    }
+}
+
+bool IsDigit16(char16_t c)
+{
+    return c >= u'0' && c <= u'9';
+}
+
+// NumberBuffer equivalent for the decimal kind: 29 significant digits + one
+// rounding digit (net48 DecimalNumberBufferLength = 29 + 1 + 1).
+constexpr int32_t kStyledDigitCapacity = 30;
+
+struct StyledNumber
+{
+    char16_t digits[kStyledDigitCapacity + 1];
+    int32_t digitsCount;
+    int32_t scale; // digits before the decimal point (exponent folded in)
+    bool negative;
+    bool hasNonZeroTail;
+};
+
+// net48 Number.TryParseNumber (comnumber.cpp). Returns false on malformed
+// input (FormatException); on success 'nb' holds the digit string + scale.
+bool ParseStyledNumber(const char16_t* p, int32_t n, int32_t styles, StyledNumber& nb)
+{
+    const char16_t* const end = p + n;
+    const int32_t StateSign = 0x01;
+    const int32_t StateParens = 0x02;
+    const int32_t StateDigits = 0x04;
+    const int32_t StateNonZero = 0x08;
+    const int32_t StateDecimal = 0x10;
+    const int32_t StateCurrency = 0x20;
+
+    int32_t state = 0;
+    bool currencyPending = (styles & kStyleAllowCurrencySymbol) != 0;
+    char16_t ch = p < end ? *p : u'\0';
+
+    // --- leading whitespace / sign / parenthesis / currency symbol ---
+    while (true)
+    {
+        const bool afterSign = (state & StateSign) != 0;
+        const bool afterCurrency = (state & StateCurrency) != 0;
+        // Whitespace is eaten only while allowed; after a sign it is only
+        // accepted once the currency symbol has been seen ("-¤ 1.5" is legal,
+        // "- 1.5" is not -- net48 invariant NumberNegativePattern is 1).
+        if (!IsAsciiWs(ch) || (styles & kStyleAllowLeadingWhite) == 0 ||
+            (afterSign && !afterCurrency))
+        {
+            if ((styles & kStyleAllowLeadingSign) != 0 && !afterSign &&
+                (ch == u'+' || ch == u'-'))
+            {
+                if (ch == u'-')
+                {
+                    nb.negative = true;
+                }
+                state |= StateSign;
+            }
+            else if (ch == u'(' && (styles & kStyleAllowParentheses) != 0 && !afterSign)
+            {
+                state |= StateSign | StateParens;
+                nb.negative = true;
+            }
+            else if (currencyPending && ch == kInvariantCurrencySymbol)
+            {
+                state |= StateCurrency;
+                currencyPending = false;
+            }
+            else
+            {
+                break;
+            }
+        }
+        ++p;
+        ch = p < end ? *p : u'\0';
+    }
+
+    // --- digits / decimal point / thousands separators ---
+    int32_t digCount = 0;
+    while (true)
+    {
+        if (IsDigit16(ch))
+        {
+            state |= StateDigits;
+            if (ch != u'0' || (state & StateNonZero) != 0)
+            {
+                if (digCount < kStyledDigitCapacity)
+                {
+                    nb.digits[digCount++] = ch;
+                }
+                else if (ch != u'0')
+                {
+                    // Digits past the buffer only matter for rounding.
+                    nb.hasNonZeroTail = true;
+                }
+                if ((state & StateDecimal) == 0)
+                {
+                    ++nb.scale;
+                }
+                state |= StateNonZero;
+            }
+            else if ((state & StateDecimal) != 0)
+            {
+                // Leading fractional zeros move the scale left.
+                --nb.scale;
+            }
+        }
+        else if ((styles & kStyleAllowDecimalPoint) != 0 && (state & StateDecimal) == 0 &&
+                 ch == u'.')
+        {
+            state |= StateDecimal;
+        }
+        else if ((styles & kStyleAllowThousands) != 0 && (state & StateDigits) != 0 &&
+                 (state & StateDecimal) == 0 && ch == u',')
+        {
+            // Group separators are skipped (net48 accepts them anywhere after
+            // the first digit, including trailing/double separators).
+        }
+        else
+        {
+            break;
+        }
+        ++p;
+        ch = p < end ? *p : u'\0';
+    }
+
+    nb.digitsCount = digCount;
+    nb.digits[digCount] = u'\0';
+
+    if ((state & StateDigits) == 0)
+    {
+        return false;
+    }
+
+    // --- exponent (e/E + optional sign + digits, |exp| capped at 9999) ---
+    if ((ch == u'e' || ch == u'E') && (styles & kStyleAllowExponent) != 0)
+    {
+        const char16_t* const expStart = p;
+        ++p;
+        ch = p < end ? *p : u'\0';
+        bool negExp = false;
+        if (ch == u'+')
+        {
+            ++p;
+            ch = p < end ? *p : u'\0';
+        }
+        else if (ch == u'-')
+        {
+            negExp = true;
+            ++p;
+            ch = p < end ? *p : u'\0';
+        }
+        if (IsDigit16(ch))
+        {
+            int32_t exp = 0;
+            do
+            {
+                exp = exp * 10 + static_cast<int32_t>(ch - u'0');
+                ++p;
+                ch = p < end ? *p : u'\0';
+                if (exp > 1000)
+                {
+                    // net48 saturates instead of overflowing the accumulator.
+                    exp = 9999;
+                    while (IsDigit16(ch))
+                    {
+                        ++p;
+                        ch = p < end ? *p : u'\0';
+                    }
+                }
+            } while (IsDigit16(ch));
+            if (negExp)
+            {
+                exp = -exp;
+            }
+            nb.scale += exp;
+        }
+        else
+        {
+            // "1e" / "1e+": the exponent marker is not consumed (leftover
+            // characters then fail the trailing check -> FormatException).
+            p = expStart;
+            ch = p < end ? *p : u'\0';
+        }
+    }
+
+    // --- trailing whitespace / sign / ')' / currency symbol ---
+    while (true)
+    {
+        if (!IsAsciiWs(ch) || (styles & kStyleAllowTrailingWhite) == 0)
+        {
+            if ((styles & kStyleAllowTrailingSign) != 0 && (state & StateSign) == 0 &&
+                (ch == u'+' || ch == u'-'))
+            {
+                if (ch == u'-')
+                {
+                    nb.negative = true;
+                }
+                state |= StateSign;
+            }
+            else if (ch == u')' && (state & StateParens) != 0)
+            {
+                state &= ~StateParens;
+            }
+            else if (currencyPending && ch == kInvariantCurrencySymbol)
+            {
+                currencyPending = false;
+            }
+            else
+            {
+                break;
+            }
+        }
+        ++p;
+        ch = p < end ? *p : u'\0';
+    }
+
+    if ((state & StateParens) != 0)
+    {
+        return false; // unbalanced '(' -> FormatException
+    }
+    if (p < end)
+    {
+        return false; // trailing junk -> FormatException
+    }
+    if ((state & StateNonZero) == 0 && (state & StateDecimal) == 0)
+    {
+        // net48 clears the sign of an all-zero value written WITHOUT a decimal
+        // point ("-0"/"-0e-1" -> +0; "-0.0" keeps the sign bit).
+        nb.negative = false;
+    }
+    return true;
+}
+
+// net48 Number.TryNumberToDecimal: half-to-even rounding at the 29th
+// significant digit, zero for |value| < 1e-29, Overflow when the rounded
+// value still needs > 29 integer digits.
+ParseStatus ConvertStyledNumber(const StyledNumber& nb, Il2CppDecimal* out)
+{
+    const bool negative = nb.negative;
+    int32_t e = nb.scale;
+    if (nb.digitsCount == 0)
+    {
+        // Zero: net48 clamps the scale into 0..28 (a large negative exponent
+        // parses as a scale-28 zero, not an overflow).
+        int32_t scale = -e;
+        if (scale < 0)
+        {
+            scale = 0;
+        }
+        if (scale > kMaxScale)
+        {
+            scale = kMaxScale;
+        }
+        out->hi32 = 0;
+        out->lo64 = 0;
+        out->flags = (negative ? kDecimalSignMask : 0) | (scale << kDecimalScaleShift);
+        return ParseStatus::Ok;
+    }
+    if (e > kMaxSignificantDigits)
+    {
+        return ParseStatus::Overflow;
+    }
+
+    const char16_t* p = nb.digits;
+    char16_t c = *p;
+    uint64_t low64 = 0;
+    while (e > -28)
+    {
+        --e;
+        low64 = low64 * 10 + static_cast<uint64_t>(c - u'0');
+        ++p;
+        c = *p;
+        if (low64 >= 0xFFFFFFFFFFFFFFFFull / 10)
+        {
+            break;
+        }
+        if (c == u'\0')
+        {
+            while (e > 0)
+            {
+                --e;
+                low64 *= 10;
+                if (low64 >= 0xFFFFFFFFFFFFFFFFull / 10)
+                {
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    uint32_t high = 0;
+    while ((e > 0 || (c != u'\0' && e > -28)) &&
+           (high < 0xFFFFFFFFu / 10 ||
+            (high == 0xFFFFFFFFu / 10 &&
+             (low64 < 0x9999999999999999ull ||
+              (low64 == 0x9999999999999999ull && c <= u'5')))))
+    {
+        const uint64_t tmpLow = static_cast<uint32_t>(low64) * 10ull;
+        const uint64_t tmp64 = static_cast<uint32_t>(low64 >> 32) * 10ull + (tmpLow >> 32);
+        low64 = static_cast<uint32_t>(tmpLow) + (tmp64 << 32);
+        high = static_cast<uint32_t>(tmp64 >> 32) + high * 10;
+        if (c != u'\0')
+        {
+            const uint32_t d = static_cast<uint32_t>(c - u'0');
+            low64 += d;
+            if (low64 < d)
+            {
+                ++high;
+            }
+            ++p;
+            c = *p;
+        }
+        --e;
+    }
+
+    if (c >= u'5')
+    {
+        if (c == u'5' && (low64 & 1) == 0)
+        {
+            ++p;
+            c = *p;
+            bool hasZeroTail = !nb.hasNonZeroTail;
+            while (c != u'\0' && hasZeroTail)
+            {
+                hasZeroTail = (c == u'0');
+                ++p;
+                c = *p;
+            }
+            if (hasZeroTail)
+            {
+                // Exactly half, even mantissa, nothing but zeros after: the
+                // value is already representable (no rounding).
+                goto NoRounding;
+            }
+        }
+        if (++low64 == 0 && ++high == 0)
+        {
+            low64 = 0x999999999999999Aull;
+            high = 0xFFFFFFFFu / 10;
+            ++e;
+        }
+    }
+
+NoRounding:
+    if (e > 0)
+    {
+        return ParseStatus::Overflow;
+    }
+    if (e <= -kMaxSignificantDigits)
+    {
+        // |value| < 1e-29 rounds to a scale-28 zero (sign preserved).
+        out->hi32 = 0;
+        out->lo64 = 0;
+        out->flags = (negative ? kDecimalSignMask : 0) | (kMaxScale << kDecimalScaleShift);
+        return ParseStatus::Ok;
+    }
+    out->hi32 = high;
+    out->lo64 = low64;
+    out->flags = (negative ? kDecimalSignMask : 0) | ((-e) << kDecimalScaleShift);
+    return ParseStatus::Ok;
+}
+
 } // namespace
 
 Il2CppString* icall_decimal_to_string(const Il2CppDecimal* value)
@@ -1167,6 +1586,59 @@ bool icall_decimal_try_parse(Il2CppString* text, Il2CppDecimal* result)
         return false;
     }
     return ParseCore(text, result) == ParseStatus::Ok;
+}
+
+void icall_decimal_parse_styles(Il2CppDecimal* result, Il2CppString* text,
+                                int32_t styles, Il2CppObject* provider)
+{
+    // Argument validation order matches net48 (styles before the null text).
+    ValidateParseStyles(styles);
+    // 'provider' is intentionally UNUSED beyond this point: the runtime
+    // culture is invariant-only (decimal_format.h trade-off note), so a null
+    // provider (current culture) and any explicit provider are equivalent.
+    (void)provider;
+    if (text == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("String");
+    }
+    StyledNumber nb = StyledNumber();
+    if (!ParseStyledNumber(text->chars, text->length, styles, nb))
+    {
+        il2cpp_throw_format_exception(nullptr);
+    }
+    switch (ConvertStyledNumber(nb, result))
+    {
+    case ParseStatus::Ok:
+        return;
+    case ParseStatus::Format:
+        il2cpp_throw_format_exception(nullptr);
+        [[fallthrough]];
+    case ParseStatus::Overflow:
+        il2cpp_throw_overflow_exception(nullptr);
+    }
+}
+
+bool icall_decimal_try_parse_styles(Il2CppString* text, int32_t styles,
+                                    Il2CppObject* provider, Il2CppDecimal* result)
+{
+    // net48 validates the STYLE before anything else, so TryParse still
+    // throws ArgumentException for hex / undefined style values.
+    ValidateParseStyles(styles);
+    (void)provider; // invariant-only culture (see the header trade-off note)
+    if (result != nullptr)
+    {
+        std::memset(result, 0, sizeof(*result));
+    }
+    if (text == nullptr)
+    {
+        return false;
+    }
+    StyledNumber nb = StyledNumber();
+    if (!ParseStyledNumber(text->chars, text->length, styles, nb))
+    {
+        return false;
+    }
+    return ConvertStyledNumber(nb, result) == ParseStatus::Ok;
 }
 
 }} // namespace il2cpp::runtime
