@@ -265,6 +265,87 @@ public class MethodMapDecimalTests
     }
 
     //--------------------------------------------------------------------------
+    // Parse/TryParse NumberStyles+IFormatProvider overloads -- the styled
+    // parse icalls (dparse). NumberStyles is an ENUM: its signature byte is
+    // the VALUETYPE marker 0x11 (NOT the raw int32 0x08), and IFormatProvider
+    // is a CLASS (0x12). Signature bytes are oracle-measured from the net48
+    // member refs:
+    //   Parse(string, IFormatProvider)                 [0E 12]
+    //   Parse(string, NumberStyles)                    [0E 11]
+    //   Parse(string, NumberStyles, IFormatProvider)   [0E 11 12]
+    //   TryParse(string, NumberStyles, IFormatProvider, out decimal)
+    //                                                  [0E 11 12 11]
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Decimal_ParseProvider_MapsToStyledIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "Parse",
+            new byte[] { 0x00, 0x02, 0x11, 0x05, 0x0E, 0x12, 0x09 }, new[] { "System.IFormatProvider" }), "Parse");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_parse_styles", resolved.CppName);
+        // ParamCount = IL arity (2); the icall is 3 slots wide (casts/argOrder).
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "lit:111", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { 0, 1, 1 }, resolved.ArgOrder);
+        Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_Decimal_ParseStyles_MapsToStyledIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "Parse",
+            new byte[] { 0x00, 0x02, 0x11, 0x05, 0x0E, 0x11, 0x09 }, new[] { "System.NumberStyles" }), "Parse");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_parse_styles", resolved.CppName);
+        // ParamCount = IL arity (2); the icall is 3 slots wide (casts/argOrder).
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "i", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { 0, 1, -1 }, resolved.ArgOrder);
+        Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_Decimal_ParseStylesProvider_MapsToStyledIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "Parse",
+            new byte[] { 0x00, 0x03, 0x11, 0x05, 0x0E, 0x11, 0x09, 0x12, 0x0D }, new[] { "System.NumberStyles", "System.IFormatProvider" }), "Parse");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_parse_styles", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "i", "" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.ArgOrder);
+        Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_Decimal_TryParseStylesProvider_MapsToStyledIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "TryParse",
+            new byte[] { 0x00, 0x04, 0x02, 0x0E, 0x11, 0x09, 0x12, 0x0D, 0x10, 0x11, 0x05 }, new[] { "System.NumberStyles", "System.IFormatProvider" }), "TryParse");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_try_parse_styles", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "i", "", "" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.ArgOrder);
+        Assert.Null(resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_Decimal_TryParseProvider_MapsToStyledIcall()
+    {
+        // net48 has no TryParse(string, IFormatProvider, out decimal) -- the
+        // interface-default shape (netcore) does. Wire it anyway (styles 111).
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "TryParse",
+            new byte[] { 0x00, 0x03, 0x02, 0x0E, 0x12, 0x09, 0x10, 0x11, 0x05 }, new[] { "System.IFormatProvider" }), "TryParse");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_try_parse_styles", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "lit:111", "", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { 0, 1, 1, 2 }, resolved.ArgOrder);
+        Assert.Null(resolved.ResultKind);
+    }
+
+    //--------------------------------------------------------------------------
     // CompareTo / Compare -- the compare icall, receiver/args uncast
     //--------------------------------------------------------------------------
     [Fact]
@@ -442,6 +523,12 @@ public class MethodMapDecimalTests
     }
 
     private static MemoryStream Synthesize(string ns, string typeName, string memberName, byte[] signature)
+        => Synthesize(ns, typeName, memberName, signature, Array.Empty<string>());
+
+    // 'extraTypes' become TypeRef rows 2..N (row 1 is the owner). Their
+    // TypeDefOrRef coded indexes are (row << 2) | 1 -- e.g. row 2 -> 0x09.
+    private static MemoryStream Synthesize(string ns, string typeName, string memberName, byte[] signature,
+        string[] extraTypes)
     {
         var mdb = new MetadataBuilder();
         mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
@@ -449,6 +536,13 @@ public class MethodMapDecimalTests
         var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
             new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        foreach (var full in extraTypes)
+        {
+            var dot = full.LastIndexOf('.');
+            mdb.AddTypeReference(asmRef,
+                mdb.GetOrAddString(dot > 0 ? full[..dot] : ""),
+                mdb.GetOrAddString(dot > 0 ? full[(dot + 1)..] : full));
+        }
         mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
         return Serialize(mdb);
     }

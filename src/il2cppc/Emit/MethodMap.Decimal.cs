@@ -220,17 +220,54 @@ public static partial class MethodRefResolver
                 return null;
             // static decimal Parse(string): the result slot is prepended by
             // the AssignStmt "dec" special case -- fn(result, s).
+            //
+            // dparse: the NumberStyles / IFormatProvider overloads route to
+            // the STYLED icall (icall_decimal_parse_styles(result, s, styles,
+            // provider)). Signature bytes are oracle-measured from the net48
+            // member refs: NumberStyles is an ENUM (VALUETYPE 0x11, NOT the
+            // raw int32 0x08) and IFormatProvider is a CLASS (0x12).
+            //   Parse(string, IFormatProvider)               ps [0E 12]
+            //   Parse(string, NumberStyles)                  ps [0E 11]
+            //   Parse(string, NumberStyles, IFormatProvider) ps [0E 11 12]
+            // The icall is 4 slots wide, so the missing arguments are supplied
+            // by the per-resolution ArgOrder (-1 = nullptr) and the "lit:"
+            // cast (a literal in place of the IL argument):
+            //   provider-only -> styles = 111 (NumberStyles.Number)
+            //   styles-only   -> provider = nullptr
+            // ParamCount stays the IL arity (the fold pops exactly that many
+            // shadow-stack entries).
             case "Parse":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::icall_decimal_parse", 1, true, false, false, new[] { "s" }, "dec");
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_decimal_parse_styles", 2, true, false, false,
+                        new[] { "s", "lit:111", "" }, "dec", argOrder: new[] { 0, 1, 1 });
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_parse_styles", 2, true, false, false,
+                        new[] { "s", "i", "" }, "dec", argOrder: new[] { 0, 1, -1 });
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12)
+                    return I("il2cpp::runtime::icall_decimal_parse_styles", 3, true, false, false,
+                        new[] { "s", "i", "" }, "dec");
                 return null;
             // static bool TryParse(string, out decimal): the out param is the
             // BYREF (0x10) ldloca address of the result slot -- passed through
             // UNCAST as the icall's output pointer (Guid.TryParse precedent;
             // ps[1] carries the 0x11 VALUETYPE element byte).
+            //
+            // dparse: the styled overloads mirror Parse (styles = IL argument,
+            // provider = IL argument or the 111 literal). net48 has only the
+            // 4-arg form; the 3-arg (string, IFormatProvider, out decimal)
+            // shape is the netcore interface default, wired with
+            // NumberStyles.Number for API completeness.
             case "TryParse":
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_try_parse", 2, true, false, false, new[] { "s", "" });
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x12 && ps[2] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_try_parse_styles", 3, true, false, false,
+                        new[] { "s", "lit:111", "", "" }, argOrder: new[] { 0, 1, 1, 2 });
+                if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x11)
+                    return I("il2cpp::runtime::icall_decimal_try_parse_styles", 4, true, false, false,
+                        new[] { "s", "i", "", "" });
                 return null;
             // static decimal Round(decimal[, int32[, MidpointRounding]]):
             // mode/decimals are int32 slots; the decimal is an address. The
