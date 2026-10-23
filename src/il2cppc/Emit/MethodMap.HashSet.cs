@@ -215,12 +215,17 @@ public static partial class MethodRefResolver
                 return Icall("clear", 0, false, false, new[] { "" });
 
             case "CopyTo":
-                // CopyTo(T[]) / CopyTo(T[], int) / CopyTo(T[], int, int)
+                // CopyTo(T[]) / CopyTo(T[], int) / CopyTo(T[], int, int).
+                // The 3-arg range form exists only for the int32 family; the
+                // other families expose the 1/2-arg forms (the runtime copies
+                // the whole set).
                 if (k == HashSetKind.I4 && count == 3 && ps.Length >= 3 && ps[0] == 0x1D)
                     return I("il2cpp::runtime::icall_hashset_int_copy_to_range", 3, false, false, true,
                         new[] { "", "", "i", "i" });
                 if (count == 2 && ps.Length >= 2 && ps[0] == 0x1D)
                     return Icall("copy_to", 2, false, false, new[] { "", "", "i" });
+                if (count == 1 && ps.Length >= 1 && ps[0] == 0x1D)
+                    return Icall("copy_to", 1, false, false, new[] { "", "" }, appendZero: true);
                 return Loud(instTag, name, ps);
 
             case "TryGetValue":

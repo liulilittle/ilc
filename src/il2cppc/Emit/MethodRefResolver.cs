@@ -1647,7 +1647,7 @@ public static partial class MethodRefResolver
             // &System_Collections_Generic_HashSet_1_string_class + generated-
             // name member calls (undefined symbols). Now the members map to
             // icall_hashset_string_*.
-            case "System.Collections.Generic.HashSet`1": return TryMapHashSet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.HashSet`1": return TryMapHashSet(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
             // G4: the HashSet<int> enumerator STRUCT members (the tracked
             // pseudo-type routes them; the runtime object is the dictsi
             // keycollection wrapper over the boxed-int snapshot).
