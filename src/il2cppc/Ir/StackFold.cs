@@ -1376,6 +1376,17 @@ public static class StackFold
                             // decimal-domain T3: a boxed decimal unboxes to the
                             // 16-byte value ("dec"-kind temp declaration).
                             : unboxType is "System.Decimal" ? "dec"
+                            // boxwire (nullable GN-2 follow-up): the three BCL
+                            // value structs unbox to their runtime value types
+                            // -- "dt"/"ts" declare Il2CppDateTime/Il2CppTimeSpan,
+                            // "guid" declares Il2CppGuid (the same kinds the
+                            // boxed-side icall results use). Without these the
+                            // temp collapsed to int32_t and truncated the
+                            // 8/16-byte payload even once the unbox helper was
+                            // wired.
+                            : unboxType is "System.DateTime" ? "dt"
+                            : unboxType is "System.TimeSpan" ? "ts"
+                            : unboxType is "System.Guid" ? "guid"
                             : UnboxUserStructKind(unboxType, types);
                         Push(new CallExpr { Function = $"unbox_{ins.Operand}", ReturnsRef = false, ResultKind = kind, Args = { stack.Pop() } }, ins);
                     }

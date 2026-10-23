@@ -359,6 +359,24 @@ bool il2cpp_guid_equals(const uint8_t a[16], const uint8_t b[16])
     return std::memcmp(a, b, 16) == 0;
 }
 
+//------------------------------------------------------------------------------
+// Guid.GetHashCode -- the ORACLE-probed net48 fold (guid.h contract):
+//   LE32(bytes[0..3]) ^ ((int16 LE(bytes[4..5]) << 16) | LE16(bytes[6..7]))
+//   ^ (bytes[10] << 24) ^ bytes[15]
+// Probe evidence (.NET Framework 4.8, 20000 random GUIDs + every single-bit
+// pattern, 0 mismatches): bytes 8, 9 and 11..14 never contribute; byte 10
+// contributes its <<24 term; byte 15 contributes the low byte.
+//------------------------------------------------------------------------------
+int32_t il2cpp_guid_get_hash_code(const uint8_t bytes[16])
+{
+    const int32_t data1 = static_cast<int32_t>(ReadLE32U(bytes));
+    const int32_t data2 = static_cast<int16_t>(ReadLE16U(bytes + 4));
+    const int32_t data3 = static_cast<int32_t>(ReadLE16U(bytes + 6));
+    return data1 ^ ((data2 << 16) | data3)
+        ^ (static_cast<int32_t>(bytes[10]) << 24)
+        ^ static_cast<int32_t>(bytes[15]);
+}
+
 int32_t il2cpp_guid_compare(const uint8_t a[16], const uint8_t b[16])
 {
     const uint32_t d1a = ReadLE32U(a);

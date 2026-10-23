@@ -9584,6 +9584,21 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // icall copies the slot into a new System.Decimal box object).
                 // Runtime symbol lands with T1 (boxingext2 + decimal.h).
                 "System.Decimal" => $"il2cpp::runtime::icall_box_decimal(static_cast<il2cpp::runtime::Il2CppDecimal*>(&({boxVal})))",
+                // boxwire (nullable GN-2 follow-up): the three BCL value
+                // structs have real box classes (System_DateTime_class /
+                // System_TimeSpan_class / System_Guid_class, metadata.cpp) and
+                // the box icalls live in nullable.cpp -- but this switch never
+                // listed them, so `(object)dt` fell to the `_ => throw` arm
+                // (LOUD) while the runtime helper was already implemented.
+                // The ABI is fixed by il2cpp_nullable.h: DateTime/TimeSpan take
+                // the VALUE (Il2CppDateTime{ticks,kind} / Il2CppTimeSpan{ticks}
+                // by value), Guid takes a const Il2CppGuid* -- bound through a
+                // const reference so both an lvalue slot and a materialized
+                // temporary are addressable (the decimal/GuidValueBytePtr
+                // precedent).
+                "System.DateTime" => $"il2cpp::runtime::icall_box_date_time({boxVal})",
+                "System.TimeSpan" => $"il2cpp::runtime::icall_box_time_span({boxVal})",
+                "System.Guid" => $"il2cpp::runtime::icall_box_guid(&static_cast<const il2cpp::Il2CppGuid&>({boxVal}))",
                 // box of System.Object is a no-op (already a reference type)
                 "System.Object" => boxVal,
                 // BCL pointer-wrapper handles (ModuleHandle, RuntimeTypeHandle,
@@ -9635,6 +9650,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // value (the "dec"-kind temp assignment). Runtime symbol lands
                 // with T1 (boxingext2 + decimal.h).
                 "System.Decimal" => $"il2cpp::runtime::icall_unbox_decimal({unboxVal})",
+                // boxwire (nullable GN-2 follow-up): the inverse of the box
+                // arms above. Without these the `ubt.StartsWith("System.")`
+                // catch-all below routed a DateTime/TimeSpan/Guid unbox to
+                // il2cpp_unbox_int32, whose klass check THROWS
+                // InvalidCastException on a perfectly valid box (a silent
+                // wrong, not a LOUD reject). The helpers return the value
+                // structs BY VALUE (il2cpp_nullable.h).
+                "System.DateTime" => $"il2cpp::runtime::icall_unbox_date_time({unboxVal})",
+                "System.TimeSpan" => $"il2cpp::runtime::icall_unbox_time_span({unboxVal})",
+                "System.Guid" => $"il2cpp::runtime::icall_unbox_guid({unboxVal})",
                 // P25b (user struct box): a USER value type unboxes through
                 // il2cpp_unbox_user_struct -- the runtime validates the box
                 // (its klass's base chain reaches System.ValueType; NRE/ICE on

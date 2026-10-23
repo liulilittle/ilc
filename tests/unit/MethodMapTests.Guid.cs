@@ -245,15 +245,20 @@ public class MethodMapGuidTests
     }
 
     //--------------------------------------------------------------------------
-    // Out-of-scope members fall back to the generated-name path
+    // GetHashCode -- boxwire: the value hash icall (guid.h). The unit test
+    // used to pin the FALLBACK because the runtime had no Guid hash helper;
+    // il2cpp_guid_get_hash_code now exists (the ORACLE-probed net48 fold).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Guid_GetHashCode_FallsBackToGeneratedName()
+    public void Resolve_Guid_GetHashCode_MapsToValueHashIcall()
     {
         var resolved = ResolveMember(Synthesize("System", "Guid", "GetHashCode", Sig(0x08)), "GetHashCode");
 
-        Assert.StartsWith("System_Guid_GetHashCode_", resolved.CppName);
-        Assert.Matches("^[A-Za-z_][A-Za-z0-9_]*$", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_guid_get_hash_code", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsRef);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(new[] { "g" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

@@ -119,6 +119,16 @@ Il2CppString* il2cpp_guid_to_string_format(const uint8_t bytes[16], Il2CppString
 // Value equality: true iff all 16 bytes match.
 bool il2cpp_guid_equals(const uint8_t a[16], const uint8_t b[16]);
 
+// net48 Guid.GetHashCode: the ORACLE-probed fold (20000 random GUIDs + all
+// 128 single-bit patterns, 0 mismatch against .NET Framework 4.8):
+//   LE32(bytes[0..3]) ^ ((int16 LE(bytes[4..5]) << 16) | LE16(bytes[6..7]))
+//   ^ (bytes[10] << 24) ^ bytes[15]
+// NOTE the referencesource formula folds bytes 8..14 as well; the net48
+// implementation does NOT (probe: bytes[8], bytes[9], bytes[11..14] never
+// affect the hash; bytes[10] contributes <<24; bytes[15] contributes the
+// low byte). The oracle wins over the reference text.
+int32_t il2cpp_guid_get_hash_code(const uint8_t bytes[16]);
+
 // net48 Guid.CompareTo contract: -1 / 0 / 1. Field-wise comparison in
 // layout order -- Data1 (unsigned LE int32), Data2 (unsigned LE int16),
 // Data3 (unsigned LE int16), then Data4 bytes (unsigned); the first differing

@@ -235,6 +235,27 @@ bool BoxedValueEquals(const Il2CppObject* a, const Il2CppObject* b)
     {
         return BoxedInt32Value(a) == BoxedInt32Value(b);
     }
+    // boxwire (nullable GN-2 follow-up): the DateTime/TimeSpan/Guid boxes
+    // compare by VALUE here too. The callers reach this through the STATIC
+    // object.Equals / List<object>.Contains path (icall_object_equals ->
+    // BoxedValueEquals); the instance .Equals path goes through
+    // icall_boxed_equals_ext2 (boxingext2.cpp), which already had these arms
+    // -- the two dispatchers disagreed (probe: `lo.Contains(dt)` was False
+    // while `od1.Equals(od2)` was True).
+    if (HasKlassName(a, "System.DateTime"))
+    {
+        return icall_datetime_equals(BoxedDateTimeValue(a), BoxedDateTimeValue(b));
+    }
+    if (HasKlassName(a, "System.TimeSpan"))
+    {
+        return icall_timespan_equals(BoxedTimeSpanValue(a), BoxedTimeSpanValue(b));
+    }
+    if (HasKlassName(a, "System.Guid"))
+    {
+        const Il2CppGuid ga = BoxedGuidValue(a);
+        const Il2CppGuid gb = BoxedGuidValue(b);
+        return std::memcmp(ga.b, gb.b, sizeof(ga.b)) == 0;
+    }
     // Boxed enums (icall_box_enum stamps the enum's own name-bearing
     // descriptor): net48 object.Equals on two boxed enums of the SAME type
     // compares their underlying VALUES (probe: EInt.A vs EInt.A -> True,
@@ -414,6 +435,25 @@ int32_t icall_object_get_hash_code(Il2CppObject* obj)
     {
         Il2CppDecimal value = BoxedDecimalValue(obj);
         return icall_decimal_get_hash_code(&value);
+    }
+    // boxwire (nullable GN-2 follow-up): the DateTime/TimeSpan/Guid boxes have
+    // real box classes (metadata.cpp) and the VALUE hash icalls exist
+    // (time.cpp icall_datetime_get_hash_code / icall_timespan_get_hash_code;
+    // guid.h il2cpp_guid_get_hash_code) -- but this dispatch never listed
+    // them, so a boxed DateTime hashed by ADDRESS (ptr >> 3): two boxes of the
+    // SAME value hashed differently and neither matched net48.
+    if (HasKlassName(obj, "System.DateTime"))
+    {
+        return icall_datetime_get_hash_code(BoxedDateTimeValue(obj));
+    }
+    if (HasKlassName(obj, "System.TimeSpan"))
+    {
+        return icall_timespan_get_hash_code(BoxedTimeSpanValue(obj));
+    }
+    if (HasKlassName(obj, "System.Guid"))
+    {
+        const Il2CppGuid value = BoxedGuidValue(obj);
+        return il2cpp_guid_get_hash_code(value.b);
     }
     // BUG-3 (batch 177b): DELEGATES (single-cast klass "System.Delegate",
     // multicast container "System.MulticastDelegate") must NOT fall into the

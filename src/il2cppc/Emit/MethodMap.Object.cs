@@ -66,12 +66,31 @@ public static partial class MethodRefResolver
                 // icallwide: typed-receiver dispatches MUST precede the
                 // Object::GetHashCode default arm below (the default arm
                 // would swallow every callvirt with a tracked receiver type).
-                if (name == "ToString" && receiverType == "System.TimeSpan")
+                // boxwire: the "deref:ts" cast requires an ADDRESS receiver
+                // (the ldloca of a value-typed local). A tracked TimeSpan
+                // receiver can ALSO be a BOX OBJECT (`((object)ts).ToString()`
+                // -- StackFold records objTypes[boxTemp] = "System.TimeSpan"),
+                // and dereferencing the box object as if it were the value
+                // slot printed garbage (probe: cw_ts=162.20:16:33.7676000).
+                // A boxed receiver keeps the klass dispatch: it falls through
+                // to icall_object_to_string / icall_object_get_hash_code.
+                if (name == "ToString" && receiverType == "System.TimeSpan" && receiverIsAddress)
                     return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
-                if (name == "GetHashCode" && receiverType == "System.TimeSpan")
+                if (name == "GetHashCode" && receiverType == "System.TimeSpan" && receiverIsAddress)
                     return I("il2cpp::runtime::icall_timespan_get_hash_code", 0, true, false, true, new[] { "deref:ts" });
                 if (name == "GetHashCode" && receiverType == "System.Version")
                     return I("il2cpp::runtime::icall_version_get_hash_code", 0, true, false, true);
+                // boxwire (nullable GN-2 follow-up): Roslyn emits
+                // `callvirt Object::GetHashCode` for the DateTime/TimeSpan/Guid
+                // OVERRIDES (the TimeSpan arm above is the same shape). The
+                // address-gated value dispatches keep a BOXED receiver on the
+                // klass path (icall_object_get_hash_code). Without the Guid arm
+                // the value ADDRESS was passed as an Il2CppObject* (probe:
+                // `g.GetHashCode()` -> icall_object_get_hash_code((&loc2))).
+                if (name == "GetHashCode" && receiverType == "System.Guid" && receiverIsAddress)
+                    return I("il2cpp::il2cpp_guid_get_hash_code", 0, true, false, true, new[] { "g" });
+                if (name == "GetHashCode" && receiverType == "System.DateTime" && receiverIsAddress)
+                    return I("il2cpp::runtime::icall_datetime_get_hash_code", 0, true, false, true, new[] { "deref:dt" });
                 // URI-FIX P3: Object::GetHashCode on a tracked Uri receiver
                 // (Roslyn emits callvirt Object::GetHashCode for the
                 // override, like Equals in P1b) -- route to the deterministic
@@ -98,8 +117,10 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true);
                 // icallwide: Object::ToString on a TimeSpan receiver (Roslyn
                 // emits callvirt Object::ToString for the override) -- route
-                // to the constant-"c" formatter (time.cpp).
-                if (name == "ToString" && receiverType == "System.TimeSpan")
+                // to the constant-"c" formatter (time.cpp). boxwire: address
+                // receivers only (see the GetHashCode/ToString pair above --
+                // a BOXED TimeSpan keeps the klass dispatch).
+                if (name == "ToString" && receiverType == "System.TimeSpan" && receiverIsAddress)
                     return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
                 // M6 G6 wiring: Object::ToString on a Version receiver (Roslyn
                 // emits callvirt Object::ToString) -- route to the Version
