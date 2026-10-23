@@ -109,13 +109,35 @@ public static partial class MethodRefResolver
                 // single-arity form maps to the runtime hex icall with the
                 // byte[] "a" cast (Il2CppObject* -> Il2CppArray*, the
                 // ToBase64String precedent -- the runtime icall declares the
-                // concrete array type). The (byte[], int) and
-                // (byte[], int, int) overloads have no runtime helper -- LOUD.
+                // concrete array type).
+                //
+                // net48 ALSO has ToString(byte[], int) and ToString(byte[],
+                // int, int) (bcrange1): both map to the range icalls. The
+                // 2-arity form delegates on the RUNTIME side (length =
+                // value.Length - startIndex) because the transpiler has no
+                // array-length fold for an argument list. The net48
+                // validation ORDER is observable and lives in
+                // bitconverter.cpp (startIndex > 0 guard -> "" for
+                // ToString(new byte[0], 0); ArgumentException only for a
+                // positive length that overruns).
+                if (ps.Length >= 2 && ps[0] == 0x1D)
+                {
+                    if (ps.Length == 2 && ps[1] == 0x08)
+                        return I("il2cpp::runtime::il2cpp_bitconverter_to_hex_string_from", 2, true, true, false, new[] { "a", "i" });
+                    if (ps.Length == 3 && ps[1] == 0x08 && ps[2] == 0x08)
+                        return I("il2cpp::runtime::il2cpp_bitconverter_to_hex_string_range", 3, true, true, false, new[] { "a", "i", "i" });
+                    throw new NotSupportedException(
+                        $"BitConverter.ToString overload ({ps.Length} arg(s), ps[1]=0x{ps[1]:X2}) not wired (the net48 forms are (byte[]), (byte[], int) and (byte[], int, int))");
+                }
                 return ps.Length == 1 && ps[0] == 0x1D
                     ? I("il2cpp::runtime::il2cpp_bitconverter_to_hex_string", 1, true, true, false, new[] { "a" })
                     : throw new NotSupportedException($"BitConverter.ToString overload (arity {ps.Length}) not wired (single byte[] form only)");
             case "get_IsLittleEndian":
-                throw new NotSupportedException("BitConverter.get_IsLittleEndian: no runtime entry; little-endian is the platform contract (bitconverter.h baseline, Windows x86-64)");
+                // net48 exposes IsLittleEndian as a static readonly FIELD
+                // (ldsfld, folded to 1 in StackFold), so this property shape
+                // never appears in net48 IL; the runtime entry exists for
+                // completeness (and for a future property-shaped surface).
+                return I("il2cpp::runtime::il2cpp_bitconverter_get_is_little_endian", 0, true, false, false);
             default: return null;
         }
     }

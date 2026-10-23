@@ -128,6 +128,35 @@ double il2cpp_bitconverter_to_double(Il2CppArray* value);
 // -> ArgumentNullException ("value"). Returns a managed string.
 Il2CppString* il2cpp_bitconverter_to_hex_string(Il2CppArray* bytes);
 
+// BitConverter.ToString(byte[] value, int startIndex, int length): the same
+// formatter over value[startIndex .. startIndex + length). Validation is the
+// net48 order (referencesource mscorlib BitConverter.ToString):
+//   null value            -> ArgumentNullException("value")
+//   startIndex < 0, or startIndex >= value.Length && startIndex > 0
+//                         -> ArgumentOutOfRangeException("startIndex")
+//      (the "startIndex > 0" guard is net48's "don't throw for a 0 length
+//       array" exception: ToString(new byte[0], 0, 0) is "")
+//   length < 0            -> ArgumentOutOfRangeException("length")
+//   startIndex > value.Length - length -> ArgumentException
+//     (the net48 "source array was not long enough" case)
+// length == 0 -> "".
+Il2CppString* il2cpp_bitconverter_to_hex_string_range(Il2CppArray* bytes,
+                                                      int32_t startIndex,
+                                                      int32_t length);
+
+// BitConverter.ToString(byte[] value, int startIndex): net48 delegates to
+// ToString(value, startIndex, value.Length - startIndex) -- the length is
+// computed on the RUNTIME side (the transpiler has no array-length fold in
+// the argument list), so the delegation and its validation order stay exact.
+Il2CppString* il2cpp_bitconverter_to_hex_string_from(Il2CppArray* bytes,
+                                                     int32_t startIndex);
+
+// BitConverter.IsLittleEndian: net48 exposes it as a static readonly FIELD
+// (the transpiler folds `ldsfld` to 1 directly); this entry backs the
+// property-shaped call for completeness. Little-endian is the platform
+// contract (the compile-time guard in bitconverter.cpp).
+int32_t il2cpp_bitconverter_get_is_little_endian();
+
 // BitConverter.DoubleToInt64Bits(double): bit-for-bit reinterpretation of a
 // double as int64 (memcpy semantics -- no UB, preserves NaN payloads).
 int64_t il2cpp_bitconverter_double_to_int64_bits(double value);
