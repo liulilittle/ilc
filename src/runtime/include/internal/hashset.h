@@ -52,7 +52,9 @@
 //       int32_t       entryCapacity;  // slot 8
 //       int32_t       freeList;       // slot 9: free-slot chain head (-1 = none)
 //       int32_t       freeCount;      // slot 10
-//       int32_t       keyKind;        // slot 11: 0 ref, 1 int32
+//       int32_t       keyKind;        // slot 11: comparer signature family
+//       int32_t       family;         // slot 11: element family (0 ref, 1 i4,
+//                                     //   2 i8, 3 double, 4 uint, 5 decimal)
 //   };
 //------------------------------------------------------------------------------
 
@@ -78,7 +80,8 @@ struct Il2CppHashSetObject
     int32_t       entryCapacity; // slot 8
     int32_t       freeList;      // slot 9
     int32_t       freeCount;     // slot 10
-    int32_t       keyKind;       // slot 11
+    int32_t       keyKind;       // slot 11 (comparer signature family)
+    int32_t       family;        // slot 11 upper half: the ELEMENT family
 };
 
 // The GLOBAL descriptor keeps its historical symbol: generated code emits

@@ -278,16 +278,17 @@ int32_t BucketOf(int32_t hash, int32_t bucketCount)
 int32_t FindSlot(Il2CppHashSetObject* s, Il2CppObject* carrier, int32_t hash)
 {
     if (s->buckets == nullptr) return -1;
-    const int32_t* hashes = I4Slots(s->hashes);
-    const int32_t* nexts = I4Slots(s->nexts);
-    Il2CppObject** keys = RefSlots(s->keys);
-    const int32_t* buckets = I4Slots(s->buckets);
-    for (int32_t i = buckets[BucketOf(hash, s->bucketCount)]; i >= 0; i = nexts[i])
+    // SetEquals may dispatch a USER comparer, which can allocate and therefore
+    // move the managed arrays; every pointer is re-derived per iteration.
+    const int32_t bucket = BucketOf(hash, s->bucketCount);
+    int32_t i = I4Slots(s->buckets)[bucket];
+    while (i >= 0)
     {
-        if (hashes[i] == hash && SetEquals(s, keys[i], carrier))
+        if (I4Slots(s->hashes)[i] == hash && SetEquals(s, RefSlots(s->keys)[i], carrier))
         {
             return i;
         }
+        i = I4Slots(s->nexts)[i];
     }
     return -1;
 }
@@ -398,15 +399,19 @@ void LinkNew(Il2CppObject** selfSlot, Il2CppObject* carrier, int32_t hash)
 
 bool AddCarrier(Il2CppObject** selfSlot, Il2CppObject* carrier)
 {
+    // The carrier is a MANAGED reference: the resize/grow below may compact the
+    // heap, so it is rooted and re-read after every allocation.
+    Il2CppObject* carrierVar = carrier;
+    GcRoot<Il2CppObject*> carrierRoot(carrierVar, "hashset_add_carrier");
     Il2CppHashSetObject* s = AsSet(*selfSlot);
-    const int32_t hash = SetHash(s, carrier);
-    if (FindSlot(s, carrier, hash) >= 0) return false;
+    const int32_t hash = SetHash(s, carrierRoot.Get());
+    if (FindSlot(s, carrierRoot.Get(), hash) >= 0) return false;
     if (NeedsResize(s))
     {
         ResizeBuckets(selfSlot);
         s = AsSet(*selfSlot);
     }
-    LinkNew(selfSlot, carrier, hash);
+    LinkNew(selfSlot, carrierRoot.Get(), hash);
     return true;
 }
 
@@ -415,26 +420,26 @@ bool RemoveCarrier(Il2CppObject** selfSlot, Il2CppObject* carrier)
     Il2CppHashSetObject* s = AsSet(*selfSlot);
     const int32_t hash = SetHash(s, carrier);
     const int32_t b = BucketOf(hash, s->bucketCount);
-    int32_t* buckets = I4Slots(s->buckets);
-    int32_t* nexts = I4Slots(s->nexts);
-    int32_t* hashes = I4Slots(s->hashes);
-    Il2CppObject** keys = RefSlots(s->keys);
+    // SetEquals may dispatch a user comparer that allocates; re-derive the
+    // array pointers on every iteration.
     int32_t prev = -1;
-    for (int32_t i = buckets[b]; i >= 0; i = nexts[i])
+    int32_t i = I4Slots(s->buckets)[b];
+    while (i >= 0)
     {
-        if (hashes[i] == hash && SetEquals(s, keys[i], carrier))
+        if (I4Slots(s->hashes)[i] == hash && SetEquals(s, RefSlots(s->keys)[i], carrier))
         {
-            if (prev < 0) buckets[b] = nexts[i];
-            else nexts[prev] = nexts[i];
-            hashes[i] = kFreeHash;
-            keys[i] = nullptr;
-            il2cpp_write_barrier(reinterpret_cast<void**>(&keys[i]), nullptr);
-            nexts[i] = s->freeList;
+            if (prev < 0) I4Slots(s->buckets)[b] = I4Slots(s->nexts)[i];
+            else I4Slots(s->nexts)[prev] = I4Slots(s->nexts)[i];
+            I4Slots(s->hashes)[i] = kFreeHash;
+            RefSlots(s->keys)[i] = nullptr;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&RefSlots(s->keys)[i]), nullptr);
+            I4Slots(s->nexts)[i] = s->freeList;
             s->freeList = i;
             ++s->freeCount;
             return true;
         }
         prev = i;
+        i = I4Slots(s->nexts)[i];
     }
     return false;
 }
@@ -498,7 +503,7 @@ Il2CppArray* SnapshotCarriers(Il2CppObject** selfSlot)
     return result;
 }
 
-void CtorImpl(Il2CppObject* self, int32_t capacity, Il2CppObject* comparer, int32_t keyKind)
+void CtorImpl(Il2CppObject* self, int32_t capacity, Il2CppObject* comparer, int32_t keyKind, int32_t family)
 {
     ThrowIfNullReceiver(self);
     if (capacity < 0)
@@ -515,6 +520,7 @@ void CtorImpl(Il2CppObject* self, int32_t capacity, Il2CppObject* comparer, int3
     s->freeList = -1;
     s->freeCount = 0;
     s->keyKind = keyKind;
+    s->family = family;
     s->comparer = comparer;
 
     const int32_t slots = capacity > kMinSlots ? RoundUpPow2(capacity) : kMinSlots;
@@ -637,13 +643,19 @@ Il2CppArray* CollectCarriers(Il2CppObject* other, Family f, int32_t* outLength)
                          other->klass->name[0] == '[';
     if (isArray)
     {
-        Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(other);
-        Il2CppArray* result = NewRef(arr->length);
+        // Both the operand array and the result array are MANAGED: every box
+        // allocation below may compact the heap and move them, so both are
+        // rooted and every raw pointer is re-derived AFTER each allocation
+        // (the historical code cached dst/arr once and crashed on the move).
+        Il2CppObject* arrRootVar = other;
+        GcRoot<Il2CppObject*> arrRoot(arrRootVar, "hashset_collect_array_operand");
+        Il2CppArray* result = NewRef(reinterpret_cast<Il2CppArray*>(arrRoot.Get())->length);
         Il2CppObject* resultObj = reinterpret_cast<Il2CppObject*>(result);
         GcRoot<Il2CppObject*> resultRoot(resultObj, "hashset_collect_array");
-        Il2CppObject** dst = RefSlots(result);
-        for (int32_t i = 0; i < arr->length; ++i)
+        const int32_t length = reinterpret_cast<Il2CppArray*>(arrRoot.Get())->length;
+        for (int32_t i = 0; i < length; ++i)
         {
+            Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(arrRoot.Get());
             Il2CppObject* carrier;
             switch (f)
             {
@@ -664,11 +676,15 @@ Il2CppArray* CollectCarriers(Il2CppObject* other, Family f, int32_t* outLength)
                     carrier = reinterpret_cast<Il2CppObject**>(arr->data)[i];
                     break;
             }
+            // Re-derive the destination AFTER the (possibly collecting) box
+            // allocation.
+            Il2CppArray* dstArr = reinterpret_cast<Il2CppArray*>(resultRoot.Get());
+            Il2CppObject** dst = RefSlots(dstArr);
             dst[i] = carrier;
             il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), carrier);
         }
-        *outLength = arr->length;
-        return result;
+        *outLength = length;
+        return reinterpret_cast<Il2CppArray*>(resultRoot.Get());
     }
 
     // Any other IEnumerable<T>: enumerate through the shared surface. The
@@ -714,7 +730,7 @@ Il2CppObject* MakeOperandSet(Il2CppObject* self, Il2CppObject* other, Family f)
 
     Il2CppObject* tmp = il2cpp_object_new(&System_Collections_Generic_HashSet_1_string_class);
     GcRoot<Il2CppObject*> tmpRoot(tmp, "hashset_operand_set");
-    CtorImpl(tmpRoot.Get(), n, comparer, keyKind);
+    CtorImpl(tmpRoot.Get(), n, comparer, keyKind, static_cast<int32_t>(f));
     tmp = tmpRoot.Get();
     for (int32_t i = 0; i < n; ++i)
     {
@@ -740,7 +756,7 @@ namespace runtime {
 
 void icall_hashset_int_ctor(Il2CppObject* self, int32_t capacity)
 {
-    CtorImpl(self, capacity, nullptr, 1);
+    CtorImpl(self, capacity, nullptr, 1, static_cast<int32_t>(Family::I4));
 }
 
 bool icall_hashset_int_add(Il2CppObject* self, int32_t item)
@@ -843,7 +859,7 @@ int32_t icall_hashset_int_enumerator_get_current(Il2CppObject* self)
 //------------------------------------------------------------------------------
 void icall_hashset_long_ctor(Il2CppObject* self, int32_t capacity)
 {
-    CtorImpl(self, capacity, nullptr, 0);
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::I8));
 }
 
 bool icall_hashset_long_add(Il2CppObject* self, int64_t item)
@@ -937,7 +953,7 @@ int64_t icall_hashset_long_enumerator_get_current(Il2CppObject* self)
 //------------------------------------------------------------------------------
 void icall_hashset_double_ctor(Il2CppObject* self, int32_t capacity)
 {
-    CtorImpl(self, capacity, nullptr, 0);
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::D));
 }
 
 bool icall_hashset_double_add(Il2CppObject* self, double item)
@@ -1031,7 +1047,7 @@ double icall_hashset_double_enumerator_get_current(Il2CppObject* self)
 //------------------------------------------------------------------------------
 void icall_hashset_uint_ctor(Il2CppObject* self, int32_t capacity)
 {
-    CtorImpl(self, capacity, nullptr, 1);
+    CtorImpl(self, capacity, nullptr, 1, static_cast<int32_t>(Family::U4));
 }
 
 bool icall_hashset_uint_add(Il2CppObject* self, int32_t item)
@@ -1125,7 +1141,7 @@ int32_t icall_hashset_uint_enumerator_get_current(Il2CppObject* self)
 //------------------------------------------------------------------------------
 void icall_hashset_string_ctor(Il2CppObject* self, int32_t capacity)
 {
-    CtorImpl(self, capacity, nullptr, 0);
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::Ref));
 }
 
 bool icall_hashset_string_add(Il2CppObject* self, Il2CppObject* item)
@@ -1190,7 +1206,7 @@ Il2CppObject* icall_hashset_string_enumerator_get_current(Il2CppObject* self)
 
 void icall_hashset_ref_ctor(Il2CppObject* self, int32_t capacity)
 {
-    CtorImpl(self, capacity, nullptr, 0);
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::Ref));
 }
 
 bool icall_hashset_ref_add(Il2CppObject* self, Il2CppObject* item)
@@ -1253,7 +1269,7 @@ void icall_hashset_ref_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t a
 //------------------------------------------------------------------------------
 void icall_hashset_dec_ctor(Il2CppObject* self, int32_t capacity)
 {
-    CtorImpl(self, capacity, nullptr, 0);
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::Dec));
 }
 
 bool icall_hashset_dec_add(Il2CppObject* self, const runtime::Il2CppDecimal* item)
@@ -1332,10 +1348,10 @@ void icall_hashset_dec_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t a
 //------------------------------------------------------------------------------
 namespace {
 
-void CtorComparerImpl(Il2CppObject* self, Il2CppObject* comparer, int32_t keyKind)
+void CtorComparerImpl(Il2CppObject* self, Il2CppObject* comparer, int32_t keyKind, int32_t family)
 {
     if (comparer == nullptr) il2cpp_throw_argument_null_exception("comparer");
-    CtorImpl(self, 0, comparer, keyKind);
+    CtorImpl(self, 0, comparer, keyKind, family);
 }
 
 // .ctor(IEnumerable<T>): enumerate the operand in the receiver's family and
@@ -1346,7 +1362,7 @@ void CtorEnumImpl(Il2CppObject* self, Il2CppObject* items, Il2CppObject* compare
     if (items == nullptr) il2cpp_throw_argument_null_exception("collection");
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_ctor_enum_self");
-    CtorImpl(root, 0, comparer, keyKind);
+    CtorImpl(root, 0, comparer, keyKind, static_cast<int32_t>(f));
     root = r.Get();
 
     int32_t n = 0;
@@ -1364,17 +1380,17 @@ void CtorEnumImpl(Il2CppObject* self, Il2CppObject* items, Il2CppObject* compare
 } // namespace
 
 void icall_hashset_int_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer)
-{ CtorComparerImpl(self, comparer, 1); }
+{ CtorComparerImpl(self, comparer, 1, static_cast<int32_t>(Family::I4)); }
 void icall_hashset_ref_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer)
-{ CtorComparerImpl(self, comparer, 0); }
+{ CtorComparerImpl(self, comparer, 0, static_cast<int32_t>(Family::Ref)); }
 void icall_hashset_long_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer)
-{ CtorComparerImpl(self, comparer, 0); }
+{ CtorComparerImpl(self, comparer, 0, static_cast<int32_t>(Family::I8)); }
 void icall_hashset_double_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer)
-{ CtorComparerImpl(self, comparer, 0); }
+{ CtorComparerImpl(self, comparer, 0, static_cast<int32_t>(Family::D)); }
 void icall_hashset_uint_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer)
-{ CtorComparerImpl(self, comparer, 1); }
+{ CtorComparerImpl(self, comparer, 1, static_cast<int32_t>(Family::U4)); }
 void icall_hashset_dec_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer)
-{ CtorComparerImpl(self, comparer, 0); }
+{ CtorComparerImpl(self, comparer, 0, static_cast<int32_t>(Family::Dec)); }
 
 void icall_hashset_int_ctor_enum(Il2CppObject* self, Il2CppObject* items)
 { CtorEnumImpl(self, items, nullptr, 1, Family::I4); }
@@ -1411,7 +1427,7 @@ void icall_hashset_union_with(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_union_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_union_operand");
     Il2CppHashSetObject* o = AsSet(tr.Get());
     const int32_t* hashes = I4Slots(o->hashes);
@@ -1429,7 +1445,7 @@ void icall_hashset_except_with(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_except_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_except_operand");
     Il2CppHashSetObject* o = AsSet(tr.Get());
     const int32_t* hashes = I4Slots(o->hashes);
@@ -1447,7 +1463,7 @@ void icall_hashset_intersect_with(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_intersect_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_intersect_operand");
 
     // Walk the SELF slots and drop every member absent from the operand set.
@@ -1475,7 +1491,7 @@ void icall_hashset_symmetric_except_with(Il2CppObject* self, Il2CppObject* other
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_symdiff_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_symdiff_operand");
     Il2CppHashSetObject* o = AsSet(tr.Get());
     const int32_t* hashes = I4Slots(o->hashes);
@@ -1496,7 +1512,7 @@ bool icall_hashset_set_equals(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_setequals_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_setequals_operand");
     Il2CppHashSetObject* s = AsSet(root);
     Il2CppHashSetObject* o = AsSet(tr.Get());
@@ -1515,7 +1531,7 @@ bool icall_hashset_is_subset_of(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_subset_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_subset_operand");
     Il2CppHashSetObject* s = AsSet(root);
     Il2CppHashSetObject* o = AsSet(tr.Get());
@@ -1534,7 +1550,7 @@ bool icall_hashset_is_proper_subset_of(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_propsubset_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_propsubset_operand");
     Il2CppHashSetObject* s = AsSet(root);
     Il2CppHashSetObject* o = AsSet(tr.Get());
@@ -1553,7 +1569,7 @@ bool icall_hashset_is_superset_of(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_superset_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_superset_operand");
     Il2CppHashSetObject* s = AsSet(root);
     Il2CppHashSetObject* o = AsSet(tr.Get());
@@ -1572,7 +1588,7 @@ bool icall_hashset_is_proper_superset_of(Il2CppObject* self, Il2CppObject* other
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_propsuperset_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_propsuperset_operand");
     Il2CppHashSetObject* s = AsSet(root);
     Il2CppHashSetObject* o = AsSet(tr.Get());
@@ -1591,7 +1607,7 @@ bool icall_hashset_overlaps(Il2CppObject* self, Il2CppObject* other)
     ThrowIfNullReceiver(self);
     Il2CppObject* root = self;
     GcRoot<Il2CppObject*> r(root, "hashset_overlaps_self");
-    Il2CppObject* tmp = MakeOperandSet(root, other, Family::Ref);
+    Il2CppObject* tmp = MakeOperandSet(root, other, static_cast<Family>(AsSet(root)->family));
     GcRoot<Il2CppObject*> tr(tmp, "hashset_overlaps_operand");
     Il2CppHashSetObject* s = AsSet(root);
     Il2CppHashSetObject* o = AsSet(tr.Get());
