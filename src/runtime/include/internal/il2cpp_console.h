@@ -68,7 +68,13 @@
 // the declaration is visible to every generated translation unit.
 extern il2cpp::Il2CppObject* System_IO_TextWriter_sf_Null;
 
+namespace il2cpp {
+struct Il2CppArray; // il2cpp_array.h (char[] console overloads)
+}
+
 namespace il2cpp { namespace runtime {
+
+struct Il2CppDecimal; // decimal.h (decimal console overloads)
 
 // .NET bool.ToString() semantics: true -> "True", false -> "False".
 void icall_console_write_line_b(int32_t value);
@@ -108,6 +114,73 @@ void icall_console_write_line_object(Il2CppObject* value);
 void icall_console_write_b(int32_t value);
 void icall_console_write_c(int32_t value);
 void icall_console_write_d(double value);
+
+//------------------------------------------------------------------------------
+// Full Write/WriteLine overload surface (misc3 console alignment).
+//
+// Every remaining net48 Console.Write/WriteLine overload routes here. The
+// value is rendered by the SAME formatter the matching ToString uses (so the
+// console text and `x.ToString()` agree byte-for-byte):
+//   int64      -> icall_int64_to_string
+//   uint64     -> icall_uint64_to_string (full range)
+//   decimal    -> icall_decimal_to_string (G default)
+//   object     -> icall_object_to_string (boxed primitives print their value,
+//                 strings print themselves, null prints NOTHING for Write and
+//                 just the terminator for WriteLine -- net48 TextWriter
+//                 semantics)
+//   char[]     -> the UTF-16 units in the active console output encoding
+//   (string, object...) / (string, object[]) -> String.Format expansion
+//                 (icall_string_format_*) followed by the string write, so the
+//                 composite-format kernel stays the single authority.
+//------------------------------------------------------------------------------
+void icall_console_write_line_l(int64_t value);
+void icall_console_write_l(int64_t value);
+void icall_console_write_line_u64(uint64_t value);
+void icall_console_write_u64(uint64_t value);
+void icall_console_write_line_decimal(const Il2CppDecimal* value);
+void icall_console_write_decimal(const Il2CppDecimal* value);
+void icall_console_write_object(Il2CppObject* value);
+void icall_console_write_line_chars(Il2CppArray* chars);
+void icall_console_write_chars(Il2CppArray* chars);
+void icall_console_write_line_chars_range(Il2CppArray* chars, int32_t index, int32_t count);
+void icall_console_write_chars_range(Il2CppArray* chars, int32_t index, int32_t count);
+
+// Composite forms: Console.WriteLine(format, arg0[, arg1[, arg2]]) and the
+// params-array form. Null format -> ArgumentNullException (String.Format);
+// a null params array -> ArgumentNullException (net48).
+void icall_console_write_line_fmt1(Il2CppObject* format, Il2CppObject* arg0);
+void icall_console_write_fmt1(Il2CppObject* format, Il2CppObject* arg0);
+void icall_console_write_line_fmt2(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+void icall_console_write_fmt2(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+void icall_console_write_line_fmt3(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+void icall_console_write_fmt3(Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+void icall_console_write_line_fmt_array(Il2CppObject* format, Il2CppArray* args);
+void icall_console_write_fmt_array(Il2CppObject* format, Il2CppArray* args);
+
+//------------------------------------------------------------------------------
+// Redirection probes (Console.IsInputRedirected / IsOutputRedirected /
+// IsErrorRedirected). net48 reads the Win32 console handle state; here the
+// answer is the CRT/OS isatty() probe on the corresponding standard stream
+// (a pipe or file -- the difftest harness and any shell redirection -- is
+// "redirected"; a real console is not).
+//------------------------------------------------------------------------------
+int32_t icall_console_is_input_redirected();
+int32_t icall_console_is_output_redirected();
+int32_t icall_console_is_error_redirected();
+
+//------------------------------------------------------------------------------
+// Console.In -- the standard input TextReader (get_In returns the reader
+// OBJECT; the members below read the process stdin and ignore the receiver).
+//   Read()        -- one UTF-16 code unit, or -1 at end of input
+//   Peek()        -- the next code unit without consuming it, or -1
+//   ReadLine()    -- one line without its terminator, or nullptr at EOF
+//   ReadToEnd()   -- everything remaining, or "" at EOF
+//------------------------------------------------------------------------------
+Il2CppObject* icall_console_get_in();
+int32_t icall_console_in_read();
+int32_t icall_console_in_peek();
+Il2CppObject* icall_console_in_read_line();
+Il2CppObject* icall_console_in_read_to_end();
 
 // No-newline variant of icall_console_write_line_u32 (System.Console.Write
 // (uint32)): full-range unsigned decimal via console_format_u64 --
