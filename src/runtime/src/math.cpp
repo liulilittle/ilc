@@ -18,12 +18,23 @@ namespace il2cpp { namespace runtime {
 // repeats the exact type so catch(OverflowException) matches, then lists the
 // .NET bases (ArithmeticException, SystemException, Exception).
 //------------------------------------------------------------------------------
+// net48 renders this OverflowException message from the CLR resource in the
+// OS UI culture. On the project's zh-CN oracle host the text is
+// "\u5BF9 2 \u7684\u8865\u6570\u7684\u6700\u5C0F\u503C\u6C42\u53CD\u7684\u64CD\u4F5C\u65E0\u6548\u3002"
+// ("Negating the minimum value of a twos complement number is invalid.",
+// UTF-8 bytes E5AFB9 20 32 20 ... E38082 -- pinned by the mathabs1 oracle
+// run). Encoded as UTF-8 byte escapes so the source stays
+// encoding-independent, the exceptionext.cpp convention.
+static const char* kNegateTwosComplementMessage =
+    "\xE5\xAF\xB9\x20\x32\x20\xE7\x9A\x84\xE8\xA1\xA5\xE6\x95\xB0\xE7\x9A\x84"
+    "\xE6\x9C\x80\xE5\xB0\x8F\xE5\x80\xBC\xE6\xB1\x82\xE5\x8F\x8D\xE7\x9A\x84"
+    "\xE6\x93\x8D\xE4\xBD\x9C\xE6\x97\xA0\xE6\x95\x88\xE3\x80\x82";
+
 int32_t icall_math_abs_i(int32_t value)
 {
     if (value == INT32_MIN)
     {
-        il2cpp_throw_overflow_exception(
-            "Negating the minimum value of a twos complement number is invalid.");
+        il2cpp_throw_overflow_exception(kNegateTwosComplementMessage);
     }
     return (value < 0) ? -value : value;
 }
@@ -32,8 +43,34 @@ int64_t icall_math_abs_l(int64_t value)
 {
     if (value == INT64_MIN)
     {
-        il2cpp_throw_overflow_exception(
-            "Negating the minimum value of a twos complement number is invalid.");
+        il2cpp_throw_overflow_exception(kNegateTwosComplementMessage);
+    }
+    return (value < 0) ? -value : value;
+}
+
+// Math.Abs(sbyte) / Math.Abs(short): the net48 narrow overloads.
+//
+// The old mapping routed every non-int32/non-int64 width to
+// icall_math_abs_d, which read the int32 argument slot through a `double`
+// parameter -- the mathabs1 oracle probe printed Abs((sbyte)-127) == 0 in the
+// runtime against 127 on net48 (and Abs((short)-32767) == 0 against 32767).
+// net48 implements the narrow overloads by sign-extending to int32 and calling
+// Abs(int32), so the minimum values throw the SAME OverflowException
+// (mathabs1: Abs(sbyte.MinValue)/Abs(short.MinValue) both throw).
+int32_t icall_math_abs_sb(int32_t value)
+{
+    if (value == INT8_MIN)
+    {
+        il2cpp_throw_overflow_exception(kNegateTwosComplementMessage);
+    }
+    return (value < 0) ? -value : value;
+}
+
+int32_t icall_math_abs_sh(int32_t value)
+{
+    if (value == INT16_MIN)
+    {
+        il2cpp_throw_overflow_exception(kNegateTwosComplementMessage);
     }
     return (value < 0) ? -value : value;
 }
