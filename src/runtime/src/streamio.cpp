@@ -102,6 +102,25 @@ struct StreamState
     int64_t        pos;       // kMemory: current position
     int64_t        length;    // kMemory: bytes written so far
     int64_t        capacity;  // kMemory: allocated buffer size
+    // io2 B1 (MemoryStream ctor family): the net48 MemoryStream state matrix.
+    //   bufOwned      -- true: 'buf' is the stream's own malloc buffer;
+    //                    false: 'buf' POINTS INTO externalArray's payload (the
+    //                    net48 array ctors share the caller's array, so writes
+    //                    are visible through it and GetBuffer returns IT).
+    //   externalArray -- the shared managed byte[] (GC ref; registered as a
+    //                    static root so the borrowed payload never moves or
+    //                    dies under the collector).
+    //   exposable     -- GetBuffer() is legal (net48 publiclyVisible / the
+    //                    bufferless ctors).
+    //   expandable    -- capacity may grow (net48: the OWN buffer only; an
+    //                    array-seeded stream is fixed-size and a write past
+    //                    Capacity throws NotSupportedException).
+    //   capacity is the net48 Capacity: for a borrowed array it is the WINDOW
+    //   length (count), never the array length.
+    bool           bufOwned;
+    Il2CppObject*  externalArray;
+    bool           exposable;
+    bool           expandable;
     bool           canRead;   // capability flags from the open mode
     bool           canWrite;
     bool           canSeek;   // net48: true in every mode (append too -- only
