@@ -235,6 +235,15 @@ bool icall_datetime_equals(Il2CppDateTime left, Il2CppDateTime right);
 // TimeSpan.ToString(): the constant "c" format (see time.cpp).
 Il2CppObject* icall_timespan_to_string(Il2CppTimeSpan ts);
 
+// TimeSpan.ToString(format) / ToString(format, IFormatProvider): the net48
+// standard "c"/"g"/"G"/"t"/"T" layouts and the custom d/h/m/s/f/F token set
+// (see the time.cpp banner). A null/empty format selects "c"; anything
+// outside the documented subset throws FormatException. 'format' may be null
+// (the provider is accepted for ABI symmetry and ignored -- every TimeSpan
+// layout is culture-invariant).
+Il2CppObject* icall_timespan_to_string_format(Il2CppTimeSpan ts,
+                                              Il2CppObject* format);
+
 // DateTime.Subtract(DateTime) -> TimeSpan (signed tick difference).
 Il2CppTimeSpan icall_datetime_subtract(Il2CppDateTime left, Il2CppDateTime right);
 // DateTime.CompareTo(DateTime): -1 / 0 / +1.

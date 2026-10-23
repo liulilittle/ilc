@@ -383,6 +383,100 @@ int main()
            && il2cpp::runtime::icall_timespan_compare_to(tenMin, oneHour) == -1
            && il2cpp::runtime::icall_timespan_compare_to(oneHour, tenMin) == 1,
            "TimeSpan CompareTo -1/0/+1");
+
+    // --- 8c. TimeSpan.ToString(format) -- c/g/G standard + custom tokens
+    // (tsfmt1/tsfmt2 net48 oracle, 2026-10-23). ---
+    {
+        auto SpanFmt = [](il2cpp::runtime::Il2CppTimeSpan value, const char* fmt) {
+            il2cpp::Il2CppString* fs = il2cpp::il2cpp_string_new_from_cs(fmt);
+            return reinterpret_cast<il2cpp::Il2CppString*>(
+                il2cpp::runtime::icall_timespan_to_string_format(
+                    value, reinterpret_cast<il2cpp::Il2CppObject*>(fs)));
+        };
+        const il2cpp::runtime::Il2CppTimeSpan span =
+            il2cpp::runtime::icall_timespan_from_ticks(937840050000LL); // 1.02:03:04.005
+        Expect(StringEquals(SpanFmt(span, "c"), "1.02:03:04.0050000"),
+               "TimeSpan 'c' == d.hh:mm:ss.fffffff");
+        Expect(StringEquals(SpanFmt(span, "g"), "1:2:03:04.005"),
+               "TimeSpan 'g' == d:h:mm:ss[.trimmed]");
+        Expect(StringEquals(SpanFmt(span, "G"), "1:02:03:04.0050000"),
+               "TimeSpan 'G' == d:hh:mm:ss.fffffff (day always)");
+        Expect(StringEquals(SpanFmt(span, "t"), "1.02:03:04.0050000"),
+               "TimeSpan 't' aliases 'c'");
+        Expect(StringEquals(SpanFmt(span, ""), "1.02:03:04.0050000"),
+               "TimeSpan empty format == 'c'");
+        Expect(StringEquals(SpanFmt(span, nullptr), "1.02:03:04.0050000"),
+               "TimeSpan null format == 'c'");
+
+        const il2cpp::runtime::Il2CppTimeSpan zeroSpan =
+            il2cpp::runtime::icall_timespan_from_ticks(0);
+        Expect(StringEquals(SpanFmt(zeroSpan, "c"), "00:00:00"),
+               "TimeSpan zero 'c'");
+        Expect(StringEquals(SpanFmt(zeroSpan, "g"), "0:00:00"),
+               "TimeSpan zero 'g'");
+        Expect(StringEquals(SpanFmt(zeroSpan, "G"), "0:00:00:00.0000000"),
+               "TimeSpan zero 'G'");
+
+        const il2cpp::runtime::Il2CppTimeSpan negSpan =
+            il2cpp::runtime::icall_timespan_from_ticks(-5000000LL);
+        Expect(StringEquals(SpanFmt(negSpan, "c"), "-00:00:00.5000000"),
+               "TimeSpan negative 'c' keeps the sign");
+        Expect(StringEquals(SpanFmt(negSpan, "g"), "-0:00:00.5"),
+               "TimeSpan negative 'g' keeps the sign");
+        Expect(StringEquals(SpanFmt(negSpan, "G"), "-0:00:00:00.5000000"),
+               "TimeSpan negative 'G' keeps the sign");
+
+        // Custom tokens.
+        Expect(StringEquals(SpanFmt(span, "dd\\.hh\\:mm\\:ss\\.fff"),
+                            "01.02:03:04.005"),
+               "TimeSpan custom full pattern");
+        Expect(StringEquals(SpanFmt(span, "hh\\:mm"), "02:03"),
+               "TimeSpan custom hh:mm");
+        Expect(StringEquals(SpanFmt(span, "%d"), "1"), "TimeSpan %d == day (1 digit)");
+        Expect(StringEquals(SpanFmt(span, "ddd"), "001"), "TimeSpan ddd zero-pads to 3");
+        Expect(StringEquals(SpanFmt(span, "dddddddd"), "00000001"),
+               "TimeSpan dddddddd zero-pads to 8");
+        Expect(StringEquals(SpanFmt(span, "%f"), "0"), "TimeSpan %f == 1 fraction digit");
+        Expect(StringEquals(SpanFmt(span, "fffffff"), "0050000"),
+               "TimeSpan fffffff == 7 fraction digits");
+        Expect(StringEquals(SpanFmt(span, "ss\\.FFF"), "04.005"),
+               "TimeSpan F trims trailing zeros");
+        Expect(StringEquals(SpanFmt(span, "hh':'mm"), "02:03"),
+               "TimeSpan quoted ':' literal");
+        Expect(StringEquals(SpanFmt(span, "\\\\dd"), "\\01"),
+               "TimeSpan escaped backslash literal");
+
+        // Custom formats use the ABSOLUTE value (no sign).
+        const il2cpp::runtime::Il2CppTimeSpan negFull =
+            il2cpp::runtime::icall_timespan_from_ticks(-937840050000LL);
+        Expect(StringEquals(SpanFmt(negFull, "dd\\.hh\\:mm\\:ss\\.fff"),
+                            "01.02:03:04.005"),
+               "TimeSpan custom format drops the sign (absolute value)");
+
+        // Invalid patterns.
+        Expect(ThrowsWithType([&] { (void)SpanFmt(span, "d"); },
+                              "System.FormatException"),
+               "TimeSpan single 'd' throws FormatException (standard lookup)");
+        Expect(ThrowsWithType([&] { (void)SpanFmt(span, "C"); },
+                              "System.FormatException"),
+               "TimeSpan single 'C' throws FormatException");
+        Expect(ThrowsWithType([&] { (void)SpanFmt(span, "abc"); },
+                              "System.FormatException"),
+               "TimeSpan custom 'abc' throws FormatException (no literal passthrough)");
+        Expect(ThrowsWithType([&] { (void)SpanFmt(span, "hh:mm"); },
+                              "System.FormatException"),
+               "TimeSpan raw ':' throws FormatException");
+        Expect(ThrowsWithType([&] { (void)SpanFmt(span, "hhh"); },
+                              "System.FormatException"),
+               "TimeSpan 'hhh' throws FormatException");
+        Expect(ThrowsWithType([&] { (void)SpanFmt(span, "ffffffff"); },
+                              "System.FormatException"),
+               "TimeSpan 8 fraction digits throws FormatException");
+        Expect(ThrowsWithType([&] { (void)SpanFmt(span, "ddddddddd"); },
+                              "System.FormatException"),
+               "TimeSpan 9 day digits throws FormatException");
+    }
+
     Expect(ThrowsWithType([]() {
                il2cpp::runtime::icall_timespan_add(
                    il2cpp::runtime::icall_timespan_from_ticks(4611686018427387904LL),

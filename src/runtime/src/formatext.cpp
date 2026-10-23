@@ -931,16 +931,27 @@ int FormatNumberInt(char* out, int64_t value, int precision)
 // with trailing junk falls back to custom formatting ("D100" of 12345 ->
 // "D112345").
 //
-// REMAINING OUT OF SUBSET (FormatException, documented divergence): scientific
-// notation ("0.00E+00"/"0E0"/"0.##e-0") and ';' section separators.
+// REMAINING OUT OF SUBSET (FormatException, documented divergence): ';'
+// section separators. Scientific notation ("0.00E+00"/"0E0"/"0.##e-0") IS
+// implemented -- see FormatSciCustom below (a direct port of the net48
+// NumberToStringFormat scientific path).
 //------------------------------------------------------------------------------
 struct CustomSpec
 {
     bool grouping;
+    bool scientific;         // the pattern contains an E+/E-/e+/e- marker + '0'
     bool fracMandatory[100]; // whether the k-th fraction placeholder is '0'
     int scale;               // decimal shift: +2 per '%', +3 per U+2030 (per-mille), -3 per scaling comma
     int intPh;               // integer '0'/'#' placeholder count
     int fracPh;              // fraction '0'/'#' placeholder count
+    // Placeholder-space geometry (net48 NumberToStringFormat): 'digitCount'
+    // is the TOTAL 0/# count, 'decimalPos' the placeholder index of the '.'
+    // (digitCount when absent), 'firstDigit'/'lastDigit' the index of the
+    // first / one-past-the-last '0' placeholder.
+    int digitCount;
+    int decimalPos;
+    int firstDigit;
+    int lastDigit;
 };
 
 // Parse + validate a custom pattern (the caller already decided this is NOT a
@@ -948,6 +959,8 @@ struct CustomSpec
 bool ParseCustomPattern(const char16_t* p, int32_t len, CustomSpec& spec)
 {
     spec = CustomSpec{};
+    spec.decimalPos = -1;
+    spec.firstDigit = 0x7FFFFFFF;
     bool inSingle = false;
     bool inDouble = false;
     bool inFrac = false;
@@ -968,9 +981,17 @@ bool ParseCustomPattern(const char16_t* p, int32_t len, CustomSpec& spec)
         if (c == u'\'') { inSingle = true; continue; }
         if (c == u'"') { inDouble = true; continue; }
         if (c == u';') return false; // ';' sections: out of subset
-        if (c == u'.') { inFrac = true; continue; }
+        if (c == u'.')
+        {
+            if (spec.decimalPos < 0) spec.decimalPos = spec.digitCount;
+            inFrac = true;
+            continue;
+        }
         if (c == u'0' || c == u'#')
         {
+            if (c == u'0' && spec.firstDigit == 0x7FFFFFFF) spec.firstDigit = spec.digitCount;
+            ++spec.digitCount;
+            if (c == u'0') spec.lastDigit = spec.digitCount;
             if (inFrac)
             {
                 spec.fracMandatory[spec.fracPh] = (c == u'0');
@@ -999,14 +1020,22 @@ bool ParseCustomPattern(const char16_t* p, int32_t len, CustomSpec& spec)
         if (c == u'\u2030') { spec.scale += 3; continue; }
         if (c == u'E' || c == u'e')
         {
-            // scientific notation ("E+0"/"e-0"/"0E0"): out of subset
+            // The net48 scientific marker: E/e followed by '0' (E0, the same
+            // as E-0) or by '+'/'-' and then '0'. The marker and its zero run
+            // are not digit placeholders.
             int32_t j = i + 1;
             if (j < len && (p[j] == u'+' || p[j] == u'-')) ++j;
-            if (j < len && p[j] == u'0') return false;
+            if (j < len && p[j] == u'0')
+            {
+                spec.scientific = true;
+                while (j < len && p[j] == u'0') ++j;
+                i = j - 1;
+            }
             continue; // a plain 'E'/'e' is a literal
         }
         // any other character is a literal (copied at emission)
     }
+    if (spec.decimalPos < 0) spec.decimalPos = spec.digitCount;
     return true;
 }
 
@@ -1139,6 +1168,271 @@ int EmitCustomFormat(const char* intDigits, int intLen,
     return o;
 }
 
+//------------------------------------------------------------------------------
+// SCIENTIFIC custom formats ("0.00E+00", "0E0", "0.##e-0", "#,##0.0E+0").
+//
+// Direct port of the net48 NumberToStringFormat scientific path
+// (referencesource mscorlib/system/globalization/numberformatting.cs). The
+// value is held as (digits, scale): value == digits * 10^(scale - len), i.e.
+// 'scale' is the position of the decimal point inside the digit string. The
+// pattern contributes the placeholder geometry from CustomSpec (digitCount /
+// decimalPos / firstDigit / lastDigit) and the significant-digit count to
+// round to is digitCount (net48: `pos = scientific ? digitCount : ...`).
+//
+// Pinned by the numexp1 oracle: 0.000123 "0.00E+00" -> "1.23E-04",
+// "0.00e+00" -> "1.23e-04", "0.###E+0" -> "1.23E-4", "E" -> "1.230000E-004",
+// 1234.5 "##0.0E+0" -> "100.0E-2" (the # placeholders shift the mantissa),
+// 0 "##0.0E+0" -> "000.0E+0", "#,##0.0E+0" -> "1,234.5E+0".
+//------------------------------------------------------------------------------
+
+// net48 RoundNumber over (digits, scale): keep 'pos' significant digits,
+// rounding half away from zero, trim trailing zeros, a front carry bumps the
+// scale (999 keep 2 -> digits "10", scale + 1). A zero result clears both.
+void RoundDigitsCustom(std::string& digits, int& scale, int pos)
+{
+    size_t i = 0;
+    while (static_cast<int>(i) < pos && i < digits.size())
+    {
+        ++i;
+    }
+    if (static_cast<int>(i) == pos && i < digits.size() && digits[i] >= '5')
+    {
+        while (i > 0 && digits[i - 1] == '9')
+        {
+            digits[i - 1] = '0';
+            --i;
+        }
+        if (i > 0)
+        {
+            ++digits[i - 1];
+        }
+        else
+        {
+            ++scale;
+            digits.assign(1, '1');
+            i = 1;
+        }
+    }
+    else
+    {
+        while (i > 0 && digits[i - 1] == '0')
+        {
+            --i;
+        }
+    }
+    if (i == 0)
+    {
+        scale = 0;
+        digits.clear();
+        return;
+    }
+    digits.resize(i);
+}
+
+int EmitSciCustomFormat(std::string digits, int scale, bool neg,
+                        const CustomSpec& spec, const char16_t* pat,
+                        int32_t patLen, char16_t* out)
+{
+    if (!digits.empty())
+    {
+        scale += spec.scale;
+        RoundDigitsCustom(digits, scale, spec.digitCount);
+    }
+    else
+    {
+        scale = 0; // zero: net48 resets the scale (no negative zero either)
+    }
+
+    int firstDigit = (spec.firstDigit < spec.decimalPos)
+        ? spec.decimalPos - spec.firstDigit : 0;
+    int lastDigit = (spec.lastDigit > spec.decimalPos)
+        ? spec.decimalPos - spec.lastDigit : 0;
+    int digPos = spec.decimalPos;
+
+    // Thousands-separator insertion points (group size 3), precomputed so the
+    // forward walk can emit them. net48 stores the RUNNING TOTALS (3, 6, 9,
+    // ...) and walks them downwards, so the emit test is
+    // `digPos == sepPos[sepCtr] + 1`.
+    int sepPos[128];
+    int sepCtr = -1;
+    if (spec.grouping)
+    {
+        int total = 3;
+        const int numDigits = (firstDigit > digPos) ? firstDigit : digPos;
+        while (numDigits > total && sepCtr + 1 < 128)
+        {
+            sepPos[++sepCtr] = total;
+            total += 3;
+        }
+    }
+
+    int o = 0;
+    if (neg && !digits.empty())
+    {
+        out[o++] = u'-';
+    }
+
+    bool decimalWritten = false;
+    size_t cur = 0;
+    bool sciPending = spec.scientific;
+
+    for (int32_t i = 0; i < patLen; ++i)
+    {
+        const char16_t c = pat[i];
+        switch (c)
+        {
+        case u'#':
+        case u'0':
+        {
+            const char16_t dc = (cur < digits.size())
+                ? static_cast<char16_t>(digits[cur++])
+                : (digPos > lastDigit ? u'0' : u'\0');
+            if (dc != u'\0')
+            {
+                out[o++] = dc;
+                if (spec.grouping && digPos > 1 && sepCtr >= 0 && digPos == sepPos[sepCtr] + 1)
+                {
+                    out[o++] = u',';
+                    --sepCtr;
+                }
+            }
+            --digPos;
+            break;
+        }
+        case u'.':
+            if (digPos != 0 || decimalWritten)
+            {
+                break; // repeated '.' is a literal no-op
+            }
+            if (lastDigit < 0
+                || (spec.decimalPos < spec.digitCount && cur < digits.size()))
+            {
+                out[o++] = u'.';
+                decimalWritten = true;
+            }
+            break;
+        case u'\u2030':
+            out[o++] = u'\u2030';
+            break;
+        case u'%':
+            out[o++] = u'%';
+            break;
+        case u',':
+            break; // separators come from the schedule
+        case u'\'':
+        case u'"':
+        {
+            const char16_t close = c;
+            int32_t q = i + 1;
+            while (q < patLen && pat[q] != close)
+            {
+                if (pat[q] == u'\\' && q + 1 < patLen)
+                {
+                    out[o++] = pat[q + 1];
+                    q += 2;
+                    continue;
+                }
+                out[o++] = pat[q];
+                ++q;
+            }
+            i = q; // skip the closing quote (or run to the end)
+            break;
+        }
+        case u'\\':
+            if (i + 1 < patLen)
+            {
+                out[o++] = pat[++i];
+            }
+            break;
+        case u'E':
+        case u'e':
+        {
+            // Positional marker test (net48): E/e + '0', or E/e + '+'/'-' + '0'.
+            int32_t j = i + 1;
+            bool positiveSign = false;
+            int digitsInExp = 0;
+            bool marker = false;
+            if (sciPending)
+            {
+                if (j < patLen && pat[j] == u'0')
+                {
+                    digitsInExp = 1;
+                    marker = true;
+                }
+                else if (j + 1 < patLen && (pat[j] == u'+' || pat[j] == u'-')
+                         && pat[j + 1] == u'0')
+                {
+                    positiveSign = (pat[j] == u'+');
+                    marker = true;
+                }
+            }
+            if (!marker)
+            {
+                // Literal E/e (and its optional sign / zero run).
+                out[o++] = c;
+                if (i + 1 < patLen && (pat[i + 1] == u'+' || pat[i + 1] == u'-'))
+                {
+                    out[o++] = pat[++i];
+                }
+                while (i + 1 < patLen && pat[i + 1] == u'0')
+                {
+                    out[o++] = pat[++i];
+                }
+                break;
+            }
+            while (++j < patLen && pat[j] == u'0')
+            {
+                ++digitsInExp;
+            }
+            if (digitsInExp > 10)
+            {
+                digitsInExp = 10;
+            }
+            int exp = digits.empty() ? 0 : scale - spec.decimalPos;
+            out[o++] = c;
+            if (exp < 0)
+            {
+                out[o++] = u'-';
+                exp = -exp;
+            }
+            else if (positiveSign)
+            {
+                out[o++] = u'+';
+            }
+            char ebuf[12];
+            int en = 0;
+            if (exp == 0)
+            {
+                ebuf[en++] = '0';
+            }
+            else
+            {
+                while (exp > 0)
+                {
+                    ebuf[en++] = static_cast<char>('0' + exp % 10);
+                    exp /= 10;
+                }
+            }
+            while (en < digitsInExp && en < 11)
+            {
+                ebuf[en++] = '0';
+            }
+            for (int k = en; k > 0; --k)
+            {
+                out[o++] = static_cast<char16_t>(ebuf[k - 1]);
+            }
+            i = j - 1; // consume the marker's zero run
+            sciPending = false;
+            break;
+        }
+        default:
+            out[o++] = c;
+            break;
+        }
+    }
+    return o;
+}
+
 // Exact decimal value = digits[0..len) * 10^scale (scale may be negative),
 // rounded to 'fracCount' fraction digits (half away from zero, net48 rule).
 // Outputs the rounded integer part ('intOut', 'intN' chars, no sign) and
@@ -1254,6 +1548,18 @@ Il2CppObject* ToStringInt(int64_t value, uint64_t hexValue, Il2CppObject* format
             char digits[24];
             const int n = FormatInt64Decimal(digits, value);
             const bool neg = (digits[0] == '-');
+            if (cs.scientific)
+            {
+                // net48 NumberBuffer for an integer: the decimal digits with
+                // the scale after the last one.
+                std::string sciDigits(digits + (neg ? 1 : 0),
+                                      static_cast<size_t>(n - (neg ? 1 : 0)));
+                char16_t sciOut[kMaxBuffer + 16];
+                const int len = EmitSciCustomFormat(sciDigits, n - (neg ? 1 : 0),
+                                                    neg, cs, fs->chars, fs->length,
+                                                    sciOut);
+                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(sciOut, len));
+            }
             char intOut[kMaxBuffer];
             int intN = 0;
             char fracOut[kMaxBuffer];
@@ -1411,6 +1717,22 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                 il2cpp_throw_format_exception("Format specifier was invalid.");
             }
             double scaled = value;
+            if (cs.scientific)
+            {
+                // net48 NumberBuffer for a double: the 15 significant digits
+                // (the custom-format precision) with the scale after the last
+                // one -- value == digits * 10^(scale - len). The pattern's
+                // '%'/per-mille/scaling-comma shift is applied by the emitter
+                // (spec.scale), NOT here (scaling twice would square it).
+                DoubleDigits dg;
+                GetDoubleDigits(value, dg);
+                std::string sciDigits(dg.d, kBaseDigits);
+                char16_t sciOut[kMaxBuffer + 16];
+                const int len = EmitSciCustomFormat(sciDigits, dg.exp10 + 1,
+                                                    dg.neg, cs, fs->chars,
+                                                    fs->length, sciOut);
+                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(sciOut, len));
+            }
             if (cs.scale > 0)
             {
                 double f = 1.0;
