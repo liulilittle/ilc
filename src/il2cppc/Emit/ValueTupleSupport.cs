@@ -96,6 +96,48 @@ internal static class ValueTupleSupport
 
     internal static bool IsRefElement(string elementName) => KindChar(elementName) == 'r';
 
+    // Element M3 name -> the (size, alignment) of the C++ field the generated
+    // struct declares. Mirrors TypeEmitter.FieldNativeShape for the kinds a
+    // tuple element can take (int32 4/4, int64+double 8/8, reference = the
+    // target pointer width). Used by the value-element array allocation
+    // (newarr of a tuple TypeSpec) so the element stride is the REAL C++
+    // struct size -- an 8-byte fallback would mis-address every element of a
+    // 16-byte tuple.
+    internal static (int Size, int Align) FieldShape(string elementName, int pointerSize) => KindChar(elementName) switch
+    {
+        'i' => (4, 4),
+        'l' => (8, 8),
+        'd' => (8, 8),
+        _ => (pointerSize, pointerSize),
+    };
+
+    // The C++ struct size of a CLOSED tuple instance (the exact layout
+    // EmitDefinitions emits: fields in order, each aligned to its own natural
+    // alignment, the whole struct rounded up to its largest member alignment).
+    internal static int SizeOf(string fullName, int pointerSize)
+    {
+        var elems = ElementNames(fullName);
+        if (elems.Length == 0) return 1;
+        var offset = 0;
+        var maxAlign = 1;
+        foreach (var e in elems)
+        {
+            var (size, align) = FieldShape(e, pointerSize);
+            if (align > maxAlign) maxAlign = align;
+            offset = (offset + align - 1) / align * align;
+            offset += size;
+        }
+        return (offset + maxAlign - 1) / maxAlign * maxAlign;
+    }
+
+    // True when a closed tuple instance carries at least one GC reference
+    // element. A value-element array of such a tuple holds interior references
+    // the current collector cannot scan (the same limitation user struct
+    // arrays with reference fields have); callers document that instead of
+    // silently pretending the payload is reference-free.
+    internal static bool HasRefElement(string fullName)
+        => ElementNames(fullName).Any(IsRefElement);
+
     // The canonical C++ struct name -- MUST equal
     // TypeEmitter.Sanitize(closedInstanceName), which is exactly what
     // TypeEmitter.TypeCppName / CodeGenerator.TypeCppName produce for the same
