@@ -30,6 +30,7 @@
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gcroot.h"
 #include "il2cpp_delegate.h"    // Il2CppDelegate (RemoveWhere predicate ABI)
+#include "il2cpp_nullable.h"    // icall_box_date_time / time_span / guid
 #include "il2cpp_string.h"
 #include "il2cpp_value_semantics.h" // icall_object_get_hash_code / icall_object_equals (runtime)
 #include "string_compare.h"     // il2cpp_string_compare_ordinal(_ignore_case)
@@ -752,6 +753,297 @@ Il2CppClass* il2cpp_hashset_class()
 //------------------------------------------------------------------------------
 // int32 family.
 //------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// The carrier primitives (used by the USER VALUE TYPE template wrappers the
+// generated code instantiates, and by the DateTime/TimeSpan/Guid families).
+//------------------------------------------------------------------------------
+bool icall_hashset_add_carrier(Il2CppObject* self, Il2CppObject* carrier)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_add_carrier_self");
+    root = r.Get();
+    return AddCarrier(&root, carrier);
+}
+
+bool icall_hashset_remove_carrier(Il2CppObject* self, Il2CppObject* carrier)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_remove_carrier_self");
+    root = r.Get();
+    return RemoveCarrier(&root, carrier);
+}
+
+bool icall_hashset_contains_carrier(Il2CppObject* self, Il2CppObject* carrier)
+{
+    ThrowIfNullReceiver(self);
+    return ContainsCarrier(AsSet(self), carrier);
+}
+
+void icall_hashset_ctor_carrier(Il2CppObject* self, int32_t capacity)
+{
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::Ref));
+}
+
+//------------------------------------------------------------------------------
+// DateTime family.
+//------------------------------------------------------------------------------
+namespace {
+
+Il2CppObject* BoxDateTime(runtime::Il2CppDateTime v)
+{
+    return icall_box_date_time(v);
+}
+
+} // namespace
+
+void icall_hashset_dt_ctor(Il2CppObject* self, int32_t capacity)
+{
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::Ref));
+}
+
+bool icall_hashset_dt_add(Il2CppObject* self, runtime::Il2CppDateTime item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_dt_add_self");
+    Il2CppObject* carrier = BoxDateTime(item);
+    GcRoot<Il2CppObject*> cr(carrier, "hashset_dt_add_item");
+    root = r.Get();
+    carrier = cr.Get();
+    return AddCarrier(&root, carrier);
+}
+
+bool icall_hashset_dt_remove(Il2CppObject* self, runtime::Il2CppDateTime item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_dt_remove_self");
+    Il2CppObject* carrier = BoxDateTime(item);
+    GcRoot<Il2CppObject*> cr(carrier, "hashset_dt_remove_item");
+    root = r.Get();
+    carrier = cr.Get();
+    return RemoveCarrier(&root, carrier);
+}
+
+bool icall_hashset_dt_contains(Il2CppObject* self, runtime::Il2CppDateTime item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_dt_contains_self");
+    Il2CppObject* carrier = BoxDateTime(item);
+    root = r.Get();
+    return ContainsCarrier(AsSet(root), carrier);
+}
+
+int32_t icall_hashset_dt_get_count(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return LiveCount(AsSet(self));
+}
+
+void icall_hashset_dt_clear(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    ClearAll(AsSet(self));
+}
+
+void icall_hashset_dt_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppHashSetObject* s = AsSet(self);
+    if (array == nullptr) il2cpp_throw_argument_null_exception("array");
+    if (arrayIndex < 0) il2cpp_throw_argument_out_of_range_exception("arrayIndex", nullptr);
+    const int32_t live = LiveCount(s);
+    if (static_cast<int64_t>(arrayIndex) + live > array->length)
+        il2cpp_throw_argument_exception(
+            "Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+    runtime::Il2CppDateTime* dst = reinterpret_cast<runtime::Il2CppDateTime*>(array->data);
+    const int32_t* hashes = I4Slots(s->hashes);
+    Il2CppObject** keys = RefSlots(s->keys);
+    int32_t n = 0;
+    for (int32_t i = 0; i < s->count && n < live; ++i)
+    {
+        if (hashes[i] < 0) continue;
+        dst[arrayIndex + n] = icall_unbox_date_time(keys[i]);
+        ++n;
+    }
+}
+
+void icall_hashset_dt_enumerator_get_current(runtime::Il2CppDateTime* result, Il2CppObject* self)
+{
+    if (result == nullptr) return;
+    *result = icall_unbox_date_time(il2cpp_dict_si_keycollection_enumerator_get_current(self));
+}
+
+//------------------------------------------------------------------------------
+// TimeSpan family.
+//------------------------------------------------------------------------------
+void icall_hashset_ts_ctor(Il2CppObject* self, int32_t capacity)
+{
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::Ref));
+}
+
+bool icall_hashset_ts_add(Il2CppObject* self, runtime::Il2CppTimeSpan item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_ts_add_self");
+    Il2CppObject* carrier = icall_box_time_span(item);
+    GcRoot<Il2CppObject*> cr(carrier, "hashset_ts_add_item");
+    root = r.Get();
+    carrier = cr.Get();
+    return AddCarrier(&root, carrier);
+}
+
+bool icall_hashset_ts_remove(Il2CppObject* self, runtime::Il2CppTimeSpan item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_ts_remove_self");
+    Il2CppObject* carrier = icall_box_time_span(item);
+    GcRoot<Il2CppObject*> cr(carrier, "hashset_ts_remove_item");
+    root = r.Get();
+    carrier = cr.Get();
+    return RemoveCarrier(&root, carrier);
+}
+
+bool icall_hashset_ts_contains(Il2CppObject* self, runtime::Il2CppTimeSpan item)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_ts_contains_self");
+    Il2CppObject* carrier = icall_box_time_span(item);
+    root = r.Get();
+    return ContainsCarrier(AsSet(root), carrier);
+}
+
+int32_t icall_hashset_ts_get_count(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return LiveCount(AsSet(self));
+}
+
+void icall_hashset_ts_clear(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    ClearAll(AsSet(self));
+}
+
+void icall_hashset_ts_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppHashSetObject* s = AsSet(self);
+    if (array == nullptr) il2cpp_throw_argument_null_exception("array");
+    if (arrayIndex < 0) il2cpp_throw_argument_out_of_range_exception("arrayIndex", nullptr);
+    const int32_t live = LiveCount(s);
+    if (static_cast<int64_t>(arrayIndex) + live > array->length)
+        il2cpp_throw_argument_exception(
+            "Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+    runtime::Il2CppTimeSpan* dst = reinterpret_cast<runtime::Il2CppTimeSpan*>(array->data);
+    const int32_t* hashes = I4Slots(s->hashes);
+    Il2CppObject** keys = RefSlots(s->keys);
+    int32_t n = 0;
+    for (int32_t i = 0; i < s->count && n < live; ++i)
+    {
+        if (hashes[i] < 0) continue;
+        dst[arrayIndex + n] = icall_unbox_time_span(keys[i]);
+        ++n;
+    }
+}
+
+void icall_hashset_ts_enumerator_get_current(runtime::Il2CppTimeSpan* result, Il2CppObject* self)
+{
+    if (result == nullptr) return;
+    *result = icall_unbox_time_span(il2cpp_dict_si_keycollection_enumerator_get_current(self));
+}
+
+//------------------------------------------------------------------------------
+// Guid family.
+//------------------------------------------------------------------------------
+void icall_hashset_guid_ctor(Il2CppObject* self, int32_t capacity)
+{
+    CtorImpl(self, capacity, nullptr, 0, static_cast<int32_t>(Family::Ref));
+}
+
+bool icall_hashset_guid_add(Il2CppObject* self, const Il2CppGuid* item)
+{
+    ThrowIfNullReceiver(self);
+    if (item == nullptr) il2cpp_throw_argument_null_exception("item");
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_guid_add_self");
+    Il2CppObject* carrier = icall_box_guid(item);
+    GcRoot<Il2CppObject*> cr(carrier, "hashset_guid_add_item");
+    root = r.Get();
+    carrier = cr.Get();
+    return AddCarrier(&root, carrier);
+}
+
+bool icall_hashset_guid_remove(Il2CppObject* self, const Il2CppGuid* item)
+{
+    ThrowIfNullReceiver(self);
+    if (item == nullptr) il2cpp_throw_argument_null_exception("item");
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_guid_remove_self");
+    Il2CppObject* carrier = icall_box_guid(item);
+    GcRoot<Il2CppObject*> cr(carrier, "hashset_guid_remove_item");
+    root = r.Get();
+    carrier = cr.Get();
+    return RemoveCarrier(&root, carrier);
+}
+
+bool icall_hashset_guid_contains(Il2CppObject* self, const Il2CppGuid* item)
+{
+    ThrowIfNullReceiver(self);
+    if (item == nullptr) il2cpp_throw_argument_null_exception("item");
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_guid_contains_self");
+    Il2CppObject* carrier = icall_box_guid(item);
+    root = r.Get();
+    return ContainsCarrier(AsSet(root), carrier);
+}
+
+int32_t icall_hashset_guid_get_count(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return LiveCount(AsSet(self));
+}
+
+void icall_hashset_guid_clear(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    ClearAll(AsSet(self));
+}
+
+void icall_hashset_guid_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppHashSetObject* s = AsSet(self);
+    if (array == nullptr) il2cpp_throw_argument_null_exception("array");
+    if (arrayIndex < 0) il2cpp_throw_argument_out_of_range_exception("arrayIndex", nullptr);
+    const int32_t live = LiveCount(s);
+    if (static_cast<int64_t>(arrayIndex) + live > array->length)
+        il2cpp_throw_argument_exception(
+            "Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+    Il2CppGuid* dst = reinterpret_cast<Il2CppGuid*>(array->data);
+    const int32_t* hashes = I4Slots(s->hashes);
+    Il2CppObject** keys = RefSlots(s->keys);
+    int32_t n = 0;
+    for (int32_t i = 0; i < s->count && n < live; ++i)
+    {
+        if (hashes[i] < 0) continue;
+        dst[arrayIndex + n] = icall_unbox_guid(keys[i]);
+        ++n;
+    }
+}
+
+void icall_hashset_guid_enumerator_get_current(Il2CppGuid* result, Il2CppObject* self)
+{
+    if (result == nullptr) return;
+    *result = icall_unbox_guid(il2cpp_dict_si_keycollection_enumerator_get_current(self));
+}
+
 namespace runtime {
 
 void icall_hashset_int_ctor(Il2CppObject* self, int32_t capacity)

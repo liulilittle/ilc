@@ -59,6 +59,8 @@
 //------------------------------------------------------------------------------
 
 #include "decimal.h"          // Il2CppDecimal (the decimal element family)
+#include "guid.h"             // Il2CppGuid
+#include "il2cpp_time.h"      // Il2CppDateTime / Il2CppTimeSpan
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
 #include "il2cpp_runtime.h"
@@ -167,6 +169,42 @@ void icall_hashset_dec_clear(Il2CppObject* self);
 void icall_hashset_dec_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
 // T3 result-slot contract: 'result' is the caller's 16-byte slot (FIRST arg).
 void icall_hashset_dec_enumerator_get_current(runtime::Il2CppDecimal* result, Il2CppObject* self);
+
+// DateTime / TimeSpan / Guid carriers (boxed value members). They follow the
+// same shape as the decimal family but with 8-/16-byte value slots.
+void icall_hashset_dt_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_dt_add(Il2CppObject* self, runtime::Il2CppDateTime item);
+bool icall_hashset_dt_remove(Il2CppObject* self, runtime::Il2CppDateTime item);
+bool icall_hashset_dt_contains(Il2CppObject* self, runtime::Il2CppDateTime item);
+int32_t icall_hashset_dt_get_count(Il2CppObject* self);
+void icall_hashset_dt_clear(Il2CppObject* self);
+void icall_hashset_dt_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+void icall_hashset_dt_enumerator_get_current(runtime::Il2CppDateTime* result, Il2CppObject* self);
+
+void icall_hashset_ts_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_ts_add(Il2CppObject* self, runtime::Il2CppTimeSpan item);
+bool icall_hashset_ts_remove(Il2CppObject* self, runtime::Il2CppTimeSpan item);
+bool icall_hashset_ts_contains(Il2CppObject* self, runtime::Il2CppTimeSpan item);
+int32_t icall_hashset_ts_get_count(Il2CppObject* self);
+void icall_hashset_ts_clear(Il2CppObject* self);
+void icall_hashset_ts_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+void icall_hashset_ts_enumerator_get_current(runtime::Il2CppTimeSpan* result, Il2CppObject* self);
+
+void icall_hashset_guid_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_guid_add(Il2CppObject* self, const Il2CppGuid* item);
+bool icall_hashset_guid_remove(Il2CppObject* self, const Il2CppGuid* item);
+bool icall_hashset_guid_contains(Il2CppObject* self, const Il2CppGuid* item);
+int32_t icall_hashset_guid_get_count(Il2CppObject* self);
+void icall_hashset_guid_clear(Il2CppObject* self);
+void icall_hashset_guid_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+void icall_hashset_guid_enumerator_get_current(Il2CppGuid* result, Il2CppObject* self);
+
+// The carrier primitives the USER VALUE TYPE (struct/enum) template wrappers
+// below call. Each roots 'self' and 'carrier' internally.
+bool icall_hashset_add_carrier(Il2CppObject* self, Il2CppObject* carrier);
+bool icall_hashset_remove_carrier(Il2CppObject* self, Il2CppObject* carrier);
+bool icall_hashset_contains_carrier(Il2CppObject* self, Il2CppObject* carrier);
+void icall_hashset_ctor_carrier(Il2CppObject* self, int32_t capacity);
 
 // comparer ctors (custom IEqualityComparer<T>) and enumerable ctors.
 void icall_hashset_int_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
