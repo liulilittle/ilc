@@ -382,6 +382,8 @@ Il2CppObject* icall_dtoffset_to_string_format(Il2CppDateTimeOffset dto, Il2CppOb
     const DateCulture culture = ResolveProviderCulture(provider);
     const Il2CppDateTime local = icall_dtoffset_get_datetime(dto);
     const int32_t offsetMinutes = dto.offsetMinutes;
+    // DateTimeOffset K is always the numeric offset (kind -1).
+    const DateTimeZoneInfo zone = {offsetMinutes, -1};
     std::u16string out;
 
     if (fs == nullptr || fs->obj.klass != il2cpp_string_class() || fs->length == 0)
@@ -389,7 +391,8 @@ Il2CppObject* icall_dtoffset_to_string_format(Il2CppDateTimeOffset dto, Il2CppOb
         // Default: the culture General "G" pattern plus " zzz".
         const char16_t* pattern = LookupStandardPattern(u'G', culture);
         out = FormatPattern(CivilTimeFromTicks(local), WeekdayFromTicks(local), pattern,
-                            static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)), nullptr);
+                            static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)),
+                            nullptr, culture);
         out.push_back(u' ');
         AppendOffsetZzz(out, offsetMinutes);
     }
@@ -399,8 +402,9 @@ Il2CppObject* icall_dtoffset_to_string_format(Il2CppDateTimeOffset dto, Il2CppOb
         const bool isLetter = (c >= u'a' && c <= u'z') || (c >= u'A' && c <= u'Z');
         if (!isLetter)
         {
-            // Single non-letter character: custom format of one literal.
-            out.push_back(c);
+            // net48: a single-character format string is a standard
+            // specifier lookup -- a non-letter throws FormatException.
+            il2cpp_throw_format_exception("Format specifier was invalid.");
         }
         else if (c == u'U')
         {
@@ -414,7 +418,8 @@ Il2CppObject* icall_dtoffset_to_string_format(Il2CppDateTimeOffset dto, Il2CppOb
             // (always numeric, "+00:00" at zero).
             const char16_t* pattern = LookupStandardPattern(u'O', culture);
             out = FormatPattern(CivilTimeFromTicks(local), WeekdayFromTicks(local), pattern,
-                                static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)), nullptr);
+                                static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)),
+                                nullptr, culture);
             AppendOffsetZzz(out, offsetMinutes);
         }
         else if (c == u'u' || c == u'r' || c == u'R')
@@ -423,7 +428,8 @@ Il2CppObject* icall_dtoffset_to_string_format(Il2CppDateTimeOffset dto, Il2CppOb
             const Il2CppDateTime utc = icall_dtoffset_get_utc_datetime(dto);
             const char16_t* pattern = LookupStandardPattern(c, culture);
             out = FormatPattern(CivilTimeFromTicks(utc), WeekdayFromTicks(utc), pattern,
-                                static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)), nullptr);
+                                static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)),
+                                nullptr, culture);
         }
         else
         {
@@ -434,13 +440,14 @@ Il2CppObject* icall_dtoffset_to_string_format(Il2CppDateTimeOffset dto, Il2CppOb
                 il2cpp_throw_format_exception("Format specifier was invalid.");
             }
             out = FormatPattern(CivilTimeFromTicks(local), WeekdayFromTicks(local), pattern,
-                                static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)), nullptr);
+                                static_cast<int32_t>(std::char_traits<char16_t>::length(pattern)),
+                                nullptr, culture);
         }
     }
     else
     {
         out = FormatPattern(CivilTimeFromTicks(local), WeekdayFromTicks(local),
-                            fs->chars, fs->length, &offsetMinutes);
+                            fs->chars, fs->length, &zone, culture);
     }
 
     return reinterpret_cast<Il2CppObject*>(

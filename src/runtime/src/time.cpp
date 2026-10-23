@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <string>
 
 namespace il2cpp {
 namespace runtime {
@@ -910,29 +911,348 @@ bool icall_datetime_equals(Il2CppDateTime left, Il2CppDateTime right)
 //------------------------------------------------------------------------------
 Il2CppObject* icall_timespan_to_string(Il2CppTimeSpan ts)
 {
-    int64_t t = ts.ticks;
-    bool neg = t < 0;
-    if (neg) t = -t;
-    const int64_t days = t / kTicksPerDay;
-    const int32_t hours = static_cast<int32_t>((t % kTicksPerDay) / kTicksPerHour);
-    const int32_t minutes = static_cast<int32_t>((t % kTicksPerHour) / kTicksPerMinute);
-    const int32_t seconds = static_cast<int32_t>((t % kTicksPerMinute) / kTicksPerSecond);
-    const int32_t frac = static_cast<int32_t>(t % kTicksPerSecond);
-    char buf[48];
-    int p = 0;
-    if (neg) buf[p++] = '-';
-    if (days > 0)
+    return icall_timespan_to_string_format(ts, nullptr);
+}
+
+//------------------------------------------------------------------------------
+// TimeSpan.ToString(format) / ToString(format, provider) -- net48 contract
+// pinned by the tsfmt1/tsfmt2 oracles:
+//
+//   null / "" -> "c"
+//   standard "c" -> [-]d.hh:mm:ss[.fffffff]   (day part only when non-zero,
+//                                              7 fraction digits only when
+//                                              the fraction is non-zero)
+//   standard "g" -> [-][d:]h:mm:ss[.f{1..7}]  (day part only when non-zero,
+//                                              fraction trimmed)
+//   standard "G" -> [-]d:hh:mm:ss.fffffff     (day part ALWAYS, 7 digits
+//                                              always)
+//   standard "t"/"T" -> identical to "c"
+//   ANY other single character ("C", "f", "d", "s", ...) -> FormatException
+//   custom -> d(1..8) h(1..2) m(1..2) s(1..2) f(1..7) F(1..7) plus
+//             backslash escapes, '...'/"..." literals and the '%' escape.
+//             Everything else -- including '.', ':', digits and any other
+//             letter -- is an INVALID format (FormatException); there is no
+//             literal passthrough in the TimeSpan engine. The custom result
+//             is always the ABSOLUTE value (no '-' sign).
+//------------------------------------------------------------------------------
+namespace {
+
+// Appends the decimal digits of 'value' zero-padded to 'minDigits'.
+void AppendSpanInt(std::u16string& out, int64_t value, int32_t minDigits)
+{
+    char digits[24];
+    int32_t n = 0;
+    do
     {
-        p += std::snprintf(buf + p, sizeof(buf) - static_cast<size_t>(p),
-                           "%lld.", static_cast<long long>(days));
-    }
-    p += std::snprintf(buf + p, sizeof(buf) - static_cast<size_t>(p),
-                       "%02d:%02d:%02d", hours, minutes, seconds);
-    if (frac != 0)
+        digits[n++] = static_cast<char>('0' + value % 10);
+        value /= 10;
+    } while (value > 0);
+    for (int32_t pad = n; pad < minDigits; ++pad)
     {
-        std::snprintf(buf + p, sizeof(buf) - static_cast<size_t>(p), ".%07d", frac);
+        out.push_back(u'0');
     }
-    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(buf));
+    while (n > 0)
+    {
+        --n;
+        out.push_back(static_cast<char16_t>(digits[n]));
+    }
+}
+
+// The absolute civil fields of a span (see the header comment).
+struct SpanParts
+{
+    int64_t days;
+    int32_t hours;
+    int32_t minutes;
+    int32_t seconds;
+    int32_t fraction; // 0..9999999
+    bool negative;
+};
+
+SpanParts SplitSpan(int64_t ticks)
+{
+    SpanParts p;
+    p.negative = ticks < 0;
+    // Negate in unsigned space so Int64Min does not overflow.
+    const uint64_t magnitude = p.negative
+        ? (static_cast<uint64_t>(-(ticks + 1)) + 1ULL)
+        : static_cast<uint64_t>(ticks);
+    p.days = static_cast<int64_t>(magnitude / static_cast<uint64_t>(kTicksPerDay));
+    const uint64_t rem = magnitude % static_cast<uint64_t>(kTicksPerDay);
+    p.hours = static_cast<int32_t>(rem / static_cast<uint64_t>(kTicksPerHour));
+    p.minutes = static_cast<int32_t>((rem % static_cast<uint64_t>(kTicksPerHour))
+                                     / static_cast<uint64_t>(kTicksPerMinute));
+    p.seconds = static_cast<int32_t>((rem % static_cast<uint64_t>(kTicksPerMinute))
+                                     / static_cast<uint64_t>(kTicksPerSecond));
+    p.fraction = static_cast<int32_t>(rem % static_cast<uint64_t>(kTicksPerSecond));
+    return p;
+}
+
+// The 7-digit fraction with the first 'count' digits kept ('f' semantics).
+void AppendSpanFraction(std::u16string& out, int32_t fraction, int32_t count)
+{
+    int32_t frac = fraction;
+    for (int32_t i = count; i < 7; ++i)
+    {
+        frac /= 10;
+    }
+    AppendSpanInt(out, frac, count);
+}
+
+// "c" layout: [-]d.hh:mm:ss[.fffffff].
+void AppendSpanC(std::u16string& out, const SpanParts& p)
+{
+    if (p.negative) out.push_back(u'-');
+    if (p.days > 0)
+    {
+        AppendSpanInt(out, p.days, 1);
+        out.push_back(u'.');
+    }
+    AppendSpanInt(out, p.hours, 2);
+    out.push_back(u':');
+    AppendSpanInt(out, p.minutes, 2);
+    out.push_back(u':');
+    AppendSpanInt(out, p.seconds, 2);
+    if (p.fraction != 0)
+    {
+        out.push_back(u'.');
+        AppendSpanFraction(out, p.fraction, 7);
+    }
+}
+
+// "g" layout: [-][d:]h:mm:ss[.f*] (day part only when non-zero; the fraction
+// is 'f'-style but trailing zeros are trimmed -- net48 tsfmt2 oracle).
+void AppendSpanG(std::u16string& out, const SpanParts& p)
+{
+    if (p.negative) out.push_back(u'-');
+    if (p.days > 0)
+    {
+        AppendSpanInt(out, p.days, 1);
+        out.push_back(u':');
+    }
+    AppendSpanInt(out, p.hours, 1);
+    out.push_back(u':');
+    AppendSpanInt(out, p.minutes, 2);
+    out.push_back(u':');
+    AppendSpanInt(out, p.seconds, 2);
+    if (p.fraction != 0)
+    {
+        out.push_back(u'.');
+        char digits[8];
+        std::snprintf(digits, sizeof(digits), "%07d", p.fraction);
+        int32_t n = 7;
+        while (n > 0 && digits[n - 1] == '0')
+        {
+            --n;
+        }
+        for (int32_t i = 0; i < n; ++i)
+        {
+            out.push_back(static_cast<char16_t>(digits[i]));
+        }
+    }
+}
+
+// "G" layout: [-]d:hh:mm:ss.fffffff (day part and 7 fraction digits always).
+void AppendSpanUpperG(std::u16string& out, const SpanParts& p)
+{
+    if (p.negative) out.push_back(u'-');
+    AppendSpanInt(out, p.days, 1);
+    out.push_back(u':');
+    AppendSpanInt(out, p.hours, 2);
+    out.push_back(u':');
+    AppendSpanInt(out, p.minutes, 2);
+    out.push_back(u':');
+    AppendSpanInt(out, p.seconds, 2);
+    out.push_back(u'.');
+    AppendSpanFraction(out, p.fraction, 7);
+}
+
+// One custom TimeSpan token (see the header comment). Returns false for a
+// token this engine does not implement (the caller throws).
+bool AppendSpanToken(std::u16string& out, const SpanParts& p, char16_t spec,
+                     int32_t count)
+{
+    switch (spec)
+    {
+    case u'd':
+        if (count > 8)
+        {
+            return false;
+        }
+        AppendSpanInt(out, p.days, count);
+        return true;
+    case u'h':
+        if (count > 2)
+        {
+            return false;
+        }
+        AppendSpanInt(out, p.hours, count);
+        return true;
+    case u'm':
+        if (count > 2)
+        {
+            return false;
+        }
+        AppendSpanInt(out, p.minutes, count);
+        return true;
+    case u's':
+        if (count > 2)
+        {
+            return false;
+        }
+        AppendSpanInt(out, p.seconds, count);
+        return true;
+    case u'f':
+    case u'F':
+    {
+        if (count > 7)
+        {
+            return false;
+        }
+        const size_t start = out.size();
+        AppendSpanFraction(out, p.fraction, count);
+        if (spec == u'F')
+        {
+            // 'F' trims its own trailing zeros only -- unlike the DateTime
+            // engine it never removes a preceding '.' (net48: "ss.FFF" on a
+            // zero fraction -> "04.", pinned by the tsfmt2 oracle).
+            while (out.size() > start && out.back() == u'0')
+            {
+                out.pop_back();
+            }
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+// The custom TimeSpan format engine (see the header comment). Throws
+// FormatException for anything outside the documented subset.
+std::u16string FormatSpanCustom(const SpanParts& p, const char16_t* fmt,
+                                int32_t len)
+{
+    std::u16string out;
+    int32_t i = 0;
+    while (i < len)
+    {
+        const char16_t c = fmt[i];
+        if (c == u'\'' || c == u'"')
+        {
+            const char16_t close = c;
+            int32_t q = i + 1;
+            while (q < len && fmt[q] != close)
+            {
+                if (fmt[q] == u'\\')
+                {
+                    if (q + 1 >= len)
+                    {
+                        il2cpp_throw_format_exception("Format specifier was invalid.");
+                    }
+                    out.push_back(fmt[q + 1]);
+                    q += 2;
+                    continue;
+                }
+                out.push_back(fmt[q]);
+                ++q;
+            }
+            if (q >= len)
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            i = q + 1;
+        }
+        else if (c == u'\\')
+        {
+            if (i + 1 >= len)
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            out.push_back(fmt[i + 1]);
+            i += 2;
+        }
+        else if (c == u'%')
+        {
+            // '%' + a custom token letter is a single specifier; anything
+            // else (including a trailing '%', "%%", or '%' before a quote /
+            // backslash) is invalid (net48 tsfmt2 oracle).
+            if (i + 1 >= len)
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            const char16_t next = fmt[i + 1];
+            if (!AppendSpanToken(out, p, next, 1))
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            i += 2;
+        }
+        else if (c == u'd' || c == u'h' || c == u'm' || c == u's'
+                 || c == u'f' || c == u'F')
+        {
+            int32_t run = 1;
+            while (i + run < len && fmt[i + run] == c)
+            {
+                ++run;
+            }
+            if (!AppendSpanToken(out, p, c, run))
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            i += run;
+        }
+        else
+        {
+            // No literal passthrough in the TimeSpan custom engine (net48:
+            // "abc", ":", ".", digits -> FormatException).
+            il2cpp_throw_format_exception("Format specifier was invalid.");
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+Il2CppObject* icall_timespan_to_string_format(Il2CppTimeSpan ts,
+                                              Il2CppObject* format)
+{
+    const SpanParts parts = SplitSpan(ts.ticks);
+    std::u16string out;
+
+    const Il2CppString* fs = reinterpret_cast<const Il2CppString*>(format);
+    if (fs == nullptr || fs->obj.klass != il2cpp_string_class() || fs->length == 0)
+    {
+        AppendSpanC(out, parts);
+    }
+    else if (fs->length == 1)
+    {
+        // A single-character format is a STANDARD specifier: only c/g/G/t/T
+        // exist (t/T are the "c" aliases); everything else throws.
+        switch (fs->chars[0])
+        {
+        case u'c':
+        case u't':
+        case u'T':
+            AppendSpanC(out, parts);
+            break;
+        case u'g':
+            AppendSpanG(out, parts);
+            break;
+        case u'G':
+            AppendSpanUpperG(out, parts);
+            break;
+        default:
+            il2cpp_throw_format_exception("Format specifier was invalid.");
+        }
+    }
+    else
+    {
+        out = FormatSpanCustom(parts, fs->chars, fs->length);
+    }
+
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp_string_new(out.data(), static_cast<int32_t>(out.size())));
 }
 
 //------------------------------------------------------------------------------

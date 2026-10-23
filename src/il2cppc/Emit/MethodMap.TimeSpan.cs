@@ -93,7 +93,19 @@ public static partial class MethodRefResolver
                 // from_ticks only in suffix -- distinct entry, same semantics.
                 return I("il2cpp::runtime::icall_timespan_from_ticks_exact", 1, true, false, false, new[] { "l" }, "ts");
             case "ToString":
-                return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
+                // ToString() / ToString(format) / ToString(format, provider).
+                // The runtime formatter takes the value BY VALUE (deref:ts) and
+                // the format carrier; the IFormatProvider is DROPPED -- every
+                // TimeSpan layout is culture-invariant (net48 ignores it too).
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_timespan_to_string_format", 1, true, true, true,
+                        new[] { "deref:ts", "" });
+                if (ps.Length == 2 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_timespan_to_string_format", 2, true, true, true,
+                        new[] { "deref:ts", "", "drop" });
+                return null;
             default: return null;
         }
     }

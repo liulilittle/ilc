@@ -35,6 +35,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace {
 
@@ -227,7 +228,13 @@ int main()
     Expect(StrEquals(Fmt(dt2020, "dd"), "15"), "dd == 2-digit day");
     Expect(StrEquals(Fmt(dt2020, "dddd, MMMM d, yyyy"), "Monday, June 15, 2020"),
            "custom en-US style with literals");
-    Expect(StrEquals(Fmt(dt2020, "/"), "/"), "single non-letter == literal");
+    // A SINGLE-character format string is a standard-specifier lookup, so a
+    // non-letter ("/") throws FormatException -- it is not a one-literal
+    // custom format (net48 dtz2 oracle). Multi-character formats keep
+    // unknown characters as literals (the next assertion).
+    Expect(ThrowsWithType([&] { (void)Fmt(dt2020, "/"); },
+                          "System.FormatException"),
+           "single non-letter '/' throws FormatException (standard lookup)");
     Expect(StrEquals(Fmt(dt2020, "MM:dd"), "06:15"), "literal ':' between tokens");
 
     // 4. 12-hour clock boundaries (0 -> 12, noon -> 12).
@@ -367,6 +374,75 @@ int main()
            "custom single 't' == first designator char (midnight)");
     Expect(StrEquals(Fmt(year5, "y"), "0005 June"),
            "standard 'y' on year 5 == \"0005 June\" (yyyy MMMM)");
+
+    // 8d. Timezone tokens z / zz / zzz / K and the era 'g' (dtz1 net48
+    // oracle, 2026-10-23): z always prints the machine zone's offset
+    // regardless of Kind; K is "" for Unspecified, "Z" for Utc and the
+    // numeric offset for Local. The assertions compare against the runtime's
+    // OWN offset query so they are machine-independent.
+    {
+        const int32_t offMin = static_cast<int32_t>(
+            il2cpp::runtime::il2cpp_timezone_get_utc_offset_at(dt2020) / 60);
+        char expectZ[16];
+        char expectZZ[16];
+        char expectZZZ[16];
+        const int32_t absOff = offMin < 0 ? -offMin : offMin;
+        std::snprintf(expectZ, sizeof expectZ, "%c%d", offMin < 0 ? '-' : '+',
+                      absOff / 60);
+        std::snprintf(expectZZ, sizeof expectZZ, "%c%02d", offMin < 0 ? '-' : '+',
+                      absOff / 60);
+        std::snprintf(expectZZZ, sizeof expectZZZ, "%c%02d:%02d",
+                      offMin < 0 ? '-' : '+', absOff / 60, absOff % 60);
+
+        // Single 'z' / 'K' are standard lookups -> FormatException; the
+        // custom engine only sees them via a 2+ character format or '%'.
+        Expect(StrEquals(Fmt(dt2020, "zz"), expectZZ), "custom 'zz' == 2-digit offset hours");
+        Expect(StrEquals(Fmt(dt2020, "zzz"), expectZZZ), "custom 'zzz' == +HH:mm");
+        Expect(StrEquals(Fmt(dt2020, "zzzz"), expectZZZ), "custom 'zzzz' == +HH:mm (same)");
+        Expect(StrEquals(Fmt(dt2020, "%z"), expectZ), "custom '%z' == offset hours");
+        Expect(StrEquals(Fmt(dt2020, "%K"), ""), "custom '%K' Unspecified == empty");
+        Expect(StrEquals(Fmt(dt2020, "Kx"), "x"), "custom 'K' Unspecified == empty");
+        Expect(StrEquals(Fmt(dt2020, "KKK"), ""), "custom 'KKK' Unspecified == empty");
+
+        const Il2CppDateTime utc = il2cpp::runtime::icall_datetime_specify_kind(dt2020, 1);
+        const Il2CppDateTime local = il2cpp::runtime::icall_datetime_specify_kind(dt2020, 2);
+        Expect(StrEquals(Fmt(utc, "%K"), "Z"), "custom '%K' Utc == \"Z\"");
+        Expect(StrEquals(Fmt(utc, "KKK"), "ZZZ"), "custom 'KKK' Utc == \"ZZZ\"");
+        Expect(StrEquals(Fmt(local, "%K"), expectZZZ), "custom '%K' Local == +HH:mm");
+        Expect(StrEquals(Fmt(local, "KK"),
+                         std::string(expectZZZ).append(expectZZZ).c_str()),
+               "custom 'KK' Local repeats the offset once per K");
+        Expect(StrEquals(Fmt(utc, "zzz"), expectZZZ), "zzz ignores Kind (Utc still local offset)");
+
+        // Standard "O" carries the Kind suffix.
+        Expect(StrEquals(Fmt(dt2020, "O"), "2020-06-15T13:45:30.0000000"),
+               "standard 'O' Unspecified has no suffix");
+        Expect(StrEquals(Fmt(utc, "O"), "2020-06-15T13:45:30.0000000Z"),
+               "standard 'O' Utc appends \"Z\"");
+        Expect(StrEquals(Fmt(local, "O"),
+                         std::string("2020-06-15T13:45:30.0000000").append(expectZZZ).c_str()),
+               "standard 'O' Local appends +HH:mm");
+
+        // Single 'z' / 'K' are standard lookups -> FormatException.
+        Expect(ThrowsWithType([&] { (void)Fmt(dt2020, "z"); },
+                              "System.FormatException"),
+               "single 'z' throws FormatException (standard lookup)");
+        Expect(ThrowsWithType([&] { (void)Fmt(dt2020, "K"); },
+                              "System.FormatException"),
+               "single 'K' throws FormatException (standard lookup)");
+
+        // Era names.
+        Expect(StrEquals(Fmt(dt2020, "gg"), "A.D."), "custom 'gg' invariant == A.D.");
+        Expect(StrEquals(Fmt(dt2020, "ggg"), "A.D."), "custom 'ggg' invariant == A.D.");
+        Expect(StrEqualsUtf16(Fmt(dt2020, "gg", nullptr), u"\u516C\u5143"),
+               "custom 'gg' zh-CN == \u516C\u5143");
+        Expect(StrEqualsUtf16(Fmt(dt2020, "tt", nullptr), u"\u4E0B\u5348"),
+               "custom 'tt' zh-CN PM == \u4E0B\u5348");
+        Expect(StrEqualsUtf16(Fmt(midnight, "tt", nullptr), u"\u4E0A\u5348"),
+               "custom 'tt' zh-CN AM == \u4E0A\u5348");
+        Expect(StrEqualsUtf16(Fmt(dt2020, "%t", nullptr), u"\u4E0B"),
+               "custom '%t' zh-CN == \u4E0B (first char of the PM designator)");
+    }
 
     // 9. Fractional seconds f/F (net48 oracle: .123 s -> fff "123",
     // ffffff "123000"; .000 s -> fff "000", FFF ""; 7 digits max).
