@@ -24,7 +24,7 @@ public class MethodMapTestsHashSetVal
     [InlineData("System.Collections.Generic.HashSet`1_long", "il2cpp::il2cpp_hashset_long_get_enumerator", "System.Collections.Generic.HashSet`1.Enumerator_long")]
     [InlineData("System.Collections.Generic.HashSet`1_double", "il2cpp::il2cpp_hashset_double_get_enumerator", "System.Collections.Generic.HashSet`1.Enumerator_double")]
     [InlineData("System.Collections.Generic.HashSet`1_uint", "il2cpp::il2cpp_hashset_uint_get_enumerator", "System.Collections.Generic.HashSet`1.Enumerator_uint")]
-    [InlineData("System.Collections.Generic.HashSet`1_object", "il2cpp::il2cpp_hashset_ref_get_enumerator", "System.Collections.Generic.HashSet`1.Enumerator_ref")]
+    [InlineData("System.Collections.Generic.HashSet`1_object", "il2cpp::il2cpp_hashset_ref_get_enumerator", "System.Collections.Generic.HashSet`1.Enumerator_System.Object")]
     public void Resolve_HashSet_GetEnumerator_NewKinds(string receiver, string expected, string token)
     {
         var resolved = ResolveMember(Synthesize("GetEnumerator", Blob(0x20, 0x00, 0x12, 0x05)), "GetEnumerator", receiver);

@@ -92,13 +92,19 @@ public class MethodMapTestsHashSet
     }
 
     [Fact]
-    public void Resolve_HashSet_Add_StringReceiver_StillMapsToStringAdd()
+    public void Resolve_HashSet_Add_StringReceiver_MapsToRefFamily()
     {
-        // the pre-existing string expansion must keep its dictsi mapping.
+        // colls (slot-ordered rewrite): ONE carrier table serves every element
+        // kind so `foreach` reproduces net48 insertion order (hseta1). String
+        // and object elements therefore share the reference family -- the
+        // historical dictsi string split enumerated in bucket order and failed
+        // that probe. String CONTENT equality still holds: SetHash/FindCarrier
+        // compare strings by value inside the ref family (hsetbis4 pins
+        // Contains + OrdinalIgnoreCase comparer).
         var resolved = ResolveMember(Synthesize("Add", Blob(0x20, 0x01, 0x02, 0x13, 0x00)), "Add",
             receiverType: "System.Collections.Generic.HashSet`1_string");
 
-        Assert.Equal("il2cpp::runtime::icall_hashset_string_add", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_hashset_ref_add", resolved.CppName);
         Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 

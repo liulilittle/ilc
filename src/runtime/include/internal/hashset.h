@@ -165,6 +165,8 @@ bool icall_hashset_dec_contains(Il2CppObject* self, const runtime::Il2CppDecimal
 int32_t icall_hashset_dec_get_count(Il2CppObject* self);
 void icall_hashset_dec_clear(Il2CppObject* self);
 void icall_hashset_dec_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+// T3 result-slot contract: 'result' is the caller's 16-byte slot (FIRST arg).
+void icall_hashset_dec_enumerator_get_current(runtime::Il2CppDecimal* result, Il2CppObject* self);
 
 // comparer ctors (custom IEqualityComparer<T>) and enumerable ctors.
 void icall_hashset_int_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);

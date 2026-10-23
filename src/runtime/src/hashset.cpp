@@ -1346,6 +1346,12 @@ void icall_hashset_dec_clear(Il2CppObject* self)
     ClearAll(AsSet(self));
 }
 
+void icall_hashset_dec_enumerator_get_current(runtime::Il2CppDecimal* result, Il2CppObject* self)
+{
+    if (result == nullptr) return;
+    *result = icall_unbox_decimal(il2cpp_dict_si_keycollection_enumerator_get_current(self));
+}
+
 void icall_hashset_dec_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex)
 {
     ThrowIfNullReceiver(self);

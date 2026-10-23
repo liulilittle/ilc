@@ -344,8 +344,10 @@ public static partial class MethodRefResolver
                     case HashSetKind.U4:
                         return I("il2cpp::runtime::icall_hashset_uint_enumerator_get_current", 0, true, false, true, new[] { "deref:r" });
                     case HashSetKind.Dec:
-                        return I("il2cpp::runtime::icall_hashset_dec_enumerator_get_current", 0, true, true, true, new[] { "deref:r" },
-                            returnTypeName: "System.Decimal");
+                        // 16-byte value: the T3 result-slot contract (the
+                        // caller's Il2CppDecimal slot is the FIRST parameter).
+                        return I("il2cpp::runtime::icall_hashset_dec_enumerator_get_current", 0, true, false, true,
+                            new[] { "deref:r" }, resultKind: "dec", returnTypeName: "System.Decimal");
                     default:
                         // The string / reference element passes the carrier
                         // through as a managed reference.
