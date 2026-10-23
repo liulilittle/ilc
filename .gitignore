@@ -135,3 +135,12 @@ tests/cases/*/*.err
 # e2e net48 oracle staging (regenerated on demand, never committed)
 tests/cases/*/out_oracle/
 
+# agent/probe staging dirs under a case (out_o, out_probe, out2, ...): every
+# oracle/probe build artifact directory a case creates. Matches out/ and
+# out_stage* above; this closes the out_<anything> family so a blind
+# `git add -A` cannot commit .exe/.pdb fixtures.
+tests/cases/*/out_*/
+
+# local agent scratch (oracle probes, build logs) -- never committed
+.work/
+
