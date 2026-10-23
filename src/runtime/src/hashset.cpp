@@ -813,7 +813,12 @@ bool icall_hashset_int_try_get_value(Il2CppObject* self, int32_t equalValue, int
     Il2CppObject* carrier = il2cpp_box_int32(nullptr, equalValue);
     root = r.Get();
     Il2CppObject* found = FindCarrier(AsSet(root), carrier);
-    if (found == nullptr) return false;
+    if (found == nullptr)
+    {
+        // net48 TryGetValue writes default(T) into actualValue on a miss.
+        if (actualValue != nullptr) *actualValue = 0;
+        return false;
+    }
     if (actualValue != nullptr) *actualValue = il2cpp_unbox_int32(found);
     return true;
 }
@@ -916,7 +921,11 @@ bool icall_hashset_long_try_get_value(Il2CppObject* self, int64_t equalValue, in
     Il2CppObject* carrier = icall_box_long(equalValue);
     root = r.Get();
     Il2CppObject* found = FindCarrier(AsSet(root), carrier);
-    if (found == nullptr) return false;
+    if (found == nullptr)
+    {
+        if (actualValue != nullptr) *actualValue = 0;
+        return false;
+    }
     if (actualValue != nullptr) *actualValue = icall_unbox_long(found);
     return true;
 }
@@ -1010,7 +1019,11 @@ bool icall_hashset_double_try_get_value(Il2CppObject* self, double equalValue, d
     Il2CppObject* carrier = icall_box_double(equalValue);
     root = r.Get();
     Il2CppObject* found = FindCarrier(AsSet(root), carrier);
-    if (found == nullptr) return false;
+    if (found == nullptr)
+    {
+        if (actualValue != nullptr) *actualValue = 0.0;
+        return false;
+    }
     if (actualValue != nullptr) *actualValue = icall_unbox_double(found);
     return true;
 }
@@ -1104,7 +1117,11 @@ bool icall_hashset_uint_try_get_value(Il2CppObject* self, int32_t equalValue, in
     Il2CppObject* carrier = icall_box_uint(equalValue);
     root = r.Get();
     Il2CppObject* found = FindCarrier(AsSet(root), carrier);
-    if (found == nullptr) return false;
+    if (found == nullptr)
+    {
+        if (actualValue != nullptr) *actualValue = 0;
+        return false;
+    }
     if (actualValue != nullptr) *actualValue = icall_unbox_uint(found);
     return true;
 }
@@ -1188,7 +1205,11 @@ bool icall_hashset_string_try_get_value(Il2CppObject* self, Il2CppObject* equalV
     ThrowIfNullReceiver(self);
     if (equalValue == nullptr) il2cpp_throw_argument_null_exception("equalValue");
     Il2CppObject* found = FindCarrier(AsSet(self), equalValue);
-    if (found == nullptr) return false;
+    if (found == nullptr)
+    {
+        if (actualValue != nullptr) *actualValue = nullptr;
+        return false;
+    }
     if (actualValue != nullptr) *actualValue = found;
     return true;
 }
@@ -1253,7 +1274,11 @@ bool icall_hashset_ref_try_get_value(Il2CppObject* self, Il2CppObject* equalValu
     ThrowIfNullReceiver(self);
     if (equalValue == nullptr) il2cpp_throw_argument_null_exception("equalValue");
     Il2CppObject* found = FindCarrier(AsSet(self), equalValue);
-    if (found == nullptr) return false;
+    if (found == nullptr)
+    {
+        if (actualValue != nullptr) *actualValue = nullptr;
+        return false;
+    }
     if (actualValue != nullptr) *actualValue = found;
     return true;
 }
