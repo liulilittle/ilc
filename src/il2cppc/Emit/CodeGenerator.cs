@@ -350,6 +350,10 @@ public static class CodeGenerator
         // M5 wiring: List<int> domain -- the int32 AOT expansion allocates
         // through il2cpp_list_i4_class (BclAllocExpr, MethodMap.List.cs).
         generatedHeader.Line("#include \"listi4.h\"");
+        // HashSet`1 -- the slot-ordered set domain (hashset.h: the managed
+        // descriptor accessor + the per-family icalls). Without the include the
+        // generated C++ cannot see il2cpp::il2cpp_hashset_class().
+        generatedHeader.Line("#include \"hashset.h\"");
         // ilistException: List<Exception> (CLASS instantiation) allocates
         // through il2cpp_list_obj_class (listobj.h, namespace il2cpp) --
         // without the include the generated C++ cannot see the declarations.
@@ -5972,15 +5976,23 @@ public static class CodeGenerator
         // shared descriptor; the Uri key normalizes per call inside the
         // icall_dict_gen_*_o twins (Phase-2 absorption of the forwarders).
         "System.Collections.Generic.Dictionary`2_System.Uri_string" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
-        // G4: HashSet<int> reuses the same hashtable descriptor (boxed-int
-        // members; see hashset.h).
-        "System.Collections.Generic.HashSet`1_int" => "il2cpp_object_new(il2cpp::il2cpp_hashtable_class())",
-        // T2 W3: long/double/uint/object/class reuse the same hashtable descriptor.
+        // HashSet`1: EVERY element family allocates the dedicated slot-ordered
+        // set descriptor (hashset.h). The historical routing reused the
+        // hashtable / dictsi descriptors, whose enumeration is BUCKET ordered
+        // and therefore not byte-exact against net48 (probe hseta1).
+        "System.Collections.Generic.HashSet`1_int" or
         "System.Collections.Generic.HashSet`1_long" or
         "System.Collections.Generic.HashSet`1_double" or
         "System.Collections.Generic.HashSet`1_uint" or
         "System.Collections.Generic.HashSet`1_object" or
-        "System.Collections.Generic.HashSet`1_class" => "il2cpp_object_new(il2cpp::il2cpp_hashtable_class())",
+        "System.Collections.Generic.HashSet`1_class" or
+        "System.Collections.Generic.HashSet`1_string" or
+        "System.Collections.Generic.HashSet`1_System.Decimal" => "il2cpp_object_new(il2cpp::il2cpp_hashset_class())",
+        // Any OTHER closed instantiation (a user class/struct/enum element, a
+        // nested generic): the same descriptor (value elements are boxed by
+        // the call site, so every element is a managed carrier).
+        var hashSetAlloc when hashSetAlloc.StartsWith("System.Collections.Generic.HashSet`1_", StringComparison.Ordinal)
+            => "il2cpp_object_new(il2cpp::il2cpp_hashset_class())",
         "System.Random" => "il2cpp_object_new(il2cpp::il2cpp_random_class())",
         // batch 158 (timercase): System.Threading.Timer allocates through the
         // runtime-registered descriptor (timer.cpp -- the managed object is a
