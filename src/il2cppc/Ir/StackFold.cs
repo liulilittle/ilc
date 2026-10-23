@@ -2963,7 +2963,47 @@ public static class StackFold
                 if (IsTypeGetName(md, (int)ins.Operand))
                 {
                     stack.Pop();
-                    Push(new StringConstExpr { Value = ShortTypeName(foldedType.Value) }, ins);
+                    // net48 Type.Name: the ldtoken token carries the ARRAY RANK /
+                    // GENERIC ARITY shape the identity string loses (an array
+                    // identity "[System.Int32" must answer "Int32[]", a
+                    // constructed generic definition "List`1" keeps its arity).
+                    var shortName = typeFromHandleToken.TryGetValue(prevCall.Offset, out var nameToken)
+                        ? ReflectionDisplayShortName(md, nameToken)
+                        : ShortTypeName(foldedType.Value);
+                    Push(new StringConstExpr { Value = shortName }, ins);
+                    return;
+                }
+                // Type.FullName on the FOLDED typeof chain: the identity string
+                // is the typeinfo REGISTRY key (arrays ride as "[<elem>", a
+                // closed generic as its DEFINITION name), which is not the
+                // net48 FullName ("System.Int32[]",
+                // "System.Nullable`1[[System.Int32, mscorlib, ...]]"). The
+                // ldtoken token decodes the exact net48 name.
+                if (IsTypeGetFullName(md, (int)ins.Operand))
+                {
+                    stack.Pop();
+                    Push(new StringConstExpr
+                    {
+                        Value = typeFromHandleToken.TryGetValue(prevCall.Offset, out var fullToken)
+                            ? ReflectionDisplayName(md, fullToken, true)
+                            : foldedType.Value,
+                    }, ins);
+                    return;
+                }
+                // Type.AssemblyQualifiedName on the FOLDED typeof chain: the
+                // net48 "<FullName>, <asm>, Version=..., Culture=neutral,
+                // PublicKeyToken=..." form. The assembly suffix depends on the
+                // type's OWN assembly (mscorlib for a BCL type, the input
+                // assembly for a user type), which the metadata token carries.
+                if (IsTypeGetAssemblyQualifiedName(md, (int)ins.Operand))
+                {
+                    stack.Pop();
+                    Push(new StringConstExpr
+                    {
+                        Value = typeFromHandleToken.TryGetValue(prevCall.Offset, out var aqnToken)
+                            ? ReflectionDisplayName(md, aqnToken, true) + AssemblySuffix(md, aqnToken)
+                            : foldedType.Value,
+                    }, ins);
                     return;
                 }
                 if (IsTypeGetTypeCode(md, (int)ins.Operand))
@@ -5509,6 +5549,30 @@ public static class StackFold
                 && md.GetString(mr.Name) == "get_Name";
         }
 
+        // refl2 (A): whether the call token is Type::get_FullName (the typeof
+        // fold chain renders the net48 FullName -- see ReflectionDisplayName).
+        static bool IsTypeGetFullName(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            var parent = md.GetFullName((TypeReferenceHandle)mr.Parent);
+            return (parent == "System.Type" || parent == "System.Reflection.MemberInfo")
+                && md.GetString(mr.Name) == "get_FullName";
+        }
+
+        // refl2 (A): whether the call token is Type::get_AssemblyQualifiedName.
+        static bool IsTypeGetAssemblyQualifiedName(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            return md.GetFullName((TypeReferenceHandle)mr.Parent) == "System.Type"
+                && md.GetString(mr.Name) == "get_AssemblyQualifiedName";
+        }
+
         // typeof-chain (F1 follow-up): whether the call token is Type::
         // GetTypeCode's STATIC 1-param form (GetTypeCode(Type)) -- only that
         // form folds to a typecode constant; the 0-param INSTANCE form
@@ -5805,6 +5869,273 @@ public static class StackFold
             return plus < 0 ? seg : seg[(plus + 1)..];
         }
 
+        //--------------------------------------------------------------------------
+        // refl2 (A): net48 type-DISPLAY names on the typeof fold chain.
+        //
+        // The folded identity string is the typeinfo REGISTRY key (a simplified
+        // model carrier: arrays are "[<elem>", a constructed generic is its
+        // DEFINITION's name). net48's Type.Name / FullName /
+        // AssemblyQualifiedName are DIFFERENT strings, and the ldtoken token
+        // recorded beside the identity (typeFromHandleToken) decodes them
+        // exactly:
+        //   typeof(int[]).FullName      -> "System.Int32[]"
+        //   typeof(int[,]).FullName     -> "System.Int32[,]"
+        //   typeof(int?).FullName       -> "System.Nullable`1[[System.Int32,
+        //                                   mscorlib, Version=4.0.0.0,
+        //                                   Culture=neutral,
+        //                                   PublicKeyToken=b77a5c561934e089]]"
+        //   typeof(int[][]).FullName    -> "System.Int32[][]"
+        //   typeof(int[]).Name          -> "Int32[]"
+        //   typeof(List<int>).Name      -> "List`1"
+        //   typeof(Dictionary<string,int>).FullName -> arity-paired,
+        //                                   assembly-qualified argument list.
+        // Generic arguments are themselves assembly-qualified in the FullName
+        // form; the Name form keeps only the definition's short name.
+        //--------------------------------------------------------------------------
+        static string ReflectionDisplayName(MetadataReader md, int token, bool qualify)
+        {
+            var handle = MetadataTokens.Handle(token);
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                    return md.GetFullName((TypeDefinitionHandle)handle);
+                case HandleKind.TypeReference:
+                    return md.GetFullName((TypeReferenceHandle)handle);
+                case HandleKind.TypeSpecification:
+                {
+                    var sig = md.GetBlobReader(
+                        md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                    return DecodeDisplayType(md, ref sig, qualify, out _);
+                }
+                default:
+                    throw new NotSupportedException(
+                        $"typeof display name: token kind {handle.Kind} not supported in refl2");
+            }
+        }
+
+        // net48 Type.Name of a typeof token: the short name of the DISPLAY name
+        // (arrays keep their "[]"/"[,]" suffix, generics their "`N" arity).
+        static string ReflectionDisplayShortName(MetadataReader md, int token)
+        {
+            var full = ReflectionDisplayName(md, token, false);
+            return ShortTypeName(full);
+        }
+
+        // One encoded type in a TypeSpec blob -> its net48 display name.
+        // `defTok` reports the type's DEFINING TypeDef/TypeRef handle (arrays /
+        // pointers / byrefs report their ELEMENT's handle) so the caller can
+        // append the net48 assembly identity.
+        static string DecodeDisplayType(MetadataReader md, ref BlobReader sig, bool qualify,
+            out EntityHandle defTok)
+        {
+            var et = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            switch (et)
+            {
+                case 0x01: defTok = default; return "System.Void";
+                case 0x02: defTok = default; return "System.Boolean";
+                case 0x03: defTok = default; return "System.Char";
+                case 0x04: defTok = default; return "System.SByte";
+                case 0x05: defTok = default; return "System.Byte";
+                case 0x06: defTok = default; return "System.Int16";
+                case 0x07: defTok = default; return "System.UInt16";
+                case 0x08: defTok = default; return "System.Int32";
+                case 0x09: defTok = default; return "System.UInt32";
+                case 0x0A: defTok = default; return "System.Int64";
+                case 0x0B: defTok = default; return "System.UInt64";
+                case 0x0C: defTok = default; return "System.Single";
+                case 0x0D: defTok = default; return "System.Double";
+                case 0x0E: defTok = default; return "System.String";
+                case 0x18: defTok = default; return "System.IntPtr";
+                case 0x19: defTok = default; return "System.UIntPtr";
+                case 0x1C: defTok = default; return "System.Object";
+                case 0x11: // VALUETYPE
+                case 0x12: // CLASS
+                {
+                    var tok = sig.ReadTypeHandle();
+                    defTok = tok;
+                    return tok.Kind switch
+                    {
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)tok),
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)tok),
+                        HandleKind.TypeSpecification => TypeNameForReflection(
+                            md, MetadataTokens.GetToken(tok)),
+                        _ => throw new NotSupportedException(
+                            $"typeof display name: definition kind {tok.Kind} in refl2"),
+                    };
+                }
+                case 0x1D: // SZARRAY
+                {
+                    var elem = DecodeDisplayType(md, ref sig, qualify, out defTok);
+                    return elem + "[]";
+                }
+                case 0x14: // ARRAY (multidim)
+                {
+                    var elem = DecodeDisplayType(md, ref sig, qualify, out defTok);
+                    var rank = sig.ReadCompressedInteger();
+                    var numSizes = sig.ReadCompressedInteger();
+                    for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+                    var numLoBounds = sig.ReadCompressedInteger();
+                    for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
+                    return elem + "[" + new string(',', Math.Max(rank, 1) - 1) + "]";
+                }
+                case 0x0F: // PTR
+                {
+                    var elem = DecodeDisplayType(md, ref sig, qualify, out defTok);
+                    return elem + "*";
+                }
+                case 0x10: // BYREF
+                {
+                    var elem = DecodeDisplayType(md, ref sig, qualify, out defTok);
+                    return elem + "&";
+                }
+                case 0x13: // VAR (generic type parameter)
+                {
+                    var vIdx = sig.ReadCompressedInteger();
+                    defTok = default;
+                    var hint = MethodRefResolver.InstantiationSuffixHint;
+                    if (hint != null)
+                    {
+                        var part = MethodRefResolver.InstantiationSuffixHintParts is { Length: > 1 }
+                            ? MethodRefResolver.InstantiationVarSuffix(vIdx)
+                            : hint.Split('_') is { } pp && vIdx < pp.Length ? pp[vIdx] : null;
+                        if (part != null) return SuffixToManagedTypeName(part);
+                    }
+                    return "System.Int32"; // the M3 single-instantiation default
+                }
+                case 0x15: // GENERICINST
+                {
+                    _ = sig.ReadByte(); // ELEMENT_TYPE_CLASS / VALUETYPE marker
+                    var defHandle = sig.ReadTypeHandle();
+                    defTok = defHandle;
+                    var defName = defHandle.Kind switch
+                    {
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defHandle),
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defHandle),
+                        HandleKind.TypeSpecification => TypeNameForReflection(
+                            md, MetadataTokens.GetToken(defHandle)),
+                        _ => throw new NotSupportedException(
+                            $"typeof display name: generic definition kind {defHandle.Kind}"),
+                    };
+                    var argc = sig.ReadCompressedInteger();
+                    if (!qualify)
+                    {
+                        // Name form: consume the argument blobs without rendering.
+                        for (var i = 0; i < argc; i++)
+                            _ = DecodeDisplayType(md, ref sig, false, out _);
+                        return defName;
+                    }
+                    var args = new List<string>(argc);
+                    for (var i = 0; i < argc; i++)
+                    {
+                        var arg = DecodeDisplayType(md, ref sig, true, out var argTok);
+                        args.Add("[" + arg + AssemblySuffixOfToken(md, argTok) + "]");
+                    }
+                    return defName + "[" + string.Join(",", args) + "]";
+                }
+                default:
+                    throw new NotSupportedException(
+                        $"typeof display name: signature byte 0x{et:X2} not supported in refl2");
+            }
+        }
+
+        static string BclAssemblySuffix() =>
+            ", mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089";
+
+
+        // net48 assembly identity suffix (", <name>, Version=<v>, Culture=
+        // neutral, PublicKeyToken=<tok|null>") of a defining type token.
+        // A TypeDef -> THIS assembly; a TypeRef -> its AssemblyReference (or
+        // mscorlib for the core library's self-reference-less scope); a
+        // TypeSpec -> its first defining token (arrays take the element).
+        static string AssemblySuffixOfToken(MetadataReader md, EntityHandle tok)
+        {
+            switch (tok.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                    return ThisAssemblySuffix(md);
+                case HandleKind.TypeReference:
+                {
+                    var tr = md.GetTypeReference((TypeReferenceHandle)tok);
+                    var scope = tr.ResolutionScope;
+                    if (scope.Kind == HandleKind.TypeReference)
+                        return AssemblySuffixOfToken(md, scope);
+                    if (scope.Kind == HandleKind.AssemblyReference)
+                    {
+                        var ar = md.GetAssemblyReference((AssemblyReferenceHandle)scope);
+                        var name = md.GetString(ar.Name);
+                        if (name == "mscorlib") return BclAssemblySuffix();
+                        var tokStr = ar.PublicKeyOrToken.IsNil
+                            ? "null"
+                            : PublicKeyTokenHex(md, ar.PublicKeyOrToken);
+                        return ", " + name + ", Version=" + ar.Version
+                            + ", Culture=neutral, PublicKeyToken=" + tokStr;
+                    }
+                    return BclAssemblySuffix();
+                }
+                default:
+                    return BclAssemblySuffix();
+            }
+        }
+
+        static string ThisAssemblySuffix(MetadataReader md)
+        {
+            string name = "";
+            string ver = "1.0.0.0";
+            try
+            {
+                var ad = md.GetAssemblyDefinition();
+                name = md.GetString(ad.Name);
+                ver = ad.Version.ToString();
+            }
+            catch { }
+            return ", " + name + ", Version=" + ver
+                + ", Culture=neutral, PublicKeyToken=" + (AssemblyPublicKeyToken(md) ?? "null");
+        }
+
+        // The public-key TOKEN of this assembly (net48 prints the token, not the
+        // key). The single-assembly test inputs are unsigned -> "null"; for a
+        // signed input the SHA-1 token's last 8 bytes are the ECMA layout.
+        static string? AssemblyPublicKeyToken(MetadataReader md)
+        {
+            try
+            {
+                var pk = md.GetAssemblyDefinition().PublicKey;
+                if (pk.IsNil) return null;
+                var bytes = md.GetBlobBytes(pk);
+                if (bytes.Length < 8) return null;
+                using var sha1 = System.Security.Cryptography.SHA1.Create();
+                var hash = sha1.ComputeHash(bytes);
+                var sb = new System.Text.StringBuilder(16);
+                for (var i = hash.Length - 1; i >= hash.Length - 8; i--) sb.Append(hash[i].ToString("x2"));
+                return sb.ToString();
+            }
+            catch { return null; }
+        }
+
+        static string PublicKeyTokenHex(MetadataReader md, BlobHandle token)
+        {
+            var bytes = md.GetBlobBytes(token);
+            var sb = new System.Text.StringBuilder(bytes.Length * 2);
+            for (var i = bytes.Length - 1; i >= 0; i--) sb.Append(bytes[i].ToString("x2"));
+            return sb.ToString();
+        }
+
+        // The net48 assembly suffix of a typeof token.
+        static string AssemblySuffix(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                // The assembly comes from the ELEMENT / generic definition, the
+                // same rule net48 uses for an array / pointer / byref / closed
+                // generic type.
+                var sig = md.GetBlobReader(
+                    md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                _ = DecodeDisplayType(md, ref sig, false, out var defTok);
+                return AssemblySuffixOfToken(md, defTok);
+            }
+            return AssemblySuffixOfToken(md, (EntityHandle)handle);
+        }
         // Type full name -> TypeCode value: the net48 constant table, a mirror
         // of the runtime's icall_object_get_type_code (typecheck.cpp 181-215)
         // -- Int32=9 Boolean=3 Char=4 Double=14 String=18, else 1
@@ -6203,6 +6534,23 @@ public static class StackFold
             {
                 return "[" + SzArrayElementFullName(md, ref sig);
             }
+            // refl2 (multidim): a typeof ARRAY (0x14) token (`typeof(int[,])`)
+            // folds to the SAME element-prefixed identity the array runtime uses
+            // ("[System.Int32"), not the legacy TaskAwaiter`1 fallback that made
+            // every multidim type look like a Task awaiter (the pre-refl2
+            // `.Name`/`.FullName`/`GetElementType` breakage). The rank rides the
+            // DISPLAY name only (ReflectionDisplayName), so the registry key
+            // stays element-identity based like the single-dim case.
+            if (b == 0x14) // ARRAY (multidim)
+            {
+                var elemName = SzArrayElementFullName(md, ref sig);
+                _ = sig.ReadCompressedInteger(); // rank
+                var numSizes = sig.ReadCompressedInteger();
+                for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+                var numLoBounds = sig.ReadCompressedInteger();
+                for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
+                return "[" + elemName;
+            }
             return TypeSpecName(md, hs); // remaining legacy shapes unchanged
         }
 
@@ -6245,9 +6593,44 @@ public static class StackFold
                     {
                         HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)tok),
                         HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)tok),
+                        // A generic-instance / array element DEFINITION (a
+                        // TypeSpec handle): decode it so an array of a closed
+                        // generic (List<int>[]) keeps the element identity.
+                        HandleKind.TypeSpecification => TypeNameForReflection(
+                            md, MetadataTokens.GetToken(tok)),
                         _ => throw new NotSupportedException(
                             $"typeof SZARRAY element kind {tok.Kind} not supported in refl2"),
                     };
+                // refl2 (A): a GENERICINST element (`typeof(List<int>[])`). The
+                // array identity key is the ELEMENT's registry name (the
+                // definition's full name -- the typeinfo convention), so decode
+                // the definition and consume the argument blobs.
+                case 0x15:
+                {
+                    _ = sig.ReadByte(); // CLASS / VALUETYPE marker
+                    var defTok = sig.ReadTypeHandle();
+                    var defName = defTok.Kind switch
+                    {
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)defTok),
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)defTok),
+                        HandleKind.TypeSpecification => TypeNameForReflection(
+                            md, MetadataTokens.GetToken(defTok)),
+                        _ => throw new NotSupportedException(
+                            $"typeof SZARRAY generic element kind {defTok.Kind} not supported in refl2"),
+                    };
+                    var argc = sig.ReadCompressedInteger();
+                    for (var i = 0; i < argc; i++) _ = DecodeDisplayType(md, ref sig, false, out _);
+                    return defName;
+                }
+                // A generic type parameter element (`typeof(T[])`): the M3
+                // single-instantiation convention resolves it to Int32.
+                case 0x13:
+                {
+                    _ = sig.ReadCompressedInteger();
+                    var hint = MethodRefResolver.InstantiationSuffixHint;
+                    if (hint != null) return SuffixToManagedTypeName(hint.Split('_')[0]);
+                    return "System.Int32";
+                }
                 case 0x1D: return "[" + SzArrayElementFullName(md, ref sig);
                 case 0x14:
                     // multidim element: decode to the "[elem]" name (the shared
