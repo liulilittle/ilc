@@ -1,54 +1,63 @@
 #pragma once
 //------------------------------------------------------------------------------
-// hashset.h -- the GC-OBJECT wrapper for HashSet<string> (D-HSET-1, hset-b23).
+// hashset.h -- System.Collections.Generic.HashSet`1 runtime domain.
 //
-// System.Collections.Generic.HashSet<string> is a set of UNIQUE members. Its
-// storage REUSES the dictsi (string->int32) domain: each member is a dictsi
-// key whose value is always the presence marker 1. The wrapper is a MANAGED
-// object (Il2CppHashSetStringObject) whose slot 1 holds the raw Il2CppDictSI*
-// in a NON-reference field (refFieldBitmap 0), mirroring the Dictionary
-//<string,int> wrapper (dictsi_obj.h):
+// MODEL (net48 HashSet<T>, byte-exact enumeration): a SLOT array in insertion
+// order plus a LIFO free list and a bucket index array. Enumeration walks the
+// slot array [0, count) ascending and SKIPS free slots (hashCode < 0), which is
+// exactly what net48's Enumerator does. A removed slot is REUSED by the next
+// Add (LIFO), so a re-added member returns to its ORIGINAL enumeration
+// position -- probe hsetmodel (net48 oracle):
+//     add 0..5, remove 2,4 -> 0,1,3,5
+//     add 99 -> 0,1,3,99,5      (slot 4 reused)
+//     add 98 -> 0,1,98,3,99,5   (slot 2 reused)
+// The bucket order is NEVER observable (no public Capacity, enumeration is
+// slot-ordered), so the bucket count is an internal detail.
 //
-//   struct Il2CppHashSetStringObject
+// ONE STORAGE FOR EVERY ELEMENT KIND. Members are stored as MANAGED CARRIERS
+// (Il2CppObject*: a real reference for reference types, a BOX for value
+// types), and membership uses the runtime's universal value semantics --
+// icall_object_get_hash_code / icall_object_equals -- which already implement
+// the net48 EqualityComparer<T>.Default contract per type:
+//     string   -> ordinal content hash / content equality
+//     boxed primitives (int/long/uint/double/char/bool/...) -> value hash /
+//                 value equality
+//     boxed decimal / DateTime / TimeSpan / Guid -> the value hash/equality
+//     boxed user struct with an override -> the reflected GetHashCode/Equals
+//     any other reference -> address hash / reference equality
+// This replaces the historical split (string->dictsi, value->boxed hashtable)
+// whose enumeration was BUCKET ordered and therefore failed byte-exact against
+// net48 for HashSet<int> (probe hseta1: oracle 3,1,7,2,5 vs runtime 1,2,3,5,7).
+//
+// CUSTOM IEqualityComparer<T>: a ctor may install a comparer; hashing and
+// equality then dispatch the comparer's reflected GetHashCode/Equals slots
+// (the same virtual-dispatch discipline the comparer domains use). keyKind
+// selects the reflected signature family (int32 vs reference carrier).
+//
+// GC CONTRACT: keys/hashes/nexts/buckets are MANAGED arrays held in GC-scanned
+// slots (refFieldBitmap), so every stored member is rooted by the set itself --
+// no caller-rooting contract (unlike dictsi).
+//
+// LAYOUT:
+//   struct Il2CppHashSetObject
 //   {
-//       Il2CppObject  obj;   // object header (slot 0)
-//       Il2CppDictSI* set;   // slot 1 -- RAW pointer, NOT in the refFieldBitmap
+//       Il2CppObject  obj;            // slot 0
+//       Il2CppArray*  keys;           // slot 1: carriers (ref array; null = free)
+//       Il2CppArray*  hashes;         // slot 2: int32 cached hash (-1 = free)
+//       Il2CppArray*  nexts;          // slot 3: int32 bucket-chain / free-list link
+//       Il2CppArray*  buckets;        // slot 4: int32 bucket -> slot index
+//       Il2CppObject* comparer;       // slot 5: custom IEqualityComparer or null
+//       int32_t       bucketCount;    // slot 6
+//       int32_t       count;          // slot 7: slots ever used (INCLUDES free)
+//       int32_t       entryCapacity;  // slot 8
+//       int32_t       freeList;       // slot 9: free-slot chain head (-1 = none)
+//       int32_t       freeCount;      // slot 10
+//       int32_t       keyKind;        // slot 11: 0 ref, 1 int32
 //   };
-//
-//   GC SAFETY (refFieldBitmap contract): the wrapper class descriptor has
-//   refFieldBitmap 0 -- the collector scans NO reference fields, so the raw
-//   Il2CppDictSI* is never mistaken for a managed reference. The set does NOT
-//   root its keys (dictsi.h GC CONTRACT): the CALLER keeps every stored
-//   member reachable. In the e2e (hashsetdeep) every member is a string
-//   LITERAL -- interned through g_strPool and rooted for the process lifetime.
-//
-//   LIFETIME: il2cpp_dict_si_destroy is the 1:1 pair of create. A wrapper that
-//   is collected WITHOUT a finalizer leaks its Il2CppDictSI (documented
-//   limitation, mirror dictsi_obj.h -- the e2e keeps the set alive for the
-//   whole program).
-//
-//   The icall_* entry points (il2cpp::runtime, hashtable/dictsi convention)
-//   take Il2CppObject* self and extract the set through the wrapper slot.
-//   Member semantics (net48 probe, hset-b23):
-//     Add(item)     -> bool: true when ADDED (the member was absent); false
-//                     when already present (no-op). Duplicates never throw.
-//     Remove(item)  -> bool: true when the member was present (removed).
-//     Contains(item)-> bool: membership by ordinal content equality.
-//     Count         -> int32: number of members.
-//     Clear()       -> drops every member; Count -> 0; the set stays reusable.
-//
-//   The class descriptor is a runtime GLOBAL
-//   (System_Collections_Generic_HashSet_1_string_class) because the transpiler
-//   emits `il2cpp_object_new(&System_Collections_Generic_HashSet_1_string_
-//   class)` for `new HashSet<string>()` (BclAllocExpr has no HashSet entry --
-//   the newobj fallback references the global symbol; dictsi_obj.cpp precedent).
-//   It is lazily REGISTERED on first ctor use (il2cpp_class_register is
-//   idempotent; the minimal e2e performs no isinst/class_by_name on the type,
-//   registration is kept for conformance-scan consistency).
 //------------------------------------------------------------------------------
 
-#include "dictsi.h"
-
+#include "decimal.h"          // Il2CppDecimal (the decimal element family)
+#include "il2cpp_array.h"
 #include "il2cpp_object.h"
 #include "il2cpp_runtime.h"
 
@@ -56,108 +65,153 @@
 
 namespace il2cpp {
 
-// The managed wrapper object: header + raw set pointer (slot 1).
-struct Il2CppHashSetStringObject
+struct Il2CppHashSetObject
 {
-    Il2CppObject  obj;   // slot 0: object header
-    Il2CppDictSI* set;   // slot 1: raw pointer (NOT in the refFieldBitmap)
+    Il2CppObject  obj;           // slot 0: object header
+    Il2CppArray*  keys;          // slot 1: carriers (GC ref)
+    Il2CppArray*  hashes;        // slot 2: int32 hashes (GC ref)
+    Il2CppArray*  nexts;         // slot 3: int32 links (GC ref)
+    Il2CppArray*  buckets;       // slot 4: int32 buckets (GC ref)
+    Il2CppObject* comparer;      // slot 5: custom comparer (GC ref) or null
+    int32_t       bucketCount;   // slot 6
+    int32_t       count;         // slot 7
+    int32_t       entryCapacity; // slot 8
+    int32_t       freeList;      // slot 9
+    int32_t       freeCount;     // slot 10
+    int32_t       keyKind;       // slot 11
 };
 
-// GLOBAL scope class descriptor -- the transpiler emits
+// The GLOBAL descriptor keeps its historical symbol: generated code emits
 // il2cpp_object_new(&System_Collections_Generic_HashSet_1_string_class) for
-// `new HashSet<string>()` (the newobj fallback, CodeGenerator.cs BclAllocExpr).
+// `new HashSet<string>()` (the newobj fallback) and tests/runtime names it.
 extern Il2CppClass System_Collections_Generic_HashSet_1_string_class;
+
+// Descriptor accessor for EVERY instantiation (lazy registration; the
+// historical string symbol is the same object).
+Il2CppClass* il2cpp_hashset_class();
 
 namespace runtime {
 
-// .ctor(capacity) -- allocate the raw set (capacity 0 for the parameterless
-// form) and store it in the wrapper slot.
-void icall_hashset_string_ctor(Il2CppObject* self, int32_t capacity);
-
-// Add(item): true when the member was ABSENT (inserted); false when already
-// present. The item arrives as a managed reference (Il2CppObject*); the
-// wrapper casts it to Il2CppString*.
-bool icall_hashset_string_add(Il2CppObject* self, Il2CppObject* item);
-
-// Remove(item): true when the member was present (removed).
-bool icall_hashset_string_remove(Il2CppObject* self, Il2CppObject* item);
-
-// Contains(item): membership by ordinal content equality.
-bool icall_hashset_string_contains(Il2CppObject* self, Il2CppObject* item);
-
-// get_Count: the number of members.
-int32_t icall_hashset_string_get_count(Il2CppObject* self);
-
-// Clear(): count -> 0; the set stays reusable.
-void icall_hashset_string_clear(Il2CppObject* self);
-
-//------------------------------------------------------------------------------
-// G4: HashSet<int> -- the int-member expansion. It REUSES the non-generic
-// hashtable object model (il2cpp_hashtable.h) with BOXED int32 members: the
-// hashtable's boxed-primitive key contract (value hash + value equality)
-// gives net48 HashSet<int> membership for free, and its entries root every
-// stored key (no dictsi-style caller-rooting contract). The receiver is the
-// same hashtable object (the transpiler allocates it through
-// il2cpp_hashtable_class()).
-//
-//   Add(item)     -> bool: true when ADDED; false when already present.
-//   Remove(item)  -> bool: true when present (removed).
-//   Contains(item)-> bool: membership by value equality.
-//   Count         -> the number of members.
-//   Clear()       -> count -> 0; reusable.
-//------------------------------------------------------------------------------
+// .ctor(capacity) -- allocate the storage. capacity 0 = the parameterless form.
 void icall_hashset_int_ctor(Il2CppObject* self, int32_t capacity);
 bool icall_hashset_int_add(Il2CppObject* self, int32_t item);
 bool icall_hashset_int_remove(Il2CppObject* self, int32_t item);
 bool icall_hashset_int_contains(Il2CppObject* self, int32_t item);
 int32_t icall_hashset_int_get_count(Il2CppObject* self);
 void icall_hashset_int_clear(Il2CppObject* self);
+bool icall_hashset_int_try_get_value(Il2CppObject* self, int32_t equalValue, int32_t* actualValue);
+void icall_hashset_int_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+void icall_hashset_int_copy_to_range(Il2CppObject* self, Il2CppArray* array,
+                                     int32_t index, int32_t arrayIndex, int32_t count);
 int32_t icall_hashset_int_enumerator_get_current(Il2CppObject* self);
-// T2 W3: long/double/uint/ref families (hashset.cpp).
+
 void icall_hashset_long_ctor(Il2CppObject* self, int32_t capacity);
 bool icall_hashset_long_add(Il2CppObject* self, int64_t item);
 bool icall_hashset_long_remove(Il2CppObject* self, int64_t item);
 bool icall_hashset_long_contains(Il2CppObject* self, int64_t item);
 int32_t icall_hashset_long_get_count(Il2CppObject* self);
 void icall_hashset_long_clear(Il2CppObject* self);
+bool icall_hashset_long_try_get_value(Il2CppObject* self, int64_t equalValue, int64_t* actualValue);
+void icall_hashset_long_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
 int64_t icall_hashset_long_enumerator_get_current(Il2CppObject* self);
+
 void icall_hashset_double_ctor(Il2CppObject* self, int32_t capacity);
 bool icall_hashset_double_add(Il2CppObject* self, double item);
 bool icall_hashset_double_remove(Il2CppObject* self, double item);
 bool icall_hashset_double_contains(Il2CppObject* self, double item);
 int32_t icall_hashset_double_get_count(Il2CppObject* self);
 void icall_hashset_double_clear(Il2CppObject* self);
+bool icall_hashset_double_try_get_value(Il2CppObject* self, double equalValue, double* actualValue);
+void icall_hashset_double_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
 double icall_hashset_double_enumerator_get_current(Il2CppObject* self);
+
 void icall_hashset_uint_ctor(Il2CppObject* self, int32_t capacity);
 bool icall_hashset_uint_add(Il2CppObject* self, int32_t item);
 bool icall_hashset_uint_remove(Il2CppObject* self, int32_t item);
 bool icall_hashset_uint_contains(Il2CppObject* self, int32_t item);
 int32_t icall_hashset_uint_get_count(Il2CppObject* self);
 void icall_hashset_uint_clear(Il2CppObject* self);
+bool icall_hashset_uint_try_get_value(Il2CppObject* self, int32_t equalValue, int32_t* actualValue);
+void icall_hashset_uint_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
 int32_t icall_hashset_uint_enumerator_get_current(Il2CppObject* self);
+
+void icall_hashset_string_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_string_add(Il2CppObject* self, Il2CppObject* item);
+bool icall_hashset_string_remove(Il2CppObject* self, Il2CppObject* item);
+bool icall_hashset_string_contains(Il2CppObject* self, Il2CppObject* item);
+int32_t icall_hashset_string_get_count(Il2CppObject* self);
+void icall_hashset_string_clear(Il2CppObject* self);
+bool icall_hashset_string_try_get_value(Il2CppObject* self, Il2CppObject* equalValue, Il2CppObject** actualValue);
+void icall_hashset_string_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+Il2CppObject* icall_hashset_string_enumerator_get_current(Il2CppObject* self);
+
 void icall_hashset_ref_ctor(Il2CppObject* self, int32_t capacity);
 bool icall_hashset_ref_add(Il2CppObject* self, Il2CppObject* item);
 bool icall_hashset_ref_remove(Il2CppObject* self, Il2CppObject* item);
 bool icall_hashset_ref_contains(Il2CppObject* self, Il2CppObject* item);
 int32_t icall_hashset_ref_get_count(Il2CppObject* self);
 void icall_hashset_ref_clear(Il2CppObject* self);
+bool icall_hashset_ref_try_get_value(Il2CppObject* self, Il2CppObject* equalValue, Il2CppObject** actualValue);
+void icall_hashset_ref_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+
+// decimal / user struct carriers (box on entry, unbox on exit).
+void icall_hashset_dec_ctor(Il2CppObject* self, int32_t capacity);
+bool icall_hashset_dec_add(Il2CppObject* self, const runtime::Il2CppDecimal* item);
+bool icall_hashset_dec_remove(Il2CppObject* self, const runtime::Il2CppDecimal* item);
+bool icall_hashset_dec_contains(Il2CppObject* self, const runtime::Il2CppDecimal* item);
+int32_t icall_hashset_dec_get_count(Il2CppObject* self);
+void icall_hashset_dec_clear(Il2CppObject* self);
+void icall_hashset_dec_copy_to(Il2CppObject* self, Il2CppArray* array, int32_t arrayIndex);
+
+// comparer ctors (custom IEqualityComparer<T>) and enumerable ctors.
+void icall_hashset_int_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
+void icall_hashset_ref_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
+void icall_hashset_long_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
+void icall_hashset_double_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
+void icall_hashset_uint_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
+void icall_hashset_dec_ctor_comparer(Il2CppObject* self, Il2CppObject* comparer);
+
+void icall_hashset_int_ctor_enum(Il2CppObject* self, Il2CppObject* items);
+void icall_hashset_ref_ctor_enum(Il2CppObject* self, Il2CppObject* items);
+void icall_hashset_long_ctor_enum(Il2CppObject* self, Il2CppObject* items);
+void icall_hashset_double_ctor_enum(Il2CppObject* self, Il2CppObject* items);
+void icall_hashset_uint_ctor_enum(Il2CppObject* self, Il2CppObject* items);
+void icall_hashset_dec_ctor_enum(Il2CppObject* self, Il2CppObject* items);
+
+void icall_hashset_int_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items, Il2CppObject* comparer);
+void icall_hashset_ref_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items, Il2CppObject* comparer);
+void icall_hashset_long_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items, Il2CppObject* comparer);
+void icall_hashset_double_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items, Il2CppObject* comparer);
+void icall_hashset_uint_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items, Il2CppObject* comparer);
+void icall_hashset_dec_ctor_enum_comparer(Il2CppObject* self, Il2CppObject* items, Il2CppObject* comparer);
+
+// Set algebra (IEnumerable<T> operand; a HashSet operand iterates its slots
+// directly, any other carrier goes through the shared IEnumerable surface).
+void icall_hashset_union_with(Il2CppObject* self, Il2CppObject* other);
+void icall_hashset_intersect_with(Il2CppObject* self, Il2CppObject* other);
+void icall_hashset_except_with(Il2CppObject* self, Il2CppObject* other);
+void icall_hashset_symmetric_except_with(Il2CppObject* self, Il2CppObject* other);
+bool icall_hashset_set_equals(Il2CppObject* self, Il2CppObject* other);
+bool icall_hashset_is_subset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_hashset_is_superset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_hashset_is_proper_subset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_hashset_is_proper_superset_of(Il2CppObject* self, Il2CppObject* other);
+bool icall_hashset_overlaps(Il2CppObject* self, Il2CppObject* other);
+int32_t icall_hashset_remove_where(Il2CppObject* self, Il2CppObject* match);
+
+// get_Comparer: the installed comparer (null when the default is in use).
+Il2CppObject* icall_hashset_get_comparer(Il2CppObject* self);
 
 } // namespace runtime
 
-// G4 enumeration surface (namespace il2cpp, the dict_si_keycollection
-// convention): the boxed-int KEYS snapshot (il2cpp_hashtable_get_keys)
-// wrapped in the dictsi keycollection enumerator object; the element
-// get_Current (runtime namespace, above) unboxes the int32 value.
+// Enumeration surface (namespace il2cpp, the dictsi keycollection convention):
+// a slot-ordered keys SNAPSHOT wrapped in the shared keycollection enumerator.
 Il2CppObject* il2cpp_hashset_int_get_enumerator(Il2CppObject* self);
 Il2CppObject* il2cpp_hashset_long_get_enumerator(Il2CppObject* self);
 Il2CppObject* il2cpp_hashset_double_get_enumerator(Il2CppObject* self);
 Il2CppObject* il2cpp_hashset_uint_get_enumerator(Il2CppObject* self);
 Il2CppObject* il2cpp_hashset_ref_get_enumerator(Il2CppObject* self);
-
-// G4 B2 (b2b8): the HashSet<string> enumeration surface -- the string KEYS
-// snapshot (il2cpp_dict_si_get_keys) wrapped in the same dictsi keycollection
-// enumerator object; the element get_Current passes the string reference
-// through (resolver: il2cpp_dict_si_keycollection_enumerator_get_current).
 Il2CppObject* il2cpp_hashset_string_get_enumerator(Il2CppObject* self);
+Il2CppObject* il2cpp_hashset_dec_get_enumerator(Il2CppObject* self);
 
 } // namespace il2cpp
