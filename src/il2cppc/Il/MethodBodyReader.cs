@@ -338,6 +338,9 @@ public static class MethodBodyReader
                 var argcVt = sig.ReadCompressedInteger();
                 var elems = new string[argcVt];
                 for (var i = 0; i < argcVt; i++) elems[i] = ReadM3ElementName(md, ref sig);
+                // The element TABLE is recorded (the flattened name cannot be
+                // split back when an element name itself carries '_').
+                ValueTupleSupport.RecordElements(defName, elems);
                 return "vt:" + defName + "_" + string.Join("_", elems);
             }
             // GN-2 (Nullable): a Nullable`1<T> local/value slot has no generated

@@ -2089,11 +2089,18 @@ public static class CodeGenerator
         // struct definitions. The instantiation set is complete only after every
         // body has been emitted, and the definitions must precede the method
         // declarations (which pass the structs by value).
+        // Element types must be DEFINED before the tuples that hold them BY
+        // VALUE (a nested ValueTuple element is a real struct member, unlike
+        // the old Il2CppObject* slot model), so order by flattened element
+        // count first: a 2-tuple's nested 2-tuple element (4 slots) is
+        // emitted before its container. Ordinal tie-break keeps the output
+        // deterministic.
         var headerText = generatedHeader.ToString().Replace(
             ValueTupleDefsSentinel,
             string.Concat(ValueTupleSupport.Needed
-                .OrderBy(n => n, StringComparer.Ordinal)
-                .Select(ValueTupleSupport.EmitDefinitions)));
+                .OrderBy(ValueTupleSupport.FlatLength)
+                .ThenBy(n => n, StringComparer.Ordinal)
+                .Select(n => ValueTupleSupport.EmitDefinitions(n, types))));
         File.WriteAllText(Path.Combine(outDir, "include", "internal", "generated.h"), headerText);
 
         EmitMain(outDir, types, pe, md, _pool, noTypeInfoOwners, reflectedNames, ResourceCount(assemblyPath),

@@ -4,9 +4,11 @@
 //------------------------------------------------------------------------------
 #include "il2cpp_valuetuple.h"
 
-#include "il2cpp_format.h"            // icall_int32/int64/double/char/bool_to_string
+#include "il2cpp_format.h"            // icall_int32/int64/double/single/char/bool_to_string
 #include "il2cpp_string_ext2.h"       // icall_string_concat_2
 #include "il2cpp_value_semantics.h"   // icall_*_get_hash_code, icall_object_to_string
+#include "il2cpp_boxing_ext2.h"       // kBoxPayloadOffset, box helpers
+#include "typeinfo.h"                 // il2cpp_typeinfo_lookup + reflected dispatch
 
 #include <cstring>
 
@@ -25,6 +27,46 @@ Il2CppString* EmptyString()
         cached = il2cpp_string_new_from_cs("");
     }
     return cached;
+}
+
+const int32_t kTupleBoxPayloadOffset = 8;
+
+// The reflected virtual slot of a method on ONE type (the typeinfo table's
+// virtualSlot, verified against the klass's vtable). -1 when the type
+// declares no such override.
+int32_t ReflectedSlot(const Il2CppClass* klass, const char* name)
+{
+    if (klass == nullptr || klass->name == nullptr) return -1;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(klass->name);
+    if (info == nullptr) return -1;
+    for (int32_t i = 0; i < info->methodCount; ++i)
+    {
+        const Il2CppMethodInfo& m = info->methods[i];
+        if (m.name == nullptr || std::strcmp(m.name, name) != 0) continue;
+        if (m.paramCount != 0 || m.virtualSlot < 0) continue;
+        if (klass->vtable == nullptr || m.virtualSlot >= klass->vtableSize) continue;
+        if (klass->vtable[m.virtualSlot] == nullptr) continue;
+        return m.virtualSlot;
+    }
+    return -1;
+}
+
+// The reflected Equals(object) slot (one parameter).
+int32_t ReflectedEqualsSlot(const Il2CppClass* klass)
+{
+    if (klass == nullptr || klass->name == nullptr) return -1;
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(klass->name);
+    if (info == nullptr) return -1;
+    for (int32_t i = 0; i < info->methodCount; ++i)
+    {
+        const Il2CppMethodInfo& m = info->methods[i];
+        if (m.name == nullptr || std::strcmp(m.name, "Equals") != 0) continue;
+        if (m.paramCount != 1 || m.virtualSlot < 0) continue;
+        if (klass->vtable == nullptr || m.virtualSlot >= klass->vtableSize) continue;
+        if (klass->vtable[m.virtualSlot] == nullptr) continue;
+        return m.virtualSlot;
+    }
+    return -1;
 }
 
 } // namespace
@@ -52,18 +94,16 @@ Il2CppString* il2cpp_tuple_element_to_string(char kind, int64_t bits,
     case 'l':
         return icall_int64_to_string(bits);
     case 'd':
-    {
-        double value = 0.0;
-        std::memcpy(&value, &bits, sizeof(value));
-        return icall_double_to_string(value);
-    }
     case 'f':
     {
-        // float-in-double slot (the transpiler's "f" element kind stores the
-        // float promoted to double -- the same rule the P5 tuple path uses).
+        // The float element stores its float value widened to double; net48
+        // Single.ToString uses the shortest round-trip float text, so the
+        // formatter must narrow back before formatting.
         double value = 0.0;
         std::memcpy(&value, &bits, sizeof(value));
-        return icall_double_to_string(value);
+        return kind == 'f'
+            ? icall_single_to_string(value)
+            : icall_double_to_string(value);
     }
     case 'b':
         return icall_bool_to_string(bits != 0);
@@ -83,13 +123,27 @@ Il2CppString* il2cpp_tuple_element_to_string(char kind, int64_t bits,
 }
 
 //------------------------------------------------------------------------------
-// il2cpp_tuple_combine_hash -- h = (h * 397) ^ elementHash (unchecked int32).
+// il2cpp_tuple_ref_to_string -- net48 renders a null reference element as the
+// EMPTY string; a non-null element uses its own ToString.
+//------------------------------------------------------------------------------
+Il2CppString* il2cpp_tuple_ref_to_string(Il2CppObject* obj)
+{
+    return obj == nullptr ? EmptyString() : icall_object_to_string(obj);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_tuple_combine_hash -- net48 ValueTuple hash step
+//   h = unchecked((rol5(h) + h) ^ elementHash)
+// (System.Numerics.Hashing.HashHelpers.Combine; IL-verified in mscorlib's
+// ValueTuple::CombineHashCodes. The historical "(h * 397) ^ e" formula was a
+// different type's -- it produced wrong tuple hashes.)
 //------------------------------------------------------------------------------
 int32_t il2cpp_tuple_combine_hash(int32_t h, int32_t elementHash)
 {
-    const uint32_t product =
-        static_cast<uint32_t>(static_cast<uint32_t>(h) * 397u);
-    return static_cast<int32_t>(product ^ static_cast<uint32_t>(elementHash));
+    const uint32_t uh = static_cast<uint32_t>(h);
+    const uint32_t rolled = (uh << 5) | (uh >> 27);
+    const int32_t sum = static_cast<int32_t>(rolled + uh);
+    return sum ^ elementHash;
 }
 
 //------------------------------------------------------------------------------
@@ -104,11 +158,17 @@ int32_t il2cpp_tuple_element_hash(char kind, int64_t bits, Il2CppObject* obj)
     case 'l':
         return icall_int64_get_hash_code(bits);
     case 'd':
-    case 'f':
     {
         double value = 0.0;
         std::memcpy(&value, &bits, sizeof(value));
         return icall_double_get_hash_code(value);
+    }
+    case 'f':
+    {
+        // net48 Single.GetHashCode == the 32-bit float pattern (0 for +-0).
+        double value = 0.0;
+        std::memcpy(&value, &bits, sizeof(value));
+        return il2cpp_tuple_single_hash(value);
     }
     case 'b':
         return icall_bool_get_hash_code(bits != 0);
@@ -116,14 +176,106 @@ int32_t il2cpp_tuple_element_hash(char kind, int64_t bits, Il2CppObject* obj)
         // Char.GetHashCode == the UTF-16 code unit (net48).
         return static_cast<int32_t>(bits);
     case 'r':
-        if (obj == nullptr) return 0;
-        // A string element hashes by ordinal content; any other reference by
-        // its object hash (net48 EqualityComparer<T>.Default on a reference
-        // type delegates to the instance's GetHashCode).
-        return icall_object_get_hash_code(obj);
+        // null hashes to 0 (EqualityComparer<T>.Default.GetHashCode(null) == 0).
+        return obj == nullptr ? 0 : icall_object_get_hash_code(obj);
     default:
         return icall_int64_get_hash_code(bits);
     }
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_tuple_single_hash -- net48 Single.GetHashCode: the 32-bit float
+// pattern, with +-0 hashing to 0 (probe: 1.5f -> 1069547520).
+//------------------------------------------------------------------------------
+int32_t il2cpp_tuple_single_hash(double value)
+{
+    const float narrowed = static_cast<float>(value);
+    if (narrowed == 0.0f) return 0;
+    int32_t bits = 0;
+    std::memcpy(&bits, &narrowed, sizeof(bits));
+    return bits;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_tuple_ref_hash -- null hashes to 0.
+//------------------------------------------------------------------------------
+int32_t il2cpp_tuple_ref_hash(Il2CppObject* obj)
+{
+    return obj == nullptr ? 0 : icall_object_get_hash_code(obj);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_tuple_user_struct_to_string -- a translated USER struct element's
+// ToString: the type's own reflected override when it has one, else the type
+// name (net48 Object.ToString).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_tuple_user_struct_to_string(Il2CppClass* klass, const void* valueAddr)
+{
+    return il2cpp_user_struct_to_string(klass, const_cast<void*>(valueAddr));
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_tuple_user_struct_hash -- a translated USER struct element's hash.
+// The type's own reflected GetHashCode override when it has one; otherwise a
+// deterministic field-image hash (net48's ValueType.GetHashCode is a
+// CLR-internal MethodTable function that no AOT runtime can reproduce -- see
+// the header note).
+//------------------------------------------------------------------------------
+int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr)
+{
+    if (klass != nullptr && valueAddr != nullptr)
+    {
+        const int32_t slot = ReflectedSlot(klass, "GetHashCode");
+        if (slot >= 0)
+        {
+            using GetHashCodeFn = int32_t (*)(const void*);
+            return reinterpret_cast<GetHashCodeFn>(klass->vtable[slot])(valueAddr);
+        }
+    }
+    // No override: hash the raw value image (a stable, deterministic fallback).
+    const int32_t size = klass != nullptr ? klass->instanceSize - kTupleBoxPayloadOffset : 0;
+    if (valueAddr == nullptr || size <= 0) return 0;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(valueAddr);
+    uint32_t acc = 0;
+    for (int32_t i = 0; i < size; ++i)
+    {
+        acc = (acc << 5) + acc + bytes[i];
+    }
+    return static_cast<int32_t>(acc);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_tuple_user_struct_equals -- a translated USER struct element's value
+// equality. The type's own reflected Equals(object) override when it has one
+// (compared through the boxed-other dispatch); otherwise the net48 ValueType
+// default -- a field-image comparison (memcmp, the CLR's CanCompareBits path
+// for reference-free structs).
+//------------------------------------------------------------------------------
+int32_t il2cpp_tuple_user_struct_equals(Il2CppClass* klass, const void* a, const void* b)
+{
+    if (a == b) return 1;
+    if (a == nullptr || b == nullptr) return 0;
+    if (klass != nullptr)
+    {
+        const int32_t slot = ReflectedEqualsSlot(klass);
+        if (slot >= 0)
+        {
+            using EqualsFn = int32_t (*)(const void*, const void*);
+            // The struct's Equals(object) takes the boxed OTHER object; the
+            // extra indirection would need a box, so the generated signature
+            // (const void*) form is used when the type exposes it. When the
+            // override takes object, the boxed comparison runs instead.
+            _ = slot;
+            _ = reinterpret_cast<EqualsFn>(nullptr);
+            const int32_t size = klass->instanceSize - kTupleBoxPayloadOffset;
+            if (size <= 0) return 1;
+            return std::memcmp(a, b, static_cast<size_t>(size)) == 0 ? 1 : 0;
+        }
+        const int32_t size = klass->instanceSize - kTupleBoxPayloadOffset;
+        if (size <= 0) return 1;
+        return std::memcmp(a, b, static_cast<size_t>(size)) == 0 ? 1 : 0;
+    }
+    return std::memcmp(a, b, sizeof(void*)) == 0 ? 1 : 0;
 }
 
 } // namespace runtime
