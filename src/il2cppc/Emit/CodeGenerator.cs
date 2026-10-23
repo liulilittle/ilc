@@ -161,6 +161,9 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"il2cpp_random.h\"");
         generatedHeader.Line("#include \"il2cpp_boxing_ext.h\"");
         generatedHeader.Line("#include \"il2cpp_boxing_ext2.h\"");
+        // GN-2 (Nullable): System.Nullable`1<T> helpers + the DateTime/
+        // TimeSpan/Guid box icalls (il2cpp_nullable.h).
+        generatedHeader.Line("#include \"il2cpp_nullable.h\"");
         generatedHeader.Line("#include \"il2cpp_exception_ext.h\"");
         generatedHeader.Line("#include \"il2cpp_array_ext.h\"");
         generatedHeader.Line("#include \"il2cpp_array_ext2.h\"");
@@ -4633,10 +4636,7 @@ public static class CodeGenerator
                 if (resolvedStmt is { } nStmt && IsNullableMemberMarker(nStmt.CppName)
                     && c.Args.Count >= 1)
                 {
-                    var nRecvS = EmitExpr(c.Args[0], md, types);
-                    var nObjS = c.Args[0] is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
-                        ? $"(*reinterpret_cast<Il2CppObject**>({nRecvS}))"
-                        : nRecvS;
+                    var nObjS = NullableObjectExpr(c.Args[0], md, types);
                     if (nStmt.CppName.EndsWith("_has_value", StringComparison.Ordinal))
                     {
                         w.LineAligned($"(({nObjS}) != nullptr);",
@@ -4647,6 +4647,19 @@ public static class CodeGenerator
                     {
                         w.LineAligned($"((void)({nObjS}));",
                             $"IL {At(c.SourceOpName, c.SourceOffset)} -- Nullable get_Value (result discarded)");
+                        break;
+                    }
+                    // .ctor: the slot receives the boxed underlying value (the
+                    // boxed-object Nullable representation). Every other
+                    // marker is a pure expression -- discard it.
+                    if (nStmt.CppName.EndsWith("_ctor", StringComparison.Ordinal))
+                    {
+                        var nT = int.TryParse(c.Function.StartsWith("call_", StringComparison.Ordinal) ? c.Function[5..] : "", out var nCtorTok)
+                            ? NullableMemberUnderlyingType(md, nCtorTok)
+                            : null;
+                        var nVal = EmitExpr(c.Args[1], md, types);
+                        w.LineAligned($"(*reinterpret_cast<Il2CppObject**>({EmitExpr(c.Args[0], md, types)})) = {NullableBoxCode(nT, nVal, md, types)};",
+                            $"IL {At(c.SourceOpName, c.SourceOffset)} -- Nullable .ctor (box the underlying value into the slot)");
                         break;
                     }
                 }
@@ -9159,6 +9172,121 @@ default: return false;                           // primitives/VAR(handled by ca
     private static bool IsNullableMemberMarker(string cpp)
         => cpp.StartsWith("il2cpp::runtime::il2cpp_nullable_", StringComparison.Ordinal);
 
+    // GN-2 (Nullable): the underlying T of a nullable member call -- the
+    // constrained-call marker carries it explicitly ("nullable:<T>", the
+    // MemberRef parent is System.Object there); otherwise decode the
+    // Nullable`1<T> MemberRef token.
+    private static string? NullableUnderlyingOf(CallExpr c, ResolvedMethod r, MetadataReader md)
+    {
+        if (r.ParamTypeNames is { Length: > 0 } pn && pn[0] != null
+            && pn[0].StartsWith("nullable:", StringComparison.Ordinal))
+            return pn[0]["nullable:".Length..];
+        return int.TryParse(c.Function.StartsWith("call_", StringComparison.Ordinal) ? c.Function[5..] : "", out var tok)
+            ? NullableMemberUnderlyingType(md, tok)
+            : null;
+    }
+
+    // GN-2 (Nullable): the OBJECT held by a nullable slot expression. The
+    // receiver is normally the ldloca ADDRESS of the Il2CppObject* slot
+    // ("&loc0") -- deref it; a plain value expression passes through.
+    private static string NullableObjectExpr(Expr recv, MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        var code = EmitExpr(recv, md, types);
+        return recv is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
+            ? $"(*reinterpret_cast<Il2CppObject**>({code}))"
+            : code;
+    }
+
+    // GN-2 (Nullable): the unbox of a boxed underlying T (the boxed-object
+    // representation of a Nullable<T> with a value).
+    private static string NullableUnboxCode(string? t, string objCode, MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        var tDef = t != null ? types.FirstOrDefault(x => x.MatchesFullName(t)) : null;
+        return t switch
+        {
+            "System.Int32" => $"il2cpp::il2cpp_unbox_int32({objCode})",
+            "System.Int64" => $"il2cpp::runtime::icall_unbox_long({objCode})",
+            "System.UInt64" => $"il2cpp::runtime::icall_unbox_ulong({objCode})",
+            "System.Double" => $"il2cpp::runtime::icall_unbox_double({objCode})",
+            "System.Single" => $"il2cpp::runtime::icall_unbox_float({objCode})",
+            "System.Boolean" => $"il2cpp::runtime::icall_unbox_bool({objCode})",
+            "System.Byte" => $"il2cpp::runtime::icall_unbox_byte({objCode})",
+            "System.SByte" => $"il2cpp::runtime::icall_unbox_sbyte({objCode})",
+            "System.Int16" => $"il2cpp::runtime::icall_unbox_short({objCode})",
+            "System.UInt16" => $"il2cpp::runtime::icall_unbox_ushort({objCode})",
+            "System.UInt32" => $"il2cpp::runtime::icall_unbox_uint({objCode})",
+            "System.Char" => $"il2cpp::runtime::icall_unbox_char({objCode})",
+            "System.Decimal" => $"il2cpp::runtime::icall_unbox_decimal({objCode})",
+            "System.DateTime" => $"il2cpp::runtime::icall_unbox_date_time({objCode})",
+            "System.TimeSpan" => $"il2cpp::runtime::icall_unbox_time_span({objCode})",
+            "System.Guid" => $"il2cpp::runtime::icall_unbox_guid({objCode})",
+            _ when tDef is { IsValueType: true } =>
+                $"(*reinterpret_cast<{TypeEmitter.TypeCppName(tDef)}*>(il2cpp::runtime::il2cpp_unbox_user_struct({objCode})))",
+            _ => throw new NotSupportedException(
+                $"Nullable<{t ?? "?"}>: the underlying type has no runtime box/unbox helper (GN-2)"),
+        };
+    }
+
+    // GN-2 (Nullable): default(T) -- the GetValueOrDefault no-value result.
+    private static string NullableDefaultCode(string? t, MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        var tDef = t != null ? types.FirstOrDefault(x => x.MatchesFullName(t)) : null;
+        return t switch
+        {
+            "System.Boolean" => "false",
+            "System.Double" or "System.Single" => "0.0",
+            "System.Int64" or "System.UInt64" => "static_cast<int64_t>(0)",
+            "System.Decimal" => "il2cpp::runtime::Il2CppDecimal{ 0, 0, 0 }",
+            "System.DateTime" => "il2cpp::runtime::Il2CppDateTime(0)",
+            "System.TimeSpan" => "il2cpp::runtime::Il2CppTimeSpan(0)",
+            "System.Guid" => "il2cpp::Il2CppGuid{}",
+            _ when tDef is { IsValueType: true } => $"{TypeEmitter.TypeCppName(tDef)}{{}}",
+            _ => "0",
+        };
+    }
+
+    // GN-2 (Nullable): the box of the underlying T -- the `.ctor` payload (the
+    // Nullable<T> representation stores the boxed value in the slot).
+    private static string NullableBoxCode(string? t, string valCode, MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        var tDef = t != null ? types.FirstOrDefault(x => x.MatchesFullName(t)) : null;
+        return t switch
+        {
+            "System.Int32" => $"il2cpp::il2cpp_box_int32(nullptr, {valCode})",
+            "System.Int64" => $"il2cpp::runtime::icall_box_long({valCode})",
+            "System.UInt64" => $"il2cpp::runtime::icall_box_ulong({valCode})",
+            "System.Double" => $"il2cpp::runtime::icall_box_double({valCode})",
+            "System.Single" => $"il2cpp::runtime::icall_box_float(static_cast<double>({valCode}))",
+            "System.Boolean" => $"il2cpp::runtime::icall_box_bool(static_cast<bool>({valCode}))",
+            "System.Byte" => $"il2cpp::runtime::icall_box_byte({valCode})",
+            "System.SByte" => $"il2cpp::runtime::icall_box_sbyte({valCode})",
+            "System.Int16" => $"il2cpp::runtime::icall_box_short({valCode})",
+            "System.UInt16" => $"il2cpp::runtime::icall_box_ushort({valCode})",
+            "System.UInt32" => $"il2cpp::runtime::icall_box_uint({valCode})",
+            "System.Char" => $"il2cpp::runtime::icall_box_char({valCode})",
+            // The 16-byte payloads box BY ADDRESS: bind to a const reference so
+            // both an lvalue slot and a materialized temporary are addressable
+            // for the full call expression (the GuidValueBytePtr precedent).
+            "System.Decimal" =>
+                $"il2cpp::runtime::icall_box_decimal(&static_cast<const il2cpp::runtime::Il2CppDecimal&>({valCode}))",
+            "System.DateTime" => $"il2cpp::runtime::icall_box_date_time({valCode})",
+            "System.TimeSpan" => $"il2cpp::runtime::icall_box_time_span({valCode})",
+            "System.Guid" =>
+                $"il2cpp::runtime::icall_box_guid(&static_cast<const il2cpp::Il2CppGuid&>({valCode}))",
+            _ when tDef is { IsValueType: true } =>
+                $"il2cpp::runtime::icall_box_user_struct(&{TypeEmitter.TypeCppName(tDef)}_class, &static_cast<const {TypeEmitter.TypeCppName(tDef)}&>({valCode}), sizeof({TypeEmitter.TypeCppName(tDef)}))",
+            _ => throw new NotSupportedException(
+                $"Nullable<{t ?? "?"}>: the underlying type has no runtime box helper (GN-2)"),
+        };
+    }
+
+    // GN-2 (Nullable): whether a type token is a `System.Nullable`1<T>`
+    // GENERICINST TypeSpec -- `box Nullable`1<T>` of a nullable slot is the
+    // IDENTITY (the slot already holds nullptr or the boxed T, which is
+    // exactly what net48's box of a Nullable produces).
+    private static bool IsNullableTypeSpecToken(MetadataReader md, int token)
+        => TypeSpecGenericInstDefName(md, token) == "System.Nullable`1";
+
     // GN-2 (Nullable): the underlying T full name of ANY member on a
     // System.Nullable`1<T> MemberRef (get_HasValue / get_Value / .ctor -- the
     // declaring TypeSpec's single generic argument). Used by the get_Value
@@ -9864,30 +9992,27 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if (resolved2 is { } nres && IsNullableMemberMarker(nres.CppName)
             && c.Args.Count >= 1)
         {
-            var nRecv = EmitExpr(c.Args[0], md, types);
-            var nObj = c.Args[0] is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
-                ? $"(*reinterpret_cast<Il2CppObject**>({nRecv}))"
-                : nRecv;
+            var nObj = NullableObjectExpr(c.Args[0], md, types);
+            var nT = NullableUnderlyingOf(c, nres, md);
             if (nres.CppName.EndsWith("_has_value", StringComparison.Ordinal))
                 return $"(({nObj}) != nullptr)";
             if (nres.CppName.EndsWith("_get_value", StringComparison.Ordinal))
+                return NullableUnboxCode(nT, $"il2cpp::runtime::il2cpp_nullable_require_value({nObj})", md, types);
+            if (nres.CppName.EndsWith("_get_value_or_default", StringComparison.Ordinal))
+                return $"(({nObj}) == nullptr ? {NullableDefaultCode(nT, md, types)} : {NullableUnboxCode(nT, nObj, md, types)})";
+            if (nres.CppName.EndsWith("_get_value_or_default_arg", StringComparison.Ordinal))
             {
-                var nT = int.TryParse(c.Function.StartsWith("call_", StringComparison.Ordinal) ? c.Function[5..] : "", out var nTok)
-                    ? NullableMemberUnderlyingType(md, nTok)
-                    : null;
-                return nT switch
-                {
-                    "System.Int32" => $"il2cpp::il2cpp_unbox_int32({nObj})",
-                    "System.Int64" or "System.UInt64" => $"il2cpp::runtime::icall_unbox_long({nObj})",
-                    "System.Double" => $"il2cpp::runtime::icall_unbox_double({nObj})",
-                    "System.Single" => $"il2cpp::runtime::icall_unbox_float({nObj})",
-                    "System.Boolean" => $"il2cpp::runtime::icall_unbox_bool({nObj})",
-                    "System.Byte" or "System.SByte" => $"il2cpp::runtime::icall_unbox_byte({nObj})",
-                    "System.Int16" or "System.UInt16" => $"il2cpp::runtime::icall_unbox_short({nObj})",
-                    "System.Char" => $"il2cpp::runtime::icall_unbox_char({nObj})",
-                    "System.UInt32" => $"il2cpp::runtime::icall_unbox_uint({nObj})",
-                    _ => throw new NotSupportedException($"Nullable<{nT ?? "?"}>.get_Value unbox not wired (GN-2)"),
-                };
+                var nArg = EmitExpr(c.Args[1], md, types);
+                return $"(({nObj}) == nullptr ? {nArg} : {NullableUnboxCode(nT, nObj, md, types)})";
+            }
+            if (nres.CppName.EndsWith("_to_string", StringComparison.Ordinal))
+                return $"il2cpp::runtime::il2cpp_nullable_to_string({nObj})";
+            if (nres.CppName.EndsWith("_get_hash_code", StringComparison.Ordinal))
+                return $"il2cpp::runtime::il2cpp_nullable_get_hash_code({nObj})";
+            if (nres.CppName.EndsWith("_equals", StringComparison.Ordinal))
+            {
+                var nOther = EmitExpr(c.Args[1], md, types);
+                return $"il2cpp::runtime::il2cpp_nullable_equals({nObj}, {nOther})";
             }
         }
         // perf2 str_chars: the string indexer `s[i]` -- when the loop-bound
@@ -10245,9 +10370,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         switch (e)
         {
             case LocExpr l:
-                return _curLocKinds.TryGetValue(l.Name, out var k) && k == "guid";
+                return _curLocKinds.TryGetValue(l.Name, out var k)
+                    && (k == "guid" || k == "il2cpp::Il2CppGuid");
             case LocAddrExpr la:
-                return _curLocKinds.TryGetValue(la.Name, out var ka) && ka == "guid";
+                return _curLocKinds.TryGetValue(la.Name, out var ka)
+                    && (ka == "guid" || ka == "il2cpp::Il2CppGuid");
             case FieldExpr f:
                 return IsGuidField(f, types);
             case FieldAddrExpr fa:
@@ -10673,6 +10800,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "decaddr" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
                     ? code
                     : $"reinterpret_cast<const il2cpp::runtime::Il2CppDecimal*>({code})",
+                // nullable (GN-2): the ADDRESS of a user value-type slot -- the
+                // user-struct ToString helper reinterprets it to the struct
+                // pointer (the value-type `this` ABI).
+                "vaddr" => IsAddressExpr(args[srcIdx]) ? code : $"(&({code}))",
                 // enumdeep (M7R2): an enum-VALUE slot reaching the int64_t
                 // value param of il2cpp_enum_to_string. The enum struct is
                 // { Il2CppObject _obj; int32_t value__; } -- the value rides
