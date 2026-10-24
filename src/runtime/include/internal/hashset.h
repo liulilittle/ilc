@@ -319,5 +319,10 @@ Il2CppObject* il2cpp_hashset_uint_get_enumerator(Il2CppObject* self);
 Il2CppObject* il2cpp_hashset_ref_get_enumerator(Il2CppObject* self);
 Il2CppObject* il2cpp_hashset_string_get_enumerator(Il2CppObject* self);
 Il2CppObject* il2cpp_hashset_dec_get_enumerator(Il2CppObject* self);
+// Generic IEnumerable<T>.GetEnumerator dispatch for the SHARED BCL descriptor
+// (which carries no typeinfo): snapshot the live carriers and wrap them in the
+// shared snapshot-array enumerator, so the generic MoveNext / get_Current /
+// Dispose icalls serve the result without a family-specific icall.
+Il2CppObject* il2cpp_hashset_generic_get_enumerator(Il2CppObject* self);
 
 } // namespace il2cpp

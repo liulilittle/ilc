@@ -23,6 +23,7 @@
 #include "hashset.h"
 
 #include "arraysort.h"          // il2cpp_ienum_* + FindVirtualSlotByNameAndSignature
+#include "sortedlist.h"         // il2cpp_sortedlist_snapshot_get_enumerator (generic dispatch)
 #include "decimal.h"            // Il2CppDecimal
 #include "dictsi_obj.h"         // the shared keycollection enumerator object
 #include "il2cpp_boxing_ext.h"  // runtime::icall_box_int32/unbox helpers
@@ -2118,6 +2119,26 @@ Il2CppObject* il2cpp_hashset_dec_get_enumerator(Il2CppObject* self)
     Il2CppObject* snapObj = reinterpret_cast<Il2CppObject*>(snap);
     GcRoot<Il2CppObject*> sr(snapObj, "hashset_dec_enum_snapshot");
     return il2cpp_dict_si_keycollection_get_enumerator(sr.Get());
+}
+
+//------------------------------------------------------------------------------
+// Generic IEnumerable<T>.GetEnumerator dispatch (namespace il2cpp -- the shared
+// surface the transpiler emits for an interface-typed receiver). The BCL
+// HashSet descriptor is shared by every element family and carries NO typeinfo,
+// so the generic dispatch cannot resolve a reflected GetEnumerator slot; route
+// it here. The result rides the shared snapshot-array enumerator, whose
+// MoveNext / get_Current(i4/i8/d/ref) / Dispose the generic icalls already
+// serve (the snapshot holds the live carriers as boxed refs).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_hashset_generic_get_enumerator(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* root = self;
+    GcRoot<Il2CppObject*> r(root, "hashset_generic_get_enumerator");
+    Il2CppArray* snap = SnapshotCarriers(&root);
+    Il2CppObject* snapObj = reinterpret_cast<Il2CppObject*>(snap);
+    GcRoot<Il2CppObject*> sr(snapObj, "hashset_generic_enum_snapshot");
+    return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(sr.Get());
 }
 
 } // namespace il2cpp

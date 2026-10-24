@@ -4951,6 +4951,13 @@ Il2CppObject* il2cpp_ienum_get_enumerator(Il2CppObject* receiver)
         return il2cpp_linq_grouping_get_enumerator(receiver);
     if (il2cpp::il2cpp_is_list_obj(receiver))
         return il2cpp::il2cpp_list_obj_get_enumerator(receiver);
+    // nb9 fix: the shared BCL HashSet descriptor (one class for every element
+    // family) carries NO typeinfo, so the generic IEnumerable<T>.GetEnumerator
+    // dispatch must route it explicitly. The runtime wraps the live-carrier
+    // snapshot in the shared snapshot-array enumerator; the generic
+    // MoveNext / get_Current / Dispose icalls below all serve that class.
+    if (receiver->klass == &System_Collections_Generic_HashSet_1_string_class)
+        return il2cpp_hashset_generic_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumerator, "GetEnumerator");
     return reinterpret_cast<IEnumFnRef>(
         RequireIEnumVtableSlot(receiver, slot, "GetEnumerator"))(receiver);
