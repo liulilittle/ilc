@@ -657,7 +657,9 @@ Il2CppObject* icall_string_trim_start(Il2CppObject* this_)
 // invocation to TrimStart(char[]) with a fresh empty array). The result is a
 // fresh string through the same allocation path as TrimImpl.
 //------------------------------------------------------------------------------
-static Il2CppObject* TrimSetImpl(Il2CppObject* this_, Il2CppObject* set, bool start)
+// mode: 0 = leading only (TrimStart), 1 = trailing only (TrimEnd),
+//       2 = both ends (Trim).
+static Il2CppObject* TrimSetImpl(Il2CppObject* this_, Il2CppObject* set, int mode)
 {
     ThrowIfNullReceiver(this_);
     const Il2CppString* s = AsString(this_);
@@ -668,16 +670,17 @@ static Il2CppObject* TrimSetImpl(Il2CppObject* this_, Il2CppObject* set, bool st
     if (set == nullptr || reinterpret_cast<const Il2CppArray*>(set)->length == 0)
     {
         // .NET parity (strdeep lines 199-202): a null/empty trimChars set is
-        // the params-array fallback -> TrimStart()/TrimEnd(), the WHITESPACE
-        // trim -- NOT "trim nothing" and NOT an ArgumentNullException. The
-        // whitespace predicate is TrimImpl's, identical to the no-arg icalls.
-        return TrimImpl(this_, start ? TrimMode::Start : TrimMode::End);
+        // the params-array fallback -> TrimStart()/TrimEnd()/Trim(), the
+        // WHITESPACE trim -- NOT "trim nothing" and NOT an
+        // ArgumentNullException. The whitespace predicate is TrimImpl's,
+        // identical to the no-arg icalls.
+        return TrimImpl(this_, mode == 0 ? TrimMode::Start : (mode == 1 ? TrimMode::End : TrimMode::Both));
     }
     const auto* arr = reinterpret_cast<const Il2CppArray*>(set);
     const int32_t setLen = arr->length;
     const uint16_t* units = reinterpret_cast<const uint16_t*>(arr->data);
     int32_t begin = 0;
-    if (start)
+    if (mode != 1)
     {
         while (begin < s->length)
         {
@@ -691,7 +694,7 @@ static Il2CppObject* TrimSetImpl(Il2CppObject* this_, Il2CppObject* set, bool st
         }
     }
     int32_t end = s->length;
-    if (!start)
+    if (mode != 0)
     {
         while (end > begin)
         {
@@ -715,12 +718,17 @@ static Il2CppObject* TrimSetImpl(Il2CppObject* this_, Il2CppObject* set, bool st
 
 Il2CppObject* icall_string_trim_start_set(Il2CppObject* this_, Il2CppObject* set)
 {
-    return TrimSetImpl(this_, set, true);
+    return TrimSetImpl(this_, set, 0);
 }
 
 Il2CppObject* icall_string_trim_end_set(Il2CppObject* this_, Il2CppObject* set)
 {
-    return TrimSetImpl(this_, set, false);
+    return TrimSetImpl(this_, set, 1);
+}
+
+Il2CppObject* icall_string_trim_set(Il2CppObject* this_, Il2CppObject* set)
+{
+    return TrimSetImpl(this_, set, 2);
 }
 
 Il2CppObject* icall_string_trim_end(Il2CppObject* this_)

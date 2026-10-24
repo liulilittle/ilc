@@ -153,12 +153,26 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_string_replace_s_s", 2, true, true, true,
                         new[] { "s", "s", "s" }, returnTypeName: "System.String");
                 throw new NotSupportedException($"String.Replace with {ps.Length} arg(s) not wired in M5 (the runtime icall_string_replace takes (char, char); the string/string overload needs a runtime icall_string_replace_s_s)");
-case "ToUpper": return I("il2cpp::runtime::icall_string_to_upper", 0, true, true, true);
-case "ToLower": return I("il2cpp::runtime::icall_string_to_lower", 0, true, true, true);
-// net9/10 E2E icallcase: the Invariant variants share the ordinal runtime
-// icalls (this runtime's upper/lower are already culture-insensitive).
-case "ToUpperInvariant": return I("il2cpp::runtime::icall_string_to_upper", 0, true, true, true);
-case "ToLowerInvariant": return I("il2cpp::runtime::icall_string_to_lower", 0, true, true, true);
+case "ToUpper":
+case "ToUpperInvariant":
+    // ToUpper(IFormatProvider): the provider is IGNORED (the runtime pins the
+    // net48 zh-CN simple case map -- the documented ASCII-domain deviation);
+    // ParamCount = 1 so the fold pops receiver + provider and the "drop" cast
+    // keeps only the receiver. The OLD mapping used ParamCount = 0 and passed
+    // the provider as the receiver (strgen1 up_ci/lo_ci).
+    if (ps.Length == 0)
+        return I("il2cpp::runtime::icall_string_to_upper", 0, true, true, true);
+    if (ps.Length == 1)
+        return I("il2cpp::runtime::icall_string_to_upper", 1, true, true, true, new[] { "", "drop" });
+    throw new NotSupportedException($"String.ToUpper with {ps.Length} arg(s) not wired");
+case "ToLower":
+case "ToLowerInvariant":
+    // Symmetric to ToUpper (see above).
+    if (ps.Length == 0)
+        return I("il2cpp::runtime::icall_string_to_lower", 0, true, true, true);
+    if (ps.Length == 1)
+        return I("il2cpp::runtime::icall_string_to_lower", 1, true, true, true, new[] { "", "drop" });
+    throw new NotSupportedException($"String.ToLower with {ps.Length} arg(s) not wired");
 // net9/10 E2E icallcase: Insert/Remove (stringext.cpp, new icalls).
 case "Insert": return I("il2cpp::runtime::icall_string_insert", 2, true, true, true,
     new[] { "s", "i", "s" }, returnTypeName: "System.String");
@@ -199,17 +213,20 @@ case "ReplaceLineEndings":
             new[] { "s", "s" }, returnTypeName: "System.String")
         : null;
             case "Trim":
-                // trimset sweep: ParamCount MUST track the IL arity (the
-                // TrimStart lockstep discipline below -- a params char[] call
-                // pushes this + array; popping only the receiver desyncs the
-                // fold's shadow stack). The 1-arg shapes (params char[] 0x1D
-                // and the net9 single-char 0x03) DROP the trim-set argument:
-                // the runtime trim is whitespace-only, so a non-empty set
-                // would be ignored anyway (the SAME documented deviation as
-                // TrimStart/TrimEnd).
-                return ps.Length == 1
-                    ? I("il2cpp::runtime::icall_string_trim", 1, true, true, true, new[] { "", "drop" })
-                    : I("il2cpp::runtime::icall_string_trim", 0, true, true, true);
+                // Trim(char[] set) -- the SET-AWARE both-ends trim
+                // (icall_string_trim_set, strgen1): strip every leading AND
+                // trailing unit in the set (a null/empty set falls back to the
+                // whitespace trim, the net48 params-array semantics). ParamCount
+                // = 1 tracks the IL arity (this + array) so the fold's shadow
+                // stack stays in lockstep. The net9 single-char 0x03 shape
+                // keeps the whitespace-only behavior (the runtime trim is
+                // whitespace-only there -- documented deviation).
+                if (ps.Length == 1 && ps[0] == 0x1D)
+                    return I("il2cpp::runtime::icall_string_trim_set", 1, true, true, true,
+                        new[] { "", "" });
+                if (ps.Length == 1)
+                    return I("il2cpp::runtime::icall_string_trim", 1, true, true, true, new[] { "", "drop" });
+                return I("il2cpp::runtime::icall_string_trim", 0, true, true, true);
             case "TrimStart":
                 // TrimStart(params char[]): the SET-aware icall
                 // (icall_string_trim_start_set) strips every leading unit in
@@ -262,6 +279,30 @@ case "ReplaceLineEndings":
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_string_get_hash_code", 0, true, false, true);
                 throw new NotSupportedException($"String.GetHashCode with {ps.Length} arg(s) not wired (needs a comparison-mode-aware runtime hash icall)");
+            // System.String.Normalize / IsNormalized (stringnormalize.cpp --
+            // the full UAX #15 implementation). The form crosses as the raw
+            // System.Text.NormalizationForm value (FormC=1, FormD=2, FormKC=5,
+            // FormKD=6 -- net48 oracle-verified); the parameterless forms
+            // inject the NFC default (1) as a trailing literal
+            // (AppendLiterals) onto the SAME runtime icall. A form outside
+            // that set throws System.ArgumentException at runtime; a null
+            // receiver throws NullReferenceException (checked first).
+            case "Normalize":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_string_normalize", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.String", appendLiterals: new[] { "1" });
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_string_normalize", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"String.Normalize with {ps.Length} arg(s) not wired (the runtime icall takes (string[, NormalizationForm]))");
+            case "IsNormalized":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_string_is_normalized", 0, true, false, true,
+                        new[] { "" }, appendLiterals: new[] { "1" });
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_string_is_normalized", 1, true, false, true,
+                        new[] { "", "i" });
+                throw new NotSupportedException($"String.IsNormalized with {ps.Length} arg(s) not wired (the runtime icall takes (string[, NormalizationForm]))");
             case "ToString":
                 // String.ToString() is the identity (net48 semantics) -- the
                 // fold pushes the receiver. ToString(IFormatProvider) is ALSO

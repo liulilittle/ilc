@@ -428,6 +428,11 @@ public static class CodeGenerator
         generatedHeader.Line("#include \"enumext.h\"");
         generatedHeader.Line("#include \"il2cpp_interlocked.h\"");
         generatedHeader.Line("#include \"il2cpp_string_ext3.h\"");
+        // String.Normalize / IsNormalized (stringnormalize.cpp): the
+        // icall_string_normalize / icall_string_is_normalized declarations live
+        // in il2cpp_string_normalize.h. Without the include the generated C++
+        // cannot see them (strgen1 e2e cmake failure otherwise).
+        generatedHeader.Line("#include \"il2cpp_string_normalize.h\"");
         generatedHeader.Line("#include \"il2cpp_typeext.h\"");
         generatedHeader.Line("#include \"intptr.h\"");
         generatedHeader.Line("#include \"monitor.h\"");

@@ -174,6 +174,12 @@ Il2CppObject* icall_string_trim_start(Il2CppObject* this_);
 Il2CppObject* icall_string_trim_start_set(Il2CppObject* this_, Il2CppObject* set);
 Il2CppObject* icall_string_trim_end_set(Il2CppObject* this_, Il2CppObject* set);
 
+// Trim(char[] set) -- the BOTH-ENDS set-aware trim (strgen1). Strips every
+// leading AND trailing unit that is a member of 'set'; a null/empty set falls
+// back to the whitespace trim (the net48 params-array semantics, identical to
+// TrimStart(char[])/TrimEnd(char[])). Nothing to trim returns the receiver.
+Il2CppObject* icall_string_trim_set(Il2CppObject* this_, Il2CppObject* set);
+
 // TrimEnd(): trailing whitespace only (contract as Trim).
 Il2CppObject* icall_string_trim_end(Il2CppObject* this_);
 
