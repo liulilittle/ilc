@@ -1044,11 +1044,18 @@ public static class CodeGenerator
         // the table stays intact, no undefined-symbol link error. Only the
         // per-type folded METHOD names are passed (foldedAccessorNames), NOT
         // a whole-type exclusion.
-        var foldedAccessorNames = accessors.Values
-            .GroupBy(a => a.OwnerFullName)
-            .ToDictionary(g => g.Key,
-                g => g.Select(a => a.MethodName).ToHashSet(),
-                StringComparer.Ordinal);
+        var foldedAccessorNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var a in accessors.Values)
+        {
+            var owner = types.FirstOrDefault(t => TypeEmitter.ReflectionFullName(t) == a.OwnerFullName || t.FullName == a.OwnerFullName);
+            var key = owner != null ? owner.FullName : a.OwnerFullName;
+            if (!foldedAccessorNames.TryGetValue(key, out var set))
+            {
+                set = new HashSet<string>(StringComparer.Ordinal);
+                foldedAccessorNames[key] = set;
+            }
+            set.Add(a.MethodName);
+        }
         // M5.5 reflection (refl2 S1/G2): the return-encodability guard is
         // REMOVED -- MethodDef.ReturnTypeName (MethodSignatureCoder.EncodeReturn,
         // D1) carries the full encoded name for 0x11 VALUETYPE / 0x12 CLASS /

@@ -259,6 +259,23 @@ internal static class ValueTupleSupport
         return suffix.Split('_');
     }
 
+    private static char KindChar(string elementName)
+    {
+        if (elementName is "int" or "uint" or "short" or "ushort" or "byte" or "sbyte"
+            or "bool" or "char" or "System.Int32" or "System.UInt32" or "System.Int16"
+            or "System.UInt16" or "System.Byte" or "System.SByte" or "System.Boolean"
+            or "System.Char")
+            return 'i';
+        if (elementName is "long" or "ulong" or "System.Int64" or "System.UInt64")
+            return 'l';
+        if (elementName is "double" or "System.Double" or "float" or "System.Single")
+            return 'd';
+        return 'r';
+    }
+
+    private static bool IsRefElement(string elementName)
+        => ResolveElem(elementName, null).Shape == TupleElemShape.Ref;
+
     // Element M3 name -> the (size, alignment) of the C++ field the generated
     // struct declares. Mirrors TypeEmitter.FieldNativeShape for the kinds a
     // tuple element can take (int32 4/4, int64+double 8/8, reference = the
