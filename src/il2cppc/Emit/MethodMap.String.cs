@@ -264,10 +264,16 @@ case "ReplaceLineEndings":
                 throw new NotSupportedException($"String.GetHashCode with {ps.Length} arg(s) not wired (needs a comparison-mode-aware runtime hash icall)");
             case "ToString":
                 // String.ToString() is the identity (net48 semantics) -- the
-                // fold pushes the receiver.
-                return ps.Length == 0
-                    ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true)
-                    : null;
+                // fold pushes the receiver. ToString(IFormatProvider) is ALSO
+                // the identity (a string is culture-invariant; the provider is
+                // ignored) -- the identity fold drops the trailing argument
+                // (the fold pushes the receiver and discards the rest), so the
+                // ParamCount tracks the IL arity for the receiver pop.
+                if (ps.Length == 0)
+                    return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true, Array.Empty<bool>(), true);
+                if (ps.Length == 1 && ps[0] is 0x12 or 0x1C)
+                    return new ResolvedMethod(ResolvedMethod.IdentityMarker, 1, false, true, true, new[] { false }, true);
+                return null;
             // net9/10 E2E campaign: String.Clone() -- .NET returns the SAME
             // instance (strings are immutable), so it folds to the identity
             // exactly like ToString(). No icall needed.
@@ -284,18 +290,28 @@ case "ReplaceLineEndings":
                 // Compare(a, b, StringComparison) -> the comparison arg is
                 // dropped at emission (the runtime is ordinal-only). NOTE:
                 // ParamCount = the IL arity -- the FOLD pops that many args.
-                // strcomp3 sweep: Compare(a, b, bool ignoreCase) (ps[2] ==
-                // 0x02) is NOT wireable by dropping -- ignoreCase=true must
-                // FOLD case and no mode-aware static compare icall exists
-                // (dropping silently returns the case-SENSITIVE ordinal
-                // result). Loud until one exists.
+                // Compare(a, b, bool ignoreCase) (ps[2] == 0x02) CANNOT be
+                // wired by dropping -- ignoreCase=true must FOLD case. It now
+                // routes to the MODE-AWARE static comparator below, whose
+                // int32 'mode' parameter carries the flag (0/1).
                 if (ps.Length == 2)
                     return I("il2cpp::runtime::icall_string_compare_static", 2, true, false, false);
                 if (ps.Length == 3 && ps[2] == 0x11)
                     return I("il2cpp::runtime::icall_string_compare_mode", 3, true, false, false,
                         new[] { "", "", "i" });
+                // strgen1: Compare(string, string, bool ignoreCase) -- the
+                // MODE-AWARE static comparator already folds the flag onto
+                // its int32 'mode' parameter: false -> mode 0 (ordinal,
+                // case-sensitive), true -> mode 1 (ordinal ignore-case).
+                // This is exactly net48's bool overload contract (the
+                // culture forms of the enum degrade to the ordinal fold, the
+                // same documented ASCII-domain deviation); the bool value is
+                // an int32 slot (0/1), so the "i" cast renders the mode
+                // directly. ParamCount = the IL arity (3) so the fold pops the
+                // flag -- dropping it would silently ignore ignoreCase=true.
                 if (ps.Length == 3 && ps[2] == 0x02)
-                    throw new NotSupportedException($"String.{name}(string, string, bool ignoreCase) not wired (no mode-aware static compare icall; dropping the flag would silently ignore ignoreCase=true)");
+                    return I("il2cpp::runtime::icall_string_compare_mode", 3, true, false, false,
+                        new[] { "", "", "i" });
                 throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5");
             case "Equals":
                 // Static Equals(a, b) and instance Equals(obj/string) both
@@ -408,7 +424,15 @@ case "ReplaceLineEndings":
                     var bothNumbers = arg1Type is "System.Int32" or "System.Int64" or "System.Double"
                         or "System.Single" or "System.Boolean" or "System.Byte" or "System.Char";
                     if (bothNumbers)
-                        throw new NotSupportedException($"String.Concat(object, object) with two numeric arguments not wired in M5 (the runtime convenience appends a number to a string segment)");
+                    {
+                        // strgen1: two boxed numerics -- the variadic
+                        // concat_many formats each boxed value via
+                        // icall_object_to_string (net48 Concat(object, object)
+                        // of two numbers is the plain concatenation of their
+                        // ToString text, e.g. (object)1 + (object)2 -> "12").
+                        return I("il2cpp::runtime::il2cpp_string_concat_many", 2, true, true, false,
+                            null, null, prependCount: true);
+                    }
                     return arg0Type switch
                     {
                         "System.Int32" => I("il2cpp::runtime::icall_string_concat_int", 2, true, true, false, new[] { "", "unbox:i" }),
@@ -484,6 +508,18 @@ case "ReplaceLineEndings":
                 if (ps.Length == 2 && ps[0] is 0x1D or 0x1F && ps[1] == 0x11)
                     return I("il2cpp::runtime::icall_string_split_options", 2, true, true, true,
                         new[] { "s", "a", "" }, returnTypeName: "System.String[]");
+                // strgen1: Split(char[]/string[], int count) /
+                // (char[]/string[], int count, StringSplitOptions) -- the
+                // count-capped forms (the runtime caps the split at 'count'
+                // substrings; the first count-1 separators split, the remainder
+                // stays in the last segment). Same isRefElem disambiguation
+                // and whitespace fallback as the options form.
+                if (ps.Length == 2 && ps[0] is 0x1D or 0x1F && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_string_split_count", 2, true, true, true,
+                        new[] { "s", "a", "i" }, returnTypeName: "System.String[]");
+                if (ps.Length == 3 && ps[0] is 0x1D or 0x1F && ps[1] == 0x08 && ps[2] == 0x11)
+                    return I("il2cpp::runtime::icall_string_split_count_options", 3, true, true, true,
+                        new[] { "s", "a", "i", "" }, returnTypeName: "System.String[]");
                 return null;
             case "Join":
                 // string.Join(string separator, string[] values) -- the

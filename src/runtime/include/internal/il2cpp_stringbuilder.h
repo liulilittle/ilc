@@ -260,6 +260,13 @@ Il2CppObject* icall_stringbuilder_append_b(Il2CppObject* self, int32_t value);
 // Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_append_o(Il2CppObject* self, Il2CppObject* value);
 
+// Append(StringBuilder value) (net48): appends the VALUE BUILDER'S CONTENT
+// (StringBuilder.ToString()), not the type name -- a null value is a no-op.
+// This is a dedicated icall (NOT append_o): the class-typed (0x12) Append
+// overload is exactly StringBuilder, and the object-to-string dispatch would
+// print the type's full name instead of the buffer. Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_append_sb(Il2CppObject* self, Il2CppObject* value);
+
 // AppendLine(): appends the Windows newline "\r\n" (net48
 // Environment.NewLine). Returns the SAME builder (chaining).
 Il2CppObject* icall_stringbuilder_append_line(Il2CppObject* self);
@@ -279,6 +286,26 @@ Il2CppObject* icall_stringbuilder_append_format_2(Il2CppObject* self, Il2CppObje
 
 // AppendFormat(string format, object arg0, object arg1, object arg2) -- see _1.
 Il2CppObject* icall_stringbuilder_append_format_3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+
+// AppendFormat(string format, object arg0, object arg1, object arg2,
+// object arg3) -- the 4-argument fixed-arity form (net48). See _1.
+Il2CppObject* icall_stringbuilder_append_format_4(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2, Il2CppObject* arg3);
+
+// AppendFormat(string format, params object[] args): the params-array form
+// (net48). A null ARRAY -> ArgumentNullException("args"); an empty array is
+// legal (the format must then carry no index). See _1.
+Il2CppObject* icall_stringbuilder_append_format(Il2CppObject* self, Il2CppObject* format, Il2CppObject* argsArray);
+
+// AppendFormat(IFormatProvider provider, string format, object arg0,
+// object arg1): the provider-prefixed 2-argument form (net48). The provider
+// is threaded into the composite engine (the same culture contract as
+// String.Format(provider, ...)). See _1.
+Il2CppObject* icall_stringbuilder_append_format_2_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+
+// AppendFormat(IFormatProvider provider, string format, params object[] args)
+// -- the provider-prefixed params form (net48). A null ARRAY ->
+// ArgumentNullException("args"). See _1.
+Il2CppObject* icall_stringbuilder_append_format_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* argsArray);
 
 // String.Format(string format): composite-format expansion through a fresh
 // temporary builder (net48 semantics, AppendFormatCore kernel). Null format

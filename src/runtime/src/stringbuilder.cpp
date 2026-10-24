@@ -963,6 +963,28 @@ Il2CppObject* icall_stringbuilder_append_o(Il2CppObject* self, Il2CppObject* val
 }
 
 //------------------------------------------------------------------------------
+// icall_stringbuilder_append_sb -- Append(StringBuilder) (net48): appends the
+// VALUE BUILDER'S CONTENT (StringBuilder.ToString()), not the type name. A
+// null value is a no-op. The content string is materialized first and rooted
+// across AppendUnits' buffer-growth allocation (RootScope).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_append_sb(Il2CppObject* self, Il2CppObject* value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&value));
+    if (value != nullptr)
+    {
+        Il2CppObject* text = icall_stringbuilder_to_string(value);
+        scope.Add(reinterpret_cast<void**>(&text));
+        const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+        AppendUnits(&self, v->chars, v->length);
+    }
+    return self;
+}
+
+//------------------------------------------------------------------------------
 // icall_stringbuilder_append_line -- AppendLine() (see header). Appends the
 // Windows newline "\r\n" (net48 Environment.NewLine).
 //------------------------------------------------------------------------------
@@ -1030,6 +1052,74 @@ Il2CppObject* icall_stringbuilder_append_format_3(Il2CppObject* self, Il2CppObje
     scope.Add(reinterpret_cast<void**>(&format));
     Il2CppObject* args[3] = { arg0, arg1, arg2 };
     AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 3, nullptr);
+    return self;
+}
+
+// icall_stringbuilder_append_format_4 -- AppendFormat(string, object, object,
+// object, object) (the 4-argument fixed-arity form): the SAME composite
+// expansion as _1/_2/_3 (see the header).
+Il2CppObject* icall_stringbuilder_append_format_4(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2, Il2CppObject* arg3)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&format));
+    Il2CppObject* args[4] = { arg0, arg1, arg2, arg3 };
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 4, nullptr);
+    return self;
+}
+
+// icall_stringbuilder_append_format -- AppendFormat(string, params object[])
+// (net48). The object[] payload is passed directly (zero copy);
+// AppendFormatCore bounds-checks every index against the array length. A null
+// ARRAY -> ArgumentNullException("args"); an empty array is legal.
+Il2CppObject* icall_stringbuilder_append_format(Il2CppObject* self, Il2CppObject* format, Il2CppObject* argsArray)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&format));
+    if (argsArray == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'args')");
+    }
+    const Il2CppArray* arr = reinterpret_cast<const Il2CppArray*>(argsArray);
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format),
+                     reinterpret_cast<Il2CppObject* const*>(arr->data), arr->length, nullptr);
+    return self;
+}
+
+// icall_stringbuilder_append_format_2_provider -- AppendFormat(IFormatProvider,
+// string, object, object): the provider is threaded into the composite engine
+// (the same culture contract as String.Format(provider, ...)).
+Il2CppObject* icall_stringbuilder_append_format_2_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&format));
+    Il2CppObject* args[2] = { arg0, arg1 };
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 2, provider);
+    return self;
+}
+
+// icall_stringbuilder_append_format_provider -- AppendFormat(IFormatProvider,
+// string, params object[]) (net48). See icall_string_format_provider.
+Il2CppObject* icall_stringbuilder_append_format_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* argsArray)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&format));
+    if (argsArray == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Value cannot be null. (Parameter 'args')");
+    }
+    const Il2CppArray* arr = reinterpret_cast<const Il2CppArray*>(argsArray);
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format),
+                     reinterpret_cast<Il2CppObject* const*>(arr->data), arr->length, provider);
     return self;
 }
 

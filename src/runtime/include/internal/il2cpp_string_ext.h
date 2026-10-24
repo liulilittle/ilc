@@ -258,6 +258,16 @@ Il2CppArray* icall_string_split_char_options(Il2CppString* self, char16_t separa
 // reclaim it. A null receiver throws NullReferenceException.
 Il2CppArray* icall_string_split_options(Il2CppString* self, Il2CppArray* separators, int32_t options);
 
+// Split(char[]/string[], int count) / Split(char[]/string[], int count,
+// StringSplitOptions options) -- the count-capped forms (strgen1). 'count'
+// is the MAXIMUM number of substrings: the first count-1 separators split and
+// the remainder stays in the LAST segment (net48). count < 1 throws
+// ArgumentOutOfRangeException; the options enum is validated as above.
+// Same separator disambiguation (isRefElem) and whitespace fallback as
+// icall_string_split_options. GC safety mirrors SplitCore.
+Il2CppArray* icall_string_split_count(Il2CppString* self, Il2CppArray* separators, int32_t count);
+Il2CppArray* icall_string_split_count_options(Il2CppString* self, Il2CppArray* separators, int32_t count, int32_t options);
+
 //------------------------------------------------------------------------------
 // Bounds-check helper: throw System.ArgumentOutOfRangeException with a
 // stable diagnostic message. 'message' must be a static literal (the carrier

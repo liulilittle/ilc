@@ -951,7 +951,7 @@ Il2CppArray* icall_string_split_char_options(Il2CppString* self, char16_t separa
 // trigger a collection that would otherwise reclaim the not-yet-returned
 // array.
 //------------------------------------------------------------------------------
-Il2CppArray* icall_string_split_options(Il2CppString* self, Il2CppArray* separators, int32_t options)
+static Il2CppArray* SplitCore(Il2CppString* self, Il2CppArray* separators, int32_t options, int32_t count, bool hasCount)
 {
     if (self == nullptr)
     {
@@ -966,6 +966,13 @@ Il2CppArray* icall_string_split_options(Il2CppString* self, Il2CppArray* separat
         // the pointer -- never freed -- so a dynamic buffer would dangle).
         il2cpp_throw_new("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
                          "Invalid enum value for StringSplitOptions.");
+    }
+    if (hasCount && count < 1)
+    {
+        // net48 Split(..., count, ...) requires count >= 1 (a non-positive
+        // count is an ArgumentOutOfRangeException BEFORE any splitting).
+        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
+                         "Count cannot be less than zero.");
     }
 
     // --- Stage the receiver payload + separator units into non-GC scratch
@@ -1078,6 +1085,17 @@ Il2CppArray* icall_string_split_options(Il2CppString* self, Il2CppArray* separat
     segStart.push_back(start);
     segLen.push_back(len - start);
 
+    // net48 Split(..., count, ...): at most 'count' substrings -- the first
+    // count-1 separators split; the remainder stays in the LAST segment (the
+    // split is capped, not the post-options segment list).
+    if (hasCount && static_cast<int32_t>(segStart.size()) > count)
+    {
+        const size_t keep = static_cast<size_t>(count - 1);
+        segLen[keep] = len - segStart[keep];
+        segStart.resize(static_cast<size_t>(count));
+        segLen.resize(static_cast<size_t>(count));
+    }
+
     // --- Apply StringSplitOptions to the segment list: None keeps every
     //     segment; RemoveEmptyEntries drops the empty ones (an all-empty
     //     split yields a 0-length array, never ["\""\""]).
@@ -1103,6 +1121,26 @@ Il2CppArray* icall_string_split_options(Il2CppString* self, Il2CppArray* separat
     }
 
     return result;
+}
+
+//------------------------------------------------------------------------------
+// Split(char[]/string[], StringSplitOptions) / Split(char[], int) /
+// Split(char[], int, StringSplitOptions) -- thin wrappers over SplitCore
+// (the count forms cap the split at 'count' substrings, see SplitCore).
+//------------------------------------------------------------------------------
+Il2CppArray* icall_string_split_options(Il2CppString* self, Il2CppArray* separators, int32_t options)
+{
+    return SplitCore(self, separators, options, 0, false);
+}
+
+Il2CppArray* icall_string_split_count(Il2CppString* self, Il2CppArray* separators, int32_t count)
+{
+    return SplitCore(self, separators, 0, count, true);
+}
+
+Il2CppArray* icall_string_split_count_options(Il2CppString* self, Il2CppArray* separators, int32_t count, int32_t options)
+{
+    return SplitCore(self, separators, options, count, true);
 }
 
 //------------------------------------------------------------------------------

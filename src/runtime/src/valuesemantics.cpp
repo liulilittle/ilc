@@ -30,6 +30,7 @@
 #include "appdomain.h" // adm1 D2: System_AppDomain_class (Object.ToString LOUD throw)
 #include "il2cpp_object.h"
 #include "versionuri.h" // icall_uri_to_string (untracked-Uri ToString branch below)
+#include "il2cpp_stringbuilder.h" // icall_stringbuilder_to_string (StringBuilder Object.ToString branch below)
 // nullable (GN-2): the DateTime/TimeSpan/Guid boxes + the guid.h ToString
 // (the Nullable<T> representation boxes the underlying T).
 #include "guid.h"
@@ -652,6 +653,16 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
     {
         const Il2CppGuid g = BoxedGuidValue(obj);
         return reinterpret_cast<Il2CppString*>(il2cpp_guid_to_string(g.b));
+    }
+    if (HasKlassName(obj, "System.Text.StringBuilder"))
+    {
+        // StringBuilder.ToString() returns the builder's CONTENT (net48),
+        // never the type name. net48 has NO Append(StringBuilder) overload --
+        // `sb.Append(otherSb)` binds to Append(object), whose ToString call
+        // must render the buffer (the sbgen1 ap_sb contract); the same branch
+        // serves composite formatting / Concat(object, object).
+        return reinterpret_cast<Il2CppString*>(
+            icall_stringbuilder_to_string(obj));
     }
     if (il2cpp_enum_is_registered(obj->klass))
     {

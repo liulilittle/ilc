@@ -59,10 +59,33 @@ public static partial class MethodRefResolver
                     0x0E => I("il2cpp::runtime::icall_stringbuilder_append_s", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     0x03 => I("il2cpp::runtime::icall_stringbuilder_append_c", 1, true, true, true, new[] { "", "c" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x08 => I("il2cpp::runtime::icall_stringbuilder_append_i", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(byte/sbyte/short/ushort/uint) -- the narrow
+                    // integer family. net48 appends the value's invariant
+                    // decimal text; the runtime's append_i kernel takes an
+                    // int32, so the small types are widened ("i"). A uint
+                    // value >= 2^31 would render through the signed kernel
+                    // (the same documented deviation as the
+                    // DefaultInterpolatedStringHandler AppendFormatted
+                    // mapping, which folds 0x04/0x05/0x06/0x07/0x09 to the
+                    // int kernel).
+                    0x04 or 0x05 or 0x06 or 0x07 or 0x09 => I("il2cpp::runtime::icall_stringbuilder_append_i", 1, true, true, true, new[] { "", "i" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x0A => I("il2cpp::runtime::icall_stringbuilder_append_l", 1, true, true, true, new[] { "", "l" }, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(ulong) -- the int64 kernel (a value >= 2^63
+                    // would render signed; the same documented deviation).
+                    0x0B => I("il2cpp::runtime::icall_stringbuilder_append_l", 1, true, true, true, new[] { "", "l" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x0D => I("il2cpp::runtime::icall_stringbuilder_append_d", 1, true, true, true, new[] { "", "d" }, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(float) -- net48 appends the value's "G"-like
+                    // default text. Float values live in double slots (the
+                    // MethodMap.Format / MathF precedent), so the append_d
+                    // kernel renders them with the "d" cast (the same shape
+                    // the DefaultInterpolatedStringHandler mapping uses).
+                    0x0C => I("il2cpp::runtime::icall_stringbuilder_append_d", 1, true, true, true, new[] { "", "d" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x02 => I("il2cpp::runtime::icall_stringbuilder_append_b", 1, true, true, true, new[] { "", "b" }, null, false, false, false, "System.Text.StringBuilder"),
-                    0x1C or 0x12 => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(StringBuilder): the class-typed (0x12) Append
+                    // overload is exactly StringBuilder -- append its CONTENT
+                    // (StringBuilder.ToString()), not the type name.
+                    0x12 => I("il2cpp::runtime::icall_stringbuilder_append_sb", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
+                    0x1C => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     _ => throw new NotSupportedException($"StringBuilder.Append param type 0x{ps[0]:X2} not wired in M5"),
                 };
             case "Insert":
@@ -108,15 +131,37 @@ public static partial class MethodRefResolver
                 if (count == 1 && ps[0] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_append_line_s", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 throw new NotSupportedException($"StringBuilder.AppendLine signature not wired in M5");
             case "AppendFormat":
-                // net48 overloads: (string, object[, object[, object]]); the
-                // params-object[] / IFormatProvider forms are not wired (loud).
-                if (count < 2 || ps[0] != 0x0E || ps[1] != 0x1C)
+                // net48 overloads: (string, object[, object[, object[,
+                // object]]]), the params-object[] form, and the
+                // IFormatProvider-prefixed forms. All share the
+                // AppendFormatCore composite engine (stringbuilder.cpp).
+                // IFormatProvider crosses as the CLASS element byte 0x12.
+                if (ps.Length >= 2 && ps[0] == 0x12 && ps[1] == 0x0E)
+                {
+                    // (provider, string) / (provider, string, params object[])
+                    // / (provider, string, object, object).
+                    if (ps.Length == 2)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                    if (ps.Length == 3 && ps[2] == 0x1D)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                    if (ps.Length == 4 && ps[2] == 0x1C && ps[3] == 0x1C)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_format_2_provider", 4, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                    throw new NotSupportedException($"StringBuilder.AppendFormat provider signature not wired in M5");
+                }
+                if (count < 2 || ps[0] != 0x0E)
+                    throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5");
+                // (string, params object[]) -- the SZARRAY element byte is
+                // consumed by the signature walk (ps[1] == 0x1D).
+                if (ps[1] == 0x1D)
+                    return I("il2cpp::runtime::icall_stringbuilder_append_format", ps.Length, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                if (ps[1] != 0x1C)
                     throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5");
                 return count switch
                 {
                     2 => I("il2cpp::runtime::icall_stringbuilder_append_format_1", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     3 => I("il2cpp::runtime::icall_stringbuilder_append_format_2", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     4 => I("il2cpp::runtime::icall_stringbuilder_append_format_3", 4, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
+                    5 => I("il2cpp::runtime::icall_stringbuilder_append_format_4", 5, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     _ => throw new NotSupportedException($"StringBuilder.AppendFormat with {count} args not wired in M5"),
                 };
             case "Replace":
