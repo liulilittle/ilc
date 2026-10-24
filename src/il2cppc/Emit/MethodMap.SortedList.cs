@@ -53,6 +53,10 @@ public static partial class MethodRefResolver
         var instTag = instName ?? receiverType;
         if (instTag is "System.Collections.Generic.SortedList`2_string_int")
             return TryMapSortedListSi(name, ps, count);
+        // sorte1: the int-key/string-value mirror of the string_int expansion
+        // (sortedlistis_obj.h -- box the int key at the C++ boundary).
+        if (instTag is "System.Collections.Generic.SortedList`2_int_string")
+            return TryMapSortedListIs(name, ps, count);
         if (instTag is not (null or "System.Collections.SortedList"))
             return null;
 
@@ -177,10 +181,63 @@ public static partial class MethodRefResolver
                 if (count != 0) return null;
                 return I("il2cpp::runtime::icall_sortedlist_si_get_values", 0, true, true, true, new[] { "" },
                     returnTypeName: "System.Collections.Generic.SortedList`2.ValueList_string_int");
+            case "TryGetValue":
+                // bool TryGetValue(TKey, out TValue): the out param is the
+                // ldloca ADDRESS ("" passthrough), the key is a managed
+                // reference. The wrapper delegates to the sortedlist core and
+                // unboxes the value.
+                if (count != 2 || ps.Length != 2 || ps[0] != 0x13 || ps[1] != 0x13) return null;
+                return I("il2cpp::runtime::icall_sortedlist_si_try_get_value", 2, true, false, true, new[] { "", "", "" });
+            case "GetEnumerator":
+                // foreach KeyValuePair<TKey,TValue>: the shared pair-enumerator
+                // object over the sorted keys/values snapshots (the dictsi
+                // domain); the result tracks Dictionary`2.Enumerator so the
+                // Enumerator/KVP struct members resolve.
+                if (count != 0) return null;
+                return I("il2cpp::runtime::icall_sortedlist_si_get_enumerator", 0, true, true, true, new[] { "" },
+                    returnTypeName: "System.Collections.Generic.Dictionary`2.Enumerator");
             case "Clear":
                 if (count != 0) return null;
                 return I("il2cpp::runtime::il2cpp_sortedlist_clear", 0, false, false, true, new[] { "" });
             default: return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // sorte1: SortedList<int,string> -- the int-key/string-value mirror of the
+    // string_int expansion (sortedlistis_obj.h). The key crosses as int32 ("i"),
+    // the value is a managed string reference ("").
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapSortedListIs(string name, byte[] ps, int count)
+    {
+        switch (name)
+        {
+            case ".ctor":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create", 0, false, false, true, null, null, appendZero: true);
+                if (count == 1)
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
+                throw new NotSupportedException($"SortedList<int,string> ctor with {count} arg(s) not wired");
+            case "Add":
+                if (count != 2) return null;
+                return I("il2cpp::runtime::icall_sortedlist_is_add", 2, false, false, true, new[] { "", "i", "" });
+            case "get_Item":
+                if (count != 1) return null;
+                return I("il2cpp::runtime::icall_sortedlist_is_get_by_key", 1, true, true, true, new[] { "", "i" });
+            case "IndexOfKey":
+                if (count != 1) return null;
+                return I("il2cpp::runtime::icall_sortedlist_is_index_of_key", 1, true, false, true, new[] { "", "i" });
+            case "get_Count":
+                if (count != 0) return null;
+                return I("il2cpp::runtime::il2cpp_sortedlist_get_count", 0, true, false, true, new[] { "" });
+            case "get_Keys":
+                // The int32[] snapshot; the tracked System.Int32[] receiver lets
+                // the downstream enumeration resolve.
+                if (count != 0) return null;
+                return I("il2cpp::runtime::icall_sortedlist_is_get_keys", 0, true, true, true, new[] { "" },
+                    returnTypeName: "System.Int32[]");
+            default:
+                return null;
         }
     }
 
@@ -265,12 +322,66 @@ public static partial class MethodRefResolver
                         if (count == 0)
                             return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_reset", 0, false, false, true, new[] { "" });
                         return null;
+                    case "Dispose":
+                        // sorte1: the foreach-finally Dispose on the shared
+                        // snapshot enumerator object -- the receiver is the
+                        // address-taken local (deref:r), the core dispose is a
+                        // no-op (the snapshot enumerator is not IDisposable).
+                        if (count == 0)
+                            return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                        return null;
                     default:
                         return null;
                 }
             }
             return null;
         }
+        return null;
+    }
+
+    //--------------------------------------------------------------------------
+    // sorte1: the SortedDictionary<string,int> / SortedList<string,int> Values
+    // view GetEnumerator. Both get_Values implementations track the SAME shared
+    // pseudo-type ("System.Collections.Generic.SortedList`2.ValueList_string_int");
+    // the compiler's pattern foreach then calls the CONCRETE nested
+    // ValueCollection.GetEnumerator (the declaring owner is the nested type, not
+    // the IEnumerable`1 interface the interface arm above handles), so it routes
+    // here. The mapping is the shared sortedlist value-collection enumerator
+    // (snapshot + core array enumerator), whose result tracks the
+    // "System.Collections.SortedList.Enumerator" pseudo-type so the IEnumerator`1
+    // MoveNext/get_Current/Reset arms in TryMapSortedListSiView resolve.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapSortedListValueCollection(string owner, string name, int count, string? receiverType)
+    {
+        if ((owner == "System.Collections.Generic.SortedList`2+ValueCollection"
+                || owner == "System.Collections.Generic.SortedDictionary`2+ValueCollection")
+            && receiverType is "System.Collections.Generic.SortedList`2.ValueList_string_int"
+            && name == "GetEnumerator" && count == 0)
+            return I("il2cpp::runtime::icall_sortedlist_si_values_get_enumerator", 0, true, true, true, new[] { "" },
+                returnTypeName: "System.Collections.SortedList.Enumerator");
+        return null;
+    }
+
+    //--------------------------------------------------------------------------
+    // sorte1: the CONCRETE nested ValueCollection+Enumerator members. The
+    // shared enumerator object (tracked "System.Collections.SortedList.Enumerator")
+    // is a struct-like object whose MoveNext/get_Current/Reset the compiler
+    // calls DIRECTLY on the nested owner (not through IEnumerator`1); the
+    // interface arm in TryMapSortedListSiView handles the interface-owner form,
+    // this helper handles the nested-owner form.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapSortedListValueEnumerator(string owner, string name, int count, string? receiverType)
+    {
+        if (receiverType is not "System.Collections.SortedList.Enumerator") return null;
+        // The nested-owner receiver is the address-taken enumerator local (the
+        // "deref:r" shape the KeyCollection enumerator uses), so the cast
+        // dereferences it to the managed enumerator object.
+        if (name == "MoveNext" && count == 0)
+            return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_move_next", 0, true, false, true, new[] { "deref:r" });
+        if (name == "get_Current" && count == 0)
+            return I("il2cpp::runtime::icall_sortedlist_si_enumerator_get_current", 0, true, false, true, new[] { "deref:r" }, "i");
+        if (name == "Reset" && count == 0)
+            return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_reset", 0, false, false, true, new[] { "deref:r" });
         return null;
     }
 

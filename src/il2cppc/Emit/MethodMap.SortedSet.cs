@@ -173,6 +173,18 @@ public static partial class MethodRefResolver
                 if (count != 0 || !intReceiver) return null;
                 return I("il2cpp::runtime::icall_sortedset_int_reverse", 0, true, true, true,
                     returnTypeName: "System.Int32[]");
+            case "GetViewBetween":
+                // sorte1: SortedSet<int>.GetViewBetween(lower, upper) -- a live
+                // view (the runtime returns a new SortedSet storage object over
+                // the same core); the result tracks SortedSet`1_int so the
+                // view's Count / enumeration resolve through the same arms.
+                // The T parameters arrive as VAR (0x13) in the MemberRef
+                // signature (the element type is the generic argument).
+                if (count != 2 || ps.Length != 2
+                    || (ps[0] != 0x08 && ps[0] != 0x13) || (ps[1] != 0x08 && ps[1] != 0x13)
+                    || !intReceiver) return null;
+                return I("il2cpp::runtime::icall_sortedset_int_get_view_between", 2, true, true, true,
+                    new[] { "", "i", "i" }, returnTypeName: "System.Collections.Generic.SortedSet`1_int");
             default:
                 return null;
         }

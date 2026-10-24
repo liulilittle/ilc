@@ -420,6 +420,9 @@ public static class CodeGenerator
         // T2 W4: the Stack<int/long/double> boxing/unboxing wrappers.
         generatedHeader.Line("#include \"stackint_obj.h\"");
         generatedHeader.Line("#include \"sortedlistint_obj.h\"");
+        // sorte1: the SortedList<int,string> int-key/string-value wrapper
+        // (sortedlistis_obj.h) -- the icall_sortedlist_is_* calls need it.
+        generatedHeader.Line("#include \"sortedlistis_obj.h\"");
         generatedHeader.Line("#include \"sortedset_obj.h\"");
         generatedHeader.Line("#include \"genericcomparer_obj.h\"");
         generatedHeader.Line("#include \"enumext.h\"");
@@ -6079,6 +6082,9 @@ public static class CodeGenerator
         // the lazy registration (isinst identity divergence).
         "System.Collections.SortedList" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
         "System.Collections.Generic.SortedList`2_string_int" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
+        // sorte1: SortedList<int,string> rides the same non-generic sortedlist
+        // descriptor (sortedlistis_obj.h wraps the int key at the boundary).
+        "System.Collections.Generic.SortedList`2_int_string" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
         "System.Collections.Generic.SortedDictionary`2_string_int" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
         "System.Collections.Generic.SortedSet`1_int" => "il2cpp_object_new(il2cpp::il2cpp_sortedlist_class())",
         // T2 W2: string/long/double/object/class ride the same sortedlist descriptor.
@@ -10531,6 +10537,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // nb9 D1: the 3-arg FindIndex IL (array, startIndex, match) ->
         // (arr, predicate, startIndex).
         ["il2cpp::runtime::icall_array_find_index_3"] = new[] { 0, 2, 1 },
+        // arrgen1: the int64 / string FindIndex families carry the SAME IL
+        // argument order as the int32 form (match is LAST), so the 4-arg and
+        // 3-arg entries need the same reorder.
+        ["il2cpp::runtime::icall_array_find_index_i8"] = new[] { 0, 3, 1, 2 },
+        ["il2cpp::runtime::icall_array_find_index_3_i8"] = new[] { 0, 2, 1 },
+        ["il2cpp::runtime::icall_array_find_index_str"] = new[] { 0, 3, 1, 2 },
+        ["il2cpp::runtime::icall_array_find_index_3_str"] = new[] { 0, 2, 1 },
+        // arrayc1: the FindLastIndex range forms share the FindIndex order.
+        ["il2cpp::runtime::icall_array_find_last_index"] = new[] { 0, 3, 1, 2 },
+        ["il2cpp::runtime::icall_array_find_last_index_3"] = new[] { 0, 2, 1 },
         // Buffer.MemoryCopy IL order (source, destination, destSize,
         // srcBytes) -> runtime sized order (dst, src, destSize, srcBytes):
         // slot0 (dst) <- args[1]; slot1 (src) <- args[0]; rest identity.

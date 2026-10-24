@@ -1620,6 +1620,12 @@ public static partial class MethodRefResolver
             case "System.Collections.Generic.KeyValuePair`2":
             case "System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator":
             case "System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator":
+            // sorte1: the SortedDictionary<string,int> / SortedList<string,int>
+            // foreach pair-enumerator reuses the SHARED dictsi pair-enumerator
+            // object (icall_sortedlist_si_get_enumerator), so its Enumerator
+            // struct members resolve through the same dictsi arms.
+            case "System.Collections.Generic.SortedDictionary`2+Enumerator":
+            case "System.Collections.Generic.SortedList`2+Enumerator":
                 return TryMapDictEnumeration(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Collections.Generic.Dictionary`2+KeyCollection":
             case "System.Collections.Generic.Dictionary`2+ValueCollection":
@@ -1795,9 +1801,13 @@ public static partial class MethodRefResolver
                     if (receiverType is "System.Collections.Generic.SortedDictionary`2+KeyCollection.Enumerator"
                             || arg0Type is "System.Collections.Generic.SortedDictionary`2+KeyCollection.Enumerator")
                         return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
+                    // sorte1: the SortedList/SortedDictionary<string,int>
+                    // Values shared snapshot enumerator -- the receiver is the
+                    // ldloca'd address (deref:r, the KeyCollection enumerator
+                    // shape); the core dispose is a no-op.
                     if (receiverType is "System.Collections.SortedList.Enumerator"
                             || arg0Type is "System.Collections.SortedList.Enumerator")
-                        return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true, new[] { "" });
+                        return I("il2cpp::runtime::il2cpp_sortedlist_enumerator_dispose", 0, false, false, true, new[] { "deref:r" });
                     if (dictEnumLike is "System.Collections.Generic.Dictionary`2.Enumerator"
                             or "System.Collections.Generic.Dictionary`2.KeyCollection.Enumerator"
                             or "System.Collections.Generic.Dictionary`2.ValueCollection.Enumerator"
@@ -2007,6 +2017,17 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Collections.Generic.SortedDictionary`2+KeyCollection":
             case "System.Collections.Generic.SortedDictionary`2+KeyCollection+Enumerator":
                 return TryMapSortedDictionaryKeyCollection(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // sorte1: the concrete nested ValueCollection owner (the compiler's
+            // pattern foreach over SortedDictionary/SortedList<string,int>.Values
+            // calls it directly; see TryMapSortedListValueCollection).
+            case "System.Collections.Generic.SortedList`2+ValueCollection":
+            case "System.Collections.Generic.SortedDictionary`2+ValueCollection":
+                return TryMapSortedListValueCollection(owner, name, count, receiverType);
+            // sorte1: the concrete nested ValueCollection+Enumerator members
+            // (MoveNext/get_Current/Reset on the shared enumerator object).
+            case "System.Collections.Generic.SortedList`2+ValueCollection+Enumerator":
+            case "System.Collections.Generic.SortedDictionary`2+ValueCollection+Enumerator":
+                return TryMapSortedListValueEnumerator(owner, name, count, receiverType);
             case "System.Runtime.InteropServices.Marshal": return TryMapMarshal(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames);
             case "System.Runtime.InteropServices.SafeHandle": return TryMapSafeHandle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Security.Cryptography.MD5":

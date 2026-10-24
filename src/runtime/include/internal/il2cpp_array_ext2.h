@@ -221,6 +221,34 @@ Il2CppArray* icall_array_convert_all_i4_i8(Il2CppArray* arr, Il2CppObject* conve
 // contract and rooting as icall_array_find_i4. int32 arrays only.
 Il2CppArray* icall_array_find_all_i4(Il2CppArray* arr, Il2CppObject* match);
 
+// Array.ForEach<int>(int32[], Action<int>): invoke the action once per
+// element in source order (the source is never modified). net48 validation
+// order (array null -> ArgumentNullException, then action null ->
+// ArgumentNullException); the same single-cast delegate ABI and GC rooting as
+// icall_array_find_i4. int32 arrays only.
+void icall_array_for_each_i4(Il2CppArray* arr, Il2CppObject* action);
+
+// Array.FindLast<int>(int32[], Predicate<int>): the VALUE of the LAST element
+// whose predicate returns true, or 0 (default(int)) when none match (an empty
+// array is always 0). Same validation order, per-binding callback and rooting
+// contract as icall_array_find_i4, but the scan is BACKWARD (the last match is
+// returned, not the first). int32 arrays only.
+int32_t icall_array_find_last_i4(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.FindLastIndex<int>(int32[], Predicate<int>) and its range overloads:
+// the index of the LAST element in [startIndex, startIndex + count) whose
+// predicate returns true, or -1 when none match. Same range validation as
+// icall_array_find_index (startIndex < 0 || startIndex > Length ->
+// ArgumentOutOfRangeException; count < 0 || count > Length - startIndex ->
+// ArgumentOutOfRangeException), the same per-binding callback ABI and GC
+// rooting, but the scan is BACKWARD. The 2-arg overload is the whole range,
+// the 3-arg form starts at startIndex. int32 arrays only.
+int32_t icall_array_find_last_index(Il2CppArray* arr, Il2CppObject* predicate,
+                                    int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_2(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_3(Il2CppArray* arr, Il2CppObject* predicate,
+                                      int32_t startIndex);
+
 // Array.Resize<int>(ref int32[] array, int newSize): 'array' is replaced by
 // a NEW int32[] of exactly 'newSize' elements holding the first
 // min(oldLength, newSize) elements of the old array (any extra elements are
@@ -230,6 +258,90 @@ Il2CppArray* icall_array_find_all_i4(Il2CppArray* arr, Il2CppObject* match);
 // the allocation so the collector rewrites it if the old array moves. int32
 // arrays only.
 void icall_array_resize_i4(Il2CppArray** arraySlot, int32_t newSize);
+
+// Array.ConvertAll<int,string>(int32[], Converter<int,string>): a NEW string[]
+// (reference-element array) of the same length whose element i is
+// converter(array[i]); the source is never modified. net48 validation order:
+// array null, then converter null (both ArgumentNullException). Same
+// per-binding delegate ABI and GC rooting discipline as icall_array_find_i4;
+// the converter returns Il2CppString* and the result array is a reference array
+// (the slots are written through the write barrier).
+Il2CppArray* icall_array_convert_all_i4_str(Il2CppArray* arr, Il2CppObject* converter);
+
+// Array.Resize<long>(ref long[], int) / Array.Resize<string>(ref string[],
+// int): the int64 / reference-element twins of icall_array_resize_i4 (the same
+// net48 contract: newSize < 0 -> ArgumentOutOfRangeException; a null array is
+// legal and becomes new T[newSize]; an equal length is a no-op). The array slot
+// is GC-rooted across the allocation; the copy source is re-read through the
+// rooted slot after the allocation. int64 arrays / reference arrays only.
+void icall_array_resize_i8(Il2CppArray** arraySlot, int32_t newSize);
+void icall_array_resize_str(Il2CppArray** arraySlot, int32_t newSize);
+
+// Array.Find<long>(long[], Predicate<long>): the VALUE of the first element
+// whose predicate returns true, or 0 (default(long)) when none match. Same
+// validation order, per-binding callback and rooting as icall_array_find_i4;
+// the predicate ABI is bool(*)(int64_t) / bool(*)(Il2CppObject*, int64_t)
+// (the linq-domain I8PredFn/I8PredThisFn contract). int64 arrays only.
+int64_t icall_array_find_i8(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.Exists<long>(long[], Predicate<long>) / Array.TrueForAll<long>:
+// 1/0 verdicts (an empty array: Exists 0, TrueForAll vacuously 1). Same
+// contract and ABI as icall_array_find_i8. int64 arrays only.
+int32_t icall_array_exists_i8(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_i8(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.FindAll<long>(long[], Predicate<long>): a NEW int64[] holding every
+// matching element in source order (an empty result is a zero-length array).
+// Same contract and ABI as icall_array_find_i8. int64 arrays only.
+Il2CppArray* icall_array_find_all_i8(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.FindIndex<long>(long[], Predicate<long>) and its range overloads: the
+// index of the first matching element in the range, or -1. Same range
+// validation and ABI as icall_array_find_i8. int64 arrays only.
+int32_t icall_array_find_index_i8(Il2CppArray* arr, Il2CppObject* predicate,
+                                  int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_2_i8(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_3_i8(Il2CppArray* arr, Il2CppObject* predicate,
+                                    int32_t startIndex);
+
+// Array.Find<string>(string[], Predicate<string>): the VALUE (a managed
+// reference) of the first element whose predicate returns true, or null when
+// none match. The predicate ABI is bool(*)(Il2CppString*) /
+// bool(*)(Il2CppObject*, Il2CppString*); the result is a managed reference.
+// Reference arrays only.
+Il2CppObject* icall_array_find_str(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.Exists<string> / Array.TrueForAll<string>: 1/0 verdicts (an empty
+// array: Exists 0, TrueForAll vacuously 1). Same contract and ABI as
+// icall_array_find_str. Reference arrays only.
+int32_t icall_array_exists_str(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_str(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.FindAll<string>(string[], Predicate<string>): a NEW string[] holding
+// every matching element in source order (an empty result is a zero-length
+// array). Same contract and ABI as icall_array_find_str. Reference arrays only.
+Il2CppArray* icall_array_find_all_str(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.FindIndex<string>(string[], Predicate<string>) and its range overloads:
+// the index of the first matching element in the range, or -1. Same range
+// validation and ABI as icall_array_find_str. Reference arrays only.
+int32_t icall_array_find_index_str(Il2CppArray* arr, Il2CppObject* predicate,
+                                   int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_2_str(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_3_str(Il2CppArray* arr, Il2CppObject* predicate,
+                                     int32_t startIndex);
+
+// Array.Find<double>(double[], Predicate<double>): the VALUE of the first
+// element whose predicate returns true, or 0.0 (default(double)) when none
+// match. The predicate ABI is bool(*)(double) / bool(*)(Il2CppObject*, double)
+// (the linq-domain DPredFn/DPredThisFn contract). double arrays only.
+double icall_array_find_d(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.Exists<double> / Array.TrueForAll<double>: 1/0 verdicts (an empty
+// array: Exists 0, TrueForAll vacuously 1). Same contract and ABI as
+// icall_array_find_d. double arrays only.
+int32_t icall_array_exists_d(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_d(Il2CppArray* arr, Il2CppObject* match);
 
 // Array.Empty<T>() -- a zero-length T[] (the source of the params-array
 // Roslyn lowers TrimStart()/TrimEnd() no-arg calls to, among other

@@ -73,14 +73,21 @@ Il2CppClass* il2cpp_list_i4_class();
 // array. Returns the new object (never null).
 Il2CppObject* il2cpp_list_i4_create();
 
-// List<int>(capacity) -- allocate a list whose items array is pre-sized to
-// 'capacity'. A capacity < 0 raises ArgumentOutOfRangeException (net48
-// ArgumentOutOfRange_MustBeNonNegNum). A capacity of 0 allocates the default
-// 4-slot array instead of net48's empty array (the wired surface cannot
-// observe the internal size -- Capacity is not mapped -- and the growth
-// logic never extends a length-0 array, so the empty state would be
-// unusable). Returns the new object (never null).
-Il2CppObject* il2cpp_list_i4_create_with_capacity(int32_t capacity);
+// List<int>(capacity) -- initialize the ALREADY-ALLOCATED list object 'self'
+// with an items array pre-sized to 'capacity' (the self-mutating ctor ABI: the
+// transpiler's newobj allocates the shell and the ctor call fills it, exactly
+// like il2cpp_sortedlist_create). A capacity < 0 raises
+// ArgumentOutOfRangeException (net48 ArgumentOutOfRange_MustBeNonNegNum). The
+// items-array length IS the Capacity (net48 observable): a zero capacity keeps a
+// zero-length array (the first Add grows to the 4-slot minimum).
+void il2cpp_list_i4_create_with_capacity(Il2CppObject* self, int32_t capacity);
+
+// List<int>(IEnumerable<int> collection) -- initialize the ALREADY-ALLOCATED
+// list object 'self' with an items array pre-sized to the collection's element
+// count holding a copy of its elements (net48: the initial Capacity equals the
+// source count). A null source raises ArgumentNullException; the wired surface
+// passes a one-dimensional int32 array.
+void il2cpp_list_i4_create_with_collection(Il2CppObject* self, Il2CppObject* source);
 
 // Add(value) -- append at the end. Grows (doubles the items array, min 4)
 // when the list is full.
@@ -110,6 +117,16 @@ void il2cpp_list_i4_set_item(Il2CppObject* self, int32_t index, int32_t value);
 // Count -- the number of elements.
 int32_t il2cpp_list_i4_get_count(Il2CppObject* self);
 
+// Capacity -- the allocated items-array length (>= Count; net48 observable
+// surface: default 0, first Add grows to 4, doubling, ctor(capacity) exact).
+int32_t il2cpp_list_i4_get_capacity(Il2CppObject* self);
+
+// set_Capacity(value) -- the net48 Capacity setter: a value below Count raises
+// ArgumentOutOfRangeException("value"); an equal capacity is a no-op;
+// otherwise the items array is rebuilt at exactly 'value' slots holding the
+// first min(Count, value) elements (the element storage is preserved).
+void il2cpp_list_i4_set_capacity(Il2CppObject* self, int32_t value);
+
 // Clear() -- drop every element (all slots zeroed). Count -> 0.
 void il2cpp_list_i4_clear(Il2CppObject* self);
 
@@ -138,6 +155,64 @@ void il2cpp_list_i4_sort(Il2CppObject* self);
 // 'array' starting at 'arrayIndex'. Validates: null array, negative index,
 // insufficient space (ArgumentOutOfRangeException/ArgumentNullException).
 void il2cpp_list_i4_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t arrayIndex);
+
+//--------------------------------------------------------------------------
+// listb1: the range / predicate / reverse / binary-search / sort overload
+// surface. All validate the receiver (NullReferenceException) and the net48
+// contract of the corresponding List<int> member; the predicate/comparison
+// delegates ride the single-cast static methodPtr ABI (an instance-bound leaf
+// receives its target in the `this` slot) and the delegate + the list are
+// GC-rooted across a callback loop.
+//--------------------------------------------------------------------------
+
+// AddRange(IEnumerable<int>): append every source element. A null source raises
+// ArgumentNullException; a non-array/non-int32 source raises
+// ArgumentException/NotSupportedException.
+void il2cpp_list_i4_add_range(Il2CppObject* self, Il2CppObject* collection);
+
+// InsertRange(index, IEnumerable<int>): insert the source elements before
+// 'index'. An index outside [0, count] raises ArgumentOutOfRangeException.
+void il2cpp_list_i4_insert_range(Il2CppObject* self, int32_t index, Il2CppObject* collection);
+
+// RemoveRange(index, count): remove 'count' elements starting at 'index'. An
+// invalid range raises ArgumentOutOfRangeException/ArgumentException.
+void il2cpp_list_i4_remove_range(Il2CppObject* self, int32_t index, int32_t count);
+
+// GetRange(index, count): a NEW List<int> holding the requested elements.
+Il2CppObject* il2cpp_list_i4_get_range(Il2CppObject* self, int32_t index, int32_t count);
+
+// RemoveAll(Predicate<int>): remove every element whose predicate returns true;
+// returns the number removed.
+int32_t il2cpp_list_i4_remove_all(Il2CppObject* self, Il2CppObject* match);
+
+// LastIndexOf(value): the index of the LAST equal element, or -1.
+int32_t il2cpp_list_i4_last_index_of(Il2CppObject* self, int32_t value);
+
+// Predicate family: Find / FindLast / FindIndex / FindLastIndex / Exists /
+// TrueForAll / ForEach / FindAll (the net48 contracts mirror the Array family).
+int32_t il2cpp_list_i4_find(Il2CppObject* self, Il2CppObject* match);
+int32_t il2cpp_list_i4_find_last(Il2CppObject* self, Il2CppObject* match);
+int32_t il2cpp_list_i4_find_index(Il2CppObject* self, Il2CppObject* match);
+int32_t il2cpp_list_i4_find_last_index(Il2CppObject* self, Il2CppObject* match);
+int32_t il2cpp_list_i4_exists(Il2CppObject* self, Il2CppObject* match);
+int32_t il2cpp_list_i4_true_for_all(Il2CppObject* self, Il2CppObject* match);
+void il2cpp_list_i4_for_each(Il2CppObject* self, Il2CppObject* action);
+Il2CppObject* il2cpp_list_i4_find_all(Il2CppObject* self, Il2CppObject* match);
+
+// Reverse() / Reverse(index, count): in-place reversal of the whole list / the
+// range [index, index + count).
+void il2cpp_list_i4_reverse(Il2CppObject* self);
+void il2cpp_list_i4_reverse_range(Il2CppObject* self, int32_t index, int32_t count);
+
+// BinarySearch(value): the net48 complement semantics (a found index, or
+// ~insertionPoint when absent) over [0, count).
+int32_t il2cpp_list_i4_binary_search(Il2CppObject* self, int32_t value);
+
+// Sort(Comparison<int>) / Sort(index, count, IComparer<int>): the delegate and
+// comparer overloads (the int32 array-sort domain is reused on a temporary
+// exact-length copy).
+void il2cpp_list_i4_sort_comparison(Il2CppObject* self, Il2CppObject* comparison);
+void il2cpp_list_i4_sort_range_comparer(Il2CppObject* self, int32_t index, int32_t count, Il2CppObject* comparer);
 
 // Enumerator members (the generated code passes (&loc) where loc is an
 // Il2CppObject* reference slot; the "deref:r" cast dereferences to the

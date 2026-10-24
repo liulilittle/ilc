@@ -167,9 +167,19 @@ public static partial class MethodRefResolver
                         : i4Receiver
                             ? I("il2cpp::il2cpp_list_i4_create", 0, true, true, true, new[] { "drop" })
                             : Loud();
+                // The capacity/collection ctors are SELF-MUTATING: the
+                // transpiler's newobj allocates the shell and the ctor call
+                // fills it (the il2cpp_sortedlist_create ABI), so the receiver
+                // is passed ("") and the return is void.
                 if (count == 1 && ps.Length == 1 && ps[0] == 0x08 && i4Receiver)
-                    return I("il2cpp::il2cpp_list_i4_create_with_capacity", 1, true, true, true, new[] { "drop", "i" });
-                throw new NotSupportedException($"List`1 ctor with {count} arg(s) not wired (the runtime has only the parameterless il2cpp_list_i4_create and the capacity ctor)");
+                    return I("il2cpp::il2cpp_list_i4_create_with_capacity", 1, false, false, true, new[] { "", "i" });
+                // listb1: List<int>(IEnumerable<int>) -- the collection ctor
+                // (the compiler passes the int32[] source; the runtime sizes the
+                // items array to the source count and copies it). The value is a
+                // managed reference slot (""), not the int32 capacity.
+                if (count == 1 && ps.Length == 1 && ps[0] != 0x08 && i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_create_with_collection", 1, false, false, true, new[] { "", "" });
+                throw new NotSupportedException($"List`1 ctor with {count} arg(s) not wired (the runtime has only the parameterless il2cpp_list_i4_create, the capacity ctor and the collection ctor)");
             case "get_Count":
                 // ilistException: the reference instantiation reads the
                 // element-count through the listobj domain (same value
@@ -180,6 +190,31 @@ public static partial class MethodRefResolver
                     ? I("il2cpp::il2cpp_list_obj_get_count", 0, true, false, true)
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_get_count", 0, true, false, true)
+                        : Loud();
+            case "get_Capacity":
+                // listb1: the allocated items-array length (>= Count). The
+                // runtime tracks the length exactly (default 0, first Add -> 4,
+                // doubling; ctor(capacity) exact), so this is a T-free read on
+                // both domains (the reference instantiation reads the listobj
+                // backing array length).
+                if (count != 0) return Loud();
+                return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                    ? I("il2cpp::il2cpp_list_obj_get_capacity", 0, true, false, true)
+                    : i4Receiver
+                        ? I("il2cpp::il2cpp_list_i4_get_capacity", 0, true, false, true)
+                        : Loud();
+            case "set_Capacity":
+                // listb1: the net48 Capacity setter -- a value below Count
+                // raises ArgumentOutOfRangeException("value"); an equal
+                // capacity is a no-op; otherwise the items array is rebuilt at
+                // exactly 'value' slots. The value is int32 on both domains.
+                if (count != 1 || ps.Length != 1 || ps[0] != 0x08) return Loud();
+                return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                    ? I("il2cpp::il2cpp_list_obj_set_capacity", 1, false, false, true, new[] { "", "i" })
+                    : i4Receiver
+                        ? I("il2cpp::il2cpp_list_i4_set_capacity", 1, false, false, true, new[] { "", "i" })
                         : Loud();
             case "Clear":
                 // D-LISTOBJ-1: void Clear() is T-free, so the reference
@@ -329,7 +364,7 @@ public static partial class MethodRefResolver
                 // parameter arrives as VAR (0x13), like Add/IndexOf/Contains.
                 // bool is a value return, so returnsRef stays false on both
                 // domains; only the value cast differs ("i" vs "").
-                if (count != 1 || ps.Length != 1 || ps[0] != 0x13) return Loud();
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
                 if (doubleReceiver)
                     return I("il2cpp::il2cpp_list_obj_remove_double", 1, true, false, true, new[] { "", "d" });
                 if (longReceiver)
@@ -399,7 +434,7 @@ public static partial class MethodRefResolver
             case "IndexOf":
                 // D-LISTOBJ-6: int32 IndexOf(T) -- the T parameter arrives as
                 // VAR (0x13). int32 is a value return on both domains.
-                if (count != 1 || ps.Length != 1 || ps[0] != 0x13) return Loud();
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
                 if (doubleReceiver)
                     return I("il2cpp::il2cpp_list_obj_index_of_double", 1, true, false, true, new[] { "", "d" });
                 if (longReceiver)
@@ -424,7 +459,7 @@ public static partial class MethodRefResolver
                         : Loud();
             case "Contains":
                 // D-LISTOBJ-7: bool Contains(T) -- same VAR shape as IndexOf.
-                if (count != 1 || ps.Length != 1 || ps[0] != 0x13) return Loud();
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
                 if (doubleReceiver)
                     return I("il2cpp::il2cpp_list_obj_contains_double", 1, true, false, true, new[] { "", "d" });
                 if (longReceiver)
@@ -471,13 +506,25 @@ public static partial class MethodRefResolver
                 // [0, count). NOTE: the listobj runtime domain sorts by
                 // IComparable; see listobj.cpp (the int domain uses the
                 // numeric listi4 sort).
-                if (count != 0) return Loud();
-                return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
-                    ? I("il2cpp::il2cpp_list_obj_sort", 0, false, false, true)
-                    : i4Receiver
-                        ? I("il2cpp::il2cpp_list_i4_sort", 0, false, false, true)
+                if (count == 0)
+                    return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+                            || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        ? I("il2cpp::il2cpp_list_obj_sort", 0, false, false, true)
+                        : i4Receiver
+                            ? I("il2cpp::il2cpp_list_i4_sort", 0, false, false, true)
+                            : Loud();
+                // listb1: the int32 delegate/comparer overloads --
+                // Sort(Comparison<int>) (the T parameter is VAR 0x13) and
+                // Sort(int32 index, int32 count, IComparer<int> comparer).
+                if (count == 1 && ps.Length == 1 && (ps[0] == 0x13 || ps[0] == 0x15))
+                    return i4Receiver
+                        ? I("il2cpp::il2cpp_list_i4_sort_comparison", 1, false, false, true, new[] { "", "" })
                         : Loud();
+                if (count == 3 && ps.Length == 3 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return i4Receiver
+                        ? I("il2cpp::il2cpp_list_i4_sort_range_comparer", 3, false, false, true, new[] { "", "i", "i", "" })
+                        : Loud();
+                return Loud();
             case "CopyTo":
                 // D-LISTOBJ-10: void CopyTo(T[] array, int32 arrayIndex) --
                 // the array is a reference ("" passthrough), the index is
@@ -488,6 +535,110 @@ public static partial class MethodRefResolver
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_copy_to", 2, false, false, true, new[] { "", "", "i" })
                         : Loud();
+            //------------------------------------------------------------------
+            // listb1: the range / predicate / reverse / binary-search / sort
+            // overload surface. The int32 AOT expansion (List<int>) rides the
+            // il2cpp_list_i4_* icalls; the reference instantiations stay LOUD
+            // (no listobj range/predicate domain exists yet -- the surface is
+            // added deliberately, never silently mis-mapped).
+            //------------------------------------------------------------------
+            case "AddRange":
+                // void AddRange(IEnumerable<int> collection): the collection is a
+                // managed reference slot ("" passthrough).
+                if (count != 1 || ps.Length != 1) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_add_range", 1, false, false, true, new[] { "", "" })
+                    : Loud();
+            case "InsertRange":
+                // void InsertRange(int32 index, IEnumerable<int> collection).
+                if (count != 2 || ps.Length != 2 || ps[0] != 0x08) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_insert_range", 2, false, false, true, new[] { "", "i", "" })
+                    : Loud();
+            case "RemoveRange":
+                // void RemoveRange(int32 index, int32 count).
+                if (count != 2 || ps.Length != 2 || ps[0] != 0x08 || ps[1] != 0x08) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_remove_range", 2, false, false, true, new[] { "", "i", "i" })
+                    : Loud();
+            case "GetRange":
+                // List<int> GetRange(int32 index, int32 count): a NEW list; the
+                // result tracks List`1_int so the downstream Count/indexer
+                // resolve.
+                if (count != 2 || ps.Length != 2 || ps[0] != 0x08 || ps[1] != 0x08) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_get_range", 2, true, true, true, new[] { "", "i", "i" },
+                        returnTypeName: "System.Collections.Generic.List`1_int")
+                    : Loud();
+            case "RemoveAll":
+                // int32 RemoveAll(Predicate<int> match): the T parameter is VAR
+                // (0x13), the delegate rides a managed reference slot.
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_remove_all", 1, true, false, true, new[] { "", "" })
+                    : Loud();
+            case "LastIndexOf":
+                // int32 LastIndexOf(T value): the value is VAR (0x13).
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_last_index_of", 1, true, false, true, new[] { "", "i" })
+                    : Loud();
+            case "Find":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_find", 1, true, false, true, new[] { "", "" })
+                    : Loud();
+            case "FindLast":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_find_last", 1, true, false, true, new[] { "", "" })
+                    : Loud();
+            case "FindIndex":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_find_index", 1, true, false, true, new[] { "", "" })
+                    : Loud();
+            case "FindLastIndex":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_find_last_index", 1, true, false, true, new[] { "", "" })
+                    : Loud();
+            case "Exists":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_exists", 1, true, false, true, new[] { "", "" })
+                    : Loud();
+            case "TrueForAll":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_true_for_all", 1, true, false, true, new[] { "", "" })
+                    : Loud();
+            case "ForEach":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_for_each", 1, false, false, true, new[] { "", "" })
+                    : Loud();
+            case "FindAll":
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_find_all", 1, true, true, true, new[] { "", "" },
+                        returnTypeName: "System.Collections.Generic.List`1_int")
+                    : Loud();
+            case "Reverse":
+                if (count == 0)
+                    return i4Receiver
+                        ? I("il2cpp::il2cpp_list_i4_reverse", 0, false, false, true)
+                        : Loud();
+                if (count != 2 || ps.Length != 2 || ps[0] != 0x08 || ps[1] != 0x08) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_reverse_range", 2, false, false, true, new[] { "", "i", "i" })
+                    : Loud();
+            case "BinarySearch":
+                // int32 BinarySearch(T value): the value is VAR (0x13).
+                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
+                return i4Receiver
+                    ? I("il2cpp::il2cpp_list_i4_binary_search", 1, true, false, true, new[] { "", "i" })
+                    : Loud();
             default: return null;
         }
     }

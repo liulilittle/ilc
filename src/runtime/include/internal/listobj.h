@@ -35,6 +35,12 @@ bool il2cpp_list_obj_remove(Il2CppObject* self, Il2CppObject* value);
 Il2CppObject* il2cpp_list_obj_get_item(Il2CppObject* self, int32_t index);
 void il2cpp_list_obj_set_item(Il2CppObject* self, int32_t index, Il2CppObject* value);
 int32_t il2cpp_list_obj_get_count(Il2CppObject* self);
+// Capacity: the allocated backing-array length (>= Count).
+int32_t il2cpp_list_obj_get_capacity(Il2CppObject* self);
+// set_Capacity(value): a value below Count raises ArgumentOutOfRangeException
+// ("value"); an equal capacity is a no-op; otherwise the items array is rebuilt
+// at exactly 'value' slots (the element references are preserved).
+void il2cpp_list_obj_set_capacity(Il2CppObject* self, int32_t value);
 void il2cpp_list_obj_clear(Il2CppObject* self);
 int32_t il2cpp_list_obj_index_of(Il2CppObject* self, Il2CppObject* value);
 bool il2cpp_list_obj_contains(Il2CppObject* self, Il2CppObject* value);

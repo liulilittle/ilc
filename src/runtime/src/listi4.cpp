@@ -33,13 +33,16 @@
 
 #include "listi4.h"
 
+#include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
+#include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "arraysort.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 namespace il2cpp {
 
@@ -194,6 +197,12 @@ private:
 // AOT output).
 int32_t NextLength(int32_t oldLength)
 {
+    // An empty list (the net48 default Capacity 0) grows straight to the
+    // minimum 4-slot array on the first add; doubling from 0 would stay 0.
+    if (oldLength == 0)
+    {
+        return kMinItems;
+    }
     int32_t newLength = oldLength * 2;
     if (newLength < oldLength || newLength > kMaxItems)
     {
@@ -258,6 +267,78 @@ void ThrowIfInsertIndexOutOfRange(int32_t index, int32_t count)
     }
 }
 
+//--------------------------------------------------------------------------
+// listb1: the predicate / comparison callback ABIs and validation for the
+// delegate surface. The ABI is the single-cast static methodPtr (an
+// instance-bound leaf receives its target in the `this` slot); the delegate and
+// the list are GC-rooted across a callback loop.
+//--------------------------------------------------------------------------
+typedef bool (*PredI4Fn)(int32_t);
+typedef bool (*PredI4ThisFn)(Il2CppObject*, int32_t);
+typedef int32_t (*CmpI4Fn)(int32_t, int32_t);
+typedef int32_t (*CmpI4ThisFn)(Il2CppObject*, int32_t, int32_t);
+
+bool InvokePredI4(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredI4ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredI4Fn>(d->methodPtr)(v);
+}
+
+int32_t InvokeCmpI4(Il2CppDelegate* d, int32_t a, int32_t b)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<CmpI4ThisFn>(d->methodPtr)(d->target, a, b)
+        : reinterpret_cast<CmpI4Fn>(d->methodPtr)(a, b);
+}
+
+// RequireListCallback -- the single-cast delegate validation (the arrayext2.cpp
+// RequireArrayCallback contract).
+Il2CppDelegate* RequireListCallback(Il2CppObject* cb, const char* paramName)
+{
+    if (cb == nullptr)
+    {
+        il2cpp_throw_argument_null_exception(paramName);
+        return nullptr;
+    }
+    const char* name = cb->klass != nullptr ? cb->klass->name : nullptr;
+    if (name == nullptr || std::strcmp(name, "System.MulticastDelegate") == 0)
+    {
+        il2cpp_throw_invalid_operation_exception(
+            "A multicast delegate cannot be used as a List callback.");
+        return nullptr;
+    }
+    if (std::strcmp(name, "System.Delegate") != 0)
+    {
+        il2cpp_throw_argument_exception("Object is not a delegate.");
+        return nullptr;
+    }
+    return reinterpret_cast<Il2CppDelegate*>(cb);
+}
+
+// RequireInt32ArrayArg -- validate an IEnumerable<int> argument (the wired
+// surface passes a one-dimensional int32 array): null -> ArgumentNullException;
+// a non-array -> ArgumentException; a non-int32 array -> NotSupportedException.
+Il2CppArray* RequireInt32ArrayArg(Il2CppObject* obj, const char* paramName)
+{
+    if (obj == nullptr)
+    {
+        il2cpp_throw_argument_null_exception(paramName);
+    }
+    Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(obj);
+    if (arr->obj.klass == nullptr || arr->obj.klass->name == nullptr ||
+        arr->obj.klass->name[0] != '[')
+    {
+        il2cpp_throw_argument_exception("Object is not an array.");
+    }
+    if (arr->isRefElem || arr->elemSize != sizeof(int32_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Int32 arrays are supported.");
+    }
+    return arr;
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -283,7 +364,9 @@ Il2CppObject* il2cpp_list_i4_create()
     // The items allocation may trigger a Gen0 compaction that COPIES the
     // freshly created list to a Gen1 segment; 'self' is rooted and the list
     // pointer is re-derived after the allocation (see the RootScope contract).
-    Il2CppArray* items = AllocItems(kMinItems);
+    // net48: the default Capacity is 0 -- the first Add grows to the 4-slot
+    // minimum (NextLength(0) == kMinItems). The array length IS the Capacity.
+    Il2CppArray* items = AllocItems(0);
     Il2CppListI4* list = AsList(self);
     list->items = items;
     il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
@@ -292,30 +375,53 @@ Il2CppObject* il2cpp_list_i4_create()
     return self;
 }
 
-Il2CppObject* il2cpp_list_i4_create_with_capacity(int32_t capacity)
+void il2cpp_list_i4_create_with_capacity(Il2CppObject* self, int32_t capacity)
 {
+    ThrowIfNullReceiver(self);
     // net48 List<T>(int capacity): a negative capacity raises
     // ArgumentOutOfRangeException (ArgumentOutOfRange_MustBeNonNegNum).
     if (capacity < 0)
     {
         il2cpp_throw_argument_out_of_range_exception("capacity", kNonNegativeMessage);
     }
-    EnsureListI4Registered();
-    Il2CppObject* self = il2cpp_object_new(&g_listI4Class);
+    // The items allocation may compact and MOVE 'self' (only reachable through
+    // the caller's frame slot, which is rewritten): root it and re-read the
+    // (possibly moved) container before writing its fields.
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
-    // A length-0 items array would never grow (NextLength(0) == 0), so a
-    // zero capacity falls back to the default minimum array -- observably
-    // identical to net48's empty-array state on every wired member (the
-    // internal length is visible only through the unmapped Capacity property).
-    const int32_t itemCount = capacity > 0 ? capacity : kMinItems;
-    Il2CppArray* items = AllocItems(itemCount);
+    // The items-array length IS the Capacity (net48 observable): a zero
+    // capacity keeps a zero-length array (the first Add grows to the 4-slot
+    // minimum through NextLength(0)).
+    Il2CppArray* items = AllocItems(capacity);
     Il2CppListI4* list = AsList(self);
     list->items = items;
     il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
                          reinterpret_cast<Il2CppObject*>(items));
     list->count = 0;
-    return self;
+}
+
+void il2cpp_list_i4_create_with_collection(Il2CppObject* self, Il2CppObject* source)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArray* src = RequireInt32ArrayArg(source, "collection");
+    // Root both the shell and the source across the items allocation (either
+    // may be compacted/moved).
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&source));
+    // The initial Capacity equals the source count (net48); the items allocation
+    // may compact the freshly created list, so the pointer is re-derived after.
+    Il2CppArray* items = AllocItems(src->length);
+    Il2CppListI4* list = AsList(self);
+    list->items = items;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                         reinterpret_cast<Il2CppObject*>(items));
+    list->count = src->length;
+    if (src->length > 0)
+    {
+        std::memcpy(items->data, src->data,
+                    static_cast<size_t>(src->length) * sizeof(int32_t));
+    }
 }
 
 void il2cpp_list_i4_add(Il2CppObject* self, int32_t value)
@@ -409,6 +515,49 @@ int32_t il2cpp_list_i4_get_count(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return AsList(self)->count;
+}
+
+int32_t il2cpp_list_i4_get_capacity(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppListI4* list = AsList(self);
+    return list->items != nullptr ? list->items->length : 0;
+}
+
+void il2cpp_list_i4_set_capacity(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    if (value < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("value", kNonNegativeMessage);
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppListI4* list = AsList(self);
+    if (value < list->count)
+    {
+        // net48: a capacity below Count is rejected (ArgumentOutOfRangeException).
+        il2cpp_throw_argument_out_of_range_exception("value",
+            "value was less than the current Count.");
+    }
+    const int32_t oldLength = list->items != nullptr ? list->items->length : 0;
+    if (value == oldLength)
+    {
+        return; // net48: an equal capacity is a no-op
+    }
+    Il2CppArray* fresh = AllocItems(value);
+    // Re-derive after the allocation (a collection may have compacted/moved the
+    // list; only the rooted slot was rewritten).
+    list = AsList(self);
+    const int32_t copyLen = list->count < value ? list->count : value;
+    if (copyLen > 0 && list->items != nullptr)
+    {
+        std::memcpy(fresh->data, Slots(list),
+                    static_cast<size_t>(copyLen) * sizeof(int32_t));
+    }
+    il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                         reinterpret_cast<Il2CppObject*>(fresh));
+    list->items = fresh;
 }
 
 void il2cpp_list_i4_clear(Il2CppObject* self)
@@ -591,6 +740,453 @@ void il2cpp_list_i4_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t arr
             dstSlots[arrayIndex + i] = src[i];
         }
     }
+}
+
+//------------------------------------------------------------------------------
+// listb1: range operations.
+//------------------------------------------------------------------------------
+
+void il2cpp_list_i4_add_range(Il2CppObject* self, Il2CppObject* collection)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArray* src = RequireInt32ArrayArg(collection, "collection");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&collection));
+    EnsureItems(&self);
+    const int32_t srcLen = reinterpret_cast<Il2CppArray*>(collection)->length;
+    const int32_t need = AsList(self)->count + srcLen;
+    while (AsList(self)->items->length < need)
+    {
+        GrowList(&self);
+    }
+    Il2CppListI4* list = AsList(self);
+    const int32_t* srcSlots = reinterpret_cast<const int32_t*>(src->data);
+    std::memcpy(Slots(list) + list->count, srcSlots,
+                static_cast<size_t>(srcLen) * sizeof(int32_t));
+    list->count += srcLen;
+}
+
+void il2cpp_list_i4_insert_range(Il2CppObject* self, int32_t index, Il2CppObject* collection)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppArray* src = RequireInt32ArrayArg(collection, "collection");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&collection));
+    Il2CppListI4* list = AsList(self);
+    ThrowIfInsertIndexOutOfRange(index, list->count);
+    const int32_t srcLen = reinterpret_cast<Il2CppArray*>(collection)->length;
+    const int32_t need = list->count + srcLen;
+    while (AsList(self)->items->length < need)
+    {
+        GrowList(&self);
+    }
+    list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = list->count; i > index; --i)
+    {
+        slots[i + srcLen - 1] = slots[i - 1];
+    }
+    const int32_t* srcSlots = reinterpret_cast<const int32_t*>(src->data);
+    std::memcpy(slots + index, srcSlots,
+                static_cast<size_t>(srcLen) * sizeof(int32_t));
+    list->count += srcLen;
+}
+
+void il2cpp_list_i4_remove_range(Il2CppObject* self, int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    if (index < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", kNonNegativeMessage);
+    }
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", kNonNegativeMessage);
+    }
+    Il2CppListI4* list = AsList(self);
+    if (static_cast<int64_t>(index) + static_cast<int64_t>(count) > list->count)
+    {
+        il2cpp_throw_argument_exception(
+            "Offset and length were out of bounds for the array or count is greater than the number of elements from index to end.");
+    }
+    int32_t* slots = Slots(list);
+    for (int32_t i = index; i < list->count - count; ++i)
+    {
+        slots[i] = slots[i + count];
+    }
+    for (int32_t i = list->count - count; i < list->count; ++i)
+    {
+        slots[i] = 0;
+    }
+    list->count -= count;
+}
+
+Il2CppObject* il2cpp_list_i4_get_range(Il2CppObject* self, int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    if (index < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", kNonNegativeMessage);
+    }
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", kNonNegativeMessage);
+    }
+    Il2CppListI4* list = AsList(self);
+    if (static_cast<int64_t>(index) + static_cast<int64_t>(count) > list->count)
+    {
+        il2cpp_throw_argument_exception(
+            "Offset and length were out of bounds for the array or count is greater than the number of elements from index to end.");
+    }
+    Il2CppObject* result = il2cpp_object_new(&g_listI4Class);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&result));
+    il2cpp_list_i4_create_with_capacity(result, count);
+    Il2CppListI4* dst = AsList(result);
+    list = AsList(self);
+    const int32_t* srcSlots = Slots(list);
+    std::memcpy(Slots(dst), srcSlots + index,
+                static_cast<size_t>(count) * sizeof(int32_t));
+    dst->count = count;
+    return result;
+}
+
+int32_t il2cpp_list_i4_remove_all(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    int32_t wi = 0;
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        const int32_t v = slots[i];
+        if (!InvokePredI4(d, v))
+        {
+            slots[wi] = v;
+            ++wi;
+        }
+    }
+    for (int32_t i = wi; i < list->count; ++i)
+    {
+        slots[i] = 0;
+    }
+    const int32_t removed = list->count - wi;
+    list->count = wi;
+    return removed;
+}
+
+int32_t il2cpp_list_i4_last_index_of(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = list->count - 1; i >= 0; --i)
+    {
+        if (slots[i] == value)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+//------------------------------------------------------------------------------
+// listb1: predicate family.
+//------------------------------------------------------------------------------
+
+int32_t il2cpp_list_i4_find(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        const int32_t v = slots[i];
+        if (InvokePredI4(d, v))
+        {
+            return v;
+        }
+    }
+    return 0; // default(int)
+}
+
+int32_t il2cpp_list_i4_find_last(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = list->count - 1; i >= 0; --i)
+    {
+        const int32_t v = slots[i];
+        if (InvokePredI4(d, v))
+        {
+            return v;
+        }
+    }
+    return 0; // default(int)
+}
+
+int32_t il2cpp_list_i4_find_index(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        if (InvokePredI4(d, slots[i]))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t il2cpp_list_i4_find_last_index(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = list->count - 1; i >= 0; --i)
+    {
+        if (InvokePredI4(d, slots[i]))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t il2cpp_list_i4_exists(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        if (InvokePredI4(d, slots[i]))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int32_t il2cpp_list_i4_true_for_all(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        if (!InvokePredI4(d, slots[i]))
+        {
+            return 0;
+        }
+    }
+    return 1; // an empty list is vacuously true
+}
+
+void il2cpp_list_i4_for_each(Il2CppObject* self, Il2CppObject* action)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(action, "action");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        InvokePredI4(d, slots[i]);
+    }
+}
+
+Il2CppObject* il2cpp_list_i4_find_all(Il2CppObject* self, Il2CppObject* match)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDelegate* d = RequireListCallback(match, "match");
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&d));
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    Il2CppObject* result = il2cpp_object_new(&g_listI4Class);
+    il2cpp_list_i4_create_with_capacity(result, list->count);
+    scope.Add(reinterpret_cast<void**>(&result));
+    Il2CppListI4* dst = AsList(result);
+    int32_t wi = 0;
+    for (int32_t i = 0; i < list->count; ++i)
+    {
+        const int32_t v = slots[i];
+        if (InvokePredI4(d, v))
+        {
+            Slots(dst)[wi] = v;
+            ++wi;
+        }
+    }
+    dst->count = wi;
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// listb1: reverse / binary search / sort overloads.
+//------------------------------------------------------------------------------
+
+void il2cpp_list_i4_reverse(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppListI4* list = AsList(self);
+    int32_t* slots = Slots(list);
+    for (int32_t i = 0, j = list->count - 1; i < j; ++i, --j)
+    {
+        const int32_t t = slots[i];
+        slots[i] = slots[j];
+        slots[j] = t;
+    }
+}
+
+void il2cpp_list_i4_reverse_range(Il2CppObject* self, int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    if (index < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", kNonNegativeMessage);
+    }
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", kNonNegativeMessage);
+    }
+    Il2CppListI4* list = AsList(self);
+    if (static_cast<int64_t>(index) + static_cast<int64_t>(count) > list->count)
+    {
+        il2cpp_throw_argument_exception(
+            "Offset and length were out of bounds for the array or count is greater than the number of elements from index to end.");
+    }
+    int32_t* slots = Slots(list);
+    for (int32_t i = index, j = index + count - 1; i < j; ++i, --j)
+    {
+        const int32_t t = slots[i];
+        slots[i] = slots[j];
+        slots[j] = t;
+    }
+}
+
+int32_t il2cpp_list_i4_binary_search(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppListI4* list = AsList(self);
+    const int32_t* slots = Slots(list);
+    int32_t lo = 0;
+    int32_t hi = list->count - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + ((hi - lo) >> 1);
+        if (slots[mid] == value)
+        {
+            return mid;
+        }
+        if (slots[mid] < value)
+        {
+            lo = mid + 1;
+        }
+        else
+        {
+            hi = mid - 1;
+        }
+    }
+    return ~lo; // net48: the complement of the insertion point
+}
+
+void il2cpp_list_i4_sort_comparison(Il2CppObject* self, Il2CppObject* comparison)
+{
+    ThrowIfNullReceiver(self);
+    if (comparison == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("comparison");
+    }
+    Il2CppListI4* list = AsList(self);
+    if (list->count <= 1)
+    {
+        return;
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppArray* temp = AllocItems(list->count);
+    scope.Add(reinterpret_cast<void**>(&temp));
+    list = AsList(self);
+    std::memcpy(temp->data, Slots(list),
+                static_cast<size_t>(list->count) * sizeof(int32_t));
+    // The int32 array-sort domain invokes the managed Comparison<int> delegate
+    // (a pure CPU sort -- no allocation, so no collection can interleave).
+    il2cpp_array_sort_int32_comparison(temp, comparison);
+    list = AsList(self);
+    std::memcpy(Slots(list), temp->data,
+                static_cast<size_t>(list->count) * sizeof(int32_t));
+}
+
+void il2cpp_list_i4_sort_range_comparer(Il2CppObject* self, int32_t index, int32_t count, Il2CppObject* comparer)
+{
+    ThrowIfNullReceiver(self);
+    if (index < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", kNonNegativeMessage);
+    }
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", kNonNegativeMessage);
+    }
+    Il2CppListI4* list = AsList(self);
+    if (static_cast<int64_t>(index) + static_cast<int64_t>(count) > list->count)
+    {
+        il2cpp_throw_argument_exception(
+            "Offset and length were out of bounds for the array or count is greater than the number of elements from index to end.");
+    }
+    if (count <= 1)
+    {
+        return;
+    }
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppArray* temp = AllocItems(count);
+    scope.Add(reinterpret_cast<void**>(&temp));
+    list = AsList(self);
+    std::memcpy(temp->data, Slots(list) + index,
+                static_cast<size_t>(count) * sizeof(int32_t));
+    il2cpp_array_sort_icomparer_range(temp, 0, count, comparer);
+    list = AsList(self);
+    std::memcpy(Slots(list) + index, temp->data,
+                static_cast<size_t>(count) * sizeof(int32_t));
 }
 
 //------------------------------------------------------------------------------

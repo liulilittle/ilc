@@ -418,7 +418,9 @@ int main()
     {
         // Positive capacity: the items array starts at exactly 'capacity'
         // (net48 List<T>(int)); the first Add past it doubles (10 -> 20).
-        il2cpp::Il2CppObject* cap = il2cpp::il2cpp_list_i4_create_with_capacity(10);
+        // Self-mutating ctor ABI: allocate the shell, then fill it.
+        il2cpp::Il2CppObject* cap = il2cpp::il2cpp_object_new(il2cpp::il2cpp_list_i4_class());
+        il2cpp::il2cpp_list_i4_create_with_capacity(cap, 10);
         il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&cap));
         Expect(il2cpp::il2cpp_list_i4_get_count(cap) == 0, "capacity ctor: fresh count 0");
         for (int32_t i = 0; i < 11; ++i)
@@ -438,7 +440,8 @@ int main()
 
         // Small positive capacity below the default minimum (3 < 4): the
         // array is exactly 3 and grows 3 -> 6 on the 4th add.
-        il2cpp::Il2CppObject* small = il2cpp::il2cpp_list_i4_create_with_capacity(3);
+        il2cpp::Il2CppObject* small = il2cpp::il2cpp_object_new(il2cpp::il2cpp_list_i4_class());
+        il2cpp::il2cpp_list_i4_create_with_capacity(small, 3);
         il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&small));
         for (int32_t i = 0; i < 4; ++i)
         {
@@ -451,7 +454,8 @@ int main()
 
         // Zero capacity: net48's empty-array state is observably equivalent
         // to the default minimum array on the wired surface -- adds work.
-        il2cpp::Il2CppObject* zero = il2cpp::il2cpp_list_i4_create_with_capacity(0);
+        il2cpp::Il2CppObject* zero = il2cpp::il2cpp_object_new(il2cpp::il2cpp_list_i4_class());
+        il2cpp::il2cpp_list_i4_create_with_capacity(zero, 0);
         il2cpp::il2cpp_gc_add_static_root(reinterpret_cast<void**>(&zero));
         Expect(il2cpp::il2cpp_list_i4_get_count(zero) == 0, "capacity ctor(0): fresh count 0");
         il2cpp::il2cpp_list_i4_add(zero, 42);
@@ -460,10 +464,15 @@ int main()
         il2cpp::il2cpp_gc_remove_static_root(reinterpret_cast<void**>(&zero));
 
         // Negative capacity: ArgumentOutOfRangeException, chain + message.
-        Expect(ThrowsDotNetWithMessage([&]() { il2cpp::il2cpp_list_i4_create_with_capacity(-1); },
-                                       kArgOutOfRangeChain, kNonNegativeMessage),
+        Expect(ThrowsDotNetWithMessage([&]() {
+            il2cpp::Il2CppObject* self = il2cpp::il2cpp_object_new(il2cpp::il2cpp_list_i4_class());
+            il2cpp::il2cpp_list_i4_create_with_capacity(self, -1);
+        }, kArgOutOfRangeChain, kNonNegativeMessage),
                "capacity ctor(-1) raises ArgumentOutOfRangeException with the net48 message");
-        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_list_i4_create_with_capacity(-5); }, kArgOutOfRangeChain),
+        Expect(ThrowsDotNet([&]() {
+            il2cpp::Il2CppObject* self = il2cpp::il2cpp_object_new(il2cpp::il2cpp_list_i4_class());
+            il2cpp::il2cpp_list_i4_create_with_capacity(self, -5);
+        }, kArgOutOfRangeChain),
                "capacity ctor(-5) raises ArgumentOutOfRangeException");
     }
 

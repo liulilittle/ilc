@@ -77,6 +77,19 @@ Il2CppObject* icall_sortedlist_si_get_values(Il2CppObject* self);
 // snapshot enumerator (the non-generic ValueList GetEnumerator precedent).
 Il2CppObject* icall_sortedlist_si_values_get_enumerator(Il2CppObject* self);
 
+// TryGetValue(key, &value): true + the unboxed value on a hit; false on a miss
+// (the out slot is left untouched). A null stored slot means the key is absent
+// (a stored value is always a boxed Int32).
+bool icall_sortedlist_si_try_get_value(Il2CppObject* self, Il2CppObject* key, int32_t* value);
+
+// GetEnumerator: the foreach KeyValuePair surface. The sorted keys snapshot
+// (string[]) plus a fresh int32[] values snapshot (unboxed from the core
+// boxed-value snapshot) feed the SHARED Dictionary<string,int> pair-enumerator
+// object (dictsi_obj.h), so the MoveNext/get_Current/Dispose and KeyValuePair
+// members reuse the dictsi domain exactly (the two snapshots are positionally
+// aligned, like the dictsi snapshots).
+Il2CppObject* icall_sortedlist_si_get_enumerator(Il2CppObject* self);
+
 // IEnumerator`1<int>.get_Current: unbox the core array-enumerator element.
 int32_t icall_sortedlist_si_enumerator_get_current(Il2CppObject* self);
 

@@ -3695,7 +3695,13 @@ public static class StackFold
                         // at MethodRefResolver's IDisposable gate maps it to
                         // the sortedlist enumerator dispose with deref:r).
                         || recvType == "System.Collections.Generic.SortedDictionary`2+KeyCollection.Enumerator"
-                        || recvType == "System.Collections.Generic.SortedDictionary`2.KeyCollection.Enumerator"))
+                        || recvType == "System.Collections.Generic.SortedDictionary`2.KeyCollection.Enumerator"
+                        // sorte1: the SortedDictionary/SortedList<string,int>
+                        // Values shared snapshot enumerator (tracked
+                        // "System.Collections.SortedList.Enumerator") -- the
+                        // foreach-finally Dispose on the ldloca'd enumerator
+                        // needs the same re-resolve to the deref:r arm.
+                        || recvType == "System.Collections.SortedList.Enumerator"))
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
                         recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr
                             || (args[0] is LocExpr ptrRecv2 && LocWidth(ptrRecv2.Name, ctx, tempWidths) == "ptr"),

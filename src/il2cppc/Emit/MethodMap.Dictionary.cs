@@ -290,6 +290,11 @@ public static partial class MethodRefResolver
         switch (owner)
         {
             case "System.Collections.Generic.Dictionary`2+Enumerator":
+            // sorte1: the SortedDictionary<string,int> / SortedList<string,int>
+            // foreach pair-enumerator is the SAME shared object (the tracked
+            // "Dictionary`2.Enumerator" receiver), so it reuses the dictsi walk.
+            case "System.Collections.Generic.SortedDictionary`2+Enumerator":
+            case "System.Collections.Generic.SortedList`2+Enumerator":
                 // Phase-1 dictgen: the tracked "...Enumerator_int_string"
                 // receiver rides the same snapshot discipline (the gen
                 // enumerator object has the identical keys/values/index

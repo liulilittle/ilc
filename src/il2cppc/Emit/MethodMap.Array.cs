@@ -395,21 +395,25 @@ public static partial class MethodRefResolver
                 // call must be icall_array_find_index(array, match, start,
                 // count) -- a resolver-only mapping cannot express the
                 // reorder; see the wir8 report for the emitter gap.
-                if (genArgs != null && genArgs[0] == 0x08)   // FindIndex<int>
+                // arrgen1: the int64 (0x0A) and string/reference (0x0E) families
+                // have their own delegate icalls (il2cpp_array_ext2.h); the
+                // string family takes a reference-element array.
+                if (genArgs != null && genArgs[0] is 0x08 or 0x0A or 0x0E)
                 {
+                    var suffix = genArgs[0] == 0x08 ? "" : genArgs[0] == 0x0A ? "_i8" : "_str";
                     // 2-arg overload (array, match): the whole range via the
-                    // dedicated icall_array_find_index_2 wrapper.
+                    // dedicated *_find_index_2 wrapper.
                     if (ps.Length == 2)
-                        return I("il2cpp::runtime::icall_array_find_index_2", 2, true, false, false,
+                        return I($"il2cpp::runtime::icall_array_find_index_2{suffix}", 2, true, false, false,
                             new[] { "a", "" });
                     if (ps.Length == 3)
-                        return I("il2cpp::runtime::icall_array_find_index_3", 3, true, false, false,
+                        return I($"il2cpp::runtime::icall_array_find_index_3{suffix}", 3, true, false, false,
                             new[] { "a", "", "i" });
-                    return I("il2cpp::runtime::icall_array_find_index", 4, true, false, false,
+                    return I($"il2cpp::runtime::icall_array_find_index{suffix}", 4, true, false, false,
                         new[] { "a", "", "i", "i" });
                 }
                 throw new NotSupportedException(
-                    $"Array.FindIndex<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the delegate icall icall_array_find_index (il2cpp_array_ext2.h:145); 2/3-arg overloads fold to the 4-arg shape in the runtime");
+                    $"Array.FindIndex<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A) and string (0x0E) have the delegate icalls icall_array_find_index[_i8/_str] (il2cpp_array_ext2.h)");
             // ARRFUNCS (2026-08-09, wir9-b23): the five remaining arrayext2
             // delegate/resize icalls (il2cpp_array_ext2.h:154-191) -- the
             // arrfuncs e2e surface. ALL are 2-arg static shapes whose IL push
@@ -421,11 +425,67 @@ public static partial class MethodRefResolver
             case "Find":
                 // int Array.Find<int>(int32[], Predicate<int>): the VALUE of the
                 // first matching element, or default(int)=0 (empty -> 0).
+                // arrgen1: the int64 (0x0A), string (0x0E) and double (0x0D)
+                // families have their own icalls; the result carrier follows the
+                // element kind (int64 -> "l", string -> a managed reference,
+                // double -> "d").
                 if (genArgs != null && genArgs[0] == 0x08)   // Find<int>
                     return I("il2cpp::runtime::icall_array_find_i4", 2, true, false, false,
                         new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0A)   // Find<long>
+                    return I("il2cpp::runtime::icall_array_find_i8", 2, true, false, false,
+                        new[] { "a", "" }, "l");
+                if (genArgs != null && genArgs[0] == 0x0E)   // Find<string>
+                    return I("il2cpp::runtime::icall_array_find_str", 2, true, true, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0D)   // Find<double>
+                    return I("il2cpp::runtime::icall_array_find_d", 2, true, false, false,
+                        new[] { "a", "" }, "d");
                 throw new NotSupportedException(
-                    $"Array.Find<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the predicate icall icall_array_find_i4 (il2cpp_array_ext2.h:161)");
+                    $"Array.Find<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), string (0x0E) and double (0x0D) have the predicate icalls (il2cpp_array_ext2.h)");
+            case "FindLast":
+                // arrayc1: int Array.FindLast<int>(int32[], Predicate<int>) --
+                // the VALUE of the LAST matching element, or default(int)=0
+                // (empty -> 0). Mirrors the Find arm with a BACKWARD scan (the
+                // icall icall_array_find_last_i4). Same single-cast static
+                // methodPtr predicate ABI; the 2-arg shape's IL order equals the
+                // icall order (no IcallArgOrder entry needed).
+                if (genArgs != null && genArgs[0] == 0x08)   // FindLast<int>
+                    return I("il2cpp::runtime::icall_array_find_last_i4", 2, true, false, false,
+                        new[] { "a", "" });
+                throw new NotSupportedException(
+                    $"Array.FindLast<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the predicate icall icall_array_find_last_i4 (il2cpp_array_ext2.h)");
+            case "FindLastIndex":
+                // arrayc1: int Array.FindLastIndex<int>(int32[], Predicate<int>)
+                // and its range overloads -- the index of the LAST match in
+                // [startIndex, startIndex + count), or -1. Mirrors the FindIndex
+                // arm with a BACKWARD scan. The 3/4-arg IL order is
+                // (array[, startIndex[, count]], match) while the icall order is
+                // (arr, predicate, startIndex, count), so the delegate is LAST in
+                // IL -- the IcallArgOrder table reorders the 3/4-arg forms.
+                if (genArgs != null && genArgs[0] == 0x08)   // FindLastIndex<int>
+                {
+                    if (ps.Length == 2)
+                        return I("il2cpp::runtime::icall_array_find_last_index_2", 2, true, false, false,
+                            new[] { "a", "" });
+                    if (ps.Length == 3)
+                        return I("il2cpp::runtime::icall_array_find_last_index_3", 3, true, false, false,
+                            new[] { "a", "", "i" });
+                    return I("il2cpp::runtime::icall_array_find_last_index", 4, true, false, false,
+                        new[] { "a", "", "i", "i" });
+                }
+                throw new NotSupportedException(
+                    $"Array.FindLastIndex<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the predicate icalls icall_array_find_last_index[_2/_3] (il2cpp_array_ext2.h)");
+            case "ForEach":
+                // arrayc1: void Array.ForEach<int>(int32[], Action<int>) --
+                // invoke the action once per element in source order; the source
+                // is never modified. Same single-cast static methodPtr action
+                // ABI and 2-arg IL order as Find (no IcallArgOrder entry).
+                if (genArgs != null && genArgs[0] == 0x08)   // ForEach<int>
+                    return I("il2cpp::runtime::icall_array_for_each_i4", 2, false, false, false,
+                        new[] { "a", "" });
+                throw new NotSupportedException(
+                    $"Array.ForEach<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the action icall icall_array_for_each_i4 (il2cpp_array_ext2.h)");
             case "FindAll":
                 // int32[] Array.FindAll<int>(int32[], Predicate<int>): a NEW
                 // int32[] holding EVERY element whose predicate returns true,
@@ -437,8 +497,16 @@ public static partial class MethodRefResolver
                 if (genArgs != null && genArgs[0] == 0x08)   // FindAll<int>
                     return I("il2cpp::runtime::icall_array_find_all_i4", 2, true, true, false,
                         new[] { "a", "" });
+                // arrgen1: the int64 and string families (the result is a NEW
+                // array of the matching elements -- a managed reference).
+                if (genArgs != null && genArgs[0] == 0x0A)   // FindAll<long>
+                    return I("il2cpp::runtime::icall_array_find_all_i8", 2, true, true, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0E)   // FindAll<string>
+                    return I("il2cpp::runtime::icall_array_find_all_str", 2, true, true, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.FindAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the predicate icall icall_array_find_all_i4 (il2cpp_array_ext2.h:201)");
+                    $"Array.FindAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A) and string (0x0E) have the predicate icalls (il2cpp_array_ext2.h)");
             case "Exists":
                 // bool Array.Exists<int>(int32[], Predicate<int>): 1 when any
                 // element matches, 0 otherwise. The int32 result rides the bool
@@ -446,16 +514,38 @@ public static partial class MethodRefResolver
                 if (genArgs != null && genArgs[0] == 0x08)   // Exists<int>
                     return I("il2cpp::runtime::icall_array_exists_i4", 2, true, false, false,
                         new[] { "a", "" });
+                // arrgen1: the int64 / string / double families (the bool
+                // result rides the int32 slot).
+                if (genArgs != null && genArgs[0] == 0x0A)   // Exists<long>
+                    return I("il2cpp::runtime::icall_array_exists_i8", 2, true, false, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0E)   // Exists<string>
+                    return I("il2cpp::runtime::icall_array_exists_str", 2, true, false, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0D)   // Exists<double>
+                    return I("il2cpp::runtime::icall_array_exists_d", 2, true, false, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.Exists<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the predicate icall icall_array_exists_i4 (il2cpp_array_ext2.h:166)");
+                    $"Array.Exists<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), string (0x0E) and double (0x0D) have the predicate icalls (il2cpp_array_ext2.h)");
             case "TrueForAll":
                 // bool Array.TrueForAll<int>(int32[], Predicate<int>): 1 when
                 // EVERY element matches (empty vacuously true).
                 if (genArgs != null && genArgs[0] == 0x08)   // TrueForAll<int>
                     return I("il2cpp::runtime::icall_array_true_for_all_i4", 2, true, false, false,
                         new[] { "a", "" });
+                // arrgen1: the int64 / string / double families (the bool
+                // result rides the int32 slot).
+                if (genArgs != null && genArgs[0] == 0x0A)   // TrueForAll<long>
+                    return I("il2cpp::runtime::icall_array_true_for_all_i8", 2, true, false, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0E)   // TrueForAll<string>
+                    return I("il2cpp::runtime::icall_array_true_for_all_str", 2, true, false, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0D)   // TrueForAll<double>
+                    return I("il2cpp::runtime::icall_array_true_for_all_d", 2, true, false, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.TrueForAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the predicate icall icall_array_true_for_all_i4 (il2cpp_array_ext2.h:172)");
+                    $"Array.TrueForAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), string (0x0E) and double (0x0D) have the predicate icalls (il2cpp_array_ext2.h)");
             case "ConvertAll":
                 // int32[] Array.ConvertAll<int,int>(int32[], Converter<int,int>):
                 // a NEW int32[] of the same length; the source is never modified.
@@ -477,6 +567,13 @@ public static partial class MethodRefResolver
                     && genArgs[0] == 0x08 && genArgs[1] == 0x0A)   // ConvertAll<int,long>
                     return I("il2cpp::runtime::icall_array_convert_all_i4_i8", 2, true, true, false,
                         new[] { "a", "" });
+                // arrayc1: ConvertAll<int,string>(int32[], x => "v" + x) -- the
+                // string-output variant (arrayext2 i4_str icall; the result is a
+                // NEW reference-element string[]).
+                if (genArgs != null && genArgs.Length == 2
+                    && genArgs[0] == 0x08 && genArgs[1] == 0x0E)   // ConvertAll<int,string>
+                    return I("il2cpp::runtime::icall_array_convert_all_i4_str", 2, true, true, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
                     $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{(genArgs?[0] ?? 0):X2},0x{(genArgs is { Length: 2 } g ? g[1] : 0):X2} not wired: only (int32,int32) (0x08,0x08), (string,int32) and (int32,int64) have converter icalls");
             case "Resize":
@@ -490,8 +587,16 @@ public static partial class MethodRefResolver
                 if (genArgs != null && genArgs[0] == 0x08)   // Resize<int>
                     return I("il2cpp::runtime::icall_array_resize_i4", 2, false, false, false,
                         new[] { "addr:a", "i" });
+                // arrgen1: the int64 / string families (the same byref array
+                // slot ABI -- "addr:a" -- and the same net48 contract).
+                if (genArgs != null && genArgs[0] == 0x0A)   // Resize<long>
+                    return I("il2cpp::runtime::icall_array_resize_i8", 2, false, false, false,
+                        new[] { "addr:a", "i" });
+                if (genArgs != null && genArgs[0] == 0x0E)   // Resize<string>
+                    return I("il2cpp::runtime::icall_array_resize_str", 2, false, false, false,
+                        new[] { "addr:a", "i" });
                 throw new NotSupportedException(
-                    $"Array.Resize<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the resize icall icall_array_resize_i4 (il2cpp_array_ext2.h:191)");
+                    $"Array.Resize<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A) and string (0x0E) have the resize icalls (il2cpp_array_ext2.h)");
             case "GetLength":
                 return I("il2cpp::runtime::icall_array_get_length", 1, true, false, true, new[] { "", "i" });
             case "GetUpperBound":

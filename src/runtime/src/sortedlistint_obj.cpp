@@ -11,6 +11,7 @@
 
 #include "sortedlistint_obj.h"
 
+#include "dictsi_obj.h" // Il2CppDictSIEnumerator + the pair-enumerator class
 #include "il2cpp_array.h"
 #include "il2cpp_boxing_ext.h" // runtime::icall_unbox_int32
 #include "il2cpp_exception_ext.h" // il2cpp_throw_key_not_found_exception
@@ -152,6 +153,51 @@ int32_t icall_sortedlist_si_enumerator_get_current(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return icall_unbox_int32(il2cpp_sortedlist_enumerator_get_current(self));
+}
+
+bool icall_sortedlist_si_try_get_value(Il2CppObject* self, Il2CppObject* key, int32_t* value)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* boxed = il2cpp_sortedlist_get_by_key(self, key);
+    if (boxed == nullptr)
+    {
+        return false; // a stored value is never null, so null means "absent"
+    }
+    *value = icall_unbox_int32(boxed);
+    return true;
+}
+
+Il2CppObject* icall_sortedlist_si_get_enumerator(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    // The keys snapshot is a fresh string[]; the values snapshot is a fresh
+    // int32[] unboxed from the core boxed-value snapshot. Both allocations can
+    // compact, so every managed local is re-read through a GcRoot.
+    Il2CppObject* keysSnapshot = icall_sortedlist_si_get_keys(self);
+    GcRoot<Il2CppObject*> keysRoot(keysSnapshot, "sortedlist_si_get_enumerator_keys");
+    Il2CppArray* boxed = reinterpret_cast<Il2CppArray*>(il2cpp_sortedlist_get_values(self));
+    GcRoot<Il2CppArray*> boxedRoot(boxed, "sortedlist_si_get_enumerator_boxed");
+    const int32_t length = boxed->length;
+    Il2CppArray* values = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int32_t)), false, length);
+    GcRoot<Il2CppArray*> valuesRoot(values, "sortedlist_si_get_enumerator_values");
+    boxed = boxedRoot.Get();
+    Il2CppObject** src = reinterpret_cast<Il2CppObject**>(boxed->data);
+    int32_t* dst = reinterpret_cast<int32_t*>(values->data);
+    for (int32_t i = 0; i < length; ++i)
+    {
+        dst[i] = src[i] != nullptr ? icall_unbox_int32(src[i]) : 0;
+    }
+    il2cpp_class_register(&System_Collections_Generic_Dictionary_2_Enumerator_string_int_class);
+    Il2CppDictSIEnumerator* en = reinterpret_cast<Il2CppDictSIEnumerator*>(
+        il2cpp_object_new(&System_Collections_Generic_Dictionary_2_Enumerator_string_int_class));
+    en->keys = reinterpret_cast<Il2CppArray*>(keysRoot.Get());
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->keys),
+                         reinterpret_cast<Il2CppObject*>(en->keys));
+    en->values = valuesRoot.Get();
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->values),
+                         reinterpret_cast<Il2CppObject*>(en->values));
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
 }
 
 bool icall_sortedlist_si_contains_value(Il2CppObject* self, int32_t value)

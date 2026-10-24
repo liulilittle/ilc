@@ -24,6 +24,7 @@
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
+#include "il2cpp_runtime.h"
 #include "il2cpp_value_semantics.h"
 #include "listi4.h"
 #include "listobj.h"
@@ -342,8 +343,9 @@ Il2CppObject* il2cpp_linq_list_to_list(Il2CppObject* list, int32_t kind)
     if (kind == IL2CPP_LIST_KIND_I4)
     {
         // List<int> -> a fresh List<int> with the same elements.
-        Il2CppObject* out = il2cpp_list_i4_create_with_capacity(snap->length);
+        Il2CppObject* out = il2cpp_object_new(il2cpp_list_i4_class());
         roots.Add(reinterpret_cast<void**>(&out));
+        il2cpp_list_i4_create_with_capacity(out, snap->length);
         for (int32_t i = 0; i < snap->length; ++i)
         {
             il2cpp_list_i4_add(out, *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(snap, i)));
