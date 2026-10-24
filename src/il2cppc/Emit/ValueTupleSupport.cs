@@ -330,6 +330,12 @@ internal static class ValueTupleSupport
     internal static string ToStringInnerFn(string fullName) => StructName(fullName) + "_ToStringInner";
     internal static string GetHashCodeFn(string fullName) => StructName(fullName) + "_GetHashCode";
     internal static string EqualsFn(string fullName) => StructName(fullName) + "_Equals";
+    // RF-REFL: IComparable.CompareTo(object) on a tuple -- the structural
+    // element-wise comparison with the DEFAULT element order.
+    internal static string CompareToFn(string fullName) => StructName(fullName) + "_CompareTo";
+    // RF-REFL: IStructuralComparable.CompareTo(object, IComparer) -- the
+    // structural element-wise comparison through the supplied comparer.
+    internal static string CompareToComparerFn(string fullName) => StructName(fullName) + "_CompareToComparer";
     internal static string NewFn(string fullName) => StructName(fullName) + "_New";
     internal static string CtorFn(string fullName) => StructName(fullName) + "_ctor";
 
@@ -602,6 +608,8 @@ internal static class ValueTupleSupport
         EmitToStringInner(w, name, elems, arity);
         EmitGetHashCode(w, name, elems, arity);
         EmitEquals(w, name, elems, arity);
+        EmitCompareTo(w, name, elems, arity);
+        EmitCompareToComparer(w, name, elems, arity);
         return w.ToString();
     }
 
@@ -673,8 +681,9 @@ internal static class ValueTupleSupport
             TupleElemShape.Single => $"il2cpp::runtime::il2cpp_tuple_single_hash({field})",
             // Boolean.GetHashCode: true -> 1, false -> 0.
             TupleElemShape.Bool => $"static_cast<int32_t>({field} != 0 ? 1 : 0)",
-            // Char.GetHashCode == the UTF-16 code unit (net48).
-            TupleElemShape.Char => field,
+            // Char.GetHashCode == c | (c << 16) (net48; the same formula the
+            // value-semantics boxed-Char hash uses -- valuesemantics.cpp).
+            TupleElemShape.Char => $"static_cast<int32_t>((static_cast<uint32_t>({field}) ^ (static_cast<uint32_t>({field}) << 16)))",
             TupleElemShape.Decimal => $"il2cpp::runtime::icall_decimal_get_hash_code(&{field})",
             TupleElemShape.DateTime => $"il2cpp::runtime::icall_datetime_get_hash_code({field})",
             TupleElemShape.TimeSpan => $"il2cpp::runtime::icall_timespan_get_hash_code({field})",
@@ -804,6 +813,87 @@ internal static class ValueTupleSupport
         for (var i = 0; i < arity; i++)
             conds.Add(ElementEquals(elems[i], Field(arity, i), $"other.{FieldName(arity, i + 1)}"));
         w.Line($"return {(conds.Count == 0 ? "1" : string.Join(" && ", conds))} ? 1 : 0;");
+        w.Close();
+        w.Line("}");
+        w.Line();
+    }
+
+    //--------------------------------------------------------------------------
+    // Element ORDER expressions (RF-REFL: the tuple IComparable /
+    // IStructuralComparable element-wise comparison).
+    //--------------------------------------------------------------------------
+
+    // One element's DEFAULT-order comparison (net48 ValueTuple.CompareTo uses
+    // Comparer<object>.Default per element). The BCL value structs use their
+    // own CompareTo icall; reference elements dispatch through IComparable.
+    private static string ElementCompare(TupleElem e, string selfField, string otherField)
+        => e.Shape switch
+        {
+            TupleElemShape.Int32 => $"({selfField} < {otherField} ? -1 : ({selfField} > {otherField} ? 1 : 0))",
+            TupleElemShape.Int64 => $"({selfField} < {otherField} ? -1 : ({selfField} > {otherField} ? 1 : 0))",
+            TupleElemShape.Double => $"il2cpp::runtime::icall_comparer_double_compare(nullptr, {selfField}, {otherField})",
+            TupleElemShape.Single => $"il2cpp::runtime::icall_comparer_double_compare(nullptr, static_cast<double>({selfField}), static_cast<double>({otherField}))",
+            TupleElemShape.Bool => $"(({selfField} ? 1 : 0) < ({otherField} ? 1 : 0) ? -1 : (({selfField} ? 1 : 0) > ({otherField} ? 1 : 0) ? 1 : 0))",
+            TupleElemShape.Char => $"({selfField} < {otherField} ? -1 : ({selfField} > {otherField} ? 1 : 0))",
+            TupleElemShape.Decimal => $"il2cpp::runtime::icall_decimal_compare(&{selfField}, &{otherField})",
+            TupleElemShape.DateTime => $"il2cpp::runtime::icall_datetime_compare_to({selfField}, {otherField})",
+            TupleElemShape.TimeSpan => $"il2cpp::runtime::icall_timespan_compare_to({selfField}, {otherField})",
+            TupleElemShape.Guid => $"il2cpp::il2cpp_guid_compare({selfField}.b, {otherField}.b)",
+            TupleElemShape.Nested => $"{StructName(e.Token)}_CompareTo({selfField}, {otherField})",
+            TupleElemShape.UserStruct => $"il2cpp::runtime::il2cpp_tuple_user_struct_compare({UserClass(e)}, &{selfField}, &{otherField})",
+            _ => $"il2cpp::il2cpp_icomparable_compare_to({selfField}, {otherField})",
+        };
+
+    // One element's comparison through the SUPPLIED comparer (net48
+    // IStructuralComparable.CompareTo(object, IComparer)). Primitives and
+    // references dispatch through il2cpp_icomparer_compare_family (the
+    // comparer-aware runtime path); a nested tuple recurses. The BCL value
+    // structs fall back to their own CompareTo (documented simplification --
+    // a custom comparer over a decimal/datetime tuple element is not honored).
+    private static string ElementCompareComparer(TupleElem e, string selfField, string otherField)
+        => e.Shape switch
+        {
+            TupleElemShape.Int32 or TupleElemShape.Bool or TupleElemShape.Char
+                => $"il2cpp::il2cpp_icomparer_compare_family(comparer, il2cpp::kComparerFamilyI4, &{selfField}, &{otherField})",
+            TupleElemShape.Int64
+                => $"il2cpp::il2cpp_icomparer_compare_family(comparer, il2cpp::kComparerFamilyI8, &{selfField}, &{otherField})",
+            TupleElemShape.Double or TupleElemShape.Single
+                => $"il2cpp::il2cpp_icomparer_compare_family(comparer, il2cpp::kComparerFamilyD, &{selfField}, &{otherField})",
+            TupleElemShape.Nested
+                => $"{StructName(e.Token)}_CompareToComparer({selfField}, {otherField}, comparer)",
+            TupleElemShape.Decimal => $"il2cpp::runtime::icall_decimal_compare(&{selfField}, &{otherField})",
+            TupleElemShape.DateTime => $"il2cpp::runtime::icall_datetime_compare_to({selfField}, {otherField})",
+            TupleElemShape.TimeSpan => $"il2cpp::runtime::icall_timespan_compare_to({selfField}, {otherField})",
+            TupleElemShape.Guid => $"il2cpp::il2cpp_guid_compare({selfField}.b, {otherField}.b)",
+            TupleElemShape.UserStruct => $"il2cpp::runtime::il2cpp_tuple_user_struct_compare({UserClass(e)}, &{selfField}, &{otherField})",
+            _ => $"il2cpp::il2cpp_icomparer_compare_family(comparer, il2cpp::kComparerFamilyRef, {selfField}, {otherField})",
+        };
+
+    private static void EmitCompareTo(CppWriter w, string name, TupleElem[] elems, int arity)
+    {
+        // IComparable.CompareTo(object): the structural element-wise comparison
+        // with the default element order (the first non-zero element decides).
+        w.Line($"inline int32_t {name}_CompareTo(const {name}& self, const {name}& other)");
+        w.Line("{");
+        w.Open();
+        for (var i = 0; i < arity; i++)
+            w.Line($"if (const int32_t c = {ElementCompare(elems[i], Field(arity, i), $"other.{FieldName(arity, i + 1)}")}) return c;");
+        w.Line("return 0;");
+        w.Close();
+        w.Line("}");
+        w.Line();
+    }
+
+    private static void EmitCompareToComparer(CppWriter w, string name, TupleElem[] elems, int arity)
+    {
+        // IStructuralComparable.CompareTo(object, IComparer): the structural
+        // element-wise comparison through the supplied comparer.
+        w.Line($"inline int32_t {name}_CompareToComparer(const {name}& self, const {name}& other, Il2CppObject* comparer)");
+        w.Line("{");
+        w.Open();
+        for (var i = 0; i < arity; i++)
+            w.Line($"if (const int32_t c = {ElementCompareComparer(elems[i], Field(arity, i), $"other.{FieldName(arity, i + 1)}")}) return c;");
+        w.Line("return 0;");
         w.Close();
         w.Line("}");
         w.Line();

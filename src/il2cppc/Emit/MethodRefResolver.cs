@@ -208,7 +208,14 @@ public sealed record ResolvedMethod(
     // ResultKind narrows int64/double/float/uint64 to int32_t (the P0
     // 4000000001 -> -294967295 regression). Only a REAL DllImport (MethodDef
     // with an Import) carries it; mapped QCalls stay null.
-    string? PinvokeRetType = null)
+    string? PinvokeRetType = null,
+    // RF-REFL: a hint-less resolver arm that is a GENERIC fallback -- the fold
+    // must RE-RESOLVE it with the tracked receiver type when one is available,
+    // so a more specific arm (e.g. MemberInfo.get_Name on a ConstructorInfo vs
+    // an untracked Type VALUE) wins. Without it the first-pass result starts
+    // with "il2cpp::" and the fold's re-resolve gate never fires (the b20
+    // ConstructorInfo ".ctor" regression). False everywhere else.
+    bool ReresolveWithReceiver = false)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -875,6 +882,24 @@ public static partial class MethodRefResolver
                 receiverType ?? arg0Type);
             if (ifaceMapped != null) return ifaceMapped;
         }
+        // RF-REFL: the STRUCTURAL comparison interfaces. A TUPLE receiver is
+        // intercepted by the fold's tuple member handling (ValueTupleSupport's
+        // per-element {T}_CompareTo / _CompareToComparer / _Equals helpers) --
+        // the box of a ValueTuple is a passthrough (the tuple VALUE), so the
+        // structural element-wise compare must be built at transpile time.
+        // For a NON-tuple receiver (System.Tuple and any user structural
+        // comparable) the call lowers to the IComparable / object-equality
+        // dispatch (arraysort.cpp il2cpp_icomparable_compare_to /
+        // il2cpp_object_equals): the receiver's own CompareTo / Equals override
+        // IS the structural comparison for those types. The comparer / equality
+        // comparer argument rides as a dropped slot (a custom comparer over a
+        // non-tuple structural comparable is not honored -- documented).
+        if (owner2 is "System.Collections.IStructuralComparable" && mrName == "CompareTo" && pc == 2)
+            return I("il2cpp::il2cpp_icomparable_compare_to", pc, true, false, true,
+                new[] { "", "", "drop" });
+        if (owner2 is "System.Collections.IStructuralEquatable" && mrName == "Equals" && pc == 2)
+            return I("il2cpp::runtime::icall_object_equals", pc, true, false, true,
+                new[] { "", "", "drop" });
 
         // M3 generics: the C++ name PREFIX is the instantiation name
         // (Box_1_int), the HASH input is the definition name (Box`1) -- the
@@ -901,6 +926,16 @@ public static partial class MethodRefResolver
         // The STATIC factory ValueTuple.Create(...) arrives as a MethodSpec on
         // the ValueTuple`N DEFINITION; it is the same field-initialization
         // shape as the instance ctor, so it maps to the same helper.
+        if (ValueTupleSupport.IsValueTupleName(owner2) && mrName == "Create" && pc == 0)
+        {
+            // RF-REFL: ValueTuple.Create() -- the 0-tuple factory (net48
+            // h.zero: GetHashCode() == 0). The struct is emitted by
+            // ValueTupleSupport; the result is the struct BY VALUE, so the
+            // call-site temp carries the "vt:" result kind.
+            ValueTupleSupport.Require(owner2);
+            return new ResolvedMethod(ValueTupleSupport.NewFn(owner2), 0, false, true, false,
+                Array.Empty<bool>(), false, ResultKind: "vt:" + owner2);
+        }
         if (ValueTupleSupport.IsValueTupleName(owner2) && mrName == "Create" && pc > 0)
         {
             // The non-MethodSpec shape (a direct call, no generic table) has no
@@ -2389,7 +2424,8 @@ var userRecvLike = receiverType ?? arg0Type;
         string[]? casts = null, string? resultKind = null, bool prependCount = false, bool prependZero = false,
         bool isConsole = false, string? returnTypeName = null, bool resultIsReceiver = false,
         bool appendZero = false, string[]? appendLiterals = null,
-        string[]? tupleReturnFields = null, bool providerCulture = false, int[]? argOrder = null)
+        string[]? tupleReturnFields = null, bool providerCulture = false, int[]? argOrder = null,
+        bool reresolveWithReceiver = false)
     {
         // exc001 (Task.Run): "run:i"/"run:r" ride the FromResult value slot
         // (int32-family "" / ref "" shape) -- the invoke wrapper consumes
@@ -2403,7 +2439,7 @@ var userRecvLike = receiverType ?? arg0Type;
             ReturnTypeName: returnTypeName, ResultIsReceiver: resultIsReceiver,
             AppendZeroArg: appendZero, AppendLiterals: appendLiterals,
             TupleReturnFields: tupleReturnFields, ProviderCulture: providerCulture,
-            ArgOrder: argOrder);
+            ArgOrder: argOrder, ReresolveWithReceiver: reresolveWithReceiver);
     }
 
     private static bool[] ParamRefFlags(string paramTypes)

@@ -57,6 +57,9 @@ Il2CppObject* il2cpp_object_new(Il2CppClass* klass);
 bool il2cpp_class_is_ref_field(Il2CppClass* klass, int32_t offset);
 void il2cpp_class_register(Il2CppClass* klass);
 Il2CppClass* il2cpp_class_by_name(const char* name);
+// ASCII case-insensitive variant of il2cpp_class_by_name (Type.GetType's
+// ignoreCase semantics). Same null / miss contract as the ordinal lookup.
+Il2CppClass* il2cpp_class_by_name_ignore_case(const char* name);
 
 //------------------------------------------------------------------------------
 // il2cpp_object_construct -- the managed ctor invocation mechanism (COM stage

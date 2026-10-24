@@ -198,6 +198,30 @@ const Il2CppTypeInfo* il2cpp_typeinfo_lookup(const char* name)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_typeinfo_lookup_ignore_case -- the ASCII case-insensitive variant of
+// il2cpp_typeinfo_lookup. Type.GetType(string, bool, bool ignoreCase) resolves
+// a well-formed name case-insensitively (net48's ignoreCase semantics); the
+// comparison is ASCII-only, matching the name convention (generated names are
+// pure ASCII). Returns nullptr when no entry matches (or the input is null).
+//------------------------------------------------------------------------------
+const Il2CppTypeInfo* il2cpp_typeinfo_lookup_ignore_case(const char* name)
+{
+    if (name == nullptr)
+    {
+        return nullptr;
+    }
+    for (int i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info->name != nullptr && _stricmp(info->name, name) == 0)
+        {
+            return info;
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_typeinfo_lookup_by_class -- join a class descriptor to its typeinfo
 // by the registered klass POINTER (P25c). The name join is broken for nested /
 // compiler-generated types: the typeinfo registers the full "+"-chained

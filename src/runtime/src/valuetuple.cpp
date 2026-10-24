@@ -10,6 +10,7 @@
 #include "il2cpp_boxing_ext2.h"       // kBoxPayloadOffset, box helpers
 #include "il2cpp_runtime.h"           // il2cpp_object_new
 #include "typeinfo.h"                 // il2cpp_typeinfo_lookup + reflected dispatch
+#include "arraysort.h"                // il2cpp_icomparable_compare_to (user-struct element order)
 
 #include <cstring>
 
@@ -298,6 +299,33 @@ int32_t il2cpp_tuple_user_struct_equals(Il2CppClass* klass, const void* a, const
         return std::memcmp(a, b, static_cast<size_t>(size)) == 0 ? 1 : 0;
     }
     return std::memcmp(a, b, sizeof(void*)) == 0 ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_tuple_user_struct_compare -- a translated USER struct element's ORDER
+// comparison (the tuple IComparable/IStructuralComparable element-wise
+// compare). net48's ValueTuple.CompareTo uses Comparer<object>.Default per
+// element, which boxes both operands and dispatches IComparable.CompareTo;
+// the runtime mirrors that by boxing both values and delegating to
+// il2cpp_icomparable_compare_to (arraysort.cpp).
+//------------------------------------------------------------------------------
+int32_t il2cpp_tuple_user_struct_compare(Il2CppClass* klass, const void* a, const void* b)
+{
+    if (a == b) return 0;
+    if (a == nullptr || b == nullptr || klass == nullptr)
+    {
+        return a == b ? 0 : (a == nullptr ? -1 : 1);
+    }
+    Il2CppObject* boxedA = il2cpp_object_new(klass);
+    Il2CppObject* boxedB = il2cpp_object_new(klass);
+    if (boxedA == nullptr || boxedB == nullptr) return 0;
+    const int32_t size = klass->instanceSize - kTupleBoxPayloadOffset;
+    if (size > 0)
+    {
+        std::memcpy(reinterpret_cast<char*>(boxedA) + kTupleBoxPayloadOffset, a, static_cast<size_t>(size));
+        std::memcpy(reinterpret_cast<char*>(boxedB) + kTupleBoxPayloadOffset, b, static_cast<size_t>(size));
+    }
+    return il2cpp_icomparable_compare_to(boxedA, boxedB);
 }
 
 } // namespace runtime

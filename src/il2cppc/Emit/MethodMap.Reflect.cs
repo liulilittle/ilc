@@ -301,7 +301,24 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_type_get_type", 1, true, true, false,
                         new[] { "" }, returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetType with {ps.Length} parameter(s) not wired in M5.5 -- only the (string typeName) overload maps to il2cpp_type_get_type");
+                // RF-REFL: Type.GetType(string typeName, bool throwOnError).
+                // Same registry query as the 1-arg overload; the runtime
+                // wrapper appends ignoreCase = 0 (the 2-arg overload has no
+                // case-insensitive form). throwOnError controls whether a
+                // well-formed but unregistered name throws TypeLoadException
+                // or returns null (net48). The bool rides the int32 carrier.
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x02)
+                    return I("il2cpp::il2cpp_type_get_type_ex", 2, true, true, false,
+                        new[] { "", "i" }, returnTypeName: "System.Type",
+                        appendLiterals: new[] { "0" });
+                // RF-REFL: Type.GetType(string typeName, bool throwOnError,
+                // bool ignoreCase). Both bools ride int32 carriers; the
+                // runtime folds ASCII case for the registry key comparison
+                // when ignoreCase != 0.
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x02 && ps[2] == 0x02)
+                    return I("il2cpp::il2cpp_type_get_type_ex", 3, true, true, false,
+                        new[] { "", "i", "i" }, returnTypeName: "System.Type");
+                throw new NotSupportedException($"Type.GetType with {ps.Length} parameter(s) not wired in RF-REFL -- the (string typeName) / (string, bool throwOnError) / (string, bool throwOnError, bool ignoreCase) overloads map to il2cpp_type_get_type(_ex)");
             default:
                 return null;
         }

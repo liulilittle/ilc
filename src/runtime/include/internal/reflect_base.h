@@ -47,4 +47,13 @@ Il2CppObject* il2cpp_activator_create_instance(Il2CppObject* typeName);
 // verified): the query's ONE throwing case, mirroring the public .NET API.
 Il2CppObject* il2cpp_type_get_type(Il2CppObject* typeName);
 
+// Type.GetType(string typeName, bool throwOnError[, bool ignoreCase]) -- the
+// throwOnError / ignoreCase overloads. Same normalization + registry
+// resolution as il2cpp_type_get_type; a well-formed but unregistered name
+// throws TypeLoadException when throwOnError != 0 (else nullptr), and the
+// registry key comparison folds ASCII case when ignoreCase != 0. A null
+// typeName throws ArgumentNullException regardless of throwOnError.
+Il2CppObject* il2cpp_type_get_type_ex(Il2CppObject* typeName, int32_t throwOnError,
+                                      int32_t ignoreCase);
+
 } // namespace il2cpp

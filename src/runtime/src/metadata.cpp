@@ -631,6 +631,47 @@ Il2CppClass* il2cpp_class_by_name(const char* name)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_class_by_name_ignore_case -- the ASCII case-insensitive variant of
+// il2cpp_class_by_name (Type.GetType's ignoreCase semantics). The comparison
+// folds ASCII A-Z to a-z only (generated names are pure ASCII); same null /
+// miss contract as the ordinal lookup.
+//------------------------------------------------------------------------------
+Il2CppClass* il2cpp_class_by_name_ignore_case(const char* name)
+{
+    if (name == nullptr)
+    {
+        return nullptr;
+    }
+    for (int i = 0; i < g_registeredClassCount; ++i)
+    {
+        const char* candidate = g_registeredClasses[i]->name;
+        if (candidate == nullptr)
+        {
+            continue;
+        }
+        int j = 0;
+        for (;; ++j)
+        {
+            const unsigned char c1 = static_cast<unsigned char>(candidate[j]);
+            const unsigned char c2 = static_cast<unsigned char>(name[j]);
+            const unsigned char f1 = (c1 >= 'A' && c1 <= 'Z')
+                ? static_cast<unsigned char>(c1 - 'A' + 'a') : c1;
+            const unsigned char f2 = (c2 >= 'A' && c2 <= 'Z')
+                ? static_cast<unsigned char>(c2 - 'A' + 'a') : c2;
+            if (f1 != f2)
+            {
+                break;
+            }
+            if (c1 == '\0')
+            {
+                return g_registeredClasses[i];
+            }
+        }
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_interface_dispatch -- resolve an interface call's vtable slot.
 //
 //   Linear search over the interface maps for the entry whose iface

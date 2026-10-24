@@ -1360,8 +1360,21 @@ public static class StackFold
                     // known box type, ToString on a boxed primitive) resolve
                     // through the receiver-type-aware path.
                     {
-                        var boxed = new CallExpr { Function = $"box_{ins.Operand}", ReturnsRef = true };
+                        var boxTypeName = TypeFullNameFromToken(md, (int)ins.Operand);
+                        // RF-REFL: the box of a ValueTuple is a PASSTHROUGH in
+                        // this model (the emitter's box_ switch maps the
+                        // GENERICINST to System.Object), so the result temp must
+                        // be declared with the tuple STRUCT type -- otherwise
+                        // the "r" (Il2CppObject*) temp cannot hold the value and
+                        // the tuple member helpers fail to compile (vtmeta1).
+                        var isVtBox = ValueTupleSupport.IsValueTupleName(boxTypeName);
+                        var boxed = new CallExpr { Function = $"box_{ins.Operand}", ReturnsRef = !isVtBox };
                         boxed.Args.Add(stack.Pop());
+                        // A ValueTuple box is a NON-ref carrier: RootClearPass
+                        // must not emit a `t = nullptr` rootclear (it would
+                        // overwrite the struct kind with "ref" -- vtmeta1).
+                        if (isVtBox)
+                            boxed.ResultKind = "vt:" + boxTypeName;
                         Push(boxed, ins);
                         if (stack.Peek() is LocExpr boxTemp)
                             objTypes[boxTemp.Name] = TypeFullNameFromToken(md, (int)ins.Operand);
@@ -3506,6 +3519,11 @@ public static class StackFold
                 // (TypeEmitter value-type instance ABI), so the ADDRESS
                 // receiver passes through unchanged.
                 if (md != null && constrainedRecvType != null && types != null
+                    // RF-REFL: a ValueTuple instantiation is a BCL struct the
+                    // transpiler SYNTHESIZES (ValueTupleSupport), not a user
+                    // value type -- its members dispatch through the tuple
+                    // helper path below, not the user-struct ABI.
+                    && !ValueTupleSupport.IsValueTupleName(constrainedRecvType)
                     && types.FirstOrDefault(t => t.MatchesFullName(constrainedRecvType)
                         && t.IsValueType && t.BaseTypeName != "System.Enum") is { } vtRecvDef
                     && ObjectInstanceMemberName(md, (int)ins.Operand) is { } vtObjMember)
@@ -3614,6 +3632,11 @@ public static class StackFold
                 // icall_timer_dispose instead.
                 if (md != null && recvType != null
                     && (resolved == null || !resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal)
+                        // RF-REFL: the hint-less MemberInfo.get_Name fallback is a
+                        // generic arm -- a tracked receiver must re-resolve so the
+                        // more specific arm (ConstructorInfo ".ctor", member
+                        // identity, tracked Type) wins (the b20 regression).
+                        || resolved.ReresolveWithReceiver
                         || recvType == "System.Threading.Timer"
                         // batch 2026-10-05 (iopairprobe): a PTR-WIDTH receiver
                         // (the intptr_t temp an ldelema pushes -- the byref
@@ -3965,12 +3988,37 @@ public static class StackFold
                         "ToString" when args.Count == 1 =>
                             new ResolvedMethod(ValueTupleSupport.ToStringFn(recvType), 0, false, true, true,
                                 new[] { true }, true, ParamTypeNames: new[] { "tupref" }),
+                        // RF-REFL: GetHashCode returns int32 -- the result slot
+                        // is a VALUE (int32_t), exactly like the Equals arm
+                        // below. Marking it ReturnsRef=true made the IL int32
+                        // temp an Il2CppObject* carrier, so the int32 CompareTo
+                        // result assigned to the same slot failed to compile
+                        // (vtmeta1).
                         "GetHashCode" when args.Count == 1 =>
-                            new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(recvType), 0, false, false, true,
+                            new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(recvType), 0, false, true, false,
                                 new[] { true }, true, ParamTypeNames: new[] { "tupref" }),
                         "Equals" when args.Count == 2 =>
                             new ResolvedMethod(ValueTupleSupport.EqualsFn(recvType), 1, false, true, false,
                                 new[] { true, true }, true, ParamTypeNames: new[] { "tupref", "tupref" }),
+                        // RF-REFL: IComparable.CompareTo(object) on a tuple --
+                        // the structural element-wise default-order comparison
+                        // (the receiver is a passthrough box, the tuple VALUE).
+                        "CompareTo" when args.Count == 2 =>
+                            new ResolvedMethod(ValueTupleSupport.CompareToFn(recvType), 1, false, true, false,
+                                new[] { true, true }, true, ParamTypeNames: new[] { "tupref", "tupref" }),
+                        // RF-REFL: IStructuralComparable.CompareTo(object,
+                        // IComparer) -- the comparer-aware structural compare.
+                        "CompareTo" when args.Count == 3 =>
+                            new ResolvedMethod(ValueTupleSupport.CompareToComparerFn(recvType), 2, false, true, false,
+                                new[] { true, true, true }, true, ParamTypeNames: new[] { "tupref", "tupref", "" }),
+                        // RF-REFL: IStructuralEquatable.Equals(object,
+                        // IEqualityComparer) -- the structural equality (the
+                        // default element order; the comparer rides as a
+                        // dropped slot, matching the default-comparer
+                        // semantics the probes pin).
+                        "Equals" when args.Count == 3 =>
+                            new ResolvedMethod(ValueTupleSupport.EqualsFn(recvType), 1, false, true, false,
+                                new[] { true, true, true }, true, ParamTypeNames: new[] { "tupref", "tupref", "drop" }),
                         _ => null,
                     };
                     if (tupleResolved != null)
@@ -7087,10 +7135,18 @@ public static class StackFold
                 {
                     var argc = sig.ReadCompressedInteger();
                     var args = new string[argc];
-                    for (var i = 0; i < argc; ++i)
+                    for (int i = 0; i < argc; ++i)
                         args[i] = ReadM3Arg(md, ref sig, sig.ReadByte());
                     return dn + "_" + string.Join("_", args);
                 }
+                // RF-REFL: a ValueTuple instantiation names itself
+                // "System.ValueTuple`N_<args>" so the fold's tuple member
+                // handling (CompareTo / structural Equals) recognises the
+                // boxed-tuple receiver (the TaskAwaiter legacy default made
+                // `((IStructuralComparable)ca).CompareTo(...)` fall to the
+                // phantom generated-name path -- vtmeta1).
+                if (dn != null && ValueTupleSupport.IsValueTupleName(dn))
+                    return ValueTupleSupport.ClosedNameFromSpec(md, handle) ?? "System.Object";
             }
             return "System.Runtime.CompilerServices.TaskAwaiter`1";
         }

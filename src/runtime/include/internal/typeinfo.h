@@ -229,6 +229,9 @@ struct Il2CppTypeInfo
 //------------------------------------------------------------------------------
 void il2cpp_typeinfo_register(const Il2CppTypeInfo* info);
 const Il2CppTypeInfo* il2cpp_typeinfo_lookup(const char* name);
+// ASCII case-insensitive variant of il2cpp_typeinfo_lookup (Type.GetType's
+// ignoreCase semantics). Same null / miss contract as the ordinal lookup.
+const Il2CppTypeInfo* il2cpp_typeinfo_lookup_ignore_case(const char* name);
 // P25c: join a class descriptor to its typeinfo by KLASS POINTER. The
 // name-based lookup is unreliable for nested/compiler-generated types (the
 // typeinfo registers the FULL "+"-chained reflection name -- "Cases.YieldProbe+

@@ -114,6 +114,14 @@ int64_t il2cpp_tuple_double_bits(double value);
 Il2CppObject* il2cpp_tuple_user_struct_to_string(Il2CppClass* klass, const void* valueAddr);
 int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr);
 int32_t il2cpp_tuple_user_struct_equals(Il2CppClass* klass, const void* a, const void* b);
+// RF-REFL: a translated USER struct element's ORDER comparison (the tuple
+// IComparable/IStructuralComparable element-wise compare). net48 dispatches
+// through Comparer<object>.Default, i.e. boxes the two values and calls
+// IComparable.CompareTo; the runtime mirrors that by boxing both operands and
+// delegating to il2cpp_icomparable_compare_to. A struct without an
+// IComparable CompareTo throws NotSupportedException through the dispatcher
+// (the net48 ArgumentException family is not reproduced -- documented).
+int32_t il2cpp_tuple_user_struct_compare(Il2CppClass* klass, const void* a, const void* b);
 
 } // namespace runtime
 } // namespace il2cpp

@@ -103,6 +103,15 @@ constexpr const char* kMissingMethodChain =
     "System.MissingMemberException,System.MemberAccessException,"
     "System.SystemException,System.Exception";
 
+// TypeLoadException type-name chain (il2cpp_exception.h carrier format): the
+// type repeats as the first walk segment, followed by the .NET base chain
+// (TypeLoadException : SystemException : Exception). Thrown by
+// Type.GetType(string, throwOnError: true) on a well-formed but unregistered
+// type name.
+constexpr const char* kTypeLoadChain =
+    "System.TypeLoadException,System.TypeLoadException,"
+    "System.SystemException,System.Exception";
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -347,6 +356,68 @@ Il2CppObject* il2cpp_type_get_type(Il2CppObject* typeName)
         return std::strcmp(keyBuf, nameBuf) == 0
             ? typeName
             : reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(keyBuf));
+    }
+    return nullptr;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_type_get_type_ex -- Type.GetType(string, bool throwOnError[, bool
+// ignoreCase]) (RF-REFL).
+//
+//   The 2/3-argument overloads share the 1-argument query's normalization +
+//   registry resolution (user-assembly typeinfo first, builtin class registry
+//   fallback). Two extensions:
+//     * throwOnError != 0 -- a WELL-FORMED but unregistered name throws
+//       TypeLoadException instead of returning nullptr (net48 contract).
+//     * ignoreCase != 0 -- the registry key comparison folds ASCII case
+//       (net48's ignoreCase semantics; type names are ASCII by convention).
+//   Exception contract: a null typeName throws ArgumentNullException
+//   regardless of throwOnError (net48); a malformed name (no usable type-name
+//   part after normalization) stays the "not found" nullptr contract.
+//   ReturnTypeName "System.Type" keeps the Type-domain folds (.Name/.Equals/
+//   GetTypeCode/...) resolving on the result.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_type_get_type_ex(Il2CppObject* typeName, int32_t throwOnError,
+                                      int32_t ignoreCase)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("typeName");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, nameBuf))
+    {
+        return nullptr;
+    }
+    char keyBuf[kNameBufferSize];
+    if (NormalizeTypeName(nameBuf, keyBuf) <= 0)
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = ignoreCase != 0
+        ? il2cpp_typeinfo_lookup_ignore_case(keyBuf)
+        : il2cpp_typeinfo_lookup(keyBuf);
+    if (info != nullptr)
+    {
+        return std::strcmp(keyBuf, nameBuf) == 0
+            ? typeName
+            : reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(keyBuf));
+    }
+    il2cpp_ensure_builtin_system_classes();
+    Il2CppClass* klass = ignoreCase != 0
+        ? il2cpp_class_by_name_ignore_case(keyBuf)
+        : il2cpp_class_by_name(keyBuf);
+    if (klass != nullptr)
+    {
+        return std::strcmp(keyBuf, nameBuf) == 0
+            ? typeName
+            : reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(keyBuf));
+    }
+    if (throwOnError != 0)
+    {
+        il2cpp_throw_new(kTypeLoadChain,
+            "Could not load type from the given type name (the type is not "
+            "part of this AOT build).");
     }
     return nullptr;
 }

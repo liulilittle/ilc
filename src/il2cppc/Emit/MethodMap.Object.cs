@@ -396,6 +396,20 @@ public static partial class MethodRefResolver
                 if (name == "get_ReflectedType" && count == 0)
                     return I("il2cpp::il2cpp_memberinfo_get_reflected_type", 0, true, true, true,
                         new[] { "" }, returnTypeName: "System.Type");
+                // RF-REFL: MemberInfo::get_Name on an UNTRACKED receiver. The
+                // typeof-chain get_BaseType fold stores the Type VALUE (the
+                // full-name string) into a local, but a StringConstExpr is not
+                // a tracked managed type (ObjTypeOf), so the local loses the
+                // "System.Type" hint and `.Name` on it hit the phantom
+                // generated-name fallback. The simplified Type model makes a
+                // Type VALUE the full type-name string, so the net48 SHORT
+                // name is the runtime truncation primitive -- the same icall
+                // the tracked "System.Type" arm above uses. A tracked member
+                // VALUE (receiverType "System.String") keeps the identity arm;
+                // a ConstructorInfo keeps its ".ctor" decode (both above).
+                if (name == "get_Name" && count == 0)
+                    return I("il2cpp::runtime::il2cpp_type_get_short_name", 0, true, true, true,
+                        returnTypeName: "System.String", reresolveWithReceiver: true);
                 return null;
             default: return null;
         }
