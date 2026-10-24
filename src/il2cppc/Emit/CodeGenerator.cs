@@ -9308,6 +9308,14 @@ default: return false;                           // primitives/VAR(handled by ca
             // declaration (the D5 GCLatencyMode precedent) makes the local
             // compile; the fold result is used DIRECTLY as an int constant.
             "System.TypeCode",
+            // pdtx1 (2026-10-24): DateTime.ParseExact/TryParseExact carry the
+            // DateTimeStyles enum as a METHOD PARAMETER (the case's helper
+            // methods). The generic "V:" parameter arm declared the MANGLED
+            // System_Globalization_DateTimeStyles (no generated struct) ->
+            // cmake build FAIL. The enum-carrier int32 declaration (the D5
+            // GCLatencyMode / System.TypeCode precedent) makes the parameter
+            // compile; the call site passes the folded enum constant.
+            "System.Globalization.DateTimeStyles",
         };
     // D5: public accessor for the same whitelist (StackFold's shared-clone
     // return-unbox site needs it to unbox BCL-enum returns).
@@ -12276,6 +12284,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     // B: decode (the SAME widening: inner value type + "*") so
                     // the user-method prototype and the calli target agree.
                     var b when b.StartsWith("B:", StringComparison.Ordinal) => CalliParamCpp(b),
+                    // pdtx1: a BCL enum VALUETYPE parameter (System.Globalization.
+                    // DateTimeStyles) is the int32 enum carrier -- the mangled
+                    // name is never defined (BCL enums have no generated body).
+                    var v when v.StartsWith("V:", StringComparison.Ordinal) && IsKnownBclEnumName(v[2..]) => "int32_t",
                     var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
                     _ => "int32_t",
                 });

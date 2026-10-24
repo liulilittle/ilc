@@ -39,6 +39,7 @@
 #include "timeext2.h"
 
 #include "cultureinfo.h"
+#include "il2cpp_array.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_string.h"
 #include "il2cpp_time_ext.h"
@@ -227,10 +228,27 @@ Il2CppDateTime ComposeDateTime(const ParsedFields& fields)
 // literal matched exactly; trailing input is rejected. Returns false on ANY
 // mismatch (the caller throws FormatException -- never partially applies).
 bool TryParseExact(const char16_t* input, int32_t inputLen,
-                   const char16_t* fmt, int32_t fmtLen, ParsedFields& out)
+                   const char16_t* fmt, int32_t fmtLen, int32_t styles, ParsedFields& out)
 {
+    // DateTimeStyles.AllowWhiteSpaces (0x7: leading/trailing/inner) trims the
+    // leading and trailing whitespace before matching (net48 ParseExact).
+    int32_t begin = 0;
+    int32_t end = inputLen;
+    if ((styles & 0x7) != 0)
+    {
+        while (begin < end && IsAsciiSpace(input[begin]))
+        {
+            ++begin;
+        }
+        while (end > begin && IsAsciiSpace(input[end - 1]))
+        {
+            --end;
+        }
+    }
     out.year = out.month = out.day = out.hour = out.minute = out.second = 0;
     int32_t pos = 0;
+    const char16_t* in = input + begin;
+    const int32_t inLen = end - begin;
     for (int32_t f = 0; f < fmtLen;)
     {
         const char16_t c = fmt[f];
@@ -250,7 +268,7 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
             }
             for (int32_t i = f + 1; i < q; ++i)
             {
-                if (pos >= inputLen || input[pos] != fmt[i])
+                if (pos >= inLen || in[pos] != fmt[i])
                 {
                     return false;
                 }
@@ -267,7 +285,7 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
             {
                 return false;
             }
-            if (pos >= inputLen || input[pos] != fmt[f + 1])
+            if (pos >= inLen || in[pos] != fmt[f + 1])
             {
                 return false;
             }
@@ -279,7 +297,7 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
         if (!isLetter)
         {
             // Literal: must appear in the input at the same position.
-            if (pos >= inputLen || input[pos] != c)
+            if (pos >= inLen || in[pos] != c)
             {
                 return false;
             }
@@ -303,14 +321,14 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
             // tokenLen <= 2 -- "yyyy" with "0001" must stay year 1).
             if (run == 1)
             {
-                if (!ParseTokenDigits(input, inputLen, pos, 1, value))
+                if (!ParseTokenDigits(in, inLen, pos, 1, value))
                 {
                     return false;
                 }
             }
             else
             {
-                if (!ParseFixedDigits(input, inputLen, pos, run, value))
+                if (!ParseFixedDigits(in, inLen, pos, run, value))
                 {
                     return false;
                 }
@@ -328,7 +346,7 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
         case u'M':
             // tokenLen <= 2: 1..2 digits ("M") or exactly 2 ("MM"); 3+
             // would be month names (unsupported here).
-            if (run >= 3 || !ParseTokenDigits(input, inputLen, pos, run, value)
+            if (run >= 3 || !ParseTokenDigits(in, inLen, pos, run, value)
                 || value < 1 || value > 12)
             {
                 return false;
@@ -337,7 +355,7 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
             break;
         case u'd':
             // Same width rule as 'M'; 3+ would be day names (unsupported).
-            if (run >= 3 || !ParseTokenDigits(input, inputLen, pos, run, value)
+            if (run >= 3 || !ParseTokenDigits(in, inLen, pos, run, value)
                 || value < 1 || value > 31)
             {
                 return false;
@@ -347,21 +365,21 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
         case u'H':
             // 1..2 digits ("H") or exactly 2 ("HH", "HHH"... --
             // DateTimeParse.cs:4250: tokenLen < 2 ? 1 : 2).
-            if (!ParseTokenDigits(input, inputLen, pos, run < 2 ? 1 : 2, value) || value > 23)
+            if (!ParseTokenDigits(in, inLen, pos, run < 2 ? 1 : 2, value) || value > 23)
             {
                 return false;
             }
             out.hour = value;
             break;
         case u'm':
-            if (!ParseTokenDigits(input, inputLen, pos, run < 2 ? 1 : 2, value) || value > 59)
+            if (!ParseTokenDigits(in, inLen, pos, run < 2 ? 1 : 2, value) || value > 59)
             {
                 return false;
             }
             out.minute = value;
             break;
         case u's':
-            if (!ParseTokenDigits(input, inputLen, pos, run < 2 ? 1 : 2, value) || value > 59)
+            if (!ParseTokenDigits(in, inLen, pos, run < 2 ? 1 : 2, value) || value > 59)
             {
                 return false;
             }
@@ -377,7 +395,7 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
             // Unknown single letter: matched verbatim, one character at a
             // time (the DateTimeParse.cs default case) -- so "yyyy-MM-ddTHH"
             // matches a literal 'T' in the input.
-            if (pos >= inputLen || input[pos] != c)
+            if (pos >= inLen || in[pos] != c)
             {
                 return false;
             }
@@ -398,10 +416,21 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
     {
         if (out.year == 0)
         {
-            const Il2CppDateTime now = icall_datetime_now();
-            out.year = icall_datetime_get_year(now);
-            out.month = icall_datetime_get_month(now);
-            out.day = icall_datetime_get_day(now);
+            // DateTimeStyles.NoCurrentDateDefault (0x8): a time-only input
+            // defaults to DateTime.MinValue (0001-01-01) instead of today.
+            if ((styles & 0x8) != 0)
+            {
+                out.year = 1;
+                out.month = 1;
+                out.day = 1;
+            }
+            else
+            {
+                const Il2CppDateTime now = icall_datetime_now();
+                out.year = icall_datetime_get_year(now);
+                out.month = icall_datetime_get_month(now);
+                out.day = icall_datetime_get_day(now);
+            }
         }
         else
         {
@@ -426,7 +455,7 @@ bool TryParseExact(const char16_t* input, int32_t inputLen,
     }
     // Everything consumed AND the day exists in the month (calendar check;
     // month itself was validated 1..12 above).
-    return pos == inputLen && out.day <= DaysInMonth(out.year, out.month);
+    return pos == inLen && out.day <= DaysInMonth(out.year, out.month);
 }
 
 // DateTime.Parse subset (invariant culture), pinned by the net48 oracle:
@@ -759,6 +788,16 @@ if (total > int64_t(0x7FFFFFFFFFFFFFFFLL) - fracTicks) return 2;
 //------------------------------------------------------------------------------
 Il2CppDateTime il2cpp_datetime_parse_exact(Il2CppObject* input, Il2CppObject* format)
 {
+    // The 2-arg net48 overload == the 4-arg form with DateTimeStyles.None.
+    return il2cpp_datetime_parse_exact_styles(input, format, 0);
+}
+
+// DateTime.ParseExact(string input, string format, IFormatProvider, DateTimeStyles):
+// the 4-arg net48 overload. The provider is invariant-culture only (dropped by
+// the transpiler); 'styles' carries the whitespace / NoCurrentDateDefault flags.
+Il2CppDateTime il2cpp_datetime_parse_exact_styles(Il2CppObject* input, Il2CppObject* format,
+                                                  int32_t styles)
+{
     const Il2CppString* inStr = AsStringOrNull(input);
     if (inStr == nullptr)
     {
@@ -774,11 +813,110 @@ Il2CppDateTime il2cpp_datetime_parse_exact(Il2CppObject* input, Il2CppObject* fo
         ThrowFormatInvalidSpecifier();
     }
     ParsedFields fields;
-    if (!TryParseExact(inStr->chars, inStr->length, fmtStr->chars, fmtStr->length, fields))
+    if (!TryParseExact(inStr->chars, inStr->length, fmtStr->chars, fmtStr->length, styles, fields))
     {
         ThrowFormatUnrecognized();
     }
     return ComposeDateTime(fields);
+}
+
+// DateTime.ParseExact(string input, string[] formats, IFormatProvider,
+// DateTimeStyles): try each format in order; the first match wins. A null
+// formats array -> ArgumentNullException; an empty array -> FormatException; a
+// null/empty ELEMENT is skipped (net48 treats it as a non-matching format).
+Il2CppDateTime il2cpp_datetime_parse_exact_multi(Il2CppObject* input, Il2CppArray* formats,
+                                                 int32_t styles)
+{
+    const Il2CppString* inStr = AsStringOrNull(input);
+    if (inStr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("input");
+    }
+    if (formats == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("formats");
+    }
+    if (formats->length == 0)
+    {
+        ThrowFormatInvalidSpecifier();
+    }
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(formats->data);
+    ParsedFields fields;
+    for (int32_t i = 0; i < formats->length; ++i)
+    {
+        const Il2CppString* fmt = reinterpret_cast<const Il2CppString*>(slots[i]);
+        if (fmt == nullptr || fmt->length == 0)
+        {
+            continue; // a null/empty element never matches
+        }
+        if (TryParseExact(inStr->chars, inStr->length, fmt->chars, fmt->length, styles, fields))
+        {
+            return ComposeDateTime(fields);
+        }
+    }
+    ThrowFormatUnrecognized();
+    return Il2CppDateTime(0); // unreachable (the throw never returns)
+}
+
+// DateTime.TryParseExact(string input, string format, IFormatProvider,
+// DateTimeStyles, out DateTime value): the no-throw twin of ParseExact -- a
+// null input/format and a format mismatch all return false (net48), leaving
+// 'value' untouched.
+bool il2cpp_datetime_try_parse_exact(Il2CppObject* input, Il2CppObject* format,
+                                     int32_t styles, Il2CppDateTime* value)
+{
+    const Il2CppString* inStr = AsStringOrNull(input);
+    if (inStr == nullptr)
+    {
+        return false;
+    }
+    const Il2CppString* fmtStr = AsStringOrNull(format);
+    if (fmtStr == nullptr || fmtStr->length == 0)
+    {
+        return false;
+    }
+    ParsedFields fields;
+    if (!TryParseExact(inStr->chars, inStr->length, fmtStr->chars, fmtStr->length, styles, fields))
+    {
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = ComposeDateTime(fields);
+    }
+    return true;
+}
+
+// DateTime.TryParseExact(string input, string[] formats, IFormatProvider,
+// DateTimeStyles, out DateTime value): try each format in order; false when
+// none match (null/empty array included).
+bool il2cpp_datetime_try_parse_exact_multi(Il2CppObject* input, Il2CppArray* formats,
+                                           int32_t styles, Il2CppDateTime* value)
+{
+    const Il2CppString* inStr = AsStringOrNull(input);
+    if (inStr == nullptr || formats == nullptr)
+    {
+        return false;
+    }
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(formats->data);
+    ParsedFields fields;
+    for (int32_t i = 0; i < formats->length; ++i)
+    {
+        const Il2CppString* fmt = reinterpret_cast<const Il2CppString*>(slots[i]);
+        if (fmt == nullptr || fmt->length == 0)
+        {
+            continue;
+        }
+        if (TryParseExact(inStr->chars, inStr->length, fmt->chars, fmt->length, styles, fields))
+        {
+            if (value != nullptr)
+            {
+                *value = ComposeDateTime(fields);
+            }
+            return true;
+        }
+    }
+    return false;
 }
 
 Il2CppDateTime il2cpp_datetime_parse(Il2CppObject* input)

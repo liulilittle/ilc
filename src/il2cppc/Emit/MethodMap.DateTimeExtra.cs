@@ -42,7 +42,6 @@ public static partial class MethodRefResolver
             case "op_Addition":
             case "Parse":
             case "TryParse":
-            case "TryParseExact":
             case "DaysInMonth":
             case "IsLeapYear":
             case "SpecifyKind":

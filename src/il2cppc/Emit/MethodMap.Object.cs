@@ -195,6 +195,14 @@ public static partial class MethodRefResolver
                 // VALUE (the icall takes it by value).
                 if (name == "ToString" && ps.Length == 0 && receiverType == "System.Numerics.BigInteger")
                     return I("il2cpp::runtime::icall_biginteger_to_string", 0, true, true, true, new[] { "deref:bi" });
+                // excapi1 (2026-10-24): Roslyn emits `callvirt Object::ToString`
+                // for Exception.ToString() (the MemberRef declares on the Object
+                // base), so the tracked exception receiver routes here. Map to
+                // the runtime icall that renders "<TypeName>: <Message>" (the
+                // composed message / the type-based default text).
+                if (name == "ToString" && ps.Length == 0 && IsExceptionReceiverType(receiverType))
+                    return I("il2cpp::runtime::icall_exception_to_string", 0, true, true, true,
+                        returnTypeName: "System.String");
                 // M7 gcext (2026-08-09): Object::Finalize -- the IMPLICIT base
                 // call every C# destructor emits at the end of its Finalize
                 // body (gcext's ~Tracked()). .NET's Object.Finalize is an

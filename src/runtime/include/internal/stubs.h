@@ -45,6 +45,18 @@ void icall_exception_ctor_arg(Il2CppObject* self, Il2CppString* message, Il2CppS
 // ctor stored (null when the ctor shape carried no parameter name); a receiver
 // without a side-table entry falls back to the throw snapshot.
 Il2CppString* icall_exception_get_param_name(Il2CppObject* obj);
+// excapi1: Exception.HResult on a CONSTRUCTED exception -- the net48 default
+// _HResult captured by the ctor (ArgumentException family -> COR_E_ARGUMENT
+// 0x80070057, the base -> COR_E_EXCEPTION 0x80131500). A receiver with no
+// side-table entry falls back to COR_E_EXCEPTION.
+int32_t icall_exception_get_hresult(Il2CppObject* obj);
+// excapi1: Exception.Data -- the per-exception key/value store as a managed
+// IDictionary (a Hashtable object, created lazily and cached per exception so
+// the SAME object is returned on every access). Null receiver -> NRE.
+Il2CppObject* icall_exception_get_data(Il2CppObject* obj);
+// excapi1: Exception.ToString() -- net48 renders "<TypeName>: <Message>" (the
+// composed message; the type-based default text for a parameterless ctor).
+Il2CppString* icall_exception_to_string(Il2CppObject* obj);
 // excmsg: `throw new Argument*Exception(...)` -- composes the net48 message
 // text (the SAME composition the constructed-instance icall uses) and throws a
 // carrier with the ctor's ParamName recorded for the catch variable.

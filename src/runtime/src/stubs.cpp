@@ -14,6 +14,9 @@
 #include "appdomain.h" // il2cpp_appdomain_singleton (get_default_domain adm1 fix)
 #include "il2cpp_value_semantics.h" // icall_object_to_string (ActualValue text)
 #include "il2cpp_pinvoke_ext.h" // il2cpp_pinvoke_string_to_utf8_alloc (throw path)
+#include "il2cpp_hashtable.h"  // Exception.Data: the per-exception dictionary object
+#include "il2cpp_runtime.h"    // il2cpp_object_new (the dictionary allocation)
+#include "il2cpp_gcroot.h"     // GcRoot (root the dict/owner across the ctor allocation)
 
 #include <cstdint>
 #include <cstdlib>
@@ -55,6 +58,15 @@ void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)
 // are rare -- the e2e surface uses a handful).
 //------------------------------------------------------------------------------
 namespace {
+
+// excapi1: net48 default _HResult constants (align with the
+// kExceptionHResults table in marshalext3.cpp). The base Exception default is
+// COR_E_EXCEPTION; the Argument* family overrides per kind.
+constexpr int32_t kCorEException = static_cast<int32_t>(0x80131500);
+constexpr int32_t kCorEArgument = static_cast<int32_t>(0x80070057);
+constexpr int32_t kEPointer = static_cast<int32_t>(0x80004003);
+constexpr int32_t kCorEArgumentOutOfRange = static_cast<int32_t>(0x80131502);
+
 struct ExceptionMessageEntry
 {
     Il2CppObject* obj;
@@ -64,10 +76,29 @@ struct ExceptionMessageEntry
     // an empty one). Stored per object -- a constructed ArgumentException keeps
     // its ParamName after unrelated throws (no thread-local leak).
     Il2CppString* paramName;
+    // excapi1: the INSTANCE _HResult (net48 default per exception type --
+    // COR_E_EXCEPTION 0x80131500 for the base, COR_E_ARGUMENT 0x80070057 for
+    // ArgumentException). 0 means "not captured" -> the base default is served
+    // by icall_exception_get_hresult.
+    int32_t hresult;
 };
 constexpr int32_t kMaxExceptionMessages = 64;
 ExceptionMessageEntry g_exceptionMessages[kMaxExceptionMessages];
 int32_t g_exceptionMessageCount = 0;
+
+// excapi1: System.Exception.Data -- the per-exception key/value store. net48
+// exposes an IDictionary; the runtime models it as a Hashtable object created
+// once per exception and cached (ReferenceEquals(Data, Data) is true). Both
+// slots are rooted (the M2 collector never moves objects, so the pointer keys
+// stay valid).
+struct ExceptionDataEntry
+{
+    Il2CppObject* owner;
+    Il2CppObject* dict;
+};
+constexpr int32_t kMaxExceptionData = 64;
+ExceptionDataEntry g_exceptionData[kMaxExceptionData];
+int32_t g_exceptionDataCount = 0;
 
 // Find the side-table entry for 'obj' (nullptr when absent).
 ExceptionMessageEntry* FindExceptionEntry(Il2CppObject* obj)
@@ -384,6 +415,7 @@ void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* messag
         e->msg = message;
         e->inner = inner;
         e->paramName = nullptr;
+        e->hresult = kCorEException; // System.Exception default _HResult
         return;
     }
     if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
@@ -393,6 +425,7 @@ void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* messag
     slot.msg = message;
     slot.inner = inner;
     slot.paramName = nullptr;
+    slot.hresult = kCorEException; // System.Exception default _HResult
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.obj));
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.msg));
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.inner));
@@ -402,6 +435,34 @@ void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message)
 {
     icall_exception_ctor_message_inner(self, message, nullptr);
 }
+// excapi1: net48's default Exception.Message for a parameterless ctor --
+// the zh-CN host resource "An exception of type '{type}' was thrown."
+// (probe-pinned). The type name is the object's klass name (the base
+// "System.Exception" for the M3 null-model parameterless instance).
+const char16_t kExceptionDefaultPrefix[] = u"\u5F15\u53D1\u7C7B\u578B\u4E3A\u201C"; // "raised the type '"
+const char16_t kExceptionDefaultSuffix[] = u"\u201D\u7684\u5F02\u5E38\u3002";     // "' was thrown."
+
+Il2CppString* DefaultExceptionMessage(Il2CppObject* obj)
+{
+    const char* typeName = (obj != nullptr && obj->klass != nullptr) ? obj->klass->name : "System.Exception";
+    const size_t prefixLen = sizeof(kExceptionDefaultPrefix) / sizeof(char16_t) - 1;
+    const size_t suffixLen = sizeof(kExceptionDefaultSuffix) / sizeof(char16_t) - 1;
+    const size_t typeLen = std::strlen(typeName);
+    char16_t* buf = static_cast<char16_t*>(
+        std::malloc((prefixLen + typeLen + suffixLen + 1) * sizeof(char16_t)));
+    if (buf == nullptr)
+    {
+        std::abort();
+    }
+    size_t o = 0;
+    for (size_t i = 0; i < prefixLen; ++i) buf[o++] = kExceptionDefaultPrefix[i];
+    for (size_t i = 0; i < typeLen; ++i) buf[o++] = static_cast<char16_t>(typeName[i]);
+    for (size_t i = 0; i < suffixLen; ++i) buf[o++] = kExceptionDefaultSuffix[i];
+    Il2CppString* result = il2cpp_string_new(buf, static_cast<int32_t>(o));
+    std::free(buf);
+    return result;
+}
+
 Il2CppString* icall_exception_get_message(Il2CppObject* obj)
 {
     ExceptionMessageEntry* e = FindExceptionEntry(obj);
@@ -409,7 +470,37 @@ Il2CppString* icall_exception_get_message(Il2CppObject* obj)
     {
         return e->msg;
     }
-    return il2cpp_string_new(nullptr, 0); // no captured message -> empty string
+    // A constructed exception with no captured message answers the net48
+    // type-based default text (not the empty string).
+    return DefaultExceptionMessage(obj);
+}
+
+// excapi1: Exception.ToString() -- net48 renders "<TypeName>: <Message>" (the
+// composed message; the default text for a parameterless ctor). The null-model
+// parameterless instance answers with the base type name.
+Il2CppString* icall_exception_to_string(Il2CppObject* obj)
+{
+    const char* typeName = (obj != nullptr && obj->klass != nullptr) ? obj->klass->name : "System.Exception";
+    Il2CppString* msg = icall_exception_get_message(obj);
+    const size_t typeLen = std::strlen(typeName);
+    const size_t msgLen = msg != nullptr ? static_cast<size_t>(msg->length) : 0;
+    char16_t* buf = static_cast<char16_t*>(
+        std::malloc((typeLen + 2 + msgLen + 1) * sizeof(char16_t)));
+    if (buf == nullptr)
+    {
+        std::abort();
+    }
+    size_t o = 0;
+    for (size_t i = 0; i < typeLen; ++i) buf[o++] = static_cast<char16_t>(typeName[i]);
+    buf[o++] = u':';
+    buf[o++] = u' ';
+    if (msg != nullptr)
+    {
+        for (int32_t i = 0; i < msg->length; ++i) buf[o++] = msg->chars[i];
+    }
+    Il2CppString* result = il2cpp_string_new(buf, static_cast<int32_t>(o));
+    std::free(buf);
+    return result;
 }
 
 //------------------------------------------------------------------------------
@@ -436,12 +527,19 @@ void icall_exception_ctor_arg(Il2CppObject* self, Il2CppString* message, Il2CppS
                               Il2CppObject* inner, Il2CppObject* actual, int32_t kind, int32_t hasText)
 {
     Il2CppString* composed = ComposeMessage16(message, paramName, actual, kind, hasText);
+    // excapi1: the Argument* family carries its own net48 default _HResult
+    // (ArgumentException -> COR_E_ARGUMENT, ArgumentNullException -> E_POINTER,
+    // ArgumentOutOfRangeException -> COR_E_ARGUMENTOUTOFRANGE).
+    const int32_t hr = kind == 1 ? kEPointer
+        : kind == 2 ? kCorEArgumentOutOfRange
+        : kCorEArgument;
     ExceptionMessageEntry* e = FindExceptionEntry(self);
     if (e != nullptr)
     {
         e->msg = composed;
         e->inner = inner;
         e->paramName = paramName;
+        e->hresult = hr;
         return;
     }
     if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
@@ -451,6 +549,7 @@ void icall_exception_ctor_arg(Il2CppObject* self, Il2CppString* message, Il2CppS
     slot.msg = composed;
     slot.inner = inner;
     slot.paramName = paramName;
+    slot.hresult = hr;
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.obj));
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.msg));
     il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.inner));
@@ -470,6 +569,60 @@ Il2CppString* icall_exception_get_param_name(Il2CppObject* obj)
         return e->paramName;
     }
     return icall_exception_param_name_current();
+}
+
+// excapi1: Exception.HResult on a CONSTRUCTED exception -- the net48 default
+// _HResult captured by the ctor (ArgumentException family -> COR_E_ARGUMENT,
+// the base System.Exception -> COR_E_EXCEPTION). A receiver with no side-table
+// entry (the catch carrier, or an instance built through a ctor no-op) falls
+// back to COR_E_EXCEPTION, the net48 base default.
+int32_t icall_exception_get_hresult(Il2CppObject* obj)
+{
+    ExceptionMessageEntry* e = FindExceptionEntry(obj);
+    if (e != nullptr && e->hresult != 0)
+    {
+        return e->hresult;
+    }
+    return kCorEException;
+}
+
+// excapi1: Exception.Data -- the per-exception key/value store as a managed
+// IDictionary (a Hashtable object). Created lazily and cached so the SAME
+// object is returned on every access (ReferenceEquals(Data, Data) is true,
+// net48). The IDictionary.Count / this[key] get/set calls map to the Hashtable
+// icalls over this object.
+Il2CppObject* icall_exception_get_data(Il2CppObject* obj)
+{
+    // The M3 BCL-exception null model: a parameterless `new Exception()` is
+    // represented by nullptr. Data still answers an (empty) dictionary so
+    // Data.Count reads 0 (net48) instead of throwing -- the null owner simply
+    // shares one lazily-created dictionary.
+    for (int32_t i = 0; i < g_exceptionDataCount; ++i)
+    {
+        if (g_exceptionData[i].owner == obj)
+        {
+            return g_exceptionData[i].dict;
+        }
+    }
+    if (g_exceptionDataCount >= kMaxExceptionData)
+    {
+        return nullptr;
+    }
+    const int32_t i = g_exceptionDataCount++;
+    Il2CppObject* dict = il2cpp_object_new(il2cpp_hashtable_class());
+    // The ctor allocates the bucket array (a compacting collection may MOVE
+    // both 'obj' and 'dict'): root both slots across the call and re-read the
+    // (possibly rewritten) addresses before caching them.
+    il2cpp::GcRoot<Il2CppObject*> objRoot(obj, "icall_exception_get_data.obj");
+    il2cpp::GcRoot<Il2CppObject*> dictRoot(dict, "icall_exception_get_data.dict");
+    icall_hashtable_ctor(dict, 0);
+    obj = objRoot.Get();
+    dict = dictRoot.Get();
+    g_exceptionData[i].owner = obj;
+    g_exceptionData[i].dict = dict;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_exceptionData[i].owner));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_exceptionData[i].dict));
+    return dict;
 }
 
 //------------------------------------------------------------------------------

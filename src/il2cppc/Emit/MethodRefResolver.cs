@@ -1549,6 +1549,12 @@ public static partial class MethodRefResolver
             case "System.ArgumentOutOfRangeException":
                 return TryMapException(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
                     MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
+            // excapi1 (2026-10-24): System.Exception.Data is exposed as an
+            // IDictionary; the runtime models the store as a Hashtable object,
+            // so the interface's Count / this[key] get/set ride the Hashtable
+            // icalls over that object (the receiver is the dictionary object).
+            case "System.Collections.IDictionary":
+                return TryMapExceptionData(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // === 34-domain parallel-wiring skeleton (2026-08-03) ===
             // One case line per MethodMap.<Domain>.cs skeleton file. Agents fill
             // only their own file's TryMap body -- DO NOT edit this region.
@@ -1881,7 +1887,11 @@ var userRecvLike = receiverType ?? arg0Type;
                 // pattern): the snapshot KeyList/ValueList receiverType arrives
                 // AFTER the first pass and selects il2cpp_sortedlist_snapshot_*.
                 return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
-                    ?? (receiverType != null ? TryMapEnumIface(owner, name, count, instName) : null);
+                    ?? (receiverType != null ? TryMapEnumIface(owner, name, count, instName) : null)
+                    // excapi1: System.Exception.Data (an IDictionary) inherits
+                    // Count from ICollection; its Count / this[key] get/set map
+                    // to the Hashtable icalls over the dictionary object.
+                    ?? TryMapExceptionData(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.IO.StringReader":
             case "System.IO.StringWriter":
             case "System.IO.TextReader":

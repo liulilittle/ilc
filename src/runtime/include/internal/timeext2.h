@@ -59,6 +59,7 @@
 // stay within [MinValue, MaxValue], otherwise ArgumentOutOfRangeException.
 //------------------------------------------------------------------------------
 
+#include "il2cpp_array.h"
 #include "il2cpp_object.h"
 #include "il2cpp_string.h"
 #include "il2cpp_time.h"
@@ -72,6 +73,34 @@ namespace runtime {
 // the format subset above and returns the DateTime value. Throws
 // ArgumentNullException / FormatException per the header contract.
 Il2CppDateTime il2cpp_datetime_parse_exact(Il2CppObject* input, Il2CppObject* format);
+
+// DateTime.ParseExact(string input, string format, IFormatProvider, DateTimeStyles)
+// -- the 4-arg net48 overload (the provider is invariant-culture only, dropped
+// by the transpiler). 'styles' selects the net48 DateTimeStyles flags:
+// AllowWhiteSpaces (0x7) trims leading/trailing whitespace; NoCurrentDateDefault
+// (0x8) defaults a time-only input to 0001-01-01 instead of today. Errors as
+// il2cpp_datetime_parse_exact.
+Il2CppDateTime il2cpp_datetime_parse_exact_styles(Il2CppObject* input, Il2CppObject* format,
+                                                  int32_t styles);
+
+// DateTime.ParseExact(string input, string[] formats, IFormatProvider,
+// DateTimeStyles) -- try each format in order; the first match wins. A null
+// formats array -> ArgumentNullException; an empty array or no match ->
+// FormatException; a null/empty element is skipped.
+Il2CppDateTime il2cpp_datetime_parse_exact_multi(Il2CppObject* input, Il2CppArray* formats,
+                                                 int32_t styles);
+
+// DateTime.TryParseExact(string input, string format, IFormatProvider,
+// DateTimeStyles, out DateTime value): the no-throw twin -- a null input/format
+// or a mismatch returns false (leaving 'value' untouched). The out slot is the
+// Il2CppDateTime* address of the managed local.
+bool il2cpp_datetime_try_parse_exact(Il2CppObject* input, Il2CppObject* format,
+                                     int32_t styles, Il2CppDateTime* value);
+
+// DateTime.TryParseExact(string input, string[] formats, IFormatProvider,
+// DateTimeStyles, out DateTime value): the format-array no-throw twin.
+bool il2cpp_datetime_try_parse_exact_multi(Il2CppObject* input, Il2CppArray* formats,
+                                           int32_t styles, Il2CppDateTime* value);
 
 // DateTime.Parse(string input): parses 'input' against the documented
 // invariant-culture subset above and returns the DateTime value. Throws

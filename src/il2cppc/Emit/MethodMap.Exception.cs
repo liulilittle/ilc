@@ -195,6 +195,22 @@ public static partial class MethodRefResolver
                 // inside the runtime icall, so every receiver shape answers
                 // without a silent wrong value.
                 return I("il2cpp::runtime::icall_exception_get_param_name", 0, true, true, true, new[] { "" }, returnTypeName: "System.String");
+            // excapi1 (2026-10-24): Exception.HResult -- the net48 default
+            // _HResult stored per constructed instance (the runtime side table
+            // entry set by the ctor icalls; COR_E_EXCEPTION 0x80131500 for the
+            // base, COR_E_ARGUMENT 0x80070057 for ArgumentException). A receiver
+            // with no entry (the catch carrier / a ctor-noop instance) falls
+            // back to the base default inside the runtime icall.
+            case "get_HResult":
+                return I("il2cpp::runtime::icall_exception_get_hresult", 0, true, false, true, new[] { "" });
+            // excapi1 (2026-10-24): Exception.Data -- the per-exception
+            // IDictionary store (a Hashtable object created/cached by the
+            // runtime icall). The declared return type keeps the indexer
+            // (System.Collections.IDictionary.this[object]) resolving on the
+            // returned object.
+            case "get_Data":
+                return I("il2cpp::runtime::icall_exception_get_data", 0, true, true, true, new[] { "" },
+                    returnTypeName: "System.Collections.IDictionary");
             case "get_InnerException":
                 if (IsExceptionReceiverType(receiverType))
                     return I("il2cpp::runtime::icall_exception_get_inner_exception", 0, true, true, true,
@@ -228,12 +244,46 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_exception_get_null_ref", 0, true, true, true,
                     new[] { "" }, returnTypeName: "System.Reflection.MethodBase");
             case "ToString":
-                // Exception.ToString() on the carrier cannot render; fall
-                // through to the vtable path (loud downstream failure).
+                // excapi1 (2026-10-24): Exception.ToString() on a CONSTRUCTED
+                // exception -- the runtime icall renders "<TypeName>: <Message>"
+                // (the composed message / the type-based default text). The
+                // catch-variable carrier ("System.Type") keeps the vtable path
+                // (loud downstream failure) as before.
+                if (IsExceptionReceiverType(receiverType))
+                    return I("il2cpp::runtime::icall_exception_to_string", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.String");
                 return null;
             // P6: Exception internal helpers (stubs).
             case "SaveStackTracesFromDeepCopy": return I("il2cpp::runtime::icall_exception_save_stack_traces_from_deep_copy", 0, false, false, true);
             case "GetExceptionCount": return I("il2cpp::runtime::icall_exception_get_exception_count", 0, true, false, false);
+            default:
+                return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // excapi1: System.Collections.IDictionary (System.Exception.Data). The
+    // runtime's per-exception store is a Hashtable object, so the interface's
+    // surface maps to the Hashtable icalls over that receiver:
+    //   get_Count       -> icall_hashtable_get_count
+    //   get_Item(object)-> icall_hashtable_get   (returns the boxed value)
+    //   set_Item(object)-> icall_hashtable_set   (stores the boxed value)
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapExceptionData(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        switch (name)
+        {
+            case "get_Count":
+                return I("il2cpp::runtime::icall_hashtable_get_count", 0, true, false, true, new[] { "" });
+            case "get_Item":
+                if (ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::icall_hashtable_get", 1, true, true, true, new[] { "", "" });
+                return null;
+            case "set_Item":
+                if (ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C)
+                    return I("il2cpp::runtime::icall_hashtable_set", 2, false, false, true, new[] { "", "", "" });
+                return null;
             default:
                 return null;
         }

@@ -61,14 +61,44 @@ public static partial class MethodRefResolver
                 // ParseExact(string input, string format) -> DateTime.
                 if (ps.Length == 2)
                     return I("il2cpp::runtime::il2cpp_datetime_parse_exact", 2, true, false, false, new[] { "", "" }, "dt");
-                // ParseExact(string, string, IFormatProvider): the ONLY 3-arg
-                // ParseExact overload net48 C# can emit -- the provider arg is
-                // dropped at emission (ParamCount = the IL arity; the runtime
-                // is invariant-culture only). "drop" precedent:
+                // ParseExact(string, string, IFormatProvider): the 3-arg
+                // overload -- the provider arg is dropped at emission (the
+                // runtime is invariant-culture only). "drop" precedent:
                 // DateTime.ToString(string, IFormatProvider).
                 if (ps.Length == 3)
                     return I("il2cpp::runtime::il2cpp_datetime_parse_exact", 3, true, false, false, new[] { "", "", "drop" }, "dt");
-                throw new NotSupportedException($"DateTime.ParseExact with {ps.Length} arg(s) not wired: the runtime has only the (string, string) icall (no provider/styles overloads)");
+                // pdtx1 (2026-10-24): the 4-arg styles overloads --
+                // (string, string, IFormatProvider, DateTimeStyles) and
+                // (string, string[], IFormatProvider, DateTimeStyles). The
+                // provider (0x12 CLASS) is dropped; the styles enum (0x11
+                // VALUETYPE) rides the "i" cast; the format array (0x1D) rides
+                // the "a" cast.
+                if (ps.Length == 4 && ps[2] == 0x12 && ps[3] == 0x11)
+                {
+                    if (ps[1] == 0x0E)
+                        return I("il2cpp::runtime::il2cpp_datetime_parse_exact_styles", 4, true, false, false,
+                            new[] { "", "", "drop", "i" }, "dt");
+                    if (ps[1] == 0x1D)
+                        return I("il2cpp::runtime::il2cpp_datetime_parse_exact_multi", 4, true, false, false,
+                            new[] { "", "a", "drop", "i" }, "dt");
+                }
+                throw new NotSupportedException($"DateTime.ParseExact with {ps.Length} arg(s) not wired: the runtime has (string,string)[,IFormatProvider[,DateTimeStyles]] and the string[] format-array forms");
+            case "TryParseExact":
+                // pdtx1 (2026-10-24): the 5-arg styles overloads --
+                // (string, string, IFormatProvider, DateTimeStyles, out
+                // DateTime) and the string[] format-array form. The provider is
+                // dropped; the styles enum rides "i"; the out DateTime slot is
+                // the managed local's ADDRESS (the "" passthrough).
+                if (ps.Length == 5 && ps[2] == 0x12 && ps[3] == 0x11 && ps[4] == 0x11)
+                {
+                    if (ps[1] == 0x0E)
+                        return I("il2cpp::runtime::il2cpp_datetime_try_parse_exact", 5, true, false, false,
+                            new[] { "", "", "drop", "i", "" });
+                    if (ps[1] == 0x1D)
+                        return I("il2cpp::runtime::il2cpp_datetime_try_parse_exact_multi", 5, true, false, false,
+                            new[] { "", "a", "drop", "i", "" });
+                }
+                throw new NotSupportedException($"DateTime.TryParseExact with {ps.Length} arg(s) not wired: the runtime has (string,string,provider,styles,out DateTime) and the string[] format-array form");
             case "AddTicks":
                 // DateTime.AddTicks(long ticks) -> DateTime (100 ns units).
                 return I("il2cpp::runtime::il2cpp_datetime_add_ticks", 1, true, false, true, new[] { "deref:dt", "l" }, "dt");

@@ -186,6 +186,35 @@ public static partial class MethodRefResolver
                 if (owner == "System.IO.MemoryStream" || receiverType == "System.IO.MemoryStream")
                     return I("il2cpp::runtime::icall_stream_memory_get_capacity", 0, true, false, true);
                 return null;
+            // io2 B1 (streammem2): MemoryStream.Capacity setter -- the runtime
+            // icall validates (<Length -> AOOR, non-expandable -> NotSupported)
+            // and resizes the owned buffer.
+            case "set_Capacity":
+                if (owner == "System.IO.MemoryStream" || receiverType == "System.IO.MemoryStream")
+                    return I("il2cpp::runtime::icall_stream_memory_set_capacity", 1, false, false, true,
+                        new[] { "", "i" });
+                return null;
+            // io2 B1 (streammem2): MemoryStream.GetBuffer -- the underlying
+            // buffer as byte[]. Only legal for the exposable ctors (otherwise
+            // UnauthorizedAccessException, raised by the runtime icall). The
+            // 1-arg CopyTo form appends the net48 default buffer size (4096).
+            case "GetBuffer":
+                if (owner == "System.IO.MemoryStream" || receiverType == "System.IO.MemoryStream")
+                    return I("il2cpp::runtime::icall_stream_memory_get_buffer", 0, true, true, true,
+                        returnTypeName: "System.Byte[]");
+                return null;
+            case "CopyTo":
+                // Stream.CopyTo(Stream) -- the net48 default bufferSize is 4096
+                // (appended as a literal; the buffer only affects chunking, not
+                // the copied bytes).
+                if (ps.Length == 1 && ps[0] == 0x12)
+                    return I("il2cpp::runtime::icall_stream_copy_to", 1, false, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "4096" });
+                // Stream.CopyTo(Stream, int bufferSize).
+                if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x08)
+                    return I("il2cpp::runtime::icall_stream_copy_to", 2, false, false, true,
+                        new[] { "", "", "i" });
+                throw new NotSupportedException($"Stream.CopyTo with {count} arg(s) not wired: the runtime icall takes (Stream destination[, int32 bufferSize])");
             case "ReadByte":
                 // D-STP-3 (2026-08-12): ReadByte() -- the runtime gained the
                 // single-byte icall icall_stream_read_byte (streamio.cpp),
@@ -263,7 +292,7 @@ public static partial class MethodRefResolver
                   if (ps.Length == 0)
                       return I("il2cpp::runtime::icall_stream_memory_ctor", 0, false, false, true);
                   // P2 IO-symmetry (2026-09-19): the 1-arg ctors -- byte[]
-                  // (0x1D SZARRAY -> "a" cast) seeds the buffer; int32 sets the
+                  // (0x1D SZARRAY -> "a" cast) ADOPTS the array; int32 sets the
                   // initial capacity. Both were LOUD before.
                   if (ps.Length == 1 && ps[0] == 0x1D)
                       return I("il2cpp::runtime::icall_stream_memory_ctor_data", 1, false, false, true,
@@ -271,7 +300,23 @@ public static partial class MethodRefResolver
                   if (ps.Length == 1 && ps[0] == 0x08)
                       return I("il2cpp::runtime::icall_stream_memory_ctor_capacity", 1, false, false, true,
                           new[] { "", "i" });
-                  throw new NotSupportedException($"MemoryStream ctor with {count} arg(s) not wired (wired: (), (byte[]), (int))");
+                  // io2 B1 (streammem2): the rest of the net48 ctor family. The
+                  // byte[] ctors (0x1D) adopt the caller's array (fixed size,
+                  // non-exposable unless publiclyVisible); bool is 0x02, the
+                  // window index/count are int32 (0x08).
+                  if (ps.Length == 2 && ps[0] == 0x1D && ps[1] == 0x02)
+                      return I("il2cpp::runtime::icall_stream_memory_ctor_data_writable", 2, false, false, true,
+                          new[] { "", "a", "i" });
+                  if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                      return I("il2cpp::runtime::icall_stream_memory_ctor_window", 3, false, false, true,
+                          new[] { "", "a", "i", "i" });
+                  if (ps.Length == 4 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x02)
+                      return I("il2cpp::runtime::icall_stream_memory_ctor_window_writable", 4, false, false, true,
+                          new[] { "", "a", "i", "i", "i" });
+                  if (ps.Length == 5 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x02 && ps[4] == 0x02)
+                      return I("il2cpp::runtime::icall_stream_memory_ctor_window_writable_public", 5, false, false, true,
+                          new[] { "", "a", "i", "i", "i", "i" });
+                  throw new NotSupportedException($"MemoryStream ctor with {count} arg(s) not wired (wired: (), (byte[]), (int), (byte[],bool), (byte[],int,int)[,bool[,bool]])");
               case "System.IO.StreamReader":
                   if (ps.Length == 1 && ps[0] == 0x12)
                       return I("il2cpp::runtime::icall_stream_reader_ctor", 1, false, false, true);

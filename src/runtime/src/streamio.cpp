@@ -308,12 +308,18 @@ std::string CsToUtf8(Il2CppObject* obj)
 //------------------------------------------------------------------------------
 
 // Grows the buffer until 'need' bytes fit. False on realloc failure (the
-// existing buffer is left untouched -- no partial state).
+// existing buffer is left untouched -- no partial state) or when the state is
+// NOT expandable (the net48 array-seeded / window MemoryStream ctors -- a
+// write past Capacity is a NotSupportedException, see icall_stream_write_byte).
 bool MemoryEnsure(StreamState* s, int64_t need)
 {
     if (need <= s->capacity)
     {
         return true;
+    }
+    if (!s->expandable)
+    {
+        return false; // fixed-size buffer: the caller raises NotSupportedException
     }
     int64_t cap = (s->capacity > 0) ? s->capacity : 64;
     while (cap < need)
@@ -1484,6 +1490,12 @@ il2cpp_stream_t il2cpp_stream_memory_create(void)
     s->pos = 0;
     s->length = 0;
     s->capacity = 0;
+    // io2 B1 (MemoryStream ctor family): the bufferless ctors own a growable,
+    // GetBuffer-exposable malloc buffer.
+    s->bufOwned = true;
+    s->externalArray = nullptr;
+    s->exposable = true;
+    s->expandable = true;
     s->canRead = true;
     s->canWrite = true;
     s->canSeek = true; // memory streams always support seeking
@@ -1502,25 +1514,41 @@ il2cpp_stream_t il2cpp_stream_memory_create(void)
 }
 
 // P2 IO-symmetry (2026-09-19): MemoryStream(byte[] buffer) -- seeded with a
-// COPY of the payload, pos reset to 0 (net48 wraps the caller's array; the
-// runtime copies. Round-trip Position/Length/ToArray semantics are byte-exact).
+// COPY of the payload, pos reset to 0. The OBJECT-layer ctor
+// icall_stream_memory_ctor_data supersedes this handle helper: net48 ADOPTS the
+// caller's array (no copy), so writes stay visible through it (b_seed1=9 in
+// streammem2). This helper remains for a fixed-size, non-exposable COPY with
+// the same Position/Length/ToArray semantics.
 il2cpp_stream_t il2cpp_stream_memory_create_data(const uint8_t* data, int64_t length)
 {
     StreamState* s = static_cast<StreamState*>(il2cpp_stream_memory_create());
+    s->bufOwned = true;
+    s->externalArray = nullptr;
+    s->exposable = false;
+    s->expandable = false;
     if (length > 0 && data != nullptr)
     {
-        il2cpp_stream_write(s, data, static_cast<int32_t>(length));
-        s->pos = 0;
+        s->buf = static_cast<unsigned char*>(std::malloc(static_cast<size_t>(length)));
+        if (s->buf != nullptr)
+        {
+            std::memcpy(s->buf, data, static_cast<size_t>(length));
+            s->capacity = length;
+            s->length = length;
+        }
     }
     return s;
 }
 
 // P2 IO-symmetry (2026-09-19): MemoryStream(int capacity) -- empty stream with
 // the requested initial buffer capacity (a negative request is ignored, net48
-// would throw ArgumentOutOfRangeException).
+// would throw ArgumentOutOfRangeException). Owns a growable, exposable buffer.
 il2cpp_stream_t il2cpp_stream_memory_create_capacity(int64_t capacity)
 {
     StreamState* s = static_cast<StreamState*>(il2cpp_stream_memory_create());
+    s->bufOwned = true;
+    s->externalArray = nullptr;
+    s->exposable = true;
+    s->expandable = true;
     if (capacity > 0)
     {
         s->buf = static_cast<unsigned char*>(std::malloc(static_cast<size_t>(capacity)));
@@ -1636,6 +1664,35 @@ StreamState* StreamStateOf(Il2CppObject* self)
         return nullptr;
     }
     return g_streamSlots[s->handle];
+}
+
+// io2 B1 (MemoryStream ctor family): adopt the caller's byte[] as the stream's
+// buffer (no copy). The stream is fixed-size (non-expandable), NOT
+// GetBuffer-exposable unless 'publiclyVisible', and writes land in the caller's
+// array. 'index'/'count' select the net48 window (the whole array for the
+// 1-/2-arg ctors). The array is rooted so the collector cannot reclaim the
+// borrowed payload while the state lives.
+void MemoryStreamAdoptExternal(Il2CppObject* self, Il2CppArray* data, int32_t index,
+                               int32_t count, bool writable, bool publiclyVisible)
+{
+    StreamState* s = static_cast<StreamState*>(il2cpp_stream_memory_create());
+    s->bufOwned = false;
+    s->externalArray = reinterpret_cast<Il2CppObject*>(data);
+    s->exposable = publiclyVisible;
+    s->expandable = false;
+    s->canRead = true;
+    s->canWrite = writable;
+    s->capacity = count;
+    s->length = count;
+    s->pos = 0;
+    s->buf = (data != nullptr && count > 0 && index >= 0)
+        ? reinterpret_cast<unsigned char*>(data->data) + index
+        : nullptr;
+    AsStream(self)->handle = StreamHandleAlloc(s);
+    if (s->externalArray != nullptr)
+    {
+        il2cpp_gc_add_static_root(reinterpret_cast<void**>(&s->externalArray));
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -2012,18 +2069,61 @@ void icall_stream_memory_ctor(Il2CppObject* self)
 }
 
 // P2 IO-symmetry (2026-09-19): MemoryStream(byte[]) / MemoryStream(int).
+// io2 B1: MemoryStream(byte[]) ADOPTS the caller's array (no copy) -- the net48
+// stream is fixed-size (non-expandable) and NOT GetBuffer-exposable, and writes
+// are visible through the caller's array. The array is rooted so the collector
+// cannot reclaim the borrowed payload.
 void icall_stream_memory_ctor_data(Il2CppObject* self, Il2CppArray* data)
 {
     ThrowIfNullReceiver(self);
     il2cpp::il2cpp_stream_register_classes();
-    StreamState* s = static_cast<StreamState*>(il2cpp_stream_memory_create());
-    if (data != nullptr && data->length > 0)
-    {
-        il2cpp_stream_write(s, reinterpret_cast<const uint8_t*>(data->data),
-                            static_cast<int32_t>(data->length));
-        s->pos = 0;
-    }
-    AsStream(self)->handle = StreamHandleAlloc(s);
+    MemoryStreamAdoptExternal(self, data, 0, data != nullptr ? static_cast<int32_t>(data->length) : 0,
+                               true, false);
+}
+
+// io2 B1: MemoryStream(byte[], bool writable) -- the same adopted-array shape
+// with the net48 writable flag (CanWrite follows it; CanRead stays true).
+void icall_stream_memory_ctor_data_writable(Il2CppObject* self, Il2CppArray* data,
+                                            int32_t writable)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    MemoryStreamAdoptExternal(self, data, 0, data != nullptr ? static_cast<int32_t>(data->length) : 0,
+                               writable != 0, false);
+}
+
+// io2 B1: MemoryStream(byte[], int index, int count) -- the net48 WINDOW ctor:
+// the stream exposes [index, index+count) of the caller's array (writes land in
+// the array), fixed-size and non-exposable.
+void icall_stream_memory_ctor_window(Il2CppObject* self, Il2CppArray* data,
+                                     int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    MemoryStreamAdoptExternal(self, data, index, count, true, false);
+}
+
+// io2 B1: MemoryStream(byte[], int index, int count, bool writable) -- the
+// window ctor with the net48 writable flag.
+void icall_stream_memory_ctor_window_writable(Il2CppObject* self, Il2CppArray* data,
+                                              int32_t index, int32_t count, int32_t writable)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    MemoryStreamAdoptExternal(self, data, index, count, writable != 0, false);
+}
+
+// io2 B1: MemoryStream(byte[], int index, int count, bool writable, bool
+// publiclyVisible) -- the full net48 state matrix. publiclyVisible=true makes
+// GetBuffer legal (it returns the WHOLE caller array, net48); false keeps the
+// UnauthorizedAccessException contract.
+void icall_stream_memory_ctor_window_writable_public(Il2CppObject* self, Il2CppArray* data,
+                                                     int32_t index, int32_t count,
+                                                     int32_t writable, int32_t publiclyVisible)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    MemoryStreamAdoptExternal(self, data, index, count, writable != 0, publiclyVisible != 0);
 }
 
 void icall_stream_memory_ctor_capacity(Il2CppObject* self, int32_t capacity)
@@ -2398,7 +2498,12 @@ void icall_stream_write_bytes(Il2CppObject* self, Il2CppArray* buffer,
     {
         il2cpp_throw_not_supported_exception("Stream does not support writing.");
     }
-    il2cpp_stream_write(state, buffer->data + offset, count);
+    // io2 B1: a fixed-size (array-seeded / window) MemoryStream cannot grow --
+    // a write past Capacity is a NotSupportedException (net48).
+    if (il2cpp_stream_write(state, buffer->data + offset, count) < 0)
+    {
+        il2cpp_throw_not_supported_exception("MemoryStream expansion is not supported.");
+    }
 }
 
 int32_t icall_stream_flush(Il2CppObject* self)
@@ -2819,6 +2924,170 @@ int32_t icall_stream_memory_get_capacity(Il2CppObject* self)
     return static_cast<int32_t>(state->capacity);
 }
 
+// MemoryStream.Capacity (setter): resizes the internal buffer to 'value' bytes.
+// net48: a value below the current Length is ArgumentOutOfRangeException; a
+// non-expandable (array-seeded / window) stream cannot change capacity at all
+// (NotSupportedException); a negative value is ArgumentOutOfRangeException.
+void icall_stream_memory_set_capacity(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    if (value < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("value",
+            "Capacity must be a non-negative value.");
+        return;
+    }
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state))
+    {
+        return; // net48: ObjectDisposedException (2026-10-05 parity)
+    }
+    if (state->kind != StreamState::kMemory)
+    {
+        return;
+    }
+    if (value < state->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception("value",
+            "Capacity cannot be smaller than the stream length.");
+        return;
+    }
+    if (!state->expandable)
+    {
+        // The array-seeded / window ctors share a fixed buffer: net48 throws
+        // NotSupportedException for ANY capacity change (the case pins
+        // e_capthrow=NotSupportedException even for a value that fits).
+        il2cpp_throw_not_supported_exception(
+            "MemoryStream length cannot be changed when the stream is non-expandable.");
+        return;
+    }
+    if (value == state->capacity)
+    {
+        return;
+    }
+    unsigned char* grown = static_cast<unsigned char*>(std::realloc(state->buf, static_cast<size_t>(value)));
+    if (value > 0 && grown == nullptr)
+    {
+        return; // allocation failure: leave the existing buffer untouched
+    }
+    state->buf = grown;
+    state->capacity = value;
+}
+
+// MemoryStream.GetBuffer(): the underlying buffer as a managed byte[]. Only
+// legal when the stream was created with publiclyVisible=true (or the
+// bufferless ctors); otherwise net48 throws UnauthorizedAccessException. A
+// closed receiver throws ObjectDisposedException. For an adopted (array-
+// seeded / window) stream the WHOLE caller array is returned (net48); for an
+// owned buffer a fresh array of 'capacity' bytes is returned.
+Il2CppArray* icall_stream_memory_get_buffer(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state))
+    {
+        return nullptr; // net48: ObjectDisposedException (2026-10-05 parity)
+    }
+    if (state->kind != StreamState::kMemory)
+    {
+        return nullptr;
+    }
+    if (!state->exposable)
+    {
+        il2cpp_throw_new(
+            "System.UnauthorizedAccessException,System.UnauthorizedAccessException,"
+            "System.SystemException,System.Exception",
+            "MemoryStream.GetBuffer is only supported when the stream was created "
+            "with publiclyVisible=true.");
+        return nullptr; // unreachable (the throw never returns)
+    }
+    if (state->externalArray != nullptr)
+    {
+        return reinterpret_cast<Il2CppArray*>(state->externalArray);
+    }
+    Il2CppArray* arr = il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(state->capacity));
+    if (state->capacity > 0 && state->buf != nullptr)
+    {
+        std::memcpy(arr->data, state->buf, static_cast<size_t>(state->capacity));
+    }
+    return arr;
+}
+
+// Stream.CopyTo(Stream destination[, int bufferSize]): copies from the current
+// position to the end of THIS stream into 'destination'. net48 validation:
+//   * bufferSize <= 0 -> ArgumentOutOfRangeException
+//   * null destination -> ArgumentNullException
+//   * a non-writable destination -> NotSupportedException
+//   * a read-only source -> NotSupportedException (net48: reading is the copy)
+// A closed receiver throws ObjectDisposedException.
+void icall_stream_copy_to(Il2CppObject* self, Il2CppObject* destination, int32_t bufferSize)
+{
+    ThrowIfNullReceiver(self);
+    if (bufferSize <= 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("bufferSize",
+            "The buffer size must be greater than zero.");
+        return;
+    }
+    if (destination == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("destination");
+        return;
+    }
+    StreamState* src = StreamStateOf(self);
+    if (StreamThrowIfClosed(src))
+    {
+        return; // net48: ObjectDisposedException (batch 2026-10-05 parity)
+    }
+    if (!src->canRead)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support reading.");
+        return;
+    }
+    StreamState* dst = StreamStateOf(destination);
+    if (StreamThrowIfClosed(dst))
+    {
+        return; // net48: ObjectDisposedException (batch 2026-10-05 parity)
+    }
+    if (!dst->canWrite)
+    {
+        il2cpp_throw_not_supported_exception("Stream does not support writing.");
+        return;
+    }
+    const int64_t remaining = src->length - src->pos;
+    if (remaining <= 0)
+    {
+        return; // nothing left to copy (src position already at/after EOF)
+    }
+    // Copy in 'bufferSize' chunks through the backend read/write (works for
+    // file and memory sources). A failed write (a non-expandable destination
+    // past capacity) raises NotSupportedException.
+    int64_t left = remaining;
+    while (left > 0)
+    {
+        const int32_t chunk = static_cast<int32_t>(left < bufferSize ? left : bufferSize);
+        unsigned char* tmp = static_cast<unsigned char*>(std::malloc(static_cast<size_t>(chunk)));
+        if (tmp == nullptr)
+        {
+            return;
+        }
+        const int32_t got = il2cpp_stream_read(src, tmp, chunk);
+        if (got <= 0)
+        {
+            std::free(tmp);
+            break;
+        }
+        const int32_t written = il2cpp_stream_write(dst, tmp, got);
+        std::free(tmp);
+        if (written < 0)
+        {
+            il2cpp_throw_not_supported_exception("Stream does not support writing.");
+            return;
+        }
+        left -= got;
+    }
+}
+
 void icall_stream_write_byte(Il2CppObject* self, int32_t value)
 {
     ThrowIfNullReceiver(self);
@@ -2833,7 +3102,12 @@ void icall_stream_write_byte(Il2CppObject* self, int32_t value)
         return;
     }
     const uint8_t b = static_cast<uint8_t>(value & 0xFF);
-    (void)il2cpp_stream_write(state, &b, 1);
+    // io2 B1: a fixed-size (array-seeded / window) MemoryStream cannot grow --
+    // a write past Capacity is a NotSupportedException (net48).
+    if (il2cpp_stream_write(state, &b, 1) < 0)
+    {
+        il2cpp_throw_not_supported_exception("MemoryStream expansion is not supported.");
+    }
 }
 
 Il2CppObject* icall_stream_read_line(Il2CppObject* self)

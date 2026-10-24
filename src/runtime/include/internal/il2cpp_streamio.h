@@ -152,11 +152,25 @@ void icall_stream_file_ctor2(Il2CppObject* self, Il2CppObject* path,
 void icall_stream_memory_ctor(Il2CppObject* self);
 
 // P2 IO-symmetry (2026-09-19): the MemoryStream 1-arg ctors.
-//   MemoryStream(byte[] buffer): seeds the stream with a COPY of the array
-//   (pos 0). MemoryStream(int capacity): empty stream with that initial
-//   buffer capacity (length stays 0).
+//   MemoryStream(byte[] buffer): ADOPTS the caller's array (no copy; fixed
+//   size, non-exposable, writes visible through the array). MemoryStream(int
+//   capacity): empty stream with that initial buffer capacity (length 0,
+//   growable, exposable).
+// io2 B1 (2026-10-24): the rest of the net48 ctor family -- the (byte[],
+// bool writable), (byte[], int index, int count) window and its bool/publicly
+// Visible forms. All array-seeded ctors are fixed-size (non-expandable) and
+// non-exposable unless publiclyVisible=true.
 void icall_stream_memory_ctor_data(Il2CppObject* self, Il2CppArray* data);
 void icall_stream_memory_ctor_capacity(Il2CppObject* self, int32_t capacity);
+void icall_stream_memory_ctor_data_writable(Il2CppObject* self, Il2CppArray* data,
+                                            int32_t writable);
+void icall_stream_memory_ctor_window(Il2CppObject* self, Il2CppArray* data,
+                                     int32_t index, int32_t count);
+void icall_stream_memory_ctor_window_writable(Il2CppObject* self, Il2CppArray* data,
+                                              int32_t index, int32_t count, int32_t writable);
+void icall_stream_memory_ctor_window_writable_public(Il2CppObject* self, Il2CppArray* data,
+                                                     int32_t index, int32_t count,
+                                                     int32_t writable, int32_t publiclyVisible);
 
 // StreamReader(Stream stream): wraps an EXISTING stream object -- the reader
 // SHARES its backend state (refCounted; net48 ownership: closing the reader
@@ -303,6 +317,25 @@ int32_t icall_stream_peek(Il2CppObject* self);
 // ms_capacity_after_close=EX); a non-memory receiver reports 0. Null receiver
 // -> NullReferenceException.
 int32_t icall_stream_memory_get_capacity(Il2CppObject* self);
+
+// MemoryStream.Capacity setter (net48): resize the internal buffer. A value
+// below Length -> ArgumentOutOfRangeException; a non-expandable (array-seeded /
+// window) stream -> NotSupportedException; a negative value ->
+// ArgumentOutOfRangeException. A closed receiver -> ObjectDisposedException.
+void icall_stream_memory_set_capacity(Il2CppObject* self, int32_t value);
+
+// MemoryStream.GetBuffer(): the underlying buffer as a managed byte[]. Only
+// legal when the stream was created with publiclyVisible=true (the bufferless
+// ctors are exposable); otherwise UnauthorizedAccessException. An adopted
+// (array-seeded) stream returns the WHOLE caller array (net48). A closed
+// receiver -> ObjectDisposedException.
+Il2CppArray* icall_stream_memory_get_buffer(Il2CppObject* self);
+
+// Stream.CopyTo(Stream destination[, int bufferSize]): copy from the current
+// position to the end. bufferSize <= 0 -> ArgumentOutOfRangeException; null
+// destination -> ArgumentNullException; a non-writable destination ->
+// NotSupportedException. A closed receiver -> ObjectDisposedException.
+void icall_stream_copy_to(Il2CppObject* self, Il2CppObject* destination, int32_t bufferSize);
 
 // Stream.WriteByte(byte value): writes the single byte at the current
 // position (extending the stream when past the end). A write on a read-only
